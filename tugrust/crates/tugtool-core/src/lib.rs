@@ -10,6 +10,9 @@ pub mod error;
 /// Configuration handling
 pub mod config;
 
+/// Where a project's briefs live
+pub mod briefs;
+
 /// Timestamp utilities
 pub mod session;
 

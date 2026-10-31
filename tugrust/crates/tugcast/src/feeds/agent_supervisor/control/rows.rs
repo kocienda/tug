@@ -144,6 +144,7 @@ impl AgentSupervisor {
         }
         match ledger.trash(session_id) {
             Ok(_) => {
+                self.remove_from_semantic_index(session_id);
                 let _ = self
                     .control_tx
                     .send(build_session_removed_frame(session_id));
@@ -175,6 +176,7 @@ impl AgentSupervisor {
                     .await
                     .unwrap_or(None);
                     if moved.is_some() {
+                        self.remove_from_semantic_index(session_id);
                         let _ = self
                             .control_tx
                             .send(build_session_removed_frame(session_id));
@@ -202,6 +204,16 @@ impl AgentSupervisor {
                 });
                 send_control(&self.control_tx, body);
             }
+        }
+    }
+
+    /// Take a session's text out of the semantic index, whose coverage follows the
+    /// source. A failure warns and never fails the gesture it rides.
+    fn remove_from_semantic_index(&self, session_id: &str) {
+        if let Some(index) = self.semantic_index.as_ref()
+            && let Err(err) = crate::semantic::remove_session_sources(index, session_id)
+        {
+            warn!(error = %err, session_id, "could not remove a session from the semantic index");
         }
     }
 
@@ -370,11 +382,8 @@ impl AgentSupervisor {
                 // Text that is not in the index cannot leak through a search. A
                 // failure here is caught by the index's next run, which purges
                 // whatever a private session still holds.
-                if private
-                    && let Some(index) = self.semantic_index.as_ref()
-                    && let Err(err) = crate::semantic::remove_session_sources(index, session_id)
-                {
-                    warn!(error = %err, session_id, "could not remove a private session from the semantic index");
+                if private {
+                    self.remove_from_semantic_index(session_id);
                 }
                 if let Ok(Some(row)) = ledger.get(session_id) {
                     let metrics = ledger.scan_metrics_for(session_id).unwrap_or(None);

@@ -102,7 +102,7 @@ const RANGE_CITATION_RE = /^(\d+)-(\d+)$/;
  * dropped along with the characters that spelled it, so the run reported
  * to the caller never includes text the annotation ignores.
  */
-function splitLineCitation(token: string): {
+export function splitLineCitation(token: string): {
   path: string;
   line?: number;
   endLine?: number;

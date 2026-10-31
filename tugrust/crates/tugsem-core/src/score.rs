@@ -1,6 +1,8 @@
 //! Ranking: brute-force cosine over a model's vectors, and reciprocal rank fusion
 //! of any rank lists.
 
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 
 /// The fusion constant from the method's original paper, which damps the gap
@@ -78,6 +80,70 @@ pub fn rank_by_similarity<'a>(
     scored
 }
 
+/// The best `limit` of a stream of scores, holding no more than that, in the order
+/// [`rank_by_similarity`] gives: best score first, ties to the lower id.
+#[derive(Debug)]
+pub struct TopK {
+    limit: usize,
+    heap: BinaryHeap<Held>,
+}
+
+/// Orders worst first at the top of the heap, which is the one a better score evicts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Held(Scored);
+
+impl Eq for Held {}
+
+impl Ord for Held {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .0
+            .score
+            .total_cmp(&self.0.score)
+            .then(self.0.id.cmp(&other.0.id))
+    }
+}
+
+impl PartialOrd for Held {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl TopK {
+    pub fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            heap: BinaryHeap::with_capacity(limit),
+        }
+    }
+
+    /// Offer a candidate's vector, which is compared with the question's. One with no
+    /// cosine is not a candidate.
+    pub fn offer(&mut self, id: i64, query: &[f32], vector: &[f32]) {
+        let Some(score) = cosine(query, vector) else {
+            return;
+        };
+        let held = Held(Scored { id, score });
+        if self.heap.len() < self.limit {
+            self.heap.push(held);
+        } else if let Some(mut worst) = self.heap.peek_mut()
+            && held < *worst
+        {
+            *worst = held;
+        }
+    }
+
+    /// What was kept, best first.
+    pub fn into_ranked(self) -> Vec<Scored> {
+        self.heap
+            .into_sorted_vec()
+            .into_iter()
+            .map(|held| held.0)
+            .collect()
+    }
+}
+
 /// Fuse rank lists by reciprocal rank, best first, at most `limit`.
 ///
 /// Each list gives an item `1 / (k + rank)`, so an item two lists agree on beats
@@ -140,6 +206,49 @@ mod tests {
     /// Vectors `tugembed` wrote on 2026-10-30, one line per text: the model, the
     /// text, and six-decimal floats.
     const RECORDED: &str = include_str!("../fixtures/recorded-vectors.tsv");
+
+    /// Unit vectors at many angles, several of them equal, so ties are in play.
+    fn fan(count: usize) -> Vec<(i64, Vec<f32>)> {
+        (0..count)
+            .map(|n| {
+                let angle = (n % 7) as f32 * 0.3;
+                (n as i64, vec![angle.cos(), angle.sin()])
+            })
+            .collect()
+    }
+
+    #[test]
+    fn top_k_keeps_what_rank_by_similarity_ranks_first_in_its_order() {
+        let query = [0.8_f32, 0.6];
+        let vectors = fan(50);
+        for limit in [0, 1, 5, 20, 50, 80] {
+            let mut top = TopK::new(limit);
+            for (id, vector) in &vectors {
+                top.offer(*id, &query, vector);
+            }
+            let expected = rank_by_similarity(
+                Query {
+                    model: "m",
+                    vector: &query,
+                },
+                vectors.iter().map(|(id, vector)| Candidate {
+                    id: *id,
+                    model: "m",
+                    vector,
+                }),
+                limit,
+            );
+            assert_eq!(top.into_ranked(), expected, "limit {limit}");
+        }
+    }
+
+    #[test]
+    fn top_k_passes_over_a_vector_with_no_cosine() {
+        let mut top = TopK::new(3);
+        top.offer(1, &[1.0, 0.0], &[0.0, 0.0]);
+        top.offer(2, &[1.0, 0.0], &[1.0]);
+        assert!(top.into_ranked().is_empty());
+    }
 
     struct Recorded {
         model: &'static str,

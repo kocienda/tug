@@ -24,7 +24,7 @@
 //!   packs into the results so the model reads its own mistake and tries
 //!   something else.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -139,7 +139,8 @@ pub struct OperatorContext {
     /// from. `None` in a build that has none, and the verbs say so.
     pub docs_dir: Option<PathBuf>,
     /// The semantic index, which `help.search` ranks through when it can. `None`
-    /// leaves that verb on its plain search over the documents.
+    /// leaves that verb on its plain search over the documents, and `search.semantic`
+    /// with an empty answer that says so.
     pub semantic: Option<Arc<crate::semantic::SemanticSearch>>,
 }
 
@@ -167,6 +168,7 @@ pub const VERB_NAMES: &[&str] = &[
     "help.outline",
     "help.read",
     "help.search",
+    "search.semantic",
 ];
 
 // MARK: - Entry point
@@ -198,7 +200,7 @@ async fn dispatch(ctx: &OperatorContext, name: &str, args: &Value) -> Result<Val
         "shell.history" => shell_history(ctx, args),
         "sessions.list" => sessions_list(ctx, args),
         "session.prompts" => session_prompts(ctx, args),
-        "session.transcript" => session_transcript(ctx, args),
+        "session.transcript" => session_transcript(ctx, args).await,
         "changes.for_session" => changes_for_session(ctx, args),
         "changes.for_path" => changes_for_path(ctx, args),
         "git.log" => git_log(ctx, args).await,
@@ -210,6 +212,7 @@ async fn dispatch(ctx: &OperatorContext, name: &str, args: &Value) -> Result<Val
         "help.outline" => help_outline(ctx, args),
         "help.read" => help_read(ctx, args),
         "help.search" => help_search(ctx, args).await,
+        "search.semantic" => search_semantic(ctx, args).await,
         other => Err(format!(
             "unknown verb {other:?}; the verbs are: {}",
             VERB_NAMES.join(", ")
@@ -593,9 +596,11 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
             .map_err(|err| format!("facts.search: {err}"))
     };
     let (mut hits, mut query_used, mut rung_note) = search_with_recovery(query, "facts", search)?;
-    // Rung 3, and only here: the lexical ladder has already come back empty,
-    // so the alternative to asking a model is returning nothing.
+    let meaning = facts_by_meaning(ctx, query, &filter).await;
+    // Rung 3, and only here: the lexical ladder and the index have both come back
+    // empty, so the alternative to asking a model is returning nothing.
     if hits.is_empty()
+        && meaning.is_empty()
         && let Some(expanded) = expand_via_model(ctx, query).await
     {
         let expanded_hits = search(&expanded)?;
@@ -605,6 +610,8 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
             rung_note = Some(MODEL_TERMS_NOTE.to_string());
         }
     }
+    let by_words: HashSet<i64> = hits.iter().map(|hit| hit.fact.id).collect();
+    let hits = fuse_fact_hits(hits, meaning, fetch);
 
     // An explicit `kind` is the caller having already made the choice the
     // budgeter exists to avoid making for them.
@@ -613,6 +620,15 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
     } else {
         budget_by_kind(hits, FACTS_SEARCH_LIMIT)
     };
+    let meaning_alone = hits
+        .iter()
+        .filter(|hit| !by_words.contains(&hit.fact.id))
+        .count();
+    let meaning_note = (meaning_alone > 0).then(|| {
+        format!(
+            "{meaning_alone} of these did not match the words and are here on meaning alone; check each answers the question"
+        )
+    });
 
     let rows: Vec<Value> = hits
         .iter()
@@ -625,11 +641,75 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
     let mut out = json!({ "facts": rows, "count": rows.len(), "query_used": query_used });
     // Both notes can be true at once — a relaxed query that then matched more
     // than one kind — and the caller needs each of them.
-    let notes: Vec<String> = [rung_note, budget_note].into_iter().flatten().collect();
+    let notes: Vec<String> = [rung_note, budget_note, meaning_note]
+        .into_iter()
+        .flatten()
+        .collect();
     if !notes.is_empty() {
         out["note"] = json!(notes.join(" "));
     }
     Ok(out)
+}
+
+/// The facts the index ranks nearest a question, best first, within `filter`. Empty
+/// when the index cannot answer, which leaves the words alone to answer.
+async fn facts_by_meaning(
+    ctx: &OperatorContext,
+    query: &str,
+    filter: &FactSearchFilter,
+) -> Vec<FactRow> {
+    let scope = filter
+        .session_id
+        .as_ref()
+        .map(|session| format!("{session}/"));
+    // The kind and the time bracket narrow only after the scan, so read as wide as a
+    // budgeted page does whatever the filter says.
+    let Some(ranked) = ask_index(
+        ctx,
+        &[crate::semantic::FACT_KIND],
+        scope.as_deref(),
+        query,
+        FACTS_SEARCH_LIMIT * KIND_BUDGET_OVERFETCH,
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    let ids: Vec<i64> = ranked
+        .hits
+        .iter()
+        .filter_map(|hit| hit_meta_number(hit, "fact_id"))
+        .collect();
+    ctx.ledger.facts_by_ids(&ids, filter).unwrap_or_else(|err| {
+        warn!(error = %err, "facts.search: could not read the facts the index found");
+        Vec::new()
+    })
+}
+
+/// Fuse what the words found with what meaning found. A row found only by meaning has
+/// no snippet cut around a match, so its text is its excerpt.
+fn fuse_fact_hits(
+    by_words: Vec<FactSearchHit>,
+    by_meaning: Vec<FactRow>,
+    limit: usize,
+) -> Vec<FactSearchHit> {
+    if by_meaning.is_empty() {
+        return by_words;
+    }
+    let word_ids: Vec<i64> = by_words.iter().map(|hit| hit.fact.id).collect();
+    let meaning_ids: Vec<i64> = by_meaning.iter().map(|fact| fact.id).collect();
+    let mut rows: HashMap<i64, FactSearchHit> = by_meaning
+        .into_iter()
+        .map(|fact| {
+            let excerpt = fact.text.clone();
+            (fact.id, FactSearchHit { fact, excerpt })
+        })
+        .collect();
+    rows.extend(by_words.into_iter().map(|hit| (hit.fact.id, hit)));
+    tugsem_core::fuse(&[&word_ids, &meaning_ids], limit)
+        .into_iter()
+        .filter_map(|fused| rows.remove(&fused.id))
+        .collect()
 }
 
 /// Spend a result page across the fact kinds that matched, so one loud kind
@@ -893,7 +973,7 @@ struct HistoryRow {
 /// in, under the data dir or under a `tug-test-data` tree. Half the
 /// transcripts on a working machine are these, and a naive "oldest session"
 /// would name one.
-fn is_tug_noise_project(project_dir: &str) -> bool {
+pub(crate) fn is_tug_noise_project(project_dir: &str) -> bool {
     let path = Path::new(project_dir);
     let is_shared_agent = path.components().any(|c| c.as_os_str() == "shared-agent");
     if !is_shared_agent {
@@ -1511,7 +1591,11 @@ fn locate_transcript(
 /// an error: the session is real, the ledger's record of it still stands,
 /// and only the conversation's text is gone ([B04], [B07]). Read-only: the
 /// file is opened to read and nothing resumes, touches or writes a session.
-fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+///
+/// A `grep` the index can also answer lists the turns best first, and gains up to
+/// `GREP_MEANING_TURNS` that hold no such text, which a note names. A session the
+/// index does not hold, such as another instance's, is the plain grep.
+async fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let session_id = req_str(args, "session_id")?;
     refuse_if_private(ctx, "session.transcript", session_id)?;
     let last = opt_i64(args, "last")?;
@@ -1566,6 +1650,12 @@ fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
         last.map(|n| n as usize),
         grep,
     );
+    let (selected, meaning_alone) = match grep {
+        Some(grep) => {
+            fuse_grep_by_meaning(ctx, session_id, grep, &transcript.turns, selected).await
+        }
+        None => (selected, Vec::new()),
+    };
     let rendered = tugcore::session_transcript::render(&selected);
     let mut text = String::new();
     let mut truncated = false;
@@ -1584,7 +1674,74 @@ fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
     if let Some(stamp) = transcript.last_timestamp {
         out["last_timestamp"] = json!(stamp);
     }
+    if !meaning_alone.is_empty() {
+        let turns = meaning_alone
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        out["note"] = json!(format!(
+            "turn(s) {turns} do not hold that text and are here on meaning alone; check each answers the question"
+        ));
+    }
     Ok(out)
+}
+
+/// Rank the turns a grep matched together with the turns the index puts nearest the
+/// same words, keeping every match and adding at most `GREP_MEANING_TURNS`. Answers the
+/// turns in that order, and the numbers of those present on meaning alone.
+async fn fuse_grep_by_meaning<'a>(
+    ctx: &OperatorContext,
+    session_id: &str,
+    grep: &str,
+    turns: &'a [tugcore::session_transcript::Turn],
+    matched: Vec<&'a tugcore::session_transcript::Turn>,
+) -> (Vec<&'a tugcore::session_transcript::Turn>, Vec<usize>) {
+    let scope = format!("{session_id}/");
+    let Some(ranked) = ask_index(
+        ctx,
+        &[crate::semantic::TRANSCRIPT_KIND],
+        Some(&scope),
+        grep,
+        SEMANTIC_MAX_LIMIT as usize,
+    )
+    .await
+    else {
+        return (matched, Vec::new());
+    };
+    let matched_turns: Vec<i64> = matched.iter().map(|turn| turn.number as i64).collect();
+    let mut near: Vec<i64> = Vec::new();
+    let mut added = 0;
+    for hit in &ranked.hits {
+        // Turn 0 is output ahead of any user turn, and an index behind its transcript
+        // can name a turn the file has no more.
+        let Some(number) = hit_meta_number(hit, "turn")
+            .filter(|number| turns.iter().any(|turn| turn.number as i64 == *number))
+        else {
+            continue;
+        };
+        if near.contains(&number) {
+            continue;
+        }
+        if !matched_turns.contains(&number) {
+            if added == GREP_MEANING_TURNS {
+                continue;
+            }
+            added += 1;
+        }
+        near.push(number);
+    }
+    let fused: Vec<&'a tugcore::session_transcript::Turn> =
+        tugsem_core::fuse(&[&matched_turns, &near], matched.len() + added)
+            .iter()
+            .filter_map(|fused| turns.iter().find(|turn| turn.number as i64 == fused.id))
+            .collect();
+    let meaning_alone = fused
+        .iter()
+        .filter(|turn| !matched_turns.contains(&(turn.number as i64)))
+        .map(|turn| turn.number)
+        .collect();
+    (fused, meaning_alone)
 }
 
 fn changes_for_session(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
@@ -2355,6 +2512,325 @@ async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Strin
     Ok(out)
 }
 
+/// The most `search.semantic` returns unless asked, and the most it ever returns.
+const SEMANTIC_DEFAULT_LIMIT: i64 = 8;
+const SEMANTIC_MAX_LIMIT: i64 = 20;
+
+/// The most turns meaning adds to what a `session.transcript` grep matched.
+const GREP_MEANING_TURNS: usize = 5;
+
+/// Every kind the index holds, which a search with no `kind` reaches.
+const SEMANTIC_KINDS: [&str; 5] = [
+    crate::semantic::HELP_KIND,
+    crate::semantic::TRANSCRIPT_KIND,
+    crate::semantic::FACT_KIND,
+    crate::semantic::POST_KIND,
+    crate::semantic::DOCUMENT_KIND,
+];
+
+const SEMANTIC_UNAVAILABLE_NOTE: &str =
+    "the semantic index cannot answer right now; facts.search and session.transcript still can";
+
+/// Ask the index, with the private sessions out of its scan. `None` when it cannot
+/// answer, which every asker survives.
+async fn ask_index(
+    ctx: &OperatorContext,
+    kinds: &[&'static str],
+    scope: Option<&str>,
+    query: &str,
+    limit: usize,
+) -> Option<crate::semantic::RankedPassages> {
+    let search = ctx.semantic.as_ref()?;
+    let private = match ctx.ledger.private_session_ids() {
+        Ok(private) => private,
+        Err(err) => {
+            warn!(error = %err, "the semantic index: could not read the private sessions");
+            return None;
+        }
+    };
+    let terms = help_docs::search_terms(query);
+    let excluded: HashSet<String> = private.into_iter().collect();
+    search
+        .passages(kinds, scope, query, &terms, &excluded, limit)
+        .await
+}
+
+/// A number from what a hit's kind stores of it.
+fn hit_meta_number(hit: &crate::semantic::PassageHit, key: &str) -> Option<i64> {
+    let meta: Value = serde_json::from_str(hit.meta.as_deref()?).ok()?;
+    meta.get(key)?.as_i64()
+}
+
+/// `search.semantic`: BM25 and meaning across everything the index holds.
+///
+/// With no index, no model, or a question that could not be embedded in time, it is an
+/// empty answer with a note saying what can still answer, and never an error. A private
+/// session's rows leave inside the scan, so they take no place ahead of the depth cut.
+async fn search_semantic(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+    let query = req_str(args, "query")?;
+    let kind = opt_str(args, "kind")?;
+    if let Some(kind) = kind
+        && !SEMANTIC_KINDS.contains(&kind)
+    {
+        return Err(format!(
+            "search.semantic: kind must be one of {}",
+            SEMANTIC_KINDS.join(", ")
+        ));
+    }
+    let session = opt_str(args, "session")?;
+    if let Some(session) = session {
+        refuse_if_private(ctx, "search.semantic", session)?;
+        if let Some(kind) = kind
+            && !crate::semantic::SESSION_KINDS.contains(&kind)
+        {
+            return Err(format!(
+                "search.semantic: a {kind} does not belong to a session"
+            ));
+        }
+        if locate_transcript(ctx, session)?.is_none() {
+            return Err(format!("no session {session:?} in the ledger"));
+        }
+    }
+    let limit = opt_i64(args, "limit")?
+        .unwrap_or(SEMANTIC_DEFAULT_LIMIT)
+        .clamp(1, SEMANTIC_MAX_LIMIT) as usize;
+    let kinds: Vec<&'static str> = match (kind, session) {
+        (Some(kind), _) => SEMANTIC_KINDS
+            .iter()
+            .copied()
+            .filter(|known| *known == kind)
+            .collect(),
+        (None, Some(_)) => crate::semantic::SESSION_KINDS.to_vec(),
+        (None, None) => SEMANTIC_KINDS.to_vec(),
+    };
+
+    let mut notes: Vec<String> = Vec::new();
+    if let Some(search) = ctx.semantic.as_ref() {
+        let coverage = search.coverage();
+        if coverage.catching_up {
+            notes.push(coverage.sentence());
+        }
+    }
+    let scope = session.map(|session| format!("{session}/"));
+    let answer = ask_index(ctx, &kinds, scope.as_deref(), query, limit).await;
+    let bootstrap = bootstrap_key(ctx);
+    let hits: Vec<Value> = match &answer {
+        Some(ranked) => ranked
+            .hits
+            .iter()
+            .map(|hit| semantic_hit_json(hit, &bootstrap))
+            .collect(),
+        None => {
+            notes.push(SEMANTIC_UNAVAILABLE_NOTE.to_string());
+            Vec::new()
+        }
+    };
+    if let Some(ranked) = &answer
+        && !hits.is_empty()
+    {
+        if !ranked.any_terms {
+            notes.push(
+                "no passage holds those words, so these are only the nearest in meaning; check each answers the question"
+                    .to_string(),
+            );
+        } else if !ranked.all_terms {
+            notes.push(
+                "no passage holds every word, so these hold some of them; check each answers the question"
+                    .to_string(),
+            );
+        }
+    }
+    let count = hits.len();
+    let mut out = json!({ "query": query, "count": count, "hits": hits });
+    if !notes.is_empty() {
+        out["note"] = json!(notes.join("; "));
+    }
+    Ok(out)
+}
+
+/// The label the related section opens with, pinned in both Operator job tables the
+/// way [`NOW_HEADER`] is.
+pub const RELATED_HEADER: &str =
+    "RELATED HISTORY (from the semantic index; it may not bear on the question):";
+
+/// How many passages a question is shown beside it, and how much of each.
+const RELATED_HITS: usize = 5;
+const RELATED_SPAN_MAX_BYTES: usize = 600;
+
+/// What a question is related to: the machine's history, and never the help documents,
+/// which have verbs of their own and would pull a question about Tug off them.
+const RELATED_KINDS: [&str; 4] = [
+    crate::semantic::TRANSCRIPT_KIND,
+    crate::semantic::FACT_KIND,
+    crate::semantic::POST_KIND,
+    crate::semantic::DOCUMENT_KIND,
+];
+
+/// The related section for a question, or nothing when the index has nothing to say.
+async fn read_related(ctx: &OperatorContext, question: &str) -> String {
+    if question.trim().is_empty() {
+        return String::new();
+    }
+    let Some(ranked) = ask_index(ctx, &RELATED_KINDS, None, question, RELATED_HITS).await else {
+        return String::new();
+    };
+    render_related(&ranked.hits, &bootstrap_key(ctx))
+}
+
+/// One line per hit, as `search.semantic` writes it with less of its text.
+fn render_related(hits: &[crate::semantic::PassageHit], bootstrap: &str) -> String {
+    if hits.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("\n{RELATED_HEADER}\n");
+    for hit in hits {
+        let mut row = semantic_hit_json(hit, bootstrap);
+        let (text, truncated) = cap_span(
+            row["text"].as_str().unwrap_or_default(),
+            RELATED_SPAN_MAX_BYTES,
+        );
+        row["text"] = json!(text);
+        if truncated {
+            row["truncated"] = json!(true);
+        }
+        out.push_str(&row.to_string());
+        out.push('\n');
+    }
+    out
+}
+
+/// The spelling of the question's project that a document's `project_dir` is compared
+/// with.
+fn bootstrap_key(ctx: &OperatorContext) -> String {
+    crate::path_resolver::PathResolver::new(ctx.bootstrap_project_dir.clone())
+        .watch_path()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// A passage cut at a byte count. A paragraph is often a single long line, which
+/// `cap_text`'s whole lines would drop entirely.
+fn cap_span(text: &str, max_bytes: usize) -> (String, bool) {
+    if text.len() <= max_bytes {
+        return (text.to_string(), false);
+    }
+    let mut end = max_bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (text[..end].to_string(), true)
+}
+
+/// One `search.semantic` hit: what its kind stores of it, and the ref that follows it.
+fn semantic_hit_json(hit: &crate::semantic::PassageHit, bootstrap: &str) -> Value {
+    let meta: Value = hit
+        .meta
+        .as_deref()
+        .and_then(|meta| serde_json::from_str(meta).ok())
+        .unwrap_or(Value::Null);
+    let (text, truncated) = cap_span(&hit.text, crate::semantic::SEARCH_SPAN_MAX_BYTES);
+    let mut out = json!({ "kind": hit.kind, "context": hit.context, "text": text });
+    if truncated {
+        out["truncated"] = json!(true);
+    }
+    let is_session_kind = crate::semantic::SESSION_KINDS.contains(&hit.kind.as_str());
+    let session = hit
+        .source_id
+        .split_once('/')
+        .map(|(session, _)| session)
+        .filter(|session| is_session_kind && *session != "-");
+    if let Some(session) = session {
+        out["session_id"] = json!(session);
+    }
+    if let Some(callsign) = semantic_callsign(hit, &meta) {
+        out["callsign"] = json!(callsign);
+    }
+    let session_ref = session.map(|session| json!({ "kind": "session", "target": session }));
+    let mut copy = |key: &str| {
+        if let Some(value) = meta.get(key) {
+            out[key] = value.clone();
+        }
+    };
+    let reference = match hit.kind.as_str() {
+        crate::semantic::TRANSCRIPT_KIND => {
+            copy("role");
+            copy("at_ms");
+            // Turn 0 is output ahead of any user turn, which session.transcript cannot
+            // return, so a hit there has no turn to follow.
+            if meta.get("turn").and_then(Value::as_i64).unwrap_or(0) > 0 {
+                copy("turn");
+            }
+            session_ref
+        }
+        crate::semantic::FACT_KIND => {
+            copy("fact_id");
+            copy("at_ms");
+            copy("subject");
+            let commit = (meta.get("kind").and_then(Value::as_str) == Some("commit"))
+                .then(|| meta.get("subject").and_then(Value::as_str))
+                .flatten()
+                .and_then(|subject| subject.split_whitespace().next())
+                .filter(|sha| sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit()));
+            commit
+                .map(|sha| json!({ "kind": "commit", "target": sha }))
+                .or(session_ref)
+        }
+        crate::semantic::POST_KIND => {
+            copy("post_id");
+            copy("at_ms");
+            session_ref
+        }
+        crate::semantic::DOCUMENT_KIND => {
+            copy("project_dir");
+            copy("line");
+            let dir = meta.get("project_dir").and_then(Value::as_str);
+            let path = meta.get("path").and_then(Value::as_str).map(|path| {
+                // A file ref resolves against the post's project, so only the project
+                // the question is about may be spelled relative to it.
+                match dir {
+                    Some(dir) if dir != bootstrap && !path.starts_with('/') => {
+                        format!("{dir}/{path}")
+                    }
+                    _ => path.to_string(),
+                }
+            });
+            let line = meta.get("line").and_then(Value::as_i64);
+            let reference = path.as_ref().map(|path| match line {
+                Some(line) => json!({ "kind": "file", "target": format!("{path}:{line}") }),
+                None => json!({ "kind": "file", "target": path }),
+            });
+            if let Some(path) = path {
+                out["path"] = json!(path);
+            }
+            reference
+        }
+        _ => Some(json!({ "kind": "help", "target": hit.source_id })),
+    };
+    if let Some(kind) = meta
+        .get("kind")
+        .filter(|_| hit.kind == crate::semantic::FACT_KIND)
+    {
+        out["fact_kind"] = kind.clone();
+    }
+    if let Some(reference) = reference {
+        out["ref"] = reference;
+    }
+    out
+}
+
+/// The callsign a session kind's context line carries.
+fn semantic_callsign<'a>(hit: &'a crate::semantic::PassageHit, meta: &Value) -> Option<&'a str> {
+    let context = hit.context.as_str();
+    match hit.kind.as_str() {
+        crate::semantic::TRANSCRIPT_KIND => context.split_once(" turn ").map(|(sign, _)| sign),
+        crate::semantic::FACT_KIND => context
+            .strip_prefix(meta.get("kind")?.as_str()?)?
+            .strip_prefix(' '),
+        crate::semantic::POST_KIND => context.split_once(" post ").map(|(_, sign)| sign),
+        _ => None,
+    }
+}
+
 // MARK: - The pipeline
 
 /// How much of the channel rides every Operator turn. Server-side scrollback:
@@ -2603,6 +3079,8 @@ pub struct HorizonReport {
     pub index: Option<tugcore::ledger_db::RecordHorizon>,
     /// The machine-wide prompt corpus.
     pub prompts: Option<tugcore::ledger_db::RecordHorizon>,
+    /// How far the semantic index has come, as a sentence. `None` with no index.
+    pub semantic: Option<String>,
 }
 
 /// Read the horizon through the same opens the verbs use. Every arm degrades
@@ -2640,6 +3118,10 @@ fn read_horizon(ctx: &OperatorContext) -> HorizonReport {
         facts,
         index,
         prompts,
+        semantic: ctx
+            .semantic
+            .as_ref()
+            .map(|search| search.coverage().sentence()),
     }
 }
 
@@ -2727,6 +3209,11 @@ fn render_horizon(report: &HorizonReport) -> String {
     out.push_str("- prompt history (machine-wide, never trimmed): ");
     out.push_str(&reach(&report.prompts));
     out.push('\n');
+    if let Some(sentence) = &report.semantic {
+        out.push_str("- ");
+        out.push_str(sentence);
+        out.push('\n');
+    }
     out
 }
 
@@ -2896,13 +3383,15 @@ fn render_question_files(mentions: &[VerifiedMention]) -> String {
     out
 }
 
-/// What both turns are shown ahead of the question, read once per question:
-/// the horizon and the roster, rendered. One parameter because the two are
-/// one preamble — composed together, ordered together, and never shown to a
-/// turn without the other.
+/// What both turns are shown around the question, read once per question: the
+/// horizon and the roster ahead of it, rendered, and the related history after
+/// it. One parameter because they are one preamble — composed together, ordered
+/// together, and never shown to a turn without the others.
 struct Preamble<'a> {
     horizon: &'a str,
     roster: &'a str,
+    /// [`RELATED_HEADER`]'s section, or empty.
+    related: &'a str,
 }
 
 fn compose_retrieve_input(
@@ -2913,9 +3402,13 @@ fn compose_retrieve_input(
     attached: usize,
     question_files: &str,
 ) -> String {
-    let Preamble { horizon, roster } = preamble;
+    let Preamble {
+        horizon,
+        roster,
+        related,
+    } = preamble;
     format!(
-        "{}\n\n{horizon}\n{roster}\nQUESTION:\n{question}\n{}{question_files}\nRECENT OVERVIEW POSTS:\n{scrollback}",
+        "{}\n\n{horizon}\n{roster}\nQUESTION:\n{question}\n{}{related}{question_files}\nRECENT OVERVIEW POSTS:\n{scrollback}",
         render_now_line(now_ms),
         render_attached_line(attached),
     )
@@ -2949,6 +3442,7 @@ fn compose_answer_input(
     out.push_str(question);
     out.push('\n');
     out.push_str(&render_attached_line(attached));
+    out.push_str(preamble.related);
     out.push_str("\nRECENT OVERVIEW POSTS:\n");
     out.push_str(scrollback);
     out.push_str("\nVERB RESULTS:\n");
@@ -2973,6 +3467,17 @@ pub(crate) fn validate_answer_refs(
         .into_iter()
         .partition(|r| matches!(r.kind, OverviewRefKind::Help));
     let mut validated = crate::feeds::observer_wake::validate_refs(others, &[context]);
+    // A file the results showed, cited at a line of it: the path is what could have
+    // been reconstructed, and a line wrong by a little still opens the right file.
+    let (at_a_line, dropped): (Vec<OverviewRef>, Vec<OverviewRef>) =
+        std::mem::take(&mut validated.dropped)
+            .into_iter()
+            .partition(|r| {
+                matches!(r.kind, OverviewRefKind::File)
+                    && without_line_citation(&r.target).is_some_and(|path| context.contains(path))
+            });
+    validated.kept.extend(at_a_line);
+    validated.dropped = dropped;
     for r in help {
         let canonical = ctx
             .docs_dir
@@ -2987,6 +3492,17 @@ pub(crate) fn validate_answer_refs(
         }
     }
     validated
+}
+
+/// A file ref's path, when its target ends in a line or a range of them.
+fn without_line_citation(target: &str) -> Option<&str> {
+    let (path, lines) = target.rsplit_once(':')?;
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let cited = match lines.split_once('-') {
+        Some((from, to)) => digits(from) && digits(to),
+        None => digits(lines),
+    };
+    (cited && !path.is_empty()).then_some(path)
 }
 
 /// The session an answer is *about*, when its refs name exactly one and the
@@ -3406,9 +3922,13 @@ pub async fn run_question(
     // aims an until_ms at the edge it names, and the answer turn says where
     // the record begins instead of reading an empty page as absence ([B01]).
     let horizon = render_horizon(&read_horizon(ctx));
+    // Read once, beside the horizon, for both turns. A question the index cannot
+    // answer in time simply has no section.
+    let related = read_related(ctx, question).await;
     let preamble = Preamble {
         horizon: &horizon,
         roster: &roster,
+        related: &related,
     };
 
     // Read once, before the turn that spends it: the outlines are the same
@@ -3486,7 +4006,7 @@ pub async fn run_question(
             .await?;
         match parse_answer_turn(&raw) {
             Some(AnswerTurn::Answer(post)) => {
-                let context = format!("{scrollback}{rendered}");
+                let context = format!("{scrollback}{related}{rendered}");
                 return Ok((post, context));
             }
             Some(AnswerTurn::More(more)) if !forced => requests = more,
@@ -3515,7 +4035,7 @@ pub async fn run_question(
                         raw = %trimmed.chars().take(RAW_LOG_CHARS).collect::<String>(),
                         "overview operator: prose answer salvaged — the model skipped the envelope",
                     );
-                    let context = format!("{scrollback}{rendered}");
+                    let context = format!("{scrollback}{related}{rendered}");
                     return Ok((
                         AnswerPost {
                             body: trimmed.to_string(),
@@ -6949,6 +7469,954 @@ mod tests {
         assert!(none["note"].as_str().unwrap().contains("help.outline"));
     }
 
+    /// Attach an index holding one source of every kind, on a fake embedder, under a
+    /// session the ledger knows, and answer the indexer that wrote it.
+    #[cfg(debug_assertions)]
+    async fn with_semantic_index(f: &mut Fixture, catching_up: bool) -> crate::semantic::Indexer {
+        use crate::semantic::fake::{FakeState, client};
+        use crate::semantic::{Indexer, SemanticIndex, SemanticSearch};
+        let index = Arc::new(SemanticIndex::open(f._dir.path().join("semantic.db")).unwrap());
+        let embedder = client(&FakeState::new(Some("model")));
+        embedder.start().await;
+        let project = f.repo.path().to_string_lossy().to_string();
+        f.ctx
+            .ledger
+            .record_spawn("sess-a", "ws", &project, "card-1", 1, "sess-a", None)
+            .unwrap();
+        let indexer = Indexer::new(
+            Arc::clone(&index),
+            Arc::clone(&embedder),
+            Some(Arc::clone(&f.ctx.ledger)),
+        );
+        indexer
+            .index_help(f.ctx.docs_dir.as_deref().unwrap())
+            .await
+            .unwrap();
+        let key = crate::path_resolver::PathResolver::new(f.ctx.bootstrap_project_dir.clone())
+            .watch_path()
+            .to_string_lossy()
+            .into_owned();
+        let document = format!("{key}::briefs/x.md#retries");
+        let document_meta =
+            json!({ "project_dir": key, "path": "briefs/x.md", "line": 42 }).to_string();
+        for (kind, id, context, text, session, meta) in [
+            (
+                crate::semantic::TRANSCRIPT_KIND,
+                "sess-a/u-1.0",
+                "curly-apple turn 3 assistant",
+                "We settled the retry backoff at five attempts.",
+                Some("sess-a"),
+                json!({ "turn": 3, "role": "assistant", "at_ms": 1000 }).to_string(),
+            ),
+            (
+                crate::semantic::FACT_KIND,
+                "sess-a/7",
+                "commit curly-apple",
+                "commit 9f3c1e5a Add the retry backoff",
+                Some("sess-a"),
+                json!({ "fact_id": 7, "kind": "commit", "at_ms": 2000, "subject": "9f3c1e5a" })
+                    .to_string(),
+            ),
+            (
+                crate::semantic::POST_KIND,
+                "sess-a/9",
+                "observer post curly-apple",
+                "The retry backoff landed.",
+                Some("sess-a"),
+                json!({ "post_id": 9, "at_ms": 3000 }).to_string(),
+            ),
+            (
+                crate::semantic::DOCUMENT_KIND,
+                document.as_str(),
+                "briefs/x.md > Retries",
+                "## Retries\n\nThe retry backoff is decided here.",
+                None,
+                document_meta,
+            ),
+        ] {
+            indexer
+                .ingest(&crate::semantic::Source {
+                    kind,
+                    id,
+                    context,
+                    text,
+                    session,
+                    meta: Some(&meta),
+                    lexical: None,
+                })
+                .await
+                .unwrap();
+        }
+        f.ctx.semantic = Some(Arc::new(SemanticSearch::new(
+            index,
+            embedder,
+            crate::semantic::coverage_channel(catching_up).1,
+        )));
+        indexer
+    }
+
+    #[cfg(debug_assertions)]
+    fn hits_of(out: &Value) -> &Vec<Value> {
+        out["hits"].as_array().unwrap()
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn search_semantic_reaches_every_kind_keeps_to_one_and_holds_its_limit() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let all = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "retry backoff split" }),
+        )
+        .await
+        .unwrap();
+        let wide = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "retry backoff split", "limit": 20 }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(hits_of(&all).len(), 8);
+        assert_eq!(all["count"], 8);
+        let kinds: std::collections::HashSet<&str> = hits_of(&wide)
+            .iter()
+            .map(|hit| hit["kind"].as_str().unwrap())
+            .collect();
+        for kind in ["help", "transcript", "fact", "post", "document"] {
+            assert!(kinds.contains(kind), "{kind}: {wide}");
+            let one = run_verb(
+                &f.ctx,
+                "search.semantic",
+                &json!({ "query": "retry backoff split", "kind": kind }),
+            )
+            .await
+            .unwrap();
+            assert!(!hits_of(&one).is_empty(), "{kind}");
+            assert!(hits_of(&one).iter().all(|hit| hit["kind"] == kind), "{one}");
+        }
+        let two = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "retry backoff", "limit": 2 }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(hits_of(&two).len(), 2);
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_search_semantic_hit_carries_what_table_t01_gives_its_kind() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let ask = async |kind: &str| {
+            let out = run_verb(
+                &f.ctx,
+                "search.semantic",
+                &json!({ "query": "retry backoff", "kind": kind }),
+            )
+            .await
+            .unwrap();
+            hits_of(&out)[0].clone()
+        };
+        let transcript = ask("transcript").await;
+        assert_eq!(transcript["turn"], 3);
+        assert_eq!(transcript["role"], "assistant");
+        assert_eq!(transcript["at_ms"], 1000);
+        assert_eq!(transcript["callsign"], "curly-apple");
+        assert_eq!(transcript["session_id"], "sess-a");
+        assert_eq!(
+            transcript["ref"],
+            json!({ "kind": "session", "target": "sess-a" })
+        );
+
+        let fact = ask("fact").await;
+        assert_eq!(fact["fact_id"], 7);
+        assert_eq!(fact["fact_kind"], "commit");
+        assert_eq!(fact["callsign"], "curly-apple");
+        assert_eq!(
+            fact["ref"],
+            json!({ "kind": "commit", "target": "9f3c1e5a" })
+        );
+
+        let post = ask("post").await;
+        assert_eq!(post["post_id"], 9);
+        assert_eq!(post["callsign"], "curly-apple");
+        assert_eq!(
+            post["ref"],
+            json!({ "kind": "session", "target": "sess-a" })
+        );
+
+        let document = ask("document").await;
+        assert_eq!(document["path"], "briefs/x.md");
+        assert_eq!(document["line"], 42);
+        assert_eq!(
+            document["ref"],
+            json!({ "kind": "file", "target": "briefs/x.md:42" })
+        );
+        assert!(document.get("session_id").is_none(), "{document}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_document_of_another_project_is_named_by_its_whole_path() {
+        let mut f = fixture();
+        let indexer = with_semantic_index(&mut f, false).await;
+        let meta = json!({ "project_dir": "/other", "path": "notes/a.md", "line": 7 }).to_string();
+        indexer
+            .ingest(&crate::semantic::Source {
+                kind: crate::semantic::DOCUMENT_KIND,
+                id: "/other::notes/a.md#a",
+                context: "notes/a.md > A",
+                text: "Zebras live in the other project.",
+                session: None,
+                meta: Some(&meta),
+                lexical: None,
+            })
+            .await
+            .unwrap();
+        let out = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "zebras", "kind": "document" }),
+        )
+        .await
+        .unwrap();
+        let hit = hits_of(&out)
+            .iter()
+            .find(|hit| hit["path"] == "/other/notes/a.md")
+            .expect("the other project's document");
+        assert_eq!(hit["ref"]["target"], "/other/notes/a.md:7");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn every_hits_ref_survives_validation_against_the_rendered_result() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let out = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "retry backoff split", "limit": 20 }),
+        )
+        .await
+        .unwrap();
+        let rendered = out.to_string();
+        let refs: Vec<OverviewRef> = hits_of(&out)
+            .iter()
+            .map(|hit| serde_json::from_value(hit["ref"].clone()).expect("a ref"))
+            .collect();
+        assert!(refs.len() > 5);
+        let validated = validate_answer_refs(&f.ctx, refs.clone(), &rendered);
+        assert!(validated.dropped.is_empty(), "{:?}", validated.dropped);
+        assert_eq!(validated.kept.len(), refs.len());
+
+        let fabricated = OverviewRef {
+            kind: OverviewRefKind::File,
+            target: "briefs/never-was.md:3".to_string(),
+        };
+        let validated = validate_answer_refs(&f.ctx, vec![fabricated.clone()], &rendered);
+        assert_eq!(validated.dropped, [fabricated]);
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_private_sessions_rows_come_back_from_no_search_and_it_errors_as_a_stranger() {
+        let mut f = fixture();
+        let indexer = with_semantic_index(&mut f, false).await;
+        let project = f.repo.path().to_string_lossy().to_string();
+        f.ctx
+            .ledger
+            .record_spawn("sess-p", "ws", &project, "card-2", 2, "sess-p", None)
+            .unwrap();
+        for n in 0..30 {
+            indexer
+                .ingest(&crate::semantic::Source {
+                    kind: crate::semantic::TRANSCRIPT_KIND,
+                    id: &format!("sess-p/u-{n}.0"),
+                    context: "p turn 1 user",
+                    text: "zebra zebra zebra",
+                    session: Some("sess-p"),
+                    meta: None,
+                    lexical: None,
+                })
+                .await
+                .unwrap();
+        }
+        indexer
+            .ingest(&crate::semantic::Source {
+                kind: crate::semantic::TRANSCRIPT_KIND,
+                id: "sess-a/u-2.0",
+                context: "curly-apple turn 4 user",
+                text: "one zebra among other words",
+                session: Some("sess-a"),
+                meta: None,
+                lexical: None,
+            })
+            .await
+            .unwrap();
+        // Marked with the rows still planted, as a failed removal would leave them.
+        f.ctx.ledger.set_session_private("sess-p", true).unwrap();
+
+        let out = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "zebra", "limit": 20 }),
+        )
+        .await
+        .unwrap();
+        let sessions: Vec<&Value> = hits_of(&out)
+            .iter()
+            .filter(|hit| hit["text"].as_str().unwrap().contains("zebra"))
+            .map(|hit| &hit["session_id"])
+            .collect();
+        assert_eq!(sessions, [&json!("sess-a")], "{out}");
+        assert!(!out.to_string().contains("sess-p"), "{out}");
+
+        let private = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "zebra", "session": "sess-p" }),
+        )
+        .await
+        .unwrap_err();
+        let stranger = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "zebra", "session": "sess-z" }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(private, "no session \"sess-p\" in the ledger");
+        assert_eq!(stranger, "no session \"sess-z\" in the ledger");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn search_semantic_refuses_a_kind_it_does_not_know_or_a_session_it_cannot_belong_to() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let unknown = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "x", "kind": "session" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(unknown.contains("kind must be one of"), "{unknown}");
+        for kind in ["help", "document"] {
+            let wrong = run_verb(
+                &f.ctx,
+                "search.semantic",
+                &json!({ "query": "x", "kind": kind, "session": "sess-a" }),
+            )
+            .await
+            .unwrap_err();
+            assert!(wrong.contains("does not belong to a session"), "{wrong}");
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn with_no_live_model_search_semantic_is_empty_with_a_note_and_no_error() {
+        use crate::semantic::fake::{FakeState, client};
+        use crate::semantic::{SemanticIndex, SemanticSearch};
+        let mut f = fixture();
+        let index = Arc::new(SemanticIndex::open(f._dir.path().join("semantic.db")).unwrap());
+        f.ctx.semantic = Some(Arc::new(SemanticSearch::new(
+            index,
+            client(&FakeState::new(Some("model"))),
+            crate::semantic::coverage_channel(false).1,
+        )));
+        let out = run_verb(&f.ctx, "search.semantic", &json!({ "query": "anything" }))
+            .await
+            .unwrap();
+        assert_eq!(out["count"], 0);
+        assert!(hits_of(&out).is_empty());
+        assert_eq!(out["note"], SEMANTIC_UNAVAILABLE_NOTE);
+
+        f.ctx.semantic = None;
+        let out = run_verb(&f.ctx, "search.semantic", &json!({ "query": "anything" }))
+            .await
+            .unwrap();
+        assert_eq!(out["note"], SEMANTIC_UNAVAILABLE_NOTE);
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn while_catching_up_the_coverage_sentence_is_in_the_note_and_the_horizon() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, true).await;
+        let sentence = "semantic index: catching up, 0 of 0 transcripts indexed so far";
+        let out = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "retry backoff" }),
+        )
+        .await
+        .unwrap();
+        assert!(out["note"].as_str().unwrap().contains(sentence), "{out}");
+        assert!(render_horizon(&read_horizon(&f.ctx)).contains(&format!("- {sentence}\n")));
+    }
+
+    #[test]
+    fn a_horizon_with_no_index_says_nothing_of_one() {
+        assert!(!render_horizon(&HorizonReport::default()).contains("semantic index"));
+    }
+
+    /// Index a fact as the facts stream does.
+    #[cfg(debug_assertions)]
+    async fn index_fact(indexer: &crate::semantic::Indexer, id: i64, session: &str, text: &str) {
+        let meta = json!({ "fact_id": id, "kind": "prompt", "at_ms": 5000 }).to_string();
+        indexer
+            .ingest(&crate::semantic::Source {
+                kind: crate::semantic::FACT_KIND,
+                id: &format!("{session}/{id}"),
+                context: "prompt curly-apple",
+                text,
+                session: Some(session),
+                meta: Some(&meta),
+                lexical: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[cfg(debug_assertions)]
+    fn fact_ids_of(out: &Value) -> Vec<i64> {
+        out["facts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_i64().unwrap())
+            .collect()
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn facts_search_finds_by_meaning_what_shares_no_word_and_keeps_its_filters() {
+        // An expansion that would find the row, so the rung having fired would show.
+        let mut f = fixture_with_expansion(scripted(Ok(r#"{"terms": ["rollout"]}"#.to_string())));
+        let indexer = with_semantic_index(&mut f, false).await;
+        f.ctx
+            .ledger
+            .record_spawn("sess-b", "ws", "/p", "card-2", 1, "sess-b", None)
+            .unwrap();
+        let text = "how long should the rollout wait";
+        let id = seed_fact(&f.ctx, &facts_library::prompt_fact(5_000, "sess-a", text));
+        index_fact(&indexer, id, "sess-a", text).await;
+
+        let out = run_verb(&f.ctx, "facts.search", &json!({"query": "quokka"}))
+            .await
+            .unwrap();
+        assert_eq!(fact_ids_of(&out), [id], "{out}");
+        let row = &out["facts"][0];
+        assert_eq!(row["excerpt"], row["text"]);
+        assert!(
+            out["note"].as_str().unwrap().contains("meaning alone"),
+            "{out}"
+        );
+        assert!(
+            !out["query_used"].as_str().unwrap().contains("rollout"),
+            "no expansion was asked for: {out}"
+        );
+
+        let found = run_verb(
+            &f.ctx,
+            "facts.search",
+            &json!({"query": "quokka", "kind": "prompt", "session_id": "sess-a", "since_ms": 4_000, "until_ms": 6_000}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(fact_ids_of(&found), [id], "{found}");
+        for narrowed in [
+            json!({"query": "quokka", "kind": "commit"}),
+            json!({"query": "quokka", "session_id": "sess-b"}),
+            json!({"query": "quokka", "since_ms": 6_000}),
+            json!({"query": "quokka", "until_ms": 4_000}),
+        ] {
+            let out = run_verb(&f.ctx, "facts.search", &narrowed).await.unwrap();
+            assert_eq!(out["count"], 0, "{narrowed}: {out}");
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn facts_search_ranks_a_fact_found_both_ways_ahead_of_either_alone() {
+        let mut f = fixture();
+        let indexer = with_semantic_index(&mut f, false).await;
+        let by_words = seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(5_000, "sess-a", "the quokka was mentioned once"),
+        );
+        let meaning_text = "how long should the rollout wait";
+        let by_meaning = seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(5_001, "sess-a", meaning_text),
+        );
+        let both_text = "the quokka was mentioned again";
+        let both = seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(5_002, "sess-a", both_text),
+        );
+        index_fact(&indexer, by_meaning, "sess-a", meaning_text).await;
+        index_fact(&indexer, both, "sess-a", both_text).await;
+
+        let out = run_verb(&f.ctx, "facts.search", &json!({"query": "quokka"}))
+            .await
+            .unwrap();
+        let ids = fact_ids_of(&out);
+        assert_eq!(ids[0], both, "{out}");
+        assert!(
+            ids.contains(&by_words) && ids.contains(&by_meaning),
+            "{out}"
+        );
+        assert_eq!(ids.len(), 3, "{out}");
+        assert!(
+            out["note"].as_str().unwrap().starts_with("1 of these"),
+            "{out}"
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn facts_search_finds_no_private_fact_by_meaning() {
+        let mut f = fixture();
+        let indexer = with_semantic_index(&mut f, false).await;
+        f.ctx
+            .ledger
+            .record_spawn("sess-priv", "ws", "/p", "card-2", 1, "sess-priv", None)
+            .unwrap();
+        let text = "the secret rollout plan";
+        let id = seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(5_000, "sess-priv", text),
+        );
+        index_fact(&indexer, id, "sess-priv", text).await;
+        f.ctx.ledger.set_session_private("sess-priv", true).unwrap();
+
+        for args in [
+            json!({"query": "quokka"}),
+            json!({"query": "quokka", "session_id": "sess-priv"}),
+        ] {
+            let out = run_verb(&f.ctx, "facts.search", &args).await.unwrap();
+            assert!(!fact_ids_of(&out).contains(&id), "{out}");
+        }
+    }
+
+    /// A transcript of `users.len()` turns for a session the ledger knows.
+    #[cfg(debug_assertions)]
+    fn place_transcript(
+        f: &Fixture,
+        home: &tugcore::claude_home::ClaudeHome,
+        session: &str,
+        users: &[String],
+    ) {
+        let project = f.repo.path().to_string_lossy().to_string();
+        let (dir, _) = crate::session_ledger::claude_project_dir(home, &project);
+        std::fs::create_dir_all(&dir).expect("project dir");
+        let jsonl = users
+            .iter()
+            .flat_map(|user| {
+                [
+                    transcript_record("user", user),
+                    transcript_record("assistant", "noted"),
+                ]
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(dir.join(format!("{session}.jsonl")), jsonl).expect("transcript");
+    }
+
+    /// Index a passage of turn `turn` of `sess-a`.
+    #[cfg(debug_assertions)]
+    async fn index_turn(indexer: &crate::semantic::Indexer, turn: i64, text: &str) {
+        let meta = json!({ "turn": turn, "role": "user", "at_ms": 1000 }).to_string();
+        indexer
+            .ingest(&crate::semantic::Source {
+                kind: crate::semantic::TRANSCRIPT_KIND,
+                id: &format!("sess-a/turn-{turn}.0"),
+                context: &format!("curly-apple turn {turn} user"),
+                text,
+                session: Some("sess-a"),
+                meta: Some(&meta),
+                lexical: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    /// Ten turns, of which 1 and 3 hold `retry backoff`. The index already holds turn 3,
+    /// from `with_semantic_index`.
+    #[cfg(debug_assertions)]
+    fn grep_turns() -> Vec<String> {
+        let mut users = vec![
+            "the retry backoff is undecided".to_string(),
+            "how long between attempts then".to_string(),
+            "We settled the retry backoff at five attempts.".to_string(),
+        ];
+        users.extend((4..=10).map(|turn| format!("filler number {turn}")));
+        users
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_grep_keeps_its_matches_and_adds_a_turn_by_meaning_with_a_note() {
+        let (mut f, home) = fixture_with_claude_home();
+        let indexer = with_semantic_index(&mut f, false).await;
+        place_transcript(&f, &home, "sess-a", &grep_turns());
+        index_turn(&indexer, 2, "how long between attempts then").await;
+
+        let out = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-a", "grep": "retry backoff"}),
+        )
+        .await
+        .unwrap();
+        // Turn 3 was found both ways, turn 1 by its text and turn 2 by its meaning.
+        assert_eq!(out["turns"], json!([3, 1, 2]), "{out}");
+        assert_eq!(out["turn_count"], 10);
+        let text = out["text"].as_str().unwrap();
+        let at = |turn: &str| text.find(&format!("## Turn {turn} — user")).unwrap();
+        assert!(at("3") < at("1") && at("1") < at("2"), "{text}");
+        let note = out["note"].as_str().unwrap();
+        assert!(
+            note.contains("turn(s) 2 ") && note.contains("meaning alone"),
+            "{note}"
+        );
+
+        // The other selectors are not asked about meaning.
+        let last = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-a", "last": 1}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(last["turns"], json!([10]));
+        assert!(last.get("note").is_none(), "{last}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_grep_adds_at_most_five_turns_and_only_turns_the_transcript_has() {
+        let (mut f, home) = fixture_with_claude_home();
+        let indexer = with_semantic_index(&mut f, false).await;
+        place_transcript(&f, &home, "sess-a", &grep_turns());
+        for turn in 4..=10 {
+            index_turn(&indexer, turn, &format!("filler number {turn}")).await;
+        }
+        index_turn(&indexer, 0, "output ahead of any user turn").await;
+        index_turn(&indexer, 99, "a turn the file has no more").await;
+
+        let out = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-a", "grep": "retry backoff"}),
+        )
+        .await
+        .unwrap();
+        let turns: Vec<i64> = out["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|turn| turn.as_i64().unwrap())
+            .collect();
+        assert_eq!(turns.len(), 2 + GREP_MEANING_TURNS, "{out}");
+        assert!(turns.contains(&1) && turns.contains(&3), "{out}");
+        assert!((1..=10).contains(turns.iter().max().unwrap()), "{out}");
+        assert!(!turns.contains(&0), "{out}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_grep_of_a_session_the_index_does_not_hold_is_the_plain_grep() {
+        let (mut f, home) = fixture_with_claude_home();
+        with_semantic_index(&mut f, false).await;
+        let project = f.repo.path().to_string_lossy().to_string();
+        f.ctx
+            .ledger
+            .record_spawn(
+                "sess-other",
+                "ws",
+                &project,
+                "card-2",
+                1,
+                "sess-other",
+                None,
+            )
+            .unwrap();
+        place_transcript(&f, &home, "sess-other", &grep_turns());
+
+        let out = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-other", "grep": "retry backoff"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out["turns"], json!([1, 3]), "{out}");
+        assert!(out.get("note").is_none(), "{out}");
+    }
+
+    #[test]
+    fn both_turns_carry_the_related_section_after_the_question_or_nothing() {
+        let section = format!("\n{RELATED_HEADER}\n{{\"kind\":\"fact\"}}\n");
+        for related in [section.as_str(), ""] {
+            let preamble = Preamble {
+                horizon: "h",
+                roster: "r",
+                related,
+            };
+            for composed in [
+                compose_retrieve_input(FIXED_NOW, "q", &preamble, "", 0, ""),
+                compose_answer_input(FIXED_NOW, "q", &preamble, "", "", false, 0),
+            ] {
+                match composed.find(RELATED_HEADER) {
+                    Some(at) => {
+                        assert!(!related.is_empty(), "{composed}");
+                        assert!(composed.find("QUESTION:").unwrap() < at, "{composed}");
+                        assert!(
+                            at < composed.find("RECENT OVERVIEW POSTS:").unwrap(),
+                            "{composed}"
+                        );
+                    }
+                    None => assert!(related.is_empty(), "{composed}"),
+                }
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn the_related_section_holds_history_and_no_help_with_an_index_that_has_it() {
+        let mut f = fixture();
+        assert_eq!(read_related(&f.ctx, "retry backoff").await, "", "no index");
+
+        with_semantic_index(&mut f, false).await;
+        let section = read_related(&f.ctx, "retry backoff").await;
+        let mut lines = section.trim().lines();
+        assert_eq!(lines.next(), Some(RELATED_HEADER));
+        let rows: Vec<Value> = lines
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let mut kinds: Vec<&str> = rows
+            .iter()
+            .map(|row| row["kind"].as_str().unwrap())
+            .collect();
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            ["document", "fact", "post", "transcript"],
+            "{section}"
+        );
+        let document = rows.iter().find(|row| row["kind"] == "document").unwrap();
+        assert_eq!(document["ref"]["target"], "briefs/x.md:42");
+        assert_eq!(read_related(&f.ctx, "  ").await, "", "an image alone");
+
+        let mut help_only = fixture();
+        with_help_index(&mut help_only, true).await;
+        assert_eq!(read_related(&help_only.ctx, "split slot").await, "");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_related_section_caps_each_passage() {
+        let hit = crate::semantic::PassageHit {
+            kind: crate::semantic::TRANSCRIPT_KIND.to_string(),
+            source_id: "sess-a/u-1.0".to_string(),
+            context: "curly-apple turn 3 assistant".to_string(),
+            text: "é words".repeat(400),
+            meta: Some(json!({ "turn": 3, "role": "assistant", "at_ms": 1 }).to_string()),
+            score: 1.0,
+        };
+        let many: Vec<_> = (0..3).map(|_| hit.clone()).collect();
+        let section = render_related(&many, "/p");
+        assert_eq!(section.trim().lines().count(), 4, "{section}");
+        let row: Value = serde_json::from_str(section.trim().lines().nth(1).unwrap()).unwrap();
+        let text = row["text"].as_str().unwrap();
+        assert!(
+            text.len() <= RELATED_SPAN_MAX_BYTES && text.len() > 500,
+            "{text}"
+        );
+        assert_eq!(row["truncated"], true);
+        assert_eq!(row["ref"]["target"], "sess-a");
+        assert_eq!(render_related(&[], "/p"), "");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_ref_drawn_only_from_the_related_section_survives_validation() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let fake = FakeSpawner::new(vec![
+            Ok(json!({"verbs": []}).to_string()),
+            Ok(json!({"answer": {
+                "body": "It is decided in `briefs/x.md:42`.",
+                "refs": [
+                    {"kind": "file", "target": "briefs/x.md:42"},
+                    {"kind": "file", "target": "briefs/invented.md:1"},
+                    {"kind": "file", "target": "briefs/x.md:3-9"},
+                ],
+            }})
+            .to_string()),
+        ]);
+        let pool = SharedAgentPool::new(
+            AgentSpec {
+                name: "overview",
+                model: Arc::new(|| "sonnet".to_string()),
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
+                max_workers: 3,
+            },
+            Arc::clone(&fake) as Arc<dyn AgentWorkerSpawner>,
+        );
+
+        let (post, context) = run_question(&f.ctx, &pool, "retry backoff", &[], &[], None)
+            .await
+            .unwrap();
+        let validated = validate_answer_refs(&f.ctx, post.refs, &context);
+        let kept: Vec<&str> = validated.kept.iter().map(|r| r.target.as_str()).collect();
+        assert_eq!(kept, ["briefs/x.md:42", "briefs/x.md:3-9"], "{context}");
+        assert_eq!(validated.dropped.len(), 1);
+        let turns = fake.turns_seen();
+        assert_eq!(turns.len(), 2);
+        for turn in turns {
+            let (_, material) = turn.rsplit_once("QUESTION:").unwrap();
+            assert!(material.contains(RELATED_HEADER), "{turn}");
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test(start_paused = true)]
+    async fn a_question_whose_embed_times_out_still_gets_its_turn_with_no_section() {
+        use crate::semantic::fake::{FakeState, client};
+        use crate::semantic::{SemanticIndex, SemanticSearch};
+        let mut f = fixture();
+        let index = Arc::new(SemanticIndex::open(f._dir.path().join("semantic.db")).unwrap());
+        let state = FakeState::new(Some("model"));
+        let embedder = client(&state);
+        embedder.start().await;
+        state
+            .silent
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        f.ctx.semantic = Some(Arc::new(SemanticSearch::new(
+            index,
+            embedder,
+            crate::semantic::coverage_channel(false).1,
+        )));
+        let fake = FakeSpawner::new(vec![verbs_turn(), answer_turn("From the channel.")]);
+        let pool = SharedAgentPool::new(
+            AgentSpec {
+                name: "overview",
+                model: Arc::new(|| "sonnet".to_string()),
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
+                max_workers: 3,
+            },
+            Arc::clone(&fake) as Arc<dyn AgentWorkerSpawner>,
+        );
+
+        let (post, _) = run_question(&f.ctx, &pool, "retry backoff", &[], &[], None)
+            .await
+            .unwrap();
+        assert_eq!(post.body, "From the channel.");
+        for turn in fake.turns_seen() {
+            let (_, material) = turn.rsplit_once("QUESTION:").unwrap();
+            assert!(!material.contains(RELATED_HEADER), "{turn}");
+        }
+    }
+
+    /// The wake's composer takes no search, and the Observer's feed holds none, so
+    /// what the index holds cannot reach a wake.
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn an_observer_wake_carries_no_related_history() {
+        use crate::feeds::session_digest::{DigestKind, DigestLine, SessionDigest};
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let text = "We settled the retry backoff at five attempts.";
+        assert!(read_related(&f.ctx, text).await.contains(RELATED_HEADER));
+        let mut window = SessionDigest::default();
+        window.push(DigestLine {
+            text: text.to_string(),
+            at_ms: 1_700_000_000_000,
+            beat: 1,
+            kind: DigestKind::Said,
+            supersede_key: None,
+        });
+        let input = crate::feeds::observer_wake::compose_observer_input(
+            crate::feeds::observer_wake::WakeReason::SitrepTimer,
+            "sess-a",
+            &window,
+            &[],
+            &[],
+            None,
+        );
+        assert!(input.contains(text));
+        assert!(!input.contains(RELATED_HEADER), "{input}");
+        assert!(!include_str!("observer.rs").contains("SemanticSearch"));
+    }
+
+    /// Everything a run with no boot behind it reads, from a ledger that does not yet
+    /// know the project.
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn indexing_history_now_reads_every_stream_to_its_end() {
+        use crate::semantic::fake::{FakeState, client};
+        use crate::semantic::{Indexer, SemanticIndex, index_history_now};
+        let (f, home) = fixture_with_claude_home();
+        let project = f.repo.path().canonicalize().unwrap();
+        std::fs::create_dir_all(project.join("briefs")).unwrap();
+        std::fs::write(project.join("briefs/x.md"), "# Retries\n\nFive attempts.\n").unwrap();
+        let project = project.to_string_lossy().into_owned();
+        let session = "a1b2c3d4-0000-4000-8000-00000000000a";
+        let (dir, _) = crate::session_ledger::claude_project_dir(&home, &project);
+        std::fs::create_dir_all(&dir).unwrap();
+        let record = json!({
+            "type": "user",
+            "uuid": "u-1",
+            "parentUuid": null,
+            "isSidechain": false,
+            "sessionId": session,
+            "cwd": project,
+            "timestamp": "2026-09-21T10:00:00.000Z",
+            "message": { "role": "user", "content": "how many attempts?" },
+        });
+        std::fs::write(dir.join(format!("{session}.jsonl")), format!("{record}\n")).unwrap();
+        let fact = seed_fact(
+            &f.ctx,
+            &facts_library::prompt_fact(5_000, "sess-a", "the retry budget"),
+        );
+
+        let index = Arc::new(SemanticIndex::open(f._dir.path().join("semantic.db")).unwrap());
+        let embedder = client(&FakeState::new(Some("model")));
+        embedder.start().await;
+        let indexer = Indexer::new(
+            Arc::clone(&index),
+            embedder,
+            Some(Arc::clone(&f.ctx.ledger)),
+        );
+        index_history_now(&indexer, &project).await;
+
+        assert_eq!(
+            index.source_ids(crate::semantic::TRANSCRIPT_KIND).unwrap(),
+            [format!("{session}/u-1.0")]
+        );
+        assert_eq!(
+            index.source_ids(crate::semantic::DOCUMENT_KIND).unwrap(),
+            [format!("{project}::briefs/x.md#retries")]
+        );
+        assert!(
+            index
+                .source_ids(crate::semantic::FACT_KIND)
+                .unwrap()
+                .contains(&format!("sess-a/{fact}"))
+        );
+    }
+
     /// Attach an index holding the help documents, on a fake embedder.
     #[cfg(debug_assertions)]
     async fn with_help_index(f: &mut Fixture, started: bool) {
@@ -6966,7 +8434,11 @@ mod tests {
         } else {
             client(&FakeState::new(Some("model")))
         };
-        f.ctx.semantic = Some(Arc::new(SemanticSearch::new(index, asked)));
+        f.ctx.semantic = Some(Arc::new(SemanticSearch::new(
+            index,
+            asked,
+            crate::semantic::coverage_channel(false).1,
+        )));
     }
 
     #[cfg(debug_assertions)]
@@ -7195,6 +8667,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             0,
@@ -7314,6 +8787,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             0,
@@ -7328,6 +8802,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             "",
@@ -7344,6 +8819,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             "",
@@ -7481,6 +8957,7 @@ mod tests {
                 &Preamble {
                     horizon: &no_horizon(),
                     roster: &roster,
+                    related: "",
                 },
                 "(the channel is empty)\n",
                 0,
@@ -7492,6 +8969,7 @@ mod tests {
                 &Preamble {
                     horizon: &no_horizon(),
                     roster: &roster,
+                    related: "",
                 },
                 "(the channel is empty)\n",
                 "",
@@ -7518,6 +8996,7 @@ mod tests {
                 &Preamble {
                     horizon: &no_horizon(),
                     roster: &roster,
+                    related: "",
                 },
                 "(the channel is empty)\n",
                 0,
@@ -7529,6 +9008,7 @@ mod tests {
                 &Preamble {
                     horizon: &no_horizon(),
                     roster: &roster,
+                    related: "",
                 },
                 "(the channel is empty)\n",
                 "",
@@ -7559,6 +9039,7 @@ mod tests {
                 oldest_ms: Some(FIXED_NOW),
                 count: 3,
             }),
+            semantic: None,
         };
         let rendered = render_horizon(&report);
         assert!(rendered.starts_with(HORIZON_HEADER), "{rendered}");
@@ -7799,6 +9280,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             0,
@@ -7830,6 +9312,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             "\n--- VERB facts.list {}\n",
@@ -7856,6 +9339,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &roster,
+                related: "",
             },
             "(the channel is empty)\n",
             "",
@@ -7951,6 +9435,7 @@ mod tests {
             &Preamble {
                 horizon: &no_horizon(),
                 roster: &render_session_roster(&[]),
+                related: "",
             },
             "(the channel is empty)\n",
             &rendered,

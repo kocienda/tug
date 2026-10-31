@@ -31,6 +31,7 @@ import {
   type CommitVerdict,
 } from "./annotator/commit-resolution";
 import { fileNameResolverFor } from "./annotator/file-name-resolution";
+import { splitLineCitation } from "./annotator/detect-path-reference";
 import {
   pathResolutionStore,
   type PathVerdict,
@@ -84,9 +85,16 @@ const NO_ROOT: OverviewRefResolution = {
 
 const PENDING: OverviewRefResolution = { state: "pending" };
 
+/** Where in a file a ref points, which a directory has no use for. */
+interface FileLine {
+  line?: number;
+  endLine?: number;
+}
+
 function pathResolution(
   verdict: PathVerdict,
   target: string,
+  at: FileLine = {},
 ): OverviewRefResolution {
   switch (verdict.state) {
     case "confirmed":
@@ -94,7 +102,7 @@ function pathResolution(
         state: "actionable",
         payload: verdict.isDir
           ? { kind: "directory", path: verdict.canonical }
-          : { kind: "file-path", path: verdict.canonical },
+          : { kind: "file-path", path: verdict.canonical, ...at },
       };
     case "pending":
       return PENDING;
@@ -151,17 +159,27 @@ export function resolveOverviewRef(
     return { state: "inert", reason: "A session ref renders as a citation." };
   }
   // file / plan / brief — all file-shaped, resolved by their spelling.
-  if (target.startsWith("/")) {
-    return pathResolution(resolvers.lookupPath(target, null), target);
+  // A file ref may cite a line, which is split off ahead of the spelling's own test.
+  const { path, line, endLine } =
+    ref.kind === "file"
+      ? splitLineCitation(target)
+      : { path: target, line: undefined, endLine: undefined };
+  const at: FileLine = {
+    ...(line !== undefined ? { line } : {}),
+    ...(endLine !== undefined ? { endLine } : {}),
+  };
+  if (path.startsWith("/")) {
+    return pathResolution(resolvers.lookupPath(path, null), target, at);
   }
   if (root === null) return NO_ROOT;
-  if (target.includes("/")) {
+  if (path.includes("/")) {
     return pathResolution(
-      resolvers.lookupPath(target, root.projectDir),
+      resolvers.lookupPath(path, root.projectDir),
       target,
+      at,
     );
   }
-  const verdict = resolvers.lookupName(root, target);
+  const verdict = resolvers.lookupName(root, path);
   if (verdict === null) return NO_ROOT;
-  return pathResolution(verdict, target);
+  return pathResolution(verdict, target, at);
 }

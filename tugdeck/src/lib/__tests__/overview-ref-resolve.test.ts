@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   resolveOverviewRef,
+  type OverviewRefResolution,
   type OverviewRefResolvers,
   type OverviewRefRoot,
 } from "@/lib/overview-ref-resolve";
@@ -49,6 +50,69 @@ describe("resolveOverviewRef", () => {
     expect(r).toEqual({
       state: "actionable",
       payload: { kind: "file-path", path: "/repo/src/x.ts" },
+    });
+  });
+
+  test("a line on a file ref opens the file at that line, however it is spelled", () => {
+    const confirmed = (canonical: string): PathVerdict => ({
+      state: "confirmed",
+      canonical,
+      isDir: false,
+    });
+    const seen: Array<string> = [];
+    const r = resolvers({
+      lookupPath: (raw, _cwd) => {
+        seen.push(raw);
+        return confirmed("/repo/briefs/x.md");
+      },
+      lookupName: (_root, name) => {
+        seen.push(name);
+        return confirmed("/repo/briefs/x.md");
+      },
+    });
+    const at42: OverviewRefResolution = {
+      state: "actionable",
+      payload: { kind: "file-path", path: "/repo/briefs/x.md", line: 42 },
+    };
+    expect(resolveOverviewRef(file("briefs/x.md:42"), ROOT, r)).toEqual(at42);
+    expect(resolveOverviewRef(file("/repo/briefs/x.md:42"), ROOT, r)).toEqual(at42);
+    expect(resolveOverviewRef(file("x.md:42"), ROOT, r)).toEqual(at42);
+    expect(seen).toEqual(["briefs/x.md", "/repo/briefs/x.md", "x.md"]);
+  });
+
+  test("a target with no line carries none", () => {
+    const r = resolveOverviewRef(
+      file("briefs/x.md"),
+      ROOT,
+      resolvers({
+        lookupPath: (): PathVerdict => ({
+          state: "confirmed",
+          canonical: "/repo/briefs/x.md",
+          isDir: false,
+        }),
+      }),
+    );
+    expect(r).toStrictEqual({
+      state: "actionable",
+      payload: { kind: "file-path", path: "/repo/briefs/x.md" },
+    });
+  });
+
+  test("a directory takes no line", () => {
+    const r = resolveOverviewRef(
+      file("briefs:42"),
+      ROOT,
+      resolvers({
+        lookupName: (): PathVerdict => ({
+          state: "confirmed",
+          canonical: "/repo/briefs",
+          isDir: true,
+        }),
+      }),
+    );
+    expect(r).toStrictEqual({
+      state: "actionable",
+      payload: { kind: "directory", path: "/repo/briefs" },
     });
   });
 

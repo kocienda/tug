@@ -188,11 +188,16 @@ pub(crate) async fn supervisor(
     let (changeset_all_tx, changeset_all_rx) =
         tokio::sync::watch::channel(Frame::new(FeedId::CHANGESET_ALL, vec![]));
     // The idle transition, one sibling channel per consumer because an mpsc
-    // has one: the base-motion engine, the arc runner ([P05]), and the wheel
+    // has one: the base-motion engine, the arc runner ([P05]), the semantic index, and the wheel
     // ([P04]).
     let (turn_complete_tx, turn_complete_rx) = mpsc::channel::<String>(64);
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
     let (wheel_tick_tx, wheel_tick_rx) = mpsc::channel::<String>(64);
+    let (semantic_tick_tx, semantic_tick_rx) = mpsc::channel::<String>(64);
+    // An instance that lives for one test has no history worth walking.
+    let catch_up =
+        !tugcore::instance::instance_id().is_some_and(|instance| instance.starts_with("apptest-"));
+    let (semantic_coverage_tx, semantic_coverage_rx) = crate::semantic::coverage_channel(catch_up);
     // The wheel: perform the rotations `POST /api/session` parked, on the
     // idle transition. A request is always parked and never performed at
     // request time — a rotation mid-turn kills the claude that asked for it.
@@ -222,6 +227,7 @@ pub(crate) async fn supervisor(
             turn_complete_tx: Some(turn_complete_tx),
             arc_tick_tx: Some(arc_tick_tx),
             wheel_tick_tx: Some(wheel_tick_tx),
+            semantic_tick_tx: Some(semantic_tick_tx),
             wheel: Some(Arc::clone(&wheel_state)),
             pages: Arc::clone(&pages),
         },
@@ -644,6 +650,7 @@ pub(crate) async fn supervisor(
                 Arc::new(crate::semantic::SemanticSearch::new(
                     Arc::clone(index),
                     Arc::clone(&semantic_embedder),
+                    semantic_coverage_rx.clone(),
                 ))
             }),
         }),
@@ -865,16 +872,51 @@ pub(crate) async fn supervisor(
         cancel.clone(),
     ));
 
-    // The semantic index's first stream, the help documents: off the startup
-    // path, after the launch has settled, and woken only by the live embedding
-    // model changing.
+    // The semantic index's worker: off the startup path, after the launch has
+    // settled, and woken by the live embedding model changing or the ledger writing
+    // a fact or a post. An app-test's instance dies with its test, so what a
+    // catch-up would spend there nothing would ever read.
     if let Some(index) = semantic_index {
         let indexer =
             crate::semantic::Indexer::new(index, semantic_embedder, Some(Arc::clone(&ledger)));
-        tokio::spawn(crate::semantic::run_help_index(
+        let observer = Arc::new(tokio::sync::Notify::new());
+        ledger.set_stream_signal(Arc::clone(&observer));
+        // Each project's prose, heard through the watcher its workspace already runs.
+        let documents = catch_up.then(|| {
+            let (opens_tx, opens) = mpsc::channel::<String>(16);
+            registry.set_semantic_open_signal(opens_tx);
+            let bank = bank_client.clone();
+            crate::semantic::DocumentWatch {
+                registry: Arc::clone(&registry),
+                opens,
+                briefs_template: Arc::new(move || {
+                    bank.as_ref()
+                        .and_then(|b| {
+                            b.get(
+                                tugtool_core::briefs::BRIEFS_PATH_DOMAIN,
+                                tugtool_core::briefs::BRIEFS_PATH_KEY,
+                            )
+                            .ok()
+                            .flatten()
+                        })
+                        .and_then(|v| match v {
+                            tugbank_core::Value::String(s) if !s.is_empty() => Some(s),
+                            _ => None,
+                        })
+                }),
+            }
+        });
+        tokio::spawn(crate::semantic::run_index(
             indexer,
-            crate::resources::docs_dir(),
-            crate::semantic::HELP_INDEX_SETTLE,
+            crate::semantic::IndexStreams {
+                docs_dir: crate::resources::docs_dir(),
+                observer,
+                catch_up,
+                ticks: semantic_tick_rx,
+                coverage: semantic_coverage_tx,
+                documents,
+            },
+            crate::semantic::INDEX_SETTLE,
             cancel.clone(),
         ));
     }

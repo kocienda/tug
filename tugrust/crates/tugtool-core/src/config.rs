@@ -25,6 +25,10 @@ pub struct TugConfig {
     #[serde(default)]
     pub report: ReportConfig,
 
+    /// What the semantic index reads from this project.
+    #[serde(default)]
+    pub semantic: SemanticConfig,
+
     /// The retired `[tugtool.dash]` table, bound only so the loader can see it
     /// and refuse. Nothing reads its value: a project whose declarations are
     /// still under the old key would look configured while declaring nothing
@@ -39,6 +43,17 @@ pub struct TugConfig {
     /// dark.
     #[serde(default, rename = "run")]
     pub retired_run: Option<toml::Value>,
+}
+
+/// The `[tugtool.semantic]` table.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SemanticConfig {
+    /// The project-relative files and directories the semantic index reads. A
+    /// directory contributes its `*.md` files recursively, and a named file is read
+    /// whatever its extension. Absent means the Briefs Directory plus the paths of the
+    /// surface named `prose`.
+    #[serde(default)]
+    pub documents: Option<Vec<String>>,
 }
 
 /// Arc configuration.
@@ -575,6 +590,13 @@ post_create = []
 # genuinely quiet — before the press is answered with the rung it stalled on.
 # Declare none and it is 30.
 # arc_stop_ceiling_secs = 30
+
+# What the semantic index reads from this project: files and directories relative
+# to its root. A directory gives its `*.md` files, recursively, and a named file is
+# read whatever its extension. Declare none and it is the Briefs Directory plus the
+# paths of the surface named `prose`.
+# [tugtool.semantic]
+# documents = ["briefs/", "doc/", "README.md"]
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,
@@ -1309,6 +1331,19 @@ mod tests {
             message.contains("[[tugtool.arc.surface]]"),
             "the refusal must point at the replacement: {message}"
         );
+    }
+
+    #[test]
+    fn a_project_declares_its_documents_or_leaves_them_to_the_default() {
+        let declared: Config =
+            toml::from_str("[tugtool.semantic]\ndocuments = [\"briefs/\", \"CLAUDE.md\"]\n")
+                .unwrap();
+        assert_eq!(
+            declared.tugtool.semantic.documents,
+            Some(vec!["briefs/".to_string(), "CLAUDE.md".to_string()])
+        );
+        let silent: Config = toml::from_str("[tugtool.arc]\n").unwrap();
+        assert_eq!(silent.tugtool.semantic.documents, None);
     }
 
     /// The refusals fire on what a config declares, so a project with no

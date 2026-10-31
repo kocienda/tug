@@ -24,7 +24,9 @@ use tugcore::claude_home::ClaudeHome;
 use crate::cli::OperatorAskArgs;
 use crate::feeds::{operator, overview_agent};
 use crate::prompt_ledger::PromptLedger;
-use crate::semantic::{EmbedderClient, HelperSpawner, Indexer, SemanticIndex, SemanticSearch};
+use crate::semantic::{
+    EmbedderClient, HelperSpawner, Indexer, SemanticIndex, SemanticSearch, index_history_now,
+};
 use crate::session_ledger::SessionLedger;
 use crate::shell_ledger::ShellLedger;
 
@@ -40,7 +42,11 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
     // `<db>.changes` sibling instead, so the whole run reads files you named
     // and nothing else. Copy the real `changes.db` to that sibling path if you
     // want the `changes.*` verbs to have anything to say.
-    let ledger = match SessionLedger::open_with_claude_home(&args.db, ClaudeHome::from_env()) {
+    let claude_home = args
+        .claude_home
+        .as_ref()
+        .map_or_else(ClaudeHome::from_env, ClaudeHome::at);
+    let ledger = match SessionLedger::open_with_claude_home(&args.db, claude_home) {
         Ok(ledger) => Arc::new(ledger),
         Err(error) => {
             eprintln!("operator-ask: cannot open {}: {error}", args.db.display());
@@ -82,7 +88,7 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
     // running instance reads, which from a checkout's debug build is the
     // checkout's `docs/`.
     let docs_dir = args.docs_dir.clone().or_else(crate::resources::docs_dir);
-    let semantic = prepare_search(args, docs_dir.as_deref()).await;
+    let semantic = prepare_search(args, docs_dir.as_deref(), &ledger).await;
 
     let ctx = operator::OperatorContext {
         ledger,
@@ -207,6 +213,7 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
 async fn prepare_search(
     args: &OperatorAskArgs,
     docs_dir: Option<&Path>,
+    ledger: &Arc<SessionLedger>,
 ) -> Option<Arc<SemanticSearch>> {
     let path = args
         .semantic_db
@@ -224,7 +231,11 @@ async fn prepare_search(
         println!("search: plain, no embedding model\n");
         return None;
     };
-    let indexer = Indexer::new(Arc::clone(&index), Arc::clone(&embedder), None);
+    let indexer = Indexer::new(
+        Arc::clone(&index),
+        Arc::clone(&embedder),
+        args.index_history.then(|| Arc::clone(ledger)),
+    );
     let indexed = match docs_dir {
         Some(dir) => indexer.index_help(dir).await.map_err(|e| e.to_string()),
         None => Err("no help documents".to_string()),
@@ -236,7 +247,19 @@ async fn prepare_search(
             return None;
         }
     }
-    Some(Arc::new(SemanticSearch::new(index, embedder)))
+    if args.index_history {
+        // The spelling the Operator compares a document's project with.
+        let project = crate::path_resolver::PathResolver::new(args.project_dir.clone())
+            .watch_path()
+            .to_string_lossy()
+            .into_owned();
+        index_history_now(&indexer, &project).await;
+    }
+    Some(Arc::new(SemanticSearch::new(
+        index,
+        embedder,
+        crate::semantic::coverage_channel(false).1,
+    )))
 }
 
 /// Where the ledger sits — the copy's own directory, never the instance's.

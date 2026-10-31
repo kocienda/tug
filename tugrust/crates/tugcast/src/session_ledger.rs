@@ -1053,6 +1053,9 @@ pub struct SessionLedger {
     /// generically (the ledger names no consumer) at the end of every
     /// session-row mutation — see [`notify_sessions_changed`].
     sessions_changed: OnceLock<Arc<Notify>>,
+    /// Fires when a fact or a post is written, for whatever reads those rows as
+    /// they arrive. `None` until `set_stream_signal`.
+    stream_changed: OnceLock<Arc<Notify>>,
     /// Verdict of the shared-schema `user_version` gate at open: false
     /// when the on-disk `changes.db` schema is newer than this build, in
     /// which case row INSERT/UPDATEs to the shared tables are refused
@@ -1292,6 +1295,7 @@ impl SessionLedger {
             db: crate::worker_gauge::GaugedMutex::new(conn),
             claude_home,
             sessions_changed: OnceLock::new(),
+            stream_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(changes_access),
@@ -1352,6 +1356,7 @@ impl SessionLedger {
             db: crate::worker_gauge::GaugedMutex::new(conn),
             claude_home: ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
             sessions_changed: OnceLock::new(),
+            stream_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
@@ -1672,6 +1677,21 @@ impl SessionLedger {
     /// project-lifecycle bump. A no-op until `set_change_signal` is wired.
     fn notify_sessions_changed(&self) {
         if let Some(signal) = self.sessions_changed.get() {
+            signal.notify_one();
+        }
+    }
+
+    /// Wire the signal that says a fact or a post has been written. Idempotent;
+    /// a second call is ignored.
+    pub fn set_stream_signal(&self, signal: Arc<Notify>) {
+        let _ = self.stream_changed.set(signal);
+    }
+
+    /// Publish "a fact or a post was written", after whatever transaction wrote it
+    /// has ended, so a reader woken by this can see the row. A no-op until
+    /// `set_stream_signal` is wired.
+    fn notify_stream_changed(&self) {
+        if let Some(signal) = self.stream_changed.get() {
             signal.notify_one();
         }
     }
@@ -3865,6 +3885,22 @@ impl SessionLedger {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// The session id, project and callsign of every live session, private ones
+    /// included: what is done with them is the caller's to decide.
+    pub fn live_session_rows(&self) -> Result<Vec<(String, String, Option<String>)>, LedgerError> {
+        let conn = self.db.lock();
+        let mut stmt = conn.prepare(
+            "SELECT s.session_id, s.project_dir, l.tag
+             FROM sessions s
+             LEFT JOIN lines l ON l.line_id = s.line_id
+             WHERE s.state = 'live'",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Where this ledger's session record begins: the oldest `created_at`
     /// among the sessions the Operator may see, and how many there are.
     /// Backs the Overview's `HORIZON:` line, so it carries the same privacy
@@ -5064,6 +5100,7 @@ impl SessionLedger {
             index_title.as_deref(),
         );
         self.notify_sessions_changed();
+        self.notify_stream_changed();
         Ok(())
     }
 
@@ -5695,6 +5732,7 @@ impl SessionLedger {
         }
         drop(conn);
         self.notify_sessions_changed();
+        self.notify_stream_changed();
         Ok(true)
     }
 
@@ -6195,6 +6233,7 @@ impl SessionLedger {
         drop(conn);
         if count > 0 {
             self.notify_sessions_changed();
+            self.notify_stream_changed();
         }
         Ok(count)
     }
@@ -8164,7 +8203,34 @@ impl SessionLedger {
                 subword_tokens(&[&post.body, &refs_json]),
             ],
         )?;
-        Ok(conn.last_insert_rowid())
+        let id = conn.last_insert_rowid();
+        drop(conn);
+        self.notify_stream_changed();
+        Ok(id)
+    }
+
+    /// The posts past `after_id`, oldest first, for a reader walking the channel in
+    /// the order it was written. Carries the privacy exclusion the fact verbs do. Each
+    /// row comes with its id, and with no post when it cannot be decoded, so that one
+    /// the reader cannot use still counts toward the page and can be walked past.
+    pub fn overview_posts_after(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, Option<OverviewPost>)>, LedgerError> {
+        let conn = self.db.lock();
+        let mut stmt = conn.prepare(concat!(
+            "SELECT id, at_ms, author, session_id, wake_reason, body, refs, elapsed_ms,
+                    project_dir, attachments
+             FROM overview_posts
+             WHERE id > ?1",
+            not_private!("overview_posts.session_id"),
+            " ORDER BY id ASC LIMIT ?2"
+        ))?;
+        let rows = stmt.query_map(params![after_id, limit as i64], |row| {
+            Ok((row.get(0)?, overview_post_from_row(row)?))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// The newest `limit` posts, returned OLDEST-first (display order), which
@@ -8386,7 +8452,27 @@ impl SessionLedger {
     /// it must use [`SessionLedger::record_fact_tx`] instead.
     pub fn record_fact(&self, fact: &NewFact) -> Result<Option<i64>, LedgerError> {
         let conn = self.db.lock();
-        Self::record_fact_tx(&conn, fact)
+        let recorded = Self::record_fact_tx(&conn, fact);
+        drop(conn);
+        if matches!(recorded, Ok(Some(_))) {
+            self.notify_stream_changed();
+        }
+        recorded
+    }
+
+    /// The facts past `after_id`, oldest first, for a reader walking the library in
+    /// the order it was written.
+    pub fn facts_after(&self, after_id: i64, limit: usize) -> Result<Vec<FactRow>, LedgerError> {
+        let conn = self.db.lock();
+        let mut stmt = conn.prepare(concat!(
+            "SELECT id, at_ms, kind, session_id, subject, text, payload
+             FROM facts
+             WHERE id > ?1",
+            not_private!("facts.session_id"),
+            " ORDER BY id ASC LIMIT ?2"
+        ))?;
+        let rows = stmt.query_map(params![after_id, limit as i64], fact_from_row)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Facts about one session, optionally narrowed to a single kind and to
@@ -8587,6 +8673,51 @@ impl SessionLedger {
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// The facts with these ids that `filter` keeps, in the order asked. A private
+    /// session's fact is not among them, any more than a search finds it.
+    pub fn facts_by_ids(
+        &self,
+        ids: &[i64],
+        filter: &FactSearchFilter,
+    ) -> Result<Vec<FactRow>, LedgerError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // The filter takes the first four numbers, whatever the count of ids.
+        let holes = (0..ids.len())
+            .map(|at| format!("?{}", at + 5))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            concat!(
+                "SELECT f.id, f.at_ms, f.kind, f.session_id, f.subject, f.text, f.payload
+                 FROM facts f
+                 WHERE f.id IN ({})
+                   AND (?1 IS NULL OR f.kind = ?1)
+                   AND (?2 IS NULL OR f.session_id = ?2)
+                   AND (?3 IS NULL OR f.at_ms >= ?3)
+                   AND (?4 IS NULL OR f.at_ms <= ?4)",
+                not_private!("f.session_id"),
+            ),
+            holes
+        );
+        let mut values: Vec<rusqlite::types::Value> = vec![
+            filter.kind.clone().into(),
+            filter.session_id.clone().into(),
+            filter.since_ms.into(),
+            filter.until_ms.into(),
+        ];
+        values.extend(ids.iter().map(|id| rusqlite::types::Value::Integer(*id)));
+        let mut found: HashMap<i64, FactRow> = {
+            let conn = self.db.lock();
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(values), fact_from_row)?;
+            rows.map(|row| row.map(|fact| (fact.id, fact)))
+                .collect::<Result<_, _>>()?
+        };
+        Ok(ids.iter().filter_map(|id| found.remove(id)).collect())
+    }
+
     /// Drop the changeset-drafts table, so every draft write and delete fails
     /// from here on — for tests in other modules that need a ledger mutation
     /// to fail and must see what the caller does about it.
@@ -8596,6 +8727,19 @@ impl SessionLedger {
             .lock()
             .execute_batch("DROP TABLE changes.changeset_drafts")
             .expect("drop changeset_drafts");
+    }
+
+    /// Give a post an author this build does not know, as a row a newer build wrote
+    /// reads here, for tests in other modules.
+    #[cfg(test)]
+    pub fn give_post_an_unknown_author_for_test(&self, post_id: i64) {
+        self.db
+            .lock()
+            .execute(
+                "UPDATE overview_posts SET author = 'from-the-future' WHERE id = ?1",
+                params![post_id],
+            )
+            .expect("rewrite author");
     }
 
     /// A segment's rewind point, for tests in other modules that drive the
@@ -12223,6 +12367,63 @@ mod tests {
         // handle a question asks by, the text carries the wording.
         assert_eq!(fts_hits(&ledger, "legible"), 1);
         assert_eq!(fts_hits(&ledger, "rendered"), kinds.len());
+    }
+
+    #[test]
+    fn facts_by_ids_answers_in_the_order_asked_under_the_search_filter() {
+        let ledger = fresh();
+        let mut ids = Vec::new();
+        for (at_ms, kind, session) in [
+            (1_000, "commit", None),
+            (2_000, "prompt", None),
+            (3_000, "commit", Some("mine")),
+            (4_000, "commit", Some("secret")),
+        ] {
+            if let Some(id) = session {
+                ledger
+                    .record_spawn(id, "ws", "/p", "card", 1, id, None)
+                    .expect("spawn");
+            }
+            let mut row = fact(at_ms, kind, "subject", "text");
+            row.session_id = session.map(str::to_string);
+            ids.push(ledger.record_fact(&row).expect("record").expect("new"));
+        }
+        ledger
+            .set_session_private("secret", true)
+            .expect("marked private");
+        let read = |asked: &[i64], filter: &FactSearchFilter| -> Vec<i64> {
+            ledger
+                .facts_by_ids(asked, filter)
+                .expect("read")
+                .iter()
+                .map(|fact| fact.id)
+                .collect()
+        };
+
+        let reversed = [ids[2], ids[1], ids[0]];
+        assert_eq!(read(&reversed, &FactSearchFilter::default()), reversed);
+        assert!(read(&[], &FactSearchFilter::default()).is_empty());
+        assert!(read(&[ids[3] + 100], &FactSearchFilter::default()).is_empty());
+        assert!(
+            read(&[ids[3]], &FactSearchFilter::default()).is_empty(),
+            "a private session's fact does not come back"
+        );
+        let kind = FactSearchFilter {
+            kind: Some("commit".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(read(&reversed, &kind), [ids[2], ids[0]]);
+        let session = FactSearchFilter {
+            session_id: Some("mine".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(read(&reversed, &session), [ids[2]]);
+        let bracket = FactSearchFilter {
+            since_ms: Some(1_500),
+            until_ms: Some(2_500),
+            ..Default::default()
+        };
+        assert_eq!(read(&reversed, &bracket), [ids[1]]);
     }
 
     /// Fact 6291's text, verbatim from the release ledger — the row the
@@ -15908,6 +16109,7 @@ mod tests {
             db: crate::worker_gauge::GaugedMutex::new(conn),
             claude_home: ClaudeHome::at(root),
             sessions_changed: OnceLock::new(),
+            stream_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),

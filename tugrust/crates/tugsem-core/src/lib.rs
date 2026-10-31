@@ -13,11 +13,17 @@
 //! turns the winning passages back into the spans a person reads.
 
 mod chunk;
+mod markdown;
 mod reassemble;
+mod reduce;
 mod score;
 mod store;
 
 pub use chunk::{CHUNKING_VERSION, MAX_TOKENS, Passage, chunk, estimate_tokens};
+pub use markdown::{Section, markdown_sections};
 pub use reassemble::{Hit, Span, reassemble};
-pub use score::{Candidate, Fused, Query, Scored, cosine, fuse, rank_by_similarity};
-pub use store::{CREATE_SCHEMA, MIGRATIONS, SCHEMA_VERSION, decode_vector, encode_vector};
+pub use reduce::{ReducedTool, lexical_spans, reduce_tool_result};
+pub use score::{Candidate, Fused, Query, Scored, TopK, cosine, fuse, rank_by_similarity};
+pub use store::{
+    CREATE_SCHEMA, MIGRATIONS, SCHEMA_VERSION, decode_vector, decode_vector_into, encode_vector,
+};

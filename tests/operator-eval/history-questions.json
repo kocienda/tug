@@ -1,0 +1,14 @@
+[
+  { "question": "how long do we wait before sending a failed piece of a file again, and why not always the same delay?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000001" } },
+  { "question": "which test blew up when the transfer limit was checked, and what was wrong with it?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000001" } },
+  { "question": "did we ever consider running a real database server for local data, and what did we pick?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000002" } },
+  { "question": "what happens to the app if changing the shape of the local tables goes wrong?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000002" } },
+  { "question": "how did we settle colours looking wrong at night?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000003" } },
+  { "question": "why can't the screens name their own hex values any more?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000003" } },
+  { "question": "how long does someone stay signed in before they must log in again?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000004" } },
+  { "question": "what stops a stolen credential from being used twice?", "expect": { "kind": "session", "target": "a1b2c3d4-0000-4000-8000-000000000004" } },
+  { "question": "what does a person see when a part has run out of attempts?", "expect": { "kind": "file", "target": "briefs/upload-retries.md" } },
+  { "question": "which side wins when two edits to a note disagree after being offline?", "expect": { "kind": "file", "target": "briefs/offline-store.md:15" } },
+  { "question": "how often do we ship, and when is the cutoff?", "expect": { "kind": "file", "target": "briefs/release-train.md" } },
+  { "question": "who is allowed to hold back a release?", "expect": { "kind": "file", "target": "briefs/release-train.md:11" } }
+]

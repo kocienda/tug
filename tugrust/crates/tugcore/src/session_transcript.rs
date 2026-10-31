@@ -144,31 +144,37 @@ pub fn read_str(text: &str) -> Transcript {
 /// blocks is the transport for a tool's answer, not a thing the user said,
 /// so it continues the turn already open — otherwise a turn with six tool
 /// calls would render as seven turns, none of which the user wrote.
-fn absorb_user(out: &mut Transcript, record: &serde_json::Value) {
+pub fn user_record_opens_turn(record: &serde_json::Value) -> bool {
     if record.get("isMeta").and_then(|v| v.as_bool()) == Some(true)
         || record.get("isCompactSummary").and_then(|v| v.as_bool()) == Some(true)
     {
+        return false;
+    }
+    match record.get("message").and_then(|m| m.get("content")) {
+        Some(serde_json::Value::String(s)) => !keep_user_text(s).is_empty(),
+        Some(serde_json::Value::Array(blocks)) => blocks
+            .iter()
+            .any(|block| block.get("type").and_then(|t| t.as_str()) == Some("text")),
+        _ => false,
+    }
+}
+
+/// A user record's words, as the turn it opens.
+fn absorb_user(out: &mut Transcript, record: &serde_json::Value) {
+    if !user_record_opens_turn(record) {
         return;
     }
     let Some(content) = record.get("message").and_then(|m| m.get("content")) else {
         return;
     };
     let text = match content {
-        serde_json::Value::String(s) => {
-            let kept = keep_user_text(s);
-            if kept.is_empty() {
-                return;
-            }
-            kept
-        }
+        serde_json::Value::String(s) => keep_user_text(s),
         serde_json::Value::Array(blocks) => {
             let mut parts: Vec<String> = Vec::new();
-            let mut saw_text_block = false;
             for block in blocks {
                 if block.get("type").and_then(|t| t.as_str()) != Some("text") {
                     continue;
                 }
-                saw_text_block = true;
                 let raw = block.get("text").and_then(|t| t.as_str()).unwrap_or("");
                 if let Some(landings) = landing_lines(raw) {
                     if !landings.is_empty() {
@@ -180,11 +186,6 @@ fn absorb_user(out: &mut Transcript, record: &serde_json::Value) {
                 if !kept.is_empty() {
                     parts.push(kept);
                 }
-            }
-            // No text block at all: a tool-result carrier, which continues
-            // the open turn rather than starting one.
-            if !saw_text_block {
-                return;
             }
             parts.join("\n\n")
         }
@@ -199,7 +200,7 @@ fn absorb_user(out: &mut Transcript, record: &serde_json::Value) {
 }
 
 /// A user text block, or `""` when it is one of Tug's own swallowed blocks.
-fn keep_user_text(raw: &str) -> String {
+pub fn keep_user_text(raw: &str) -> String {
     let trimmed = raw.trim();
     if SWALLOWED_MARKERS
         .iter()

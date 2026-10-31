@@ -529,6 +529,9 @@ pub struct AgentSupervisor {
     /// consumer, and a rotation asked for mid-turn must land at *that* turn's
     /// end — the edge computed here and nowhere else.
     pub wheel_tick_tx: Option<mpsc::Sender<String>>,
+    /// The same idle transition once more, for the semantic index: a turn that ended
+    /// is a transcript that grew.
+    pub semantic_tick_tx: Option<mpsc::Sender<String>>,
     /// The wheel itself, for the stoppers that live here rather than in the
     /// arc engine ([P03]).
     ///
@@ -557,6 +560,7 @@ pub struct SupervisorDeps {
     pub turn_complete_tx: Option<mpsc::Sender<String>>,
     pub arc_tick_tx: Option<mpsc::Sender<String>>,
     pub wheel_tick_tx: Option<mpsc::Sender<String>>,
+    pub semantic_tick_tx: Option<mpsc::Sender<String>>,
     pub wheel: Option<Arc<crate::wheel::WheelState>>,
     /// The process's page registry. A fresh, empty one by default.
     pub(crate) pages: Arc<crate::pages::PageRegistry>,
@@ -2082,6 +2086,7 @@ impl AgentSupervisor {
             turn_complete_tx,
             arc_tick_tx,
             wheel_tick_tx,
+            semantic_tick_tx,
             wheel,
             pages,
         } = deps;
@@ -2113,6 +2118,7 @@ impl AgentSupervisor {
             turn_complete_tx,
             arc_tick_tx,
             wheel_tick_tx,
+            semantic_tick_tx,
             wheel,
             pages,
         };
@@ -3123,6 +3129,9 @@ impl AgentSupervisor {
                 let _ = tx.try_send(card.as_str().to_string());
             }
             if let Some(tx) = self.arc_tick_tx.as_ref() {
+                let _ = tx.try_send(card.as_str().to_string());
+            }
+            if let Some(tx) = self.semantic_tick_tx.as_ref() {
                 let _ = tx.try_send(card.as_str().to_string());
             }
             self.registry.changeset_all_bump().notify_one();
@@ -4423,6 +4432,9 @@ impl AgentSupervisor {
                             if let Some(tx) = self.arc_tick_tx.as_ref() {
                                 let _ = tx.try_send(id.to_string());
                             }
+                            if let Some(tx) = self.semantic_tick_tx.as_ref() {
+                                let _ = tx.try_send(id.to_string());
+                            }
                             self.registry.changeset_all_bump().notify_one();
                         }
                     }
@@ -4447,6 +4459,9 @@ impl AgentSupervisor {
                                 let _ = tx.try_send(id.to_string());
                             }
                             if let Some(tx) = self.arc_tick_tx.as_ref() {
+                                let _ = tx.try_send(id.to_string());
+                            }
+                            if let Some(tx) = self.semantic_tick_tx.as_ref() {
                                 let _ = tx.try_send(id.to_string());
                             }
                             self.registry.changeset_all_bump().notify_one();
@@ -4532,6 +4547,11 @@ impl AgentSupervisor {
                                 // that is the moment its documents have just
                                 // changed.
                                 if let Some(tx) = self.arc_tick_tx.as_ref() {
+                                    let _ = tx.try_send(id.to_string());
+                                }
+                                // And for the semantic index: the turn that ended
+                                // is on disk.
+                                if let Some(tx) = self.semantic_tick_tx.as_ref() {
                                     let _ = tx.try_send(id.to_string());
                                 }
                                 // And again for the wheel ([P04]): a
@@ -7348,10 +7368,12 @@ mod tests {
     #[tokio::test]
     async fn a_step_close_with_the_turn_ended_releases_the_quiet_edge() {
         let (arc_tick_tx, mut arc_tick_rx) = mpsc::channel(4);
+        let (semantic_tick_tx, mut semantic_tick_rx) = mpsc::channel(4);
         let (turn_complete_tx, mut turn_complete_rx) = mpsc::channel(4);
         let (sup, _state_rx, _meta_rx, _control_rx) =
             make_supervisor_with_store_deps(SupervisorDeps {
                 arc_tick_tx: Some(arc_tick_tx),
+                semantic_tick_tx: Some(semantic_tick_tx),
                 turn_complete_tx: Some(turn_complete_tx),
                 ..Default::default()
             });
@@ -7384,6 +7406,7 @@ mod tests {
         assert_eq!(sup.end_step_jobs("sess-esj-q").await, vec!["task-slow"]);
         assert!(entry.lock().await.is_quiet());
         assert_eq!(arc_tick_rx.try_recv(), Ok("sess-esj-q".to_string()));
+        assert_eq!(semantic_tick_rx.try_recv(), Ok("sess-esj-q".to_string()));
         assert_eq!(turn_complete_rx.try_recv(), Ok("sess-esj-q".to_string()));
     }
 

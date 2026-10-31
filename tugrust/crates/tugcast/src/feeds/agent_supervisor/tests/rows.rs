@@ -14,8 +14,8 @@ async fn set_session_private_removes_the_sessions_chunks_from_the_semantic_index
     let dir = tempfile::tempdir().unwrap();
     let index =
         Arc::new(crate::semantic::SemanticIndex::open(dir.path().join("semantic.db")).unwrap());
-    for id in ["sess", "sess/turn-1", "sess-other"] {
-        index.store_for_test("session", id);
+    for id in ["sess/u.0", "sess/u.1", "sess-other/u.0"] {
+        index.store_for_test(crate::semantic::TRANSCRIPT_KIND, id);
     }
     Arc::get_mut(&mut sup)
         .expect("the test holds the only handle")
@@ -31,7 +31,10 @@ async fn set_session_private_removes_the_sessions_chunks_from_the_semantic_index
         .await
         .expect_handled();
 
-    assert_eq!(index.source_ids("session").unwrap(), ["sess-other"]);
+    assert_eq!(
+        index.source_ids(crate::semantic::TRANSCRIPT_KIND).unwrap(),
+        ["sess-other/u.0"]
+    );
 }
 
 /// `set_session_private` writes the flag, acks, and pushes the row so the
@@ -390,6 +393,96 @@ async fn trash_session_drops_row_and_broadcasts_removed() {
     let ack = drain_until_action(&mut rx, "trash_session_ok");
     assert_eq!(ack["session_id"], "s1");
     assert!(ledger.get("s1").unwrap().is_none());
+}
+
+/// An index holding `session`'s sources of every kind, and another session's.
+fn index_holding(dir: &tempfile::TempDir, session: &str) -> Arc<crate::semantic::SemanticIndex> {
+    let index =
+        Arc::new(crate::semantic::SemanticIndex::open(dir.path().join("semantic.db")).unwrap());
+    for kind in [
+        crate::semantic::TRANSCRIPT_KIND,
+        crate::semantic::FACT_KIND,
+        crate::semantic::POST_KIND,
+    ] {
+        index.store_for_test(kind, &format!("{session}/1"));
+        index.store_for_test(kind, "someone-else/1");
+    }
+    index
+}
+
+fn assert_only_someone_else_is_left(index: &crate::semantic::SemanticIndex) {
+    for kind in [
+        crate::semantic::TRANSCRIPT_KIND,
+        crate::semantic::FACT_KIND,
+        crate::semantic::POST_KIND,
+    ] {
+        assert_eq!(
+            index.source_ids(kind).unwrap(),
+            ["someone-else/1"],
+            "{kind}"
+        );
+    }
+}
+
+/// Trashing a ledger row takes the session's text out of the semantic index.
+#[tokio::test]
+async fn trashing_a_row_removes_its_sources_from_the_semantic_index() {
+    let (mut sup, ledger, mut rx) = make_supervisor_with_ledger();
+    ledger
+        .record_spawn("s1", "ws-1", "/p", "c1", 1_000, "s1", None)
+        .unwrap();
+    ledger.mark_closed("s1").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let index = index_holding(&dir, "s1");
+    Arc::get_mut(&mut sup)
+        .expect("the test holds the only handle")
+        .set_semantic_index(Arc::clone(&index));
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "trash_session",
+        "session_id": "s1",
+    }))
+    .unwrap();
+    sup.handle_control("trash_session", &payload, 10)
+        .await
+        .expect_handled();
+
+    drain_until_action(&mut rx, "trash_session_ok");
+    assert_only_someone_else_is_left(&index);
+}
+
+/// Trashing an external session, which has no ledger row and whose JSONL move is the
+/// whole operation, takes its text out of the semantic index too.
+#[tokio::test]
+async fn trashing_an_external_session_removes_its_sources_from_the_semantic_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let claude_root = tmp.path().join("projects");
+    let ledger = Arc::new(
+        SessionLedger::open_with_claude_home(
+            tmp.path().join("sessions.db"),
+            tugcore::claude_home::ClaudeHome::at(tmp.path()),
+        )
+        .unwrap(),
+    );
+    let (mut sup, _ledger, mut rx) = make_supervisor_for_ledger(ledger, None);
+    seed_external_jsonl(&claude_root, "/proj/alpha", EXTERNAL_ID, "to trash");
+    let index = index_holding(&tmp, EXTERNAL_ID);
+    Arc::get_mut(&mut sup)
+        .expect("the test holds the only handle")
+        .set_semantic_index(Arc::clone(&index));
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "trash_session",
+        "session_id": EXTERNAL_ID,
+        "project_dir": "/proj/alpha",
+    }))
+    .unwrap();
+    sup.handle_control("trash_session", &payload, 10)
+        .await
+        .expect_handled();
+
+    drain_until_action(&mut rx, "trash_session_ok");
+    assert_only_someone_else_is_left(&index);
 }
 
 #[tokio::test]

@@ -15,29 +15,16 @@
 //! rather than an error, and every one resolves to the default with a line on
 //! stderr naming what was skipped.
 
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use serde::Serialize;
+use tugtool_core::briefs::{
+    BRIEFS_PATH_DOMAIN, BRIEFS_PATH_KEY, DEFAULT_BRIEFS_TEMPLATE, resolve_briefs_dir,
+};
 
 use crate::changes::{self, AppError};
 use crate::cli::BriefCommands;
 use crate::output::print_ok;
-
-/// The tugbank domain the briefs directory is stored under — the app's own,
-/// beside `default-project-path`.
-pub const BRIEFS_PATH_DOMAIN: &str = "dev.tugapp.app";
-
-/// The tugbank key holding the briefs-directory template.
-pub const BRIEFS_PATH_KEY: &str = "briefs-path";
-
-/// The template used when the key is unset. Held in the binary and never
-/// written to the store, so an unset key keeps meaning "the project's own".
-pub const DEFAULT_BRIEFS_TEMPLATE: &str = "{project_dir}/briefs";
-
-/// The one placeholder a template may carry, spelled like the `{paths}` and
-/// `{base}` of the arc surface contract.
-const PROJECT_DIR_PLACEHOLDER: &str = "{project_dir}";
 
 /// The `--json` payload of `brief dir`.
 #[derive(Serialize)]
@@ -59,22 +46,6 @@ pub fn dispatch(cmd: BriefCommands, json: bool) -> ExitCode {
             BriefCommands::Dir { ensure } => run_dir(ensure, json),
         },
     )
-}
-
-/// Resolve a template against a project directory.
-///
-/// Every `{project_dir}` is replaced; a result that is still relative is
-/// joined under the project, so a bare `writing` means the project's own
-/// `writing/` and an absolute path means itself — one directory for every
-/// project, if that is what the user wants.
-fn resolve_briefs_dir(project_dir: &Path, template: &str) -> PathBuf {
-    let expanded = template.replace(PROJECT_DIR_PLACEHOLDER, &project_dir.to_string_lossy());
-    let candidate = PathBuf::from(expanded);
-    if candidate.is_absolute() {
-        candidate
-    } else {
-        project_dir.join(candidate)
-    }
 }
 
 /// Read the briefs-path template out of the instance's tugbank.
@@ -152,6 +123,7 @@ fn run_dir(ensure: bool, json: bool) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn the_default_template_is_the_projects_own_briefs() {

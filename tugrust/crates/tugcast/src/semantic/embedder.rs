@@ -321,6 +321,52 @@ async fn read_lines(
     }
 }
 
+/// The real helper, compiled for a test that reads what it answers.
+#[cfg(test)]
+pub(crate) mod compiled {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    struct Compiled(PathBuf);
+
+    impl EmbedderSpawner for Compiled {
+        fn spawn(&self) -> std::io::Result<EmbedderPipes> {
+            let mut child = tokio::process::Command::new(&self.0)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()?;
+            let stdin = child.stdin.take().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            Ok(EmbedderPipes {
+                stdin: Box::new(stdin),
+                stdout: Box::new(stdout),
+                guard: Box::new(child),
+            })
+        }
+    }
+
+    /// The checkout this test build was made from.
+    pub(crate) fn checkout_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
+    }
+
+    /// A client over a helper compiled into `dir`.
+    pub(crate) fn client(dir: &Path) -> Arc<EmbedderClient> {
+        let helper = dir.join("tugembed");
+        let compiled = std::process::Command::new("bash")
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", dir)
+            .arg(checkout_root().join("tugrust/scripts/compile-tugembed.sh"))
+            .arg(&helper)
+            .status()
+            .unwrap();
+        assert!(compiled.success());
+        EmbedderClient::new(Compiled(helper))
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod fake {
     //! A helper in-process, speaking the protocol over a duplex pipe. A text's
@@ -344,6 +390,11 @@ pub(crate) mod fake {
         pub control: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Option<String>>>>,
         /// Never answer a request.
         pub silent: AtomicBool,
+        /// The model each coming answer is tagged with, ahead of `model`: a helper
+        /// that moves between two batches, with no announcement yet.
+        pub answer_models: Mutex<std::collections::VecDeque<String>>,
+        /// How many texts each answered request held.
+        pub batches: Mutex<Vec<usize>>,
     }
 
     impl FakeState {
@@ -427,7 +478,8 @@ pub(crate) mod fake {
                             }
                             let request: serde_json::Value = serde_json::from_str(&request).unwrap();
                             let id = request["id"].as_u64().unwrap();
-                            let model = state.model.lock().clone();
+                            let scripted = state.answer_models.lock().pop_front();
+                            let model = scripted.or_else(|| state.model.lock().clone());
                             let answer = match model {
                                 None => serde_json::json!({ "id": id, "error": "no embedding model is available" }),
                                 Some(model) => {
@@ -439,6 +491,7 @@ pub(crate) mod fake {
                                         .collect();
                                     let vectors: Vec<Option<Vec<f32>>> =
                                         texts.iter().map(|text| Some(vector_of(text))).collect();
+                                    state.batches.lock().push(texts.len());
                                     state.embedded.lock().extend(texts);
                                     serde_json::json!({ "id": id, "model": model, "vectors": vectors })
                                 }

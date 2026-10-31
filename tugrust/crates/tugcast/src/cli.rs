@@ -171,6 +171,18 @@ pub struct OperatorAskArgs {
     /// `semantic.db` beside `--db`. Never the instance's own: this writes to it.
     #[arg(long)]
     pub semantic_db: Option<PathBuf>,
+
+    /// Read `--db`'s facts and posts, every transcript of its projects and of
+    /// `--project-dir`, and `--project-dir`'s documents into the index before the
+    /// question is asked, all with no rest. Off, the index holds what it already holds.
+    #[arg(long)]
+    pub index_history: bool,
+
+    /// The Claude home the ledger reads transcripts from, in place of the one the
+    /// environment names. The environment itself is left alone, because the `claude`
+    /// workers this run spawns inherit it and need the real one to sign in.
+    #[arg(long)]
+    pub claude_home: Option<PathBuf>,
 }
 
 /// Flags for `tugcast overview-replay`. Each one overrides a `dev.tugapp.overview`

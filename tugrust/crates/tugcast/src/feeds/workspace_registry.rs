@@ -20,11 +20,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use thiserror::Error;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tugcast_core::protocol::{FeedId, Frame};
 use tugcast_core::spawn_snapshot_feed;
+use tugcast_core::types::FsEvent;
 
 use crate::feeds::file_watcher::FileWatcher;
 use crate::feeds::filesystem::FilesystemFeed;
@@ -140,6 +141,10 @@ pub struct WorkspaceEntry {
     /// feed's poll for this workspace.
     #[allow(dead_code)]
     pub git_watch_task: JoinHandle<()>,
+    /// This workspace's one stream of file events, kept so a reader that arrives after
+    /// construction can subscribe. `release` tears the entry down through `cancel`, and
+    /// the tasks do not rely on this closing.
+    pub(crate) fs_broadcast_tx: broadcast::Sender<Vec<FsEvent>>,
     /// Cancellation token owned by this entry. Cloned into each spawned
     /// task at construction; `release` fires it when the refcount hits
     /// zero so the tasks exit cleanly. Retained on the struct
@@ -249,6 +254,7 @@ impl WorkspaceEntry {
         // FileWatcher stream (not a second OS watch) — take its receiver before
         // the sender moves into the watcher task.
         let git_fs_rx = fs_broadcast_tx.subscribe();
+        let retained_fs_tx = fs_broadcast_tx.clone();
 
         // Spawn the watcher task directly (it is an event source, not a
         // router feed) and the snapshot feeds through the trait helper —
@@ -295,10 +301,18 @@ impl WorkspaceEntry {
             filesystem_task,
             filetree_task,
             git_watch_task,
+            fs_broadcast_tx: retained_fs_tx,
             cancel,
             ref_count: AtomicUsize::new(1),
             browse_only: AtomicBool::new(browse_only),
         })
+    }
+}
+
+impl WorkspaceEntry {
+    /// Hear this workspace's file events from now on.
+    pub(crate) fn subscribe_fs(&self) -> broadcast::Receiver<Vec<FsEvent>> {
+        self.fs_broadcast_tx.subscribe()
     }
 }
 
@@ -345,6 +359,10 @@ pub struct WorkspaceRegistry {
     /// moved while nothing was watching. Set once at boot; unset in tests and in
     /// any build without the engine, where the send is simply skipped.
     workspace_open_tx: OnceLock<mpsc::Sender<String>>,
+    /// The same signal for the semantic index, which also hears a browse-only entry
+    /// becoming a project. A full channel means a look at the open projects is already
+    /// queued, which covers this one too.
+    semantic_open_tx: OnceLock<mpsc::Sender<String>>,
 }
 
 impl WorkspaceRegistry {
@@ -368,6 +386,7 @@ impl WorkspaceRegistry {
             gh_response_tx,
             fs_event_tx,
             workspace_open_tx: OnceLock::new(),
+            semantic_open_tx: OnceLock::new(),
         }
     }
 
@@ -375,6 +394,11 @@ impl WorkspaceRegistry {
     /// the base-motion engine that receives it.
     pub fn set_workspace_open_signal(&self, tx: mpsc::Sender<String>) {
         let _ = self.workspace_open_tx.set(tx);
+    }
+
+    /// Wire the semantic index's "a project just opened" signal.
+    pub fn set_semantic_open_signal(&self, tx: mpsc::Sender<String>) {
+        let _ = self.semantic_open_tx.set(tx);
     }
 
     /// The process-global aggregate-changeset recompute signal, cloned for
@@ -491,6 +515,9 @@ impl WorkspaceRegistry {
             drop(map);
             if promoted {
                 self.changeset_all_bump.notify_one();
+                if let Some(tx) = self.semantic_open_tx.get() {
+                    let _ = tx.try_send(workspace_key.as_ref().to_string());
+                }
             }
             return Ok(entry);
         }
@@ -517,6 +544,9 @@ impl WorkspaceRegistry {
             // about motion that happened before now. A full channel means a
             // sweep is already queued, which covers this workspace too.
             if let Some(tx) = self.workspace_open_tx.get() {
+                let _ = tx.try_send(workspace_key.as_ref().to_string());
+            }
+            if let Some(tx) = self.semantic_open_tx.get() {
                 let _ = tx.try_send(workspace_key.as_ref().to_string());
             }
         }

@@ -24,7 +24,7 @@ const MAX_CONTEXT_BYTES: usize = 96;
 const OVERLAP_TOKENS: usize = 32;
 
 /// What the model's start and end markers cost, on any text.
-const MARKER_TOKENS: usize = 4;
+pub(crate) const MARKER_TOKENS: usize = 4;
 
 /// One piece of a source, ready to embed and store.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,7 +126,7 @@ pub fn chunk(context: &str, source: &str) -> Vec<Passage> {
 }
 
 /// `context` on one line, no longer than [`MAX_CONTEXT_BYTES`].
-fn context_line(context: &str) -> String {
+pub(crate) fn context_line(context: &str) -> String {
     let line = context.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut end = line.len().min(MAX_CONTEXT_BYTES);
     while !line.is_char_boundary(end) {

@@ -93,7 +93,7 @@ const TAIL_FINGERPRINT_BYTES: usize = 256;
 
 /// FNV-1a 64 — the prefix fingerprint. Stored bit-cast to `i64` in the
 /// scan cache.
-fn fnv1a64(bytes: &[u8]) -> u64 {
+pub(crate) fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
         hash ^= u64::from(*b);
@@ -104,7 +104,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 
 /// Slide `bytes` into the fingerprint window, keeping only the last
 /// `TAIL_FINGERPRINT_BYTES`.
-fn push_tail(window: &mut Vec<u8>, bytes: &[u8]) {
+pub(crate) fn push_tail(window: &mut Vec<u8>, bytes: &[u8]) {
     if bytes.len() >= TAIL_FINGERPRINT_BYTES {
         window.clear();
         window.extend_from_slice(&bytes[bytes.len() - TAIL_FINGERPRINT_BYTES..]);
@@ -155,7 +155,7 @@ pub struct ResumeSeed {
 /// does, and a cross-collision between distinct uuids is a 2^-128 event.
 /// The constants are FNV's published 128-bit offset basis and prime, so
 /// persisted blobs stay stable across releases.
-fn uuid_key(s: &str) -> [u8; 16] {
+pub(crate) fn uuid_key(s: &str) -> [u8; 16] {
     const OFFSET: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
     const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
     let mut hash = OFFSET;
@@ -168,7 +168,7 @@ fn uuid_key(s: &str) -> [u8; 16] {
 
 /// Encode an effective-uuid set as the cache blob: concatenated 16-byte
 /// uuids, sorted for deterministic bytes.
-fn encode_uuid_set(set: &std::collections::HashSet<[u8; 16]>) -> Vec<u8> {
+pub(crate) fn encode_uuid_set(set: &std::collections::HashSet<[u8; 16]>) -> Vec<u8> {
     let mut keys: Vec<&[u8; 16]> = set.iter().collect();
     keys.sort_unstable();
     let mut out = Vec::with_capacity(keys.len() * 16);
@@ -195,7 +195,7 @@ fn decode_lineage(column: Option<&str>) -> Vec<String> {
 }
 
 /// Decode the cache blob back into the set. `None` on a malformed blob.
-fn decode_uuid_set(blob: &[u8]) -> Option<std::collections::HashSet<[u8; 16]>> {
+pub(crate) fn decode_uuid_set(blob: &[u8]) -> Option<std::collections::HashSet<[u8; 16]>> {
     if blob.len() % 16 != 0 {
         return None;
     }
@@ -431,7 +431,7 @@ fn is_bridge_issued_command_envelope(text: &str) -> bool {
 /// continuation, slash-command scaffolding, or a `<task-notification>` wake
 /// envelope. (The wake envelope is non-submission here, but is counted
 /// separately as a wake opener by the scan loop.)
-fn is_non_submission_user_string(is_compact_summary: bool, text: &str) -> bool {
+pub(crate) fn is_non_submission_user_string(is_compact_summary: bool, text: &str) -> bool {
     if is_compact_summary {
         return true;
     }
@@ -606,27 +606,204 @@ struct ScanRecord<'a> {
     message: Option<&'a serde_json::value::RawValue>,
 }
 
-/// Verify a resume seed against the file: read the fingerprint window
-/// ending at `seed.offset` and compare. On a match the file is left
+/// Verify a resume point against the file: read the fingerprint window
+/// ending at `offset` and compare. On a match the file is left
 /// positioned at the offset and the window is returned (it primes the
 /// rolling fingerprint); on a mismatch the prefix was rewritten and the
 /// caller falls back to a full parse.
-fn try_resume(
+pub(crate) fn try_resume(
     file: &mut fs::File,
-    seed: &ResumeSeed,
+    offset: i64,
+    tail_hash: i64,
     file_size: i64,
 ) -> std::io::Result<Option<Vec<u8>>> {
-    if seed.offset <= 0 || seed.offset > file_size {
+    if offset <= 0 || offset > file_size {
         return Ok(None);
     }
-    let k = (seed.offset as usize).min(TAIL_FINGERPRINT_BYTES);
-    file.seek(SeekFrom::Start(seed.offset as u64 - k as u64))?;
+    let k = (offset as usize).min(TAIL_FINGERPRINT_BYTES);
+    file.seek(SeekFrom::Start(offset as u64 - k as u64))?;
     let mut window = vec![0u8; k];
     file.read_exact(&mut window)?;
-    if fnv1a64(&window) as i64 != seed.tail_hash {
+    if fnv1a64(&window) as i64 != tail_hash {
         return Ok(None);
     }
     Ok(Some(window))
+}
+
+/// What one chain record did to a read of its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Observed {
+    /// A re-append of a record already effective. It re-states history, so it feeds
+    /// nothing, though it did become the leaf.
+    Suppressed,
+    /// An ordinary record, or a spur that leaves the live closure alone.
+    Absorbed,
+    /// A shape that can change which earlier records are effective, so that only a
+    /// pass over the whole file can say what the file now holds.
+    NeedsFullRecount,
+}
+
+/// The rules for reading a transcript forward without knowing its newest leaf: which
+/// records to suppress, and which shapes make the effective sequence diverge from the
+/// raw one. The scan and the semantic index's transcript reader both read through it.
+pub(crate) struct ChainWatch {
+    // The effective chain uuid set: seeded from the cache on a resume,
+    // accumulated as records stream, rebuilt from the recount when one
+    // runs. Persisted with the resume mark.
+    pub(crate) effective_seen: std::collections::HashSet<[u8; 16]>,
+    seen_uuids: std::collections::HashSet<String>,
+    resumed: bool,
+    saw_compaction: bool,
+    saw_duplicate_uuid: bool,
+    // A chain record whose parent is not the leaf we carried in — the
+    // rewind-branch shape, only meaningful on a resumed (partial) stream.
+    saw_branch: bool,
+    // Every non-sidechain uuid this slice itself carried, and the leaf it
+    // resumed from. Together they say whether an off-leaf record attaches
+    // inside the slice (a spur among the appended records) or reaches back
+    // into the prefix at a point other than the frontier — the shape that
+    // relocates the live chain and so can resurrect buried prefix records.
+    // Only populated on a resumed slice; a full stream triggers on any
+    // off-leaf record and never consults them.
+    slice_uuids: std::collections::HashSet<[u8; 16]>,
+    seed_leaf_key: Option<[u8; 16]>,
+}
+
+impl ChainWatch {
+    /// For a read from the start of the file.
+    pub(crate) fn full() -> Self {
+        Self {
+            effective_seen: std::collections::HashSet::new(),
+            seen_uuids: std::collections::HashSet::new(),
+            resumed: false,
+            saw_compaction: false,
+            saw_duplicate_uuid: false,
+            saw_branch: false,
+            slice_uuids: std::collections::HashSet::new(),
+            seed_leaf_key: None,
+        }
+    }
+
+    /// For a read that starts at a verified frontier.
+    pub(crate) fn resumed(
+        effective_uuids: std::collections::HashSet<[u8; 16]>,
+        leaf_uuid: Option<&str>,
+    ) -> Self {
+        Self {
+            effective_seen: effective_uuids,
+            resumed: true,
+            seed_leaf_key: leaf_uuid.map(uuid_key),
+            ..Self::full()
+        }
+    }
+
+    /// Whether anything observed so far calls for a pass over the whole file.
+    pub(crate) fn needs_recount(&self) -> bool {
+        self.saw_compaction || self.saw_duplicate_uuid || self.saw_branch
+    }
+
+    /// Take in one chain record, moving `leaf` as the record does.
+    pub(crate) fn observe(
+        &mut self,
+        chain: &crate::dead_branch::ChainRecord,
+        leaf: &mut Option<String>,
+    ) -> Observed {
+        // Inline suppression, the resumed case only: an appended record
+        // whose uuid is already effective is a compaction re-append — the
+        // straddle shape the seed's uuid set exists to catch. It re-states
+        // history the seed already counted, so it feeds neither the engine
+        // nor the triggers; it does become the raw chain leaf, because its
+        // successors parent to it.
+        let known = self.resumed
+            && !chain.is_sidechain
+            && chain
+                .uuid
+                .as_deref()
+                .is_some_and(|uuid| self.effective_seen.contains(&uuid_key(uuid)));
+        // Every chain record the slice carries — suppressed re-appends
+        // included, since a later record may parent to one of them.
+        if self.resumed && !chain.is_sidechain {
+            if let Some(uuid) = chain.uuid.as_deref() {
+                self.slice_uuids.insert(uuid_key(uuid));
+            }
+        }
+        if known {
+            *leaf = chain.uuid.clone();
+            return Observed::Suppressed;
+        }
+        if chain.is_compaction {
+            self.saw_compaction = true;
+        }
+        if let Some(uuid) = chain.uuid.as_deref() {
+            if !chain.is_sidechain {
+                if !self.seen_uuids.insert(uuid.to_owned()) {
+                    self.saw_duplicate_uuid = true;
+                }
+                // Trigger (b): this record's parent is not the chain leaf
+                // we were carrying.
+                //
+                // On a full stream the trigger stays broad — there it only
+                // decides whether the EOF recount runs over buffered
+                // records, which is cheap and never wrong.
+                //
+                // On a resumed slice the trigger costs a full re-stream of
+                // the file, so it fires only for the shapes that can edit
+                // history. Two of them:
+                //
+                // - An off-leaf USER SUBMISSION — the rewind /
+                //   Escape-orphan shape. `compute_dead_entry_indices`
+                //   roots dead branches exclusively at user submissions,
+                //   so only this shape can bury records.
+                // - An off-leaf record whose parent lies in the PREFIX
+                //   rather than in this slice. Deadness is not a local
+                //   property: `compute_live_indices` walks up from the
+                //   file's newest leaf, and a record that re-attaches
+                //   below the frontier moves that walk onto a different
+                //   prefix branch. Off-chain user submissions that rooted
+                //   dead branches then lose their live parent and stop
+                //   qualifying, so prefix records the head parse buried
+                //   come back. Such a record cannot root a dead branch,
+                //   but it can un-kill one, and the recount is the only
+                //   thing that sees it.
+                //
+                // A spur that attaches WITHIN the slice — a hook
+                // attachment, a `tool_result` whose sibling carried the
+                // chain forward, an abandoned API-retry spur — leaves the
+                // prefix's live closure untouched and is effective in the
+                // full pass too, so absorbing it inline (leaf + engine, no
+                // trigger) keeps incremental ≡ full.
+                match chain.parent_uuid.as_deref() {
+                    Some(parent) => {
+                        let reaches_into_prefix = {
+                            let key = uuid_key(parent);
+                            !self.slice_uuids.contains(&key) && self.seed_leaf_key != Some(key)
+                        };
+                        if leaf.as_deref() != Some(parent)
+                            && (!self.resumed || chain.is_user_submission || reaches_into_prefix)
+                        {
+                            self.saw_branch = true;
+                        }
+                    }
+                    // A null parent mid-file roots a new segment — a
+                    // restart, or the record right after a compaction
+                    // boundary. Only the very first chain record of a
+                    // file legitimately has no leaf before it.
+                    None => {
+                        if leaf.is_some() {
+                            self.saw_branch = true;
+                        }
+                    }
+                }
+                *leaf = Some(uuid.to_owned());
+                self.effective_seen.insert(uuid_key(uuid));
+            }
+        }
+        if self.needs_recount() {
+            Observed::NeedsFullRecount
+        } else {
+            Observed::Absorbed
+        }
+    }
 }
 
 /// Stream one candidate JSONL and extract its metadata.
@@ -708,25 +885,7 @@ fn parse_session_file_inner(
     // dropped at EOF unless the recount runs.
     let mut chain_buf: Vec<Option<crate::dead_branch::ChainRecord>> = Vec::new();
     let mut sig_buf: Vec<Option<SigRecord>> = Vec::new();
-    let mut seen_uuids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // The effective chain uuid set: seeded from the cache on a resume,
-    // accumulated as records stream, rebuilt from the recount when one
-    // runs. Persisted with the resume mark.
-    let mut effective_seen: std::collections::HashSet<[u8; 16]> = std::collections::HashSet::new();
-    let mut saw_compaction = false;
-    let mut saw_duplicate_uuid = false;
-    // A chain record whose parent is not the leaf we carried in — the
-    // rewind-branch shape, only meaningful on a resumed (partial) stream.
-    let mut saw_branch = false;
-    // Every non-sidechain uuid this slice itself carried, and the leaf it
-    // resumed from. Together they say whether an off-leaf record attaches
-    // inside the slice (a spur among the appended records) or reaches back
-    // into the prefix at a point other than the frontier — the shape that
-    // relocates the live chain and so can resurrect buried prefix records.
-    // Only populated on a resumed slice; a full stream triggers on any
-    // off-leaf record and never consults them.
-    let mut slice_uuids: std::collections::HashSet<[u8; 16]> = std::collections::HashSet::new();
-    let mut seed_leaf_key: Option<[u8; 16]> = None;
+    let mut watch = ChainWatch::full();
 
     let mut turn_count: i64 = 0;
     let mut last_prompt: Option<String> = None;
@@ -750,7 +909,9 @@ fn parse_session_file_inner(
     let mut frontier = Frontier::default();
 
     if let Some(seed) = resume {
-        if let Some(verified_window) = try_resume(&mut file, seed, file_size)? {
+        if let Some(verified_window) =
+            try_resume(&mut file, seed.offset, seed.tail_hash, file_size)?
+        {
             turn_count = seed.turn_count;
             last_prompt = seed.last_user_prompt.clone();
             name = seed.name.clone();
@@ -760,8 +921,10 @@ fn parse_session_file_inner(
             window = verified_window;
             resumed = true;
             frontier = seed.frontier.clone();
-            seed_leaf_key = seed.frontier.leaf_uuid.as_deref().map(uuid_key);
-            effective_seen = seed.effective_uuids.clone();
+            watch = ChainWatch::resumed(
+                seed.effective_uuids.clone(),
+                seed.frontier.leaf_uuid.as_deref(),
+            );
             lineage_ancestors = seed.lineage_ancestors.clone();
             // The prefix was accepted when the seed's row was written, so
             // the stem is known to appear; the slice need not see it again.
@@ -841,99 +1004,9 @@ fn parse_session_file_inner(
         // assistant-originated openers (wakes, `/compact` continuations,
         // leading orphans) the prior user-record-only rule could not.
         let chain_rec = crate::dead_branch::parse_chain_record(trimmed);
-        // Inline suppression, the resumed case only: an appended record
-        // whose uuid is already effective is a compaction re-append — the
-        // straddle shape the seed's uuid set exists to catch. It re-states
-        // history the seed already counted, so it feeds neither the engine
-        // nor the triggers; it does become the raw chain leaf, because its
-        // successors parent to it.
         let mut suppressed = false;
         if let Some(chain) = chain_rec.as_ref() {
-            let known = resumed
-                && !chain.is_sidechain
-                && chain
-                    .uuid
-                    .as_deref()
-                    .is_some_and(|uuid| effective_seen.contains(&uuid_key(uuid)));
-            // Every chain record the slice carries — suppressed re-appends
-            // included, since a later record may parent to one of them.
-            if resumed && !chain.is_sidechain {
-                if let Some(uuid) = chain.uuid.as_deref() {
-                    slice_uuids.insert(uuid_key(uuid));
-                }
-            }
-            if known {
-                suppressed = true;
-                frontier.leaf_uuid = chain.uuid.clone();
-            } else {
-                if chain.is_compaction {
-                    saw_compaction = true;
-                }
-                if let Some(uuid) = chain.uuid.as_deref() {
-                    if !chain.is_sidechain {
-                        if !seen_uuids.insert(uuid.to_owned()) {
-                            saw_duplicate_uuid = true;
-                        }
-                        // Trigger (b): this record's parent is not the chain leaf
-                        // we were carrying.
-                        //
-                        // On a full stream the trigger stays broad — there it only
-                        // decides whether the EOF recount runs over buffered
-                        // records, which is cheap and never wrong.
-                        //
-                        // On a resumed slice the trigger costs a full re-stream of
-                        // the file, so it fires only for the shapes that can edit
-                        // history. Two of them:
-                        //
-                        // - An off-leaf USER SUBMISSION — the rewind /
-                        //   Escape-orphan shape. `compute_dead_entry_indices`
-                        //   roots dead branches exclusively at user submissions,
-                        //   so only this shape can bury records.
-                        // - An off-leaf record whose parent lies in the PREFIX
-                        //   rather than in this slice. Deadness is not a local
-                        //   property: `compute_live_indices` walks up from the
-                        //   file's newest leaf, and a record that re-attaches
-                        //   below the frontier moves that walk onto a different
-                        //   prefix branch. Off-chain user submissions that rooted
-                        //   dead branches then lose their live parent and stop
-                        //   qualifying, so prefix records the head parse buried
-                        //   come back. Such a record cannot root a dead branch,
-                        //   but it can un-kill one, and the recount is the only
-                        //   thing that sees it.
-                        //
-                        // A spur that attaches WITHIN the slice — a hook
-                        // attachment, a `tool_result` whose sibling carried the
-                        // chain forward, an abandoned API-retry spur — leaves the
-                        // prefix's live closure untouched and is effective in the
-                        // full pass too, so absorbing it inline (leaf + engine, no
-                        // trigger) keeps incremental ≡ full.
-                        match chain.parent_uuid.as_deref() {
-                            Some(parent) => {
-                                let reaches_into_prefix = {
-                                    let key = uuid_key(parent);
-                                    !slice_uuids.contains(&key) && seed_leaf_key != Some(key)
-                                };
-                                if frontier.leaf_uuid.as_deref() != Some(parent)
-                                    && (!resumed || chain.is_user_submission || reaches_into_prefix)
-                                {
-                                    saw_branch = true;
-                                }
-                            }
-                            // A null parent mid-file roots a new segment — a
-                            // restart, or the record right after a compaction
-                            // boundary. Only the very first chain record of a
-                            // file legitimately has no leaf before it.
-                            None => {
-                                if frontier.leaf_uuid.is_some() {
-                                    saw_branch = true;
-                                }
-                            }
-                        }
-                        frontier.leaf_uuid = Some(uuid.to_owned());
-                        effective_seen.insert(uuid_key(uuid));
-                    }
-                }
-            }
+            suppressed = watch.observe(chain, &mut frontier.leaf_uuid) == Observed::Suppressed;
         }
 
         // A trigger on an unbuffered pass: restart as a buffered full
@@ -944,13 +1017,13 @@ fn parse_session_file_inner(
         // absorb — a NEW compaction boundary, a rewind branch — which can
         // rewrite the prefix's effective membership and so genuinely need
         // the whole file (once; the buffered pass records a fresh seed).
-        if !buffering && (saw_compaction || saw_duplicate_uuid || saw_branch) {
+        if !buffering && watch.needs_recount() {
             if resumed {
                 tracing::debug!(
                     path = %path.display(),
-                    saw_compaction,
-                    saw_duplicate_uuid,
-                    saw_branch,
+                    saw_compaction = watch.saw_compaction,
+                    saw_duplicate_uuid = watch.saw_duplicate_uuid,
+                    saw_branch = watch.saw_branch,
                     "external scan: appended slice needs a full re-segment",
                 );
             }
@@ -1042,13 +1115,13 @@ fn parse_session_file_inner(
     // and duplicate-free, so its streamed count is already the effective
     // count. Only a buffered pass can reach EOF with a trigger set — the
     // unbuffered passes restart the moment one fires.
-    let needs_effective_recount = saw_compaction || saw_duplicate_uuid || saw_branch;
+    let needs_effective_recount = watch.needs_recount();
 
     if needs_effective_recount {
         let effective = crate::dead_branch::effective_indices(&chain_buf);
         // The streamed uuid set was accumulated raw; the recount knows
         // which occurrences are actually effective, so rebuild from it.
-        effective_seen.clear();
+        watch.effective_seen.clear();
         for &i in &effective {
             let Some(Some(chain)) = chain_buf.get(i) else {
                 continue;
@@ -1057,7 +1130,7 @@ fn parse_session_file_inner(
                 continue;
             }
             if let Some(uuid) = chain.uuid.as_deref() {
-                effective_seen.insert(uuid_key(uuid));
+                watch.effective_seen.insert(uuid_key(uuid));
             }
         }
         let records = effective
@@ -1085,7 +1158,7 @@ fn parse_session_file_inner(
             // in `[0, consumed)` — an unterminated tail was deferred before
             // it could touch any of this state.
             frontier: frontier.clone(),
-            effective_uuids: Some(encode_uuid_set(&effective_seen)),
+            effective_uuids: Some(encode_uuid_set(&watch.effective_seen)),
         }
     } else {
         ResumeMark {
