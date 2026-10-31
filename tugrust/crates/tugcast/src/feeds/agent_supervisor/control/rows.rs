@@ -381,7 +381,9 @@ impl AgentSupervisor {
             Ok(()) => {
                 // Text that is not in the index cannot leak through a search. A
                 // failure here is caught by the index's next run, which purges
-                // whatever a private session still holds.
+                // whatever a private session still holds. Going public again does not
+                // index the session again: that is deferred, not intended
+                // (`briefs/semantic-search-fixups-brief.md`, [B09]).
                 if private {
                     self.remove_from_semantic_index(session_id);
                 }

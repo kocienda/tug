@@ -10,5 +10,7 @@
   { "question": "what does a person see when a part has run out of attempts?", "expect": { "kind": "file", "target": "briefs/upload-retries.md" } },
   { "question": "which side wins when two edits to a note disagree after being offline?", "expect": { "kind": "file", "target": "briefs/offline-store.md:15" } },
   { "question": "how often do we ship, and when is the cutoff?", "expect": { "kind": "file", "target": "briefs/release-train.md" } },
-  { "question": "who is allowed to hold back a release?", "expect": { "kind": "file", "target": "briefs/release-train.md:11" } }
+  { "question": "who is allowed to hold back a release?", "expect": { "kind": "file", "target": "briefs/release-train.md:11" } },
+  { "question": "¿quién escribe las notas de lanzamiento y quién las revisa antes de publicarlas?", "expect": { "kind": "file", "target": "briefs/notas-de-lanzamiento.md" }, "lang": "es" },
+  { "question": "which language do the release notes get written in first, before they are translated?", "expect": { "kind": "file", "target": "briefs/notas-de-lanzamiento.md" }, "lang": "en" }
 ]

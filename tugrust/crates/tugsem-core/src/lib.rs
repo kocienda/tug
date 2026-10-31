@@ -8,10 +8,11 @@
 //!
 //! A source goes through [`chunk()`], and each passage's
 //! [`embedding_text`](Passage::embedding_text) goes to the embedder. A question
-//! is ranked twice: BM25 over the store's text shadow, and [`rank_by_similarity`]
-//! over its vectors. [`fuse`] combines the two rank lists, and [`reassemble`]
-//! turns the winning passages back into the spans a person reads.
+//! is ranked twice: BM25 over the store's text shadow, and a [`VectorArena`] scan
+//! over its vectors, stored [`quantize`]d. [`fuse`] combines the two rank lists, and
+//! [`reassemble`] turns the winning passages back into the spans a person reads.
 
+mod arena;
 mod chunk;
 mod markdown;
 mod reassemble;
@@ -19,11 +20,10 @@ mod reduce;
 mod score;
 mod store;
 
+pub use arena::{ArenaRow, VectorArena, dequantize, quantize};
 pub use chunk::{CHUNKING_VERSION, MAX_TOKENS, Passage, chunk, estimate_tokens};
 pub use markdown::{Section, markdown_sections};
 pub use reassemble::{Hit, Span, reassemble};
 pub use reduce::{ReducedTool, lexical_spans, reduce_tool_result};
-pub use score::{Candidate, Fused, Query, Scored, TopK, cosine, fuse, rank_by_similarity};
-pub use store::{
-    CREATE_SCHEMA, MIGRATIONS, SCHEMA_VERSION, decode_vector, decode_vector_into, encode_vector,
-};
+pub use score::{Fused, Scored, TopK, cosine, fuse};
+pub use store::{CREATE_SCHEMA, MIGRATIONS, SCHEMA_VERSION, decode_vector, encode_vector};

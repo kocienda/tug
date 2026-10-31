@@ -17,6 +17,13 @@ import { describe, expect, test } from "bun:test";
 
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { sessionTagStore } from "@/lib/session-tag-store";
+import {
+  ANNOTATION_DATASET_KEYS,
+  annotationValue,
+  datasetForPayload,
+  payloadFromDataset,
+  type AnnotationPayload,
+} from "../payloads";
 import { annotationEntryFor, buildEntityMenu } from "../registry";
 import type { AnnotationKind } from "../types";
 
@@ -29,6 +36,7 @@ const ALL_KINDS: ReadonlyArray<AnnotationKind> = [
   "directory",
   "image",
   "commit-sha",
+  "help",
 ];
 
 /** A payload per kind, for the tables that walk every kind. */
@@ -50,6 +58,7 @@ const SAMPLE: Record<AnnotationKind, unknown> = {
     kind: "session",
     target: "123e4567-e89b-42d3-a456-426614174000",
   },
+  help: { kind: "help", doc: "recipes", anchor: "create-an-arc" },
 };
 
 type SamplePayload = Parameters<
@@ -97,6 +106,50 @@ describe("every stampable kind is registered", () => {
       expect(annotationEntryFor(kind)).not.toBeNull();
     });
   }
+});
+
+describe("a help ref is a kind like any other", () => {
+  test("a click opens it, and its menu opens, copies and inserts it", () => {
+    expect(annotationEntryFor("help")?.primaryClick).toBeFunction();
+    expect(bareEntries("help").map((e) => e.label)).toEqual([
+      "Open Help",
+      "Copy Reference",
+      "Insert into Prompt",
+    ]);
+  });
+
+  // The record `readAnnotation` builds from an element's dataset: only the
+  // declared keys are read, so one left off that list would not come back.
+  const roundTrip = (payload: AnnotationPayload): AnnotationPayload | null => {
+    const stamped = datasetForPayload(payload);
+    const record: Record<string, string> = {};
+    for (const key of ANNOTATION_DATASET_KEYS) {
+      const value = stamped[key];
+      if (value !== undefined) record[key] = value;
+    }
+    return payloadFromDataset(payload.kind, record);
+  };
+
+  test("the payload round-trips through the dataset, with an anchor", () => {
+    const payload: AnnotationPayload = {
+      kind: "help",
+      doc: "recipes",
+      anchor: "create-an-arc",
+    };
+    expect(roundTrip(payload)).toEqual(payload);
+    expect(annotationValue(payload)).toBe("recipes#create-an-arc");
+  });
+
+  test("the payload round-trips through the dataset, without one", () => {
+    const payload: AnnotationPayload = { kind: "help", doc: "glossary" };
+    expect(roundTrip(payload)).toEqual(payload);
+    expect(annotationValue(payload)).toBe("glossary");
+  });
+
+  test("a dataset naming no help document is a miss", () => {
+    expect(payloadFromDataset("help", {})).toBeNull();
+    expect(payloadFromDataset("help", { helpDoc: "manual" })).toBeNull();
+  });
 });
 
 describe("command kinds replace the standard menu block", () => {

@@ -7,6 +7,7 @@
 //! the first time is logged, and every caller just gets no vectors.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -14,7 +15,9 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStderr};
 use tokio::sync::{oneshot, watch};
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 /// How long a helper has to announce its model, which loads it.
@@ -26,9 +29,13 @@ const EMBED_TIMEOUT: Duration = Duration::from_secs(60);
 /// The first wait before restarting a helper that died, doubled per failure.
 const RESTART_BACKOFF: Duration = Duration::from_secs(1);
 
-/// Consecutive deaths after which the client stops restarting by itself. The next
-/// caller still tries once, so a helper that recovers is picked up.
+/// Consecutive deaths after which the client stops restarting by itself. A caller
+/// past the wait still tries once, so a helper that recovers is picked up.
 const MAX_RESTARTS: u32 = 5;
+
+/// How many lines of one helper's stderr reach the log. The rest are read and
+/// dropped, because a helper that writes to a full pipe blocks.
+const MAX_STDERR_LINES: u32 = 20;
 
 /// A running helper's pipes. Dropping it ends the helper.
 pub(crate) struct EmbedderPipes {
@@ -48,20 +55,69 @@ pub(crate) struct HelperSpawner;
 impl EmbedderSpawner for HelperSpawner {
     fn spawn(&self) -> std::io::Result<EmbedderPipes> {
         let exe = std::env::current_exe()?;
-        let helper = exe.with_file_name("tugembed");
-        let mut child = tokio::process::Command::new(helper)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
-        let stdin = child.stdin.take().expect("stdin was piped");
-        let stdout = child.stdout.take().expect("stdout was piped");
-        Ok(EmbedderPipes {
-            stdin: Box::new(stdin),
-            stdout: Box::new(stdout),
-            guard: Box::new(child),
-        })
+        spawn_helper(&exe.with_file_name("tugembed"))
+    }
+}
+
+/// Start the helper at `path`. One task owns the child and logs how it ended, and
+/// another keeps its stderr drained into the log; the pipes' guard is what tells
+/// the first to end it.
+fn spawn_helper(path: &Path) -> std::io::Result<EmbedderPipes> {
+    let mut child = tokio::process::Command::new(path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+    let stdin = child.stdin.take().expect("stdin was piped");
+    let stdout = child.stdout.take().expect("stdout was piped");
+    let stderr = child.stderr.take().expect("stderr was piped");
+    let (guard, retired) = oneshot::channel::<()>();
+    tokio::spawn(log_stderr(stderr));
+    tokio::spawn(own_child(child, retired));
+    Ok(EmbedderPipes {
+        stdin: Box::new(stdin),
+        stdout: Box::new(stdout),
+        guard: Box::new(guard),
+    })
+}
+
+/// Wait on a helper until it ends or is retired. One that was already dead when it
+/// was retired died by itself, and is logged as that rather than as our kill.
+async fn own_child(mut child: Child, retired: oneshot::Receiver<()>) {
+    let status = tokio::select! {
+        status = child.wait() => status,
+        _ = retired => match child.try_wait() {
+            Ok(Some(status)) => Ok(status),
+            _ => {
+                let _ = child.kill().await;
+                return;
+            }
+        },
+    };
+    match status {
+        Ok(status) if status.success() => info!("tugembed exited: {status}"),
+        Ok(status) => warn!("tugembed exited: {status}"),
+        Err(err) => warn!("tugembed could not be waited on: {err}"),
+    }
+}
+
+/// Log the first lines of a helper's stderr and read the rest, whatever bytes they
+/// are, to its end.
+async fn log_stderr(stderr: ChildStderr) {
+    let mut stderr = BufReader::new(stderr);
+    let mut line = Vec::new();
+    let mut logged = 0;
+    loop {
+        line.clear();
+        match stderr.read_until(b'\n', &mut line).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+        if logged < MAX_STDERR_LINES {
+            logged += 1;
+            warn!("tugembed: {}", String::from_utf8_lossy(&line).trim_end());
+        }
     }
 }
 
@@ -115,6 +171,9 @@ pub(crate) struct EmbedderClient {
     next_id: AtomicU64,
     next_generation: AtomicU64,
     deaths: AtomicU32,
+    /// No helper starts before this, for anyone who asks: it is set by a death or a
+    /// failed start, and the restart timer sleeps the same wait.
+    not_before: Mutex<Option<Instant>>,
     said_unavailable: AtomicBool,
     restart_backoff: Duration,
 }
@@ -133,6 +192,7 @@ impl EmbedderClient {
             next_id: AtomicU64::new(1),
             next_generation: AtomicU64::new(1),
             deaths: AtomicU32::new(0),
+            not_before: Mutex::new(None),
             said_unavailable: AtomicBool::new(false),
             restart_backoff,
         })
@@ -149,16 +209,25 @@ impl EmbedderClient {
     }
 
     /// Make sure a helper is running and has said what its model is, and answer
-    /// that model.
+    /// that model. Inside the wait after a death or a failed start this starts
+    /// nothing and answers none.
     pub(crate) async fn start(self: &Arc<Self>) -> Option<String> {
         let _starting = self.starting.lock().await;
         if self.running.lock().is_some() {
             return self.live_model();
         }
+        if self
+            .not_before
+            .lock()
+            .is_some_and(|not_before| Instant::now() < not_before)
+        {
+            return None;
+        }
         let pipes = match self.spawner.spawn() {
             Ok(pipes) => pipes,
             Err(err) => {
                 self.say_unavailable(&format!("tugembed could not start: {err}"));
+                self.count_death();
                 return None;
             }
         };
@@ -166,6 +235,7 @@ impl EmbedderClient {
         let announced = tokio::time::timeout(START_TIMEOUT, stdout.next_line()).await;
         let Ok(Ok(Some(first))) = announced else {
             self.say_unavailable("tugembed never announced a model");
+            self.count_death();
             return None;
         };
         let model = serde_json::from_str::<Line>(&first)
@@ -261,6 +331,15 @@ impl EmbedderClient {
         }
     }
 
+    /// A helper died or never came up: count it and shut the door for its wait.
+    /// Answers the deaths before this one, and the wait.
+    fn count_death(&self) -> (u32, Duration) {
+        let deaths = self.deaths.fetch_add(1, Ordering::Relaxed);
+        let wait = self.restart_backoff * 2u32.pow(deaths.min(MAX_RESTARTS));
+        *self.not_before.lock() = Some(Instant::now() + wait);
+        (deaths, wait)
+    }
+
     /// A helper's output ended. Everything waiting on it has already failed by the
     /// time this runs, because the reader dropped `pending`.
     fn after_death(self: &Arc<Self>, generation: u64) {
@@ -270,12 +349,11 @@ impl EmbedderClient {
             return;
         }
         self.model.send_replace(None);
-        let deaths = self.deaths.fetch_add(1, Ordering::Relaxed);
+        let (deaths, wait) = self.count_death();
         if deaths >= MAX_RESTARTS {
             warn!("tugembed has died {MAX_RESTARTS} times running; leaving it down");
             return;
         }
-        let wait = self.restart_backoff * 2u32.pow(deaths);
         let client = Arc::downgrade(self);
         tokio::spawn(async move {
             tokio::time::sleep(wait).await;
@@ -331,18 +409,7 @@ pub(crate) mod compiled {
 
     impl EmbedderSpawner for Compiled {
         fn spawn(&self) -> std::io::Result<EmbedderPipes> {
-            let mut child = tokio::process::Command::new(&self.0)
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()?;
-            let stdin = child.stdin.take().unwrap();
-            let stdout = child.stdout.take().unwrap();
-            Ok(EmbedderPipes {
-                stdin: Box::new(stdin),
-                stdout: Box::new(stdout),
-                guard: Box::new(child),
-            })
+            spawn_helper(&self.0)
         }
     }
 
@@ -376,6 +443,42 @@ pub(crate) mod fake {
     use super::*;
     use tokio::io::duplex;
 
+    /// What the log says, for as long as the guard from `capture` lives on this thread.
+    #[derive(Clone, Default)]
+    pub(crate) struct LogSink(Arc<Mutex<Vec<u8>>>);
+
+    impl LogSink {
+        pub(crate) fn capture() -> (Self, tracing::subscriber::DefaultGuard) {
+            let sink = Self::default();
+            let subscriber = tracing_subscriber::fmt()
+                .with_writer(sink.clone())
+                .with_ansi(false)
+                .without_time()
+                .finish();
+            (sink, tracing::subscriber::set_default(subscriber))
+        }
+
+        pub(crate) fn text(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock()).into_owned()
+        }
+    }
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogSink {
+        type Writer = LogSink;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
     #[derive(Default)]
     pub(crate) struct FakeState {
         /// The model it announces, or none for a machine with no model.
@@ -386,6 +489,8 @@ pub(crate) mod fake {
         pub spawns: AtomicU32,
         /// Refuse to spawn, as a missing binary does.
         pub missing: AtomicBool,
+        /// Close its output before announcing, as a helper that dies on load does.
+        pub dies_on_load: AtomicBool,
         /// Sends to the live helper: a new model to announce, or `None` to die.
         pub control: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Option<String>>>>,
         /// Never answer a request.
@@ -450,6 +555,9 @@ pub(crate) mod fake {
             *self.0.control.lock() = Some(control_tx);
             let state = Arc::clone(&self.0);
             tokio::spawn(async move {
+                if state.dies_on_load.load(Ordering::Relaxed) {
+                    return;
+                }
                 let announce = |model: Option<String>| {
                     let line = match model {
                         Some(model) => {
@@ -517,7 +625,7 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
-    use super::fake::{FakeState, client, vector_of};
+    use super::fake::{FakeSpawner, FakeState, LogSink, client, vector_of};
     use super::*;
 
     async fn model_becomes(client: &EmbedderClient, wanted: Option<&str>) {
@@ -629,10 +737,11 @@ mod tests {
         assert!(client.running.lock().is_none());
     }
 
-    #[tokio::test]
-    async fn a_helper_that_keeps_dying_is_left_down_until_someone_asks() {
+    #[tokio::test(start_paused = true)]
+    async fn a_helper_that_keeps_dying_waits_out_its_backoff_for_anyone_who_asks() {
         let state = FakeState::new(Some("nl-a"));
-        let client = client(&state);
+        let backoff = Duration::from_secs(1);
+        let client = EmbedderClient::with_backoff(FakeSpawner(Arc::clone(&state)), backoff);
         client.deaths.store(MAX_RESTARTS, Ordering::Relaxed);
         client.start().await;
         let mut models = client.watch_model();
@@ -640,8 +749,102 @@ mod tests {
         models.wait_for(|model| model.is_none()).await.unwrap();
         tokio::task::yield_now().await;
         assert_eq!(state.spawns.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            client.embed(vec!["text".to_string()]).await,
+            Err(EmbedError::Unavailable)
+        );
+        assert_eq!(state.spawns.load(Ordering::Relaxed), 1);
+
+        tokio::time::advance(backoff * 2u32.pow(MAX_RESTARTS)).await;
         assert!(client.embed(vec!["text".to_string()]).await.is_ok());
         assert_eq!(state.spawns.load(Ordering::Relaxed), 2);
         assert_eq!(client.deaths.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_helper_that_dies_on_load_counts_and_waits() {
+        let state = FakeState::new(Some("nl-a"));
+        state.dies_on_load.store(true, Ordering::Relaxed);
+        let backoff = Duration::from_secs(1);
+        let client = EmbedderClient::with_backoff(FakeSpawner(Arc::clone(&state)), backoff);
+
+        assert_eq!(client.start().await, None);
+        assert_eq!(client.start().await, None);
+        assert_eq!(state.spawns.load(Ordering::Relaxed), 1);
+        assert_eq!(client.deaths.load(Ordering::Relaxed), 1);
+
+        tokio::time::advance(backoff).await;
+        assert_eq!(client.start().await, None);
+        assert_eq!(state.spawns.load(Ordering::Relaxed), 2);
+        assert_eq!(client.deaths.load(Ordering::Relaxed), 2);
+        assert_eq!(client.start().await, None);
+        assert_eq!(state.spawns.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn a_helper_says_why_it_died() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("dies");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\necho 'dyld: missing library' >&2\nexit 7\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (log, _guard) = LogSink::capture();
+        let _pipes = spawn_helper(&script).unwrap();
+        while !(log.text().contains("dyld: missing library")
+            && log.text().contains("exit status: 7"))
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    /// Whether a question still misses its horizon behind ingest batches now the
+    /// helper runs at normal priority: a query embed timed behind continuous batches
+    /// of the size the worker sends.
+    #[tokio::test]
+    #[ignore = "compiles and runs the real helper"]
+    async fn query_embed_behind_ingest_reading() {
+        const QUERIES: usize = 30;
+        let dir = tempfile::tempdir().unwrap();
+        let client = super::compiled::client(dir.path());
+        assert!(client.start().await.is_some());
+
+        let passage = (0..500)
+            .map(|n| format!("word{}", n % 97))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let ingest = tokio::spawn({
+            let client = Arc::clone(&client);
+            async move {
+                loop {
+                    let batch = vec![passage.clone(); super::super::ingest::EMBED_BATCH];
+                    client.embed(batch).await.unwrap();
+                }
+            }
+        });
+
+        let mut times = Vec::with_capacity(QUERIES);
+        for n in 0..QUERIES {
+            let started = std::time::Instant::now();
+            client
+                .embed(vec![format!("how do I open arc number {n}?")])
+                .await
+                .unwrap();
+            times.push(started.elapsed());
+        }
+        ingest.abort();
+        times.sort();
+        println!(
+            "query embed behind ingest: p50 {:?}, p95 {:?}, max {:?}",
+            times[QUERIES / 2],
+            times[QUERIES * 95 / 100],
+            times[QUERIES - 1]
+        );
     }
 }

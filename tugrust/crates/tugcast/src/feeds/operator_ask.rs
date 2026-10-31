@@ -131,6 +131,11 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
                 if let Some(used) = value.get("query_used").and_then(serde_json::Value::as_str) {
                     println!("             query_used: {used}");
                 }
+                if let Some(by_meaning) =
+                    value.get("by_meaning").and_then(serde_json::Value::as_bool)
+                {
+                    println!("             by_meaning: {by_meaning}");
+                }
                 if let Some(note) = value.get("note").and_then(serde_json::Value::as_str) {
                     println!("             note: {note}");
                 }
@@ -219,8 +224,13 @@ async fn prepare_search(
         .semantic_db
         .clone()
         .unwrap_or_else(|| parent_of(&args.db).join("semantic.db"));
-    let index = match SemanticIndex::open(&path) {
-        Ok(index) => Arc::new(index),
+    let opened = SemanticIndex::open_unsettled(&path)
+        .and_then(|index| index.settle().map(|report| (index, report)));
+    let index = match opened {
+        Ok((index, report)) => {
+            println!("index: {report}");
+            Arc::new(index)
+        }
         Err(error) => {
             println!("search: plain, the index would not open: {error}\n");
             return None;

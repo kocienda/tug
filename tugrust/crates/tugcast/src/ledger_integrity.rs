@@ -17,12 +17,17 @@
 //! writes land in the quarantined file, never the fresh one. Two processes
 //! racing the gate is also safe — the loser's rename fails with `NotFound`
 //! and it simply opens the fresh file the winner left behind.
+//!
+//! `semantic.db` is the one ledger that does not pass through the gate. It may
+//! be past a gigabyte and is rebuildable, so its check runs on a background
+//! pass through [`quick_check_read_only`], and it calls [`quarantine`] itself
+//! on a corrupt verdict.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::Connection;
 use rusqlite::types::Value;
+use rusqlite::{Connection, OpenFlags};
 
 /// Process-global ledger health — the runtime corruption guard.
 ///
@@ -174,7 +179,7 @@ fn is_contention(err: &rusqlite::Error) -> bool {
 /// Corruption-class errors — the file's *content* is damaged, which is
 /// what quarantine exists for. Everything else (IO, permissions) is an
 /// environmental failure that must never trigger it.
-fn is_corruption(err: &rusqlite::Error) -> bool {
+pub fn is_corruption(err: &rusqlite::Error) -> bool {
     matches!(
         err,
         rusqlite::Error::SqliteFailure(e, _)
@@ -183,6 +188,32 @@ fn is_corruption(err: &rusqlite::Error) -> bool {
                 rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase
             )
     )
+}
+
+/// What a read-only look at a database found.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Probe {
+    Healthy,
+    /// Its content is damaged: the first complaint, or the error that said so.
+    Corrupt(String),
+    /// It could not be looked at, which says nothing about its content.
+    Unverified(String),
+}
+
+/// `PRAGMA quick_check(1)` over a connection that cannot write, for a file whose
+/// check runs beside live work. The verdict is the caller's to act on.
+pub fn quick_check_read_only(db_path: &Path) -> Probe {
+    let verdict =
+        Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).and_then(|conn| {
+            conn.busy_timeout(Duration::from_secs(5))?;
+            conn.query_row("PRAGMA quick_check(1)", [], |r| r.get::<_, String>(0))
+        });
+    match verdict {
+        Ok(verdict) if verdict == "ok" => Probe::Healthy,
+        Ok(verdict) => Probe::Corrupt(verdict),
+        Err(err) if is_corruption(&err) => Probe::Corrupt(format!("unopenable: {err}")),
+        Err(err) => Probe::Unverified(err.to_string()),
+    }
 }
 
 /// Run `PRAGMA quick_check(1)` on the file. `Ok(None)` means healthy;
@@ -201,7 +232,7 @@ fn quick_check(db_path: &Path) -> Result<Option<String>, rusqlite::Error> {
 /// Rename the db and its WAL/shm siblings aside. The three files must move
 /// together: a stale `-wal` left beside a fresh db would be replayed into
 /// it on the next open, re-importing the damage.
-fn quarantine(db_path: &Path, label: &str, detail: &str) -> GateOutcome {
+pub fn quarantine(db_path: &Path, label: &str, detail: &str) -> GateOutcome {
     let ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -525,6 +556,24 @@ mod tests {
         make_db(&db, 5);
         assert!(matches!(integrity_gate(&db, "test"), GateOutcome::Healthy));
         assert!(db.exists());
+    }
+
+    #[test]
+    fn the_read_only_probe_tells_healthy_corrupt_and_unverified_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("x.db");
+        make_db(&db, 5);
+        assert_eq!(quick_check_read_only(&db), Probe::Healthy);
+
+        let garbage = dir.path().join("garbage.db");
+        std::fs::write(&garbage, b"this is not a sqlite database at all").unwrap();
+        assert!(matches!(quick_check_read_only(&garbage), Probe::Corrupt(_)));
+        assert!(garbage.exists(), "the verdict is the caller's to act on");
+
+        assert!(matches!(
+            quick_check_read_only(&dir.path().join("missing.db")),
+            Probe::Unverified(_)
+        ));
     }
 
     #[test]

@@ -377,6 +377,16 @@ export function useAnnotationMenu({
     });
   }, [cardId]);
 
+  const handleOpenAnnotatedHelp = useCallback((): ActionHandlerResult => {
+    const payload = contextAnnotationRef.current;
+    if (payload === null || payload.kind !== "help") return;
+    dispatchCommand(TUG_ACTIONS.OPEN_HELP, {
+      doc: payload.doc,
+      ...(payload.anchor !== undefined ? { anchor: payload.anchor } : {}),
+      ...(cardId !== null ? { originCardId: cardId } : {}),
+    });
+  }, [cardId]);
+
   const handleOpenImagePreview = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
     if (payload === null || payload.kind !== "image") return;
@@ -402,6 +412,7 @@ export function useAnnotationMenu({
       [TUG_ACTIONS.OPEN_IMAGE_PREVIEW]: handleOpenImagePreview,
       [TUG_ACTIONS.OPEN_DIFF]: handleOpenAnnotatedDiff,
       [TUG_ACTIONS.OPEN_COMMIT]: handleOpenAnnotatedCommit,
+      [TUG_ACTIONS.OPEN_HELP]: handleOpenAnnotatedHelp,
       [TUG_ACTIONS.COPY_COMMIT_SHORT_HASH]: handleCopyCommitShortHash,
       [TUG_ACTIONS.COPY_COMMIT_HASH]: handleCopyCommitHash,
     }),
@@ -417,6 +428,7 @@ export function useAnnotationMenu({
       handleOpenImagePreview,
       handleOpenAnnotatedDiff,
       handleOpenAnnotatedCommit,
+      handleOpenAnnotatedHelp,
       handleCopyCommitShortHash,
       handleCopyCommitHash,
     ],

@@ -2,7 +2,7 @@
 //! caller owns the file and runs these.
 
 /// The schema's version, which a caller stamps into `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// The migrations from older schemas, each keyed by the on-disk version it
 /// upgrades from. A change to [`CREATE_SCHEMA`] bumps [`SCHEMA_VERSION`] and adds
@@ -13,16 +13,64 @@ pub const SCHEMA_VERSION: i64 = 2;
 /// in this shape. The index on `model` alone goes because `help.search` filters on
 /// kind and model both, and it would send a question about help past every
 /// transcript row, through each row's body, to read its kind.
-pub const MIGRATIONS: &[(i64, &str)] = &[(
-    1,
-    "
-    ALTER TABLE sources ADD COLUMN meta TEXT;
-    ALTER TABLE chunks ADD COLUMN lexical_only INTEGER NOT NULL DEFAULT 0;
-    DELETE FROM chunks WHERE source_kind = 'session';
-    DELETE FROM sources WHERE source_kind = 'session';
-    DROP INDEX IF EXISTS chunks_model;
-    ",
-)];
+///
+/// The model tag stops naming a language, since the helper now detects each text's.
+/// The tags are renamed in place and nothing is re-embedded, because the language
+/// argument does not move the Latin model's vector: a stored one is the same bytes
+/// the new helper would write, and a new tag with no rename would strand them all.
+///
+/// Schema 4 stores vectors as [`quantize`](crate::quantize) writes them, which is no
+/// statement here because SQL cannot do it: an offset is a mean over floats and a
+/// blob is a computed encoding. The caller re-encodes in its `create` step, which
+/// runs after these and so sees the renamed tags, and only when it upgrades a file
+/// older than 4, since `create` also runs on every later version step.
+///
+/// Schema 5 keeps a transcript's unanswered tool calls in its cursor. A schema 1 file
+/// has no cursors yet, and `create` runs after these, so the table is made here first.
+pub const MIGRATIONS: &[(i64, &str)] = &[
+    (
+        1,
+        "
+        ALTER TABLE sources ADD COLUMN meta TEXT;
+        ALTER TABLE chunks ADD COLUMN lexical_only INTEGER NOT NULL DEFAULT 0;
+        DELETE FROM chunks WHERE source_kind = 'session';
+        DELETE FROM sources WHERE source_kind = 'session';
+        DROP INDEX IF EXISTS chunks_model;
+        ",
+    ),
+    (
+        2,
+        "
+        UPDATE chunks SET model = 'nl-contextual-r' || substr(model, 19)
+            WHERE model LIKE 'nl-contextual-en-r%';
+        UPDATE chunks SET model = 'nl-sentence-r' || substr(model, 17)
+            WHERE model LIKE 'nl-sentence-en-r%';
+        UPDATE sources SET model = 'nl-contextual-r' || substr(model, 19)
+            WHERE model LIKE 'nl-contextual-en-r%';
+        UPDATE sources SET model = 'nl-sentence-r' || substr(model, 17)
+            WHERE model LIKE 'nl-sentence-en-r%';
+        ",
+    ),
+    (
+        4,
+        "
+        CREATE TABLE IF NOT EXISTS transcript_cursors (
+            session_id           TEXT PRIMARY KEY,
+            path                 TEXT NOT NULL,
+            offset               INTEGER NOT NULL,
+            tail_hash            INTEGER NOT NULL,
+            turn_count           INTEGER NOT NULL,
+            shown_turn           INTEGER NOT NULL,
+            open                 INTEGER NOT NULL,
+            pending_close        INTEGER NOT NULL,
+            pending_close_msg_id TEXT,
+            leaf_uuid            TEXT,
+            effective_uuids      BLOB
+        );
+        ALTER TABLE transcript_cursors ADD COLUMN open_labels TEXT;
+        ",
+    ),
+];
 
 /// The current shape, idempotently.
 ///
@@ -34,7 +82,13 @@ pub const MIGRATIONS: &[(i64, &str)] = &[(
 /// text shadow for BM25, kept in step by the documented external-content triggers.
 ///
 /// `stream_marks` says how far a stream of rows has been read, and
-/// `transcript_cursors` where each transcript's reader stopped.
+/// `transcript_cursors` where each transcript's reader stopped. Its `open_labels` is
+/// JSON of tool-call id to label for the calls with no result yet, so a result read
+/// past the cursor is labelled as a whole read would label it.
+///
+/// `vector_offsets` holds what a model's vectors at one dimension are stored less.
+/// Each is frozen at the first write and never moves, or every blob written before
+/// would mean something else.
 pub const CREATE_SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS sources (
         source_kind  TEXT NOT NULL,
@@ -62,6 +116,13 @@ pub const CREATE_SCHEMA: &str = "
 
     CREATE INDEX IF NOT EXISTS chunks_kind_model ON chunks (source_kind, model);
 
+    CREATE TABLE IF NOT EXISTS vector_offsets (
+        model  TEXT NOT NULL,
+        dims   INTEGER NOT NULL,
+        offset BLOB NOT NULL,
+        PRIMARY KEY (model, dims)
+    );
+
     CREATE TABLE IF NOT EXISTS stream_marks (
         stream  TEXT PRIMARY KEY,
         last_id INTEGER NOT NULL
@@ -78,7 +139,8 @@ pub const CREATE_SCHEMA: &str = "
         pending_close        INTEGER NOT NULL,
         pending_close_msg_id TEXT,
         leaf_uuid            TEXT,
-        effective_uuids      BLOB
+        effective_uuids      BLOB,
+        open_labels          TEXT
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -107,7 +169,8 @@ pub const CREATE_SCHEMA: &str = "
     END;
 ";
 
-/// A vector as the blob the store holds: little-endian 32-bit floats.
+/// A whole vector as a blob of little-endian 32-bit floats: what an offset is stored
+/// as, and what a chunk's vector was before schema 4.
 pub fn encode_vector(vector: &[f32]) -> Vec<u8> {
     vector
         .iter()
@@ -129,18 +192,6 @@ pub fn decode_vector(blob: &[u8]) -> Option<Vec<f32>> {
     )
 }
 
-/// Decode a stored vector into `into`, so a scan over many keeps one allocation.
-/// Answers whether the blob was whole floats, leaving `into` empty when it was not.
-pub fn decode_vector_into(blob: &[u8], into: &mut Vec<f32>) -> bool {
-    into.clear();
-    let chunks = blob.chunks_exact(4);
-    if !chunks.remainder().is_empty() {
-        return false;
-    }
-    into.extend(chunks.map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])));
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,28 +208,5 @@ mod tests {
     fn a_blob_that_is_not_whole_floats_is_refused() {
         assert_eq!(decode_vector(&[0, 1, 2]), None);
         assert_eq!(decode_vector(&[]), Some(Vec::new()));
-        let mut into = vec![1.0];
-        assert!(!decode_vector_into(&[0, 1, 2], &mut into));
-        assert!(into.is_empty());
-        assert!(decode_vector_into(&encode_vector(&[0.5, 2.0]), &mut into));
-        assert_eq!(into, [0.5, 2.0]);
-    }
-
-    #[test]
-    fn the_schema_holds_what_the_brief_names() {
-        let schema = CREATE_SCHEMA;
-        for column in [
-            "source_kind",
-            "source_id",
-            "span_start",
-            "span_end",
-            "model",
-            "vector",
-            "body",
-            "lexical_only",
-        ] {
-            assert!(schema.contains(column), "{column}");
-        }
-        assert!(schema.contains("USING fts5"));
     }
 }

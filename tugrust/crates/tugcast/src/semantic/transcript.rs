@@ -40,6 +40,11 @@ const COMMAND_LABEL_BYTES: usize = 200;
 /// What labels a result whose call lies before the read's start.
 const UNKNOWN_TOOL_LABEL: &str = "tool";
 
+/// The most of a transcript a full pass holds in memory. The largest seen is 123 MB and
+/// costs about 300 MB resident, so this bounds the outlier and moves none of them. A
+/// session past it that already has a cursor keeps being read, since that read streams.
+const MAX_TRANSCRIPT_BYTES: u64 = 256 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BlockRole {
     User,
@@ -103,6 +108,8 @@ pub(super) struct TranscriptBlocks {
     pub frontier: Frontier,
     /// The effective chain uuids, as a cursor holds them.
     pub effective_uuids: Vec<u8>,
+    /// The labels of the calls with no result yet.
+    pub open_labels: HashMap<String, String>,
 }
 
 /// Turns records into blocks, keeping the two things a block needs from the records
@@ -149,6 +156,7 @@ impl RecordReader {
             Some("assistant") => assistant_blocks(record),
             _ => Vec::new(),
         };
+        forget_answered(record, &mut self.labels);
         for (index, role, text, label) in found {
             let text = text.trim().to_string();
             if !text.is_empty() {
@@ -216,6 +224,7 @@ pub(super) fn read_blocks(jsonl: &str) -> TranscriptBlocks {
         shown_turn: reader.shown_turn,
         frontier,
         effective_uuids: encode_uuid_set(&uuids),
+        open_labels: reader.labels,
     }
 }
 
@@ -231,6 +240,12 @@ pub(super) struct ReadPass {
 /// Read a whole file up to its last terminated line. An unterminated line is a write
 /// in progress, and the next read picks it up.
 pub(super) fn read_full(session: &str, path: &Path) -> std::io::Result<ReadPass> {
+    if std::fs::metadata(path)?.len() > MAX_TRANSCRIPT_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::FileTooLarge,
+            format!("past the {MAX_TRANSCRIPT_BYTES} bytes a full read holds"),
+        ));
+    }
     let bytes = std::fs::read(path)?;
     let end = bytes
         .iter()
@@ -254,6 +269,7 @@ pub(super) fn read_full(session: &str, path: &Path) -> std::io::Result<ReadPass>
             pending_close_msg_id: read.frontier.pending_close_msg_id,
             leaf_uuid: read.frontier.leaf_uuid,
             effective_uuids: Some(read.effective_uuids),
+            open_labels: encode_open_labels(&read.open_labels),
         },
         whole: true,
     })
@@ -283,6 +299,7 @@ pub(super) fn read_appended(
     };
     let mut reader = RecordReader {
         shown_turn: cursor.shown_turn as usize,
+        labels: decode_open_labels(cursor),
         ..RecordReader::default()
     };
     let mut offset = cursor.offset;
@@ -330,6 +347,7 @@ pub(super) fn read_appended(
             pending_close_msg_id: frontier.pending_close_msg_id,
             leaf_uuid: frontier.leaf_uuid,
             effective_uuids: Some(encode_uuid_set(&watch.effective_seen)),
+            open_labels: encode_open_labels(&reader.labels),
         },
         whole: false,
     }))
@@ -423,6 +441,39 @@ fn note_tool_labels(record: &Value, labels: &mut HashMap<String, String>) {
             labels.insert(id.to_string(), tool_label(block));
         }
     }
+}
+
+/// A call its result has answered needs no label from here on.
+fn forget_answered(record: &Value, labels: &mut HashMap<String, String>) {
+    if record.get("type").and_then(Value::as_str) != Some("user") {
+        return;
+    }
+    let content = record.get("message").and_then(|m| m.get("content"));
+    for block in content.and_then(Value::as_array).into_iter().flatten() {
+        if block.get("type").and_then(Value::as_str) == Some("tool_result")
+            && let Some(id) = block.get("tool_use_id").and_then(Value::as_str)
+        {
+            labels.remove(id);
+        }
+    }
+}
+
+/// What a cursor holds of `labels`, in one order so one state writes one value.
+fn encode_open_labels(labels: &HashMap<String, String>) -> Option<String> {
+    if labels.is_empty() {
+        return None;
+    }
+    let ordered: std::collections::BTreeMap<_, _> = labels.iter().collect();
+    serde_json::to_string(&ordered).ok()
+}
+
+/// The labels a cursor holds. None from an older cursor, whose results read as they did.
+fn decode_open_labels(cursor: &TranscriptCursor) -> HashMap<String, String> {
+    cursor
+        .open_labels
+        .as_deref()
+        .and_then(|labels| serde_json::from_str(labels).ok())
+        .unwrap_or_default()
 }
 
 /// The command of a `Bash` call, the path of a file tool, otherwise the tool's name.
@@ -629,6 +680,15 @@ pub(super) enum Loaded {
     },
 }
 
+/// What a `loading` handle is doing, so that one which panics can be closed by name:
+/// the head of the queue may not be what went out, since a live pass can move another
+/// job there meanwhile.
+enum Out {
+    Listing,
+    Reconcile,
+    Read(String),
+}
+
 /// The transcripts the worker has yet to read: a queue of sessions, live ones at the
 /// front, each advanced a batch at a time. The slow reads, of the scan and of a whole
 /// file, happen off the worker's thread, so a turn that ends meanwhile is not kept
@@ -636,6 +696,7 @@ pub(super) enum Loaded {
 pub(super) struct CatchUp {
     queue: VecDeque<SessionJob>,
     loading: Option<JoinHandle<Loaded>>,
+    out: Option<Out>,
     scan_owed: bool,
     scanning: bool,
     reconcile_owed: bool,
@@ -645,6 +706,9 @@ pub(super) struct CatchUp {
     logged_percent: Option<usize>,
     /// Projects to list beside the ledger's own.
     also: Vec<String>,
+    /// Sessions already said to be past what a full read holds. One with no cursor
+    /// comes back on every tick, and is said once.
+    said_too_large: HashSet<String>,
 }
 
 impl CatchUp {
@@ -654,6 +718,7 @@ impl CatchUp {
         Self {
             queue: VecDeque::new(),
             loading: None,
+            out: None,
             scan_owed: walk_history,
             scanning: walk_history,
             reconcile_owed: false,
@@ -662,6 +727,7 @@ impl CatchUp {
             coverage,
             logged_percent: None,
             also: Vec::new(),
+            said_too_large: HashSet::new(),
         }
     }
 
@@ -721,6 +787,7 @@ impl CatchUp {
     /// Bring in what came back from off the worker's thread.
     pub(super) fn apply(&mut self, indexer: &Indexer, loaded: Result<Loaded, JoinError>) {
         self.loading = None;
+        let out = self.out.take();
         match loaded {
             Ok(Loaded::Listing(listing)) => {
                 for (listed, _) in listing.sessions {
@@ -760,13 +827,26 @@ impl CatchUp {
                         });
                     }
                     (Err(err), Some(at)) => {
-                        warn!("semantic index: could not read {session}: {err}");
+                        if err.kind() != std::io::ErrorKind::FileTooLarge
+                            || self.said_too_large.insert(session.clone())
+                        {
+                            warn!("semantic index: could not read {session}: {err}");
+                        }
                         self.queue.remove(at);
                     }
                     (_, None) => {}
                 }
             }
-            Err(err) => warn!("semantic index: {err}"),
+            Err(err) => {
+                warn!("semantic index: {err}");
+                match out {
+                    Some(Out::Listing) => self.scanning = false,
+                    Some(Out::Read(session)) => {
+                        self.queue.retain(|job| job.session != session);
+                    }
+                    Some(Out::Reconcile) | None => {}
+                }
+            }
         }
         self.publish(indexer);
     }
@@ -785,6 +865,7 @@ impl CatchUp {
             self.scan_owed = false;
             let index = Arc::clone(&indexer.index);
             let also = self.also.clone();
+            self.out = Some(Out::Listing);
             self.loading = Some(spawn_blocking(move || {
                 let mut listing = list_sessions(&sessions, &also);
                 for (listed, _) in &mut listing.sessions {
@@ -803,6 +884,7 @@ impl CatchUp {
                 self.reconcile_owed = false;
                 let index = Arc::clone(&indexer.index);
                 let projects = self.projects.clone();
+                self.out = Some(Out::Reconcile);
                 self.loading = Some(spawn_blocking(move || {
                     Loaded::Reconciled(reconcile(&sessions, &index, &projects))
                 }));
@@ -845,6 +927,7 @@ impl CatchUp {
             warn!("semantic index: {err}");
             None
         });
+        self.out = Some(Out::Read(session.clone()));
         self.loading = Some(spawn_blocking(move || {
             let read = match cursor.map(|cursor| read_appended(&path, &cursor)) {
                 Some(Ok(Some(pass))) => Ok(pass),
@@ -1366,6 +1449,84 @@ mod tests {
     }
 
     #[test]
+    fn a_label_crosses_the_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let call = assistant(
+            "a1",
+            Some("u1"),
+            json!([
+                { "type": "tool_use", "id": "t1", "name": "Bash",
+                  "input": { "command": "cargo test" } },
+                { "type": "tool_use", "id": "t2", "name": "Read",
+                  "input": { "file_path": "/p/a.rs" } },
+            ]),
+        );
+        let result = |uuid: &str, parent: &str, id: &str| {
+            user_content(
+                uuid,
+                Some(parent),
+                json!([{ "type": "tool_result", "tool_use_id": id, "content": "the output" }]),
+            )
+        };
+        let before = format!("{}\n{call}\n", user("u1", None, "go"));
+        std::fs::write(&path, &before).unwrap();
+        let pass = read_full("s", &path).unwrap();
+        let held: HashMap<String, String> =
+            serde_json::from_str(pass.cursor.open_labels.as_deref().unwrap()).unwrap();
+        assert_eq!(held["t1"], "cargo test");
+        assert_eq!(held["t2"], "/p/a.rs");
+
+        let first = result("r1", "a1", "t1");
+        std::fs::write(&path, format!("{before}{first}\n")).unwrap();
+        let appended = read_appended(&path, &pass.cursor).unwrap().unwrap();
+        let whole = read_full("s", &path).unwrap();
+        let block = appended.blocks.last().unwrap();
+        assert_eq!(block.label.as_deref(), Some("cargo test"));
+        assert_eq!(block, whole.blocks.last().unwrap(), "the same hash follows");
+        assert_eq!(
+            appended.cursor.open_labels, whole.cursor.open_labels,
+            "a result takes its call's label off, the same both ways"
+        );
+
+        let second = result("r2", "r1", "t2");
+        std::fs::write(&path, format!("{before}{first}\n{second}\n")).unwrap();
+        let last = read_appended(&path, &appended.cursor).unwrap().unwrap();
+        assert_eq!(
+            last.blocks.last().unwrap().label.as_deref(),
+            Some("/p/a.rs")
+        );
+        assert_eq!(last.cursor.open_labels, None, "nothing is left open");
+    }
+
+    #[test]
+    fn an_old_cursor_with_no_labels_reads_as_it_did() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let before = format!(
+            "{}\n{}\n",
+            user("u1", None, "go"),
+            assistant(
+                "a1",
+                Some("u1"),
+                json!([{ "type": "tool_use", "id": "t1", "name": "WebSearch", "input": {} }]),
+            ),
+        );
+        std::fs::write(&path, &before).unwrap();
+        let mut cursor = read_full("s", &path).unwrap().cursor;
+        cursor.open_labels = None;
+
+        let answer = user_content(
+            "r1",
+            Some("a1"),
+            json!([{ "type": "tool_result", "tool_use_id": "t1", "content": "found" }]),
+        );
+        std::fs::write(&path, format!("{before}{answer}\n")).unwrap();
+        let pass = read_appended(&path, &cursor).unwrap().unwrap();
+        assert_eq!(pass.blocks[0].label.as_deref(), Some(UNKNOWN_TOOL_LABEL));
+    }
+
+    #[test]
     fn a_rewritten_prefix_asks_for_a_full_pass() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("s.jsonl");
@@ -1690,6 +1851,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_transcript_past_the_cap_is_refused_without_being_read() {
+        let home = Home::new().await;
+        let live = sid(1);
+        home.spawn_live(&live);
+        let path = home.write(&live, &long_transcript("live", 2));
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(MAX_TRANSCRIPT_BYTES + 1)
+            .unwrap();
+        let refused = read_full(&live, &path).err().expect("a refusal");
+        assert_eq!(refused.kind(), std::io::ErrorKind::FileTooLarge);
+
+        let mut catch_up = home.catch_up(false);
+        for _ in 0..2 {
+            catch_up.live_pass(&home.indexer).await;
+            home.drain(&mut catch_up).await;
+            assert!(catch_up.queue.is_empty(), "the job leaves the queue");
+        }
+        assert!(home.held(&live).is_empty());
+        assert_eq!(catch_up.said_too_large.len(), 1, "and it is said once");
+    }
+
+    #[tokio::test]
     async fn a_live_session_with_no_cursor_goes_ahead_of_older_ones() {
         let home = Home::new().await;
         let (old, live) = (sid(1), sid(2));
@@ -1796,6 +1982,43 @@ mod tests {
         assert!(catch_up.queue.is_empty());
         assert!(home.held(&session).is_empty());
         assert!(home.index.cursor(&session).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_panicking_read_leaves_only_its_own_job_off_the_queue() {
+        let home = Home::new().await;
+        let (one, two) = (sid(1), sid(2));
+        let mut catch_up = home.catch_up(false);
+        catch_up.enqueue_front(&two, PathBuf::from("two"), String::new());
+        catch_up.enqueue_front(&one, PathBuf::from("one"), String::new());
+        catch_up.out = Some(Out::Read(one.clone()));
+        catch_up.loading = Some(spawn_blocking(|| panic!("a read that panics")));
+        catch_up.enqueue_front(&two, PathBuf::from("two"), String::new());
+
+        let loaded = catch_up.loaded().await;
+        assert!(loaded.is_err());
+        catch_up.apply(&home.indexer, loaded);
+        let left: Vec<&str> = catch_up
+            .queue
+            .iter()
+            .map(|job| job.session.as_str())
+            .collect();
+        assert_eq!(left, [two.as_str()]);
+    }
+
+    #[tokio::test]
+    async fn a_panicking_listing_stops_saying_it_is_catching_up() {
+        let home = Home::new().await;
+        let (coverage, read) = coverage_channel(true);
+        let mut catch_up = CatchUp::new(true, coverage);
+        catch_up.scan_owed = false;
+        catch_up.out = Some(Out::Listing);
+        catch_up.loading = Some(spawn_blocking(|| panic!("a listing that panics")));
+
+        let loaded = catch_up.loaded().await;
+        assert!(loaded.is_err());
+        catch_up.apply(&home.indexer, loaded);
+        assert!(!read.borrow().catching_up);
     }
 
     #[tokio::test]
@@ -2016,6 +2239,16 @@ mod tests {
             }
         }
 
+        let chunks = index.chunks();
+        let embeddable = chunks.iter().filter(|chunk| !chunk.lexical_only);
+        let (total, without) = embeddable.fold((0, 0), |(total, without), chunk| {
+            (total + 1, without + usize::from(chunk.vector.is_none()))
+        });
+        println!(
+            "rendered {rendered}: {without} of {total} embeddable passages with no vector, {:.2}%",
+            without as f64 * 100.0 / total as f64
+        );
+
         let search = SemanticSearch::new(
             Arc::clone(&index),
             Arc::clone(&client),
@@ -2027,11 +2260,18 @@ mod tests {
             let target = format!("{}/", item["expect"]["target"].as_str().unwrap());
             let terms = crate::help_docs::search_terms(question);
             let ranked = search
-                .rank(TRANSCRIPT_KIND, None, question, &terms)
+                .passages(
+                    &[TRANSCRIPT_KIND],
+                    None,
+                    question,
+                    &terms,
+                    &HashSet::new(),
+                    20,
+                )
                 .await
                 .expect("the helper answers");
             let place = ranked
-                .sources
+                .sources()
                 .iter()
                 .position(|source| source.starts_with(&target))
                 .map(|place| place + 1);
@@ -2047,7 +2287,7 @@ mod tests {
             &std::fs::read_to_string(fixture_dir().join("../history-questions.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(questions.len(), 12);
+        assert_eq!(questions.len(), 14);
         let session_questions: Vec<Value> = questions
             .into_iter()
             .filter(|item| item["expect"]["kind"] == "session")

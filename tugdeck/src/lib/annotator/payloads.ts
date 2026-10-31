@@ -27,6 +27,8 @@ import {
 } from "./detect-path-reference";
 import type { PathVerdict } from "./path-resolution";
 import type { AnnotationKind } from "./types";
+import { isHelpDocName } from "@/lib/help-docs";
+import type { HelpCardSeed } from "@/lib/open-help-in-card";
 import { resolveAtomFilePath, type AtomPathRoots } from "@/lib/atom-file-path";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
 
@@ -119,6 +121,11 @@ export interface SessionPayload {
   target: string;
 }
 
+/** A passage of the bundled help — a document, and where in it. */
+export interface HelpPayload extends HelpCardSeed {
+  kind: "help";
+}
+
 /** The payload of any annotation, discriminated by kind. */
 export type AnnotationPayload =
   | UrlPayload
@@ -129,7 +136,8 @@ export type AnnotationPayload =
   | DirectoryPayload
   | ImagePayload
   | CommitShaPayload
-  | SessionPayload;
+  | SessionPayload
+  | HelpPayload;
 
 /** The fields of an atom this needs to decide what it is. */
 export interface AtomLike {
@@ -243,7 +251,8 @@ export function annotationOpensSurface(kind: AnnotationKind): boolean {
     kind === "file-path" ||
     kind === "directory" ||
     kind === "image" ||
-    kind === "commit-sha"
+    kind === "commit-sha" ||
+    kind === "help"
   );
 }
 
@@ -275,6 +284,8 @@ export const ANNOTATION_DATASET_KEYS = [
   "root",
   "commitPaths",
   "target",
+  "helpDoc",
+  "helpAnchor",
 ] as const;
 
 /** Compose the dataset that carries `payload` through the DOM. */
@@ -315,6 +326,10 @@ export function datasetForPayload(payload: AnnotationPayload): AnnotationDataset
       };
     case "session":
       return { target: payload.target };
+    case "help":
+      return payload.anchor === undefined
+        ? { helpDoc: payload.doc }
+        : { helpDoc: payload.doc, helpAnchor: payload.anchor };
   }
 }
 
@@ -425,6 +440,14 @@ export function payloadFromDataset(
       const target = record.target;
       return target === undefined || target === "" ? null : { kind, target };
     }
+    case "help": {
+      const doc = record.helpDoc;
+      if (!isHelpDocName(doc)) return null;
+      const anchor = record.helpAnchor;
+      return anchor === undefined || anchor === ""
+        ? { kind, doc }
+        : { kind, doc, anchor };
+    }
   }
 }
 
@@ -469,6 +492,12 @@ export function annotationValue(payload: AnnotationPayload): string {
       // paste of this has to name the session anywhere it is pasted, and the
       // sentence already carries the readable form.
       return payload.target;
+    case "help":
+      // The spelling a post's help ref is written in, which is what a paste
+      // of this can be read back from.
+      return payload.anchor === undefined
+        ? payload.doc
+        : `${payload.doc}#${payload.anchor}`;
   }
 }
 

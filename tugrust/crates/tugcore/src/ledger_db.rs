@@ -56,6 +56,12 @@ pub fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// The schema version `conn`'s main database is stamped with, for a caller that has to
+/// decide something before [`migrate`] runs. Only `migrate` writes it.
+pub fn schema_version(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.pragma_query_value(None, "user_version", |r| r.get(0))
+}
+
 /// Attach another ledger database under `schema` and bring it up to the
 /// same journaling contract (`journal_mode`/`synchronous` are per-database
 /// for an attach; `busy_timeout`/`cell_size_check` are connection-wide and

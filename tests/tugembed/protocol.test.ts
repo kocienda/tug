@@ -74,7 +74,7 @@ describe("tugembed", () => {
     if (!hasModel([])) {
       return;
     }
-    expect(lines[0]?.model).toMatch(/^nl-(contextual|sentence)-en-r\d+$/);
+    expect(lines[0]?.model).toMatch(/^nl-(contextual|sentence)-r\d+$/);
     expect(lines[0]?.dimensions).toBe(512);
   });
 
@@ -129,11 +129,69 @@ describe("tugembed", () => {
     });
   }
 
+  test("the helper runs at the priority it was started at", async () => {
+    const helper = Bun.spawn([HELPER], { stdin: "pipe", stdout: "pipe" });
+    const niceOf = (pid: number) =>
+      Bun.spawnSync(["ps", "-o", "nice=", "-p", String(pid)]).stdout.toString().trim();
+    try {
+      // The model line is written after anything the helper does to itself at launch.
+      await helper.stdout.getReader().read();
+      expect(niceOf(helper.pid)).toBe(niceOf(process.pid));
+    } finally {
+      helper.kill();
+    }
+  });
+
   test("--static names the sentence model", () => {
     if (!hasModel(["--static"])) {
       return;
     }
     const { lines } = converse(["--static"], []);
-    expect(lines[0]?.model).toMatch(/^nl-sentence-en-r\d+$/);
+    expect(lines[0]?.model).toMatch(/^nl-sentence-r\d+$/);
+  });
+
+  /** The vectors for `texts`, and the model they were answered under. */
+  function embedded(args: string[], texts: string[]): { model?: string; vectors: (number[] | null)[] } {
+    const { lines } = converse(args, [{ id: 9, op: "embed", texts }]);
+    const answer = lines.find((line) => line.id === 9);
+    return { model: answer?.model, vectors: answer?.vectors ?? [] };
+  }
+
+  const SPANISH = "Las notas de cada versión se escriben primero en español y se traducen antes de publicarse.";
+  const CHINESE = "每个版本的说明都先用中文写好,然后在发布之前翻译成其他语言,这样团队里的每个人都能读懂。";
+
+  test("a covered language gets a vector under the one tag, and an uncovered one none", () => {
+    if (!hasModel([])) {
+      return;
+    }
+    const { model, vectors } = embedded([], [SPANISH, CHINESE]);
+    expect(model).toMatch(/^nl-(contextual|sentence)-r\d+$/);
+    const [spanish, chinese] = vectors;
+    expect(dot(spanish ?? [], spanish ?? [])).toBeCloseTo(1, 3);
+    expect(chinese).toBeNull();
+  });
+
+  test("what the recognizer is not sure of keeps its vector", () => {
+    if (!hasModel([])) {
+      return;
+    }
+    const { vectors } = embedded([], ["fn main() { let x = foo(1, 2); }", "ok", "a1b2c3d4 at0339 9f3c1e5a"]);
+    expect(vectors.length).toBe(3);
+    for (const vector of vectors) {
+      expect(vector).not.toBeNull();
+    }
+  });
+
+  test("--static gives a language its own model's dimension, and has none for Chinese", () => {
+    if (!hasModel(["--static"])) {
+      return;
+    }
+    const { model, vectors } = embedded(["--static"], [SPANISH, CHINESE, "an English sentence about arcs"]);
+    expect(model).toMatch(/^nl-sentence-r\d+$/);
+    const [spanish, chinese, english] = vectors;
+    expect(spanish?.length).toBe(640);
+    expect(dot(spanish ?? [], spanish ?? [])).toBeCloseTo(1, 3);
+    expect(chinese).toBeNull();
+    expect(english?.length).toBe(512);
   });
 });

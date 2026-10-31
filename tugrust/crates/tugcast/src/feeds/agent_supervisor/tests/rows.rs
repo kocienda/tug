@@ -3,8 +3,9 @@
 
 use super::*;
 
-/// Going private takes a session's chunks out of the semantic index, and going
-/// public again does not bring them back or touch anyone else's.
+/// Going private takes a session's chunks out of the semantic index and touches no one
+/// else's. Going public again does not bring them back: that is deferred, not intended
+/// (`briefs/semantic-search-fixups-brief.md`, [B09]).
 #[tokio::test]
 async fn set_session_private_removes_the_sessions_chunks_from_the_semantic_index() {
     let (mut sup, ledger, _rx) = make_supervisor_with_ledger();

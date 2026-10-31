@@ -146,7 +146,6 @@ import {
 import { commitResolverFor } from "@/lib/annotator/commit-resolution";
 import { commitTip, arcTip, fileTip, helpTip } from "@/components/tugways/entity-tips";
 import { helpDocTitle, helpRefLabel, readHelpRefTarget } from "@/lib/help-docs";
-import { requestHelpCard } from "@/lib/open-help-in-card";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dispatchCommand } from "@/command-dispatch";
 import { fileNameResolverFor } from "@/lib/annotator/file-name-resolution";
@@ -169,7 +168,7 @@ import {
 import { subscribeAppendFailures } from "@/lib/prompt-history-api";
 import { rehydrateDraftAttachments } from "@/lib/attachment-upload";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
-import { dataAttributesForPayload } from "@/lib/annotator/payloads";
+import { dataAttributesForPayload, type HelpPayload } from "@/lib/annotator/payloads";
 import {
   NO_SLASH_COMMANDS,
   useAnnotationContextFor,
@@ -404,8 +403,6 @@ function RefAtom({
   chipRef: OverviewRef;
   root: OverviewRefRoot | null;
 }): React.ReactElement {
-  // The card a help ref opens from, so the help card lands beside it.
-  const ownerCardId = useCardId();
   // A session ref is a CITATION, and it renders as one: the session atom, the
   // callsign, the same chip every foreign surface shows. The chip owns the
   // whole gesture, including whether to offer it.
@@ -457,6 +454,7 @@ function RefAtom({
       return <TugAtomRef entity={{ kind: "help", label: chipRef.target }} />;
     }
     const label = helpRefLabel(seed);
+    const payload: HelpPayload = { kind: "help", ...seed };
     return (
       <TugTooltip
         variant="entity"
@@ -467,11 +465,13 @@ function RefAtom({
         })}
       >
         <span
-          // The help card opens at the passage — brought forward and scrolled
-          // when it is already on the deck.
-          onClick={() => {
-            requestHelpCard(seed, ownerCardId);
-          }}
+          // The whole annotation contract, so the row's delegated click layer
+          // opens the help card at the passage — brought forward and scrolled
+          // when it is already on the deck — and the rule and the hover come
+          // from the annotation sheet.
+          className={ANNOTATION_CLASS}
+          data-tug-annotation="help"
+          {...dataAttributesForPayload(payload)}
           data-no-activate=""
           data-tug-focus="refuse"
           data-overview-ref-kind="help"

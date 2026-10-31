@@ -8,7 +8,70 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { citedAnchors, citedRefs, citesExpected, placeHistory, retrievedAnchors, verbsChosen } from "../operator-eval";
+import { citedAnchors, citedRefs, citesExpected, matchesOnly, placeHistory, retrievedAnchors, retrievedExpected, searchMode, searchModes, verbsChosen } from "../operator-eval";
+
+describe("--only", () => {
+  const spanish = { question: "¿cómo creo un arco?", anchor: "recipes#create-an-arc", lang: "es" };
+  const plain = { question: "what is a callsign?", anchor: "glossary#callsign" };
+
+  test("lang: picks the questions that carry a language, and only those", () => {
+    expect(matchesOnly(spanish, "lang:")).toBe(true);
+    expect(matchesOnly(spanish, "lang:es")).toBe(true);
+    expect(matchesOnly(spanish, "lang:de")).toBe(false);
+    expect(matchesOnly(plain, "lang:")).toBe(false);
+  });
+
+  test("words and anchors still match as they did", () => {
+    expect(matchesOnly(plain, "callsign")).toBe(true);
+    expect(matchesOnly(plain, "glossary#")).toBe(true);
+    expect(matchesOnly(plain, "arc")).toBe(false);
+  });
+});
+
+describe("retrievedExpected", () => {
+  const session = { kind: "session", target: "s-1" };
+  const rounds = (row: unknown) => `search: hybrid
+
+  round 1: search.semantic {"query":"retries"} → 1 row(s)
+${JSON.stringify(row, null, 2)}
+
+ANSWER:
+{ "session_id": "s-1", "text": "the answer is not a round" }
+`;
+
+  test("a hit row with text under the session counts", () => {
+    expect(retrievedExpected(rounds({ hits: [{ session_id: "s-1", text: "words" }] }), session)).toBe(true);
+    expect(retrievedExpected(rounds({ hits: [{ session_id: "s-2", text: "words" }] }), session)).toBe(false);
+  });
+
+  test("a roster row that only names the session does not", () => {
+    expect(retrievedExpected(rounds({ sessions: [{ session_id: "s-1", title: "Retries" }] }), session)).toBe(false);
+  });
+
+  test("a document hit counts by its path, whatever line was asked for", () => {
+    const file = { kind: "file", target: "briefs/a.md:15" };
+    expect(retrievedExpected(rounds({ hits: [{ path: "briefs/a.md", text: "words" }] }), file)).toBe(true);
+    expect(retrievedExpected(rounds({ hits: [{ path: "briefs/b.md", text: "words" }] }), file)).toBe(false);
+  });
+});
+
+describe("the history questions", () => {
+  const fixture = join(import.meta.dir, "../../tests/operator-eval");
+
+  test("every history question names a fixture that exists", () => {
+    const questions: { question: string; expect: { kind: string; target: string } }[] = JSON.parse(
+      readFileSync(join(fixture, "history-questions.json"), "utf8"),
+    );
+    expect(questions.length).toBeGreaterThan(0);
+    for (const { question, expect: wanted } of questions) {
+      const file =
+        wanted.kind === "session"
+          ? join(fixture, "history/transcripts", `${wanted.target}.jsonl`)
+          : join(fixture, "history", wanted.target.replace(/:\d+(-\d+)?$/, ""));
+      expect([question, existsSync(file)]).toEqual([question, true]);
+    }
+  });
+});
 
 const OUTPUT = `model: sonnet
 question: how do I create an arc?
@@ -105,5 +168,29 @@ ANSWER:
 { "doc": "features", "anchor": "not-a-round", "text": "prose" }
 `;
     expect(retrievedAnchors(rounds)).toEqual(["features#opening-an-arc", "glossary#*"]);
+  });
+
+  test("each verb's by_meaning line says how the question searched", () => {
+    const rounds = `search: hybrid
+
+  round 1: help.search {"query":"arc"} → 1 row(s)
+             by_meaning: true
+{
+  "by_meaning": false,
+  "count": 1
+}
+  round 1: overview.search {"query":"arc"} → 2 row(s)
+  round 2: facts.search {"query":"arc"} → 0 row(s)
+             query_used: "arc"
+             by_meaning: false
+
+ANSWER:
+             by_meaning: true
+`;
+    expect(searchModes(rounds)).toEqual([true, false]);
+    expect(searchMode(searchModes(rounds))).toBe("mixed");
+    expect(searchMode([true, true])).toBe("hybrid");
+    expect(searchMode([false])).toBe("lexical");
+    expect(searchMode([])).toBe("none");
   });
 });

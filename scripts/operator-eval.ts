@@ -32,6 +32,8 @@
  *   just operator-eval
  *   just operator-eval --only arc     # the questions containing "arc"
  *   just operator-eval --only recipes#  # the questions expecting a passage of the recipes
+ *   just operator-eval --only lang:     # the questions written to read across languages
+ *   just operator-eval --only lang:es   # those of one language
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -61,6 +63,7 @@ interface Question {
   question: string;
   anchor?: string;
   expect?: Expected;
+  lang?: string;
 }
 
 interface Result extends Question {
@@ -113,18 +116,15 @@ export function citesExpected(refs: Expected[], expected: Expected): boolean {
 
 /**
  * The passages a verb returned, read from the JSON `--show-rounds` prints under
- * each round. A whole document counts as every passage in it, spelled `<doc>#*`.
+ * each round.
  */
-export function retrievedAnchors(output: string): string[] {
+function walkRounds(output: string, visit: (row: Record<string, unknown>) => void): void {
   const end = output.indexOf("\nANSWER:\n");
-  const found: string[] = [];
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) return value.forEach(walk);
     if (typeof value !== "object" || value === null) return;
     const row = value as Record<string, unknown>;
-    if (typeof row.doc === "string" && typeof row.text === "string") {
-      found.push(`${row.doc}#${typeof row.anchor === "string" ? row.anchor : "*"}`);
-    }
+    visit(row);
     Object.values(row).forEach(walk);
   };
   for (const block of (end < 0 ? output : output.slice(0, end)).split(/^ {2}round \d+: .*$/m).slice(1)) {
@@ -136,6 +136,30 @@ export function retrievedAnchors(output: string): string[] {
       // A round line with no JSON under it is a verb that errored.
     }
   }
+}
+
+/** The help passages a verb returned. A whole document counts as every passage in it, spelled `<doc>#*`. */
+export function retrievedAnchors(output: string): string[] {
+  const found: string[] = [];
+  walkRounds(output, (row) => {
+    if (typeof row.doc === "string" && typeof row.text === "string") {
+      found.push(`${row.doc}#${typeof row.anchor === "string" ? row.anchor : "*"}`);
+    }
+  });
+  return found;
+}
+
+/**
+ * Whether a verb returned words of the source a question had to cite: a row carrying
+ * `text` under that session or that path. A roster that only names the session did not.
+ */
+export function retrievedExpected(output: string, expected: Expected): boolean {
+  const field = expected.kind === "session" ? "session_id" : "path";
+  const target = withoutLine(expected);
+  let found = false;
+  walkRounds(output, (row) => {
+    if (typeof row.text === "string" && row[field] === target) found = true;
+  });
   return found;
 }
 
@@ -147,6 +171,21 @@ export function verbsChosen(output: string): string[] {
     if (match) verbs.push(match[1]);
   }
   return verbs;
+}
+
+/** Whether each verb that could rank by meaning did, as the observer printed it. */
+export function searchModes(output: string): boolean[] {
+  const end = output.indexOf("\nANSWER:\n");
+  return [...(end < 0 ? output : output.slice(0, end)).matchAll(/^ +by_meaning: (true|false)$/gm)].map(
+    (match) => match[1] === "true",
+  );
+}
+
+/** How one question searched, across its verbs. */
+export function searchMode(modes: boolean[]): "hybrid" | "mixed" | "lexical" | "none" {
+  if (modes.length === 0) return "none";
+  if (modes.every(Boolean)) return "hybrid";
+  return modes.some(Boolean) ? "mixed" : "lexical";
 }
 
 /** The files one question runs against. */
@@ -201,6 +240,12 @@ export function placeHistory(source: string, runDir: string): Ledgers {
   };
 }
 
+/** Whether `--only` picks a question, by its words, what it expects, or its `lang:`. */
+export function matchesOnly(item: Question, only: string): boolean {
+  const lang = item.lang ? ` lang:${item.lang}` : "";
+  return `${item.question} ${item.anchor ?? ""}${lang}`.toLowerCase().includes(only);
+}
+
 /** What the question had to cite, for a reader. */
 function expectedLabel(item: Question): string {
   return item.expect ? `${item.expect.kind} ${item.expect.target}` : (item.anchor ?? "");
@@ -246,8 +291,6 @@ async function ask(item: Question, dir: string, ledgers: Ledgers): Promise<Resul
   ]);
   writeFileSync(transcript, `${stdout}\n--- stderr, exit ${code} ---\n${stderr}`);
   const refs = citedRefs(stdout);
-  const answerAt = stdout.indexOf("\nANSWER:\n");
-  const rounds = answerAt < 0 ? stdout : stdout.slice(0, answerAt);
   const found = item.expect
     ? citesExpected(refs, item.expect)
     : refs.some((ref) => ref.kind === "help" && ref.target === item.anchor);
@@ -257,9 +300,9 @@ async function ask(item: Question, dir: string, ledgers: Ledgers): Promise<Resul
     status: code !== 0 ? "error" : found ? "cited" : "missed",
     cited: refs.filter((ref) => item.expect || ref.kind === "help").map((ref) => (item.expect ? `${ref.kind} ${ref.target}` : ref.target)),
     retrieved: item.expect
-      ? rounds.includes(withoutLine(item.expect))
+      ? retrievedExpected(stdout, item.expect)
       : anchors.includes(item.anchor ?? "") || anchors.includes(`${(item.anchor ?? "").split("#")[0]}#*`),
-    search: /^search: (.*)$/m.exec(stdout)?.[1] ?? "unknown",
+    search: searchMode(searchModes(stdout)),
     verbs: verbsChosen(stdout),
     secs: (Date.now() - started) / 1000,
     transcript,
@@ -284,7 +327,7 @@ async function askAll(
       mkdirSync(dir);
       const result = await ask(item, dir, ledgersFor(dir, index === 0));
       results[index] = result;
-      const line = `${String(index + 1).padStart(2)}/${questions.length} ${result.status.padEnd(6)} ${result.retrieved ? "read " : "unread"} ${String(result.verbs.length).padStart(2)} verbs ${result.secs.toFixed(0).padStart(4)}s  ${item.question}`;
+      const line = `${String(index + 1).padStart(2)}/${questions.length} ${result.status.padEnd(6)} ${result.retrieved ? "read " : "unread"} ${result.search.padEnd(7)} ${String(result.verbs.length).padStart(2)} verbs ${result.secs.toFixed(0).padStart(4)}s  ${item.question}`;
       console.log(line);
       if (result.status === "cited") {
         report("done", LABEL, item.question, "pass");
@@ -326,7 +369,7 @@ async function main(): Promise<number> {
   }
 
   const narrowed = (all: Question[]) =>
-    only ? all.filter((item) => `${item.question} ${item.anchor ?? ""}`.toLowerCase().includes(only)) : all;
+    only ? all.filter((item) => matchesOnly(item, only)) : all;
   const help = narrowed(await Bun.file(QUESTIONS).json());
   const history = narrowed(await Bun.file(HISTORY_QUESTIONS).json());
   const runDir = mkdtempSync(join(tmpdir(), "operator-eval-"));
@@ -360,8 +403,9 @@ async function main(): Promise<number> {
   const verdict = verdicts.join("\n");
   report("finish", LABEL, verdict);
   console.log(`\nEvery answer and results.json: ${runDir}`);
-  const searches = [...new Set(results.map((r) => r.search))];
-  console.log(`Search measured: ${searches.join("; ")}`);
+  const tally = new Map<string, number>();
+  for (const r of results) tally.set(r.search, (tally.get(r.search) ?? 0) + 1);
+  console.log(`Search measured: ${[...tally].map(([mode, count]) => `${mode} ${count}`).join(", ")}`);
   console.log(verdict);
   return errors > 0 ? 1 : 0;
 }

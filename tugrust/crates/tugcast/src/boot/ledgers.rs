@@ -199,10 +199,11 @@ pub(crate) fn ledgers(actual_port: u16, bank_path: &Path) -> Ledgers {
     };
 
     // The semantic index, which can always be rebuilt from what it indexes, and
-    // whose absence only costs the searches that would have read it.
+    // whose absence only costs the searches that would have read it. Its body is read
+    // later, by its worker, so what this costs does not grow with the file.
     let semantic_index = {
         let path = tugcore::instance::semantic_db_path();
-        match crate::semantic::SemanticIndex::open(&path) {
+        match crate::semantic::SemanticIndex::open_unsettled(&path) {
             Ok(index) => Some(Arc::new(index)),
             Err(e) => {
                 warn!(error = %e, path = %path.display(), "failed to open the semantic index (searches stay on the documents themselves)");

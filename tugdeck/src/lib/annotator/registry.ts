@@ -764,3 +764,25 @@ registerAnnotationKind("image", {
   menuEntries: imageMenuEntries,
   suppressStandardItems: false,
 });
+
+registerAnnotationKind("help", {
+  // Dispatched rather than handed to `requestHelpCard`, which is this same one
+  // dispatch: that module brings the focus transfer and the page bus with it.
+  primaryClick: (payload, ctx) => {
+    if (payload.kind !== "help") return;
+    dispatchCommand(TUG_ACTIONS.OPEN_HELP, {
+      doc: payload.doc,
+      ...(payload.anchor !== undefined ? { anchor: payload.anchor } : {}),
+      ...(ctx.hostCardId !== undefined ? { originCardId: ctx.hostCardId } : {}),
+    });
+  },
+  menuEntries: (payload) =>
+    buildEntityMenu(payload, {
+      goTo: [{ action: TUG_ACTIONS.OPEN_HELP, label: "Open Help" }],
+      copy: [
+        { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Reference" },
+      ],
+      send: [insertEntry(payload)],
+    }),
+  suppressStandardItems: false,
+});

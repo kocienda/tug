@@ -369,8 +369,19 @@ fn session_of<'a>(kind: &str, id: &'a str) -> Option<&'a str> {
 }
 
 /// Remove every source drawn from `session`, and the place its transcript's reader
-/// had reached, so a session that comes back is read again from the start.
+/// had reached, so a session that comes back is read again from the start. Before the
+/// index has settled this only asks it to, so a gesture never waits on that pass.
 pub(crate) fn remove_session_sources(
+    index: &SemanticIndex,
+    session: &str,
+) -> Result<(), SemanticError> {
+    if index.defer_session_removal(session) {
+        return Ok(());
+    }
+    remove_session_now(index, session)
+}
+
+pub(super) fn remove_session_now(
     index: &SemanticIndex,
     session: &str,
 ) -> Result<(), SemanticError> {
@@ -509,10 +520,11 @@ async fn index_help(indexer: &Indexer, docs_dir: Option<&Path>) {
 }
 
 /// The one task that writes the index, off the startup path, for as long as tugcast
-/// runs. It settles, starts the helper and brings the help documents up to date, and
-/// then prefers anything live over its background work, which it does one unit at a
-/// time with a rest as long as the unit took. With nothing owed it parks on its
-/// signals.
+/// runs. It waits out the launch, settles the index, starts the helper and brings the
+/// help documents up to date, and then prefers anything live over its background work,
+/// which it does one unit at a time with a rest as long as the unit took. With nothing
+/// owed it parks on its signals. An index that cannot settle is logged and stays
+/// lexical, and the worker still runs.
 ///
 /// A re-embed round is owed at every start and not only when the model moves: the
 /// model a helper announces at start wakes nothing, and a file written under an older
@@ -527,6 +539,18 @@ pub(crate) async fn run_index(
     tokio::select! {
         _ = cancel.cancelled() => return,
         _ = tokio::time::sleep(settle) => {}
+    }
+    let settling = {
+        let index = Arc::clone(&indexer.index);
+        tokio::task::spawn_blocking(move || index.settle())
+    };
+    tokio::select! {
+        _ = cancel.cancelled() => return,
+        settled = settling => match settled {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => warn!("semantic index did not settle: {err}"),
+            Err(err) => warn!("semantic index: the settling pass ended early: {err}"),
+        },
     }
     let docs_dir = streams.docs_dir.as_deref();
     let observer = streams.observer;
@@ -659,13 +683,28 @@ mod tests {
         "**Arc.** One piece of work.\n\n**Door.** The skill that opens an arc.\n";
 
     fn fixture_with(state: Arc<FakeState>, sessions: Option<Arc<SessionLedger>>) -> Fixture {
+        fixture_on(state, sessions, |path| SemanticIndex::open(path).unwrap())
+    }
+
+    /// A fixture over an index the worker has yet to settle, as boot hands it over.
+    fn unsettled_fixture(state: Arc<FakeState>) -> Fixture {
+        fixture_on(state, None, |path| {
+            SemanticIndex::open_unsettled(path).unwrap()
+        })
+    }
+
+    fn fixture_on(
+        state: Arc<FakeState>,
+        sessions: Option<Arc<SessionLedger>>,
+        open: fn(PathBuf) -> SemanticIndex,
+    ) -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let docs = dir.path().join("docs");
         std::fs::create_dir(&docs).unwrap();
         std::fs::write(docs.join("features.md"), FEATURES).unwrap();
         std::fs::write(docs.join("recipes.md"), RECIPES).unwrap();
         std::fs::write(docs.join("glossary.md"), GLOSSARY).unwrap();
-        let index = Arc::new(SemanticIndex::open(dir.path().join("semantic.db")).unwrap());
+        let index = Arc::new(open(dir.path().join("semantic.db")));
         let indexer = Indexer::new(Arc::clone(&index), client(&state), sessions);
         Fixture {
             _dir: dir,
@@ -730,11 +769,11 @@ mod tests {
             "## Opening an arc\n\nType a prompt at the door."
         );
         assert_eq!(chunk.model.as_deref(), Some("nl-a"));
-        assert_eq!(
-            chunk.vector,
-            Some(vector_of(
-                "Tug feature guide > Opening an arc\n## Opening an arc\n\nType a prompt at the door."
-            ))
+        assert_near(
+            &chunk.vector,
+            &vector_of(
+                "Tug feature guide > Opening an arc\n## Opening an arc\n\nType a prompt at the door.",
+            ),
         );
         assert_eq!(f.index.lexical_matches("door"), 2);
     }
@@ -1004,6 +1043,7 @@ mod tests {
             pending_close_msg_id: None,
             leaf_uuid: None,
             effective_uuids: None,
+            open_labels: None,
         }
     }
 
@@ -1323,7 +1363,7 @@ mod tests {
             };
             assert_eq!(chunk.model.as_deref(), wanted, "{}", chunk.source_id);
         }
-        assert_eq!(f.chunk("s1/7").vector, Some(vector_of("ctx\nFact words.")));
+        assert_near(&f.chunk("s1/7").vector, &vector_of("ctx\nFact words."));
         assert_eq!(
             f.index
                 .source_state(FACT_KIND, "s1/7")
@@ -1451,6 +1491,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_worker_writes_nothing_until_settled() {
+        let state = FakeState::new(Some("nl-a"));
+        let Fixture {
+            _dir,
+            docs,
+            index,
+            indexer,
+            ..
+        } = unsettled_fixture(Arc::clone(&state));
+        let held = index.hold_writer_for_test();
+        let cancel = CancellationToken::new();
+        let run = tokio::spawn(run_index(
+            indexer,
+            streams_of(docs),
+            Duration::ZERO,
+            cancel.clone(),
+        ));
+        // On this one thread the worker gets every turn these give up, so a worker that
+        // did not wait would have started its helper well inside them.
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(state.spawns.load(Ordering::Relaxed), 0);
+        drop(held);
+
+        while index.chunks().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(state.spawns.load(Ordering::Relaxed), 1);
+        assert!(index.can_scan());
+        cancel.cancel();
+        run.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_search_before_settle_has_no_answer() {
+        use super::super::search::SemanticSearch;
+
+        let state = FakeState::new(Some("nl-a"));
+        let f = unsettled_fixture(Arc::clone(&state));
+        f.index_help().await;
+        let search = SemanticSearch::new(
+            Arc::clone(&f.index),
+            Arc::clone(&f.indexer.embedder),
+            coverage_channel(false).1,
+        );
+        let terms = ["arc".to_string()];
+        let none = HashSet::new();
+        let embedded = state.embedded.lock().len();
+        assert!(
+            search
+                .passages(&[HELP_KIND], None, "an arc", &terms, &none, 6)
+                .await
+                .is_none()
+        );
+        assert_eq!(state.embedded.lock().len(), embedded, "no embed was spent");
+
+        f.index.settle().unwrap();
+        assert!(
+            search
+                .passages(&[HELP_KIND], None, "an arc", &terms, &none, 6)
+                .await
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_session_removed_before_settle_stays_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("semantic.db");
+        let index = SemanticIndex::open(&path).unwrap();
+        let passages = chunk("", "What the session said.");
+        let vectors = vec![Some(vec![1.0, 0.0]); passages.len()];
+        for id in ["gone/1", "kept/1"] {
+            index
+                .replace_source(&Replacement {
+                    kind: TRANSCRIPT_KIND,
+                    id,
+                    content_hash: "hash",
+                    model: Some("m"),
+                    passages: &passages,
+                    vectors: &vectors,
+                    meta: None,
+                    lexical: &[],
+                })
+                .unwrap();
+        }
+        index.set_cursor(&cursor_of("gone")).unwrap();
+        drop(index);
+
+        let index = SemanticIndex::open_unsettled(&path).unwrap();
+        remove_session_sources(&index, "gone").unwrap();
+        assert_eq!(index.source_ids(TRANSCRIPT_KIND).unwrap().len(), 2);
+
+        index.settle().unwrap();
+        assert_eq!(index.source_ids(TRANSCRIPT_KIND).unwrap(), ["kept/1"]);
+        assert_eq!(index.cursor("gone").unwrap(), None);
+        let (ranked, handed) =
+            index.rank_vectors(&[TRANSCRIPT_KIND], "m", None, |_| true, &[1.0, 0.0], 10);
+        assert_eq!((ranked.len(), handed), (passages.len(), passages.len()));
+
+        // Past the pass a removal is its own write.
+        remove_session_sources(&index, "kept").unwrap();
+        assert!(index.source_ids(TRANSCRIPT_KIND).unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn the_run_loop_embeds_again_after_a_helper_restart() {
         let state = FakeState::new(Some("nl-a"));
         let f = fixture_with(Arc::clone(&state), None);
@@ -1521,7 +1668,6 @@ mod tests {
         {
             use super::super::search::SemanticSearch;
             use serde_json::Value;
-            use tugsem_core::{Candidate, Query, rank_by_similarity};
             let search = SemanticSearch::new(
                 Arc::clone(&index),
                 Arc::clone(&client),
@@ -1531,7 +1677,7 @@ mod tests {
                 &std::fs::read_to_string(root.join("tests/operator-eval/questions.json")).unwrap(),
             )
             .unwrap();
-            let stored = index.vectors(HELP_KIND, &model, None).unwrap();
+            let stored = stored_help(&index, &model);
             let docs = root.join("docs");
             let mut pool = Vec::new();
             for doc in HelpDoc::ALL {
@@ -1556,37 +1702,38 @@ mod tests {
                         .into_iter()
                         .map(|i| format!("{}#{}", pool[i].0.name(), pool[i].1.anchor))
                         .collect();
-                let mut words = index.lexical_sources(HELP_KIND, None, &terms).unwrap();
                 let mut seen = HashSet::new();
-                words.retain(|source| seen.insert(source.clone()));
+                let mut words = Vec::new();
+                index
+                    .lexical_chunks(
+                        &[HELP_KIND],
+                        None,
+                        &terms,
+                        |source| {
+                            if seen.insert(source.to_string()) {
+                                words.push(source.to_string());
+                            }
+                            true
+                        },
+                        usize::MAX,
+                    )
+                    .unwrap();
                 let embedded = client.embed(vec![question.to_string()]).await.unwrap();
                 let vector = embedded.vectors[0].as_ref().unwrap();
-                let source_of: std::collections::HashMap<i64, &str> = stored
-                    .iter()
-                    .map(|chunk| (chunk.id, chunk.source_id.as_str()))
-                    .collect();
                 let mut seen = HashSet::new();
-                let meaning: Vec<String> = rank_by_similarity(
-                    Query {
-                        model: &model,
-                        vector,
-                    },
-                    stored.iter().map(|chunk| Candidate {
-                        id: chunk.id,
-                        model: &model,
-                        vector: &chunk.vector,
-                    }),
-                    stored.len(),
-                )
-                .iter()
-                .map(|scored| source_of[&scored.id].to_string())
-                .filter(|source| seen.insert(source.clone()))
-                .collect();
+                let meaning: Vec<String> = by_cosine(&stored, vector)
+                    .iter()
+                    .map(|(_, source)| source.clone())
+                    .filter(|source| seen.insert(source.clone()))
+                    .collect();
                 let fused = search
-                    .rank(HELP_KIND, None, question, &terms)
+                    .passages(&[HELP_KIND], None, question, &terms, &HashSet::new(), 20)
                     .await
                     .unwrap()
-                    .sources;
+                    .sources()
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
                 let places = [&plain, &words, &meaning, &fused].map(|r| place(r, anchor));
                 for (count, found) in within.iter_mut().zip(places) {
                     if found.is_some_and(|p| p <= 6) {
@@ -1608,13 +1755,12 @@ mod tests {
         // The readings the relevance question rests on: how near the best passage
         // is for a question the guide answers and for ones it cannot.
         use super::super::search::SemanticSearch;
-        use tugsem_core::{Candidate, Query, rank_by_similarity};
         let search = SemanticSearch::new(
             Arc::clone(&index),
             Arc::clone(&client),
             coverage_channel(false).1,
         );
-        let stored = index.vectors(HELP_KIND, &model, None).unwrap();
+        let stored = stored_help(&index, &model);
         for query in [
             "how do I create an arc?",
             "what does a label like 2B on a card mean?",
@@ -1625,33 +1771,53 @@ mod tests {
         ] {
             let embedded = client.embed(vec![query.to_string()]).await.unwrap();
             let vector = embedded.vectors[0].as_ref().unwrap();
-            let best = rank_by_similarity(
-                Query {
-                    model: &model,
-                    vector,
-                },
-                stored.iter().map(|chunk| Candidate {
-                    id: chunk.id,
-                    model: &model,
-                    vector: &chunk.vector,
-                }),
-                1,
-            );
+            let best = by_cosine(&stored, vector)[0].0;
             let terms = crate::help_docs::search_terms(query);
-            let ranked = search.rank(HELP_KIND, None, query, &terms).await.unwrap();
+            let ranked = search
+                .passages(&[HELP_KIND], None, query, &terms, &HashSet::new(), 20)
+                .await
+                .unwrap();
+            let sources = ranked.sources();
             println!(
                 "{query:?}: best cosine {:.3}, words {}, top {:?}",
-                best[0].score,
+                best,
                 ranked.any_terms,
-                &ranked.sources[..ranked.sources.len().min(6)]
+                &sources[..sources.len().min(6)]
             );
             if query.contains("create an arc") {
-                assert!(
-                    ranked.sources[..6]
-                        .iter()
-                        .any(|source| source == "features#opening-an-arc")
-                );
+                assert!(sources[..sources.len().min(6)].contains(&"recipes#create-an-arc"));
             }
+        }
+    }
+
+    /// Every help vector the index holds: its source and its floats, to within a step.
+    fn stored_help(index: &SemanticIndex, model: &str) -> Vec<(String, Vec<f32>)> {
+        index
+            .chunks()
+            .into_iter()
+            .filter(|chunk| chunk.source_kind == HELP_KIND && chunk.model.as_deref() == Some(model))
+            .filter_map(|chunk| Some((chunk.source_id, chunk.vector?)))
+            .collect()
+    }
+
+    /// `stored` nearest `query` first, as `(cosine, source)`.
+    fn by_cosine(stored: &[(String, Vec<f32>)], query: &[f32]) -> Vec<(f32, String)> {
+        let mut scored: Vec<(f32, String)> = stored
+            .iter()
+            .filter_map(|(source, vector)| {
+                Some((tugsem_core::cosine(query, vector)?, source.clone()))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+        scored
+    }
+
+    /// A stored vector is the one embedded, to within a quantization step.
+    fn assert_near(stored: &Option<Vec<f32>>, wanted: &[f32]) {
+        let stored = stored.as_ref().expect("a stored vector");
+        assert_eq!(stored.len(), wanted.len());
+        for (value, was) in stored.iter().zip(wanted) {
+            assert!((value - was).abs() < 0.02, "{value} {was}");
         }
     }
 }

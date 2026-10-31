@@ -17,6 +17,8 @@ slow-timeout = { period = "60s", terminate-after = 3, grace-period = "10s" }
 #   default (`--features real-claude-tests`).
 # - `stream_json_catalog_drift_regression` replays the probe catalog against
 #   live claude (~2 min). Same feature gate.
+# - `question_cost_reading_at_full_size` writes an index of a gigabyte and more,
+#   a reading run by hand and ignored otherwise.
 
 [[profile.default.overrides]]
 filter = 'test(capture_all_probes)'
@@ -25,6 +27,10 @@ slow-timeout = "15m"
 [[profile.default.overrides]]
 filter = 'test(stream_json_catalog_drift_regression)'
 slow-timeout = "5m"
+
+[[profile.default.overrides]]
+filter = 'test(question_cost_reading_at_full_size)'
+slow-timeout = "15m"
 
 # Every run writes a junit document, read by `tugtool test run` (the
 # `test-rust` recipe) into the test results ledger, so `tugtool test last

@@ -9,27 +9,47 @@
 // One object per line, in each direction.
 //
 //   out, at start and whenever the live model changes:
-//     {"event":"model","model":"nl-contextual-en-r1","dimensions":512}
+//     {"event":"model","model":"nl-contextual-r1","dimensions":512}
 //     {"event":"model"}                       no model on this machine
 //   in:
 //     {"id":1,"op":"embed","texts":["a sentence","another"]}
 //   out, one per request, in order:
-//     {"id":1,"model":"nl-contextual-en-r1","vectors":[[0.1,...],null]}
+//     {"id":1,"model":"nl-contextual-r1","vectors":[[0.1,...],null]}
 //     {"id":1,"error":"no embedding model is available"}
 //
-// A `null` vector is a text the model could not embed, such as an empty one.
+// A `null` vector is a text the model could not embed: an empty one, or one in a
+// language the model does not cover. The tag names the model and no language,
+// because each text's own language is detected here, and a text this is not sure
+// of goes through with none rather than being refused.
 // Every vector is unit length. A vector belongs to the model named beside it,
 // and vectors from two models are not comparable: a caller that sees the model
 // event change re-embeds what it holds.
 //
 // The contextual model is the better one. The static sentence model needs no
 // assets, so it is what answers until the contextual assets arrive, if they are
-// absent at start. `--static` stays on the static model.
+// absent at start. `--static` stays on the static model. Its vectors keep the
+// dimension of their language's model, so the `dimensions` announced is the
+// English one, and a vector's own length is what says what it is.
 //
 // End of input ends the process, so a helper never outlives its parent.
 
 import Foundation
 import NaturalLanguage
+
+/// How sure the recognizer must be before a language is acted on. Code and short
+/// strings read low and wrong, a sha as Portuguese at 0.52, and real prose reads
+/// 0.84 and up, so the line falls between them.
+let confidentLanguage = 0.8
+
+/// The text's language when the recognizer is sure of it, and nil when it is not.
+func detectedLanguage(_ text: String) -> NLLanguage? {
+    let recognizer = NLLanguageRecognizer()
+    recognizer.processString(text)
+    guard let top = recognizer.languageHypotheses(withMaximum: 1).first,
+        top.value >= confidentLanguage, top.key != .undetermined
+    else { return nil }
+    return top.key
+}
 
 protocol Embedder {
     var model: String { get }
@@ -47,11 +67,13 @@ struct ContextualEmbedder: Embedder {
         self.embedding = embedding
     }
 
-    var model: String { "nl-contextual-en-r\(embedding.revision)" }
+    var model: String { "nl-contextual-r\(embedding.revision)" }
     var dimensions: Int { embedding.dimension }
 
     func vector(for text: String) -> [Double]? {
-        guard let result = try? embedding.embeddingResult(for: text, language: .english) else {
+        let language = detectedLanguage(text)
+        if let language, !embedding.languages.contains(language) { return nil }
+        guard let result = try? embedding.embeddingResult(for: text, language: language) else {
             return nil
         }
         var sum = [Double](repeating: 0, count: embedding.dimension)
@@ -68,20 +90,30 @@ struct ContextualEmbedder: Embedder {
     }
 }
 
-/// `NLEmbedding.sentenceEmbedding`, which is one call per text.
-struct StaticEmbedder: Embedder {
+/// `NLEmbedding.sentenceEmbedding`, which is one call per text and one model per
+/// language. A text with no language it is sure of reads as English.
+final class StaticEmbedder: Embedder {
     let embedding: NLEmbedding
+    private var byLanguage: [NLLanguage: NLEmbedding?]
 
     init?() {
         guard let embedding = NLEmbedding.sentenceEmbedding(for: .english) else { return nil }
         self.embedding = embedding
+        self.byLanguage = [.english: embedding]
     }
 
-    var model: String { "nl-sentence-en-r\(embedding.revision)" }
+    var model: String { "nl-sentence-r\(embedding.revision)" }
     var dimensions: Int { embedding.dimension }
 
     func vector(for text: String) -> [Double]? {
-        embedding.vector(for: text)
+        model(for: detectedLanguage(text) ?? .english)?.vector(for: text)
+    }
+
+    private func model(for language: NLLanguage) -> NLEmbedding? {
+        if let known = byLanguage[language] { return known }
+        let found = NLEmbedding.sentenceEmbedding(for: language)
+        byLanguage.updateValue(found, forKey: language)
+        return found
     }
 }
 
@@ -186,10 +218,6 @@ final class Service {
         FileHandle.standardOutput.write(data)
     }
 }
-
-// Indexing can embed a few hundred passages in one go, and it is never what the
-// user is waiting on, so this process gives way to everything else on the machine.
-setpriority(PRIO_PROCESS, 0, 10)
 
 let service = Service()
 service.start(staticOnly: CommandLine.arguments.contains("--static"))

@@ -31,7 +31,8 @@ export type AnnotationKind =
   | "directory"
   | "image"
   | "commit-sha"
-  | "session";
+  | "session"
+  | "help";
 
 /**
  * The class every annotated element carries, whatever its kind and

@@ -597,6 +597,8 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
     };
     let (mut hits, mut query_used, mut rung_note) = search_with_recovery(query, "facts", search)?;
     let meaning = facts_by_meaning(ctx, query, &filter).await;
+    let by_meaning = meaning.is_some();
+    let meaning = meaning.unwrap_or_default();
     // Rung 3, and only here: the lexical ladder and the index have both come back
     // empty, so the alternative to asking a model is returning nothing.
     if hits.is_empty()
@@ -638,7 +640,7 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
             row
         })
         .collect();
-    let mut out = json!({ "facts": rows, "count": rows.len(), "query_used": query_used });
+    let mut out = json!({ "facts": rows, "count": rows.len(), "query_used": query_used, "by_meaning": by_meaning });
     // Both notes can be true at once — a relaxed query that then matched more
     // than one kind — and the caller needs each of them.
     let notes: Vec<String> = [rung_note, budget_note, meaning_note]
@@ -651,39 +653,39 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
     Ok(out)
 }
 
-/// The facts the index ranks nearest a question, best first, within `filter`. Empty
+/// The facts the index ranks nearest a question, best first, within `filter`. `None`
 /// when the index cannot answer, which leaves the words alone to answer.
 async fn facts_by_meaning(
     ctx: &OperatorContext,
     query: &str,
     filter: &FactSearchFilter,
-) -> Vec<FactRow> {
+) -> Option<Vec<FactRow>> {
     let scope = filter
         .session_id
         .as_ref()
         .map(|session| format!("{session}/"));
     // The kind and the time bracket narrow only after the scan, so read as wide as a
     // budgeted page does whatever the filter says.
-    let Some(ranked) = ask_index(
+    let ranked = ask_index(
         ctx,
         &[crate::semantic::FACT_KIND],
         scope.as_deref(),
         query,
         FACTS_SEARCH_LIMIT * KIND_BUDGET_OVERFETCH,
     )
-    .await
-    else {
-        return Vec::new();
-    };
+    .await?;
     let ids: Vec<i64> = ranked
         .hits
         .iter()
         .filter_map(|hit| hit_meta_number(hit, "fact_id"))
         .collect();
-    ctx.ledger.facts_by_ids(&ids, filter).unwrap_or_else(|err| {
-        warn!(error = %err, "facts.search: could not read the facts the index found");
-        Vec::new()
-    })
+    match ctx.ledger.facts_by_ids(&ids, filter) {
+        Ok(facts) => Some(facts),
+        Err(err) => {
+            warn!(error = %err, "facts.search: could not read the facts the index found");
+            None
+        }
+    }
 }
 
 /// Fuse what the words found with what meaning found. A row found only by meaning has
@@ -1650,11 +1652,11 @@ async fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value
         last.map(|n| n as usize),
         grep,
     );
-    let (selected, meaning_alone) = match grep {
+    let (selected, meaning_alone, by_meaning) = match grep {
         Some(grep) => {
             fuse_grep_by_meaning(ctx, session_id, grep, &transcript.turns, selected).await
         }
-        None => (selected, Vec::new()),
+        None => (selected, Vec::new(), false),
     };
     let rendered = tugcore::session_transcript::render(&selected);
     let mut text = String::new();
@@ -1671,6 +1673,9 @@ async fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value
     out["turns"] = json!(selected.iter().map(|t| t.number).collect::<Vec<_>>());
     out["text"] = json!(text);
     out["truncated"] = json!(truncated);
+    if grep.is_some() {
+        out["by_meaning"] = json!(by_meaning);
+    }
     if let Some(stamp) = transcript.last_timestamp {
         out["last_timestamp"] = json!(stamp);
     }
@@ -1689,14 +1694,15 @@ async fn session_transcript(ctx: &OperatorContext, args: &Value) -> Result<Value
 
 /// Rank the turns a grep matched together with the turns the index puts nearest the
 /// same words, keeping every match and adding at most `GREP_MEANING_TURNS`. Answers the
-/// turns in that order, and the numbers of those present on meaning alone.
+/// turns in that order, the numbers of those present on meaning alone, and whether the
+/// index answered at all.
 async fn fuse_grep_by_meaning<'a>(
     ctx: &OperatorContext,
     session_id: &str,
     grep: &str,
     turns: &'a [tugcore::session_transcript::Turn],
     matched: Vec<&'a tugcore::session_transcript::Turn>,
-) -> (Vec<&'a tugcore::session_transcript::Turn>, Vec<usize>) {
+) -> (Vec<&'a tugcore::session_transcript::Turn>, Vec<usize>, bool) {
     let scope = format!("{session_id}/");
     let Some(ranked) = ask_index(
         ctx,
@@ -1707,7 +1713,7 @@ async fn fuse_grep_by_meaning<'a>(
     )
     .await
     else {
-        return (matched, Vec::new());
+        return (matched, Vec::new(), false);
     };
     let matched_turns: Vec<i64> = matched.iter().map(|turn| turn.number as i64).collect();
     let mut near: Vec<i64> = Vec::new();
@@ -1741,7 +1747,7 @@ async fn fuse_grep_by_meaning<'a>(
         .filter(|turn| !matched_turns.contains(&(turn.number as i64)))
         .map(|turn| turn.number)
         .collect();
-    (fused, meaning_alone)
+    (fused, meaning_alone, true)
 }
 
 fn changes_for_session(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
@@ -2461,8 +2467,17 @@ async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Strin
         Some(search) => {
             let terms = help_docs::search_terms(query);
             let scope = only.map(|doc| format!("{}#", doc.name()));
+            // Several spans of one long section are one unit here, so ask for more than
+            // the verb shows.
             search
-                .rank(crate::semantic::HELP_KIND, scope.as_deref(), query, &terms)
+                .passages(
+                    &[crate::semantic::HELP_KIND],
+                    scope.as_deref(),
+                    query,
+                    &terms,
+                    &HashSet::new(),
+                    SEMANTIC_MAX_LIMIT as usize,
+                )
                 .await
         }
         None => None,
@@ -2471,7 +2486,7 @@ async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Strin
     // not a hit.
     let hybrid = ranked.and_then(|ranked| {
         let hits: Vec<usize> = ranked
-            .sources
+            .sources()
             .iter()
             .filter_map(|source| {
                 pool.iter()
@@ -2481,6 +2496,7 @@ async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Strin
             .collect();
         (!hits.is_empty()).then_some((hits, ranked.any_terms, ranked.all_terms))
     });
+    let by_meaning = hybrid.is_some();
     let (hits, any_terms, all_terms) = match hybrid {
         Some(hybrid) => hybrid,
         None => {
@@ -2497,7 +2513,7 @@ async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Strin
         })
         .collect();
     let count = rows.len();
-    let mut out = json!({ "query": query, "hits": rows, "count": count });
+    let mut out = json!({ "query": query, "hits": rows, "count": count, "by_meaning": by_meaning });
     if count == 0 {
         out["note"] = json!(
             "no passage holds those words; help.outline lists the glossary's terms and the guide's and the recipes' headings"
@@ -2643,7 +2659,8 @@ async fn search_semantic(ctx: &OperatorContext, args: &Value) -> Result<Value, S
         }
     }
     let count = hits.len();
-    let mut out = json!({ "query": query, "count": count, "hits": hits });
+    let mut out =
+        json!({ "query": query, "count": count, "hits": hits, "by_meaning": answer.is_some() });
     if !notes.is_empty() {
         out["note"] = json!(notes.join("; "));
     }
@@ -8564,6 +8581,68 @@ mod tests {
             .await
             .unwrap();
         assert!(found["count"].as_u64().unwrap() > 0);
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn help_search_says_it_ranked_by_meaning() {
+        let mut f = fixture();
+        with_help_index(&mut f, true).await;
+        let out = run_verb(&f.ctx, "help.search", &json!({"query": "worktree"}))
+            .await
+            .unwrap();
+        assert_eq!(out["by_meaning"], true, "{out}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn help_search_with_no_model_says_it_did_not() {
+        let mut f = fixture();
+        with_help_index(&mut f, false).await;
+        let out = run_verb(&f.ctx, "help.search", &json!({"query": "worktree"}))
+            .await
+            .unwrap();
+        assert_eq!(out["by_meaning"], false, "{out}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn search_semantic_and_facts_search_say_whether_the_index_answered() {
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        let answered = json!({"query": "retry backoff"});
+        for verb in ["search.semantic", "facts.search"] {
+            let out = run_verb(&f.ctx, verb, &answered).await.unwrap();
+            assert_eq!(out["by_meaning"], true, "{verb}: {out}");
+        }
+        f.ctx.semantic = None;
+        for verb in ["search.semantic", "facts.search"] {
+            let out = run_verb(&f.ctx, verb, &answered).await.unwrap();
+            assert_eq!(out["by_meaning"], false, "{verb}: {out}");
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_grep_says_whether_the_index_answered_and_other_selectors_say_nothing() {
+        let (mut f, home) = fixture_with_claude_home();
+        with_semantic_index(&mut f, false).await;
+        place_transcript(&f, &home, "sess-a", &grep_turns());
+        let grep = json!({"session_id": "sess-a", "grep": "retry backoff"});
+        let out = run_verb(&f.ctx, "session.transcript", &grep).await.unwrap();
+        assert_eq!(out["by_meaning"], true, "{out}");
+        let last = run_verb(
+            &f.ctx,
+            "session.transcript",
+            &json!({"session_id": "sess-a", "last": 1}),
+        )
+        .await
+        .unwrap();
+        assert!(last.get("by_meaning").is_none(), "{last}");
+
+        f.ctx.semantic = None;
+        let out = run_verb(&f.ctx, "session.transcript", &grep).await.unwrap();
+        assert_eq!(out["by_meaning"], false, "{out}");
     }
 
     #[tokio::test]

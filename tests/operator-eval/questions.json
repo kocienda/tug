@@ -87,5 +87,8 @@
   { "question": "where is the setting for the default project directory?", "anchor": "recipes#change-a-setting" },
   { "question": "can I rebind a shortcut?", "anchor": "recipes#see-or-change-a-keyboard-shortcut" },
   { "question": "how do I get the newest version of Tug?", "anchor": "recipes#update-tug" },
-  { "question": "where do I ask a question about how Tug works?", "anchor": "recipes#ask-tug-how-something-works" }
+  { "question": "where do I ask a question about how Tug works?", "anchor": "recipes#ask-tug-how-something-works" },
+  { "question": "¿cómo creo un arco nuevo?", "anchor": "recipes#create-an-arc", "lang": "es" },
+  { "question": "Wie mache ich alles auf dem Bildschirm größer?", "anchor": "recipes#make-everything-bigger-or-smaller", "lang": "de" },
+  { "question": "how do I search for a word in a conversation, es decir, cómo busco una palabra en la transcripción?", "anchor": "recipes#find-text-in-the-transcript", "lang": "en-es" }
 ]
