@@ -43,6 +43,8 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 const ENTRY = new URL("../src/lib/workers/ingest-worker.ts", import.meta.url).href;
 /** The same Worker with each batch stamped by how many it runs ahead of the page's acknowledgement. */
 const COUNTING_ENTRY = new URL("../src/lib/ingest/testing/counting-ingest-worker.ts", import.meta.url).href;
+/** The same Worker with every batch reaching the page late, so tugcast hears of the wire before the page does. */
+const HOLDING_ENTRY = new URL("../src/lib/ingest/testing/holding-ingest-worker.ts", import.meta.url).href;
 
 let fake: FakeTugcast | null = null;
 let channel: WorkerIngestChannel | null = null;
@@ -594,6 +596,19 @@ describe("disposing the connection releases its Worker", () => {
     await Bun.sleep(200);
     expect(fake!.handshaken()).toBe(false);
     expect(page.conn.trySendControlFrame("check_auth")).toBe(false);
+  });
+
+  test("a dispose before the page has heard the wire open still closes it", async () => {
+    fake = startFakeTugcast();
+    channel = new WorkerIngestChannel(() => new Worker(HOLDING_ENTRY, { type: "module" }));
+    const conn = new TugConnection(fake.url, { channel });
+    conn.connect();
+    await until(() => fake!.handshaken(), "the handshake");
+    // tugcast has answered, and the page has not yet been told the socket opened.
+    expect(conn.trySendControlFrame("check_auth")).toBe(false);
+
+    conn.dispose();
+    await until(() => !fake!.handshaken(), "the socket closed");
   });
 });
 

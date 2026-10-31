@@ -1001,17 +1001,19 @@ export class TugConnection {
    */
   dispose(): void {
     if (this.disposed) return;
+    // The page hears of the wire after the wire exists, so one it has not
+    // heard open may still be open: a connect asked for is a close to wait on.
+    const wireMayBeUp = this.socketOpen || this.connectWanted;
     this.connectWanted = false;
     this.stopVisibilityPulse();
     this.releaseGate();
     const channel = this.channel;
-    const wasOpen = this.socketOpen;
     this.channel = null;
     this.disposed = true;
     this.socketOpen = false;
     if (channel === null) return;
     channel.post({ kind: "close" });
-    if (!wasOpen) {
+    if (!wireMayBeUp) {
       channel.dispose();
       return;
     }
