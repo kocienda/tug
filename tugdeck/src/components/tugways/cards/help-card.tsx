@@ -136,6 +136,14 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
   const rootRef = useRef<HTMLDivElement | null>(null);
   // The anchor still to be honored once the document is on the page.
   const pendingAnchorRef = useRef<string | null>(null);
+  // The passage the card was opened at, held until the reader moves. A scroll
+  // offset is only true of the layout it was taken in, and a card's page mounts
+  // at 0 × 0 and may render its document before the host has placed its view.
+  const heldTargetRef = useRef<HTMLElement | null>(null);
+  const goToTarget = useCallback((target: HTMLElement) => {
+    heldTargetRef.current = target;
+    target.scrollIntoView({ block: "start" });
+  }, []);
 
   // ---- Find ----
   // The bar mounts while `findOpen`; its ref answers "is it up?" (React
@@ -174,6 +182,7 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
       return;
     }
     findSeedRef.current = seed ?? "";
+    heldTargetRef.current = null;
     setFindOpen(true);
   }, []);
 
@@ -264,7 +273,32 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
     const root = rootRef.current;
     if (markdown === null || anchor === null || root === null) return;
     pendingAnchorRef.current = null;
-    findAnchorTarget(root, anchor)?.scrollIntoView({ block: "start" });
+    const target = findAnchorTarget(root, anchor);
+    if (target !== null) goToTarget(target);
+  }, [markdown, goToTarget]);
+
+  // Keep the passage at the top while the document's layout moves under it: the
+  // view being placed, a width change, a late font. The reader's first act lets
+  // it go, so this never fights a scroll.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const frame = frameRef.current;
+    if (markdown === null || root === null || frame === null) return;
+    const observer = new ResizeObserver(() => {
+      heldTargetRef.current?.scrollIntoView({ block: "start" });
+    });
+    observer.observe(root);
+    const body = root.querySelector('[data-slot="tug-markdown-block"]');
+    if (body !== null) observer.observe(body);
+    const release = () => {
+      heldTargetRef.current = null;
+    };
+    const acts = ["wheel", "pointerdown", "keydown"] as const;
+    for (const act of acts) frame.addEventListener(act, release, { capture: true, passive: true });
+    return () => {
+      observer.disconnect();
+      for (const act of acts) frame.removeEventListener(act, release, { capture: true });
+    };
   }, [markdown]);
 
   // A re-open of this document from elsewhere scrolls this card — or, when
@@ -274,12 +308,12 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
       scrollToAnchor: (anchor) => {
         const root = rootRef.current;
         const target = root === null ? null : findAnchorTarget(root, anchor);
-        if (target !== null) target.scrollIntoView({ block: "start" });
+        if (target !== null) goToTarget(target);
         else pendingAnchorRef.current = anchor;
       },
     });
     return () => unregisterOpenHelpCard(cardId);
-  }, [cardId]);
+  }, [cardId, goToTarget]);
 
   // Links inside the document, caught before the anchor navigates the page.
   // A modified click is caught too: a help link is relative, so letting ⌘ or

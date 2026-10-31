@@ -52,7 +52,7 @@ import type { TeardownSaveDeps, TeardownSaveOptions, TeardownSaveResult, Termina
 import { seedDeckState, type SeedDeckStateArgs } from "./deck-manager-test-seed";
 import * as fold from "./fold";
 import { panesWithWallFolded, type FoldDeps } from "./fold";
-import { nextCascadePosition } from "./cascade";
+import { CASCADE_ORIGIN, nextCascadePosition, type CascadeInsets } from "./cascade";
 import { composeDeparting, type DepartingEntry } from "./lib/departing";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./lib/after-paint";
 import { SpaceSwitchMark, switchMarkDeadlineMs } from "./lib/space-switch-mark";
@@ -176,6 +176,7 @@ import {
   effectiveRailOrder,
   flowRevealOffset,
   flowBandEdges,
+  railSpanInsetPx,
   type FlowBandEdges,
   wallRevealOffset,
   impositionGapBottomPx,
@@ -2787,8 +2788,13 @@ export class DeckManager implements IDeckManagerStore {
     // of pushing past the viewport. Each dimension is also floored at
     // the policy `min` so a tiny canvas never produces a sub-minimum
     // card. With both dimensions capped, the cascade origin (10,10)
-    // plus a 0.9-canvas card always lands inside the canvas.
+    // plus a 0.9-canvas card always lands inside the canvas. A standing
+    // rail takes its side of the canvas, so the width is also capped to the
+    // room the rails leave, with the cascade origin's margin at each end.
     const canvasWidthForCap = this.container.clientWidth || 800;
+    const railInsets = this._cascadeInsets();
+    const roomForCap =
+      canvasWidthForCap - railInsets.left - railInsets.right - 2 * CASCADE_ORIGIN;
     const canvasHeightForCap = this.container.clientHeight || 600;
     // A reading card opens at the width the deck is set to rather than at a
     // number frozen into its registration, so the first card of a session
@@ -2808,7 +2814,7 @@ export class DeckManager implements IDeckManagerStore {
           );
     const cappedPreferredWidth = Math.min(
       openingWidth,
-      Math.max(sizePolicy.min.width, Math.floor(canvasWidthForCap * 0.9)),
+      Math.max(sizePolicy.min.width, Math.min(Math.floor(canvasWidthForCap * 0.9), roomForCap)),
     );
     const cappedPreferredHeight = Math.min(
       sizePolicy.preferred.height,
@@ -2826,6 +2832,7 @@ export class DeckManager implements IDeckManagerStore {
             this.deckState.panes.map((pane) => pane.position),
             { width: this.container.clientWidth, height: this.container.clientHeight },
             { width: cappedPreferredWidth, height: cappedPreferredHeight },
+            railInsets,
           );
 
     const seededCards: CardState[] = [];
@@ -5918,6 +5925,32 @@ export class DeckManager implements IDeckManagerStore {
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
   ): FlowBandEdges {
+    return flowBandEdges(
+      this._containerClientSize().width,
+      this._railWidths(panes, imposition),
+    );
+  }
+
+  /**
+   * What the standing rails take of the canvas at each side, for a new free
+   * pane to cascade clear of: a rail stands above every free pane, so a card
+   * opened under one has its title and the start of each line hidden. The
+   * inner edge is the band's, so a free pane and a seated card share it; a side
+   * with no rail takes nothing, leaving the cascade at the canvas's own edge.
+   */
+  private _cascadeInsets(): CascadeInsets {
+    const state = this.deckState;
+    const widths = this._railWidths(state.panes, state.imposition);
+    const taken = (width: number | undefined): number =>
+      width === undefined ? 0 : railSpanInsetPx(width) + impositionGapPx();
+    return { left: taken(widths.left), right: taken(widths.right) };
+  }
+
+  /** The widest pane standing on each side; a side with no rail is absent. */
+  private _railWidths(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): { left?: number; right?: number } {
     const { panesBySide } = this._sidebarRails(panes, imposition);
     const state = { ...this.deckState, panes: [...panes] };
     const railWidths: { left?: number; right?: number } = {};
@@ -5928,7 +5961,7 @@ export class DeckManager implements IDeckManagerStore {
       }
       railWidths[side] = width;
     }
-    return flowBandEdges(this._containerClientSize().width, railWidths);
+    return railWidths;
   }
 
   /**
