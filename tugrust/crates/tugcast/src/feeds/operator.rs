@@ -117,14 +117,14 @@ pub struct OperatorContext {
     /// Where an attached image's bytes come to rest — one file per image,
     /// beside the ledger rather than inside it. Created on first write.
     pub attachments_dir: PathBuf,
-    /// The Haiku pool, for the search ladder's last rung ([P09]).
+    /// The pool that turns a question into search terms, the search ladder's
+    /// last rung ([P09]). The Overview's own in every running instance.
     ///
     /// `Option` because most construction sites have no pool and want none:
-    /// the verb fixtures, and `operator-ask`, which builds only the Overview's
-    /// own pool. `None` means the rung is skipped and an unanswerable search
-    /// returns empty exactly as it did before — the degradation is the
+    /// the verb fixtures. `None` means the rung is skipped and an unanswerable
+    /// search returns empty exactly as it did before — the degradation is the
     /// default, not the exception.
-    pub haiku: Option<Arc<crate::shared_agent::SharedAgentPool>>,
+    pub query_expansion: Option<Arc<crate::shared_agent::SharedAgentPool>>,
     /// The machine-wide prompt corpus (`prompt_history.db`), the same handle
     /// the composer's recall reads through. `None` is a build that could not
     /// open it, or an instrument that was not pointed at a copy; the horizon
@@ -138,6 +138,9 @@ pub struct OperatorContext {
     /// `resources::docs_dir()` resolves, the same one the help card is served
     /// from. `None` in a build that has none, and the verbs say so.
     pub docs_dir: Option<PathBuf>,
+    /// The semantic index, which `help.search` ranks through when it can. `None`
+    /// leaves that verb on its plain search over the documents.
+    pub semantic: Option<Arc<crate::semantic::SemanticSearch>>,
 }
 
 /// Every verb the Operator may name. The retrieval instructions list the same
@@ -206,7 +209,7 @@ async fn dispatch(ctx: &OperatorContext, name: &str, args: &Value) -> Result<Val
         "repo.outline" => repo_outline(ctx, args).await,
         "help.outline" => help_outline(ctx, args),
         "help.read" => help_read(ctx, args),
-        "help.search" => help_search(ctx, args),
+        "help.search" => help_search(ctx, args).await,
         other => Err(format!(
             "unknown verb {other:?}; the verbs are: {}",
             VERB_NAMES.join(", ")
@@ -399,13 +402,13 @@ struct TermsEnvelope {
     terms: Vec<String>,
 }
 
-/// Ladder rung 3: ask Haiku for words the record would actually contain, and
+/// Ladder rung 3: ask the model for words the record would actually contain, and
 /// build one more OR query out of them ([P09], Spec S06).
 ///
 /// This is the first place the verb executor touches a model, and every bound
 /// on it is deliberate: it fires only after two lexical rungs have already
 /// returned nothing, at most once per verb call, on a pool whose own job
-/// ceiling (6 s) sits inside [`VERB_TIMEOUT`] (10 s). Every failure — no pool,
+/// ceiling sits inside [`VERB_TIMEOUT`]. Every failure — no pool,
 /// a pool error, a timeout, prose where JSON was asked for, an empty list — is
 /// the same `None`, which puts the caller back on the honest empty result it
 /// already had.
@@ -414,7 +417,7 @@ struct TermsEnvelope {
 /// go through `sanitize_fts_query` exactly like a model-written query does.
 /// Nothing here is interpolated raw.
 async fn expand_via_model(ctx: &OperatorContext, question: &str) -> Option<String> {
-    let pool = ctx.haiku.as_ref()?;
+    let pool = ctx.query_expansion.as_ref()?;
     let raw = match pool.run("expand_query", question.to_string()).await {
         Ok(raw) => raw,
         Err(err) => {
@@ -2279,7 +2282,11 @@ fn help_read(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
 ///
 /// A hit is a retrieval unit rather than a line, because a glossary entry or a
 /// section is the smallest passage that answers a question about the app.
-fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+///
+/// Hybrid when the semantic index can answer, BM25 and meaning fused by rank. The
+/// plain search over the documents is what stands when it cannot: before its help
+/// stream has run, with no embedding model, or in a build with no index.
+async fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let dir = help_dir(ctx)?;
     let query = req_str(args, "query")?;
     let only = help_doc_arg(args)?;
@@ -2291,8 +2298,38 @@ fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
         let (_, units) = help_units(dir, doc)?;
         pool.extend(units.into_iter().map(|unit| (doc, unit)));
     }
-    let units: Vec<HelpUnit> = pool.iter().map(|(_, unit)| unit.clone()).collect();
-    let (hits, all_terms) = help_docs::search_units(&units, query, HELP_SEARCH_LIMIT);
+    let ranked = match ctx.semantic.as_ref() {
+        Some(search) => {
+            let terms = help_docs::search_terms(query);
+            let scope = only.map(|doc| format!("{}#", doc.name()));
+            search
+                .rank(crate::semantic::HELP_KIND, scope.as_deref(), query, &terms)
+                .await
+        }
+        None => None,
+    };
+    // A source's id is its help ref's target. One the documents no longer hold is
+    // not a hit.
+    let hybrid = ranked.and_then(|ranked| {
+        let hits: Vec<usize> = ranked
+            .sources
+            .iter()
+            .filter_map(|source| {
+                pool.iter()
+                    .position(|(doc, unit)| *source == format!("{}#{}", doc.name(), unit.anchor))
+            })
+            .take(HELP_SEARCH_LIMIT)
+            .collect();
+        (!hits.is_empty()).then_some((hits, ranked.any_terms, ranked.all_terms))
+    });
+    let (hits, any_terms, all_terms) = match hybrid {
+        Some(hybrid) => hybrid,
+        None => {
+            let units: Vec<HelpUnit> = pool.iter().map(|(_, unit)| unit.clone()).collect();
+            let (hits, all_terms) = help_docs::search_units(&units, query, HELP_SEARCH_LIMIT);
+            (hits, true, all_terms)
+        }
+    };
     let rows: Vec<Value> = hits
         .iter()
         .map(|&index| {
@@ -2305,6 +2342,10 @@ fn help_search(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     if count == 0 {
         out["note"] = json!(
             "no passage holds those words; help.outline lists the glossary's terms and the guide's headings"
+        );
+    } else if !any_terms {
+        out["note"] = json!(
+            "no passage holds those words, so these are only the nearest in meaning; check each answers the question"
         );
     } else if !all_terms {
         out["note"] = json!(
@@ -3609,13 +3650,15 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
-        fixture_with_haiku(None)
+        fixture_with_expansion(None)
     }
 
     /// The same fixture, carrying a pool for the expansion rung. Every verb
     /// test but the [P09] ones runs with `None`, which is also what the
     /// degradation contract says production does when no pool is present.
-    fn fixture_with_haiku(haiku: Option<Arc<crate::shared_agent::SharedAgentPool>>) -> Fixture {
+    fn fixture_with_expansion(
+        query_expansion: Option<Arc<crate::shared_agent::SharedAgentPool>>,
+    ) -> Fixture {
         let repo = git_repo();
         let dir = tempfile::tempdir().expect("tempdir");
         Fixture {
@@ -3626,10 +3669,11 @@ mod tests {
                 )),
                 bootstrap_project_dir: repo.path().to_path_buf(),
                 attachments_dir: dir.path().join("overview-attachments"),
-                haiku,
+                query_expansion,
                 prompt_ledger: None,
                 session_index_path: dir.path().join("session_index.db"),
                 docs_dir: help_fixture_docs(),
+                semantic: None,
             },
             _dir: dir,
             repo,
@@ -4708,13 +4752,20 @@ mod tests {
         assert!(out["note"].as_str().unwrap().contains("posts"));
     }
 
-    /// A pool over the real Haiku job table that answers `answer` to every
+    /// A pool over the real Overview job table that answers `answer` to every
     /// turn — the project's seam for agent-dependent logic.
     fn scripted(
         answer: Result<String, String>,
     ) -> Option<Arc<crate::shared_agent::SharedAgentPool>> {
-        Some(crate::shared_agent::test_support::scripted_haiku_pool(
-            answer,
+        Some(crate::shared_agent::SharedAgentPool::new(
+            crate::shared_agent::AgentSpec {
+                name: "overview",
+                model: Arc::new(|| crate::feeds::overview_agent::DEFAULT_MODEL.to_string()),
+                jobs: crate::feeds::overview_agent::OVERVIEW_AGENT_JOBS,
+                max_workers: crate::feeds::overview_agent::DEFAULT_MAX_WORKERS,
+            },
+            crate::shared_agent::test_support::FakeSpawner::always(answer)
+                as Arc<dyn crate::shared_agent::AgentWorkerSpawner>,
         ))
     }
 
@@ -4737,7 +4788,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_question_sharing_no_words_with_the_record_is_reached_by_expansion() {
-        let f = fixture_with_haiku(scripted(Ok(
+        let f = fixture_with_expansion(scripted(Ok(
             r#"{"terms": ["flicker", "repaint"]}"#.to_string()
         )));
         seed_flicker_commit(&f);
@@ -4754,7 +4805,7 @@ mod tests {
     #[tokio::test]
     async fn without_a_pool_that_question_returns_the_honest_empty_result() {
         let f = fixture();
-        assert!(f.ctx.haiku.is_none());
+        assert!(f.ctx.query_expansion.is_none());
         seed_flicker_commit(&f);
         let out = run_verb(&f.ctx, "facts.search", &json!({"query": "cards blinking"}))
             .await
@@ -4773,7 +4824,7 @@ mod tests {
             Ok(r#"{"terms": []}"#.to_string()),
             Ok(String::new()),
         ] {
-            let f = fixture_with_haiku(scripted(answer.clone()));
+            let f = fixture_with_expansion(scripted(answer.clone()));
             seed_flicker_commit(&f);
             let out = run_verb(&f.ctx, "facts.search", &json!({"query": "cards blinking"}))
                 .await
@@ -4787,7 +4838,7 @@ mod tests {
     async fn expansion_never_fires_when_a_lexical_rung_already_found_rows() {
         // The scripted terms would match a fact the question does not mean, so
         // that fact's absence is the proof the rung never ran.
-        let f = fixture_with_haiku(scripted(Ok(r#"{"terms": ["flicker"]}"#.to_string())));
+        let f = fixture_with_expansion(scripted(Ok(r#"{"terms": ["flicker"]}"#.to_string())));
         seed_flicker_commit(&f);
         seed_tooltip_commit(&f);
         let out = run_verb(&f.ctx, "facts.search", &json!({"query": "tooltip colors"}))
@@ -4808,7 +4859,7 @@ mod tests {
     async fn expansion_terms_are_sanitized_not_interpolated() {
         // A term carrying FTS5 syntax would syntax-error the query it lands
         // in, which would turn a graceful degradation into a failed verb.
-        let f = fixture_with_haiku(scripted(Ok(
+        let f = fixture_with_expansion(scripted(Ok(
             r#"{"terms": ["\"unbalanced", "NEAR(x", "repaint*", "flicker"]}"#.to_string(),
         )));
         seed_flicker_commit(&f);
@@ -4821,7 +4872,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_overview_search_gets_the_same_rung() {
-        let f = fixture_with_haiku(scripted(Ok(r#"{"terms": ["flicker"]}"#.to_string())));
+        let f = fixture_with_expansion(scripted(Ok(r#"{"terms": ["flicker"]}"#.to_string())));
         seed_post(&f.ctx, "Stopped the repaint flicker on theme switch.", None);
         let out = run_verb(
             &f.ctx,
@@ -6097,10 +6148,11 @@ mod tests {
                     shell_ledger: None,
                     bootstrap_project_dir: repo.path().to_path_buf(),
                     attachments_dir: repo.path().join("overview-attachments"),
-                    haiku: None,
+                    query_expansion: None,
                     prompt_ledger: None,
                     session_index_path: repo.path().join("session_index.db"),
                     docs_dir: None,
+                    semantic: None,
                 }),
                 pool,
                 overview_tx: tx,
@@ -6895,6 +6947,140 @@ mod tests {
             .unwrap();
         assert_eq!(none["count"], 0);
         assert!(none["note"].as_str().unwrap().contains("help.outline"));
+    }
+
+    /// Attach an index holding the help documents, on a fake embedder.
+    #[cfg(debug_assertions)]
+    async fn with_help_index(f: &mut Fixture, started: bool) {
+        use crate::semantic::fake::{FakeState, client};
+        use crate::semantic::{Indexer, SemanticIndex, SemanticSearch};
+        let index = Arc::new(SemanticIndex::open(f._dir.path().join("semantic.db")).unwrap());
+        let embedder = client(&FakeState::new(Some("model")));
+        embedder.start().await;
+        Indexer::new(Arc::clone(&index), Arc::clone(&embedder), None)
+            .index_help(f.ctx.docs_dir.as_deref().unwrap())
+            .await
+            .unwrap();
+        let asked = if started {
+            embedder
+        } else {
+            client(&FakeState::new(Some("model")))
+        };
+        f.ctx.semantic = Some(Arc::new(SemanticSearch::new(index, asked)));
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn help_search_through_the_index_keeps_its_result_shape_and_scope() {
+        let mut f = fixture();
+        with_help_index(&mut f, true).await;
+        let out = run_verb(
+            &f.ctx,
+            "help.search",
+            &json!({"query": "what is a split slot"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out["query"], "what is a split slot");
+        assert!(out.get("note").is_none(), "every term matched: {out}");
+        let hits = out["hits"].as_array().unwrap();
+        assert_eq!(out["count"], hits.len());
+        assert!(!hits.is_empty() && hits.len() <= HELP_SEARCH_LIMIT);
+        let titles: Vec<&str> = hits.iter().map(|h| h["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Split") || titles.contains(&"Stack and split"),
+            "{titles:?}"
+        );
+        for hit in hits {
+            assert!(hit["anchor"].as_str().is_some_and(|a| !a.is_empty()));
+            assert!(hit["text"].as_str().is_some_and(|t| !t.is_empty()));
+            assert!(hit["truncated"].is_boolean());
+            assert!(matches!(hit["kind"].as_str(), Some("entry" | "section")));
+            assert!(matches!(hit["doc"].as_str(), Some("glossary" | "features")));
+            // A hit is a whole unit, so its ref resolves as the plain search's do.
+            let target = format!(
+                "{}#{}",
+                hit["doc"].as_str().unwrap(),
+                hit["anchor"].as_str().unwrap()
+            );
+            assert_eq!(
+                help_docs::canonical_help_target(f.ctx.docs_dir.as_deref().unwrap(), &target),
+                Some(target)
+            );
+        }
+
+        let scoped = run_verb(
+            &f.ctx,
+            "help.search",
+            &json!({"query": "worktree", "doc": "glossary"}),
+        )
+        .await
+        .unwrap();
+        let scoped = scoped["hits"].as_array().unwrap();
+        assert!(!scoped.is_empty());
+        assert!(scoped.iter().all(|h| h["doc"] == "glossary"));
+    }
+
+    /// Meaning always finds something, so the model has to be told when that is
+    /// all it found.
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn help_search_says_when_only_meaning_found_anything() {
+        let mut f = fixture();
+        with_help_index(&mut f, true).await;
+        let out = run_verb(&f.ctx, "help.search", &json!({"query": "zzyzx"}))
+            .await
+            .unwrap();
+        assert!(out["count"].as_u64().unwrap() > 0);
+        assert!(
+            out["note"].as_str().unwrap().contains("nearest in meaning"),
+            "{out}"
+        );
+    }
+
+    /// A scope is the whole of what the search is about, so a word only the other
+    /// document holds is a word this search did not find.
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn help_search_scoped_to_a_document_judges_the_words_inside_it() {
+        let mut f = fixture();
+        with_help_index(&mut f, true).await;
+        let out = run_verb(
+            &f.ctx,
+            "help.search",
+            &json!({"query": "bookkeeping", "doc": "glossary"}),
+        )
+        .await
+        .unwrap();
+        assert!(
+            out["hits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|h| h["doc"] == "glossary")
+        );
+        assert!(
+            out["note"].as_str().unwrap().contains("nearest in meaning"),
+            "{out}"
+        );
+    }
+
+    /// Before the help stream has started a helper, the plain search answers as it
+    /// always has, and a search never starts one.
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn help_search_with_no_live_model_is_the_plain_search() {
+        let mut f = fixture();
+        with_help_index(&mut f, false).await;
+        let none = run_verb(&f.ctx, "help.search", &json!({"query": "zzyzx"}))
+            .await
+            .unwrap();
+        assert_eq!(none["count"], 0);
+        assert!(none["note"].as_str().unwrap().contains("help.outline"));
+        let found = run_verb(&f.ctx, "help.search", &json!({"query": "worktree"}))
+            .await
+            .unwrap();
+        assert!(found["count"].as_u64().unwrap() > 0);
     }
 
     #[tokio::test]

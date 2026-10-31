@@ -18,8 +18,9 @@ set -euo pipefail
 # Signing order is strictly inside-out, per Apple's guidance for any
 # bundle with heterogeneous nested binaries (macOS 13+):
 #
-#   1. Rust helpers (tugcast, tugtool, tugedit, tugexec, tugrelaunch, tugbank)
-#      — default hardened runtime, no custom entitlements file.
+#   1. Native helpers (tugcast, tugtool, tugedit, tugexec, tugrelaunch,
+#      tugbank, and the Swift tugembed) — default hardened runtime, no custom
+#      entitlements file.
 #   2. Swift debug dylibs (`Tug.debug.dylib`, `__preview.dylib` —
 #      Debug builds only). Hardened runtime requires nested dylibs
 #      to share the Team ID of the loading binary, so we re-sign
@@ -146,14 +147,14 @@ sign() {
 note "==> Signing $APP_PATH"
 note "    Identity: $IDENTITY"
 
-# (1) Rust helper binaries. No custom entitlements — hardened runtime
+# (1) Native helper binaries. No custom entitlements — hardened runtime
 # gives them sensible defaults for native code with no JIT. We iterate
 # a candidate list and sign each that's actually present; tugbank and
 # tugrelaunch are present in some bundle configurations and not
 # others, and a missing entry is benign (the bundle just doesn't ship
 # that helper).
-RUST_BINS=(tugcast tugtool tugedit tugexec tugrelaunch tugbank)
-for bin in "${RUST_BINS[@]}"; do
+HELPER_BINS=(tugcast tugtool tugedit tugexec tugrelaunch tugbank tugembed)
+for bin in "${HELPER_BINS[@]}"; do
     bin_path="$APP_PATH/Contents/MacOS/$bin"
     if [ -x "$bin_path" ]; then
         sign "helper:        $bin" "$bin_path"

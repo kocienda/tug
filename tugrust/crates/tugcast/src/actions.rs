@@ -765,7 +765,7 @@ mod tests {
 
         let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
         let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
-        let agent = Some(crate::shared_agent::test_support::scripted_haiku_pool(Ok(
+        let agent = Some(crate::shared_agent::test_support::scripted_aux_pool(Ok(
             "SHELL".to_string(),
         )));
 

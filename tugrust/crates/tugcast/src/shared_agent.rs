@@ -66,7 +66,7 @@ const MAX_TURNS_PER_WORKER: u64 = 40;
 fn idle_reap(class: JobClass) -> Duration {
     match class {
         JobClass::Classify => Duration::from_secs(1800),
-        JobClass::Sentence => Duration::from_secs(300),
+        JobClass::Sentence | JobClass::Expansion => Duration::from_secs(300),
     }
 }
 
@@ -134,16 +134,23 @@ impl AgentSpec {
 /// The latency lane a job runs in ([P12]).
 ///
 /// A worker is assigned the class of the job that spawned it and only ever
-/// answers jobs of that class. The two lanes have incompatible latency
-/// contracts — 2 s against 6 s — and reactive growth cannot rescue a classify
-/// that arrives while the only worker is mid-sentence: the rescue spawn alone
-/// costs more than classify's entire budget. Since sentence occupancy is
-/// routine rather than rare, without affinity shell routing would simply "not
-/// work sometimes".
+/// answers jobs of that class. The lanes have incompatible latency contracts,
+/// and reactive growth cannot rescue a classify that arrives while the only
+/// worker is mid-sentence: the rescue spawn alone costs more than classify's
+/// entire budget. Since sentence occupancy is routine rather than rare, without
+/// affinity shell routing would simply "not work sometimes".
+///
+/// Query expansion is its own lane for the same reason, seen from the other
+/// side. It runs inside a verb's ceiling, and a sentence worker may be holding
+/// an Observer post for two minutes. Queued behind one, an expansion would time
+/// out, and a timeout retires the worker and debounces its lane, which would
+/// take the Operator's answer down with a search rung that exists to be
+/// optional.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobClass {
     Classify,
     Sentence,
+    Expansion,
 }
 
 impl JobClass {
@@ -154,6 +161,7 @@ impl JobClass {
     fn of(job: &str) -> Self {
         match job {
             "classify" | "classify_with_grammar" => Self::Classify,
+            "expand_query" => Self::Expansion,
             _ => Self::Sentence,
         }
     }
@@ -791,6 +799,7 @@ fn warmup_input(class: JobClass) -> &'static str {
         JobClass::Sentence => {
             "What the session was most recently asked to do:\nwarm up\n\nWhere it stands right now (background, not the subject):\n- nothing\n"
         }
+        JobClass::Expansion => "warm up",
     }
 }
 
@@ -1120,31 +1129,25 @@ pub const MODEL_KEY: &str = "model";
 /// Total worker cap across job classes.
 pub const MAX_WORKERS_KEY: &str = "max_workers";
 
-/// Room for one worker per job class in steady state ([P12]), which is what the
-/// measured traffic asks for: the session synopsis holds one ask in flight
-/// process-wide, and classify is serialized by typing.
+/// Classify is serialized by typing, so its lane holds one worker in steady
+/// state ([P12]); the second place is headroom for a job added to this agent.
 pub const DEFAULT_MAX_WORKERS: usize = 2;
 
-/// The Haiku agent's pinned model ([P03]). A full id, never a bare alias:
-/// aliases drift, and a drifting aux model is a silent behavior change.
-pub const HAIKU_MODEL: &str = "claude-haiku-4-5";
+/// The auxiliary agent's pinned model ([P03]), which is Haiku today. A full id,
+/// never a bare alias: aliases drift, and a drifting aux model is a silent
+/// behavior change.
+pub const AUX_MODEL: &str = "claude-haiku-4-5";
 
-// MARK: - The Haiku agent's job table (Spec S01)
+// MARK: - The auxiliary agent's job table (Spec S01)
 
 /// Ported from the on-device wording, then simplified for a model that does not
 /// need propping up.
 ///
-/// What is kept verbatim is everything the Rust gates downstream depend on: the
-/// two labels, and the register rules that `synopsis_register_report` and
-/// `ground_synopsis` enforce. What is dropped is scaffolding that existed only
-/// because a 4-bit 4B pack over-read whatever came first — long example ladders
-/// teaching one distinction at a time.
-///
-/// The sentence wordings are deliberately **extractive**: a fluent model
-/// paraphrases where a weak one copies, and `ground_synopsis` refuses any line
-/// whose words are not in the digest, so the instruction to reuse the digest's
-/// own words is what keeps the refusal rate down ([R01]).
-pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
+/// What is kept verbatim is what the Rust gate downstream depends on: the two
+/// labels. What is dropped is scaffolding that existed only because a 4-bit 4B
+/// pack over-read whatever came first — long example ladders teaching one
+/// distinction at a time.
+pub static AUX_AGENT_JOBS: &[JobSpec] = &[
     JobSpec {
         name: "classify",
         timeout: CLASSIFY_TIMEOUT,
@@ -1157,12 +1160,6 @@ pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
         slow: Some(CLASSIFY_SLOW),
         instructions: CLASSIFY_WITH_GRAMMAR_INSTRUCTIONS,
     },
-    JobSpec {
-        name: "expand_query",
-        timeout: SENTENCE_TIMEOUT,
-        slow: Some(SENTENCE_SLOW),
-        instructions: EXPAND_QUERY_INSTRUCTIONS,
-    },
 ];
 
 /// Classify's ceiling is one of **three** constants that must agree:
@@ -1173,11 +1170,6 @@ pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
 /// other two unreachable.
 const CLASSIFY_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// A sentence job stays under the session-synopsis debounce
-/// (`SYNOPSIS_MIN_INTERVAL`, 60s), so a description can never still be in
-/// flight when the next one is due.
-const SENTENCE_TIMEOUT: Duration = Duration::from_secs(6);
-
 /// Set from the Step 1 spike rather than guessed: warm classify turns measured
 /// 867–989 ms against CLI 2.1.222, so a 1s mark would fire on roughly half of
 /// all calls. A slow-mark that fires constantly is not a signal, and the
@@ -1185,8 +1177,6 @@ const SENTENCE_TIMEOUT: Duration = Duration::from_secs(6);
 /// threshold sits above the measured warm band and marks the calls that are
 /// genuinely drifting toward the 2s ceiling.
 const CLASSIFY_SLOW: Duration = Duration::from_millis(1500);
-
-const SENTENCE_SLOW: Duration = Duration::from_secs(3);
 
 /// What both classify wordings share: the task, the one fact the caller has
 /// already established, and the asymmetry that decides every close call.
@@ -1261,50 +1251,6 @@ docker the worker into a smaller image => PROMPT
 
 The line:"
 );
-
-/// Search terms for a question whose own words are nowhere in the record.
-///
-/// The Overview's index is lexical: it finds a record by the words that record
-/// contains. "Where did we fix the thing that made the cards flash" shares no
-/// token with any commit, command, or post about that work, and no amount of
-/// splitting or OR-relaxing manufactures one — this job is what turns the
-/// question into words that *would* appear in the record, so the lexical index
-/// can do the rest.
-///
-/// It is asked only when a search has already come back empty twice, so an
-/// empty answer costs nothing: the alternative was returning nothing anyway.
-/// That is why `{"terms": []}` is a first-class reply rather than a failure —
-/// the same silence-is-an-answer posture the Observer's `{"post": null}` has.
-const EXPAND_QUERY_INSTRUCTIONS: &str = "\
-You generate SEARCH TERMS. Someone asked a question about their own coding work, a full-text search of the record found nothing, and your job is to guess the words that record would actually contain.
-
-The record is a fact library: every prompt the person typed, every shell command run, every test run, every commit, and session lifecycle events. Fact text reads like this:
-
-$ just app-test at0365-overview-card.test.ts → ok
-tests: cargo nextest — passed (1614 passed, 0 failed)
-commit 3f16971b \"tugways(transcript-copy): route native ⌘C through onCopy substitution\" — 4 file(s)
-
-So write the words that would APPEAR IN THE RECORD OF THE WORK, not synonyms of the question. A commit subject's vocabulary, a filename fragment, a command name, the technical word for the symptom the question describes in plain English. \"Made the cards flash\" is written down somewhere as flicker, repaint, transition, or animation — those are the terms.
-
-Rules:
-
-Single words, never phrases. Every term is OR-ed against the index separately.
-3 to 8 of them. Fewer is fine; more is noise that buries the match.
-Lowercase, no punctuation, no wildcards.
-Do not repeat a word from the question — the search already tried those and found nothing.
-If you have nothing better to suggest than the question's own words, say so with an empty list. That is a real answer and it is preferred over filler.
-
-Answer with JSON and nothing else — no prose before it, no code fence around it:
-
-{\"terms\": [\"flicker\", \"repaint\", \"transition\"]}
-
-Or, when you have nothing to add:
-
-{\"terms\": []}
-
-Answer only from the question below.
-
-QUESTION:";
 
 /// Scripted workers, for this module's pool-policy tests and for any other
 /// module that needs a pool answering a known thing.
@@ -1420,15 +1366,15 @@ pub(crate) mod test_support {
         }
     }
 
-    /// A pool over the **real** Haiku job table, answering `answer` to every
+    /// A pool over the **real** auxiliary job table, answering `answer` to every
     /// turn — what another module's tests want when they are exercising a verb
     /// rather than pool policy.
-    pub(crate) fn scripted_haiku_pool(answer: Result<String, String>) -> Arc<SharedAgentPool> {
+    pub(crate) fn scripted_aux_pool(answer: Result<String, String>) -> Arc<SharedAgentPool> {
         SharedAgentPool::new(
             AgentSpec {
-                name: "haiku",
-                model: Arc::new(|| HAIKU_MODEL.to_string()),
-                jobs: HAIKU_AGENT_JOBS,
+                name: "aux",
+                model: Arc::new(|| AUX_MODEL.to_string()),
+                jobs: AUX_AGENT_JOBS,
                 max_workers: DEFAULT_MAX_WORKERS,
             },
             FakeSpawner::always(answer) as Arc<dyn AgentWorkerSpawner>,
@@ -1855,7 +1801,7 @@ mod tests {
     }
 
     /// The future-Sonnet exit criterion ([P01]): a second agent is a second
-    /// value, not new machinery. This spec shares nothing with the Haiku one
+    /// value, not new machinery. This spec shares nothing with the auxiliary one
     /// but the pool type.
     #[tokio::test]
     async fn a_second_agent_spec_runs_on_the_same_pool_machinery() {
@@ -1891,9 +1837,9 @@ mod tests {
     }
 
     #[test]
-    fn the_haiku_job_table_carries_every_contract_the_gates_depend_on() {
+    fn the_aux_job_table_carries_every_contract_the_gates_depend_on() {
         let job = |name: &str| {
-            HAIKU_AGENT_JOBS
+            AUX_AGENT_JOBS
                 .iter()
                 .find(|j| j.name == name)
                 .unwrap_or_else(|| panic!("{name} missing"))
@@ -1911,38 +1857,24 @@ mod tests {
         );
         assert!(!job("classify").instructions.contains(GRAMMAR_PLACEHOLDER));
 
-        // Expansion's output contract, which `expand_via_model` parses and
-        // whose empty case it treats as a real answer. Both halves are pinned:
-        // the shape, and the permission to return nothing — without the latter
-        // a model with no good suggestion invents filler, and filler here is
-        // rows that look like evidence.
-        let expand = job("expand_query").instructions;
-        assert!(expand.contains(r#"{"terms": []}"#));
-        assert!(expand.contains("That is a real answer"));
-        assert!(expand.contains("Single words, never phrases"));
-        assert!(expand.contains("3 to 8"));
-        // The whole point: terms as the RECORD spells them, not synonyms of
-        // the question. A model that reached for synonyms would produce words
-        // just as absent from the index as the question's own.
-        assert!(expand.contains("APPEAR IN THE RECORD OF THE WORK"));
-        // Its ceiling sits inside the verb's, with room for the two lexical
-        // rungs that already ran. Raising one without the other turns graceful
-        // degradation into verb timeouts.
-        assert!(job("expand_query").timeout < crate::feeds::operator::VERB_TIMEOUT);
-
         // Classify's ceiling is the triad's Rust member.
         assert_eq!(job("classify").timeout, Duration::from_secs(2));
     }
 
-    /// The standing sentence is no longer Haiku's job — one Sonnet ask writes
-    /// it beside the Observer's post, and the register rules it is held to are
-    /// the Observer's instructions now.
+    /// The standing sentence is no longer this agent's job — one Sonnet ask
+    /// writes it beside the Observer's post, and the register rules it is held
+    /// to are the Observer's instructions now. Query expansion left the same
+    /// way, so every turn of the Operator runs on the Overview's model.
     #[test]
-    fn haiku_no_longer_writes_the_standing_sentence() {
-        assert_eq!(HAIKU_AGENT_JOBS.len(), 3);
+    fn the_aux_agent_only_classifies() {
+        assert_eq!(AUX_AGENT_JOBS.len(), 2);
         assert!(
-            !HAIKU_AGENT_JOBS.iter().any(|job| job.name == "synopsis"),
-            "the synopsis job is the Observer's, not Haiku's",
+            !AUX_AGENT_JOBS.iter().any(|job| job.name == "synopsis"),
+            "the synopsis job is the Observer's, not this agent's",
+        );
+        assert!(
+            !AUX_AGENT_JOBS.iter().any(|job| job.name == "expand_query"),
+            "query expansion is the Operator's turn, on the Overview's model",
         );
     }
 
@@ -1965,15 +1897,15 @@ mod tests {
     /// prose, which is the eval harness's business.
     #[tokio::test]
     #[ignore = "requires TUG_REAL_CLAUDE=1 and a live claude binary"]
-    async fn a_real_worker_answers_one_classify_and_one_sentence_job() {
+    async fn a_real_worker_answers_a_classify() {
         if std::env::var("TUG_REAL_CLAUDE").as_deref() != Ok("1") {
             return;
         }
         let pool = SharedAgentPool::new(
             AgentSpec {
-                name: "haiku",
-                model: Arc::new(|| HAIKU_MODEL.to_string()),
-                jobs: HAIKU_AGENT_JOBS,
+                name: "aux",
+                model: Arc::new(|| AUX_MODEL.to_string()),
+                jobs: AUX_AGENT_JOBS,
                 max_workers: DEFAULT_MAX_WORKERS,
             },
             Arc::new(ClaudeAgentWorkerSpawner),
@@ -1991,16 +1923,10 @@ mod tests {
             verdict, "shell",
             "an unambiguous command routes to the shell"
         );
-
-        let terms = pool
-            .run("expand_query", "the watch loop keeps wedging".to_string())
-            .await
-            .expect("an expansion answers");
-        assert!(!terms.trim().is_empty(), "an empty answer is a failure");
     }
 
     #[test]
-    fn job_classes_split_the_two_latency_lanes() {
+    fn job_classes_split_the_latency_lanes() {
         assert_eq!(JobClass::of("classify"), JobClass::Classify);
         assert_eq!(
             JobClass::of("classify_with_grammar"),
@@ -2008,6 +1934,7 @@ mod tests {
             "both classify wordings share a lane",
         );
         assert_eq!(JobClass::of("synopsis"), JobClass::Sentence);
-        assert_eq!(JobClass::of("expand_query"), JobClass::Sentence);
+        assert_eq!(JobClass::of("operator-answer"), JobClass::Sentence);
+        assert_eq!(JobClass::of("expand_query"), JobClass::Expansion);
     }
 }

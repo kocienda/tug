@@ -161,6 +161,10 @@ unit  = "phase"
 match = "just tugmark-fuzz"
 unit  = "phase"
 
+[[tugtool.report.runner]]
+match = "just operator-eval"
+unit  = "question"
+
 # The surfaces this project is made of. `tugtool arc verify <arc>` resolves
 # every path an arc would land to the surface declaring the longest matching
 # path, refuses — naming them — when one resolves to no surface, and runs what

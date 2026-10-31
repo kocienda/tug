@@ -1,0 +1,11 @@
+[package]
+name = "tugsem-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "On-device semantic search with no IO: chunking, store schema, scoring, fusion and reassembly"
+
+[lib]
+name = "tugsem_core"
+path = "src/lib.rs"

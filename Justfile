@@ -16,12 +16,14 @@ default:
 build:
     #!/usr/bin/env bash
     set -euo pipefail
-    bash tugrust/scripts/report-phase.sh build 0 "Rust debug binaries" --of "Rust debug binaries" "tugcode" --needle "just app-debug" --needle "just launch"
+    bash tugrust/scripts/report-phase.sh build 0 "Rust debug binaries" --of "Rust debug binaries" "tugcode" "tugembed" --needle "just app-debug" --needle "just launch"
     cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank
     cd ..
     bash tugrust/scripts/report-phase.sh build 1 "tugcode"
     bash tugrust/scripts/compile-tugcode.sh tugrust/target/debug/tugcode
-    bash tugrust/scripts/report-phase.sh build 2
+    bash tugrust/scripts/report-phase.sh build 2 "tugembed"
+    bash tugrust/scripts/compile-tugembed.sh tugrust/target/debug/tugembed
+    bash tugrust/scripts/report-phase.sh build 3
     # Only the main checkout owns ~/.local/bin. A linked worktree (an arc under
     # .tug/worktrees/) builds its own ephemeral binaries; pointing the global
     # symlinks at them would dangle every tug* tool the moment the arc is torn
@@ -33,7 +35,7 @@ build:
         # checkout has rebuilt — a stale-cleanup line that outlives its
         # rename is how ~/.local/bin collects junk in the first place.
         rm -f ~/.local/bin/tugutil
-        for bin in tugcast tugexec tugtool tugedit tugcode tugrelaunch tugbank; do
+        for bin in tugcast tugexec tugtool tugedit tugcode tugembed tugrelaunch tugbank; do
             ln -sf "$(pwd)/tugrust/target/debug/$bin" ~/.local/bin/"$bin"
         done
     else
@@ -194,6 +196,7 @@ test-ts:
     suite tugdeck tugdeck-scripts bun test --timeout {{BUN_HANG_GUARD_MS}} ./scripts/__tests__
     suite tugcode tugcode bun test --timeout {{BUN_HANG_GUARD_MS}}
     suite tugproto tugproto bun test --timeout {{BUN_HANG_GUARD_MS}}
+    suite tests/tugembed tugembed bun test --timeout {{BUN_HANG_GUARD_MS}}
     suite tests/app-test app-test-logic bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/ _harness/ site-clips/_scene.test.ts
     exit "$status"
 
@@ -1696,6 +1699,7 @@ build-app:
     report_phase 0
     (cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank)
     bash tugrust/scripts/compile-tugcode.sh tugrust/target/debug/tugcode
+    bash tugrust/scripts/compile-tugembed.sh tugrust/target/debug/tugembed
 
     echo "==> [2/5] tugdeck deps + prebuilt dist"
     report_phase 1
@@ -1947,6 +1951,18 @@ app-test-foreground-check:
 #   just model-eval release-main
 model-eval INSTANCE="debug-main":
     @python3 tests/model-eval/run.py {{INSTANCE}}
+
+# Score the Operator against the help documents: does each answer cite the
+# passage its question rests on? Spends real model turns on a fresh ledger per
+# question, so it stays out of `just ci`. Run it after touching what the Operator
+# retrieves from: `help.search`, the semantic index, or `docs/`.
+#
+#   just operator-eval
+#   just operator-eval --only arc
+operator-eval *ARGS:
+    @cd tugrust && cargo build -p tugcast
+    @bash tugrust/scripts/compile-tugembed.sh tugrust/target/debug/tugembed
+    @bun scripts/operator-eval.ts {{ARGS}}
 
 # Score shell routing against a RUNNING instance: did that line mean the shell?
 #

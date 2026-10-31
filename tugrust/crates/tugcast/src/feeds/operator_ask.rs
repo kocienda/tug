@@ -24,13 +24,14 @@ use tugcore::claude_home::ClaudeHome;
 use crate::cli::OperatorAskArgs;
 use crate::feeds::{operator, overview_agent};
 use crate::prompt_ledger::PromptLedger;
+use crate::semantic::{EmbedderClient, HelperSpawner, Indexer, SemanticIndex, SemanticSearch};
 use crate::session_ledger::SessionLedger;
-use crate::shared_agent;
 use crate::shell_ledger::ShellLedger;
 
-/// One worker: a single question is one job at a time, so a pool wider than
-/// this would only reserve capacity nothing asks for.
-const MAX_WORKERS: usize = 1;
+/// One worker per lane: a single question is one job at a time on the lane its
+/// two rounds share, and query expansion has a lane of its own, so a pool wider
+/// than this would only reserve capacity nothing asks for.
+const MAX_WORKERS: usize = 2;
 
 pub async fn run(args: &OperatorAskArgs) -> i32 {
     // Deliberately NOT `SessionLedger::open`: that attaches the machine-global
@@ -69,6 +70,20 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
         None => None,
     };
 
+    let model = args
+        .model
+        .clone()
+        .unwrap_or_else(|| overview_agent::DEFAULT_MODEL.to_string());
+    println!("model: {model}");
+    println!("question: {}\n", args.question);
+    let pool = overview_agent::build_pool(Arc::new(move || model.clone()), MAX_WORKERS);
+
+    // `--docs-dir` names the documents outright; without it, the same resolver a
+    // running instance reads, which from a checkout's debug build is the
+    // checkout's `docs/`.
+    let docs_dir = args.docs_dir.clone().or_else(crate::resources::docs_dir);
+    let semantic = prepare_search(args, docs_dir.as_deref()).await;
+
     let ctx = operator::OperatorContext {
         ledger,
         shell_ledger,
@@ -81,33 +96,15 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
         // answer is exactly the kind this command exists to try. Building the
         // pool spawns nothing — the first job of a class spawns its worker, so
         // a run where no search comes back empty never pays for one.
-        haiku: Some(shared_agent::SharedAgentPool::new(
-            shared_agent::AgentSpec {
-                name: "haiku",
-                model: Arc::new(|| shared_agent::HAIKU_MODEL.to_string()),
-                jobs: shared_agent::HAIKU_AGENT_JOBS,
-                max_workers: MAX_WORKERS,
-            },
-            Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
-        )),
+        query_expansion: Some(Arc::clone(&pool)),
         prompt_ledger,
         session_index_path: args
             .session_index_db
             .clone()
             .unwrap_or_else(tugcore::instance::session_index_db_path),
-        // `--docs-dir` names the documents outright; without it, the same
-        // resolver a running instance reads, which from a checkout's debug
-        // build is the checkout's `docs/`.
-        docs_dir: args.docs_dir.clone().or_else(crate::resources::docs_dir),
+        docs_dir,
+        semantic,
     };
-
-    let model = args
-        .model
-        .clone()
-        .unwrap_or_else(|| overview_agent::DEFAULT_MODEL.to_string());
-    println!("model: {model}");
-    println!("question: {}\n", args.question);
-    let pool = overview_agent::build_pool(Arc::new(move || model.clone()), MAX_WORKERS);
 
     let show_rounds = args.show_rounds;
     let observer = move |round: usize,
@@ -202,6 +199,44 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
             1
         }
     }
+}
+
+/// The index as a running instance would have it once its help stream has run, and
+/// a line saying which search this run measures, since a missing helper changes the
+/// answer and nothing else would say so.
+async fn prepare_search(
+    args: &OperatorAskArgs,
+    docs_dir: Option<&Path>,
+) -> Option<Arc<SemanticSearch>> {
+    let path = args
+        .semantic_db
+        .clone()
+        .unwrap_or_else(|| parent_of(&args.db).join("semantic.db"));
+    let index = match SemanticIndex::open(&path) {
+        Ok(index) => Arc::new(index),
+        Err(error) => {
+            println!("search: plain, the index would not open: {error}\n");
+            return None;
+        }
+    };
+    let embedder = EmbedderClient::new(HelperSpawner);
+    let Some(model) = embedder.start().await else {
+        println!("search: plain, no embedding model\n");
+        return None;
+    };
+    let indexer = Indexer::new(Arc::clone(&index), Arc::clone(&embedder), None);
+    let indexed = match docs_dir {
+        Some(dir) => indexer.index_help(dir).await.map_err(|e| e.to_string()),
+        None => Err("no help documents".to_string()),
+    };
+    match indexed {
+        Ok(()) => println!("search: hybrid on {model}\n"),
+        Err(error) => {
+            println!("search: plain, the help documents were not indexed: {error}\n");
+            return None;
+        }
+    }
+    Some(Arc::new(SemanticSearch::new(index, embedder)))
 }
 
 /// Where the ledger sits — the copy's own directory, never the instance's.

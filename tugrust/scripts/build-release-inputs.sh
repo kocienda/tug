@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Compile the release "inputs" every release bundle is made of: the optimized
-# Rust binaries, the bun-compiled tugcode, and the tugdeck static assets.
+# Rust binaries, the bun-compiled tugcode, the swiftc-built tugembed, and the
+# tugdeck static assets.
 # Both `just app-release` (the developer launch bundle) and
 # build-app.sh (the distribution bundle) get their compiled inputs from here,
 # so the set of binaries and the build flags can't drift between the two paths.
 #
 # Populates tugrust/target/release/{tugcast,tug,tugexec,
-# tugrelaunch,tugcode} and tugdeck/dist/. The Tug Xcode target's copy
+# tugrelaunch,tugcode,tugembed} and tugdeck/dist/. The Tug Xcode target's copy
 # phase reads these binaries from target/$CONFIGURATION and errors if any are
 # missing, so this script must build the full set.
 #
@@ -42,6 +43,9 @@ echo "==> Compiling tugcode (bun)"
 # assuming a populated tree is what lets this run on a clean checkout.
 (cd "$REPO_ROOT/tugcode" && bun install --frozen-lockfile)
 bash "$SCRIPT_DIR/compile-tugcode.sh" "$REPO_ROOT/tugrust/target/release/tugcode"
+
+echo "==> Compiling tugembed (swiftc)"
+bash "$SCRIPT_DIR/compile-tugembed.sh" "$REPO_ROOT/tugrust/target/release/tugembed"
 
 echo "==> Building tugdeck static assets"
 (cd "$REPO_ROOT/tugdeck" && bun install --frozen-lockfile)

@@ -1,4 +1,5 @@
-//! SecretFilter — denylist + `.tugattachignore` matcher for the FileTreeFeed.
+//! SecretFilter — denylist + `.tugattachignore` matcher for the FileTreeFeed, and
+//! [`scrub_text`], which takes secrets out of text bound for the semantic index.
 //!
 //! Filters secret-file paths out of `@`-completion suggestions before they
 //! reach the prompt-entry popup. Combines a built-in denylist (per
@@ -23,9 +24,12 @@
 //! `arc/dev-atoms.md#t01-failure-modes`). The remaining well-formed
 //! patterns still apply; one bad line never disables the whole filter.
 
+use std::borrow::Cow;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use regex::{Captures, Regex};
 use tracing::warn;
 
 /// Built-in denylist patterns per
@@ -166,6 +170,52 @@ impl SecretFilter {
     }
 }
 
+/// What a secret reads as once scrubbed.
+const SCRUBBED: &str = "[secret]";
+
+/// Secrets that have a shape of their own: a private key block, or a token with a
+/// provider's prefix. The whole match goes.
+static SECRET_SHAPES: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)",
+        r"|\bsk-ant-[A-Za-z0-9_-]{16,}",
+        r"|\bsk-[A-Za-z0-9_-]{32,}",
+        r"|\bgh[pousr]_[A-Za-z0-9]{30,}",
+        r"|\bgithub_pat_[A-Za-z0-9_]{22,}",
+        r"|\bAKIA[0-9A-Z]{16}\b",
+        r"|\bxox[abprs]-[A-Za-z0-9-]{10,}",
+        r"|\bAIza[0-9A-Za-z_-]{30,}",
+        r"|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
+    ))
+    .expect("the secret shapes compile")
+});
+
+/// Secrets known by what they are called: a value given to `password`, `api_key`
+/// and the like, or to `Bearer`. The name stays and the value goes.
+static NAMED_SECRETS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\b["']?\s*[:=]\s*["']?|\bbearer\s+)[^\s"',;]{8,}"#,
+    )
+    .expect("the named secrets compile")
+});
+
+/// `text` with whatever reads as a secret replaced. This is a net rather than a
+/// proof: it catches the shapes secrets have, and text that never held one comes
+/// through as it was, borrowed.
+pub(crate) fn scrub_text(text: &str) -> Cow<'_, str> {
+    let shapes = SECRET_SHAPES.replace_all(text, SCRUBBED);
+    let named = NAMED_SECRETS
+        .replace_all(&shapes, |found: &Captures<'_>| {
+            format!("{}{SCRUBBED}", &found[1])
+        })
+        .into_owned();
+    if named.len() == shapes.len() && named == *shapes {
+        shapes
+    } else {
+        Cow::Owned(named)
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -173,6 +223,60 @@ impl SecretFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrub_takes_out_tokens_with_a_shape_of_their_own() {
+        for secret in [
+            "sk-ant-api03-abcdefghijklmnopqrstuvwx",
+            "sk-abcdefghijklmnopqrstuvwxyz0123456789",
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "github_pat_abcdefghijklmnopqrstuvwxyz",
+            "AKIAIOSFODNN7EXAMPLE",
+            "xoxb-1234567890-abcdefg",
+            "AIzaSyabcdefghijklmnopqrstuvwxyz012345",
+            "eyJhbGciOiJI.eyJzdWIiOiIx.SflKxwRJSMeK",
+        ] {
+            let text = format!("before {secret} after");
+            assert_eq!(scrub_text(&text), "before [secret] after", "{secret}");
+        }
+    }
+
+    #[test]
+    fn scrub_takes_out_a_whole_private_key_block_and_an_unterminated_one() {
+        let block =
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\ndef\n-----END OPENSSH PRIVATE KEY-----";
+        assert_eq!(scrub_text(&format!("a {block} b")), "a [secret] b");
+        assert_eq!(
+            scrub_text("a -----BEGIN RSA PRIVATE KEY-----\nabc"),
+            "a [secret]"
+        );
+    }
+
+    #[test]
+    fn scrub_keeps_the_name_of_a_named_secret_and_takes_its_value() {
+        assert_eq!(scrub_text("password: hunter2hunter"), "password: [secret]");
+        assert_eq!(scrub_text("API_KEY=abcdef123456"), "API_KEY=[secret]");
+        assert_eq!(
+            scrub_text(r#""auth_token": "abcdef123456""#),
+            r#""auth_token": "[secret]""#
+        );
+        assert_eq!(
+            scrub_text("Authorization: Bearer abcdef123456"),
+            "Authorization: Bearer [secret]"
+        );
+    }
+
+    #[test]
+    fn scrub_leaves_ordinary_text_alone() {
+        let plain = "The secret: is that a password is short, and sk-learn is a library.";
+        assert!(matches!(scrub_text(plain), Cow::Borrowed(_)));
+        for document in [
+            include_str!("../../../../../docs/features.md"),
+            include_str!("../../../../../docs/glossary.md"),
+        ] {
+            assert_eq!(scrub_text(document), document);
+        }
+    }
 
     use std::fs;
 

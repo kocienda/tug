@@ -59,6 +59,7 @@ pub(crate) async fn supervisor(
         ledger,
         prompt_ledger,
         report_gaps,
+        semantic_index,
     } = ledgers;
     let InkLedgers {
         shell_ledger,
@@ -244,6 +245,10 @@ pub(crate) async fn supervisor(
     if let Some(rg) = report_gaps.as_ref() {
         supervisor.set_report_gaps(Arc::clone(rg));
     }
+    // And the semantic index, whose chunks of a session leave when it goes private.
+    if let Some(index) = semantic_index.as_ref() {
+        supervisor.set_semantic_index(Arc::clone(index));
+    }
 
     // The changeset scribe ([P11]/[P22]): the maintained-draft engine runs a
     // headless `claude -p` with the model from
@@ -268,7 +273,7 @@ pub(crate) async fn supervisor(
         model: scribe_model,
     });
 
-    // The Haiku SharedAgent ([P02]): one app-scoped pool serving the jobs that
+    // The auxiliary SharedAgent ([P02]): one app-scoped pool serving the jobs that
     // used to run on the on-device pack. Building it spawns nothing — the first
     // job of a class is what spawns that class's worker, so a machine that never
     // types a shell candidate never pays for a classify worker.
@@ -287,7 +292,7 @@ pub(crate) async fn supervisor(
                 })
                 // A full id, never a bare alias ([P03]) — aliases drift, and a
                 // drifting aux model is a silent behavior change.
-                .unwrap_or_else(|| shared_agent::HAIKU_MODEL.to_string())
+                .unwrap_or_else(|| shared_agent::AUX_MODEL.to_string())
         })
     };
     let max_workers = bank_client
@@ -305,11 +310,11 @@ pub(crate) async fn supervisor(
             _ => None,
         })
         .unwrap_or(shared_agent::DEFAULT_MAX_WORKERS);
-    let haiku_agent = shared_agent::SharedAgentPool::new(
+    let aux_agent = shared_agent::SharedAgentPool::new(
         shared_agent::AgentSpec {
-            name: "haiku",
+            name: "aux",
             model: shared_agent_model,
-            jobs: shared_agent::HAIKU_AGENT_JOBS,
+            jobs: shared_agent::AUX_AGENT_JOBS,
             max_workers,
         },
         Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
@@ -317,7 +322,7 @@ pub(crate) async fn supervisor(
 
     // The Overview's Sonnet agent: a second `AgentSpec` on the same pool
     // machinery, carrying the Observer's digests and both halves of the
-    // Operator. Like the Haiku pool, building it spawns nothing — the first
+    // Operator. Like the auxiliary pool, building it spawns nothing — the first
     // job of a class spawns that class's worker, so an instance where nobody
     // opens the Overview never pays for one.
     //
@@ -512,7 +517,7 @@ pub(crate) async fn supervisor(
     // The `$` route's handle on the facts library ([P06]) — the settle site
     // records a `shell` fact, and a `test_run` fact when the command was one.
     let shell_dispatch_sessions = Some(Arc::clone(&ledger));
-    let shell_dispatch_agent = Some(Arc::clone(&haiku_agent));
+    let shell_dispatch_agent = Some(Arc::clone(&aux_agent));
     let shell_dispatch_cancel = cancel.clone();
     tokio::spawn(async move {
         feeds::shell::shell_dispatcher_task(
@@ -571,7 +576,7 @@ pub(crate) async fn supervisor(
         shutdown_tx,
         shared_dev_state.clone(),
     );
-    feed_router.shared_agent = Some(Arc::clone(&haiku_agent));
+    feed_router.shared_agent = Some(Arc::clone(&aux_agent));
     feed_router.pages = Arc::clone(&pages);
 
     // Register stream feeds through the trait-mediated path — each feed
@@ -610,6 +615,9 @@ pub(crate) async fn supervisor(
     // people asking at once are two pipelines, not a queue, and the pool's
     // worker cap is what actually bounds the concurrency.
     let (gz_input_tx, mut gz_input_rx) = mpsc::channel::<Frame>(16);
+    // One helper, shared: the help stream below feeds it and the Operator's
+    // searches ask it. Nothing runs until the stream starts it.
+    let semantic_embedder = crate::semantic::EmbedderClient::new(crate::semantic::HelperSpawner);
     let operator_pipeline = Arc::new(feeds::operator::OperatorPipeline {
         ctx: Arc::new(feeds::operator::OperatorContext {
             ledger: Arc::clone(&ledger),
@@ -620,11 +628,10 @@ pub(crate) async fn supervisor(
             // Beside the ledger the posts live in, so an instance's history
             // and the pictures in it are one thing to keep or to throw away.
             attachments_dir: tugcore::instance::data_dir().join("overview-attachments"),
-            // The search ladder's last rung ([P09]). The same pool the shell
-            // classifier and the session headlines use — warm workers, one
-            // reviewed job table, and nothing spawned until a search actually
-            // comes back empty twice.
-            haiku: Some(Arc::clone(&haiku_agent)),
+            // The search ladder's last rung ([P09]). The pool the Operator's
+            // own two rounds run on, so its every turn is on one model, with
+            // nothing spawned until a search actually comes back empty twice.
+            query_expansion: Some(Arc::clone(&overview_agent)),
             // The prompt corpus and the session index the horizon line reads:
             // the same handle the composer's recall holds, and the same
             // machine-wide path every other read-only index reader opens.
@@ -633,6 +640,12 @@ pub(crate) async fn supervisor(
             // The bundled help documents, through the resolver the help
             // card's route reads, so the two never read different files.
             docs_dir: crate::resources::docs_dir(),
+            semantic: semantic_index.as_ref().map(|index| {
+                Arc::new(crate::semantic::SemanticSearch::new(
+                    Arc::clone(index),
+                    Arc::clone(&semantic_embedder),
+                ))
+            }),
         }),
         pool: Arc::clone(&overview_agent),
         overview_tx: overview_tx.clone(),
@@ -851,6 +864,20 @@ pub(crate) async fn supervisor(
         client_action_tx.clone(),
         cancel.clone(),
     ));
+
+    // The semantic index's first stream, the help documents: off the startup
+    // path, after the launch has settled, and woken only by the live embedding
+    // model changing.
+    if let Some(index) = semantic_index {
+        let indexer =
+            crate::semantic::Indexer::new(index, semantic_embedder, Some(Arc::clone(&ledger)));
+        tokio::spawn(crate::semantic::run_help_index(
+            indexer,
+            crate::resources::docs_dir(),
+            crate::semantic::HELP_INDEX_SETTLE,
+            cancel.clone(),
+        ));
+    }
 
     // JOTS feed — watches the machine-global `jots.json` and pushes the whole
     // document to every client. The nudge lets `PUT /api/jots` force an

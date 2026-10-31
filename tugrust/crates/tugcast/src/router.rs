@@ -314,7 +314,7 @@ pub struct FeedRouter {
     pub(crate) pending_asks: PendingAsks,
     /// The request/reply line to the host app, for `/api/host/state`.
     pub(crate) host_link: crate::control::HostLink,
-    /// The Haiku `SharedAgent`, once `main` has built one.
+    /// The auxiliary `SharedAgent`, once `main` has built one.
     pub(crate) shared_agent: crate::shared_agent::SharedAgentHandle,
     /// The wheel's pending-rotation and hand-back registries, once `main`
     /// has built them. `POST /api/session` parks into these; the drain task

@@ -452,6 +452,10 @@ pub struct AgentSupervisor {
     /// opened at boot, which costs the record its rows and the calls
     /// nothing. Set via [`AgentSupervisor::set_report_gaps`].
     pub report_gaps: Option<Arc<tugcore::report_gaps::ReportGaps>>,
+    /// The semantic index, which holds no chunk of a private session. `None` in
+    /// tests that don't exercise it, and when it would not open. Set via
+    /// [`AgentSupervisor::set_semantic_index`].
+    pub semantic_index: Option<Arc<crate::semantic::SemanticIndex>>,
     /// The one digester, read by the `list_digest_lines` CONTROL op — the
     /// deck's mount-time tail. Shared with the digest bridge, which is its
     /// only writer. `None` in tests that don't exercise the read (and before
@@ -2095,6 +2099,7 @@ impl AgentSupervisor {
             refs_ledger: None,
             prompt_ledger: None,
             report_gaps: None,
+            semantic_index: None,
             digester: None,
             scribe: None,
             spawner_factory,
@@ -3242,6 +3247,11 @@ impl AgentSupervisor {
     /// Hand the supervisor the report-gaps record a closing long call writes to.
     pub fn set_report_gaps(&mut self, gaps: Arc<tugcore::report_gaps::ReportGaps>) {
         self.report_gaps = Some(gaps);
+    }
+
+    /// Wire the semantic index, called once from `main.rs`.
+    pub fn set_semantic_index(&mut self, index: Arc<crate::semantic::SemanticIndex>) {
+        self.semantic_index = Some(index);
     }
 
     /// Record a moved session's prompt lineage: the chain the session it moved

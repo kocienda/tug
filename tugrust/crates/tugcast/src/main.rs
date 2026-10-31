@@ -47,6 +47,7 @@ mod scribe;
 /// no dependencies, shared by `session_ledger` (write-time derivation and the
 /// backfill) and `feeds::operator` (query-time expansion).
 mod search_tokens;
+mod semantic;
 mod server;
 mod session_ledger;
 mod session_metadata_merge;

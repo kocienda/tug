@@ -3177,6 +3177,7 @@ dependencies = [
  "tuggram",
  "tuglog",
  "tugmark",
+ "tugsem-core",
  "tugtool-core",
  "uuid",
 ]
@@ -3330,6 +3331,10 @@ dependencies = [
  "serde_json",
  "tokio",
 ]
+
+[[package]]
+name = "tugsem-core"
+version = "0.8.20"
 
 [[package]]
 name = "tugtool"

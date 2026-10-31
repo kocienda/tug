@@ -1,8 +1,8 @@
 //! overview_agent — the Overview's model traffic: one Sonnet [`AgentSpec`] on
-//! the SharedAgent pool, operated against three fixed jobs.
+//! the SharedAgent pool, operated against four fixed jobs.
 //!
 //! The whole feature's model usage is `observer-post`, `operator-retrieve`,
-//! and `operator-answer`. That is exactly the extension `shared_agent`
+//! `operator-answer` and `expand_query`. That is exactly the extension `shared_agent`
 //! anticipates — "standing up a second agent on a different model means
 //! constructing a second `AgentSpec`, not writing new machinery" — so there is
 //! no process supervision here, only a job table and the knobs that tune it.
@@ -101,14 +101,13 @@ pub const CARD_ROWS_KEY: &str = "card_rows";
 /// current Sonnet is what we want, and the knob is there for pinning.
 pub const DEFAULT_MODEL: &str = "sonnet";
 
-/// Room for a Observer post, an Operator retrieve, and an Operator answer to
-/// be in flight at once.
+/// Room for the lane a Observer post, an Operator retrieve and an Operator
+/// answer share, the expansion lane beside it, and one more.
 ///
-/// Three rather than the Haiku pool's two because `JobClass::of` maps every
-/// non-classify job to one lane, so all three of these share it. A
-/// `observer-post` may hold a worker for its full two-minute ceiling, and a
-/// user waiting on an answer must not queue behind narration nobody is
-/// waiting for.
+/// `JobClass::of` maps query expansion to its own lane and every other job here
+/// to one, and a lane with a warm worker queues on it rather than growing. So
+/// the wait an `observer-post` can impose on a question is that one lane's, and
+/// expansion, whose ceiling could not survive it, stands apart.
 pub const DEFAULT_MAX_WORKERS: usize = 3;
 
 /// The dominant wake, and the number that decides how the channel feels.
@@ -195,6 +194,13 @@ const OBSERVER_POST_SLOW: Duration = Duration::from_secs(60);
 const OPERATOR_RETRIEVE_SLOW: Duration = Duration::from_secs(10);
 const OPERATOR_ANSWER_SLOW: Duration = Duration::from_secs(45);
 
+/// Inside [`VERB_TIMEOUT`](crate::feeds::operator::VERB_TIMEOUT), with room for
+/// the two lexical rungs that already ran, and long enough for a cold worker:
+/// this rung fires rarely, so its lane is usually reaped when it does. A cold
+/// spawn plus one Sonnet turn measured 2.6 s.
+const EXPAND_QUERY_TIMEOUT: Duration = Duration::from_secs(6);
+const EXPAND_QUERY_SLOW: Duration = Duration::from_secs(3);
+
 pub static OVERVIEW_AGENT_JOBS: &[JobSpec] = &[
     JobSpec {
         name: "observer-post",
@@ -213,6 +219,12 @@ pub static OVERVIEW_AGENT_JOBS: &[JobSpec] = &[
         timeout: OPERATOR_ANSWER_TIMEOUT,
         slow: Some(OPERATOR_ANSWER_SLOW),
         instructions: OPERATOR_ANSWER_INSTRUCTIONS,
+    },
+    JobSpec {
+        name: "expand_query",
+        timeout: EXPAND_QUERY_TIMEOUT,
+        slow: Some(EXPAND_QUERY_SLOW),
+        instructions: EXPAND_QUERY_INSTRUCTIONS,
     },
 ];
 
@@ -415,11 +427,15 @@ Available verbs and their arguments:
 - repo.outline — path, optionally session_id. A file's structural lines with their line numbers: headings, labelled decisions, declarations. Ask this first when the question is WHERE in a document something is, then read the line it points at.
 - help.outline — optionally doc (features or glossary). Tug's help documents mapped: the feature guide's headings and the glossary's terms, each with its anchor.
 - help.read — doc (features or glossary), and optionally entry (a glossary term or a feature-guide heading, as spelled or by its anchor). One glossary entry, or one section of the feature guide with the sections under it; with no entry, the whole document.
-- help.search — query, optionally doc. Full text across both help documents; returns whole glossary entries and whole sections, best first.
+- help.search — query, optionally doc. Searches both help documents by meaning and by exact word; returns whole glossary entries and whole sections, best first.
 
-Questions about Tug: the glossary is the place a word is defined, one paragraph per term, and the feature guide (features) is the place a part of the app is described, section by section — its controls, its chords, how to do a thing. When the question names one of Tug's words, help.read the glossary entry for it; when it asks how to do something or what a part of the app does, help.search for its most distinctive word, and read the guide section a hit names when the hit is cut short. Asking for a glossary entry and a search in the same round costs nothing and usually settles it. The glossary's terms are:
+Questions about Tug: the glossary is the place a word is defined, one paragraph per term, and the feature guide (features) is the place a part of the app is described, section by section — its controls, its chords, how to do a thing. When the question names one of Tug's words, help.read the glossary entry for it; when it asks how to do something or what a part of the app does, help.read the guide heading that covers it, or help.search in the asker's own words, and read the guide section a hit names when the hit is cut short. Asking for a glossary entry and a search in the same round costs nothing and usually settles it. The glossary's terms are:
 
 Address, Arc, Arc log, Arcs (sidebar), Artifact ladder, Atom, Audit, Awaiting, Band, Base, Bind / Binding, Brief, Bullseye, Callsign, Canvas, Card, Carry, Changes (tab, shade), Chord, Claim, Cold, Command picker, Commit card, Compaction, Composer, Context, Deck, Devise, Dictation, Diff card, Disclaim, Discard, Door, Dot, Find, Fit, Flow, Fold, Help, Hint, Idea, Image card, Implement, Imposition, Join, Join draft, Jot, Kind (of arc), Landing, Layout (card), Ledger, Mark, Masthead, Observer, Operator, Orphaned, Overview (sidebar), PDF card, Permission mode, Plain arc, Plan, Planned arc, Pulsing dot, Rail, Receipt, Replay, Review, Rotation, Round, Seat, Session, Session card, Session reference, Settings, Sidebar card, Sigil, Sketch, Slot, Sparkline, Split, Stack, Stage, State (of an arc), State (of a session), Status row, Step, Stop, Task list, Text card, Theme, Thinking wave, Tug-Arc trailer, tugtool, Turn, Unattributed, Wall, Wheel, Workshop, Workspace, Worktree, Zoom.
+
+The feature guide's headings, separated by semicolons, are:
+
+Tug: what it does and how to use it; Setup; The window: canvas, deck, cards; Fit and Flow; Stack and split; Addresses; Moving cards; Fold and Bullseye; Workspaces; Zoom and themes; Session cards; The masthead; The transcript; The status row; The prompt entry; Slash commands and the command picker; Model and permission mode; Narration and questions; Other cards; Sidebar cards; One graphical language; Attributed edits and commits; Claims and hints; The Changes tab; Edits with receipts; Arcs; Opening an arc; The stages; Stops and resumes; Replay: main keeps moving; The join; Arcs from the command line; Keyboard shortcuts; Getting help.
 
 Strategy that works for questions about the work: the channel's prose is good at locating WHEN something happened and WHICH session did it; the ledgers and git are what CONFIRM the specific fact. So narrow with overview.search, facts.list, or changes.for_path, then confirm. Never rely on a post's wording as the final answer when a ledger can settle it.
 
@@ -518,9 +534,55 @@ To ask for one more round of lookups:
 
 Answer only from the material below.";
 
+/// Search terms for a question whose own words are nowhere in the record.
+///
+/// The Overview's index is lexical: it finds a record by the words that record
+/// contains. "Where did we fix the thing that made the cards flash" shares no
+/// token with any commit, command, or post about that work, and no amount of
+/// splitting or OR-relaxing manufactures one — this job is what turns the
+/// question into words that *would* appear in the record, so the lexical index
+/// can do the rest.
+///
+/// It is asked only when a search has already come back empty twice, so an
+/// empty answer costs nothing: the alternative was returning nothing anyway.
+/// That is why `{"terms": []}` is a first-class reply rather than a failure —
+/// the same silence-is-an-answer posture the Observer's `{"post": null}` has.
+const EXPAND_QUERY_INSTRUCTIONS: &str = "\
+You generate SEARCH TERMS. Someone asked a question about their own coding work, a full-text search of the record found nothing, and your job is to guess the words that record would actually contain.
+
+The record is a fact library: every prompt the person typed, every shell command run, every test run, every commit, and session lifecycle events. Fact text reads like this:
+
+$ just app-test at0365-overview-card.test.ts → ok
+tests: cargo nextest — passed (1614 passed, 0 failed)
+commit 3f16971b \"tugways(transcript-copy): route native ⌘C through onCopy substitution\" — 4 file(s)
+
+So write the words that would APPEAR IN THE RECORD OF THE WORK, not synonyms of the question. A commit subject's vocabulary, a filename fragment, a command name, the technical word for the symptom the question describes in plain English. \"Made the cards flash\" is written down somewhere as flicker, repaint, transition, or animation — those are the terms.
+
+Rules:
+
+Single words, never phrases. Every term is OR-ed against the index separately.
+3 to 8 of them. Fewer is fine; more is noise that buries the match.
+Lowercase, no punctuation, no wildcards.
+Do not repeat a word from the question — the search already tried those and found nothing.
+If you have nothing better to suggest than the question's own words, say so with an empty list. That is a real answer and it is preferred over filler.
+
+Answer with JSON and nothing else — no prose before it, no code fence around it:
+
+{\"terms\": [\"flicker\", \"repaint\", \"transition\"]}
+
+Or, when you have nothing to add:
+
+{\"terms\": []}
+
+Answer only from the material below.
+
+QUESTION:";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared_agent::AgentWorkerSpawner;
+    use crate::shared_agent::test_support::FakeSpawner;
 
     fn job(name: &str) -> &'static JobSpec {
         OVERVIEW_AGENT_JOBS
@@ -534,7 +596,26 @@ mod tests {
     /// other code path depends on the model having read.
     #[test]
     fn the_job_table_carries_every_contract_the_gates_depend_on() {
-        assert_eq!(OVERVIEW_AGENT_JOBS.len(), 3);
+        assert_eq!(OVERVIEW_AGENT_JOBS.len(), 4);
+
+        // Expansion's output contract, which `expand_via_model` parses and
+        // whose empty case it treats as a real answer. Both halves are pinned:
+        // the shape, and the permission to return nothing — without the latter
+        // a model with no good suggestion invents filler, and filler here is
+        // rows that look like evidence.
+        let expand = job("expand_query").instructions;
+        assert!(expand.contains(r#"{"terms": []}"#));
+        assert!(expand.contains("That is a real answer"));
+        assert!(expand.contains("Single words, never phrases"));
+        assert!(expand.contains("3 to 8"));
+        // The whole point: terms as the RECORD spells them, not synonyms of
+        // the question. A model that reached for synonyms would produce words
+        // just as absent from the index as the question's own.
+        assert!(expand.contains("APPEAR IN THE RECORD OF THE WORK"));
+        // Its ceiling sits inside the verb's, with room for the two lexical
+        // rungs that already ran. Raising one without the other turns graceful
+        // degradation into verb timeouts.
+        assert!(job("expand_query").timeout < crate::feeds::operator::VERB_TIMEOUT);
 
         // Silence is a first-class output, and the parser accepts exactly this
         // shape — a model that was never told so would answer prose.
@@ -883,6 +964,26 @@ mod tests {
         );
     }
 
+    /// The twin of the glossary's: with the map on the page the model names the
+    /// section to `help.read`, so a heading added to the guide fails here until
+    /// the prompt learns it.
+    #[test]
+    fn the_retrieve_prompt_lists_the_shipped_guide_headings() {
+        use crate::help_docs::HelpDoc;
+        let dir = crate::resources::checkout_docs().expect("debug build has a checkout");
+        let guide = HelpDoc::Features.read(&dir).unwrap();
+        let headings: Vec<String> = HelpDoc::Features
+            .units(&guide)
+            .into_iter()
+            .map(|unit| unit.title)
+            .collect();
+        let listed = format!("{}.", headings.join("; "));
+        assert!(
+            OPERATOR_RETRIEVE_INSTRUCTIONS.contains(&listed),
+            "the retrieve prompt's heading list is not the guide's; it should read:\n{listed}"
+        );
+    }
+
     /// Both prompts say a question about Tug is answered from the help
     /// documents and never from what the model believes about the app.
     #[test]
@@ -956,7 +1057,63 @@ mod tests {
         assert_eq!(DEFAULT_TOKEN_WAKE_TOKENS, 0, "threshold wake is opt-in");
         assert_eq!(
             DEFAULT_MAX_WORKERS, 3,
-            "one lane, three jobs: a question must not queue behind a digest",
+            "the shared lane, the expansion lane, and one more",
+        );
+    }
+
+    /// A real worker on the shipped table, so the expansion ceiling is read
+    /// against what a cold spawn plus one Sonnet turn actually takes.
+    /// Gated like `a_real_worker_answers_a_classify`:
+    ///
+    /// ```sh
+    /// cd tugrust
+    /// TUG_REAL_CLAUDE=1 cargo nextest run -p tugcast \
+    ///   --run-ignored only a_real_worker_answers_a_cold_query_expansion
+    /// ```
+    #[tokio::test]
+    #[ignore = "requires TUG_REAL_CLAUDE=1 and a live claude binary"]
+    async fn a_real_worker_answers_a_cold_query_expansion() {
+        if std::env::var("TUG_REAL_CLAUDE").as_deref() != Ok("1") {
+            return;
+        }
+        let pool = build_pool(Arc::new(|| DEFAULT_MODEL.to_string()), DEFAULT_MAX_WORKERS);
+        let terms = pool
+            .run("expand_query", "the watch loop keeps wedging".to_string())
+            .await
+            .expect("an expansion answers");
+        assert!(!terms.trim().is_empty(), "an empty answer is a failure");
+    }
+
+    /// The lane is what keeps a slow expansion from costing the Operator its
+    /// answer: a timeout retires the worker it ran on, and that must never be
+    /// the worker the next round needs.
+    #[tokio::test]
+    async fn query_expansion_never_shares_a_worker_with_the_operators_rounds() {
+        let fake = FakeSpawner::always(Ok("{}".to_string()));
+        let pool = SharedAgentPool::new(
+            AgentSpec {
+                name: "overview",
+                model: Arc::new(|| DEFAULT_MODEL.to_string()),
+                jobs: OVERVIEW_AGENT_JOBS,
+                max_workers: DEFAULT_MAX_WORKERS,
+            },
+            Arc::clone(&fake) as Arc<dyn AgentWorkerSpawner>,
+        );
+        pool.run("operator-retrieve", "q".to_string())
+            .await
+            .expect("retrieve answers");
+        assert_eq!(fake.spawn_count(), 1);
+        pool.run("expand_query", "q".to_string())
+            .await
+            .expect("expansion answers");
+        assert_eq!(fake.spawn_count(), 2, "expansion spawned its own worker");
+        pool.run("operator-answer", "q".to_string())
+            .await
+            .expect("answer answers");
+        assert_eq!(
+            fake.spawn_count(),
+            2,
+            "the answer reused the rounds' worker"
         );
     }
 }

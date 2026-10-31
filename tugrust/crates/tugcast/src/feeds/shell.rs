@@ -2071,7 +2071,7 @@ mod tests {
         // `path_commands` request warmed it at mount — stand where the deck
         // already put the pool, or the first line here would be answered by the
         // warmup path rather than by the agent.
-        let agent = crate::shared_agent::test_support::scripted_haiku_pool(answer);
+        let agent = crate::shared_agent::test_support::scripted_aux_pool(answer);
         agent
             .wait_until_warm(crate::shared_agent::JobClass::Classify)
             .await;

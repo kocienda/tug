@@ -3,6 +3,37 @@
 
 use super::*;
 
+/// Going private takes a session's chunks out of the semantic index, and going
+/// public again does not bring them back or touch anyone else's.
+#[tokio::test]
+async fn set_session_private_removes_the_sessions_chunks_from_the_semantic_index() {
+    let (mut sup, ledger, _rx) = make_supervisor_with_ledger();
+    ledger
+        .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, "sess", None)
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let index =
+        Arc::new(crate::semantic::SemanticIndex::open(dir.path().join("semantic.db")).unwrap());
+    for id in ["sess", "sess/turn-1", "sess-other"] {
+        index.store_for_test("session", id);
+    }
+    Arc::get_mut(&mut sup)
+        .expect("the test holds the only handle")
+        .set_semantic_index(Arc::clone(&index));
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "set_session_private",
+        "session_id": "sess",
+        "private": true,
+    }))
+    .unwrap();
+    sup.handle_control("set_session_private", &payload, 10)
+        .await
+        .expect_handled();
+
+    assert_eq!(index.source_ids("session").unwrap(), ["sess-other"]);
+}
+
 /// `set_session_private` writes the flag, acks, and pushes the row so the
 /// chip can show a resting state ([P05], [Q01]). No fact is recorded for
 /// the toggle — recording the act of hiding would leak the hiding.

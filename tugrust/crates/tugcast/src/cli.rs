@@ -165,6 +165,12 @@ pub struct OperatorAskArgs {
     /// bundle's `Resources/docs`, or a checkout's `docs/` in a debug build.
     #[arg(long)]
     pub docs_dir: Option<PathBuf>,
+
+    /// The semantic index, brought up to date with the help documents before the
+    /// question is asked, because this run has no boot to wait out. Defaults to
+    /// `semantic.db` beside `--db`. Never the instance's own: this writes to it.
+    #[arg(long)]
+    pub semantic_db: Option<PathBuf>,
 }
 
 /// Flags for `tugcast overview-replay`. Each one overrides a `dev.tugapp.overview`

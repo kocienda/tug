@@ -294,7 +294,7 @@ const QUESTION_WORDS: &[&str] = &[
 
 /// A search query's terms: lower-case words of two characters or more, less
 /// the question words around them.
-fn search_terms(query: &str) -> Vec<String> {
+pub(crate) fn search_terms(query: &str) -> Vec<String> {
     query
         .to_lowercase()
         .split(|c: char| !c.is_alphanumeric() && c != '-')
@@ -418,6 +418,35 @@ mod tests {
             assert_eq!(status, StatusCode::NOT_FOUND, "{name:?}");
             assert_eq!(body["error"], "unknown_document", "{name:?}");
         }
+    }
+
+    #[test]
+    fn the_eval_set_names_passages_the_help_documents_have() {
+        let docs = crate::resources::checkout_docs().expect("debug build has a checkout");
+        let path = docs
+            .parent()
+            .unwrap()
+            .join("tests/operator-eval/questions.json");
+        let set: Vec<Value> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            (20..=30).contains(&set.len()),
+            "the eval set holds {} questions",
+            set.len()
+        );
+        for item in &set {
+            let anchor = item["anchor"].as_str().unwrap();
+            assert_eq!(
+                canonical_help_target(&docs, anchor).as_deref(),
+                Some(anchor),
+                "{:?} expects a passage the documents do not have, or spell another way",
+                item["question"]
+            );
+        }
+        assert!(set.iter().any(|item| {
+            item["question"] == "how do I create an arc?"
+                && item["anchor"] == "features#opening-an-arc"
+        }));
     }
 
     #[test]

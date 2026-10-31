@@ -40,6 +40,9 @@ pub(crate) struct Ledgers {
     /// The record of long Bash calls that reported no unit. `None` when it
     /// would not open, which costs the record its rows and nothing else.
     pub(crate) report_gaps: Option<Arc<tugcore::report_gaps::ReportGaps>>,
+    /// The semantic index. `None` when it would not open, which leaves
+    /// tugcast without it and costs nothing else.
+    pub(crate) semantic_index: Option<Arc<crate::semantic::SemanticIndex>>,
 }
 
 /// Open tugbank, open the session ledger (refusing another instance's),
@@ -195,12 +198,26 @@ pub(crate) fn ledgers(actual_port: u16, bank_path: &Path) -> Ledgers {
         }
     };
 
+    // The semantic index, which can always be rebuilt from what it indexes, and
+    // whose absence only costs the searches that would have read it.
+    let semantic_index = {
+        let path = tugcore::instance::semantic_db_path();
+        match crate::semantic::SemanticIndex::open(&path) {
+            Ok(index) => Some(Arc::new(index)),
+            Err(e) => {
+                warn!(error = %e, path = %path.display(), "failed to open the semantic index (searches stay on the documents themselves)");
+                None
+            }
+        }
+    };
+
     Ledgers {
         bank_client,
         notify_socket_path,
         ledger,
         prompt_ledger,
         report_gaps,
+        semantic_index,
     }
 }
 

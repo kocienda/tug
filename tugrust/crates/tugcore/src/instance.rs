@@ -150,6 +150,8 @@ pub struct Paths {
     pub data_dir: PathBuf,
     /// The session ledger, fully resolved; see [`resolve_sessions_db_path`].
     pub sessions_db: PathBuf,
+    /// The per-instance semantic index; see [`semantic_db_path`].
+    pub semantic_db: PathBuf,
     /// See [`changes_db_path`].
     pub changes_db: PathBuf,
     /// See [`prompt_history_db_path`].
@@ -215,6 +217,9 @@ impl Paths {
         };
         Self {
             sessions_db,
+            semantic_db: guard(
+                overridden(ENV_SEMANTIC_DB).unwrap_or_else(|| data_dir.join("semantic.db")),
+            ),
             changes_db: shared(ENV_CHANGES_DB, "changes.db"),
             prompt_history_db: shared(ENV_PROMPT_HISTORY_DB, "prompt_history.db"),
             session_index_db: shared(ENV_SESSION_INDEX_DB, "session_index.db"),
@@ -510,6 +515,18 @@ pub const ENV_REPORT_GAPS_DB: &str = "TUG_REPORT_GAPS_DB";
 /// override for isolated test runs.
 pub fn report_gaps_db_path() -> PathBuf {
     Paths::from_env().report_gaps_db
+}
+
+/// Environment variable overriding the semantic index path. Set by every
+/// harness that spawns tugcast, so a throwaway instance never embeds into the
+/// user's real index.
+pub const ENV_SEMANTIC_DB: &str = "TUG_SEMANTIC_DB";
+
+/// The **per-instance** semantic index path, `<data-dir>/semantic.db`, matching
+/// `sessions.db`: what it indexes is that instance's. Honors the
+/// [`ENV_SEMANTIC_DB`] override for isolated test runs.
+pub fn semantic_db_path() -> PathBuf {
+    Paths::from_env().semantic_db
 }
 
 /// Environment variable overriding the shared app-test results ledger path.
@@ -1183,6 +1200,22 @@ mod tests {
 
     #[test]
     #[serial]
+    fn semantic_db_path_is_per_instance_and_the_override_wins() {
+        let _g = EnvGuard::snapshot();
+        let _s = VarGuard::set(ENV_SEMANTIC_DB, None);
+        set_instance(Some("debug-foo"));
+        assert!(semantic_db_path().ends_with("instances/debug-foo/semantic.db"));
+        set_instance(Some("debug-bar"));
+        assert!(semantic_db_path().ends_with("instances/debug-bar/semantic.db"));
+        let _s = VarGuard::set(
+            ENV_SEMANTIC_DB,
+            Some(std::path::Path::new("/tmp/custom-semantic.db")),
+        );
+        assert_eq!(semantic_db_path(), PathBuf::from("/tmp/custom-semantic.db"));
+    }
+
+    #[test]
+    #[serial]
     fn report_gaps_db_path_default_is_machine_global_and_instance_independent() {
         let _g = EnvGuard::snapshot();
         let _s = VarGuard::set(ENV_REPORT_GAPS_DB, None);
@@ -1504,8 +1537,9 @@ mod tests {
 
     /// Every per-ledger override this module honours, for tests that set or
     /// clear them all at once.
-    const LEDGER_OVERRIDES: [&str; 8] = [
+    const LEDGER_OVERRIDES: [&str; 9] = [
         ENV_SESSIONS_DB,
+        ENV_SEMANTIC_DB,
         ENV_CHANGES_DB,
         ENV_PROMPT_HISTORY_DB,
         ENV_SESSION_INDEX_DB,
@@ -1526,6 +1560,7 @@ mod tests {
         assert_eq!(p.tugbank_db(), tugbank_db_path());
         assert_eq!(p.instance_sessions_db(), sessions_db_path());
         assert_eq!(Some(p.sessions_db.clone()), resolve_sessions_db_path());
+        assert_eq!(p.semantic_db, semantic_db_path());
         assert_eq!(p.changes_db, changes_db_path());
         assert_eq!(p.prompt_history_db, prompt_history_db_path());
         assert_eq!(p.session_index_db, session_index_db_path());

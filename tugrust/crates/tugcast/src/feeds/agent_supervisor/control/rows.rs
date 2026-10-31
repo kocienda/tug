@@ -367,6 +367,15 @@ impl AgentSupervisor {
         };
         match ledger.set_session_private(session_id, private) {
             Ok(()) => {
+                // Text that is not in the index cannot leak through a search. A
+                // failure here is caught by the index's next run, which purges
+                // whatever a private session still holds.
+                if private
+                    && let Some(index) = self.semantic_index.as_ref()
+                    && let Err(err) = crate::semantic::remove_session_sources(index, session_id)
+                {
+                    warn!(error = %err, session_id, "could not remove a private session from the semantic index");
+                }
                 if let Ok(Some(row)) = ledger.get(session_id) {
                     let metrics = ledger.scan_metrics_for(session_id).unwrap_or(None);
                     let usage = ledger.usage_for(session_id).unwrap_or(None);
