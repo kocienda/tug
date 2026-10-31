@@ -256,6 +256,7 @@ fn load_arena(conn: &Connection) -> Result<VectorArena, SemanticError> {
     if let Some((kind, id)) = source {
         arena.insert_source(&kind, &id, arena_rows(&blobs));
     }
+    arena.shrink_to_fit();
     Ok(arena)
 }
 

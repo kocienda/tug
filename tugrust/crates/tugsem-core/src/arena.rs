@@ -19,6 +19,11 @@ const STEPS: f32 = 127.0;
 const LANES: usize = 16;
 /// Where a freed row names its source.
 const FREE: u32 = u32::MAX;
+/// The fewest rows a full space grows by.
+const MIN_GROWTH_ROWS: usize = 1024;
+/// A full space grows by this fraction of its rows. A `Vec` left to itself doubles, so
+/// the first row written after a load would undo the shrink that ended it.
+const GROWTH_DIVISOR: usize = 8;
 
 /// `vector` as the blob the store holds. A residual of nothing has a scale of 0 and
 /// zeros. `vector` and `offset` are one length, which the caller's offset is keyed on.
@@ -105,6 +110,7 @@ impl Space {
         let (head, body) = blob.split_at(HEADER_BYTES);
         let scale = f32::from_le_bytes([head[0], head[1], head[2], head[3]]);
         let row = self.free.pop().unwrap_or_else(|| {
+            self.make_room();
             self.steps.resize(self.steps.len() + self.dims, 0);
             self.scales.push(0.0);
             self.chunk_ids.push(0);
@@ -124,6 +130,28 @@ impl Space {
     fn free(&mut self, row: u32) {
         self.sources[row as usize] = FREE;
         self.free.push(row);
+    }
+
+    /// Reserve the next rows when the last has been used, by a fraction rather than by
+    /// the doubling a `Vec` would choose.
+    fn make_room(&mut self) {
+        let rows = self.sources.len();
+        if rows < self.sources.capacity() {
+            return;
+        }
+        let more = (rows / GROWTH_DIVISOR).max(MIN_GROWTH_ROWS);
+        self.steps.reserve_exact(more * self.dims);
+        self.scales.reserve_exact(more);
+        self.chunk_ids.reserve_exact(more);
+        self.sources.reserve_exact(more);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        self.steps.shrink_to_fit();
+        self.scales.shrink_to_fit();
+        self.chunk_ids.shrink_to_fit();
+        self.sources.shrink_to_fit();
+        self.free.shrink_to_fit();
     }
 }
 
@@ -177,6 +205,13 @@ impl VectorArena {
                     + size_of::<u32>() * (space.sources.capacity() + space.free.capacity())
             })
             .sum()
+    }
+
+    /// Give back what growing left unused, for a caller done loading.
+    pub fn shrink_to_fit(&mut self) {
+        for space in &mut self.spaces {
+            space.shrink_to_fit();
+        }
     }
 
     /// Hold `rows` as all there is of a source, replacing whatever it held under any
@@ -559,6 +594,24 @@ mod tests {
 
         arena.remove_source("k", "never held");
         assert_eq!(arena.rows(), (2, 2));
+    }
+
+    #[test]
+    fn a_loaded_arena_holds_its_rows_and_one_more_row_does_not_double_it() {
+        const ROWS: usize = 20_000;
+        const DIMS: usize = 16;
+        const ROW_BYTES: usize = DIMS + 4 + 8 + 4;
+        let blob = quantize(&[0.5; DIMS], &[0.0; DIMS]);
+        let mut arena = VectorArena::new();
+        for at in 0..ROWS {
+            insert(&mut arena, "k", &at.to_string(), at as i64, "m", &blob);
+        }
+        arena.shrink_to_fit();
+        assert_eq!(arena.bytes(), ROWS * ROW_BYTES);
+
+        insert(&mut arena, "k", "one more", ROWS as i64, "m", &blob);
+        assert_eq!(arena.vectors(), ROWS + 1);
+        assert_eq!(arena.bytes(), (ROWS + ROWS / GROWTH_DIVISOR) * ROW_BYTES);
     }
 
     #[test]

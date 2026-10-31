@@ -210,15 +210,16 @@ impl Asked<'_> {
             self.vector,
             depth,
         );
-        info!(
-            "semantic search: scanned {handed} vectors in {} ms, on a question embedded in {} ms",
-            scanning.elapsed().as_millis(),
-            self.embed_time.as_millis()
-        );
+        let scan_ms = scanning.elapsed().as_millis();
+        let embed_ms = self.embed_time.as_millis();
         if handed == 0 {
+            info!(
+                "semantic search: scanned no vectors in {scan_ms} ms, on a question embedded in {embed_ms} ms"
+            );
             return Ok(None);
         }
         let by_meaning: Vec<i64> = nearest.iter().map(|scored| scored.id).collect();
+        let wording = std::time::Instant::now();
         let by_word = index.lexical_chunks(
             self.kinds,
             self.scope,
@@ -229,6 +230,10 @@ impl Asked<'_> {
         let all_terms = index.holds_all_kept(self.kinds, self.scope, self.terms, |source_id| {
             self.keeps(source_id)
         })?;
+        info!(
+            "semantic search: scanned {handed} vectors in {scan_ms} ms, ranked words in {} ms, on a question embedded in {embed_ms} ms",
+            wording.elapsed().as_millis()
+        );
         let fused = fuse(&[&by_word, &by_meaning], usize::MAX);
         let scores: HashMap<i64, f64> = fused.iter().map(|f| (f.id, f.score)).collect();
         let ids: Vec<i64> = fused.iter().map(|f| f.id).collect();
