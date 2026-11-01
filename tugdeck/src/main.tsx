@@ -505,8 +505,10 @@ async function loadTestSurface(
   // label paint in tug-atom-img.ts) already has its faces decoded —
   // a not-yet-loaded face silently falls back and the chip would need
   // a re-bake. The editor settings store re-warms on font changes.
+  // The text names a key symbol because the key face's unicode-range leaves
+  // it out of a load that asks only for the default space.
   for (const stack of Object.values(FONT_STACKS)) {
-    void document.fonts.load(`13px ${stack}`).catch(() => undefined);
+    void document.fonts.load(`13px ${stack}`, " ⌘").catch(() => undefined);
   }
 
   // Initialize motion observer early so data-tug-motion attribute is set before

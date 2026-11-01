@@ -493,4 +493,9 @@ describe("a face's display list, its pure parts", () => {
     expect(firstFamily('"IBM Plex Sans", system-ui, sans-serif')).toBe("IBM Plex Sans");
     expect(firstFamily("Menlo")).toBe("Menlo");
   });
+
+  test("a font family list skips the key-symbol faces, which set no letters", () => {
+    expect(firstFamily('"Tug Keys", "IBM Plex Sans", system-ui')).toBe("IBM Plex Sans");
+    expect(firstFamily('"Tug Keys Mono", "IBM Plex Mono", monospace')).toBe("IBM Plex Mono");
+  });
 });

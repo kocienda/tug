@@ -80,10 +80,13 @@ export function withinView(r: { x: number; y: number; width: number; height: num
   return { x: r.x - view.x, y: r.y - view.y, width: r.width, height: r.height };
 }
 
-/** The first family a computed `font-family` names, unquoted. */
+/** The faces at the head of the deck's chains that carry only the key symbols. */
+const KEY_SYMBOL_FACES = new Set(["Tug Keys", "Tug Keys Mono"]);
+
+/** The first family a computed `font-family` names that can set a run's letters, unquoted. */
 export function firstFamily(fontFamily: string): string {
-  const first = fontFamily.split(",")[0]?.trim() ?? "";
-  return first.replace(/^["']|["']$/g, "");
+  const families = fontFamily.split(",").map((family) => family.trim().replace(/^["']|["']$/g, ""));
+  return families.find((family) => !KEY_SYMBOL_FACES.has(family)) ?? "";
 }
 
 /** A computed length in px as a number, 0 for anything unreadable. */

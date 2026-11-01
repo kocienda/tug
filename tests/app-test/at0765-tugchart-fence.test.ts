@@ -13,8 +13,9 @@
  *  - A bar's computed `fill` is the computed value of
  *    `--tugx-chart-series-1`, read through a probe span given that token as
  *    its `color`, so both sides resolve through the same engine.
- *  - A `<text>`'s computed `font-family` begins with "IBM Plex Sans": the
- *    type roles are the deck's own faces.
+ *  - A `<text>`'s computed `font-family` begins with "IBM Plex Sans", behind
+ *    only the "Tug Keys" symbol face that heads every chain: the type roles
+ *    are the deck's own faces.
  *  - Every `<text>`'s `getComputedTextLength()` is within 0.5 px of its
  *    content measured by a canvas whose `font` is built from that element's
  *    own computed style — the compiler laid each string out at exactly that
@@ -144,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)("at0765 — a tugchart fence renders as a token-sty
 
         expect(facts.texts.length, "the chart has text").toBeGreaterThan(0);
         for (const t of facts.texts) {
-          expect(t.family.replace(/"/g, ""), `${JSON.stringify(t.text)} face`).toStartWith("IBM Plex Sans");
+          expect(t.family.replace(/"/g, ""), `${JSON.stringify(t.text)} face`).toStartWith("Tug Keys, IBM Plex Sans");
           expect(Math.abs(t.svg - t.canvas), `${JSON.stringify(t.text)} drawn ${t.svg} vs laid out ${t.canvas}`)
             .toBeLessThanOrEqual(WIDTH_TOLERANCE_PX);
         }

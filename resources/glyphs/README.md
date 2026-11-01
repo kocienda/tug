@@ -4,7 +4,7 @@ IBM Plex Sans and Plex Mono have no glyphs for the Mac key symbols
 (⌘ ⌥ ⌃ ⇧ ⎋ ⌫ ⌦ ⇥ ⇪ ⏎), so the deck draws them from a system fallback face
 at symbol scale, and the arrows Plex does carry (← ↑ → ↓) are thin. This
 directory holds our own drawings of all fourteen, made to Plex's measure,
-for review and eventually for a small fallback font.
+and cuts them into the small fallback fonts the deck draws them from.
 
 - `build.py` — the drawings. Every glyph is a centerline stroked at the
   weight's stroke, flat-cut and unioned by skia, so the three weights are one
@@ -17,6 +17,12 @@ for review and eventually for a small fallback font.
   seven sizes and three weights, with a "today" row of the raw characters
   for comparison and a sheet of each glyph against cap, x-height and
   baseline guides. Open it in a browser straight from the checkout.
+- `cut.py` — the cutter. It takes `build.py`'s outlines and writes six woff2
+  files into `tugdeck/public/fonts/`: `TugKeys-*` and `TugKeysMono-*` at
+  Regular, Medium and Bold, named "Tug Keys" and "Tug Keys Mono". Each carries
+  Plex's vertical metrics and a cmap of exactly the fourteen symbols, so the
+  stylesheet needs no overrides; a seating mismatch is a bug in the cutter.
+  The fonts are OFL 1.1 (`tugdeck/public/fonts/licenses/tug-keys-OFL.txt`).
 
 ## Measures
 
@@ -42,7 +48,13 @@ knot reads as one stroke.
 python3 -m venv /tmp/ftenv
 /tmp/ftenv/bin/pip install skia-python fonttools brotli
 /tmp/ftenv/bin/python -I resources/glyphs/build.py
+/tmp/ftenv/bin/python -I resources/glyphs/cut.py
+/tmp/ftenv/bin/python -I resources/glyphs/cut.py --check
 ```
 
 Proof sheets (our glyphs beside Plex's H, E, l, +, ←, ↑) land in `/tmp` as
 `glyph-proof-<family>-<weight>.png`.
+
+`cut.py` is reproducible, so an unchanged drawing rebuilds to identical bytes.
+`--check` reads each woff2 back and holds its metrics, cmap, names, advances and
+ink to `build.py` and to the Plex face it sits beside.

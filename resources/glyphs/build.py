@@ -8,7 +8,7 @@ weights, once per weight and family, and writes:
 
   svg/<family>-<weight>/<name>.svg   one outline per glyph, font units,
                                      viewBox "0 -760 <advance> 820"
-  specimen.html                      the glyphs set beside Plex Sans and
+  specimen.html                      the glyphs and the cut fonts set beside Plex Sans and
                                      Plex Mono at several sizes
 
 Every glyph is a centerline stroked by skia at the weight's stroke, then
@@ -61,6 +61,9 @@ CHAR_TO_NAME = {chr(cp): name for name, cp in GLYPHS}
 SANS_BEARING = 44      # side bearing on a proportional advance
 MONO_ADVANCE = 600
 MONO_MAX_WIDTH = 552   # Plex Mono's own ← is 552 wide in a 600 cell
+
+# The fonts cut.py makes of these drawings: family name and file stem.
+FAMILIES = {"sans": ("Tug Keys", "TugKeys"), "mono": ("Tug Keys Mono", "TugKeysMono")}
 
 # "open": Plex-style arrows, a stroked shaft with two wings. "heavy": solid
 # wide-headed arrows after Unicode's HEAVY WIDE-HEADED arrows (U+2794 and
@@ -534,6 +537,10 @@ def esc_html(t):
     return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def tug_keys_file(family, weight):
+    return f"{FAMILIES[family][1]}-{weight.capitalize()}.woff2"
+
+
 def html_line(text, family, weight, advances):
     out = []
     for ch in text:
@@ -553,6 +560,11 @@ def write_specimen(path_out, symbols, advances):
     for (fam, wt), file in PLEX_FILE.items():
         faces.append(f'@font-face {{ font-family: {css_font[fam]}; font-weight: {CSS_WEIGHT[wt]}; '
                      f'src: url("../../tugdeck/public/fonts/{file}") format("woff2"); }}')
+    key_range = ", ".join(f"U+{cp:04X}" for _, cp in GLYPHS)
+    for (fam, wt) in PLEX_FILE:
+        faces.append(f"@font-face {{ font-family: '{FAMILIES[fam][0]}'; font-weight: {CSS_WEIGHT[wt]}; "
+                     f'src: url("../../tugdeck/public/fonts/{tug_keys_file(fam, wt)}") format("woff2"); '
+                     f'unicode-range: {key_range}; }}')
     sections = []
     for fam in ("sans", "mono"):
         for wt in ("regular", "medium", "bold"):
@@ -562,6 +574,8 @@ def write_specimen(path_out, symbols, advances):
                 rows.append(f'<p class="l" style="font-size:{size}px"><span class="sz">{size}px</span>{lines}</p>')
             today = "<br>".join(esc_html(t) for t in SPECIMEN_TEXT)
             rows.append(f'<p class="l today" style="font-size:20px"><span class="sz">today</span>{today}</p>')
+            rows.append(f'<p class="l" style="font-size:20px; font-family:\'{FAMILIES[fam][0]}\', {css_font[fam]}">'
+                        f'<span class="sz">font</span>{today}</p>')
             sheet = "".join(
                 f'<figure><svg class="big" viewBox="0 {-TOP} {advances[(fam, wt, name)]} {TOP - BOT}">'
                 f'<use href="#g-{fam}-{wt}-{name}" transform="scale(1,-1)"/></svg>'
@@ -604,7 +618,7 @@ button {{ font: 400 13px 'IBM Plex Sans'; margin-bottom: 1rem; }}
 <body>
 <button onclick="document.body.classList.toggle('light')">Toggle light / dark</button>
 <h1>Tug key glyphs beside IBM Plex</h1>
-<p class="hint">Each glyph is an outline in font units, sized 0.82em and seated on the baseline the way a font glyph would be. The "today" row is the raw characters as the deck renders them now, with the system fallback supplying the symbols. Guides on the sheet: cap height (blue), x-height (grey), baseline (red).</p>
+<p class="hint">Each glyph is an outline in font units, sized 0.82em and seated on the baseline the way a font glyph would be. The "today" row is the raw characters with the system fallback supplying the symbols, and the "font" row is the same characters drawn from the cut Tug Keys faces through <code>unicode-range</code>, which should match the 20px row of outlines. Guides on the sheet: cap height (blue), x-height (grey), baseline (red).</p>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
 {symbols}
 </defs></svg>

@@ -36,7 +36,67 @@
  * Refresh script faces via `just fetch-fonts`.
  *
  * All IBM Plex faces are OFL 1.1; Datatype is OFL 1.1 — see
- * THIRD_PARTY_NOTICES.md. */
+ * THIRD_PARTY_NOTICES.md. Tug Keys is Tug's own, also OFL 1.1 — see
+ * fonts/licenses/tug-keys-OFL.txt. */
+
+
+/* Tug Keys — the Mac key symbols, drawn to Plex's measure. Plex has no glyph
+   for ⌘ ⌥ ⌃ ⇧ ⎋ ⌫ ⌦ ⇥ ⇪ ⏎, and these faces also take over its thin arrows, so
+   they head the font chains and unicode-range sends them only these fourteen
+   codepoints. The fonts carry Plex's vertical metrics, so a glyph seats itself
+   on Plex's baseline at Plex's cap height and these rules need no overrides; a
+   seating mismatch is a bug in the cutter. Weights 400/500/700, Sans and Mono.
+   Cut from the outlines by resources/glyphs/cut.py, never hand-edited. Version
+   1.000, © 2026 Ken Kocienda, OFL 1.1. */
+
+@font-face {
+  font-family: "Tug Keys";
+  src: url("/fonts/TugKeys-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+2318, U+2325, U+2303, U+21E7, U+238B, U+232B, U+2326, U+21E5, U+21EA, U+23CE, U+2190-2193;
+}
+@font-face {
+  font-family: "Tug Keys";
+  src: url("/fonts/TugKeys-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+2318, U+2325, U+2303, U+21E7, U+238B, U+232B, U+2326, U+21E5, U+21EA, U+23CE, U+2190-2193;
+}
+@font-face {
+  font-family: "Tug Keys";
+  src: url("/fonts/TugKeys-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+2318, U+2325, U+2303, U+21E7, U+238B, U+232B, U+2326, U+21E5, U+21EA, U+23CE, U+2190-2193;
+}
+@font-face {
+  font-family: "Tug Keys Mono";
+  src: url("/fonts/TugKeysMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+2318, U+2325, U+2303, U+21E7, U+238B, U+232B, U+2326, U+21E5, U+21EA, U+23CE, U+2190-2193;
+}
+@font-face {
+  font-family: "Tug Keys Mono";
+  src: url("/fonts/TugKeysMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+2318, U+2325, U+2303, U+21E7, U+238B, U+232B, U+2326, U+21E5, U+21EA, U+23CE, U+2190-2193;
+}
+@font-face {
+  font-family: "Tug Keys Mono";
+  src: url("/fonts/TugKeysMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+  unicode-range: U+2318, U+2325, U+2303, U+21E7, U+238B, U+232B, U+2326, U+21E5, U+21EA, U+23CE, U+2190-2193;
+}
 
 
 /* IBM Plex Sans — primary UI typeface (Latin/Greek/Cyrillic). Upright

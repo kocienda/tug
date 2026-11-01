@@ -229,13 +229,16 @@ follow(deckFacts, (facts) => {
   // the fallback and changes size when the face lands: the pill's width under
   // its own zoom, a drawn placard's rows under a scroller already pinned to
   // its bottom. Sans for the chrome, mono for the readings the placards list.
-  const rootStyle = getComputedStyle(document.documentElement);
+  // The text names a key symbol because the key face's unicode-range leaves it
+  // out of a load that asks only for the default space.
+  // The theme sets its tokens on the body, so the root reads none of them.
+  const themeStyle = getComputedStyle(document.body);
   const faces = [
-    rootStyle.getPropertyValue("--tug-font-family-sans").trim() || `"IBM Plex Sans"`,
-    rootStyle.getPropertyValue("--tug-font-family-mono").trim() || `"IBM Plex Mono"`,
+    themeStyle.getPropertyValue("--tug-font-family-sans").trim() || `"IBM Plex Sans"`,
+    themeStyle.getPropertyValue("--tug-font-family-mono").trim() || `"IBM Plex Mono"`,
   ];
   await Promise.all(
-    faces.flatMap((family) => [400, 500, 600, 700].map((weight) => document.fonts.load(`${weight} 13px ${family}`).catch(() => undefined))),
+    faces.flatMap((family) => [400, 500, 600, 700].map((weight) => document.fonts.load(`${weight} 13px ${family}`, " ⌘").catch(() => undefined))),
   );
   pageBus().announce();
   const container = document.getElementById("deck-container");

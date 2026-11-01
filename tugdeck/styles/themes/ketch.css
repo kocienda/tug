@@ -48,10 +48,10 @@ body {
   --tug-icon-size-xs: 12px;
 
   /* Font */
-  --tug-font-family-editor: "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
-  --tug-font-family-mono: "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
-  --tug-font-family-sans: "IBM Plex Sans", "IBM Plex Sans Arabic", "IBM Plex Sans Hebrew", "IBM Plex Sans Thai", "IBM Plex Sans Devanagari", "IBM Plex Sans JP", "IBM Plex Sans KR", "IBM Plex Sans SC", "IBM Plex Sans TC", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --tug-font-family-condensed: "IBM Plex Sans Condensed", "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --tug-font-family-editor: "Tug Keys Mono", "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
+  --tug-font-family-mono: "Tug Keys Mono", "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
+  --tug-font-family-sans: "Tug Keys", "IBM Plex Sans", "IBM Plex Sans Arabic", "IBM Plex Sans Hebrew", "IBM Plex Sans Thai", "IBM Plex Sans Devanagari", "IBM Plex Sans JP", "IBM Plex Sans KR", "IBM Plex Sans SC", "IBM Plex Sans TC", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --tug-font-family-condensed: "Tug Keys", "IBM Plex Sans Condensed", "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   /* Chart marks, not reading text: Datatype's ligatures render `{p:75}` /
      `{b:...}` / `{l:...}` as inline pie / bar / sparkline glyphs. Falls through
      to the sans stack for anything that is not a chart expression. */

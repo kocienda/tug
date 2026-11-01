@@ -58,8 +58,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
 
 /** Font stacks keyed by font ID. */
 export const FONT_STACKS: Record<string, string> = {
-  "plex-sans": '"IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif',
-  "plex-mono": '"IBM Plex Mono", "SFMono-Regular", "Menlo", monospace',
+  "plex-sans": '"Tug Keys", "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif',
+  "plex-mono": '"Tug Keys Mono", "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace',
 };
 
 /** Default font size per font (mono reads larger than proportional). */

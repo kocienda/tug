@@ -197,14 +197,10 @@
   color: var(--tug7-element-field-text-normal-value-rest);
 }
 
-/* One family for the whole chord, and it is the system's.
-   ⌘ / ⌥ / ⇧ / ⌃ are absent from IBM Plex, so a chord set in Plex draws its
-   modifiers out of a fallback face and its letter out of Plex — two type
-   designs abutting, with the letter reading small against symbols drawn at
-   symbol scale. The system UI face carries both, which is also the face the
-   menu bar sets these same chords in. */
+/* The chord inherits the deck's face: ⌘ / ⌥ / ⇧ / ⌃ are absent from IBM Plex,
+   and the "Tug Keys" face at the head of the font chain draws them to Plex's
+   measure, so a chord reads the same here as in the transcript and composer. */
 .settings-keymap-chord-label {
-  font-family: system-ui, -apple-system, sans-serif;
   font-size: 0.8125rem;
   font-weight: var(--tug-font-weight-medium);
   letter-spacing: 0.01em;
@@ -266,7 +262,6 @@
 
 /* The chord named in the note is a chord, so it is set as one. */
 .settings-keymap-capture-note-chord {
-  font-family: system-ui, -apple-system, sans-serif;
   font-weight: var(--tug-font-weight-medium);
   white-space: nowrap;
 }
@@ -300,7 +295,6 @@
   /* The prompt's own measure, held after it is replaced, so recording a chord
      does not shrink the strip out from under the buttons. */
   min-width: 6.75rem;
-  font-family: system-ui, -apple-system, sans-serif;
   font-size: 0.8125rem;
   font-weight: var(--tug-font-weight-medium);
   color: var(--tug7-element-field-text-normal-placeholder-rest);
