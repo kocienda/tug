@@ -62,6 +62,11 @@ SANS_BEARING = 44      # side bearing on a proportional advance
 MONO_ADVANCE = 600
 MONO_MAX_WIDTH = 552   # Plex Mono's own ← is 552 wide in a 600 cell
 
+# "open": Plex-style arrows, a stroked shaft with two wings. "heavy": solid
+# wide-headed arrows after Unicode's HEAVY WIDE-HEADED arrows (U+2794 and
+# kin), a thick shaft into a filled triangular head wider than the shaft.
+ARROW_STYLE = "heavy"
+
 
 # ---------------------------------------------------------------------------
 # Skia helpers
@@ -321,7 +326,19 @@ def g_esc(s, xs):
     return normalize(union(ring, shaft, head))
 
 
-def g_left(s, xs):
+def _heavy_arrow(s, xs, length):
+    """A solid wide-headed arrow pointing +x, its axis on y = 0."""
+    X = lambda x: x * xs
+    t = 1.3 * s + 55            # shaft thickness, well past the stroke
+    hb = 0.29 * H + 0.25 * s    # head half-height at its base
+    hl = 0.44 * length          # head length
+    base = X(length - hl)
+    pts = [(0, t / 2), (base, t / 2), (base, hb), (X(length), 0),
+           (base, -hb), (base, -t / 2), (0, -t / 2)]
+    return polyline(pts, closed=True)
+
+
+def _open_left(s, xs):
     W = 1.03 * H
     X = lambda x: x * xs
     L = 0.31 * H
@@ -331,17 +348,35 @@ def g_left(s, xs):
     return normalize(union(shaft, head))
 
 
+def _open_up(s, xs):
+    L = 0.31 * H
+    tipy = H + OVER - miter_reach(s, math.pi / 4)
+    shaft = stroke(polyline([(0, 0), (0, tipy)]), s)
+    head = _open_head((0, tipy), (0, 1), L, s)
+    return normalize(union(shaft, head))
+
+
+def _heavy_left(s, xs):
+    p = mirror_x(_heavy_arrow(s, xs, 0.98 * H))
+    return normalize(translate(p, 0, MID))
+
+
+def _heavy_up(s, xs):
+    p = xform(_heavy_arrow(s, xs, H + OVER), skia.Matrix.RotateDeg(90))
+    return normalize(p)
+
+
+def g_left(s, xs):
+    return (_heavy_left if ARROW_STYLE == "heavy" else _open_left)(s, xs)
+
+
 def g_right(s, xs):
     p, w = g_left(s, xs)
     return normalize(mirror_x(p))
 
 
 def g_up(s, xs):
-    L = 0.31 * H
-    tipy = H + OVER - miter_reach(s, math.pi / 4)
-    shaft = stroke(polyline([(0, 0), (0, tipy)]), s)
-    head = _open_head((0, tipy), (0, 1), L, s)
-    return normalize(union(shaft, head))
+    return (_heavy_up if ARROW_STYLE == "heavy" else _open_up)(s, xs)
 
 
 def g_down(s, xs):
