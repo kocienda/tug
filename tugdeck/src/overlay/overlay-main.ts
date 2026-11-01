@@ -58,6 +58,7 @@ import { keyboardAccessStore, normalizeKeyboardAccessMode } from "../keyboard-ac
 import { KEYMAP_DOMAIN, keymapOverrideStore } from "../keymap-override-store";
 import { applyShellModifierLatch } from "../components/tugways/modifier-latch";
 import { advanceKeyViewFocus, getFocusManager } from "../components/tugways/focus-manager";
+import { requestQuit } from "../lib/quit-guard-store";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { appModalStore } from "../lib/app-modal-store";
 import { showConfigureTugOnDemand } from "../lib/configure-tug-request-store";
@@ -186,6 +187,9 @@ follow(deckFacts, (facts) => {
   registerAction(TUG_ACTIONS.NEXT_KEYBOARD_FOCUS, () => advanceKeyViewFocus(getFocusManager(), 1));
   registerAction(TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS, () => advanceKeyViewFocus(getFocusManager(), -1));
   registerAction(TUG_ACTIONS.CYCLE_FOCUS_MODE, cycleFocusMode);
+  // ⌘Q over a modal standing here: the request goes to the host, which asks the
+  // shell, so a wizard holding the app can still be quit.
+  registerAction("quit-application", () => requestQuit());
   connection.onFrame(FeedId.CONTROL, (payload) => {
     try {
       dispatchAction(JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>);

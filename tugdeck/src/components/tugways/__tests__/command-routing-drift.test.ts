@@ -125,6 +125,19 @@ const RE_HOMED_ONTO_THE_CHAIN: ReadonlySet<string> = new Set([
   TUG_ACTIONS.FOCUS_PANE,
 ]);
 
+describe("the commands that left AppKit", () => {
+  test("quit-application routes through the registry, so its chord reaches the quit guard", () => {
+    // Not in the pre-migration table, which records mechanisms that had a body
+    // in `action-dispatch.ts`; this one was performed natively. A live page's
+    // funnel takes ⌘Q ahead of AppKit once it is routable, so routing back to
+    // native would quietly send the chord around the guard.
+    const quit = COMMANDS_BY_ID.get("quit-application");
+    expect(quit?.routing).toBe("registry");
+    expect(quit?.menuItemId).toBe("app.quit");
+    expect(quit?.bindings?.map((b) => formatChord(b.chord))).toEqual(["⌘Q"]);
+  });
+});
+
 describe("routing matches the pre-migration mechanism", () => {
   for (const [id, mechanism] of Object.entries(PRE_MIGRATION_MECHANISM)) {
     const expected = RE_HOMED_ONTO_THE_CHAIN.has(id) ? "first-responder" : mechanism;
@@ -711,10 +724,14 @@ describe("every chord the static map held reaches the same command", () => {
     // ⌥⌘0 was authored this way: the remembered level it returns to is the
     // host's, so the View item is what the chord reaches.
     ["⌥⌘0", TUG_ACTIONS.ZOOM_TOGGLE_ACTUAL],
+    // Named here since the quit guard: it left `native` so a live page's chord
+    // reaches the guard, and it remains the one chord a dead page must not lose,
+    // because its item is the host's and stays enabled with no deck.
+    ["⌘Q", "quit-application"],
   ]);
 
   test("the global layer holds nothing the map did not, except the host's own", () => {
-    // The table also names Quit, Hide, Minimize and Full Screen so the keymap
+    // The table also names Hide, Minimize and Full Screen so the keymap
     // UI can show them. They are `native`: represented, never JS-routed.
     const extra = [...byRendering.entries()].filter(
       ([rendering]) => !EXPECTED_CHORDS.some(([r]) => r === rendering),

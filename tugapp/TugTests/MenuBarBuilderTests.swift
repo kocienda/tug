@@ -116,7 +116,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "App | Hide Others | ⌥⌘h | hideOtherApplications: | app.hideOthers",
         "App | Show All | - | unhideAllApplications: | app.showAll",
         "App | ---",
-        "App | Quit Tug | ⌘q | terminate: | app.quit",
+        "App | Quit Tug | ⌘q | quit: | app.quit",
         "Bar | File ▸ | - | - | -",
         "File | New Session | ⌘n | newSessionCard: | file.newSessionCard",
         "File | New Text File | ⌥⌘n | newTextCard: | file.newTextCard",

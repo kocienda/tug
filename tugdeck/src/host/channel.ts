@@ -27,7 +27,7 @@
 import { INVALID } from "../bus/codec";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import type { PageCall, ToHost, ToPage } from "./declare";
-import { prepareForTerminationCall, reauthenticateCall, saveStateCall } from "./declarations/lifecycle";
+import { prepareForTerminationCall, reauthenticateCall, requestQuitCall, saveStateCall } from "./declarations/lifecycle";
 import { PAGE_CALLS, TO_PAGE } from "./registry";
 
 interface HostHandler {
@@ -179,6 +179,7 @@ export function answerPageCall<T, R>(decl: PageCall<T, R>, handler: (payload: T)
 export interface TugdeckPageCalls {
   saveState(payload?: unknown): unknown;
   prepareForTermination(payload?: unknown): unknown;
+  requestQuit(payload?: unknown): unknown;
   reauthenticate(payload?: unknown): unknown;
 }
 
@@ -187,6 +188,7 @@ export function tugdeckPageCalls(): TugdeckPageCalls {
   return {
     saveState: callMemberOf(saveStateCall as PageCall<unknown, unknown>),
     prepareForTermination: callMemberOf(prepareForTerminationCall as PageCall<unknown, unknown>),
+    requestQuit: callMemberOf(requestQuitCall as PageCall<unknown, unknown>),
     reauthenticate: callMemberOf(reauthenticateCall as PageCall<unknown, unknown>),
   };
 }

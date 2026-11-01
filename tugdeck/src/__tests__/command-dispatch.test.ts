@@ -272,8 +272,8 @@ describe("a targeted dispatch that walks off the root", () => {
 
 describe("native routing", () => {
   test("is represented but not JS-routable", () => {
-    expect(COMMANDS_BY_ID.get("quit-application")?.routing).toBe("native");
-    expect(dispatchCommand("quit-application")).toBe(false);
+    expect(COMMANDS_BY_ID.get("hide-application")?.routing).toBe("native");
+    expect(dispatchCommand("hide-application")).toBe(false);
   });
 });
 
@@ -316,13 +316,13 @@ describe("the funnel's edges", () => {
     });
     chain.makeFirstResponder("card");
     dispatchCommand(TUG_ACTIONS.CLOSE);
-    dispatchCommand("quit-application");
+    dispatchCommand("hide-application");
     unobserve();
     dispatchCommand(TUG_ACTIONS.CLOSE);
 
     expect(seen).toEqual([
       [TUG_ACTIONS.CLOSE, true],
-      ["quit-application", false],
+      ["hide-application", false],
     ]);
   });
 });

@@ -34,15 +34,16 @@ import { GateDeckContext, type GateDeck } from "../lib/gate-deck";
  * request may already be waiting when the page mounts ([L03]). A field the
  * shell left unset is dropped rather than passed as `undefined`: the alert
  * reads a present `cancelLabel` or `icon` as the caller's, so an `undefined`
- * one would take away its default Cancel.
+ * one would take away its default Cancel. A shell that withdraws the question
+ * aborts the handler's signal, and that takes the alert down.
  */
 function AlertAnswerer(): null {
   const showAlert = useTugAlert();
   useLayoutEffect(
     () =>
-      overlayAlert.handle(async (options) => {
+      overlayAlert.handle(async (options, _from, signal) => {
         const given = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined));
-        return { confirmed: await showAlert(given) };
+        return { confirmed: await showAlert({ ...given, signal }) };
       }),
     [showAlert],
   );

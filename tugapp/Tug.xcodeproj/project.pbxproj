@@ -57,6 +57,9 @@
 		AA0000010000000000000049 /* DictationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000044 /* DictationStateTests.swift */; };
 		AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000045 /* ShellPathResolverTests.swift */; };
 		AA000001000000000000004B /* UpdateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000046 /* UpdateStateTests.swift */; };
+		AA00000100000000000000F0 /* QuitGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F0 /* QuitGate.swift */; };
+		AA00000100000000000000F1 /* QuitGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F0 /* QuitGate.swift */; };
+		AA00000100000000000000F2 /* QuitGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F1 /* QuitGateTests.swift */; };
 		AA000001000000000000004C /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
 		AA000001000000000000004D /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
 		AA000001000000000000004E /* MenuStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000048 /* MenuStateTests.swift */; };
@@ -146,6 +149,8 @@
 		AA0000020000000000000044 /* DictationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationStateTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000045 /* ShellPathResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolverTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000046 /* UpdateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateStateTests.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F0 /* QuitGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitGate.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F1 /* QuitGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitGateTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000047 /* MenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuState.swift; sourceTree = "<group>"; };
 		AA0000020000000000000048 /* MenuStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuStateTests.swift; sourceTree = "<group>"; };
 		AA000002000000000000004D /* FrameMeterStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameMeterStats.swift; sourceTree = "<group>"; };
@@ -220,6 +225,7 @@
 				AA0000020000000000000049 /* BridgeHandler.swift */,
 				AA000002000000000000004A /* MenuBarBuilder.swift */,
 				AA000002000000000000004C /* MenuStateSync.swift */,
+				AA00000200000000000000F0 /* QuitGate.swift */,
 				AA0000020000000000000047 /* MenuState.swift */,
 				AA0000020000000000000002 /* MainWindow.swift */,
 				AA000002000000000000004E /* HostFrameMeter.swift */,
@@ -290,6 +296,7 @@
 				AA0000020000000000000042 /* BranchSlugTests.swift */,
 				AA0000020000000000000043 /* BridgePathGuardTests.swift */,
 				AA0000020000000000000044 /* DictationStateTests.swift */,
+				AA00000200000000000000F1 /* QuitGateTests.swift */,
 				AA0000020000000000000048 /* MenuStateTests.swift */,
 				AA0000020000000000000050 /* FrameMeterStatsTests.swift */,
 				AA0000020000000000000054 /* BodyGeometryTests.swift */,
@@ -408,6 +415,7 @@
 			files = (
 				AA0000010000000000000005 /* main.swift in Sources */,
 				AA0000010000000000000001 /* AppDelegate.swift in Sources */,
+				AA00000100000000000000F0 /* QuitGate.swift in Sources */,
 				AA000001000000000000004F /* BridgeHandler.swift in Sources */,
 				AA0000010000000000000050 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000053 /* MenuStateSync.swift in Sources */,
@@ -473,6 +481,8 @@
 				AA0000010000000000000047 /* BranchSlugTests.swift in Sources */,
 				AA0000010000000000000048 /* BridgePathGuardTests.swift in Sources */,
 				AA0000010000000000000049 /* DictationStateTests.swift in Sources */,
+				AA00000100000000000000F1 /* QuitGate.swift in Sources */,
+				AA00000100000000000000F2 /* QuitGateTests.swift in Sources */,
 				AA000001000000000000004E /* MenuStateTests.swift in Sources */,
 				AA0000010000000000000058 /* FrameMeterStatsTests.swift in Sources */,
 				AA000001000000000000005D /* BodyGeometryTests.swift in Sources */,

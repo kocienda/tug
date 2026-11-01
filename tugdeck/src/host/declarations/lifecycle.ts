@@ -54,6 +54,28 @@ export const frontendReadyToHost = defineToHost({
   refused: [true],
 });
 
+/**
+ * ⌘Q in a page that is not the shell. It comes here rather than across the bus
+ * because the bus is tugcast's feed: the host's bounded ask of the shell is the
+ * door that a dead tugcast or a hung shell cannot close.
+ */
+export const quitRequestedToHost = defineToHost({
+  name: "quitRequested",
+  from: "any",
+  codec: empty,
+  samples: [{}],
+  refused: [true],
+});
+
+/** The user answered the quit guard's question with Quit, or the work it asked about ended. */
+export const quitConfirmedToHost = defineToHost({
+  name: "quitConfirmed",
+  from: "shell",
+  codec: empty,
+  samples: [{}],
+  refused: [true],
+});
+
 export const frontendLaunchStalledToHost = defineToHost({
   name: "frontendLaunchStalled",
   from: "shell",
@@ -510,6 +532,22 @@ export const prepareForTerminationCall = definePageCall({
     "ok",
     { ok: true, interrupted: [], unacknowledged: [], flushedCards: "3", failedCards: [], layoutSaved: true, elapsedMs: 41.5 },
   ],
+});
+
+/**
+ * The Quit item asks the shell whether it will ask the user. The answer comes at
+ * once and is not the alert's outcome, so the host's deadline on it never races
+ * a person reading a dialog; that outcome arrives later as `quitConfirmed`.
+ */
+export const requestQuitCall = definePageCall({
+  receiver: "tugdeck",
+  member: "requestQuit",
+  codec: empty,
+  replyCodec: obj({ willAsk: bool }),
+  samples: [{}],
+  refused: [true],
+  replies: [{ willAsk: true }, { willAsk: false }],
+  refusedReplies: [true, {}, { willAsk: "yes" }],
 });
 
 /** Tugcast restarted: take its new session cookie and reconnect. */

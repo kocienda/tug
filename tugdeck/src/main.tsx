@@ -8,6 +8,7 @@ import { TugConnection } from "./connection";
 import { installDomForensics } from "./lib/dom-forensics";
 import { installGestureScope } from "./lib/gesture-scope";
 import { setConnection } from "./lib/connection-singleton";
+import { quitGuard } from "./lib/quit-guard-store";
 import { TugbankClient } from "./lib/tugbank-client";
 import { setTugbankClient } from "./lib/tugbank-singleton";
 import { DeckManager, type TerminationVerdict } from "./deck-manager";
@@ -112,6 +113,7 @@ import {
   frontendReadyToHost,
   launchLapToHost,
   prepareForTerminationCall,
+  requestQuitCall,
   reauthenticateCall,
   saveStateCall,
 } from "./host/declarations/lifecycle";
@@ -995,6 +997,7 @@ async function loadTestSurface(
     return null;
   });
   answerPageCall(prepareForTerminationCall, (): Promise<TerminationVerdict> => deck.prepareForTermination());
+  answerPageCall(requestQuitCall, () => ({ willAsk: quitGuard.request() }));
   answerPageCall(reauthenticateCall, (payload) => reauthenticate(payload, connection));
   window.tugdeck = {
     ...tugdeckPageCalls(),

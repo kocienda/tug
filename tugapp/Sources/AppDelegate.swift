@@ -138,6 +138,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// permissive default and the gate would never take effect.
     var frontendReady = false
 
+    /// The bounded ask of the shell, for the Quit item and ⌘Q in a body or the
+    /// overlay. Every other quit reaches `applicationShouldTerminate` directly.
+    lazy var quitGate = QuitGate(
+        ask: { [weak self] reply in
+            guard let window = self?.window else {
+                reply(.failure(HostDecodeError.typed("no window to ask")))
+                return
+            }
+            window.requestQuit(completion: reply)
+        },
+        schedule: { interval, fire in
+            let work = DispatchWorkItem(block: fire)
+            DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+            return { work.cancel() }
+        },
+        terminate: { reason in
+            TugLog.info("quit", "the Quit item goes on", [TugLog.field("reason", reason)])
+            // Off this stack: the reply and the confirmation both arrive inside
+            // a WebKit callback, and `terminate` spins a nested run loop while
+            // the termination pipeline makes page calls of its own.
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    )
+
     /// Sparkle self-update. Inactive for every identity but the stable
     /// release build (or a `TUG_SPARKLE_FEED` override), in which case the
     /// "Check for Updates…" menu item stays hidden.
@@ -676,6 +700,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         TugLog.info("quit", "applicationShouldTerminate — freezing the window")
+        quitGate.terminationBegan()
         // Freeze the WebView with a snapshot overlay so the user never sees
         // teardown artifacts (disconnect banners, theme flashes, blank screens).
         // The snapshot covers the WebView while save + cleanup run underneath.
@@ -745,6 +770,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     fallbackSave(view.webView)
                 case .success(.verdict(let verdict)):
                     verdicts[view.label] = Self.describeVerdict(verdict)
+                case .success(.quitAnswer):
+                    // `PageReply.decode` reads a quit answer only for `requestQuit`.
+                    verdicts[view.label] = "answered with a quit answer — saved synchronously"
+                    fallbackSave(view.webView)
                 case .success(.railEdge):
                     // `PageReply.decode` reads a rail edge only for `onRailEdge`.
                     verdicts[view.label] = "answered with a rail edge — saved synchronously"
@@ -1103,6 +1132,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func logOut(_ sender: Any?) {
         sendControl("logout")
+    }
+
+    @objc func quit(_ sender: Any?) {
+        quitGate.request()
     }
 
     @objc func checkForUpdates(_ sender: Any?) {
@@ -2036,6 +2069,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Anything without a predicate here stays enabled.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let id = menuItem.identifier?.rawValue else { return true }
+
+        // Quit is always enabled, ahead of every tier below. Before the first
+        // push the default arm reads an identified item as disabled, and a gate
+        // the deck publishes needs a deck to publish it; a launch stall or a
+        // wizard holding the app must still be able to quit.
+        if id == "app.quit" { return true }
 
         // An app modal freezes the deck's card count [B01]. The Open Recent
         // entries are built per open by `rebuildOpenRecentMenu` and carry no

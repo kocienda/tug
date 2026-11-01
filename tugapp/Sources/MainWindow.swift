@@ -66,6 +66,10 @@ protocol BridgeDelegate: AnyObject {
     func bridgeChoosePath(kind: String, initialPath: String?, suggestedName: String?, completion: @escaping ([String]) -> Void)
     func bridgeGetSettings(completion: @escaping (Bool, String?) -> Void)
     func bridgeFrontendReady()
+    /// The shell's quit guard says go on with the quit.
+    func bridgeQuitConfirmed()
+    /// ⌘Q in a page that is not the shell: the Quit item's request, by the keyboard.
+    func bridgeQuitRequested()
     func bridgeSetTheme(color: String)
     func bridgePageDidLoad()
     func bridgeHmrUpdate()
@@ -1444,6 +1448,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// the decoded message to `receive(_:from:)`.
     private(set) lazy var hostChannel = HostChannel(window: self)
 
+    /// Ask the shell whether it will ask the user about a quit.
+    func requestQuit(completion: @escaping (Result<PageReply, Error>) -> Void) {
+        hostChannel.call(.requestQuit, in: webView, completion: completion)
+    }
+
     /// One page's configuration: a fresh content controller carrying every
     /// bridge handler, the WebKit feature overrides, the page-fault forwarder
     /// and, under the harness, the test-mode script. The shell's alone also
@@ -2680,6 +2689,10 @@ extension MainWindow {
             bodies.scheduleSpare()
         case .pageFault(let fault):
             PageFaultScript.log(fault)
+        case .quitConfirmed:
+            bridgeDelegate?.bridgeQuitConfirmed()
+        case .quitRequested:
+            bridgeDelegate?.bridgeQuitRequested()
         case .frontendLaunchStalled(let stalled):
             // The deck bounded its own boot awaits and one of them ran past
             // its horizon. It has not given up — the await is still running

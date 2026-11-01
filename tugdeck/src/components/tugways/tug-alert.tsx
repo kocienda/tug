@@ -447,6 +447,8 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     React.useImperativeHandle(ref, () => ({
       alert(options) {
         return new Promise<boolean>((resolve) => {
+          // A question this one replaces is answered, not left waiting forever.
+          resolverRef.current?.(dismissValueRef.current);
           overrideRef.current = { mode: "confirm", ...options };
           dismissValueRef.current = false;
           resolverRef.current = resolve as (v: boolean | string | null) => void;
@@ -456,6 +458,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
       },
       choose(options) {
         return new Promise<string | null>((resolve) => {
+          resolverRef.current?.(dismissValueRef.current);
           overrideRef.current = { mode: "choose", ...options };
           dismissValueRef.current = null;
           // Seed the highlighted row to the default choice (flagged `isDefault`,
@@ -1017,17 +1020,25 @@ function AlertSpatialOrder({ order }: { order: SpatialOrder }): null {
  * TugAlertContext + TugAlertProvider + useTugAlert
  * ---------------------------------------------------------------------------*/
 
+/** What `useTugAlert()`'s function takes. */
+export interface TugAlertOptions {
+  title?: string;
+  message?: string | React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string | null;
+  confirmRole?: TugButtonRole;
+  /** Lucide icon name override. Defaults to role-based icon. */
+  icon?: string;
+  /**
+   * Takes the question back: aborting closes the alert as {@link TugAlertHandle.dismiss}
+   * does, and the promise resolves false. For an asker whose reason to ask has gone.
+   */
+  signal?: AbortSignal;
+}
+
 /** Shape of the context value provided by TugAlertProvider. */
 interface TugAlertContextValue {
-  showAlert: (options?: {
-    title?: string;
-    message?: string | React.ReactNode;
-    confirmLabel?: string;
-    cancelLabel?: string | null;
-    confirmRole?: TugButtonRole;
-    /** Lucide icon name override. Defaults to role-based icon. */
-    icon?: string;
-  }) => Promise<boolean>;
+  showAlert: (options?: TugAlertOptions) => Promise<boolean>;
 }
 
 const TugAlertContext = React.createContext<TugAlertContextValue | null>(null);
@@ -1046,22 +1057,20 @@ export interface TugAlertProviderProps {
 export function TugAlertProvider({ children }: TugAlertProviderProps) {
   const alertRef = React.useRef<TugAlertHandle>(null);
 
-  const showAlert = React.useCallback(
-    (options?: {
-      title?: string;
-      message?: string | React.ReactNode;
-      confirmLabel?: string;
-      cancelLabel?: string | null;
-      confirmRole?: TugButtonRole;
-      icon?: string;
-    }) => {
-      if (!alertRef.current) {
-        return Promise.resolve(false);
-      }
-      return alertRef.current.alert(options);
-    },
-    [],
-  );
+  const showAlert = React.useCallback((options: TugAlertOptions = {}) => {
+    const alert = alertRef.current;
+    const { signal, ...shown } = options;
+    if (!alert || signal?.aborted) {
+      return Promise.resolve(false);
+    }
+    const answer = alert.alert(shown);
+    if (signal === undefined) return answer;
+    // The singleton may be showing someone else's question once this one has
+    // settled, so the abort stops listening the moment it does.
+    const withdraw = (): void => alert.dismiss();
+    signal.addEventListener("abort", withdraw, { once: true });
+    return answer.finally(() => signal.removeEventListener("abort", withdraw));
+  }, []);
 
   const contextValue = React.useMemo(() => ({ showAlert }), [showAlert]);
 
@@ -1108,14 +1117,7 @@ export function TugAlertRelayProvider({ showAlert, children }: TugAlertRelayProv
  * const confirmed = await showAlert({ title: "Delete Card", confirmRole: "danger" });
  * ```
  */
-export function useTugAlert(): (options?: {
-  title?: string;
-  message?: string | React.ReactNode;
-  confirmLabel?: string;
-  cancelLabel?: string | null;
-  confirmRole?: TugButtonRole;
-  icon?: string;
-}) => Promise<boolean> {
+export function useTugAlert(): (options?: TugAlertOptions) => Promise<boolean> {
   const ctx = React.useContext(TugAlertContext);
   if (!ctx) {
     throw new Error("useTugAlert must be used within a TugAlertProvider");

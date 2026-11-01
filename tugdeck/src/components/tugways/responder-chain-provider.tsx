@@ -736,7 +736,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       if (binding === null) {
         const match = keymapRegistry.matchChord(event);
         if (match === null) return;
-        // ⌘Q, ⌘H, ⌘M, ⌃⌘F: named in the table so the keymap UI can show
+        // ⌘H, ⌘M, ⌃⌘F: named in the table so the keymap UI can show
         // them, performed by AppKit, never routed through JS. The chord
         // passes through untouched.
         if (COMMANDS_BY_ID.get(match.commandId)?.routing === "native") return;

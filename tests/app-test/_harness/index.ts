@@ -1736,6 +1736,17 @@ export class App {
   }
 
   /**
+   * Wait for the app to exit by itself, for a test whose gesture is the quit
+   * and whose verdict is the exit. True when it went within `timeoutMs`; the
+   * log and the quiesce report are complete then, and `close()` still owes
+   * the harness's bookkeeping either way.
+   */
+  async awaitExit(timeoutMs: number): Promise<boolean> {
+    const timeout = new Promise<false>((resolve) => setTimeoutNative(() => resolve(false), timeoutMs));
+    return Promise.race([this.subprocess.exited.then(() => true as const), timeout]);
+  }
+
+  /**
    * Soft-reload Tug.app — same code path as the `Maker > Reload`
    * menu, exercising the in-process save-flush + WKWebView reload
    * (Tug.app and tugcast both survive). Distinct from

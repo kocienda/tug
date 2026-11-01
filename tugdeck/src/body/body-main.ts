@@ -60,6 +60,7 @@ import {
   registerRunCardCommand,
   registerStoreTailActions,
 } from "../action-dispatch";
+import { requestQuit } from "../lib/quit-guard-store";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { cardSessionBindingStore, seedBindingLines, shareCardBinding } from "../lib/card-session-binding-store";
@@ -615,6 +616,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // ⌥⇥ toggles the card's own cycle, so it is answered here, where the
   // card's responders and stops are.
   registerAction(TUG_ACTIONS.CYCLE_FOCUS_MODE, cycleFocusMode);
+  // ⌘Q with the keyboard here: the request goes to the host, which asks the shell.
+  registerAction("quit-application", () => requestQuit());
   // What the card raises past its own content box — the Z2 placard — the
   // overlay draws (`getSurfaceHost`), and a logout is the app's, which only
   // the shell mounts (`requestLogout` sends it `app.logout`).

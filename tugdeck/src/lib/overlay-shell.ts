@@ -72,6 +72,8 @@ export interface RelayedAlertOptions {
   cancelLabel?: string | null;
   confirmRole?: "accent" | "action" | "agent" | "data" | "danger" | "option";
   icon?: string;
+  /** Takes the question back: the overlay's alert closes and this resolves false. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -87,19 +89,24 @@ export function overlayShowAlert(options: RelayedAlertOptions = {}): Promise<boo
     tugDevLogStore.warn("overlay", "an alert whose message is not text cannot be shown in the overlay");
     return Promise.resolve(false);
   }
-  return overlayAlert
-    .ask(
-      {
-        title: options.title,
-        message,
-        confirmLabel: options.confirmLabel,
-        cancelLabel: options.cancelLabel,
-        confirmRole: options.confirmRole,
-        icon: options.icon,
-      },
-      { card: OVERLAY_CARD_ID, horizon: { person: "the alert's buttons" } },
-    )
-    .then((result) => result.ok && result.value.confirmed);
+  const { signal } = options;
+  if (signal?.aborted) return Promise.resolve(false);
+  const pending = overlayAlert.ask(
+    {
+      title: options.title,
+      message,
+      confirmLabel: options.confirmLabel,
+      cancelLabel: options.cancelLabel,
+      confirmRole: options.confirmRole,
+      icon: options.icon,
+    },
+    { card: OVERLAY_CARD_ID, horizon: { person: "the alert's buttons" } },
+  );
+  const answer = pending.then((result) => result.ok && result.value.confirmed);
+  if (signal === undefined) return answer;
+  const withdraw = (): void => overlayAlert.withdraw(pending.requestId);
+  signal.addEventListener("abort", withdraw, { once: true });
+  return answer.finally(() => signal.removeEventListener("abort", withdraw));
 }
 
 /**

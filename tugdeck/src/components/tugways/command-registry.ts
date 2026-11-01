@@ -2758,7 +2758,10 @@ export const COMMANDS: readonly CommandEntry[] = [
   {
     id: "quit-application",
     title: "Quit Tug",
-    routing: "native",
+    // Registry, so the chord reaches the quit guard: a live page's funnel takes
+    // ⌘Q before AppKit does. The menu item is the host's and stays enabled with
+    // no deck. Still locked below.
+    routing: "registry",
     menuItemId: "app.quit",
     bindings: [chord({ key: "KeyQ", meta: true, label: "q" })],
   },

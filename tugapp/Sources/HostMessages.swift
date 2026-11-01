@@ -931,7 +931,7 @@ enum ToHostName: String, CaseIterable {
     // The overlay's view.
     case overlayCreate, overlayClaim
     // Page lifecycle.
-    case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault
+    case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
     case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme
@@ -945,7 +945,7 @@ enum ToHostName: String, CaseIterable {
     /// card's own body, and the answer is the window's whole zoom either way.
     var shellOnly: Bool {
         switch self {
-        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap,
+        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
              .bodyCreate, .bodyDestroy, .bodyDelays, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
@@ -998,6 +998,8 @@ enum ToHost {
     case painted
     case frontendReady
     case frontendLaunchStalled(FrontendLaunchStalled)
+    case quitConfirmed
+    case quitRequested
     case launchLap(LaunchLap)
     case pageFault(PageFault)
     case crossingReady(BodySurface)
@@ -1061,6 +1063,8 @@ enum ToHost {
         case .bodyDelays: return .bodyDelays(try read(BodyDelays.self))
         case .bodyFocus: return .bodyFocus(try read(BodyFocus.self))
         case .frontendLaunchStalled: return .frontendLaunchStalled(try read(FrontendLaunchStalled.self))
+        case .quitConfirmed: _ = try read(EmptyPayload.self); return .quitConfirmed
+        case .quitRequested: _ = try read(EmptyPayload.self); return .quitRequested
         case .launchLap: return .launchLap(try read(LaunchLap.self))
         case .pageFault: return .pageFault(try read(PageFault.self))
         case .hmrUpdate: return .hmrUpdate(try read(HmrUpdate.self))
@@ -1323,6 +1327,9 @@ enum PageCall {
     case saveState
     /// The page's half of a quit; the reply is its verdict.
     case prepareForTermination
+    /// The Quit item asking whether the shell will ask the user; the reply
+    /// comes at once and is not the alert's outcome.
+    case requestQuit
     /// Tugcast restarted: take its new cookie for `token`, and reconnect.
     case reauthenticate(token: String)
     /// Write the deck root's zoom; resolves once the factor has painted.
@@ -1335,6 +1342,7 @@ enum PageCall {
     static let declared: [(receiver: String, member: String)] = [
         ("tugdeck", "saveState"),
         ("tugdeck", "prepareForTermination"),
+        ("tugdeck", "requestQuit"),
         ("tugdeck", "reauthenticate"),
         ("bridge", "onPageZoomApply"),
         ("bridge", "onRailEdge"),
@@ -1342,7 +1350,7 @@ enum PageCall {
 
     var receiver: String {
         switch self {
-        case .saveState, .prepareForTermination, .reauthenticate: return "tugdeck"
+        case .saveState, .prepareForTermination, .requestQuit, .reauthenticate: return "tugdeck"
         case .pageZoomApply, .railEdge: return "bridge"
         }
     }
@@ -1351,6 +1359,7 @@ enum PageCall {
         switch self {
         case .saveState: return "saveState"
         case .prepareForTermination: return "prepareForTermination"
+        case .requestQuit: return "requestQuit"
         case .reauthenticate: return "reauthenticate"
         case .pageZoomApply: return "onPageZoomApply"
         case .railEdge: return "onRailEdge"
@@ -1366,7 +1375,7 @@ enum PageCall {
     func payloadJSON() -> Data? {
         let encoder = JSONEncoder()
         switch self {
-        case .saveState, .prepareForTermination, .railEdge: return try? encoder.encode(EmptyPayload())
+        case .saveState, .prepareForTermination, .requestQuit, .railEdge: return try? encoder.encode(EmptyPayload())
         case .reauthenticate(let token): return try? encoder.encode(Token(token: token))
         case .pageZoomApply(let factor): return try? encoder.encode(factor)
         }
@@ -1395,6 +1404,11 @@ struct TerminationVerdict: Decodable, Equatable {
     var failedCards: [String]
     var layoutSaved: Bool
     var elapsedMs: Double
+}
+
+/// The shell's answer to `requestQuit`: whether it will ask the user.
+struct QuitAnswer: Decodable, Equatable {
+    var willAsk: Bool
 }
 
 /// A rail member's deck-facing edge as its page paints it (`onRailEdge`'s
@@ -1447,12 +1461,15 @@ enum PageReply: Equatable {
     case nothing
     /// `prepareForTermination`'s verdict.
     case verdict(TerminationVerdict)
+    /// `requestQuit`'s answer.
+    case quitAnswer(QuitAnswer)
     /// `onRailEdge`'s colours.
     case railEdge(RailEdgeColors)
 
     /// The reply `member`'s call answered with, from its JSON. Every call
-    /// may answer nothing; `prepareForTermination` may answer its verdict
-    /// and `onRailEdge` its colours, and any other value is refused.
+    /// may answer nothing; `prepareForTermination` may answer its verdict,
+    /// `requestQuit` its answer and `onRailEdge` its colours, and any other
+    /// value is refused.
     static func decode(member: String, data: Data) -> Result<PageReply, HostDecodeError> {
         let decoder = JSONDecoder()
         do {
@@ -1460,6 +1477,8 @@ enum PageReply: Equatable {
             switch member {
             case "prepareForTermination":
                 return .success(.verdict(try decoder.decode(TerminationVerdict.self, from: data)))
+            case "requestQuit":
+                return .success(.quitAnswer(try decoder.decode(QuitAnswer.self, from: data)))
             case "onRailEdge":
                 return .success(.railEdge(try decoder.decode(RailEdgeColors.self, from: data)))
             default:

@@ -243,7 +243,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘J | `new-jot` | New Jot | menu bar (swept) |
 | ⌘K | `focus-prompt` | Focus Prompt | JS, global |
 | ⌘M | `minimize` | Minimize | menu bar (AppKit's own) |
-| ⌘Q | `quit-application` | Quit Tug | menu bar (AppKit's own) |
+| ⌘Q | `quit-application` | Quit Tug | JS, global |
 | ⌘R | `reveal-stack` | Reveal Stack | menu bar (swept) |
 | ⌘S | `save` | Save… | JS, global |
 | ⌘T | `add-card-to-active-pane` | New Card in Active Pane | JS, global |
@@ -298,7 +298,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `app.hideOthers` | `hide-others` | AppKit performs it | host tier |
 | `app.keyboardShortcuts` | `show-keyboard-shortcuts` | first responder | host tier |
 | `app.logout` | `logout` | registered handler | host tier |
-| `app.quit` | `quit-application` | AppKit performs it | host tier |
+| `app.quit` | `quit-application` | registered handler | host tier |
 | `app.services` | `services` | AppKit performs it | host tier |
 | `app.settings` | `show-settings` | first responder | host tier |
 | `app.showAll` | `show-all` | AppKit performs it | host tier |

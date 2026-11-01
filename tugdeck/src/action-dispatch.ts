@@ -105,6 +105,7 @@ import {
   applyHostToolsOfferResultPayload,
 } from "./lib/host-tools-store";
 import { requestLogout } from "./lib/logout-store";
+import { requestQuit } from "./lib/quit-guard-store";
 import { requestConfigureTug } from "./lib/configure-tug-request-store";
 import { appModalStore } from "./lib/app-modal-store";
 import {
@@ -612,6 +613,10 @@ function wireActionDispatch(
   registerAction("logout", () => {
     requestLogout();
   });
+
+  // quit-application: ⌘Q, as the page's funnel takes it ahead of AppKit. The
+  // same request the Quit item's page call makes.
+  registerAction("quit-application", () => requestQuit());
 
   // setup: app-level "Configure Tug…" trigger from the Tug menu. Bumps the
   // configure-tug-request nonce; ConfigureTugRequest stops any live turns and then opens

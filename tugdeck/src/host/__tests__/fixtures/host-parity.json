@@ -626,6 +626,26 @@
       ]
     },
     {
+      "name": "quitConfirmed",
+      "from": "shell",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
+      "name": "quitRequested",
+      "from": "any",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ]
+    },
+    {
       "name": "launchLap",
       "from": "shell",
       "samples": [
@@ -2506,6 +2526,31 @@
           "failedCards": [],
           "layoutSaved": true,
           "elapsedMs": 41.5
+        }
+      ]
+    },
+    {
+      "receiver": "tugdeck",
+      "member": "requestQuit",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        true
+      ],
+      "replies": [
+        {
+          "willAsk": true
+        },
+        {
+          "willAsk": false
+        }
+      ],
+      "refusedReplies": [
+        true,
+        {},
+        {
+          "willAsk": "yes"
         }
       ]
     },

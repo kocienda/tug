@@ -161,6 +161,14 @@ final class BridgeHandler: BridgeDelegate {
     }
 
 
+    func bridgeQuitConfirmed() {
+        delegate?.quitGate.confirmed()
+    }
+
+    func bridgeQuitRequested() {
+        delegate?.quitGate.request()
+    }
+
     func bridgeFrontendReady() {
         DispatchQueue.main.async {
             guard let delegate = self.delegate else { return }

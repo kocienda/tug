@@ -60,6 +60,7 @@ import AppKit
     func previousCard(_ sender: Any?)
     func previousCardInStack(_ sender: Any?)
     func previousTurn(_ sender: Any?)
+    func quit(_ sender: Any?)
     func reload(_ sender: Any)
     func reloadActiveEditor(_ sender: Any)
     func renameWorkspaceFromMenu(_ sender: Any?)
@@ -213,7 +214,7 @@ struct MenuBarBuilder {
         showAllItem.identifier = NSUserInterfaceItemIdentifier("app.showAll")
         appMenu.addItem(showAllItem)
         appMenu.addItem(NSMenuItem.separator())
-        let quitItem = NSMenuItem(title: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit \(appName)", action: #selector(MenuBarActions.quit(_:)), keyEquivalent: "q")
         quitItem.identifier = NSUserInterfaceItemIdentifier("app.quit")
         appMenu.addItem(quitItem)
 
