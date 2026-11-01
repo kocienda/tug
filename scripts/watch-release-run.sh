@@ -285,7 +285,9 @@ while :; do
                     ;;
             esac
             [ -n "$LINE" ] && LINE="$LINE   "
-            LINE="$LINE… $RNAME $(fmt_duration $((NOW - RSINCE)))"
+            # The braces are load-bearing: in a UTF-8 locale bash reads the
+            # first byte of `…` as part of a bare `$LINE`'s name.
+            LINE="${LINE}… $RNAME $(fmt_duration $((NOW - RSINCE)))"
         done <<< "$RUNNING"
         if [ "$TTY" -eq 1 ]; then
             printf '\033[2K\r  %s' "$LINE"
