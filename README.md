@@ -16,14 +16,14 @@ I’ve made everything just like I want it. My hope is that the things I chose t
 ### System requirements
 
 - A Mac with Apple silicon
-- macOS 14 Sonoma or later
+- macOS 15 Sequoia or later, including macOS 26 Tahoe and macOS 27 Golden Gate
 
 ### What else you’ll need
 
 - A paid Claude plan that includes Claude Code, such as Pro or Max (the free plan doesn’t). Tug runs Claude Code, and the first-launch setup of Tug installs the `claude` program (if needed) and logs you in.
 - The `git` program for changes and commits. If `git` isn’t on your Mac, setup offers to install Apple’s Command Line Tools (about 3 GB). You can skip the install at first and add `git` later, when you’re ready for your first commit.
 
-Looking for an earlier version? [See all releases](https://github.com/kocienda/tug/releases).
+Looking for an earlier version? [See all releases](https://github.com/kocienda/tug/releases). Want to know what changed? [Release notes](https://github.com/kocienda/tug/releases).
 
 ## For developers
 

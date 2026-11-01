@@ -160,8 +160,8 @@ pub struct OperatorAskArgs {
     #[arg(long = "ref", value_name = "PATH")]
     pub refs: Vec<String>,
 
-    /// The help documents the `help` verbs read (`features.md`, `recipes.md` and
-    /// `glossary.md`). Defaults to what a running instance resolves — the
+    /// The help documents the `help` verbs read (`features.md`, `recipes.md`,
+    /// `glossary.md` and the release notes). Defaults to what a running instance resolves — the
     /// bundle's `Resources/docs`, or a checkout's `docs/` in a debug build.
     #[arg(long)]
     pub docs_dir: Option<PathBuf>,

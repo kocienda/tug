@@ -18,7 +18,7 @@ Every build, test, and lint command is a `just` recipe in the top-level [`Justfi
 
 ## 1. Install the tools
 
-You need a Mac with Apple silicon running macOS 14 or later. Then install the following.
+You need a Mac with Apple silicon running macOS 15 or later. Then install the following.
 
 ### Xcode
 
@@ -29,7 +29,7 @@ sudo xcode-select -s /Applications/Xcode.app
 xcodebuild -version
 ```
 
-Xcode 26 is required because the dictation engine compiles against the macOS 26 SDK. The app itself still runs on macOS 14 (the deployment target). Xcode also provides the Command Line Tools, which supply `git`, `clang`, `make`, and `python3`.
+Xcode 26 is required because the dictation engine compiles against the macOS 26 SDK. The app itself still runs on macOS 15 (the deployment target). Xcode also provides the Command Line Tools, which supply `git`, `clang`, `make`, and `python3`.
 
 Several Rust crates compile C code during the build, so confirm that Xcode's C compiler works before going further:
 

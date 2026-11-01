@@ -1142,7 +1142,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ])
     }
 
-    /// Help ▸ Tug Help, How Do I… and Glossary: open the named help document in
+    /// Help ▸ Tug Help, How Do I…, Glossary and Release Notes: open the named help document in
     /// its card. tugdeck keys the card by the document, so a second pick
     /// brings the open card forward.
     @objc func showHelpDocument(_ sender: NSMenuItem) {

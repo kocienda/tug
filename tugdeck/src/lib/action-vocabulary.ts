@@ -1240,7 +1240,7 @@ export const TUG_ACTIONS = {
   //                         handler in `action-dispatch.ts`, which calls
   //                         `openCommitInCard`.
   OPEN_COMMIT:            "open-commit",
-  // OPEN_HELP:              payload — `{ doc: "features" | "recipes" | "glossary" }`,
+  // OPEN_HELP:              payload — `{ doc: "features" | "recipes" | "glossary" | "release-notes" }`,
   //                         plus an optional `anchor` (a heading or a
   //                         glossary term to scroll to) and an optional
   //                         `originCardId`. Open the help document in its

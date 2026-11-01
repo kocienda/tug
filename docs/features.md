@@ -6,7 +6,7 @@ The three verbs of the loop organize what follows. You **prompt** in session car
 
 ## Setup
 
-Tug needs a Mac with Apple silicon and macOS 14 Sonoma or later, plus two things it does not ship:
+Tug needs a Mac with Apple silicon and macOS 15 Sequoia or later, including macOS 26 Tahoe and macOS 27 Golden Gate, plus two things it does not ship:
 
 - A paid Claude plan that includes Claude Code (Pro or Max; the free plan does not). First launch installs the `claude` program if needed and logs you in.
 - `git`, for changes and commits. If it is missing, setup offers to install Apple's Command Line Tools (about 3 GB). You can skip this at first and add `git` before your first commit.
@@ -130,7 +130,7 @@ What a session works with opens beside it, on the same deck, rather than in anot
 - **Image card.** A picture at Fit, Fill or Actual Size, over a Checkerboard, Surface, Black or White background. A click opens it full screen. Read-only.
 - **PDF card.** A document as Continuous, Single Page or Two Pages, at Fit Width, Fit Page or Actual Size. The arrow and page keys turn pages. Read-only.
 - **Commit card.** One commit's full record: message, trailers, and files with their diffs.
-- **Settings** (⌘,), **Keyboard Shortcuts** (⌃⌘K), **About** and the three **help** cards (this guide, the recipes and the glossary, from the Help menu) round out the set. Settings has four tabs: General, Sessions, Text Files and Viewer Cards. Keyboard Shortcuts shows every command, its chord and any chord that shadows it, and rebinds the ones that are yours to change. Card Settings… in a card's menu holds the same preferences for that one text, image or PDF card.
+- **Settings** (⌘,), **Keyboard Shortcuts** (⌃⌘K), **About** and the four **help** cards (this guide, the recipes, the glossary and the release notes, from the Help menu) round out the set. Settings has four tabs: General, Sessions, Text Files and Viewer Cards. Keyboard Shortcuts shows every command, its chord and any chord that shadows it, and rebinds the ones that are yours to change. Card Settings… in a card's menu holds the same preferences for that one text, image or PDF card.
 
 Reveal in Finder is in the card's menu for any card backed by a file.
 
@@ -286,7 +286,7 @@ The Keyboard Shortcuts card (⌃⌘K) lists everything. The ones that matter mos
 
 ## Getting help
 
-- **Help ▸ Tug Help** opens this guide as a card, **Help ▸ How Do I…** opens the recipes, one per thing a person does, and **Help ▸ Glossary** opens the glossary. A link from one opens another's card.
+- **Help ▸ Tug Help** opens this guide as a card, **Help ▸ How Do I…** opens the recipes, one per thing a person does, **Help ▸ Glossary** opens the glossary, and **Help ▸ Release Notes** opens what changed in every version, newest first. A link from one opens another's card.
 - **Ask the Overview.** The Overview's composer asks the Operator, which answers questions about how the app works from these documents, as well as questions about your projects, and links to the passage it answered from.
 - **Help ▸ Keyboard Shortcuts & Commands** opens the `/help` sheet in the session card, listing its slash commands.
 - **⌃⌘K** opens the Keyboard Shortcuts card, which lists every chord.

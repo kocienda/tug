@@ -806,6 +806,9 @@ struct MenuBarBuilder {
         let glossaryItem = NSMenuItem(title: "Glossary", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.glossary")
         glossaryItem.representedObject = "glossary"
         helpMenu.addItem(glossaryItem)
+        let releaseNotesItem = NSMenuItem(title: "Release Notes", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.releaseNotes")
+        releaseNotesItem.representedObject = "release-notes"
+        helpMenu.addItem(releaseNotesItem)
         // Keyboard Shortcuts & Commands — the session card's `/help` sheet via
         // run-card-command. Gated by its registry gate on the menuState push.
         let shortcutsItem = NSMenuItem(title: "Keyboard Shortcuts & Commands", action: #selector(MenuBarActions.runCardCommand(_:)), keyEquivalent: "").identified("help.shortcuts")

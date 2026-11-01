@@ -45,6 +45,19 @@
     var(--tugx-zoom-run-duration, 200ms) backwards;
 }
 
+/* The offered version's notes. Their length is whatever the release was, so the
+ * region caps it and scrolls, and the cap follows the window so a short one
+ * still has room for the rows and the Close button. Spaced as the rows are. */
+.update-tug-notes {
+  max-height: min(12rem, 25vh);
+  overflow-y: auto;
+  margin-bottom: var(--tugx-block-stack-gap);
+  font-size: var(--tug-font-size-sm);
+  /* The panel's padding is already the margin; [L20] this is the block's own
+     override seam. */
+  --tugx-md-block-padding-x: 0;
+}
+
 .update-tug-steps {
   list-style: none;
   margin: 0;
@@ -59,6 +72,16 @@
 .update-tug-step-check {
   display: block;
   color: var(--tug7-element-tone-text-normal-success-rest);
+}
+
+/* The rare link alone on the left, the bottom button on the right. */
+.update-tug .tug-alert-actions {
+  align-items: center;
+}
+
+.update-tug-all-notes {
+  margin-right: auto;
+  font-size: var(--tug-font-size-sm);
 }
 
 /* The panel's one bottom button. The row list ends flush against the panel

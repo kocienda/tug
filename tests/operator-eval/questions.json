@@ -1,5 +1,6 @@
 [
   { "question": "how do I create an arc?", "anchor": "recipes#create-an-arc" },
+  { "question": "what changed in 0.8.21?", "anchor": "release-notes#tug-0821" },
   { "question": "my arc stopped halfway, how do I get it going again?", "anchor": "features#stops-and-resumes" },
   { "question": "main moved on while my arc was running. what happens to the arc?", "anchor": "features#replay-main-keeps-moving" },
   { "question": "how does the work on an arc's branch get back onto main?", "anchor": "features#the-join" },

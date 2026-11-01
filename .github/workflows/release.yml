@@ -201,7 +201,14 @@ jobs:
           xcodebuild -resolvePackageDependencies -project tugapp/Tug.xcodeproj -scheme Tug
           tugrust/scripts/make-appcast.sh "products/Tug-$VERSION.zip"
 
-      # The three files `publish` ships, handed over as one artifact.
+      # The release page's text is composed here because `publish` has no
+      # checkout: this run's notes, the install lines, and the commit line.
+      - name: Compose the release body
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python3 scripts/release_body.py "$VERSION" "$GITHUB_SHA" > products/release-body.md
+
+      # What `publish` ships, handed over as one artifact.
       - name: Upload the release products
         uses: actions/upload-artifact@v4
         with:
@@ -210,6 +217,7 @@ jobs:
             products/Tug.dmg
             products/Tug-${{ steps.version.outputs.version }}.zip
             products/appcast.xml
+            products/release-body.md
           if-no-files-found: error
           retention-days: 7
 
@@ -237,12 +245,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Tug ${{ needs.build.outputs.version }}
           files: products/Tug.dmg
-          body: |
-            To install, download `Tug.dmg`, open it, and drag Tug into your Applications folder.
-
-            Tug has an update feature built into the app, so there’s no need to come back here for new versions.
-
-            Built from commit ${{ github.sha }}.
+          body_path: products/release-body.md
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish the update feed

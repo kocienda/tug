@@ -2322,14 +2322,14 @@ fn help_dir(ctx: &OperatorContext) -> Result<&Path, String> {
         .ok_or_else(|| "the help documents are not available in this build".to_string())
 }
 
-/// The `doc` argument: `features`, `recipes` or `glossary`, or `None` for all.
+/// The `doc` argument: `features`, `recipes`, `glossary` or `release-notes`, or `None` for all.
 fn help_doc_arg(args: &Value) -> Result<Option<HelpDoc>, String> {
     let Some(name) = opt_str(args, "doc")? else {
         return Ok(None);
     };
     HelpDoc::from_name(name).map(Some).ok_or_else(|| {
         format!(
-            "doc {name:?} is not a help document; the documents are features, recipes and glossary"
+            "doc {name:?} is not a help document; the documents are features, recipes, glossary and release-notes"
         )
     })
 }
@@ -2374,7 +2374,7 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
         let (_, units) = help_units(dir, doc)?;
         count += units.len();
         out[doc.name()] = match doc {
-            HelpDoc::Features | HelpDoc::Recipes => json!(
+            HelpDoc::Features | HelpDoc::Recipes | HelpDoc::ReleaseNotes => json!(
                 units
                     .iter()
                     .map(|u| json!({ "level": u.level, "heading": u.title, "anchor": u.anchor }))
@@ -2401,8 +2401,9 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
 /// evidence that the app lacks the thing.
 fn help_read(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let dir = help_dir(ctx)?;
-    let doc = help_doc_arg(args)?
-        .ok_or_else(|| "argument \"doc\" is required: features, recipes or glossary".to_string())?;
+    let doc = help_doc_arg(args)?.ok_or_else(|| {
+        "argument \"doc\" is required: features, recipes, glossary or release-notes".to_string()
+    })?;
     let name = match opt_str(args, "entry")? {
         Some(name) => Some(name),
         None => opt_str(args, "heading")?,
@@ -7434,8 +7435,11 @@ mod tests {
 
         let err = run_verb(&f.ctx, "help.read", &json!({"doc": "../CLAUDE.md"}))
             .await
-            .expect_err("only the three documents");
-        assert!(err.contains("features, recipes and glossary"), "{err}");
+            .expect_err("only the four documents");
+        assert!(
+            err.contains("features, recipes, glossary and release-notes"),
+            "{err}"
+        );
         let err = run_verb(&f.ctx, "help.read", &json!({}))
             .await
             .expect_err("doc is required");
@@ -7465,7 +7469,7 @@ mod tests {
             assert!(hit["anchor"].as_str().is_some_and(|a| !a.is_empty()));
             assert!(matches!(
                 hit["kind"].as_str(),
-                Some("entry" | "section" | "recipe")
+                Some("entry" | "section" | "recipe" | "version")
             ));
         }
 
@@ -8491,11 +8495,11 @@ mod tests {
             assert!(hit["truncated"].is_boolean());
             assert!(matches!(
                 hit["kind"].as_str(),
-                Some("entry" | "section" | "recipe")
+                Some("entry" | "section" | "recipe" | "version")
             ));
             assert!(matches!(
                 hit["doc"].as_str(),
-                Some("glossary" | "features" | "recipes")
+                Some("glossary" | "features" | "recipes" | "release-notes")
             ));
             // A hit is a whole unit, so its ref resolves as the plain search's do.
             let target = format!(

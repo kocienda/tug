@@ -24,8 +24,13 @@
 
 import "../css-imports";
 import "./overlay-page.css";
+// The shared markdown sheet (`main.tsx` says why a page takes it itself), for
+// the update wizard's release notes.
+import "../components/tugways/tug-markdown-view.css";
 
 import { createRoot } from "react-dom/client";
+import initTugmark from "../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
+import wasmUrl from "../../crates/tugmark-wasm/pkg/tugmark_wasm_bg.wasm?url";
 import { cycleFocusMode, dispatchAction, registerAction, registerEvalAction, registerSetupActions } from "../action-dispatch";
 import {
   overlayAppModal,
@@ -195,7 +200,9 @@ follow(deckFacts, (facts) => {
   };
   connectionLifecycle.observeConnectionDidOpen(probe);
   connection.connect();
-  await tugbankClient.ready();
+  // The markdown WASM beside the snapshot, as the shell and the bodies take it:
+  // the update wizard renders its release notes with it.
+  await Promise.all([tugbankClient.ready(), initTugmark({ module_or_path: wasmUrl })]);
   keyboardAccessStore.initialize(normalizeKeyboardAccessMode(readKeyboardAccess(tugbankClient)));
   keymapOverrideStore.initialize(tugbankClient.readDomain(KEYMAP_DOMAIN));
   tugbankClient.onDomainChanged((domain, entries) => {

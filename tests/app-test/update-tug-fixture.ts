@@ -59,6 +59,10 @@ export const CLOSE = `[data-testid="update-tug-close"]`;
 /** The download row's detail line — the whole of what progress is. */
 export const PROGRESS = `[data-testid="update-tug-progress"]`;
 export const BAR = `[data-testid="update-tug-bar"]`;
+/** The offered version's notes. Absent when there are none. */
+export const NOTES = `[data-testid="update-tug-notes"]`;
+/** The link out to every version's notes, beside the bottom button. */
+export const ALL_NOTES = `[data-testid="update-tug-all-notes"]`;
 /** The bar's place: a strip on the plinth, never a member of the content column. */
 export const ROW_EDGE = `.tug-step-row-edge`;
 

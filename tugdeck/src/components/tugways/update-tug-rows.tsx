@@ -61,6 +61,35 @@ export type RowKey = "check" | "download" | "stop-work" | "relaunch";
  */
 export const STOP_WORK = "stop-work";
 
+/**
+ * The offered version's release notes, or `null` when there is nothing to draw.
+ *
+ * The stages that name an update on their way to installing it, and no others:
+ * `upToDate` and `error` are about something else, and the stages before an
+ * offer have no version for notes to belong to. A note that is absent or blank
+ * draws nothing, because an absent changelog never blocks an update.
+ */
+export function offeredNotes(state: UpdateRenderSnapshot): string | null {
+  if (!isOfferedStage(state.stage)) return null;
+  const notes = state.releaseNotes;
+  return notes !== null && notes.trim() !== "" ? notes : null;
+}
+
+/** Whether `stage` is one in which the wizard is about an offered version. */
+export function isOfferedStage(stage: UpdateStage): boolean {
+  switch (stage) {
+    case "available":
+    case "downloading":
+    case "paused":
+    case "extracting":
+    case "readyToInstall":
+    case "installing":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** One row, before its CTA is composed. */
 export interface RowModel {
   key: RowKey;

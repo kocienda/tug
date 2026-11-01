@@ -78,7 +78,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (⌃⌘Y). In a *split* slot, folding makes a *wall*.
 
-**Help.** Tug's help is three documents, the feature guide, the recipes and this glossary, each opened as a read-only card from the Help menu: Help ▸ Tug Help, Help ▸ How Do I… and Help ▸ Glossary. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help ▸ Keyboard Shortcuts & Commands opens a session's `/help` sheet, and ⌃⌘K opens the Keyboard Shortcuts card.
+**Help.** Tug's help is four documents, the feature guide, the recipes, this glossary and the release notes, each opened as a read-only card from the Help menu: Help ▸ Tug Help, Help ▸ How Do I…, Help ▸ Glossary and Help ▸ Release Notes. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help ▸ Keyboard Shortcuts & Commands opens a session's `/help` sheet, and ⌃⌘K opens the Keyboard Shortcuts card.
 
 **Hint.** What a shell command earns in the *ledger* when it names no files: a note of what git saw change while it ran. A hint never makes a session an owner of a change.
 

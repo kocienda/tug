@@ -95,6 +95,18 @@
  * every card. An app update is not one card's wait — there is no narrower thing
  * that is waiting — so app-wide is its granularity.
  *
+ * # The notes, and why the link leaves the app
+ *
+ * The offered version's notes stand between the header and the rows, in a
+ * region whose height is fixed by `update-tug.css` so a long note scrolls there
+ * and cannot push a row or the Close button off the panel. No notes means no
+ * region: an absent changelog never blocks an update.
+ *
+ * *All release notes* goes to GitHub rather than to the Release Notes help
+ * card, for two reasons. The installed bundle holds notes only up to its own
+ * version, so the card cannot show what someone skipping versions is about to
+ * receive, and this wizard is app-modal, so a card would open beneath it.
+ *
  * # Laws
  *
  * [L02] — the host's snapshot enters through `useUpdateState`, and the request
@@ -104,7 +116,9 @@
  * [L06] — download progress is written onto its own span from a direct store
  * subscription and never renders. See `ProgressDetail` in
  * `update-tug-rows.tsx`.
+ * [L06] — the notes are `TugMarkdownBlock`'s own DOM write, and hold no state here.
  * [L19] — `.tsx`/`.css` pair, `data-slot`.
+ * [L20] — the notes region tunes the markdown block through its wrapper only.
  * [L33] — every wait is bounded; see above.
  *
  * @module components/tugways/update-tug
@@ -127,6 +141,7 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { appModalStore, usePublishAppModalOpen } from "@/lib/app-modal-store";
 import { useGateDeck } from "@/lib/gate-deck";
 import { useLiveTurns } from "@/lib/live-turns-store";
+import { openUrlInOS } from "@/lib/os-open";
 import {
   claimZoomRect,
   runZoomRects,
@@ -145,14 +160,21 @@ import {
   useUpdateTugOpen,
   useUpdateTugRequest,
 } from "@/lib/update-tug-request-store";
+import { TugLink } from "./tug-link";
+import { TugMarkdownBlock } from "./tug-markdown-block";
 import { TugPushButton } from "./tug-push-button";
 import { TugStepRow } from "./tug-step-row";
 import {
   deriveUpdateRows,
+  isOfferedStage,
+  offeredNotes,
   rowForStage,
   STOP_WORK,
   type RowKey,
 } from "./update-tug-rows";
+
+/** Every version's notes, for a reader who skipped some of them. */
+const ALL_RELEASE_NOTES_URL = "https://github.com/kocienda/tug/releases";
 
 /**
  * How long each waiting stage may sit with nothing moving before it is called
@@ -491,6 +513,7 @@ export function UpdateTug(): ReactElement {
 
   const model = deriveUpdateRows(state, liveTurns, waitingRow, stalled, interrupting);
   const exit = closeAction(state.stage);
+  const notes = offeredNotes(state);
 
   return (
     <AlertDialog.Root open={open}>
@@ -530,6 +553,14 @@ export function UpdateTug(): ReactElement {
               </AlertDialog.Title>
             </div>
           </div>
+
+          {notes !== null ? (
+            <div className="update-tug-notes" data-testid="update-tug-notes">
+              {/* Keyed on the text: the block's static mode is mount-once, and
+                  linked notes arrive after the wizard is already up. */}
+              <TugMarkdownBlock key={notes} initialText={notes} />
+            </div>
+          ) : null}
 
           <ol className="update-tug-steps">
             {model.map((row) => (
@@ -576,6 +607,20 @@ export function UpdateTug(): ReactElement {
           </ol>
 
           <div className="tug-alert-actions">
+            {isOfferedStage(state.stage) ? (
+              <TugLink
+                className="update-tug-all-notes"
+                data-testid="update-tug-all-notes"
+                href={ALL_RELEASE_NOTES_URL}
+                external
+                onClick={(e) => {
+                  e.preventDefault();
+                  openUrlInOS(ALL_RELEASE_NOTES_URL);
+                }}
+              >
+                All release notes
+              </TugLink>
+            ) : null}
             <TugPushButton
               size="sm"
               emphasis="primary"

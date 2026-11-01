@@ -18,6 +18,8 @@ import { describe, it, expect } from "bun:test";
 
 import {
   deriveUpdateRows,
+  isOfferedStage,
+  offeredNotes,
   STOP_WORK,
   type RowKey,
   type RowModel,
@@ -61,6 +63,34 @@ function snapshot(
     ...over,
   };
 }
+
+describe("the offered version's notes", () => {
+  const OFFERED: UpdateStage[] = [
+    "available",
+    "downloading",
+    "paused",
+    "extracting",
+    "readyToInstall",
+    "installing",
+  ];
+
+  it("are drawn in exactly the stages that offer a version", () => {
+    for (const stage of STAGES) {
+      expect(isOfferedStage(stage)).toBe(OFFERED.includes(stage));
+      expect(offeredNotes(snapshot(stage, { releaseNotes: "# 0.9.0" }))).toBe(
+        OFFERED.includes(stage) ? "# 0.9.0" : null,
+      );
+    }
+  });
+
+  it("draw nothing when the note is absent or blank", () => {
+    expect(offeredNotes(snapshot("available"))).toBeNull();
+    expect(offeredNotes(snapshot("available", { releaseNotes: " \n " }))).toBeNull();
+    expect(
+      offeredNotes(snapshot("available", { releaseNotesFailed: true })),
+    ).toBeNull();
+  });
+});
 
 function turns(...titles: string[]): LiveTurnsSnapshot {
   if (titles.length === 0) return NO_LIVE_TURNS;

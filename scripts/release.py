@@ -39,12 +39,21 @@ import time
 from pathlib import Path
 
 # The model that drafts the release notes, named once. Sonnet is the choice:
-# turning a commit range into ten lines of reader-facing prose is a summarising
-# task, so the largest model is not what it wants -- but the notes are rendered
-# in the update popover in front of a real user, which is further than a small
-# model's prose usually carries. Tune the voice in release-notes-prompt.md
-# first; change this only when the prompt has stopped being the problem.
+# turning a commit range into reader-facing prose is a summarising task, so the
+# largest model is not what it wants -- but the notes are read in the update
+# wizard, on the release page and in the help card, by real users, which is
+# further than a small model's prose usually carries. Tune the voice in
+# release-notes-prompt.md first; change this only when the prompt has stopped
+# being the problem.
 RELEASE_NOTES_MODEL = "claude-sonnet-5"
+
+# The one drafting call, tool-less, so the model never touches the tree.
+NOTES_ARGV = [
+    "claude", "-p",
+    "--output-format", "text",
+    "--tools", "",
+    "--model", RELEASE_NOTES_MODEL,
+]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_SH = "tugrust/scripts/version.sh"
@@ -69,6 +78,9 @@ SEED_MARKERS = (
     "Delete this comment",
     "What changed, for someone who has been using",
 )
+
+# The line every release body carries, naming the commit its run checked out.
+BUILT_FROM = re.compile(r"Built from commit ([0-9a-f]{40})")
 
 # How long to wait for a dispatched run to be listed. `gh workflow run` returns
 # before its run appears, and a minute is what the recipe this replaces waited.
@@ -469,37 +481,29 @@ def built_from(release):
     """The sha a release's run checked out, read from `Built from commit <sha>`
     in its body, when that commit is in this checkout; else None."""
     body = read(["gh", "release", "view", release, "--json", "body", "--jq", ".body"]) or ""
-    built = re.search(r"Built from commit ([0-9a-f]{40})", body)
+    built = BUILT_FROM.search(body)
     if built and read_rc(["git", "cat-file", "-e", f"{built.group(1)}^{{commit}}"]) == 0:
         return built.group(1)
     return None
 
 
-def previous_release():
-    """The newest v<M.m.p> tag on origin, as (name, the commit it was built from).
+def tag_order(tag):
+    """A v<M.m.p> tag as what it sorts by: numbers, so v0.8.10 follows v0.8.9."""
+    return tuple(int(part) for part in tag[1:].split("."))
 
-    The sha matters more than the name. Nothing in this repository fetches
-    tags, so a checkout usually has none of them, and `git log v0.8.11..HEAD`
-    there fails with "unknown revision" -- which reads, to anything testing
-    for an empty range, exactly like a release with no commits in it. The sha
-    ls-remote hands back alongside the ref is in the checkout whenever main is,
-    so that is what the range is taken against.
+
+def release_tags():
+    """Every v<M.m.p> tag on origin, as {name: its commit}; None when origin
+    gives no answer.
 
     `ls-remote` asks rather than fetches: it writes no ref under .git/ and
     moves none, the same reason bless reaches for `gh api`. An annotated tag
     lists twice, and the `^{}` line is the commit the release was cut from
     where the plain line is the tag object, so the `^{}` sha wins.
-
-    The tag is not the last word, though. release.yml used to let the
-    versioned release create its tag at whatever main was when the publish
-    step ran, which is not always the commit the run checked out -- v0.8.16
-    landed on the fix pushed while it was building, and the range from there
-    to HEAD read as empty. The release body records `Built from commit <sha>`,
-    and when that commit is in the checkout it is the one the range starts at.
     """
     out = read(["git", "ls-remote", "--tags", "origin", "refs/tags/v*"])
     if out is None:
-        return None, None
+        return None
     commits = {}
     for line in out.splitlines():
         parts = line.split("\t")
@@ -514,9 +518,30 @@ def previous_release():
             continue
         if deref or name not in commits:
             commits[name] = sha
+    return commits
+
+
+def previous_release():
+    """The newest v<M.m.p> tag on origin, as (name, the commit it was built from).
+
+    The sha matters more than the name. Nothing in this repository fetches
+    tags, so a checkout usually has none of them, and `git log v0.8.11..HEAD`
+    there fails with "unknown revision" -- which reads, to anything testing
+    for an empty range, exactly like a release with no commits in it. The sha
+    ls-remote hands back alongside the ref is in the checkout whenever main is,
+    so that is what the range is taken against.
+
+    The tag is not the last word, though. release.yml used to let the
+    versioned release create its tag at whatever main was when the publish
+    step ran, which is not always the commit the run checked out -- v0.8.16
+    landed on the fix pushed while it was building, and the range from there
+    to HEAD read as empty. The release body records `Built from commit <sha>`,
+    and when that commit is in the checkout it is the one the range starts at.
+    """
+    commits = release_tags()
     if not commits:
         return None, None
-    newest = max(commits, key=lambda n: tuple(int(g) for g in n[1:].split(".")))
+    newest = max(commits, key=tag_order)
     return newest, built_from(newest) or commits[newest]
 
 
@@ -564,14 +589,22 @@ def step_retract(st, force):
     )
 
 
-def compose_prompt(version, emphasis, tag, log):
+def compose_prompt(version, emphasis, span, log):
     """The prompt file, then the three things only this run knows."""
     parts = [NOTES_PROMPT.read_text().rstrip(), "", "---", ""]
     parts.append(f"The version is {version}.")
     if emphasis:
         parts += ["", f"Emphasis asked for on the command line: {' '.join(emphasis)}"]
-    parts += ["", f"The commits in {tag}..HEAD:", "", log]
+    parts += ["", f"The commits in {span}:", "", log]
     return "\n".join(parts) + "\n"
+
+
+def ask_for_notes(prompt):
+    """Hand the prompt to the drafting call on stdin; the completed process."""
+    return subprocess.run(
+        NOTES_ARGV, cwd=REPO_ROOT, input=prompt,
+        capture_output=True, text=True, check=False,
+    )
 
 
 def step_draft(st, emphasis):
@@ -606,14 +639,8 @@ def step_draft(st, emphasis):
     subjects = read(["git", "log", "--format=%s", f"{sha}..HEAD"]) or ""
     count = len([s for s in subjects.splitlines() if s.strip()])
 
-    argv = [
-        "claude", "-p",
-        "--output-format", "text",
-        "--tools", "",
-        "--model", RELEASE_NOTES_MODEL,
-    ]
     show_row(
-        argv,
+        NOTES_ARGV,
         why=f"Draft the notes for {st.version} — {count} commits in {tag}..HEAD ({sha[:9]}..HEAD),\n"
             f"with scripts/release-notes-prompt.md on stdin, and no tools:",
     )
@@ -625,10 +652,7 @@ def step_draft(st, emphasis):
 
     say()
     say(f"  Asking {RELEASE_NOTES_MODEL}…")
-    proc = subprocess.run(
-        argv, cwd=REPO_ROOT, input=compose_prompt(st.version, emphasis, tag, log),
-        capture_output=True, text=True, check=False,
-    )
+    proc = ask_for_notes(compose_prompt(st.version, emphasis, f"{tag}..HEAD", log))
     if proc.returncode != 0:
         stop(f"claude exited {proc.returncode}: {proc.stderr.strip()[:400]}")
     draft = proc.stdout.strip()

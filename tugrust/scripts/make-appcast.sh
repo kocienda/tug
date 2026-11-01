@@ -16,7 +16,7 @@
 # directory before it runs. The file is looked for at
 # release-notes/<version>.md, where <version> is read out of the archive's own
 # Tug-<version>.zip name, or named outright with --notes. A release with no
-# notes file is a warning and nothing more: the popover shows the version and
+# notes file is a warning and nothing more: the wizard shows the version and
 # its controls without them, and an absent file never blocks an update.
 #
 # Key material, two modes:
@@ -162,7 +162,7 @@ if [ -n "$NOTES" ] && [ -f "$NOTES" ]; then
     NOTES_ARGS=(--embed-release-notes)
     echo "==> Release notes: $NOTES"
 else
-    # Never fatal [B11]. The popover shows the version and its controls with
+    # Never fatal [B11]. The wizard shows the version and its controls with
     # no notes, and a release is worth more than its changelog.
     echo "==> Release notes: none found${NOTES:+ at $NOTES} — the feed will carry no description" >&2
 fi

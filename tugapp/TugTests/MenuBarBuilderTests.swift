@@ -255,6 +255,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "Help | Tug Help | - | showHelpDocument: | help.tugHelp",
         "Help | How Do I… | - | showHelpDocument: | help.recipes",
         "Help | Glossary | - | showHelpDocument: | help.glossary",
+        "Help | Release Notes | - | showHelpDocument: | help.releaseNotes",
         "Help | Keyboard Shortcuts & Commands | - | runCardCommand: | help.shortcuts",
         "Help | ---",
         "Help | Project Home | - | openProjectHome: | help.projectHome",

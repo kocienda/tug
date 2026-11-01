@@ -24,10 +24,11 @@ const DOCS = join(import.meta.dir, "..", "..", "..", "..", "docs");
 const shipped = (name: string) => readFileSync(join(DOCS, name), "utf8");
 
 describe("help document names", () => {
-  test("only the three documents are names", () => {
+  test("only the four documents are names", () => {
     expect(isHelpDocName("features")).toBe(true);
     expect(isHelpDocName("recipes")).toBe(true);
     expect(isHelpDocName("glossary")).toBe(true);
+    expect(isHelpDocName("release-notes")).toBe(true);
     for (const other of ["", "Glossary", "glossary.md", "../CLAUDE", 3, null]) {
       expect(isHelpDocName(other)).toBe(false);
     }
@@ -56,6 +57,7 @@ describe("help card titles", () => {
   test("before the document loads, the title is the menu item's", () => {
     expect(helpDocTitle("features", null)).toBe("Tug Help");
     expect(helpDocTitle("glossary", null)).toBe("Glossary");
+    expect(helpDocTitle("release-notes", null)).toBe("Release Notes");
     expect(helpDocTitle("recipes", null)).toBe("How Do I…");
   });
 });

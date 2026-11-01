@@ -57,8 +57,10 @@ pub(crate) fn source_tree() -> PathBuf {
     );
 }
 
-/// The directory holding the app's help documents (`features.md`, `recipes.md` and
-/// `glossary.md`), which the app bundle ships at `Contents/Resources/docs/`.
+/// The directory holding the app's help documents (`features.md`, `recipes.md`,
+/// `glossary.md` and `release-notes/`), which the app bundle ships at
+/// `Contents/Resources/docs/`. A checkout keeps `release-notes/` beside `docs/`,
+/// and `HelpDoc::read` looks in both.
 ///
 /// One resolver for every reader — the help card's route and the Overview's
 /// Operator — so the two can never read different files. `None` when no

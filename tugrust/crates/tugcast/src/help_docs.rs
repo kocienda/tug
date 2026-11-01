@@ -1,9 +1,9 @@
 //! The app's help documents and `GET /api/help/{name}`, which serves them to
 //! the help card.
 //!
-//! There are exactly three documents, the guide, the recipes and the glossary, and
-//! they are named, never addressed by path: a request names one of the three
-//! and anything else is refused before the filesystem is touched, so the
+//! There are exactly four documents, the guide, the recipes, the glossary and
+//! the release notes, and they are named, never addressed by path: a request
+//! names one of the four and anything else is refused before the filesystem is touched, so the
 //! route cannot be walked out of the docs directory. The directory itself is
 //! `resources::docs_dir()`, the one resolver the Operator reads through too.
 //!
@@ -18,6 +18,10 @@
 //! A comment that owns its lines names where a recipe's gesture was read. It is
 //! for whoever maintains the document, so `HelpDoc::read` drops it and neither a
 //! card nor the Operator sees it.
+//!
+//! The release notes are the one document with no file of their own: each
+//! version has a file, and `HelpDoc::read` assembles them on every read, so
+//! there is no second copy to go stale.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -37,11 +41,19 @@ pub(crate) enum HelpDoc {
     Recipes,
     /// `glossary.md` — every word Tug uses, one paragraph per term.
     Glossary,
+    /// `release-notes/` — what changed in each version, newest first, assembled
+    /// from one file per version.
+    ReleaseNotes,
 }
 
 impl HelpDoc {
     /// Every help document, in the order the Help menu lists them.
-    pub(crate) const ALL: [HelpDoc; 3] = [HelpDoc::Features, HelpDoc::Recipes, HelpDoc::Glossary];
+    pub(crate) const ALL: [HelpDoc; 4] = [
+        HelpDoc::Features,
+        HelpDoc::Recipes,
+        HelpDoc::Glossary,
+        HelpDoc::ReleaseNotes,
+    ];
 
     /// The document a request names: its bare name, or its file name. Any
     /// other string — a path, a traversal, an unknown document — is `None`.
@@ -57,20 +69,26 @@ impl HelpDoc {
             HelpDoc::Features => "features",
             HelpDoc::Recipes => "recipes",
             HelpDoc::Glossary => "glossary",
+            HelpDoc::ReleaseNotes => "release-notes",
         }
     }
 
-    /// The file under the docs directory.
+    /// The file under the docs directory, or for the release notes, which have
+    /// none, what a link to the document spells.
     pub(crate) fn file_name(self) -> &'static str {
         match self {
             HelpDoc::Features => "features.md",
             HelpDoc::Recipes => "recipes.md",
             HelpDoc::Glossary => "glossary.md",
+            HelpDoc::ReleaseNotes => "release-notes.md",
         }
     }
 
     /// The document's markdown, read from `docs_dir`, less its source comments.
     pub(crate) fn read(self, docs_dir: &Path) -> std::io::Result<String> {
+        if self == HelpDoc::ReleaseNotes {
+            return read_release_notes(docs_dir);
+        }
         std::fs::read_to_string(docs_dir.join(self.file_name())).map(|raw| strip_comments(&raw))
     }
 }
@@ -94,6 +112,87 @@ fn strip_comments(markdown: &str) -> String {
         if !in_fence && trimmed.starts_with("<!--") {
             in_comment = !trimmed.ends_with("-->");
             continue;
+        }
+        out.push_str(line);
+    }
+    out
+}
+
+/// `version.sh`'s seeded stub, tested for by its known text. The same two
+/// strings as `SEED_MARKERS` in `scripts/release.py`.
+const SEED_MARKERS: [&str; 2] = [
+    "Delete this comment",
+    "What changed, for someone who has been using",
+];
+
+/// The release notes from the directory the bundle copies beside the other
+/// documents, or from a checkout's, which is a sibling of its `docs/`. Finding
+/// neither reads as a document with no versions in it, because nothing else
+/// about help depends on the notes being there.
+fn read_release_notes(docs_dir: &Path) -> std::io::Result<String> {
+    let bundled = docs_dir.join("release-notes");
+    let dir = if bundled.is_dir() {
+        bundled
+    } else {
+        docs_dir.join("..").join("release-notes")
+    };
+    let mut files = Vec::new();
+    match std::fs::read_dir(&dir) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if let Some(stem) = name.strip_suffix(".md") {
+                    files.push((stem.to_string(), std::fs::read_to_string(entry.path())?));
+                }
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+    Ok(assemble_release_notes(files))
+}
+
+/// One document from `(file stem, contents)` pairs: a title, then each version's
+/// notes, newest first, with every heading one level deeper so a version sits
+/// under the title. A stem that is no version, like the README's, and a file
+/// with nothing written in it yet are left out.
+fn assemble_release_notes(files: Vec<(String, String)>) -> String {
+    let mut versions: Vec<(Vec<u64>, String)> = files
+        .into_iter()
+        .filter(|(_, text)| !SEED_MARKERS.iter().any(|marker| text.contains(marker)))
+        .filter_map(|(stem, text)| {
+            let version = stem
+                .split('.')
+                .map(|part| part.parse().ok())
+                .collect::<Option<Vec<u64>>>()?;
+            let text = demote_headings(&strip_comments(&text));
+            let written = text
+                .lines()
+                .any(|line| !line.trim().is_empty() && !line.starts_with("## "));
+            written.then_some((version, text))
+        })
+        .collect();
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut out = String::from("# Release Notes\n");
+    for (_, text) in versions {
+        out.push('\n');
+        out.push_str(text.trim());
+        out.push('\n');
+    }
+    out
+}
+
+/// Every heading outside a code fence, one level deeper.
+fn demote_headings(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut in_fence = false;
+    for line in markdown.split_inclusive('\n') {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+        }
+        if !in_fence && heading(line.trim_end()).is_some_and(|(level, _)| level < 6) {
+            out.push('#');
         }
         out.push_str(line);
     }
@@ -184,6 +283,7 @@ impl HelpDoc {
         match self {
             HelpDoc::Features | HelpDoc::Recipes => heading_sections(markdown),
             HelpDoc::Glossary => glossary_entries(markdown),
+            HelpDoc::ReleaseNotes => version_sections(markdown),
         }
     }
 
@@ -193,6 +293,7 @@ impl HelpDoc {
             HelpDoc::Features => "section",
             HelpDoc::Recipes => "recipe",
             HelpDoc::Glossary => "entry",
+            HelpDoc::ReleaseNotes => "version",
         }
     }
 }
@@ -275,6 +376,27 @@ fn heading_sections(markdown: &str) -> Vec<HelpUnit> {
     for section in &mut sections {
         let trimmed = section.text.trim_end().len();
         section.text.truncate(trimmed);
+    }
+    sections
+}
+
+/// The release notes' units: one per version, holding all of its notes. A
+/// heading inside a version stays inside it, because `### Fixes` says nothing
+/// without the version it belongs to, and every version has one. The title holds
+/// no text, so it is no unit.
+fn version_sections(markdown: &str) -> Vec<HelpUnit> {
+    let mut sections: Vec<HelpUnit> = Vec::new();
+    for unit in heading_sections(markdown) {
+        if unit.level == 1 {
+            continue;
+        }
+        match sections.last_mut() {
+            Some(version) if unit.level > 2 => {
+                version.text.push_str("\n\n");
+                version.text.push_str(&unit.text);
+            }
+            _ => sections.push(unit),
+        }
     }
     sections
 }
@@ -436,6 +558,10 @@ mod tests {
         assert_eq!(HelpDoc::from_name("features"), Some(HelpDoc::Features));
         assert_eq!(HelpDoc::from_name("recipes"), Some(HelpDoc::Recipes));
         assert_eq!(HelpDoc::from_name("glossary.md"), Some(HelpDoc::Glossary));
+        assert_eq!(
+            HelpDoc::from_name("release-notes"),
+            Some(HelpDoc::ReleaseNotes)
+        );
     }
 
     #[test]
@@ -526,6 +652,67 @@ mod tests {
     }
 
     #[test]
+    fn release_notes_assemble_newest_first_under_one_title() {
+        let file = |stem: &str, text: &str| (stem.to_string(), text.to_string());
+        let md = assemble_release_notes(vec![
+            file("0.8.9", "# Tug 0.8.9\n\nNine.\n"),
+            file("README", "# Release notes\n\nHow these work.\n"),
+            file(
+                "0.8.10",
+                "# Tug 0.8.10\n\nTen.\n\n## Fixes\n\n```\n# kept\n```\n",
+            ),
+            file("0.9.0", "# Tug 0.9.0\n\n<!-- Delete this comment -->\n"),
+            file("0.8.11", "# Tug 0.8.11\n"),
+            file("0.8.0", "# Tug 0.8.0\n\n<!-- a note -->\nFirst.\n"),
+        ]);
+        assert_eq!(
+            md,
+            "# Release Notes\n\n## Tug 0.8.10\n\nTen.\n\n### Fixes\n\n```\n# kept\n```\n\n## Tug 0.8.9\n\nNine.\n\n## Tug 0.8.0\n\nFirst.\n"
+        );
+    }
+
+    #[test]
+    fn a_version_is_one_release_notes_unit() {
+        let md = "# Release Notes\n\n## Tug 0.8.10\n\nTen.\n\n### Fixes\n\nA fix.\n\n## Tug 0.8.9\n\nNine.\n";
+        let units = HelpDoc::ReleaseNotes.units(md);
+        let titles: Vec<&str> = units.iter().map(|u| u.title.as_str()).collect();
+        assert_eq!(titles, ["Tug 0.8.10", "Tug 0.8.9"]);
+        assert_eq!(units[0].anchor, "tug-0810");
+        assert!(units[0].text.contains("A fix."));
+        assert_eq!(find_unit(&units, "tug-089"), Some(1));
+    }
+
+    #[test]
+    fn release_notes_read_from_the_bundle_or_beside_a_checkouts_docs() {
+        let root = tempfile::tempdir().unwrap();
+        let docs = root.path().join("docs");
+        std::fs::create_dir(&docs).unwrap();
+        let read = |docs: &Path| HelpDoc::ReleaseNotes.read(docs).unwrap();
+        assert_eq!(read(&docs), "# Release Notes\n", "no notes is no versions");
+
+        let sibling = root.path().join("release-notes");
+        std::fs::create_dir(&sibling).unwrap();
+        std::fs::write(sibling.join("1.0.0.md"), "# Tug 1.0.0\n\nBeside.\n").unwrap();
+        assert!(read(&docs).contains("Beside."));
+
+        let bundled = docs.join("release-notes");
+        std::fs::create_dir(&bundled).unwrap();
+        std::fs::write(bundled.join("1.0.0.md"), "# Tug 1.0.0\n\nBundled.\n").unwrap();
+        assert!(read(&docs).contains("Bundled.") && !read(&docs).contains("Beside."));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_seed_markers_are_the_release_scripts() {
+        let docs = crate::resources::checkout_docs().expect("debug build has a checkout");
+        let script = std::fs::read_to_string(docs.parent().unwrap().join("scripts/release.py"));
+        let script = script.unwrap();
+        for marker in SEED_MARKERS {
+            assert!(script.contains(marker), "{marker:?}");
+        }
+    }
+
+    #[test]
     fn slugs_match_the_help_cards() {
         // The same cases the help card's `helpAnchorSlug` is tested on.
         assert_eq!(help_anchor_slug("Fit and Flow"), "fit-and-flow");
@@ -602,6 +789,9 @@ mod tests {
             );
             // One left open would swallow the document after it and leave no
             // trace in what was read, so this one looks at the file itself.
+            if doc == HelpDoc::ReleaseNotes {
+                continue;
+            }
             let raw = std::fs::read_to_string(dir.join(doc.file_name())).unwrap();
             assert_eq!(
                 raw.matches("<!--").count(),

@@ -1,8 +1,8 @@
 /**
- * at0758-help-menu-opens-help-cards.test.ts — Help ▸ Tug Help, How Do I… and
- * Help ▸ Glossary open the bundled documents as rendered help cards.
+ * at0758-help-menu-opens-help-cards.test.ts — Help ▸ Tug Help, How Do I…,
+ * Glossary and Release Notes open the bundled documents as rendered help cards.
  *
- * The three items are the app's door to its own documentation, and the whole
+ * The four items are the app's door to its own documentation, and the whole
  * path is real: the `NSMenuItem` is performed (validation, the action, the
  * `show-card` control), the deck opens a help card keyed by the document,
  * the card's body fetches it from tugcast's `/api/help/{name}` — the bundled
@@ -19,7 +19,9 @@
  *      `features`, and its body renders the feature guide's heading.
  *   2. Perform Help ▸ How Do I…. A second card, holding `recipes`, renders its heading.
  *   3. Perform Help ▸ Glossary. A third card, holding `glossary`, renders its heading.
- *   4. Perform Help ▸ Tug Help again. The card that comes forward is the
+ *   4. Perform Help ▸ Release Notes. A fourth card, holding `release-notes`,
+ *      renders the title tugcast assembles and the newest version under it.
+ *   5. Perform Help ▸ Tug Help again. The card that comes forward is the
  *      first one.
  *
  * Throughout, the document's prose is selectable: the pane content sets
@@ -91,7 +93,7 @@ async function headingOf(app: App, cardId: string): Promise<string> {
 
 describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents", () => {
   test(
-    "Tug Help, How Do I… and Glossary each open a rendered help card, keyed by document",
+    "Tug Help, How Do I…, Glossary and Release Notes each open a rendered help card, keyed by document",
     async () => {
       const app = await launchTugApp({ testName: "at0758-help-menu" });
       try {
@@ -114,6 +116,22 @@ describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents"
         note(`Glossary heading: ${JSON.stringify(glossaryHeading)}`);
         expect(glossaryHeading).toBe("Tug glossary");
         expect(await proseSelectOf(app, glossary), "the glossary's prose is selectable").toBe("text");
+
+        const notes = await pick(app, "help.releaseNotes", "release-notes");
+        expect(notes, "the release notes are their own card").not.toBe(features);
+        expect(await headingOf(app, notes)).toBe("Release Notes");
+        const versions = await app.body(notes).waitForCondition<string[]>(
+          `(function () {
+            var hs = document.querySelectorAll('[data-slot="help-card"] h2');
+            return hs.length > 1 ? Array.from(hs).map(function (h) { return h.textContent; }) : null;
+          })()`,
+          { timeoutMs: 5_000 },
+        );
+        note(`Release notes versions: ${versions.length}, newest ${versions[0]}`);
+        expect(versions.indexOf("Tug 0.8.10"), "0.8.10 reads as newer than 0.8.9").toBeLessThan(
+          versions.indexOf("Tug 0.8.9"),
+        );
+        expect(versions[versions.length - 1]).toBe("Tug 0.8.0");
 
         const again = await pick(app, "help.tugHelp", "features");
         expect(again, "a second Tug Help brings the open card forward").toBe(features);

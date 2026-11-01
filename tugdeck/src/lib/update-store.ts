@@ -113,7 +113,7 @@ export interface UpdateSnapshot {
   /**
    * Release notes as HTML or Markdown, or `null` when the appcast carried
    * none, they have not arrived yet, or they failed to download. **An absent
-   * notes file never blocks an update** — the popover shows the version and
+   * notes file never blocks an update** — the wizard shows the version and
    * its controls without them.
    */
   releaseNotes: string | null;
@@ -125,7 +125,7 @@ export interface UpdateSnapshot {
   releaseNotesFailed: boolean;
   /**
    * True when the user started this check. The only flow permitted to open
-   * the popover on its own — every other transition may light the pill and
+   * the wizard on its own — every other transition may light the pill and
    * nothing more.
    */
   userInitiated: boolean;

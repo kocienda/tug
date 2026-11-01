@@ -38,7 +38,7 @@ The arc doctrine, the devise skeleton and the plan review rubric ship in the plu
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `briefs/` | Working papers — briefs, audits, sketches that became files. Its address is the Briefs Directory setting; the vocabulary (idea → sketch → brief → plan) is [tuglaws/work-grammar.md](tuglaws/work-grammar.md). |
 | `tests/` | App-test harness that drives the real Tug.app |
-| `release-notes/` | One `<version>.md` per release, embedded in the Sparkle appcast and rendered in the update popover. Seeded by `version.sh`; see its `README.md`. |
+| `release-notes/` | One `<version>.md` per release, embedded in the Sparkle appcast and rendered in the update wizard, the Release Notes help card and the GitHub release. Seeded by `version.sh`; see its `README.md`. |
 
 ## Build Policy
 

@@ -1462,9 +1462,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         // The page's own faults, forwarded to tugapp.log — the only
         // console this app has. See `PageFaultScript`.
         PageFaultScript.install(into: config)
-        if #available(macOS 14.0, *) {
-            config.defaultWebpagePreferences.allowsContentJavaScript = true
-        }
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
         if forShell {
             HostCapabilitiesScript.install(into: config)
         }

@@ -415,6 +415,7 @@ fn help_title(doc: HelpDoc) -> &'static str {
         HelpDoc::Features => "Tug feature guide",
         HelpDoc::Recipes => "Tug recipes",
         HelpDoc::Glossary => "Tug glossary",
+        HelpDoc::ReleaseNotes => "Tug release notes",
     }
 }
 

@@ -7,8 +7,8 @@ set -euo pipefail
 # Propagates to: tugcode/package.json, tugdeck/package.json, tugapp/Info.plist
 #
 # A version bump also seeds release-notes/<version>.md, because the update
-# popover's notes come from that file by way of generate_appcast [B11] and a
-# file nobody is reminded to write is a file nobody writes. Seeding is never
+# wizard, the release page and the help card all read that file, and a file
+# nobody is reminded to write is a file nobody writes. Seeding is never
 # overwriting: a notes file that already exists is left exactly as it is.
 #
 # Usage:
@@ -68,9 +68,9 @@ seed_release_notes() {
 # Tug $ver
 
 <!-- What changed, for someone who has been using $ver's predecessor. This
-     markdown is embedded in the appcast and rendered in the update popover,
-     so write it for that reader: a few sentences or a short list, not a
-     commit log. Delete this comment. -->
+     markdown is read in the update wizard, on the GitHub release page and in
+     the Release Notes help card, so write it for those readers, at a length
+     that follows the release, not a commit log. Delete this comment. -->
 NOTES
     echo "release notes: $notes (seeded — write it before releasing)" >&2
 }

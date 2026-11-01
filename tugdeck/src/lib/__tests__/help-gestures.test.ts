@@ -1,6 +1,7 @@
 /**
- * The gesture check: every chord and slash command the three help documents
- * name has to exist in the code. A document is written from its sources once
+ * The gesture check: every chord and slash command the guide, the recipes and
+ * the glossary name has to exist in the code. The release notes stay out, since
+ * they describe each version as it was. A document is written from its sources once
  * and read for years, so a rebound chord or a retired command fails here
  * rather than in front of someone following a recipe.
  *
