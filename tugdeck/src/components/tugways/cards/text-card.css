@@ -99,6 +99,9 @@
  * descenders while it centers the text. */
 .text-card-status-cell {
   flex: 0 0 auto;
+  /* Every digit the same width, so a count ticking from 1 to 2 — or the
+   * caret moving a column — never nudges a glyph beside it. */
+  font-variant-numeric: tabular-nums;
 }
 
 /* A cluster of related cells. */
@@ -109,29 +112,23 @@
   flex: 0 0 auto;
 }
 
-/* The settable pair (line ending + file type) claims the flexible gap,
- * pulling both clusters to the trailing edge. Nothing sits on the left of
- * the strip any more — the save state it used to hold now rides the card's
- * masthead, beside the name and the path it is about. */
+/* The number pair (caret + counts) holds the leading edge and the settable
+ * pair (line ending + file type) the trailing one, with the flexible gap
+ * between. Numbers grow rightward into that gap, so a changing count never
+ * moves the popups, and the popups never move the numbers. */
+.text-card-status-group--numbers {
+  gap: var(--tug-space-xl);
+}
+
 .text-card-status-group--settable {
   margin-left: auto;
-  /* Breathing room between the popups and the divider, so the gap on the
-   * popups' side reads the same as the numeric group's inset. */
-  padding-right: var(--tug-space-md);
 }
 
-/* The number pair (caret + counts) is set off from the settable pair by
- * a divider so the two groupings read as distinct. */
-/* @tug-renders-on: --tug7-surface-card-primary-normal-plain-rest */
-.text-card-status-group--numbers {
-  padding-left: var(--tug-space-lg);
-  border-left: 1px solid var(--tug7-element-global-divider-normal-default-rest);
-}
-
-/* Reserve width for the caret cell (left-aligned) so single→double
- * digit changes don't reflow the counts beside it. */
+/* Reserve width for the caret cell so the counts beside it hold still as
+ * the line and column grow: room for a five-digit line and a three-digit
+ * column before anything moves. */
 .text-card-status-caret {
-  min-width: 6rem;
+  min-width: 16ch;
 }
 
 /* ---- Editor options sheet ---- */

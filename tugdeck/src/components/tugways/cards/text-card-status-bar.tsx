@@ -2,13 +2,14 @@
  * text-card-status-bar.tsx — the thin status strip at the bottom of a
  * Text card's editor, in the spirit of BBEdit's document status bar.
  *
- * Two clusters on the right: the **settable** pair (line-ending and
- * syntax/file type, each a popup menu) and the **number** pair (caret
- * line/column and the line / word / character counts — the selection's
- * when a range is selected, else the document's), separated by a
- * divider. The save state used to sit alone on the left; it says the same
- * thing on the card's document masthead now, where the name and the path
- * it belongs to already are.
+ * Two clusters: the **number** pair on the left (caret line/column, then
+ * after a gap the line / word / character counts — the selection's when a
+ * range is selected, else the document's), and the **settable** pair on
+ * the right (line-ending and syntax/file type, each a popup menu). The
+ * numbers change at keystroke rate, so they hold the leading edge and grow
+ * into the open space between the clusters; nothing in the strip moves
+ * when they do. The save state rides the card's document masthead, where
+ * the name and the path it belongs to already are.
  *
  * Live counts + caret ride the per-card `EditorStatsStore`
  * (`useSyncExternalStore`), so keystroke-rate updates repaint only this
@@ -101,27 +102,7 @@ export function TextCardStatusBar({
         data-slot="text-card-status-bar"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        {/* Settable pair, pushed to the right edge. */}
-        <div className="text-card-status-group text-card-status-group--settable">
-          <TugPopupButton
-            size="xs"
-            label={LINE_ENDING_LABEL[lineEnding]}
-            items={LINE_ENDING_ITEMS}
-            senderId={lineEndingSenderId}
-            focusGroup={focusGroup}
-            focusOrder={focusOrder}
-          />
-          <TugPopupButton
-            size="xs"
-            label={languageLabel}
-            items={LANGUAGE_ITEMS}
-            senderId={languageSenderId}
-            focusGroup={focusGroup}
-            focusOrder={focusOrder + 1}
-          />
-        </div>
-
-        {/* Number pair, divided from the settable pair. */}
+        {/* Number pair, on the leading edge. */}
         <div className="text-card-status-group text-card-status-group--numbers">
           <span
             className="text-card-status-cell text-card-status-caret"
@@ -141,6 +122,26 @@ export function TextCardStatusBar({
           >
             {`${stats.lines.toLocaleString()} / ${stats.words.toLocaleString()} / ${stats.chars.toLocaleString()}`}
           </span>
+        </div>
+
+        {/* Settable pair, pushed to the trailing edge. */}
+        <div className="text-card-status-group text-card-status-group--settable">
+          <TugPopupButton
+            size="xs"
+            label={LINE_ENDING_LABEL[lineEnding]}
+            items={LINE_ENDING_ITEMS}
+            senderId={lineEndingSenderId}
+            focusGroup={focusGroup}
+            focusOrder={focusOrder}
+          />
+          <TugPopupButton
+            size="xs"
+            label={languageLabel}
+            items={LANGUAGE_ITEMS}
+            senderId={languageSenderId}
+            focusGroup={focusGroup}
+            focusOrder={focusOrder + 1}
+          />
         </div>
       </div>
     </ResponderScope>
