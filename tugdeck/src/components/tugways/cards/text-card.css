@@ -117,7 +117,7 @@
  * between. Numbers grow rightward into that gap, so a changing count never
  * moves the popups, and the popups never move the numbers. */
 .text-card-status-group--numbers {
-  gap: var(--tug-space-xl);
+  gap: var(--tug-space-md);
 }
 
 .text-card-status-group--settable {
@@ -125,10 +125,11 @@
 }
 
 /* Reserve width for the caret cell so the counts beside it hold still as
- * the line and column grow: room for a five-digit line and a three-digit
- * column before anything moves. */
+ * the line and column grow: room for a four-digit line and a two-digit
+ * column before anything moves. Wider reads as a hole beside a short
+ * caret, which is the common case. */
 .text-card-status-caret {
-  min-width: 16ch;
+  min-width: 13ch;
 }
 
 /* ---- Editor options sheet ---- */
