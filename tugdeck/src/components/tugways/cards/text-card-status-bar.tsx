@@ -4,7 +4,8 @@
  *
  * Two clusters on the right: the **settable** pair (line-ending and
  * syntax/file type, each a popup menu) and the **number** pair (caret
- * line/column and the line / word / character counts), separated by a
+ * line/column and the line / word / character counts — the selection's
+ * when a range is selected, else the document's), separated by a
  * divider. The save state used to sit alone on the left; it says the same
  * thing on the card's document masthead now, where the name and the path
  * it belongs to already are.
@@ -131,7 +132,12 @@ export function TextCardStatusBar({
           <span
             className="text-card-status-cell text-card-status-counts"
             data-testid="text-card-status-counts"
-            title="lines / words / characters"
+            data-of-selection={stats.ofSelection ? "true" : undefined}
+            title={
+              stats.ofSelection
+                ? "lines / words / characters in the selection"
+                : "lines / words / characters"
+            }
           >
             {`${stats.lines.toLocaleString()} / ${stats.words.toLocaleString()} / ${stats.chars.toLocaleString()}`}
           </span>

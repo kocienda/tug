@@ -17,13 +17,17 @@
  * the changed ranges is therefore the exact delta — no full re-scan,
  * even on a multi-megabyte file.
  *
+ * `selectionCounts` is the other reading the status bar takes: the lines,
+ * words and characters of a ranged selection, counted fresh from the
+ * selected text alone — O(selection size).
+ *
  * No React, no DOM — pure functions over CM6 `Text` / `ChangeDesc`, so
  * the algorithm is unit-tested against the brute-force oracle.
  *
  * @module lib/word-count
  */
 
-import type { ChangeDesc, Text } from "@codemirror/state";
+import type { ChangeDesc, SelectionRange, Text } from "@codemirror/state";
 
 /** Full word count of `text` — O(n). Used at open and as the oracle. */
 export function countWords(text: string): number {
@@ -72,4 +76,38 @@ export function wordCountDelta(
     delta += wordStartsIn(newDoc, fromB, Math.min(toB + 1, newDoc.length));
   });
   return delta;
+}
+
+/** Line / word / character counts over some span of a document. */
+export interface SpanCounts {
+  lines: number;
+  words: number;
+  chars: number;
+}
+
+/**
+ * The counts of the text under `ranges`, summed; empty ranges count
+ * nothing. A range's lines are those it touches, except that one ending
+ * exactly at the start of a line does not claim that line — selecting a
+ * whole line with its newline is one line, not two. Words are counted in
+ * each range's own text, so a word the selection cuts through counts as
+ * the part of it that is selected.
+ */
+export function selectionCounts(
+  doc: Text,
+  ranges: readonly SelectionRange[],
+): SpanCounts {
+  let lines = 0;
+  let words = 0;
+  let chars = 0;
+  for (const range of ranges) {
+    if (range.empty) continue;
+    const first = doc.lineAt(range.from).number;
+    const end = doc.lineAt(range.to);
+    const last = range.to === end.from ? end.number - 1 : end.number;
+    lines += last - first + 1;
+    words += countWords(doc.sliceString(range.from, range.to));
+    chars += range.to - range.from;
+  }
+  return { lines, words, chars };
 }

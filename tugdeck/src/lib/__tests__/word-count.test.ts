@@ -5,8 +5,8 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { EditorState, type ChangeSpec } from "@codemirror/state";
-import { countWords, wordCountDelta } from "../word-count";
+import { EditorSelection, EditorState, type ChangeSpec } from "@codemirror/state";
+import { countWords, selectionCounts, wordCountDelta } from "../word-count";
 
 /** Deterministic LCG so a failure is reproducible from the seed. */
 function rng(seed: number): () => number {
@@ -110,5 +110,48 @@ describe("wordCountDelta", () => {
       const { next, delta } = applyAndDelta(doc, changes);
       expect(countWords(doc) + delta).toBe(countWords(next));
     }
+  });
+});
+
+describe("selectionCounts", () => {
+  const doc = EditorState.create({ doc: "one two\nthree four five\nsix" }).doc;
+  const r = (from: number, to: number) => EditorSelection.range(from, to);
+
+  test("an empty range counts nothing", () => {
+    expect(selectionCounts(doc, [r(3, 3)])).toEqual({ lines: 0, words: 0, chars: 0 });
+  });
+
+  test("a range inside one line", () => {
+    expect(selectionCounts(doc, [r(0, 7)])).toEqual({ lines: 1, words: 2, chars: 7 });
+  });
+
+  test("a word cut by the selection counts once", () => {
+    expect(selectionCounts(doc, [r(5, 10)])).toEqual({ lines: 2, words: 2, chars: 5 });
+  });
+
+  test("a range ending at a line start does not claim that line", () => {
+    // "one two\n" — the whole first line with its newline.
+    expect(selectionCounts(doc, [r(0, 8)])).toEqual({ lines: 1, words: 2, chars: 8 });
+  });
+
+  test("the whole document matches the document counts", () => {
+    const all = selectionCounts(doc, [r(0, doc.length)]);
+    expect(all).toEqual({
+      lines: doc.lines,
+      words: countWords(doc.toString()),
+      chars: doc.length,
+    });
+  });
+
+  test("a backward range counts the same as a forward one", () => {
+    expect(selectionCounts(doc, [r(10, 0)])).toEqual(selectionCounts(doc, [r(0, 10)]));
+  });
+
+  test("multiple ranges sum", () => {
+    expect(selectionCounts(doc, [r(0, 3), r(8, 13)])).toEqual({
+      lines: 2,
+      words: 2,
+      chars: 8,
+    });
   });
 });

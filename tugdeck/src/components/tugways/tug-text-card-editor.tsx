@@ -144,7 +144,7 @@ import {
 } from "@/lib/text-card-settings";
 import { FONT_STACKS } from "@/lib/editor-settings-store";
 import type { EditorStats } from "@/lib/editor-stats-store";
-import { countWords, wordCountDelta } from "@/lib/word-count";
+import { countWords, selectionCounts, wordCountDelta } from "@/lib/word-count";
 import { languageForExtension, tugEditingHighlightStyle } from "@/lib/language-registry";
 
 import { mdListHangingIndent } from "./tug-text-editor/list-hanging-indent";
@@ -876,20 +876,26 @@ export const TugTextCardEditor = React.forwardRef<
   );
 
   // Publish caret + counts to the status bar. Caret is read live from
-  // `state`; the line/word/char counts come from `docStatsRef` (kept
+  // `state`. The line/word/char counts follow the selection: with a
+  // ranged selection they are the selected text's, counted from it here;
+  // with only a caret they are the document's, from `docStatsRef` (kept
   // fresh by the update listener on document change).
   const publishStats = useCallback((state: EditorState): void => {
     const cb = onStatsRef.current;
     if (cb === undefined) return;
     const pos = state.selection.main.from;
     const line = state.doc.lineAt(pos);
-    const doc = docStatsRef.current;
+    const ranged = state.selection.ranges.some((r) => !r.empty);
+    const counts = ranged
+      ? selectionCounts(state.doc, state.selection.ranges)
+      : docStatsRef.current;
     cb({
       caretLine: line.number,
       caretCol: pos - line.from + 1,
-      lines: doc.lines,
-      words: doc.words,
-      chars: doc.chars,
+      lines: counts.lines,
+      words: counts.words,
+      chars: counts.chars,
+      ofSelection: ranged,
     });
   }, []);
 
