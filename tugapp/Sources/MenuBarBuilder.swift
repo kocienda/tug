@@ -47,6 +47,7 @@ import AppKit
     func performFindNext(_ sender: Any?)
     func performFindPrevious(_ sender: Any?)
     func performFindSelection(_ sender: Any?)
+    func performFindAndReplace(_ sender: Any?)
     func performMakeLowercase(_ sender: Any?)
     func performMakeUppercase(_ sender: Any?)
     func performPaste(_ sender: Any?)
@@ -426,6 +427,10 @@ struct MenuBarBuilder {
         // is stricter than its siblings': a find-capable surface with nothing
         // selected validates it disabled.
         findMenu.addItem(NSMenuItem(title: "Use Selection for Find", action: #selector(MenuBarActions.performFindSelection(_:)), keyEquivalent: "e").identified("edit.useSelectionForFind"))
+        // ⌥⌘F — the find bar with its replace row. Its gate is the focused
+        // surface's: only editable text registers it, and a read-only Text
+        // card validates it disabled.
+        findMenu.addItem(NSMenuItem(title: "Find and Replace…", action: #selector(MenuBarActions.performFindAndReplace(_:)), keyEquivalent: "f", modifierMask: [.command, .option]).identified("edit.findAndReplace"))
         editMenu.addItem(findMenuItem)
 
         // Session Menu - position 3. The session card's command surfaces,

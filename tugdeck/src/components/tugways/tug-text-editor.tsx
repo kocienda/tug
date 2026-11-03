@@ -124,6 +124,7 @@ import {
   writeClipboardViaNative,
 } from "@/lib/tug-native-clipboard";
 import { tugTheme } from "./tug-text-editor/theme";
+import { search } from "@codemirror/search";
 import { hostFocusMirror } from "./tug-text-editor/host-state";
 import { hostClickToCaret } from "./tug-text-editor/host-click";
 import {
@@ -1263,6 +1264,10 @@ function buildExtensions(
     tugSelectionLayer,
     tugPaintedCaret,
     tugTheme,
+    // The search state a composer's find bar drives through the shared
+    // editor engine. Its bundled panel is opened by the engine and kept
+    // hidden by `tugTheme`; nothing here binds a search key.
+    search({ top: true }),
     hostFocusMirror(host),
     // The host is the text surface: a click in the blank band below short
     // content (host taller than contentDOM) lands the caret instead of

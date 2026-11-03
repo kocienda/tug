@@ -260,6 +260,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
 | ⌥⌘0 | `zoom-toggle-actual` | Toggle Actual Size | menu bar (swept) |
+| ⌥⌘F | `find-replace` | Find and Replace… | JS, global |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
@@ -308,6 +309,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `edit.cut` | `cut` | AppKit performs it | registry gate |
 | `edit.delete` | `delete` | AppKit performs it | registry gate |
 | `edit.find` | `find` | first responder | registry gate |
+| `edit.findAndReplace` | `find-replace` | first responder | registry gate |
 | `edit.findNext` | `find-next` | first responder | registry gate |
 | `edit.findPrevious` | `find-previous` | first responder | registry gate |
 | `edit.makeLowercase` | `make-lowercase` | first responder | registry gate |

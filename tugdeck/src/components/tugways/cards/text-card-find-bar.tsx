@@ -7,9 +7,9 @@
  *
  * One find CONTROLLER across the deck: the wrapper instantiates the shared
  * {@link FindSession} (query, options, wrap bookkeeping, the cluster face)
- * and supplies the Text card's {@link FindEngineDelegate} — a thin object
- * over the editor's own CodeMirror search (`TugTextCardEditorDelegate`),
- * which is virtualization-proof because CM6 works off the document. Options
+ * and hands it the editor's own engine — the shared CM6 engine every editable
+ * surface finds through (`editor-find-engine.ts`), which is
+ * virtualization-proof because CM6 works off the document. Options
  * seed from the GLOBAL find preference and persist back through the session's
  * `onOptionsChanged` hook (`putFindOptions`) — identical wiring to the
  * Session card. (Parity note: the count refreshes on find actions, not on
@@ -28,105 +28,35 @@ import {
   type TugFindBarHandle,
 } from "@/components/tugways/tug-find-bar";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
-import { readFindOptions, putFindOptions } from "@/settings-api";
-import { FindSession, type FindEngineDelegate } from "@/lib/find-session";
 import {
-  findTrace,
-  inferFindGesture,
-  type FindGestureSnapshot,
-} from "@/lib/find-trace";
+  readFindOptions,
+  putFindOptions,
+  readFindReplacement,
+  putFindReplacement,
+} from "@/settings-api";
+import { FindSession, type FindEngineDelegate } from "@/lib/find-session";
 import type { TugTextCardEditorDelegate } from "@/components/tugways/tug-text-card-editor";
 
 /**
- * The Text card's find engine: CM6 search behind the shared
- * {@link FindEngineDelegate} protocol. Search-as-you-type lands on the
- * first result AT OR AFTER the reader's anchor — the scrollport's top line
- * for ⌘F, the selection itself for ⌘E — wrapping to the document's first
- * match when there is none, and scrolling only when the landing is not
- * already on screen; the session owns everything else.
+ * The Text card's find engine: the editor's shared CM6 engine, resolved at
+ * each call rather than captured, so a bar that stays up while the editor
+ * remounts finds through the live one. The engine owns the landing rule, the
+ * count, the ring and the trace; the session owns everything else.
  */
 function documentFindEngine(
   getDelegate: () => TugTextCardEditorDelegate | null,
 ): FindEngineDelegate {
-  // The trace's own view of this surface. CM6 owns the document and the
-  // selection, so there is no index/DOM pair to diverge and no reveal to
-  // outlive its budget — a Text card contributes `gesture` events only, and
-  // they are what a walk over a large file is checked against. `navSeq`
-  // counts this engine's own gestures: the session's own counter is not
-  // handed to the delegate, and a per-engine count answers the one question
-  // the trace asks of it (which press produced which landing).
-  let navSeq = 0;
-  let prev: FindGestureSnapshot | null = null;
-  const recordGesture = (
-    query: string,
-    caseSensitive: boolean,
-    wholeWord: boolean,
-    grep: boolean,
-  ): void => {
-    const info = getDelegate()?.getMatchInfo() ?? {
-      count: 0,
-      activeOrdinal: null,
-      capped: false,
-    };
-    const snap: FindGestureSnapshot = {
-      query,
-      caseSensitive,
-      wholeWord,
-      grep,
-      activeOrdinal: info.activeOrdinal,
-      count: info.count,
-    };
-    navSeq += 1;
-    findTrace.record({
-      kind: "gesture",
-      surface: "text",
-      cardId: null,
-      gesture: inferFindGesture(prev, snap),
-      navSeq,
-      query,
-      count: info.count,
-      activeOrdinal: info.activeOrdinal,
-      // A Text card match lives in the editor's document, not at a
-      // `(row, segment)` the transcript's coordinates can name.
-      target: null,
-    });
-    prev = snap;
-  };
+  const engine = () => getDelegate()?.findEngine() ?? null;
   return {
-    searchDidChange: (query, opts) => {
-      const delegate = getDelegate();
-      if (delegate === null) return;
-      delegate.setSearchQuery({
-        search: query,
-        caseSensitive: opts.caseSensitive,
-        regexp: opts.grep,
-        wholeWord: opts.wholeWord,
-      });
-      if (query.length > 0) delegate.selectMatchFromAnchor();
-      recordGesture(query, opts.caseSensitive, opts.wholeWord, opts.grep);
-    },
-    findNext: () => {
-      getDelegate()?.findNext();
-      if (prev !== null) {
-        recordGesture(prev.query, prev.caseSensitive, prev.wholeWord, prev.grep);
-      }
-    },
-    findPrevious: () => {
-      getDelegate()?.findPrevious();
-      if (prev !== null) {
-        recordGesture(prev.query, prev.caseSensitive, prev.wholeWord, prev.grep);
-      }
-    },
+    searchDidChange: (query, opts) => engine()?.searchDidChange?.(query, opts),
+    findNext: () => engine()?.findNext?.(),
+    findPrevious: () => engine()?.findPrevious?.(),
     matchInfo: () =>
-      getDelegate()?.getMatchInfo() ?? {
-        count: 0,
-        activeOrdinal: null,
-        capped: false,
-      },
-    clear: () => {
-      getDelegate()?.clearSearch();
-      prev = null;
-    },
+      engine()?.matchInfo?.() ?? { count: 0, activeOrdinal: null, capped: false },
+    clear: () => engine()?.clear?.(),
+    replaceNext: (replacement) => engine()?.replaceNext?.(replacement),
+    replaceAll: (replacement) => engine()?.replaceAll?.(replacement),
+    isWritable: () => engine()?.isWritable?.() ?? false,
   };
 }
 
@@ -155,6 +85,16 @@ export interface TextCardFindBarProps {
   focusGroup?: string;
   /** First of the bar's consecutive stop orders. */
   focusOrderBase?: number;
+  /**
+   * Show the replace row (⌥⌘F asked for it). It appears only while the
+   * document is also writable — the session's `canReplace`.
+   */
+  replace?: boolean;
+  /**
+   * The document's read-only state. Pushed state, so the bar re-reads its
+   * replace capability whenever it moves and the row cannot go stale.
+   */
+  readOnly?: boolean;
 }
 
 /** The Text card drives the shared bar's imperative surface directly. */
@@ -171,6 +111,8 @@ export const TextCardFindBar = React.forwardRef<
     cardRootRef,
     focusGroup,
     focusOrderBase,
+    replace = false,
+    readOnly = false,
   }: TextCardFindBarProps,
   ref,
 ): React.ReactElement {
@@ -181,14 +123,24 @@ export const TextCardFindBar = React.forwardRef<
   if (sessionRef.current === null) {
     const client = getTugbankClient();
     const seeded = client ? readFindOptions(client) : null;
-    const session = new FindSession(seeded ?? undefined, {
-      onOptionsChanged: putFindOptions,
-    });
+    const session = new FindSession(
+      seeded ?? undefined,
+      {
+        onOptionsChanged: putFindOptions,
+        onReplacementChanged: putFindReplacement,
+      },
+      client ? readFindReplacement(client) : "",
+    );
     session.setDelegate(documentFindEngine(() => getDelegateRef.current()));
     sessionRef.current = session;
   }
   const session = sessionRef.current;
   useEffect(() => () => session.clear(), [session]);
+  // The editor reconfigures its read-only facet in a layout effect, so by
+  // this passive effect the engine reads the new state.
+  useEffect(() => {
+    session.refresh();
+  }, [session, readOnly]);
 
   return (
     <TugFindBar
@@ -203,6 +155,8 @@ export const TextCardFindBar = React.forwardRef<
       inputTestId="text-card-find-input"
       focusGroup={focusGroup}
       focusOrderBase={focusOrderBase}
+      replace={replace}
+      replacementTestId="text-card-replace-input"
     />
   );
 });

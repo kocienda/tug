@@ -335,6 +335,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "find-next": "command",
   "find-previous": "command",
   "find-selection": "command",
+  "find-replace": "command",
   "previous-tab": "command",
   "next-tab": "command",
   "reveal-stack": "command",
@@ -715,6 +716,9 @@ describe("every chord the static map held reaches the same command", () => {
     // the rest of that submenu does, and the table states the same chord so
     // the keymap pane can show it.
     ["⌘E", TUG_ACTIONS.FIND_SELECTION],
+    // ⌥⌘F arrived the same way and for the same reason: Edit ▸ Find ▸ Find
+    // and Replace… spells its key equivalent beside ⌘E's.
+    ["⌥⌘F", TUG_ACTIONS.FIND_REPLACE],
     ["⇧⌘S", TUG_ACTIONS.SAVE_AS],
     ["⌘R", TUG_ACTIONS.REVEAL_STACK],
     ["⌘+", TUG_ACTIONS.ZOOM_IN],

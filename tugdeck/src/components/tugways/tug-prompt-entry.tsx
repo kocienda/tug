@@ -781,6 +781,14 @@ export interface TugPromptEntryProps {
    */
   findSession?: FindSession;
   /**
+   * ⌥⌘F with the caret in this composer — the host opens the composer's own
+   * find bar with its replace row ([B04]). The entry answers `find-replace`
+   * only while this is given and the editor is live, so with the caret
+   * anywhere else the action walks on and the menu item reads the host's
+   * answer instead.
+   */
+  onFindReplace?: () => void;
+  /**
    * The active landing mode ([P01]): when one is up, this entry becomes its
    * message editor — the editor content swaps to that landing's draft, Z5
    * shows cancel / auto-message / land, and submit lands instead of sending to
@@ -1164,6 +1172,11 @@ export interface TugPromptEntryDelegate {
    */
   getEditorElement(): HTMLElement | null;
   /**
+   * The composed editor's live view, or null between mounts. A host's
+   * composer find bar searches through it (`createEditorFindEngine`).
+   */
+  view(): EditorView | null;
+  /**
    * Regenerate atom widgets — needed when the editor font or theme
    * tokens change so the baked atom chips pick up the new
    * family/size. Forwards to the substrate's
@@ -1206,6 +1219,7 @@ export const TugPromptEntry = React.forwardRef<
     shellGrammarStore,
     shellClassifyStore,
     findSession,
+    onFindReplace,
     landingMode,
     changesLandingKind = "commit",
     changesHasOffer = false,
@@ -3387,6 +3401,13 @@ export const TugPromptEntry = React.forwardRef<
           session.previous();
         }
       },
+      // ⌥⌘F — the composer's own find-and-replace bar, which the host mounts.
+      // Spread in only while there is a host to open it and an editor that
+      // can take an edit: the chain marks an action handled iff its key is
+      // present, so a stood-down composer leaves the item disabled.
+      ...(onFindReplace !== undefined && !deactivated
+        ? { [TUG_ACTIONS.FIND_REPLACE]: () => onFindReplace() }
+        : {}),
       // The Z4A route group. `TugChoiceGroup` dispatches `selectValue` up to
       // the parent responder ([L11]), and this entry is that parent — it owns
       // the document the route selects. Entering goes back out to the host,
@@ -3901,6 +3922,9 @@ export const TugPromptEntry = React.forwardRef<
       getEditorElement() {
         const view = textEditorRef.current?.view();
         return (view?.contentDOM as HTMLElement | undefined) ?? null;
+      },
+      view() {
+        return textEditorRef.current?.view() ?? null;
       },
       regenerateAtoms() {
         const view = textEditorRef.current?.view();

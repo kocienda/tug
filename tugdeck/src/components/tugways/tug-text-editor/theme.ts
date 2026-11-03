@@ -150,6 +150,22 @@ export const tugTheme: Extension = EditorView.theme({
     height: "100%",
   },
 
+  // CM6's bundled search panel stays mounted-but-hidden: mounting it
+  // initializes the search state's `panel` field, which the match
+  // highlighter requires before painting. A composer's find UI is the
+  // host's `TugFindBar`, driven through the shared editor engine.
+  ".cm-panels": {
+    display: "none",
+  },
+  // The same match paint as the Text card and the transcript.
+  ".cm-searchMatch": {
+    backgroundColor: "var(--tugx-find-match-bg)",
+  },
+  ".cm-searchMatch-selected": {
+    backgroundColor: "var(--tugx-find-active-bg)",
+    color: "var(--tugx-find-active-text)",
+  },
+
   // CodeMirror's screen-reader live region. Its base theme writes it
   // `position: fixed; top: -10000px`, and every pane frame carries a standing
   // promotion, which makes the frame — not the viewport — the containing

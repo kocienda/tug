@@ -183,7 +183,12 @@ import type {
 } from "@/lib/code-session-store";
 import { FindSession } from "@/lib/find-session";
 import {
+  ComposerFindBar,
+  type ComposerFindBarHandle,
+} from "@/components/tugways/composer-find-bar";
+import {
   TugFindBar,
+  findBarStopCount,
   type TugFindBarHandle,
 } from "@/components/tugways/tug-find-bar";
 import type { SkillsInventoryStore } from "@/lib/skills-inventory-store";
@@ -425,8 +430,10 @@ const SESSION_CYCLE_ORDER_COMMIT_BASE = 5;
 // while it is closed (the stops unmount with it, and the walk skips what is
 // not rendered). They sit between the toolbar and the Z2 cells because that is
 // where the bar sits: the cycle reads the card upward from its bottom edge.
+// The bar is the transcript's, which has nothing to replace into, so it never
+// shows the replace row and its span is the bar's four-stop one.
 const SESSION_CYCLE_ORDER_FIND_BASE = 8;
-const SESSION_CYCLE_FIND_STOP_COUNT = 4;
+const SESSION_CYCLE_FIND_STOP_COUNT = findBarStopCount(false);
 // The fold control, seated at the TRAILING edge of Z2 in BOTH forms
 // ([B03]–[B06]). It takes 18 — one past the Z2 cells at 13…17 — because that
 // is where it stands on screen: the walk reads the row left to right, and the
@@ -449,6 +456,14 @@ const FOLD_FOCUS_KEY = `${SESSION_CYCLE_GROUP}:${SESSION_CYCLE_ORDER_FOLD}`;
 const SESSION_CYCLE_ORDER_STATUS_BASE = 13;
 const SESSION_CYCLE_ORDER_EDITOR = 19;
 const SESSION_CYCLE_ORDER_ATTACHMENT_BASE = 20;
+// The composer's own find bar ([B03]) — query, options, ↑, ↓ and the replace
+// row's field, Replace and All — docked under the prompt entry while ⌥⌘F has
+// it open. It is the bottom-most row on screen, but its stops come last in the
+// Tab walk, past every attachment tile: it searches the document the editor
+// holds, so it follows that document's stops rather than taking the toolbar's
+// seat at the walk's start. 100 is clear of any tile count a composer holds.
+const SESSION_CYCLE_ORDER_COMPOSER_FIND_BASE = 100;
+const SESSION_CYCLE_COMPOSER_FIND_STOP_COUNT = findBarStopCount(true);
 
 // What committing a Z4B settings picker (effort / model / permission mode) opened
 // from a cycle stop does to the cycle ([P15]). Both behaviors are first-class
@@ -1965,6 +1980,34 @@ export function SessionCardBody({
     else openFindBar();
   }, [openFindBar, closeFindBar]);
 
+  // The composer's own find bar ([B03]), opened by ⌥⌘F with the caret in the
+  // composer and docked under it. Its session lives with the bar, so closing
+  // it ends that search. ⌘F keeps meaning the transcript ([B04]); the two
+  // bars search different documents and can be up together.
+  const [composerFindOpen, setComposerFindOpen] = useState(false);
+  const composerFindBarRef = useRef<ComposerFindBarHandle | null>(null);
+  const composerFindOpenRef = useRef(composerFindOpen);
+  composerFindOpenRef.current = composerFindOpen;
+  const openComposerFind = useCallback(() => {
+    // An open bar takes the keyboard back to its query, as ⌘F does on the
+    // transcript's; the bar focuses its own query on mount otherwise.
+    if (composerFindOpenRef.current) composerFindBarRef.current?.focusQuery();
+    else setComposerFindOpen(true);
+  }, []);
+  const closeComposerFind = useCallback(() => {
+    // Same keyboard rule as the transcript bar's close: only a bar that held
+    // the keyboard hands it back, and a cycle hands it back by exiting.
+    const heldKeyboard = composerFindBarRef.current?.holdsKeyboard() ?? false;
+    setComposerFindOpen(false);
+    if (!heldKeyboard) return;
+    if (cyclingRef.current) exitCycleRef.current();
+    else entryDelegateRef.current?.focus();
+  }, [entryDelegateRef]);
+  const getComposerView = useCallback(
+    () => entryDelegateRef.current?.view() ?? null,
+    [entryDelegateRef],
+  );
+
   useSessionCardObserver(cardId, codeSessionStore);
   // Landing receipts as transcript ink ([P09], Spec S04): every successful
   // commit/join/release for this card's project leaves a non-context row.
@@ -2443,6 +2486,13 @@ export function SessionCardBody({
   const cycleSpatialOrder = useMemo<SpatialOrder>(() => {
     const k = (order: number) => `${SESSION_CYCLE_GROUP}:${order}`;
     return rowGridOrder([
+      // The composer's find bar, under the toolbar — the bottom row while it
+      // is open, and dropped (an empty row) while it is not.
+      composerFindOpen
+        ? Array.from({ length: SESSION_CYCLE_COMPOSER_FIND_STOP_COUNT }, (_, i) =>
+            k(SESSION_CYCLE_ORDER_COMPOSER_FIND_BASE + i),
+          )
+        : [],
       [
         k(SESSION_CYCLE_ORDER_ROUTE),
         k(SESSION_CYCLE_ORDER_CLAUDE_CODE),
@@ -2483,7 +2533,7 @@ export function SessionCardBody({
         k(SESSION_CYCLE_ORDER_ATTACHMENT_BASE + i),
       ),
     ]);
-  }, [attachmentCount, findBarOpen]);
+  }, [attachmentCount, findBarOpen, composerFindOpen]);
   useSpatialOrder(cycle.scopeId, cycleSpatialOrder);
 
   const editorSettings = useSyncExternalStore(
@@ -5586,7 +5636,26 @@ export function SessionCardBody({
                     ? SESSION_READY_PROMPT_PLACEHOLDER
                     : SESSION_PROMPT_PLACEHOLDER
                 }
+                onFindReplace={openComposerFind}
               />
+              {composerFindOpen ? (
+                // Docked under the entry shell, in the same cycle scope, so its
+                // stops take their seat in the card's one Tab order.
+                <ComposerFindBar
+                  ref={composerFindBarRef}
+                  getView={getComposerView}
+                  onClose={closeComposerFind}
+                  cardRootRef={sessionCardRootRef}
+                  focusGroup={SESSION_CYCLE_GROUP}
+                  focusOrderBase={SESSION_CYCLE_ORDER_COMPOSER_FIND_BASE}
+                  // Every state that makes the composer's field read-only: the
+                  // stand-downs, and an Auto-Message draft streaming into it.
+                  readOnly={inlineDialogPending || replayHoldActive || drafting}
+                  dataSlot="session-composer-find-bar"
+                  inputTestId="session-composer-find-input"
+                  replacementTestId="session-composer-replace-input"
+                />
+              ) : null}
             </cycle.CycleScope>
           </TugBox>
           {cardPickerSheet.renderSheet()}

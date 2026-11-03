@@ -330,6 +330,24 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 ---
 
+## The find-and-replace chord
+
+⌥⌘F opens the find bar with its replace row showing, over the editable text the caret is in.
+
+| Command | Chord | Derivation |
+|---|---|---|
+| `find-replace` | **⌥⌘F** | R1's ⌥ twist of ⌘F. The rule this file states for that twist — it "has to read as a variant of opening the find bar" — is exactly what Find and Replace is: the same bar, one row taller. It is why ⌥⌘F was never given to Fold, and this is the claim it was kept for. |
+
+**Not ⇧⌘F.** A ⇧ twist reads as the reverse or the larger of its base, the way ⇧⌘G is Find Previous; replacing is neither. ⌥ is the tier's "variant" modifier.
+
+**Nothing below the menu takes it.** CodeMirror's `defaultKeymap`, which the Text card and every composer install, binds no `Alt-Mod-f`, so the chord reaches the chain from inside an editor.
+
+**Promotion to Edit ▸ Find ▸ Find and Replace… is R6's half of the grant**, beside its four siblings, with a construction-time `"f"` key equivalent under `[.command, .option]` — the same spelling the rest of the submenu uses, and the same rebind debt.
+
+**Its gate is the surface's, and it is pushed state.** Only a surface whose text can be replaced into registers the handler, so the item is disabled over a transcript or a help document. A Text card gone read-only validates it false; read-only is state the card pushes, so unlike a selection the gate cannot go stale between menuState pushes.
+
+---
+
 ## The lateral bracket family
 
 The bracket keys carry three commands, and they carry the same axis in all three: left and right along the deck.

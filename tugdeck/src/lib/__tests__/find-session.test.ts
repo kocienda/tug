@@ -1,9 +1,9 @@
 /**
  * find-session.test — the shared find controller's engine-independent
  * semantics, exercised against a stub {@link FindEngineDelegate}: query /
- * option propagation, count publication, and the ordinal-movement wrap
+ * option propagation, count publication, the ordinal-movement wrap
  * accounting that drives the shared wrap overlay identically for every
- * engine.
+ * engine, and replace's capability gate and its own wrap rule.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -276,5 +276,173 @@ describe("FindSession reveal-failed flag", () => {
     // the match is still off screen and the chip must keep saying so.
     session.refresh();
     expect(session.getSnapshot().revealFailed).toBe(true);
+  });
+});
+
+/**
+ * A stub writable engine over `count` matches. Replacing the active match
+ * removes it, so the match after it takes its ordinal — the shape that makes
+ * replace need a wrap rule of its own. The last match's replacement hands the
+ * active slot to the first.
+ */
+function replaceEngine(count: number) {
+  let active: number | null = null;
+  let writable = true;
+  const replaced: string[] = [];
+  const engine: FindEngineDelegate & { setWritable: (w: boolean) => void } = {
+    searchDidChange: (query: string) => {
+      active = count > 0 && query !== "" ? 0 : null;
+    },
+    findNext: () => {
+      if (count === 0) return;
+      active = active === null ? 0 : (active + 1) % count;
+    },
+    matchInfo: (): FindMatchInfo => ({ count, activeOrdinal: active, capped: false }),
+    replaceNext: (replacement: string) => {
+      replaced.push(replacement);
+      if (count === 0) return;
+      if (active === null) {
+        active = 0;
+        return;
+      }
+      count -= 1;
+      active = count === 0 ? null : active % count;
+    },
+    replaceAll: (replacement: string) => {
+      replaced.push(`all:${replacement}`);
+      count = 0;
+    },
+    isWritable: () => writable,
+    setWritable: (w: boolean) => {
+      writable = w;
+    },
+  };
+  return { engine, replaced };
+}
+
+describe("FindSession replace", () => {
+  test("canReplace follows the engine's capability and writability", () => {
+    const readOnlySurface = new FindSession();
+    readOnlySurface.setDelegate(stubEngine(3).engine);
+    expect(readOnlySurface.getSnapshot().canReplace).toBe(false);
+
+    const { engine } = replaceEngine(3);
+    const session = new FindSession();
+    let notifications = 0;
+    session.subscribe(() => {
+      notifications += 1;
+    });
+    session.setDelegate(engine);
+    expect(session.getSnapshot().canReplace).toBe(true);
+    expect(notifications).toBe(1);
+
+    // Read-only is pushed state: the host refreshes and the bit follows.
+    engine.setWritable(false);
+    session.refresh();
+    expect(session.getSnapshot().canReplace).toBe(false);
+
+    session.setDelegate(null);
+    expect(session.getSnapshot().canReplace).toBe(false);
+  });
+
+  test("replace is a no-op when the engine cannot replace", () => {
+    const { engine, replaced } = replaceEngine(3);
+    engine.setWritable(false);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.replaceNext();
+    session.replaceAll();
+    expect(replaced).toEqual([]);
+    expect(session.getSnapshot().count).toBe(3);
+  });
+
+  test("replace is a no-op with no query", () => {
+    const { engine, replaced } = replaceEngine(3);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.replaceNext();
+    expect(replaced).toEqual([]);
+  });
+
+  test("replacing a middle match does not read as a wrap", () => {
+    const { engine } = replaceEngine(3);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.next();
+    expect(session.getSnapshot().activeOrdinal).toBe(1);
+    const wrapSeq = session.getSnapshot().wrapSeq;
+    // The following match inherits ordinal 1. `next()`'s rule would call
+    // that a wrap; replace's does not.
+    session.replaceNext();
+    const snap = session.getSnapshot();
+    expect(snap.count).toBe(2);
+    expect(snap.activeOrdinal).toBe(1);
+    expect(snap.wrapped).toBe(false);
+    expect(snap.wrapSeq).toBe(wrapSeq);
+  });
+
+  test("replacing the last match wraps to the first", () => {
+    const { engine } = replaceEngine(3);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.next();
+    session.next();
+    expect(session.getSnapshot().activeOrdinal).toBe(2);
+    const wrapSeq = session.getSnapshot().wrapSeq;
+    session.replaceNext();
+    const snap = session.getSnapshot();
+    expect(snap.activeOrdinal).toBe(0);
+    expect(snap.wrapped).toBe(true);
+    expect(snap.wrapDirection).toBe(1);
+    expect(snap.wrapSeq).toBe(wrapSeq + 1);
+  });
+
+  test("replacing the only match leaves no results and no wrap", () => {
+    const { engine } = replaceEngine(1);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.replaceNext();
+    const snap = session.getSnapshot();
+    expect(snap.count).toBe(0);
+    expect(snap.activeOrdinal).toBe(null);
+    expect(snap.wrapped).toBe(false);
+    expect(snap.hasQuery).toBe(true);
+  });
+
+  test("replace all clears the active match and republishes the count", () => {
+    const { engine, replaced } = replaceEngine(4);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.setReplacement("r");
+    session.replaceAll();
+    const snap = session.getSnapshot();
+    expect(replaced).toEqual(["all:r"]);
+    expect(snap.count).toBe(0);
+    expect(snap.activeOrdinal).toBe(null);
+    expect(snap.wrapped).toBe(false);
+  });
+
+  test("the replacement seeds, reaches the engine, and persists through the hook", () => {
+    const { engine, replaced } = replaceEngine(2);
+    const persisted: string[] = [];
+    const session = new FindSession(
+      undefined,
+      { onReplacementChanged: (r) => persisted.push(r) },
+      "seed",
+    );
+    session.setDelegate(engine);
+    session.setQuery("q");
+    expect(session.getSnapshot().replacement).toBe("seed");
+    session.replaceNext();
+    session.setReplacement("next");
+    session.setReplacement("next");
+    session.replaceNext();
+    expect(replaced).toEqual(["seed", "next"]);
+    expect(persisted).toEqual(["next"]);
   });
 });

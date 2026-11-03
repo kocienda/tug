@@ -138,6 +138,8 @@ describe("no hand-made host channel", () => {
       "ProcessManager.swift",
       // The run-loop probe's answer (`Snapshot.json`), as the control socket carries it.
       "HostRunLoopWatch.swift",
+      // The bundle's own `Info.plist` (`UTImportedTypeDeclarations`), read for its declared text extensions.
+      "OpenableFiles.swift",
     ].map((name) => `tugapp/Sources/${name}`);
     expect(NOT_HOST_MESSAGES.every((rel) => HOST.some(({ path }) => relative(CHECKOUT, path) === rel))).toBe(true);
     expect(hits(HOST, /\[String:\s*Any\]/, NOT_HOST_MESSAGES)).toEqual([]);

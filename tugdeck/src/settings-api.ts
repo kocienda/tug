@@ -1154,6 +1154,43 @@ export function putFindOptions(options: FindOptions): void {
   });
 }
 
+/**
+ * Read the deck-wide remembered Find replacement from the TugbankClient cache.
+ * Stored under `dev.tugapp.find` / `replacement` (Value::String) beside the
+ * option toggles, so a re-summoned replace row arrives with the last text the
+ * user replaced with. Returns `""` when unset or malformed.
+ */
+export function readFindReplacement(client: TugbankClient): string {
+  const entry = client.get("dev.tugapp.find", "replacement");
+  if (entry && entry.kind === "string" && typeof entry.value === "string") {
+    return entry.value;
+  }
+  return "";
+}
+
+/** Trailing quiet window before a typed replacement is written. */
+const FIND_REPLACEMENT_PUT_DELAY_MS = 400;
+let findReplacementPutTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * PUT the remembered Find replacement to tugbank (fire-and-forget). The text
+ * mirrors on every keystroke, so the write waits for a quiet moment and sends
+ * only the last value rather than one request per character.
+ */
+export function putFindReplacement(replacement: string): void {
+  if (findReplacementPutTimer !== null) clearTimeout(findReplacementPutTimer);
+  findReplacementPutTimer = setTimeout(() => {
+    findReplacementPutTimer = null;
+    fetch("/api/defaults/dev.tugapp.find/replacement", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "string", value: replacement }),
+    }).catch((err) => {
+      console.warn("[settings] PUT findReplacement failed:", err);
+    });
+  }, FIND_REPLACEMENT_PUT_DELAY_MS);
+}
+
 // ── Split pane layouts ──────────────────────────────────────────────────────
 
 /**

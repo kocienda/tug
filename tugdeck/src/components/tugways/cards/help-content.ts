@@ -65,6 +65,7 @@ const HELP_SHORTCUT_ROWS: ReadonlyArray<{
   { commandId: `${TUG_ACTIONS.SELECT_COMPOSER_ROUTE}:prompt`, label: "Prompt route" },
   { commandId: TUG_ACTIONS.TOGGLE_CHANGES_VIEW, label: "Changes route — show or hide Changes" },
   { commandId: TUG_ACTIONS.FIND, label: "Show / hide the find bar" },
+  { commandId: TUG_ACTIONS.FIND_REPLACE, label: "Find and replace in editable text" },
   { commandId: TUG_ACTIONS.FIND_NEXT, label: "Next match" },
   { commandId: TUG_ACTIONS.FIND_PREVIOUS, label: "Previous match" },
   { commandId: TUG_ACTIONS.TOGGLE_HISTORY_VIEW, label: "Show or hide the History Shade" },

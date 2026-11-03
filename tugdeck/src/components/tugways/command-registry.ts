@@ -1790,6 +1790,26 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
     mirrored: true,
   },
+  {
+    // ⌥⌘F: the ⌥ twist of ⌘F that chord-tiers.md held for "a variant of
+    // opening the find bar" — which Find and Replace is. CodeMirror's
+    // default keymap binds no Alt-Mod-f, so the editors never swallow it.
+    //
+    // No predicate, like its siblings: the chain walk asks the focused
+    // surface. A surface that can replace registers the handler; a Text card
+    // gone read-only validates it false, which is pushed state and so cannot
+    // go stale the way a selection gate would; and a Session card outside its
+    // composer registers nothing, because the transcript cannot be replaced
+    // into.
+    id: TUG_ACTIONS.FIND_REPLACE,
+    title: "Find and Replace…",
+    routing: "first-responder",
+    menuItemId: "edit.findAndReplace",
+    bindings: [
+      chord({ key: "KeyF", meta: true, alt: true, label: "f" }, { preventDefault: true }),
+    ],
+    mirrored: true,
+  },
 
   // ---- Session ----
   {

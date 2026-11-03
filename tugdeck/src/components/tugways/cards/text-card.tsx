@@ -94,6 +94,7 @@ import {
   TextCardFindBar,
   type TextCardFindBarHandle,
 } from "./text-card-find-bar";
+import { findBarStopCount } from "../tug-find-bar";
 import { TugLabel } from "../tug-label";
 import { presentCardSettingsSheet } from "./card-settings-sheet";
 import { TextCardStatusBar } from "./text-card-status-bar";
@@ -129,14 +130,17 @@ import { openAttachmentPath } from "@/lib/open-attachment";
 const TEXT_CARD_CYCLE_GROUP = "text-card-cycle";
 
 /**
- * The find bar's four consecutive stops — query field, the two navigation
- * arrows, the options control ([D122]) — walked before the status strip
+ * The find bar's consecutive stops — query field, the options control, the
+ * two navigation arrows ([D122]), and while the replace row shows the
+ * replacement field, Replace and All — walked before the status strip
  * because the bar sits above it: the walk reads the card downward from the
- * editor, the same order the Session card teaches (find 8…11, status 12…16).
+ * editor, the same order the Session card teaches. The strip starts past the
+ * bar's largest span, so the row's three stops never land on its popups.
  */
 const TEXT_CARD_CYCLE_ORDER_FIND_BASE = 4;
 /** The status strip's line-ending popup; the file-type popup takes the next slot. */
-const TEXT_CARD_CYCLE_ORDER_LINE_ENDING = 8;
+const TEXT_CARD_CYCLE_ORDER_LINE_ENDING =
+  TEXT_CARD_CYCLE_ORDER_FIND_BASE + findBarStopCount(true);
 /**
  * The editor is LAST, matching the Session card. The lowest order in a group
  * is the engine's seed seat when the group's membership changes, and this
@@ -356,6 +360,9 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   // editor); the query, options, and count live inside `TextCardFindBar`,
   // which drives the editor's CM6 search through the delegate.
   const [findOpen, setFindOpen] = useState(false);
+  // Whether the open bar shows its replace row. Set by Find and Replace and
+  // kept by a plain ⌘F on a bar that already has it; closing the bar drops it.
+  const [replaceShown, setReplaceShown] = useState(false);
   const findBarRef = useRef<TextCardFindBarHandle | null>(null);
   // Root element — the shared wrap overlay's containment box.
   const cardRootRef = useRef<HTMLDivElement | null>(null);
@@ -379,7 +386,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     // been stepping through matches, so the scrollport's top line is a
     // stale answer to "where are you".
     if (findBarRef.current === null) {
-      editorRef.current?.captureFindAnchor("viewport");
+      editorRef.current?.findEngine().captureFindAnchor("viewport");
     }
     findSeedRef.current = "";
     setFindOpen(true);
@@ -396,7 +403,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     // is taken before either branch, while the selection is still live.
     // Because the cursor starts AT the anchor, the landing is the selected
     // text rather than the next occurrence after it.
-    editorRef.current?.captureFindAnchor("selection");
+    editorRef.current?.findEngine().captureFindAnchor("selection");
     // The bar's own ref answers "is it up?" without a second flag to keep
     // honest — React nulls it on unmount, which is exactly when the bar is
     // gone and the seed path is the right one.
@@ -410,7 +417,8 @@ export function TextCardContent({ cardId }: { cardId: string }) {
 
   const closeFindBar = useCallback(() => {
     setFindOpen(false);
-    editorRef.current?.clearSearch();
+    setReplaceShown(false);
+    editorRef.current?.findEngine().clear?.();
     editorRef.current?.focus();
   }, []);
 
@@ -1109,6 +1117,14 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       [TUG_ACTIONS.FIND]: () => {
         openFindBar();
       },
+      // ⌥⌘F — the same bar with its replace row. Validated false while the
+      // document is read-only, so the menu item dims and the chord falls
+      // through rather than opening a row with nothing to replace into.
+      [TUG_ACTIONS.FIND_REPLACE]: () => {
+        if (snapshot.readOnly) return;
+        setReplaceShown(true);
+        openFindBar();
+      },
       // ⌥⇥ toggles keyboard-focus-cycling ([P09]/[P10]). Registered on the
       // card-content responder for the same reason the Session card does it
       // there: key-card dispatch starts at this node wherever focus sits, so
@@ -1139,11 +1155,14 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         );
       },
     },
-    validateAction: (action) =>
+    validateAction: (action) => {
       // Nothing for the Finder to select until the buffer is bound to a real
       // file — an untitled draft lives in the drafts directory under a name
       // the user never chose.
-      action === TUG_ACTIONS.REVEAL_CARD_FILE ? isBoundFile : true,
+      if (action === TUG_ACTIONS.REVEAL_CARD_FILE) return isBoundFile;
+      if (action === TUG_ACTIONS.FIND_REPLACE) return !snapshot.readOnly;
+      return true;
+    },
   });
 
   // Compose the responder registration onto the card's root node, which the
@@ -1364,6 +1383,8 @@ export function TextCardContent({ cardId }: { cardId: string }) {
               cardRootRef={cardRootRef}
               focusGroup={TEXT_CARD_CYCLE_GROUP}
               focusOrderBase={TEXT_CARD_CYCLE_ORDER_FIND_BASE}
+              replace={replaceShown}
+              readOnly={snapshot.readOnly}
             />
           </cycle.CycleScope>
         ) : null}

@@ -16,8 +16,9 @@
  *  - the **transcript engine** (`lib/transcript-find-engine.ts`) — the Dev
  *    card's store→index search over a virtualized row list, painted by the
  *    Custom-Highlight painter;
- *  - the **document engine** (the Text card's find bar) — CM6's own search
- *    over one editor document.
+ *  - the **editor engine** (`components/tugways/editor-find-engine.ts`) —
+ *    CM6's own search over one editor document, shared by every editable
+ *    CM6 surface that hosts the bar.
  *
  * A future card type joins find by writing an engine delegate, never by
  * re-implementing session semantics: wrap detection, count publication, and
@@ -29,6 +30,13 @@
  * wrapped past the end; the mirror rule holds for backward steps. A
  * one-match set therefore wraps on every step, which is exactly the felt
  * behavior the overlay should indicate.
+ *
+ * Replace is a capability, not a surface: an engine that implements
+ * `replaceNext` and `replaceAll` and reports itself writable makes the
+ * session's `canReplace` true, and the bar shows its replace row only then.
+ * A read-only engine implements neither and nothing about it changes.
+ * Replace has its own wrap rule (see {@link FindSession.replaceNext}),
+ * because removing the active match hands its ordinal to the next one.
  *
  * [L02]: external store — `subscribe` / `getSnapshot` are stable pre-bound
  * references and the snapshot object is replaced on every mutation. The
@@ -82,6 +90,19 @@ export interface FindEngineDelegate {
   matchInfo?(): FindMatchInfo;
   /** Tear down the search (leaving find / empty query). */
   clear?(): void;
+  /**
+   * Replace the active match with `replacement` and move to the next one.
+   * When no match is active, only select the next match. One undoable edit.
+   */
+  replaceNext?(replacement: string): void;
+  /** Replace every match with `replacement`, as one undoable edit. */
+  replaceAll?(replacement: string): void;
+  /**
+   * Whether the document can be written right now. Consulted only for an
+   * engine that implements replace; absent means writable. A host whose
+   * writability changes calls {@link FindSession.refresh}.
+   */
+  isWritable?(): boolean;
 }
 
 /** Immutable snapshot handed to `useSyncExternalStore` consumers. */
@@ -113,6 +134,16 @@ export interface FindSessionState extends FindSurfaceSnapshot {
    * scroll out from under a reader.
    */
   navSeq: number;
+  /**
+   * The replacement text. Literal mode expands `\n`, `\t` and `\\`; grep
+   * mode expands `$1`…`$9` and `$&` — CodeMirror's own rules.
+   */
+  replacement: string;
+  /**
+   * True exactly when the attached engine implements replace and reports
+   * itself writable. The bar's replace row shows only when this is true.
+   */
+  canReplace: boolean;
 }
 
 /** Session-level hooks — store-layer seams, not user-interaction callbacks. */
@@ -123,6 +154,11 @@ export interface FindSessionHooks {
    * find-options preference stays one setting across every find surface.
    */
   onOptionsChanged?: (options: FindOptions) => void;
+  /**
+   * Fired after every replacement change with the new text, so the
+   * deck-wide find preference remembers it beside the options.
+   */
+  onReplacementChanged?: (replacement: string) => void;
 }
 
 export class FindSession extends Subscribable implements FindSurface {
@@ -133,6 +169,7 @@ export class FindSession extends Subscribable implements FindSurface {
   constructor(
     initialOptions: FindOptions = DEFAULT_FIND_OPTIONS,
     hooks: FindSessionHooks = {},
+    initialReplacement = "",
   ) {
     super();
     this.hooks = hooks;
@@ -148,6 +185,8 @@ export class FindSession extends Subscribable implements FindSurface {
       wrapDirection: 0,
       wrapSeq: 0,
       navSeq: 0,
+      replacement: initialReplacement,
+      canReplace: false,
     };
   }
 
@@ -163,6 +202,9 @@ export class FindSession extends Subscribable implements FindSurface {
     this.engine?.didDetach?.(this);
     this.engine = engine;
     engine?.didAttach?.(this);
+    const canReplace = this.readCanReplace();
+    const capabilityMoved = canReplace !== this.state.canReplace;
+    if (capabilityMoved) this.state = { ...this.state, canReplace };
     if (engine !== null && this.state.query !== "") {
       this.state = {
         ...this.state,
@@ -171,7 +213,9 @@ export class FindSession extends Subscribable implements FindSurface {
       };
       engine.searchDidChange?.(this.state.query, this.state.options);
       this.refresh();
+      return;
     }
+    if (capabilityMoved) this.emit();
   }
 
   // ── Store surface ([L02]) ────────────────────────────────────────────────
@@ -243,6 +287,58 @@ export class FindSession extends Subscribable implements FindSurface {
     this.publishInfo(wrapped ? -1 : 0, info);
   }
 
+  /** Update the replacement text. Replaces nothing; persists through the hook. */
+  setReplacement(replacement: string): void {
+    if (replacement === this.state.replacement) return;
+    this.state = { ...this.state, replacement };
+    this.emit();
+    this.hooks.onReplacementChanged?.(replacement);
+  }
+
+  /**
+   * Replace the active match and step to the next. A no-op unless
+   * {@link FindSessionState.canReplace} and a query is live.
+   *
+   * The wrap rule differs from {@link next}'s: replacing the active match
+   * removes it, so the match after it inherits its ordinal, and "the ordinal
+   * did not advance" no longer means a wrap. A replace wraps only when the
+   * new ordinal is strictly less than the old one, and never when no match
+   * is left.
+   */
+  replaceNext(): void {
+    if (!this.state.canReplace || this.state.query === "") return;
+    const prev = this.state.activeOrdinal;
+    this.state = {
+      ...this.state,
+      revealFailed: false,
+      navSeq: this.state.navSeq + 1,
+    };
+    this.engine?.replaceNext?.(this.state.replacement);
+    const info = this.readInfo();
+    const wrapped =
+      info.count > 0 &&
+      prev !== null &&
+      info.activeOrdinal !== null &&
+      info.activeOrdinal < prev;
+    this.publishInfo(wrapped ? 1 : 0, info);
+  }
+
+  /**
+   * Replace every match. A no-op unless {@link FindSessionState.canReplace}
+   * and a query is live. Nothing is active afterwards; the count is what
+   * the document now holds, which for most replacements is none.
+   */
+  replaceAll(): void {
+    if (!this.state.canReplace || this.state.query === "") return;
+    this.state = {
+      ...this.state,
+      revealFailed: false,
+      navSeq: this.state.navSeq + 1,
+    };
+    this.engine?.replaceAll?.(this.state.replacement);
+    this.publishInfo(0, { ...this.readInfo(), activeOrdinal: null });
+  }
+
   /**
    * Say whether the host's live reveal failed to put the active match on
    * screen ([P09]). The host is the only caller: it knows the outcome, and
@@ -276,13 +372,24 @@ export class FindSession extends Subscribable implements FindSurface {
    * Re-read the engine's match summary and re-publish. The engine calls
    * this when results settle asynchronously (a debounced transcript
    * search, a navigation performed outside the session — e.g. the
-   * document editor's own ⌘G handler).
+   * document editor's own ⌘G handler) — and the host calls it when the
+   * document's writability changes, which re-reads `canReplace`.
    */
   refresh(): void {
+    this.state = { ...this.state, canReplace: this.readCanReplace() };
     this.publishInfo(this.state.wrapDirection, this.readInfo(), true);
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
+
+  private readCanReplace(): boolean {
+    const engine = this.engine;
+    if (engine === null) return false;
+    if (engine.replaceNext === undefined || engine.replaceAll === undefined) {
+      return false;
+    }
+    return engine.isWritable?.() ?? true;
+  }
 
   private readInfo(): FindMatchInfo {
     if (this.state.query === "" || this.engine?.matchInfo === undefined) {

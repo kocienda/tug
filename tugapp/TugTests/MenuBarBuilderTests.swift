@@ -160,6 +160,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "Edit ▸ Find | Find Next | ⌘g | performFindNext: | edit.findNext",
         "Edit ▸ Find | Find Previous | ⇧⌘g | performFindPrevious: | edit.findPrevious",
         "Edit ▸ Find | Use Selection for Find | ⌘e | performFindSelection: | edit.useSelectionForFind",
+        "Edit ▸ Find | Find and Replace… | ⌥⌘f | performFindAndReplace: | edit.findAndReplace",
         "Bar | Session ▸ | - | - | -",
         "Session | Focus Prompt | ⌘k | focusPrompt: | session.focusPrompt",
         "Session | Stop | - | stopSession: | session.stop",

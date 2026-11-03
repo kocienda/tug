@@ -1665,6 +1665,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("find-selection")
     }
 
+    @objc func performFindAndReplace(_ sender: Any?) {
+        sendControl("find-replace")
+    }
+
     // Go ▸ card navigation — chain-action round-trips for the
     // chords the menu bar now swallows.
     @objc func previousCard(_ sender: Any?) {

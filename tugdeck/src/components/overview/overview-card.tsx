@@ -80,6 +80,7 @@ import React, {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { afterGesture, gestureScope, useSyncExternalStore } from "@/lib/gesture-scope";
 import { layoutRectOf, pageZoomStore } from "@/lib/page-zoom-store";
@@ -95,6 +96,10 @@ import {
 } from "@/components/tugways/cards/transcript-host-helpers";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugEntryShell } from "@/components/tugways/tug-entry-shell";
+import {
+  ComposerFindBar,
+  type ComposerFindBarHandle,
+} from "@/components/tugways/composer-find-bar";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
@@ -1956,9 +1961,36 @@ function OverviewComposer({
   // The composer's submit, which is rebuilt every render and defined below;
   // ⇧⌘D's send fires after the host's `ended` and reads it here ([L07]).
   const submitRef = useRef<() => void>(() => {});
+
+  // The composer's find bar ([B03]) — the Overview's first — opened by ⌥⌘F
+  // with the caret here and docked under the shell. Its session lives with
+  // the bar, so closing it ends the search.
+  const [findOpen, setFindOpen] = useState(false);
+  const findBarRef = useRef<ComposerFindBarHandle | null>(null);
+  const findOpenRef = useRef(findOpen);
+  findOpenRef.current = findOpen;
+  const openFind = useCallback((): void => {
+    if (findOpenRef.current) findBarRef.current?.focusQuery();
+    else setFindOpen(true);
+  }, []);
+  const closeFind = useCallback((): void => {
+    // Only a bar that held the keyboard hands it back to the field.
+    const heldKeyboard = findBarRef.current?.holdsKeyboard() ?? false;
+    setFindOpen(false);
+    if (heldKeyboard) editorRef.current?.focus();
+  }, []);
+  const getFindView = useCallback(
+    (): EditorView | null => editorRef.current?.view() ?? null,
+    [],
+  );
+
   const { ResponderScope: ComposerResponderScope, responderRef } = useResponder({
     id: "overview-composer",
     actions: {
+      // ⌥⌘F — find and replace in the question being typed. Spread in only
+      // while the field takes edits: the chain marks an action handled iff
+      // its key is present, so a waiting composer leaves the item disabled.
+      ...(!pending ? { [TUG_ACTIONS.FIND_REPLACE]: openFind } : {}),
       [TUG_ACTIONS.REMOVE_ATTACHMENT]: (event) => {
         if (typeof event.value !== "string") return;
         removeAttachment(event.value);
@@ -2484,6 +2516,22 @@ function OverviewComposer({
         onAttachmentError={onAttachmentError}
       />
     </TugEntryShell>
+    {findOpen ? (
+      <ComposerFindBar
+        ref={findBarRef}
+        getView={getFindView}
+        onClose={closeFind}
+        cardRootRef={shellRef}
+        focusGroup={OVERVIEW_FOCUS_GROUP}
+        // Past the field, the mic, the send button and every tile: the bar
+        // searches what those stops compose, so it follows them.
+        focusOrderBase={100}
+        readOnly={pending}
+        dataSlot="overview-composer-find-bar"
+        inputTestId="overview-composer-find-input"
+        replacementTestId="overview-composer-replace-input"
+      />
+    ) : null}
     </ComposerResponderScope>
   );
 }

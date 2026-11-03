@@ -908,6 +908,14 @@ export const TUG_ACTIONS = {
   //                         reads its CM6 range), which is also what makes
   //                         it inapplicable with nothing selected.
   //                         Dispatched by ⌘E.
+  // FIND_REPLACE:           payload — none. Open the find UI with its replace
+  //                         row showing, over the editable text the caret is
+  //                         in. Handled only by a surface whose text can be
+  //                         replaced into (the Text card, a composer); a
+  //                         read-only Text card validates it false, and a
+  //                         surface with nothing to replace into does not
+  //                         register it, so the menu item disables there.
+  //                         Dispatched by ⌥⌘F.
   // SAVE:                   payload — none. Flush the first responder's
   //                         pending edits to disk now. Under the live
   //                         autosave model there is no dirty state —
@@ -1210,6 +1218,7 @@ export const TUG_ACTIONS = {
   FIND_NEXT:              "find-next",
   FIND_PREVIOUS:          "find-previous",
   FIND_SELECTION:         "find-selection",
+  FIND_REPLACE:           "find-replace",
   SAVE:                   "save",
   SAVE_AS:                "save-as",
   SAVE_A_COPY:            "save-a-copy",
