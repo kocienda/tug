@@ -14,7 +14,9 @@
  * ## Test matrix (one launch, two cards over real temp files)
  *
  *   1. Edit ▸ Find ▸ Find and Replace… with the caret in the writable card's
- *      editor is enabled, performs, and opens the bar with the replace row.
+ *      editor is enabled, performs, and opens the bar with the replace row;
+ *      Tab moves the caret between the query and the replacement field
+ *      without writing a tab.
  *   2. Replace swaps the first match and leaves the other two counted.
  *   3. All swaps the rest, and the chip reads "No results".
  *   4. One Edit ▸ Undo, back in the editor, undoes the whole of All and
@@ -239,6 +241,31 @@ describe.skipIf(!SHOULD_RUN)("AT0778: find and replace in the Text card", () => 
           { timeoutMs: 4000 },
         );
         await waitForChip(a, "1 of 3");
+
+        // Tab moves the caret from the query to the replacement field and
+        // back, and writes no tab into either field on its way.
+        await app.nativeKey("Tab");
+        await a.waitForCondition<boolean>(
+          `(() => {
+            const el = document.querySelector(${JSON.stringify(REPLACEMENT_A)});
+            return el !== null && document.activeElement !== null && el.contains(document.activeElement);
+          })()`,
+          { timeoutMs: 4000 },
+        );
+        await app.nativeKey("Tab");
+        await a.waitForCondition<boolean>(
+          `(() => {
+            const el = document.querySelector(${JSON.stringify(QUERY_A)});
+            return el !== null && document.activeElement !== null && el.contains(document.activeElement);
+          })()`,
+          { timeoutMs: 4000 },
+        );
+        expect(
+          await a.evalJS<string>(
+            `document.querySelector(${JSON.stringify(`${QUERY_A} .cm-line`)})?.textContent ?? ""`,
+          ),
+          "Tab wrote nothing into the query",
+        ).toBe("meridian");
 
         // --- 2. Replace swaps the active match and moves on. ---
         await typeReplacement(app, a, "pole");

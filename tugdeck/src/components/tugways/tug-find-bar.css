@@ -49,15 +49,13 @@
 }
 
 /* The replace row: the shell's accessory row, between the query field and the
-   toolbar. The field takes the row and the two buttons sit at its trailing
-   edge, aligned with the toolbar's trailing group below them. A rule above it
-   separates the replacement from the query, which share one surface. */
+   toolbar, holding the replacement field alone — its Replace and All buttons
+   end the toolbar. A rule above it separates the replacement from the query,
+   which share one surface. */
 .tugx-find-replace-row {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: var(--tug-space-md);
-  padding-right: var(--tug-space-md);
   border-top: 1px solid var(--tug7-element-global-divider-normal-default-rest);
 }
 
@@ -69,12 +67,4 @@
 
 .tugx-find-replace-row > .tug-text-editor > .cm-editor {
   border-radius: 0;
-}
-
-.tugx-find-replace-actions {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--tug-space-xs);
 }

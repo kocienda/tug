@@ -24,8 +24,10 @@
  * `replace`, and the bar shows it exactly while the session says
  * `canReplace` — so a read-only document never offers a button that does
  * nothing, and the transcript and help bars never show it at all. The row is
- * the shell's accessory row: a one-line replacement field, then Replace and
- * All. Return in that field is Replace; Escape dismisses the whole bar. The
+ * the shell's accessory row and holds the replacement field alone, wrapping
+ * and growing as the query does; Replace and All end the toolbar, after Find
+ * next. Return in that field is Replace, Tab moves between the two fields rather
+ * than writing a tab, and Escape dismisses the whole bar. The
  * replacement lives in the row's CM6 doc and mirrors into the session the way
  * the query does, and the row seeds from the session's remembered text,
  * selected whole so the next keystroke replaces it.
@@ -68,13 +70,15 @@ import type { FindSession } from "@/lib/find-session";
 
 /** The bar's Tab stops, in reading order, as offsets from the host's
  *  `focusOrderBase`. The query field leads because it is where ⌘F lands and
- *  what every other control is about; the replace row's three follow the
- *  four that every bar has. */
+ *  what every other control is about; the replacement field follows it while
+ *  the replace row shows, so Tab walks field to field, and the toolbar's
+ *  controls come after both — Replace and All last, where they sit. */
 const FIND_STOP_QUERY = 0;
+const FIND_STOP_REPLACEMENT = 1;
+/** The toolbar's three, without the replace row; one later with it. */
 const FIND_STOP_OPTIONS = 1;
 const FIND_STOP_PREVIOUS = 2;
 const FIND_STOP_NEXT = 3;
-const FIND_STOP_REPLACEMENT = 4;
 const FIND_STOP_REPLACE = 5;
 const FIND_STOP_REPLACE_ALL = 6;
 
@@ -180,6 +184,9 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
   ): React.ReactElement {
     const barResponderId = React.useId();
     const substrateRef = useRef<TugTextEditorDelegate | null>(null);
+    // The replace row's field, so Tab in the query can hand it the caret.
+    // Null while the row is not showing, which is what makes Tab a no-op then.
+    const replacementFieldRef = useRef<TugTextEditorDelegate | null>(null);
     const barRootRef = useRef<HTMLDivElement | null>(null);
 
     const onCloseRef = useRef(onClose);
@@ -193,6 +200,9 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
       () => session.getSnapshot().canReplace,
     );
     const replaceRowShown = replace && canReplace;
+    // The replacement field takes the stop after the query, so the toolbar's
+    // stops move down one while it shows and the span stays consecutive.
+    const toolbarStopShift = replaceRowShown ? 1 : 0;
 
     // The seed is a mount-time value, not a live prop: once the bar is open
     // the CM6 doc is the query's only home.
@@ -223,6 +233,23 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
               key: "Escape",
               run: () => {
                 onCloseRef.current();
+                return true;
+              },
+            },
+            // Tab moves between the bar's two fields and never writes a tab:
+            // a find query is not indented. With no replace row there is no
+            // other field, and the key is still claimed.
+            {
+              key: "Tab",
+              run: () => {
+                replacementFieldRef.current?.focus();
+                return true;
+              },
+            },
+            {
+              key: "Shift-Tab",
+              run: () => {
+                replacementFieldRef.current?.focus();
                 return true;
               },
             },
@@ -339,7 +366,9 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
           data-slot={dataSlot}
           accessoryRow={
             replaceRowShown ? (
-              <FindReplaceRow
+              <FindReplaceField
+                fieldRef={replacementFieldRef}
+                queryRef={substrateRef}
                 session={session}
                 onCloseRef={onCloseRef}
                 testId={replacementTestId}
@@ -393,7 +422,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
               <TugFindCluster
                 surface={session}
                 focusGroup={focusGroup}
-                focusOrder={focusOrderBase + FIND_STOP_OPTIONS}
+                focusOrder={focusOrderBase + FIND_STOP_OPTIONS + toolbarStopShift}
               />
               <TugActionTooltip
                 action={TUG_ACTIONS.FIND_PREVIOUS}
@@ -411,7 +440,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                   aria-label="Find previous"
                   icon={<ChevronUp size={16} strokeWidth={2.5} />}
                   focusGroup={focusGroup}
-                  focusOrder={focusOrderBase + FIND_STOP_PREVIOUS}
+                  focusOrder={focusOrderBase + FIND_STOP_PREVIOUS + toolbarStopShift}
                 />
               </TugActionTooltip>
               <TugActionTooltip
@@ -432,9 +461,39 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                   aria-label="Find next"
                   icon={<ChevronDown size={16} strokeWidth={2.5} />}
                   focusGroup={focusGroup}
-                  focusOrder={focusOrderBase + FIND_STOP_NEXT}
+                  focusOrder={focusOrderBase + FIND_STOP_NEXT + toolbarStopShift}
                 />
               </TugActionTooltip>
+              {replaceRowShown ? (
+                // Replace and All end the toolbar, past every control the bar
+                // always has: they act on what the search found, so they
+                // follow the controls that find it.
+                <>
+                  <TugPushButton
+                    size="sm"
+                    emphasis="outlined"
+                    role="action"
+                    onClick={() => session.replaceNext()}
+                    data-testid="find-replace-next"
+                    focusGroup={focusGroup}
+                    focusOrder={focusOrderBase + FIND_STOP_REPLACE}
+                  >
+                    Replace
+                  </TugPushButton>
+                  <TugPushButton
+                    size="sm"
+                    emphasis="outlined"
+                    role="action"
+                    onClick={() => session.replaceAll()}
+                    aria-label="Replace all"
+                    data-testid="find-replace-all"
+                    focusGroup={focusGroup}
+                    focusOrder={focusOrderBase + FIND_STOP_REPLACE_ALL}
+                  >
+                    All
+                  </TugPushButton>
+                </>
+              ) : null}
             </>
           }
         >
@@ -469,7 +528,11 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
   },
 );
 
-interface FindReplaceRowProps {
+interface FindReplaceFieldProps {
+  /** Filled with the field's delegate, so the query's Tab can reach it. */
+  fieldRef: React.RefObject<TugTextEditorDelegate | null>;
+  /** The query field, which this field's Tab hands the caret back to. */
+  queryRef: React.RefObject<TugTextEditorDelegate | null>;
   session: FindSession;
   onCloseRef: React.RefObject<() => void>;
   testId?: string;
@@ -478,19 +541,19 @@ interface FindReplaceRowProps {
 }
 
 /**
- * The bar's second row: the replacement field, Replace, and All. Mounted only
- * while the bar shows it, so its field seeds from the session's remembered
- * replacement each time the row appears.
+ * The bar's second row: the replacement field, whose Replace and All buttons
+ * end the toolbar below it. Mounted only while the bar shows it, so it seeds
+ * from the session's remembered replacement each time the row appears.
  */
-function FindReplaceRow({
+function FindReplaceField({
+  fieldRef,
+  queryRef,
   session,
   onCloseRef,
   testId,
   focusGroup,
   focusOrderBase,
-}: FindReplaceRowProps): React.ReactElement {
-  const fieldRef = useRef<TugTextEditorDelegate | null>(null);
-
+}: FindReplaceFieldProps): React.ReactElement {
   const extensions = useMemo(
     () => [
       // Return is Replace. It has to be claimed in a keydown handler above the
@@ -505,8 +568,8 @@ function FindReplaceRow({
             if (event.metaKey || event.ctrlKey || event.altKey) return false;
             event.preventDefault();
             event.stopPropagation();
-            // The field is one line: a Shift-Enter newline would be text the
-            // field cannot show. A newline in the replacement is written `\n`.
+            // A Shift-Enter newline is not taken either: a newline in the
+            // replacement is written `\n`, as a tab is written `\t`.
             if (!event.shiftKey) session.replaceNext();
             return true;
           },
@@ -521,6 +584,22 @@ function FindReplaceRow({
               return true;
             },
           },
+          // Tab and Shift-Tab hand the caret back to the query: the bar's two
+          // fields are one pair, and neither ever writes a tab.
+          {
+            key: "Tab",
+            run: () => {
+              queryRef.current?.focus();
+              return true;
+            },
+          },
+          {
+            key: "Shift-Tab",
+            run: () => {
+              queryRef.current?.focus();
+              return true;
+            },
+          },
         ]),
       ),
       EditorView.updateListener.of((update) => {
@@ -528,7 +607,7 @@ function FindReplaceRow({
         session.setReplacement(update.state.doc.toString());
       }),
     ],
-    [session, onCloseRef],
+    [session, onCloseRef, queryRef],
   );
 
   // Seed the remembered replacement, selected whole, as the query seeds. The
@@ -548,7 +627,10 @@ function FindReplaceRow({
       <TugTextEditor
         ref={fieldRef}
         borderless
-        maxRows={1}
+        // Wraps and grows like the query field above it, so a long
+        // replacement is read whole rather than scrolled.
+        lineWrap
+        maxRows={8}
         placeholder="Replace with"
         aria-label="Replace with"
         data-testid={testId}
@@ -558,36 +640,6 @@ function FindReplaceRow({
         focusOrder={focusOrderBase + FIND_STOP_REPLACEMENT}
         extensions={extensions}
       />
-      <div
-        className="tugx-find-replace-actions"
-        // Chrome, as the toolbar is: a click on Replace must not take
-        // first-responder off the field or the document it replaces into.
-        data-tug-focus="refuse"
-      >
-        <TugPushButton
-          size="sm"
-          emphasis="outlined"
-          role="action"
-          onClick={() => session.replaceNext()}
-          data-testid="find-replace-next"
-          focusGroup={focusGroup}
-          focusOrder={focusOrderBase + FIND_STOP_REPLACE}
-        >
-          Replace
-        </TugPushButton>
-        <TugPushButton
-          size="sm"
-          emphasis="outlined"
-          role="action"
-          onClick={() => session.replaceAll()}
-          aria-label="Replace all"
-          data-testid="find-replace-all"
-          focusGroup={focusGroup}
-          focusOrder={focusOrderBase + FIND_STOP_REPLACE_ALL}
-        >
-          All
-        </TugPushButton>
-      </div>
     </div>
   );
 }
