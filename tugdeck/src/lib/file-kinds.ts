@@ -12,7 +12,7 @@
  * unlisted classifies as `"text"` and takes the Text card path unchanged.
  *
  * The same extension list lives in tugcast's `fs_blob.rs` MIME table and in
- * `AppDelegate.viewableContentTypes`; all three move together when a type is
+ * `OpenableFiles.viewableContentTypes`; all three move together when a type is
  * added.
  *
  * @module lib/file-kinds

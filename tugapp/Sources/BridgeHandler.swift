@@ -136,9 +136,11 @@ final class BridgeHandler: BridgeDelegate {
         panel.message = wantFile ? "Choose a file" : "Choose a directory"
         panel.prompt = "Choose"
         // This chooser feeds text contexts only, so it stays restricted to
-        // text UTIs even though Tug can now view images and PDFs elsewhere.
+        // editable files even though Tug can view images and PDFs elsewhere.
+        // The panel holds its delegate weakly; the handler keeps it alive.
+        let filter = OpenPanelFilter { OpenableFiles.isEditable($0) }
         if wantFile {
-            panel.allowedContentTypes = AppDelegate.editableContentTypes
+            panel.delegate = filter
         }
         if let initialPath = initialPath, !initialPath.isEmpty {
             var isDir: ObjCBool = false
@@ -148,6 +150,7 @@ final class BridgeHandler: BridgeDelegate {
             }
         }
         panel.beginSheetModal(for: window) { response in
+            withExtendedLifetime(filter) {}
             guard response == .OK, let url = panel.url else {
                 completion([])
                 return

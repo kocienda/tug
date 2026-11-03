@@ -202,41 +202,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var shellMenuState = MenuState.empty
     private var bodyMenuBlocks: [String: MenuState.CardBlocks] = [:]
 
-    /// UTIs a Text card can **edit** — text and everything that conforms to it
-    /// (source code, JSON, XML, Markdown, …). The `choosePath` bridge panel
-    /// restricts to these: its callers choose files into text contexts.
-    static let editableContentTypes: [UTType] = [.text, .sourceCode, .plainText]
-
-    /// UTIs a viewer card can **display** — read-only, and enumerated one by
-    /// one rather than tested against `public.image`. Camera RAW conforms to
-    /// `public.image` but WebKit's `<img>` cannot reliably decode it, and Tug
-    /// should only offer what it can actually render. Mirrors the extension
-    /// table in `tugdeck/src/lib/file-kinds.ts` and tugcast's `fs_blob.rs`.
-    ///
-    /// AVIF has no `UTType` static, so it is constructed by identifier;
-    /// `compactMap` drops it on an OS that doesn't know the type rather than
-    /// trapping.
-    static let viewableContentTypes: [UTType] = [
-        UTType.png,
-        UTType.jpeg,
-        UTType.gif,
-        UTType.webP,
-        UTType.heic,
-        UTType.heif,
-        UTType("public.avif") ?? UTType(filenameExtension: "avif"),
-        UTType.tiff,
-        UTType.bmp,
-        UTType.ico,
-        UTType.pdf,
-    ].compactMap { $0 }
-
-    /// Everything Tug will open by any route — the union the Open File… panel
-    /// and the OS open path accept. Editing is the narrower claim; opening is
-    /// the wider one.
-    static let openableContentTypes: [UTType] =
-        editableContentTypes + viewableContentTypes
-
-
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before the open-application event is dispatched, so the first
         // Apple Event the log records is the app's own launch.
@@ -983,7 +948,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// on `bridgeFrontendReady`.
     func openFilesFromOS(_ urls: [URL]) {
         for url in urls where url.isFileURL {
-            guard AppDelegate.isOpenableFile(url) else { continue }
+            guard OpenableFiles.isOpenable(url) else { continue }
             let path = url.path
             if frontendHasLoadedOnce {
                 sendControl("open-file", params: ["path": path])
@@ -1009,21 +974,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// when the current state holds no reply for it [B03].
     func performUpdateAction(_ action: UpdateAction) {
         updateController.perform(action)
-    }
-
-    /// Whether `url` is a file Tug can open in any card — a regular file whose
-    /// UTI conforms to one of {@link openableContentTypes}, editable or
-    /// viewable. Guards the OS open path so a folder or an unsupported file
-    /// handed to the app is ignored.
-    ///
-    /// Conformance rather than equality on the viewable side too: a subtype
-    /// UTI (a vendor's own JPEG flavor, say) conforms to `public.jpeg` and is
-    /// the same bytes to a decoder, so it should open.
-    static func isOpenableFile(_ url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentTypeKey]),
-              values.isRegularFile == true,
-              let type = values.contentType else { return false }
-        return openableContentTypes.contains { type.conforms(to: $0) }
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -1382,8 +1332,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = AppDelegate.openableContentTypes
+        let filter = OpenPanelFilter(OpenableFiles.isOpenable)
+        panel.delegate = filter
         panel.begin { [weak self] response in
+            // The panel holds its delegate weakly; the handler keeps it alive.
+            withExtendedLifetime(filter) {}
             guard response == .OK, let url = panel.url else { return }
             self?.sendControl("open-file", params: ["path": url.path])
         }
