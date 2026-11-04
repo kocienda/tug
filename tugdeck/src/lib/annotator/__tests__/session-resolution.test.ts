@@ -194,4 +194,17 @@ describe("the verdict for a scanned candidate", () => {
       provenance: "here",
     });
   });
+
+  test("a short id is asked as written and confirms to the FULL id", () => {
+    const short = FULL.slice(0, 8);
+    expect(resolveSessionRef(short)).toEqual({ state: "pending" });
+    sessionCitationStore.applyResolved(
+      resolved({ found: [{ queried: short, session: row() }] }),
+    );
+    expect(resolveSessionRef(short)).toEqual({
+      state: "confirmed",
+      sessionId: FULL,
+      provenance: "here",
+    });
+  });
 });

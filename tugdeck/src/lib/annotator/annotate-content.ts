@@ -123,7 +123,7 @@ import {
   recordElementPass,
 } from "./annotate-counters";
 import { scanCommitShas } from "./detect-commit-sha";
-import { scanSessionRefs } from "./detect-session-ref";
+import { isSessionShortId, scanSessionRefs } from "./detect-session-ref";
 import {
   classifyInlineCode,
   payloadForReference,
@@ -271,6 +271,13 @@ function annotatePathsInText(
  * a real directory. Holding the run for one verdict batch (about 100ms, the
  * `VerdictBatcher` window) costs a moment of plain text and buys a right
  * answer.
+ *
+ * A **short id** contends with the commit scan instead: eight hex characters
+ * are a short sha as much as a session's leading characters. The commit
+ * wins a run it confirms — a commit written at eight characters is the far
+ * commoner citation — so the session yields to a confirmed commit, holds the
+ * run while the commit's verdict is still out, and decides only once the
+ * repository has said no (or there is no repository to ask).
  */
 function sessionMatch(
   found: { target: string; start: number; end: number },
@@ -280,7 +287,11 @@ function sessionMatch(
   if (resolve === undefined) return null;
   const verdict = resolve(found.target);
   if (verdict.state === "refuted") return null;
-  if (verdict.state === "pending") {
+  const commitState = isSessionShortId(found.target) && context.commitRoot !== null
+    ? context.resolveCommit(found.target).state
+    : null;
+  if (commitState === "confirmed") return null;
+  if (verdict.state === "pending" || commitState === "pending") {
     return {
       start: found.start,
       end: found.end,

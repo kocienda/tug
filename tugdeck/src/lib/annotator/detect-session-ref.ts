@@ -1,7 +1,7 @@
 /**
  * The session-reference grammar — what might name a session in ink.
  *
- * Two spellings, and only two:
+ * Three spellings, and only three:
  *
  *  - A **full session uuid** (`8-4-4-4-12`, lowercase hex). Collision-free by
  *    construction — nothing else in prose looks like one — so it needs no
@@ -14,6 +14,14 @@
  *    the grammar takes them because `sessions.tag` holds the COMPOSED
  *    callsign; without them a forked session would be undetectable by
  *    construction.
+ *  - A **short id**: a uuid's first eight characters, lowercase hex with at
+ *    least one digit. It is the spelling `tugtool session find` takes, the
+ *    one a `Tug-Session:` trailer parenthesizes, and the one a model reaches
+ *    for when it names a session in passing ("the cf3328c3 session"). The
+ *    resolver answers it by prefix and refuses an ambiguous one. It is also
+ *    shaped exactly like a short commit sha, so the commit scan finds the
+ *    same run; which one claims it is settled in `annotate-content.ts`
+ *    (`sessionMatch`), never by this grammar.
  *
  * A **bare callsign** is deliberately not scanned. `kind-floor` is shaped like
  * every hyphenated compound in English, and scanning it would cost a resolver
@@ -49,6 +57,14 @@ const TRAILING_PUNCTUATION = /[)\]}>'"`,;:.!?]+$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
+ * A short session id: a uuid's leading eight hex characters. The digit rule
+ * is the commit grammar's, for the commit grammar's reason — it keeps the
+ * all-letter hex words of English (`effacebd` and kin) out of the question.
+ */
+const SHORT_ID_RE = /^[0-9a-f]{8}$/;
+const HAS_DIGIT = /[0-9]/;
+
+/**
  * A `project/callsign` pair.
  *
  * The project half is one path segment with no dots — a repository leaf name,
@@ -64,7 +80,16 @@ const PAIR_RE = /^([a-z][a-z0-9_-]*)\/([a-z]+-[a-z]+(?:-[A-Z][0-9]+)*)$/;
 
 /** Whether `text` is exactly one session-reference candidate. */
 export function isSessionRef(text: string): boolean {
-  return UUID_RE.test(text) || PAIR_RE.test(text);
+  return UUID_RE.test(text) || PAIR_RE.test(text) || isSessionShortId(text);
+}
+
+/**
+ * Whether `text` is a short session id — the one session spelling that is
+ * also a commit-sha candidate, and so the one that contends with the commit
+ * scan for its run.
+ */
+export function isSessionShortId(text: string): boolean {
+  return SHORT_ID_RE.test(text) && HAS_DIGIT.test(text);
 }
 
 /**

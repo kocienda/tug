@@ -1,7 +1,8 @@
 /**
  * The session-reference grammar, and what it deliberately refuses.
  *
- * Two spellings are scanned — a full uuid and a `project/callsign` pair — and
+ * Three spellings are scanned — a full uuid, its eight-character short id, and
+ * a `project/callsign` pair — and
  * the refusals are the load-bearing half: a bare callsign is shaped like every
  * hyphenated compound in English, and a pair is shaped exactly like a relative
  * path. What keeps the second from painting chips over directory names is the
@@ -10,7 +11,11 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { isSessionRef, scanSessionRefs } from "@/lib/annotator/detect-session-ref";
+import {
+  isSessionRef,
+  isSessionShortId,
+  scanSessionRefs,
+} from "@/lib/annotator/detect-session-ref";
 
 const UUID = "123e4567-e89b-42d3-a456-426614174000";
 
@@ -19,8 +24,28 @@ describe("what is a session reference", () => {
     expect(isSessionRef(UUID)).toBe(true);
   });
 
-  test("a uuid that is short, uppercase, or malformed is not", () => {
-    expect(isSessionRef(UUID.slice(0, 8))).toBe(false);
+  test("a uuid's eight-character short id is", () => {
+    // The spelling `tugtool session find` takes and a model writes when it
+    // names a session in passing. It was refused here once; an Operator
+    // reply that ended "that is the cf3328c3 session" left a real session
+    // as plain ink, which is why it is a reference now.
+    expect(isSessionRef(UUID.slice(0, 8))).toBe(true);
+    expect(isSessionShortId(UUID.slice(0, 8))).toBe(true);
+  });
+
+  test("a short id is exactly eight lowercase hex with a digit", () => {
+    expect(isSessionShortId("cf3328c")).toBe(false);
+    expect(isSessionShortId("cf3328c3a")).toBe(false);
+    expect(isSessionShortId("CF3328C3")).toBe(false);
+    // All-letter hex is an English word as often as an id.
+    expect(isSessionShortId("effacebd")).toBe(false);
+    // The other spellings are references, but not short ids.
+    expect(isSessionShortId(UUID)).toBe(false);
+    expect(isSessionShortId("tugtool/kind-floor")).toBe(false);
+  });
+
+  test("a uuid that is truncated elsewhere, uppercase, or malformed is not", () => {
+    expect(isSessionRef(UUID.slice(0, 13))).toBe(false);
     expect(isSessionRef(UUID.toUpperCase())).toBe(false);
     expect(isSessionRef(UUID.replace("-", ""))).toBe(false);
   });
@@ -82,6 +107,13 @@ describe("scanning prose", () => {
     const text = "Forked from tugtool/stocky-pixie-A1.";
     const [match] = scanSessionRefs(text);
     expect(match!.target).toBe("tugtool/stocky-pixie-A1");
+  });
+
+  test("finds a short id named in passing", () => {
+    const text = "If you mean the drawings, that is the cf3328c3 session instead.";
+    const [match] = scanSessionRefs(text);
+    expect(match!.target).toBe("cf3328c3");
+    expect(text.slice(match!.start, match!.end)).toBe("cf3328c3");
   });
 
   test("prose with nothing session-shaped yields nothing", () => {
