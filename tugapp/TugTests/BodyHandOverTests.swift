@@ -191,4 +191,53 @@ final class BodyHandOverTests: XCTestCase {
         let share = BodyHandOver.inkShare(rgba: rgba, width: width, height: height, band: band)
         check("thirty a channel off the surface is not ink", share == 0, "\(share)")
     }
+
+    // MARK: - The reveal set
+
+    func testASetOpensOnlyOverTwoOrMoreUnpaintedFaces() {
+        check("two unpainted faces open a set", BodyRevealSet.open(faces: ["a", "b"], painted: { _ in false }) != nil, "nil")
+        check("one unpainted face opens none", BodyRevealSet.open(faces: ["a", "b"], painted: { $0 == "a" }) == nil, "opened")
+        check("painted faces open none", BodyRevealSet.open(faces: ["a", "b"], painted: { _ in true }) == nil, "opened")
+    }
+
+    func testEachMemberIsHeldUntilTheLastPaints() {
+        guard var set = BodyRevealSet.open(faces: ["a", "b", "c", "done"], painted: { $0 == "done" }) else {
+            return check("the set opens", false, "nil")
+        }
+        check("a card already painted is not waited on", set.waiting == ["a", "b", "c"], "\(set.waiting)")
+        check("a stranger lands at once", set.painted("x") == .notMember, "held")
+        check("the first member is held", set.painted("b") == .hold, "not held")
+        check("a repeated paint is not held twice", set.painted("b") == .notMember, "held again")
+        check("the second is held", set.painted("a") == .hold, "not held")
+        check("the last completes the set", set.painted("c") == .complete, "not complete")
+    }
+
+    func testAReboundMemberWaitsAgain() {
+        guard var set = BodyRevealSet.open(faces: ["a", "b"], painted: { _ in false }) else {
+            return check("the set opens", false, "nil")
+        }
+        check("a is held", set.painted("a") == .hold, "not held")
+        set.rebound("a")
+        check("a rebound member waits again", set.waiting == ["a", "b"], "\(set.waiting)")
+        set.rebound("x")
+        check("a stranger rebound is not waited on", set.waiting == ["a", "b"], "\(set.waiting)")
+        check("b alone does not complete it", set.painted("b") == .hold, "completed")
+        check("a's new paint completes it", set.painted("a") == .complete, "not complete")
+    }
+
+    func testTheSetFollowsALaterHandOversFaces() {
+        guard var set = BodyRevealSet.open(faces: ["a", "b", "c"], painted: { _ in false }) else {
+            return check("the set opens", false, "nil")
+        }
+        check("a is held", set.painted("a") == .hold, "not held")
+        // Re-posted facing a, b and a new d; c no longer faced; d already painted.
+        let left = set.follow(faces: ["a", "b", "d"], painted: { $0 == "d" || $0 == "a" })
+        check("the card no longer faced leaves", left == ["c"], "\(left)")
+        check("a still-faced card waits on, a painted newcomer does not", set.waiting == ["b"], "\(set.waiting)")
+        let more = set.follow(faces: ["a", "b", "e"], painted: { $0 == "a" })
+        check("an unpainted newcomer waits", set.waiting == ["b", "e"], "\(set.waiting)")
+        check("and d leaves", more == ["d"], "\(more)")
+        check("b is held while e waits", set.painted("b") == .hold, "not held")
+        check("e completes it", set.painted("e") == .complete, "not complete")
+    }
 }

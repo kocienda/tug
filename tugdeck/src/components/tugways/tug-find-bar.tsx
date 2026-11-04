@@ -620,7 +620,7 @@ function FindReplaceField({
       changes: { from: 0, to: view.state.doc.length, insert: text },
       selection: { anchor: 0, head: text.length },
     });
-  }, [session]);
+  }, [session, fieldRef]);
 
   return (
     <div className="tugx-find-replace-row" data-slot="find-replace-row">

@@ -283,6 +283,9 @@ final class BodyViewController {
         var crossingCover: BodyCoverView? { stand?.kinds.contains(.crossing) == true ? cover : nil }
         /// The body was made under a cover, for the harness: `covered` goes at the paint.
         var wasCovered = false
+        /// The page has said its content painted, not only its chrome: what a
+        /// switch's faced set waits on. Cleared when the page is bound afresh.
+        var contentPainted = false
         /// The card draws its pane's chrome in its own page: its container
         /// is the pane's rect outset by the apron, wears no surface, and
         /// answers a point by the card's hit shape. Every placed card is.
@@ -420,6 +423,15 @@ final class BodyViewController {
     private(set) var lane: BodyLane!
     /// The faces standing in for views a placement hands over.
     private(set) var faceHandOver: BodyFaceHandOver!
+    /// The faced cards of the last hand-over whose paints are held to land
+    /// as one set (`BodyRevealSet`), and the paints it holds.
+    private var revealSet: BodyRevealSet?
+    private var heldPaints: [Body] = []
+    /// The set's horizon: past it the held paints land and the rest land as they come.
+    private var revealHorizon: DispatchWorkItem?
+    /// What the reveal sets did, for the harness (`handOvers`): one line per
+    /// open, hold, follow and landing, wall-clock ms first, the last 40 kept.
+    private var revealLog: [String] = []
     /// The host's hand: a card carried, a rail's edge dragged.
     private(set) var carrier: CardGestureCarrier!
     /// The beats a settle carries each card through.
@@ -690,6 +702,13 @@ final class BodyViewController {
         guard let cardId = body.cardId, let componentId = body.componentId,
               let intent = body.intent, lifecycle.move(body, .bind) else { return }
         body.boundAt = CACurrentMediaTime()
+        body.contentPainted = false
+        // A paint the reveal set held is of the page that was: the set waits
+        // on the new one's, and never lands a page that has not drawn.
+        if revealSet != nil {
+            heldPaints.removeAll { $0 === body }
+            revealSet?.rebound(cardId)
+        }
         send(.bodyBind(BodyBind(cardId: cardId, componentId: componentId, intent: intent, facts: window.bodyFacts())), to: body)
         // A page bound afresh has not heard whether it is shown.
         body.toldShown = nil
@@ -730,10 +749,37 @@ final class BodyViewController {
         scheduleSpare()
     }
 
-    /// A body posted `painted`: the frame carrying its card's content has
-    /// gone to the compositor. From here a placement that names it visible
-    /// shows it.
-    func didPaint(_ body: Body) {
+    /// A body posted `painted`: a frame of its chrome, or of its content
+    /// (`content`), has gone to the compositor. From here a placement that
+    /// names it visible shows it.
+    func didPaint(_ body: Body, content: Bool) {
+        guard let cardId = body.cardId else { return }
+        if content { body.contentPainted = true }
+        // One of a switch's faced cards: its paint is held until every
+        // member's content has painted, so the set shows in one frame and
+        // no member shows its chrome before its content.
+        if var set = revealSet, set.waiting.contains(cardId) || heldPaints.contains(where: { $0 === body }) {
+            if !heldPaints.contains(where: { $0 === body }) { heldPaints.append(body) }
+            guard content else {
+                noteReveal("hold chrome", [cardId])
+                return
+            }
+            let paint = set.painted(cardId)
+            revealSet = set
+            if paint == .complete {
+                noteReveal("complete", [cardId])
+                landRevealSet()
+            } else {
+                noteReveal("hold", [cardId])
+            }
+            return
+        }
+        landPaint(body)
+    }
+
+    /// A paint landing: the body is its own page from here, the shell hears
+    /// it painted, and a placement that names it visible shows it.
+    private func landPaint(_ body: Body) {
         guard let cardId = body.cardId, lifecycle.move(body, .paint, quietly: true) else { return }
         // A body brought back from an eviction is its own page from here,
         // its cover off unless a crossing still holds it.
@@ -1049,6 +1095,7 @@ final class BodyViewController {
         // The views it takes down over an arriving card are handed to faces
         // in this same transaction.
         faceHandOver.handOver(handOverPlan, placement)
+        openRevealSet(handOverPlan)
         CATransaction.commit()
         refreshRegion()
         // The lane's order is the placement's: a card waiting on it may go.
@@ -1059,7 +1106,76 @@ final class BodyViewController {
 
     /// The last hand-overs and the faces standing now (`BodyFaceHandOver`).
     func handOverAccount() -> JSONValue {
-        faceHandOver.account()
+        guard case .object(var account) = faceHandOver.account() else { return faceHandOver.account() }
+        account["revealLog"] = .array(revealLog.map(JSONValue.string))
+        return .object(account)
+    }
+
+    /// One line of what the reveal set did, for the harness.
+    private func noteReveal(_ what: String, _ cards: some Sequence<String>) {
+        let wall = Int((Date().timeIntervalSince1970 * 1000).rounded())
+        revealLog.append("\(wall) \(what) [\(cards.sorted().joined(separator: ", "))]")
+        if revealLog.count > 40 { revealLog.removeFirst(revealLog.count - 40) }
+    }
+
+    /// A placement that hands views over to faces opens the set over the
+    /// cards it faces whose pages have not painted. With a set open, the set
+    /// follows the faces instead, landing the paints of the cards it no
+    /// longer faces — or all of them, once nothing it faces still waits. A
+    /// placement handing nothing over leaves the set alone.
+    private func openRevealSet(_ plan: HandOverPlan) {
+        guard !plan.handedOver.isEmpty else { return }
+        let faces = plan.faces.map(\.cardId)
+        let painted: (String) -> Bool = { [weak self] cardId in
+            guard let self else { return true }
+            return self.body(forCard: cardId)?.contentPainted == true
+        }
+        if var set = revealSet {
+            let left = set.follow(faces: faces, painted: painted)
+            revealSet = set
+            noteReveal("follow, waiting", set.waiting)
+            if set.waiting.isEmpty {
+                landRevealSet()
+            } else {
+                landHeld(left)
+            }
+            return
+        }
+        guard let set = BodyRevealSet.open(faces: faces, painted: painted) else {
+            noteReveal("no set over", faces)
+            return
+        }
+        noteReveal("open, waiting", set.waiting)
+        revealSet = set
+        let horizon = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            TugLog.info("bodies", "reveal set past its horizon", [TugLog.field("waiting", self.revealSet?.waiting.count ?? 0)])
+            self.landRevealSet()
+        }
+        revealHorizon = horizon
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(BodyRevealSet.horizonMs), execute: horizon)
+    }
+
+    /// The set lands: every paint it held, in one transaction, and the set
+    /// closes, so a member still to paint lands as it comes.
+    private func landRevealSet() {
+        revealHorizon?.cancel()
+        revealHorizon = nil
+        revealSet = nil
+        landHeld(nil)
+    }
+
+    /// The held paints of `cards` land, in one transaction — every held
+    /// paint when `cards` is nil.
+    private func landHeld(_ cards: Set<String>?) {
+        let held = heldPaints.filter { body in cards.map { set in body.cardId.map(set.contains) ?? true } ?? true }
+        guard !held.isEmpty else { return }
+        heldPaints.removeAll { body in held.contains { $0 === body } }
+        noteReveal("land", held.compactMap(\.cardId))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for body in held { landPaint(body) }
+        CATransaction.commit()
     }
 
     // MARK: - Layers, tick by tick
@@ -1387,6 +1503,10 @@ final class BodyViewController {
         // A hand-over in flight ends with the window: its answer, horizon
         // and retirement find a serial moved on.
         faceHandOver.endAll()
+        revealHorizon?.cancel()
+        revealHorizon = nil
+        revealSet = nil
+        heldPaints = []
         lifecycle.covers.clear()
         for body in bodies { remove(body) }
         // After the removals, which leave the lane idle and would ask for a

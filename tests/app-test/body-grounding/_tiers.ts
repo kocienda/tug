@@ -4,7 +4,7 @@
  * A row's tier variant runs the row's own set-up and its own gesture with its
  * own bars, and between the two puts every body the host holds hidden into a
  * tier: `dormant` (hidden past the body's `dormantAfterMs`, its subscription
- * dropped and its content lidded) or `evicted` (dormant first, then hidden
+ * dropped, its content as it was) or `evicted` (dormant first, then hidden
  * past the host's eviction delay, its page gone). The delays are shortened
  * through the harness's `bodyDelays` seam once the set-up is done, so the
  * set-up runs as the row's does, and put back to their constants once the

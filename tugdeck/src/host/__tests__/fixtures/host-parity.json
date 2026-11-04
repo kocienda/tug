@@ -596,10 +596,16 @@
       "name": "painted",
       "from": "body",
       "samples": [
-        {}
+        {
+          "content": true
+        },
+        {
+          "content": false
+        }
       ],
       "refused": [
-        true
+        true,
+        {}
       ]
     },
     {

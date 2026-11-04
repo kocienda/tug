@@ -182,3 +182,71 @@ enum BodyHandOver {
         return drawn ? bytes : nil
     }
 }
+
+/// A switch's faced cards, revealed as one set ([B04] of the switch's brief).
+///
+/// When a hand-over faces several cards whose pages have not painted, each
+/// page would show the moment it paints, and the lane makes them two at a
+/// time: the set pops in one card after another over a second or more. The
+/// set holds each member's paint — not shown, not reported to the shell, its
+/// cover kept — until every member has painted, and the controller then lands
+/// them all in one transaction. A horizon from the switch releases the hold,
+/// so a page that never paints holds nothing for ever ([L33]); past it,
+/// painted cards show as they come.
+struct BodyRevealSet: Equatable {
+    /// How long a set may hold, from its hand-over: past the lane's slowest
+    /// recorded set of first paints (eight pages at 1.45 s, a create's five
+    /// rail cards at 1.6 s), so an ordinary set lands whole.
+    static let horizonMs = 2_000
+
+    /// What a member's paint does.
+    enum Paint: Equatable {
+        /// Not one of the set's cards: it lands at once, as any paint does.
+        case notMember
+        /// A member, with others still to paint: held.
+        case hold
+        /// The last member to paint: the set lands, this paint with it.
+        case complete
+    }
+
+    /// Every card the hand-over faces, painted or not.
+    private(set) var faces: Set<String>
+    /// The faced cards whose pages have not painted yet.
+    private(set) var waiting: Set<String>
+
+    /// The set over a hand-over's faced cards, of which those `painted` says
+    /// have not painted wait. Nil when fewer than two wait: one page alone
+    /// cannot cascade, and nothing is held for it.
+    static func open(faces: [String], painted: (String) -> Bool) -> BodyRevealSet? {
+        let waiting = Set(faces.filter { !painted($0) })
+        guard waiting.count >= 2 else { return nil }
+        return BodyRevealSet(faces: Set(faces), waiting: waiting)
+    }
+
+    /// `cardId`'s page painted.
+    mutating func painted(_ cardId: String) -> Paint {
+        guard waiting.remove(cardId) != nil else { return .notMember }
+        return waiting.isEmpty ? .complete : .hold
+    }
+
+    /// `cardId`'s page was bound afresh — a reload, a spare taking it — so
+    /// whatever it painted before is gone: a card the set faces waits again.
+    mutating func rebound(_ cardId: String) {
+        if faces.contains(cardId) { waiting.insert(cardId) }
+    }
+
+    /// A later hand-over of the same switch faces `next`: a placement
+    /// re-posted as the shell's stand-ins settle, which may name the faces
+    /// differently. The set follows them — a card still faced keeps its
+    /// place, held or waiting, a newly faced card that has not painted
+    /// waits, and a card no longer faced leaves. Returns the cards that
+    /// left, whose held paints land now.
+    mutating func follow(faces next: [String], painted: (String) -> Bool) -> Set<String> {
+        let nextFaces = Set(next)
+        let left = faces.subtracting(nextFaces)
+        let arrived = nextFaces.subtracting(faces).filter { !painted($0) }
+        waiting = waiting.intersection(nextFaces).union(arrived)
+        faces = nextFaces
+        return left
+    }
+}

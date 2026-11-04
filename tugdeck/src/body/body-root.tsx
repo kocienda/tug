@@ -161,8 +161,11 @@ function BodyPane({
   const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions });
   // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is
   // the deck's active pane. Here the deck is this card's, and its active
-  // pane is set exactly when the card is the whole deck's first responder.
-  // Written as an attribute the recede's layers key on ([L02], [L06]).
+  // pane is set exactly when the card is its own workspace's focused card —
+  // the first responder while the workspace is shown, the card it was left
+  // on while it is parked — so the look holds through a park and a switch
+  // back shows it lit from the first frame. Written as an attribute the
+  // recede's layers key on ([L02], [L06]).
   const focused = useSyncExternalStore(
     deck.subscribe,
     () => deck.getSnapshot().activePaneId !== undefined,

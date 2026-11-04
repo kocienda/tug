@@ -1409,9 +1409,32 @@ export class DeckManager implements IDeckManagerStore {
     outgoing.focusedCardId = this.getFirstResponderCardId() ?? undefined;
     outgoing.deck = parkedDeck(this.deckState);
 
-    // (4) Deactivate the outgoing first responder and swap the deck in one
+    // (4) Where focus lands in this workspace: where the user left it,
+    // falling back to the active pane's card. A space that names a card no
+    // longer in its deck gets the fallback rather than nothing.
+    const remembered = incoming.focusedCardId;
+    const focus =
+      remembered !== undefined &&
+      incomingDeck.cards.some((c) => c.id === remembered)
+        ? remembered
+        : (incomingDeck.panes.find((p) => p.id === incomingDeck.activePaneId)
+            ?.activeCardId ?? null);
+    // A card on a parked rail cannot hold the keyboard until its rail is
+    // shown, which is a commit of its own, so it is activated after the swap
+    // as any other door to a parked card is. Every other focus rides the swap.
+    const focusCard =
+      focus === null ? undefined : incomingDeck.cards.find((c) => c.id === focus);
+    const focusInSwap =
+      focusCard !== undefined && !isSidebarParked(incomingDeck, focusCard.componentId);
+
+    // (5) Deactivate the outgoing first responder and swap the deck in one
     // commit, so subscribers see a single transition rather than a deck
-    // whose active pane names a card that is no longer in it.
+    // whose active pane names a card that is no longer in it — and raise the
+    // arriving focus inside it, so the first arrangement anybody is told of
+    // already names the focused card and no second commit follows the cut.
+    // The arriving card hears no activation of its own here, as it never
+    // has: its record already names it, and an activation fan-out in the
+    // cut's task is paid before the host can stand the switch's faces.
     const commitStart = performance.now();
     this._flipFirstResponder(
       null,
@@ -1431,6 +1454,9 @@ export class DeckManager implements IDeckManagerStore {
         // so the invalidation below carries it, and before it so the one
         // snapshot subscribers see already names the new arrangement.
         this.spacesStore.activate(spaceId);
+        // Focus is raised here, after the activation, so the focused-card
+        // pointer it persists is written to the arriving workspace's record.
+        if (focusInSwap && focus !== null) this._raiseFirstResponder(focus, true);
         // The theme changes in this commit, with the cut ([L06]: a stylesheet
         // flip, no React state in the way). Every workspace's theme is
         // loaded ahead of use, so the flip is synchronous and the first frame
@@ -1505,7 +1531,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     const commitMs = performance.now() - commitStart;
 
-    // (5) Construction for every incoming card the lifecycle has not seen —
+    // (6) Construction for every incoming card the lifecycle has not seen —
     // the same fan-out the constructor runs over a boot deck, so a card
     // arriving from a parked workspace is announced exactly once, whichever
     // activation first stands it up.
@@ -1515,23 +1541,20 @@ export class DeckManager implements IDeckManagerStore {
       }
     }
 
-    // (6) Restore this workspace's sessions, synchronously, BEFORE React
+    // (7) Restore this workspace's sessions, synchronously, BEFORE React
     // mounts its cards — a session card that mounts unbound with no
     // expectation registered falls through to the project picker (Risk R02).
     const restoreStart = performance.now();
     this.spaceRestoreHook?.(this.deckState);
     const restoreMs = performance.now() - restoreStart;
 
-    // (7) Put focus where the user left it in this workspace, falling back to
-    // the active pane's card. A space that names a card no longer in its deck
-    // gets the fallback rather than nothing.
-    const remembered = incoming.focusedCardId;
-    const focus =
-      remembered !== undefined &&
-      this.deckState.cards.some((c) => c.id === remembered)
-        ? remembered
-        : this.getFirstResponderCardId();
-    if (focus !== null && focus !== undefined) {
+    // (8) The arriving focus is the most recent activation and the responder
+    // chain's key, as an activation of an already-active card leaves them; a
+    // focus the swap could not carry is activated now, showing its rail first.
+    if (focusInSwap && focus !== null) {
+      this._noteActivation(focus);
+      this.cardLifecycle.setResponderChainKey(focus);
+    } else if (focus !== null) {
       this.activateCard(focus);
     }
 
@@ -4845,6 +4868,21 @@ export class DeckManager implements IDeckManagerStore {
       this.scheduleSave();
       return;
     }
+    if (!this._raiseFirstResponder(newFR, reveal)) return;
+    this.notify("_commitStandardFirstResponderFlip");
+    this.scheduleSave();
+  }
+
+  /**
+   * The state half of a promote-to-first-responder commit: raise `newFR`'s
+   * host pane to z-top, make it the active pane with `newFR` its active card,
+   * fold in any reveal the raise owes, and persist the focused-card pointer —
+   * with no notify, so a caller that bundles the flip into a larger commit
+   * (a workspace switch) notifies once for all of it. Returns whether the
+   * deck changed; an activation of the card already key, on top and shown
+   * changes nothing.
+   */
+  private _raiseFirstResponder(newFR: string, reveal: boolean): boolean {
     const stacks = this.deckState.panes;
     const hostIdx = stacks.findIndex((s) => s.cardIds.includes(newFR));
     if (hostIdx === -1) {
@@ -4853,7 +4891,7 @@ export class DeckManager implements IDeckManagerStore {
       // cardWillActivate(newFR); returning without mutation leaves
       // the did-phase to run (old behavior preserved) but the
       // composite bit is unchanged.
-      return;
+      return false;
     }
     const hostStack = stacks[hostIdx];
     const updatedHost: TugPaneState =
@@ -4893,7 +4931,7 @@ export class DeckManager implements IDeckManagerStore {
       Object.keys(revealTerms).length === 0
     ) {
       this.putFocusedCardIdGuarded(newFR);
-      return;
+      return false;
     }
 
     this.deckState = {
@@ -4903,8 +4941,7 @@ export class DeckManager implements IDeckManagerStore {
       ...revealTerms,
     };
     this.putFocusedCardIdGuarded(newFR);
-    this.notify("_commitStandardFirstResponderFlip");
-    this.scheduleSave();
+    return true;
   }
 
   /**

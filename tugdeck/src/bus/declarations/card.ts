@@ -44,6 +44,15 @@ export interface CardContextValue {
   folded: boolean;
   arriving: boolean;
   firstResponderCardId: string | null;
+  /**
+   * Whether the card is its own workspace's focused card: the deck's first
+   * responder while its workspace is shown, and the card its workspace was
+   * left focused on while it is parked. A body draws its focused look from
+   * this, so a parked card is not told it lost focus and the switch back
+   * shows it lit as it was left; its activation notices read
+   * `firstResponderCardId`, which is the keyboard's.
+   */
+  focused: boolean;
   layerShown: boolean;
   spaceId: string | null;
   /**
@@ -75,6 +84,7 @@ export const NO_CARD_CONTEXT: CardContextValue = {
   folded: false,
   arriving: false,
   firstResponderCardId: null,
+  focused: false,
   layerShown: false,
   spaceId: null,
   geometry: NO_CARD_GEOMETRY,
@@ -112,12 +122,28 @@ export const cardContext = defineSharedStore<CardContextValue>({
     folded: bool,
     arriving: bool,
     firstResponderCardId: nullable(str),
+    focused: bool,
     layerShown: bool,
     spaceId: nullable(str),
     railSide: optional(literal("left", "right")),
     geometry: obj({ moves: num, resizes: num }),
   }),
   initial: NO_CARD_CONTEXT,
+});
+
+/**
+ * The theme the card's body wears: its own workspace's, projected by the
+ * shell, never the theme on screen. A parked body keeps its workspace's
+ * look while another workspace's theme is shown, so the switch back shows
+ * it in its own tint from the first frame. Null until the shell has
+ * projected one.
+ */
+export const cardTheme = defineSharedStore<string | null>({
+  key: "card.theme",
+  owner: "shell",
+  scope: { card: true },
+  codec: nullable(str),
+  initial: null,
 });
 
 // ---- The card's own ----

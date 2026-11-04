@@ -64,6 +64,7 @@ import {
   cardReservations,
   cardRestoreHold,
   cardSurface,
+  cardTheme,
   devtoolsInspection,
 } from "./declarations/card";
 import { deckCards, deckFacts, deckFrontmostProject, deckMenu, harnessBodyDelays } from "./declarations/deck";
@@ -146,6 +147,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   harnessBodyDelays,
   cardCrossing,
   cardContext,
+  cardTheme,
   paneChrome,
   cardFacts,
   cardHolds,

@@ -18,11 +18,12 @@
  * surface withheld, `card.facts` saying so — until that catch-up's bracket
  * closes, and then wakes.
  *
- * And from the moment it sleeps until it wakes its content box wears the
- * content lid ({@link BODY_DORMANT_ATTRIBUTE}): a reveal shows what the body
- * had before the catch-up lands, and the reading (row 35) put that at several
- * display periods, so the revealed pane shows whole with its content lidded
- * and the caught-up content arrives at once.
+ * Its content box is never lidded for any of this. A revealed body shows
+ * what it had, and the catch-up lands in place a few display periods later,
+ * as any live card takes a frame: a card that slept idle has nothing to
+ * catch up, and blanking it to hide one that slept mid-turn traded a blank
+ * box on every reveal for a late landing on a few. A landing that moves
+ * something a reader sees is the transcript's to land still.
  *
  * The decisions are {@link nextDormancy}, pure over the visibility snapshot,
  * so they are unit tests over data; {@link installBodyDormancy} wires them to
@@ -46,9 +47,6 @@ export interface DormancyState {
 }
 
 export const AWAKE: DormancyState = { asleep: false, catchingUp: false };
-
-/** On the page's root while it is dormant: the content lid stands (`body-page.css`). */
-export const BODY_DORMANT_ATTRIBUTE = "data-body-dormant";
 
 /** What the page does on a step. */
 export type DormancyAct = "sleep" | "catch-up" | "wake" | null;
@@ -98,8 +96,6 @@ export interface BodyDormancyEffects {
   rescope(): void;
   /** Still the page's loops, or let them run. */
   stillLoops(on: boolean): void;
-  /** Lid the card's content box, or lift the lid. */
-  lidContent(on: boolean): void;
   /** Withdraw the page's deck-scope surface, or draw it again. */
   withholdSurface(on: boolean): void;
   /** Write the card's bag to disk now, as a save-state call does. */
@@ -139,7 +135,6 @@ export function installBodyDormancy(
         effects.saveBag();
         effects.sleepSession();
         effects.stillLoops(true);
-        effects.lidContent(true);
         effects.withholdSurface(true);
         effects.rescope();
         return;
@@ -158,7 +153,6 @@ export function installBodyDormancy(
         // and a body hidden again past its delay goes back to sleep inside
         // `wake()`, which must be the last word.
         effects.stillLoops(false);
-        effects.lidContent(false);
         effects.withholdSurface(false);
         store.wake();
         return;

@@ -178,6 +178,7 @@ import {
   cardPainted,
   cardReservations,
   cardSurface,
+  cardTheme,
   devtoolsInspection,
   NO_CARD_GEOMETRY,
   type CardContextValue,
@@ -393,6 +394,9 @@ export function cardContextFor(
     folded: cardFoldedOf(state, cardId),
     arriving: cardArrivingOf(state, cardId),
     firstResponderCardId: deck.getFirstResponderCardId(),
+    // The record a park writes keeps the deck's active pane, so a parked
+    // card's own deck still names the card its workspace was left on.
+    focused: state.panes.find((p) => p.id === state.activePaneId)?.activeCardId === cardId,
     layerShown,
     spaceId,
     ...(railSide !== null ? { railSide } : {}),
@@ -437,6 +441,20 @@ export function paneChromeOf(deck: IDeckManagerStore, cardId: string): PaneChrom
     waives: (id) => bodyFactsStore.waives(id),
     spaces: { list: spaces.spaces, ownSpaceId: spaceId ?? spaces.activeSpaceId },
   });
+}
+
+/**
+ * The theme `cardId`'s body wears: the one its own workspace records, so a
+ * parked body never restyles when another workspace's theme goes on screen.
+ * A workspace that names no theme wears the screen's.
+ */
+export function cardThemeOf(deck: IDeckManagerStore, cardId: string): string | null {
+  const spaces = deck.getSpacesSnapshot();
+  const spaceId = deck.spaceOf(cardId) ?? spaces.activeSpaceId;
+  const own = spaces.spaces.find((s) => s.id === spaceId)?.theme;
+  if (own !== undefined) return own;
+  const onScreen = getOnScreenTheme();
+  return onScreen === "" ? null : onScreen;
 }
 
 /**
@@ -892,6 +910,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     cardCrossing.setFor(cardId, crossingOf(cardId));
     cardContext.setFor(cardId, contextOf(cardId));
     paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
+    cardTheme.setFor(cardId, cardThemeOf(deck, cardId));
     const followed = followedOf.get(cardId);
     if (followed !== undefined) cardFollowed.setFor(cardId, { cardId: followed });
   };
@@ -1022,6 +1041,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       cardCrossing.setFor(cardId, crossingOf(cardId));
       cardContext.setFor(cardId, contextOf(cardId));
       paneChrome.setFor(cardId, paneChromeOf(deck, cardId));
+      // A card moved to another workspace restyles here, in its hidden layer.
+      cardTheme.setFor(cardId, cardThemeOf(deck, cardId));
     }
   };
   /** Each body card's chrome alone: its tabs' titles move with no deck change. */
@@ -1178,7 +1199,13 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       // renamed moves no deck state.
       publishDeckFacts();
     }),
-    subscribeOnScreenTheme(publishDeckFacts),
+    // The theme on screen is a deck fact for the overlay page, which wears
+    // the screen's; a body wears its own workspace's (`card.theme`), which
+    // moves with the screen only where its workspace names no theme.
+    subscribeOnScreenTheme(() => {
+      publishDeckFacts();
+      for (const cardId of bodyCardsStore.cardIds()) cardTheme.setFor(cardId, cardThemeOf(deck, cardId));
+    }),
     pageZoomStore.subscribe(publishDeckFacts),
     keyboardAccessStore.subscribe(publishDeckFacts),
     focusRingModalityStore.subscribe(publishDeckFacts),

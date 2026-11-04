@@ -88,7 +88,6 @@ function recordingEffects(): { effects: BodyDormancyEffects; log: string[]; clos
     effects: {
       rescope: () => log.push("rescope"),
       stillLoops: (on) => log.push(`stillLoops ${on}`),
-      lidContent: (on) => log.push(`lidContent ${on}`),
       withholdSurface: (on) => log.push(`withholdSurface ${on}`),
       saveBag: () => log.push("saveBag"),
       sleepSession: () => log.push("sleepSession"),
@@ -113,7 +112,7 @@ describe("installBodyDormancy", () => {
     expect(log).toEqual([]);
     clock.advance(1);
     expect(installed.asleep).toBe(true);
-    expect(log).toEqual(["saveBag", "sleepSession", "stillLoops true", "lidContent true", "withholdSurface true", "rescope"]);
+    expect(log).toEqual(["saveBag", "sleepSession", "stillLoops true", "withholdSurface true", "rescope"]);
     installed.release();
   });
 
@@ -142,7 +141,7 @@ describe("installBodyDormancy", () => {
     expect(installed.asleep).toBe(false);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(1);
     // The ask is written before the subscription is restored.
-    expect(log.slice(6)).toEqual(["catchUp", "rescope", "stillLoops false", "lidContent false", "withholdSurface false"]);
+    expect(log.slice(5)).toEqual(["catchUp", "rescope", "stillLoops false", "withholdSurface false"]);
     store.apply({ shown: false, since: clock.now() });
     clock.advance(500);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(2);
@@ -168,7 +167,7 @@ describe("installBodyDormancy", () => {
     clock.advance(500);
     store.apply({ shown: true, since: clock.now() });
     expect(installed.asleep).toBe(false);
-    expect(log.slice(6)).toEqual(["catchUp", "stillLoops false", "lidContent false", "withholdSurface false", "rescope"]);
+    expect(log.slice(5)).toEqual(["catchUp", "stillLoops false", "withholdSurface false", "rescope"]);
     installed.release();
   });
 });

@@ -11,11 +11,13 @@
  * wakes when that has landed: the turn's last words are in the transcript,
  * the turn is over, and the body is no longer dormant.
  *
- * The reveal is lidded: from the moment the body sleeps its content box
- * wears the content lid, and on no reading after the reveal is the body
- * shown with its content bare before the turn's end is in. Beside it, how
- * long the revealed body stood lidded before the catch-up landed, against the
- * display period — what decided that a reveal needs the lid.
+ * The reveal is not lidded: a body that has painted shows what it had, asleep
+ * and revealed alike, and the turn's end lands in place once the catch-up
+ * does. This reverses an earlier decision that a dormant body wears the
+ * content lid from sleep to wake: a reveal then showed a blank box on every
+ * return, to hide a late landing on the few cards that slept mid-turn.
+ * Beside it, how long the revealed body stood showing what it had before the
+ * catch-up landed, against the display period.
  *
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -68,7 +70,7 @@ function deck(): Record<string, unknown> {
 const READ = `(function () {
   var d = window.__tug.bodyDormancy();
   var t = document.querySelector('[data-testid="session-card-transcript"]');
-  return { dormant: d.dormant, shown: d.shown, phase: ${promptPhase}, ended: t !== null && (t.textContent || "").indexOf(${JSON.stringify(MARKER)}) >= 0, lidded: document.documentElement.hasAttribute("data-body-dormant") };
+  return { dormant: d.dormant, shown: d.shown, phase: ${promptPhase}, ended: t !== null && (t.textContent || "").indexOf(${JSON.stringify(MARKER)}) >= 0, lidded: (function () { var box = document.querySelector(".body-chrome-frame .tug-pane-content"); if (box === null) return false; var c = getComputedStyle(box, "::after").content; return c !== "none" && c !== "normal" && c !== ""; })() };
 })()`;
 
 interface Read {
@@ -110,11 +112,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: dormancy and the catch-up",
 
         // ---- Past its delay, it goes dormant; the turn ends unheard ----
         const asleep = await settleFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);
-        expect(asleep, "the hidden body is dormant past its delay, its turn still running on its page").toMatchObject({
+        expect(asleep, "the hidden body is dormant past its delay, its turn still running on its page, its content unlidded").toMatchObject({
           shown: false,
           dormant: true,
           ended: false,
-          lidded: true,
+          lidded: false,
         });
         note(`dormant ${Date.now() - streamingAt} ms after the turn began streaming; the turn streams for ${TURN_MS} ms`);
         await Bun.sleep(Math.max(0, streamingAt + TURN_MS + 1_000 - Date.now()));
@@ -129,13 +131,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: dormancy and the catch-up",
         let shownAt: number | null = null;
         let wokeAt: number | null = null;
         let last: Read | null = null;
-        let bareStale = 0;
+        let shownLidded = 0;
+        let shownStale = 0;
         const deadline = revealAt + 10_000;
         while (Date.now() < deadline) {
           const b = await bodyOf(app, A);
           if (shownAt === null && b?.visible === true) shownAt = Date.now();
           last = await body.evalJS<Read>(READ);
-          if (b?.visible === true && !last.ended && !last.lidded) bareStale += 1;
+          if (b?.visible === true && last.lidded) shownLidded += 1;
+          if (b?.visible === true && !last.ended) shownStale += 1;
           if (wokeAt === null && !last.dormant) wokeAt = Date.now();
           if (shownAt !== null && wokeAt !== null && last.ended && last.phase === "idle") break;
         }
@@ -143,10 +147,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: dormancy and the catch-up",
         const staleMs = shownAt !== null && wokeAt !== null ? Math.max(0, wokeAt - shownAt) : null;
         note(
           `reveal: shown ${shownAt === null ? "never" : `${shownAt - revealAt} ms`}, awake ${wokeAt === null ? "never" : `${wokeAt - revealAt} ms`} after the switch; ` +
-            `shown lidded before caught up for ${staleMs ?? "?"} ms ≈ ${staleMs === null ? "?" : (staleMs / period).toFixed(1)} display periods of ${period.toFixed(1)} ms`,
+            `shown with what it had before caught up for ${staleMs ?? "?"} ms ≈ ${staleMs === null ? "?" : (staleMs / period).toFixed(1)} display periods of ${period.toFixed(1)} ms, ${shownStale} readings without the turn's end`,
         );
         expect(shownAt, "the revealed body is shown").not.toBeNull();
-        expect(bareStale, "no reading has the revealed body shown bare without its turn's end").toBe(0);
+        expect(shownLidded, "no reading has the revealed body's content lidded").toBe(0);
         expect(last, "the revealed body caught up: the turn's end is in, the turn is over, and it is awake").toMatchObject({
           dormant: false,
           ended: true,

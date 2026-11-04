@@ -308,6 +308,12 @@ struct BodyDestroy: Decodable, Equatable {
     var save: Bool
 }
 
+/// `painted`: a body's frame has gone to the compositor — its chrome's
+/// first, then its content's (`content`).
+struct BodyPainted: Decodable, Equatable {
+    var content: Bool
+}
+
 /// `bodyDelays`: the harness's seam on the host's body clocks, never sent by
 /// the product — how long a hidden body waits before it is declared dormant,
 /// how long it keeps its process, and how long a new page has to say it is
@@ -995,7 +1001,7 @@ enum ToHost {
     case overlayCreate
     case overlayClaim(CardHitRegion.Claim)
     case bodyHello
-    case painted
+    case painted(BodyPainted)
     case frontendReady
     case frontendLaunchStalled(FrontendLaunchStalled)
     case quitConfirmed
@@ -1053,7 +1059,7 @@ enum ToHost {
         case .overlayCreate: _ = try read(EmptyPayload.self); return .overlayCreate
         case .overlayClaim: return .overlayClaim(try read(CardHitRegion.Claim.self))
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello
-        case .painted: _ = try read(EmptyPayload.self); return .painted
+        case .painted: return .painted(try read(BodyPainted.self))
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
         case .crossingReady: return .crossingReady(try read(BodySurface.self))
         case .crossingSolved: return .crossingSolved(try read(CrossingSolved.self))

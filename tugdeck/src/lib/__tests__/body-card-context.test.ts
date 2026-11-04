@@ -60,15 +60,21 @@ function shell(options: { folded?: string[] } = {}): IDeckManagerStore {
 }
 
 describe("cardContextFor", () => {
-  test("a parked workspace's key card is told its own layer is hidden and another card is first responder", () => {
+  test("a parked workspace's key card is told its own layer is hidden and another card is first responder, and stays its workspace's focused card", () => {
     expect(cardContextFor(shell(), "k")).toEqual({
       folded: false,
       arriving: false,
       firstResponderCardId: "a",
+      focused: true,
       layerShown: false,
       spaceId: "two",
       geometry: { moves: 0, resizes: 0 },
     });
+  });
+
+  test("a parked card its workspace was not left on is not focused, and the shown first responder is", () => {
+    expect(cardContextFor(shell(), "n").focused).toBe(false);
+    expect(cardContextFor(shell(), "a").focused).toBe(true);
   });
 
   test("a parked card's fold is its own deck's", () => {

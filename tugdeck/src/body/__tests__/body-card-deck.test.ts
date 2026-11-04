@@ -57,10 +57,13 @@ afterEach(() => {
 });
 
 function context(over: Partial<CardContextValue> = {}): CardContextValue {
+  // The focused look follows the first responder unless a test says otherwise.
+  const firstResponderCardId = over.firstResponderCardId ?? null;
   return {
     folded: false,
     arriving: false,
-    firstResponderCardId: null,
+    firstResponderCardId,
+    focused: firstResponderCardId === CARD,
     layerShown: true,
     spaceId: null,
     geometry: { moves: 0, resizes: 0 },

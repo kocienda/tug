@@ -2853,10 +2853,10 @@ extension MainWindow {
         case .bodyHello:
             // A body's page is connected; it waits to be told its card.
             if let fromBody { bodies.didSayHello(fromBody) }
-        case .painted:
-            // A body's first frame of real content has gone to the
-            // compositor: it may be shown. The shell never posts this.
-            if let fromBody { bodies.didPaint(fromBody) }
+        case .painted(let painted):
+            // A body's frame has gone to the compositor, its chrome's or its
+            // content's: it may be shown. The shell never posts this.
+            if let fromBody { bodies.didPaint(fromBody, content: painted.content) }
         case .bodyCreate(let create):
             // The shell always names the kind: a body is bound to mount it.
             guard !create.componentId.isEmpty else {

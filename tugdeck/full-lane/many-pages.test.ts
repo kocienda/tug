@@ -550,6 +550,7 @@ describe("pages on the deck's own connection", () => {
         folded: false,
         arriving: true,
         firstResponderCardId: "c-deck",
+        focused: true,
         layerShown: false,
         spaceId: null,
         geometry: { moves: 0, resizes: 0 },

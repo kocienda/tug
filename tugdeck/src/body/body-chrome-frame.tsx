@@ -227,7 +227,7 @@ export function BodyChromeFrame({
     chromePaintPosted = true;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        postToHost(paintedToHost, {});
+        postToHost(paintedToHost, { content: false });
       });
     });
   }, [whole]);

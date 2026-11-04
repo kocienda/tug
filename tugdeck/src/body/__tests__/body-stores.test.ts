@@ -96,7 +96,7 @@ describe("the chrome a body draws", () => {
     // whose no-chrome case `body-chrome.test.ts` holds), and the gate on
     // wholeness stands before the post.
     const gate = "if (!whole || chromePaintPosted) return;";
-    const post = "postToHost(paintedToHost, {})";
+    const post = "postToHost(paintedToHost, { content: false })";
     expect(frame).toContain("const whole = chromeFrameWhole(chrome !== null,");
     expect(frame).toContain(gate);
     expect(frame).toContain(post);

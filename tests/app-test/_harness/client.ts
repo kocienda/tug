@@ -1474,6 +1474,8 @@ export interface HandOverRecord {
 export interface HandOverAccount {
   handOvers: HandOverRecord[];
   standing: string[];
+  /** What the host's reveal sets did: one line per open, hold, follow and landing, wall-clock ms first. */
+  revealLog?: string[];
 }
 
 /** The host's last 16 hand-overs and the faces on screen now. */

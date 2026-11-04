@@ -117,6 +117,7 @@ import {
   cardInspected,
   cardPainted,
   cardReservations,
+  cardTheme,
   devtoolsInspection,
 } from "../bus/declarations/card";
 import { followMiniatureGauges } from "../lib/miniature-bus";
@@ -159,7 +160,7 @@ import { appInfoStore } from "../lib/app-info-store";
 import { relayFrontmostProjectBinding, relayWorkspaceProjectDirs } from "../lib/frontmost-project";
 import { bodyVisibilityStore } from "../lib/body-visibility-store";
 import { withholdBodySurface } from "../lib/surface-mirror";
-import { BODY_DORMANT_ATTRIBUTE, installBodyDormancy, sessionAnswersCatchUp } from "./body-dormancy";
+import { installBodyDormancy, sessionAnswersCatchUp } from "./body-dormancy";
 import { DORMANT_AFTER_MS } from "../lib/body-visibility-store";
 import { applyCrossingMirror } from "../lib/fold-crossing";
 import { telemetryInspectionStore } from "../lib/telemetry-inspection-store";
@@ -423,7 +424,12 @@ function catchUpCard(cardId: string, done: () => void): () => void {
   return release;
 }
 
-/** Take the shell's deck facts this page renders against. */
+/**
+ * Take the shell's deck facts this page renders against. The theme among
+ * them is the screen's, which only the host's bind facts are read for —
+ * what the first paint is drawn in until the card's own (`card.theme`)
+ * arrives: a body wears its own workspace's theme, never the screen's.
+ */
 function applyDeckFacts(facts: Partial<DeckFactsValue>, deck: BodyCardDeck | null): Promise<void> {
   if (typeof facts.keyboardAccess === "boolean") {
     keyboardAccessStore.setMode(facts.keyboardAccess ? "accessibility" : "standard", { persist: false });
@@ -445,10 +451,14 @@ function applyDeckFacts(facts: Partial<DeckFactsValue>, deck: BodyCardDeck | nul
     if (deck === null) pageZoomStore.report(facts.zoom);
     else void pageZoomStore.apply(facts.zoom);
   }
-  if (typeof facts.theme === "string" && facts.theme !== getOnScreenTheme()) {
-    return applyTheme(facts.theme).then(postSurface);
-  }
+  if (deck === null && typeof facts.theme === "string") return applyCardTheme(facts.theme);
   return Promise.resolve();
+}
+
+/** Put `theme` on this page, when it is a theme and not the one already on it. */
+function applyCardTheme(theme: string | null): Promise<void> {
+  if (theme === null || theme === "" || theme === getOnScreenTheme()) return Promise.resolve();
+  return applyTheme(theme).then(postSurface);
 }
 
 /** A spare takes its card from tugcast; resolves whether it did. */
@@ -517,7 +527,7 @@ function signalReadyWhenQuiet(
       postSurface();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          postToHost(paintedToHost, {});
+          postToHost(paintedToHost, { content: true });
           publisher.painted();
           cardPainted.set(true);
         });
@@ -694,7 +704,6 @@ async function bindBody(bind: BodyBind): Promise<void> {
       dormantLoopsStilled = on;
       applyMotion();
     },
-    lidContent: (on) => document.documentElement.toggleAttribute(BODY_DORMANT_ATTRIBUTE, on),
     withholdSurface: withholdBodySurface,
     saveBag: () => void deck.saveNow(),
     sleepSession: () => cardServicesStore.getServices(cardId)?.codeSessionStore?.noteDormant(),
@@ -705,6 +714,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // card's first paint is drawn against.
   await applyDeckFacts(bind.facts, null);
   follow(deckFacts, (facts) => void applyDeckFacts(facts, deck));
+  follow(cardTheme, (theme) => void applyCardTheme(theme));
   follow(deckMenu, (menu) => {
     if (menu !== null) applyShellMenuFacts(menu);
   });

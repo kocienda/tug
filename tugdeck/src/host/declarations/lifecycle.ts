@@ -37,12 +37,18 @@ export const bodyHelloToHost = defineToHost({
   refused: [true],
 });
 
-export const paintedToHost = defineToHost({
+/**
+ * A body's frame has gone to the compositor: first its chrome's, then its
+ * content's (`content`). The host may show it from the first; a switch's
+ * faced set waits on each member's content, so the set never shows a card's
+ * chrome before its content.
+ */
+export const paintedToHost = defineToHost<{ content: boolean }>({
   name: "painted",
   from: "body",
-  codec: empty,
-  samples: [{}],
-  refused: [true],
+  codec: obj({ content: bool }),
+  samples: [{ content: true }, { content: false }],
+  refused: [true, {}],
 });
 
 /** The shell's ready reveals the window; a body's says it has painted its card. */

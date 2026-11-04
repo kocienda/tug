@@ -19,6 +19,12 @@
  * and the shell's own record has the arriving card's lid on from the first
  * frame its placeholder has a box until the host has shown it.
  *
+ * And what is revealed is a finished picture: a body that had painted
+ * before the switch never shows its content box surface-blank on a frame
+ * the host shows its view (`_row-44.ts`'s `blankAgainst`) — a dormant body
+ * keeps what it had — and the first frame after the host shows each
+ * arriving view is noted, for what an unhide puts on screen.
+ *
  * Every other kind that is a body is switched the same way: a card of the
  * kind at home, and one of the kind in the second workspace — the one the
  * workspace was made with, for a rail, or opened there — each body hidden as
@@ -36,12 +42,14 @@ import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
+import { decodePngFile } from "../_harness/png";
 import { bodyOfKind } from "../_harness/card-reach";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { escapeHasTaker, focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
+import { blankAgainst, contentOf, inkShare } from "./_row-44";
 import { intoTier, type Tier } from "./_tiers";
 import {
   BURST_INTERVAL_MS,
@@ -78,6 +86,30 @@ const B = "row10-b";
 /** The burst over one switch: a single commit, so any hole shows in its first few hundred ms. */
 const BURST_MS = 1_200;
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
+/**
+ * A body page's frame-by-frame record of its content lid — whether its
+ * content box's `::after` stands drawn, by whichever rule draws it — for a
+ * second and a half from its first animation frame; a hidden page draws
+ * none, so its record starts at its reveal.
+ */
+const LID_RECORDER = `(function () {
+  var log = (window.__row10LidLog = []);
+  var start = null;
+  function lidded() {
+    var box = document.querySelector(".body-chrome-frame .tug-pane-content");
+    if (box === null) return false;
+    var content = getComputedStyle(box, "::after").content;
+    return content !== "none" && content !== "normal" && content !== "";
+  }
+  function tick() {
+    var now = Date.now();
+    if (start === null) start = now;
+    log.push([now, lidded()]);
+    if (now - start < 1500) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  return null;
+})()`;
 
 function deck(): Record<string, unknown> {
   return {
@@ -118,6 +150,8 @@ interface Switch {
   departing: string[];
   /** The card whose lid the shell's sampler watches. */
   watch: string;
+  /** Every arriving body had painted before the switch, so none may show its content box surface-blank. */
+  revealsPainted: boolean;
 }
 
 async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop: Rect, palette: Awaited<ReturnType<typeof readStanding>>["palette"]): Promise<void> {
@@ -128,6 +162,14 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
     if (b.cardId === null || !b.visible || places.has(b.cardId)) continue;
     const at = await viewRectOf(app, b.cardId);
     if (at !== null) places.set(b.cardId, at);
+  }
+  // Each arriving page's own record of its content lid, frame by frame from
+  // its first animation frame after the reveal: a lid standing on a shown
+  // frame is a surface-blank content box, whatever the capture caught.
+  if (leg.revealsPainted) {
+    for (const id of leg.arriving) {
+      await app.body(id).evalJS<null>(LID_RECORDER).catch(() => null);
+    }
   }
   await armSampler(app, leg.watch);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
@@ -140,9 +182,12 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   // ---- At rest: departing hidden, arriving shown, each where its placeholder now stands ----
   for (const id of leg.departing) await expectHidden(app, id, `${leg.label}: ${id} departed`);
   const landed = new Map<string, Rect>();
+  const panes = new Map<string, Rect>();
   for (const id of leg.arriving) {
     await hostShows(app, id);
     landed.set(id, await restAt(app, id, `${leg.label}: ${id} arrived`));
+    const pane = await regionRectOf(app, id);
+    if (pane !== null) panes.set(id, pane);
   }
   // A card the workspace was made with arrives too, at the place its own
   // allocation gives it now.
@@ -187,6 +232,57 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   note(`${leg.label}: ${reading.frames.length} frames captured, ${bare.length} show a bare hole`);
   expect(reading.frames.length, `${leg.label}: frames were captured across the switch`).toBeGreaterThan(10);
   expect(bare.length, `${leg.label}: no frame shows the bare window through an open hole`).toBe(0);
+
+  // ---- The reveal: a painted body's content is never surface-blank ----
+  // A frame shows a card's view when the host's last sample before it did.
+  const scale = reading.scale;
+  const px = (r: Rect) => ({ x: r.x * scale, y: r.y * scale, width: r.width * scale, height: r.height * scale });
+  const settled = decodePngFile(reading.frames[reading.frames.length - 1].path);
+  const pngs = new Map<string, ReturnType<typeof decodePngFile>>();
+  const pngOf = (path: string) => pngs.get(path) ?? pngs.set(path, decodePngFile(path)).get(path)!;
+  const blankFrames: string[] = [];
+  const unhid: string[] = [];
+  for (const [id, pane] of panes) {
+    const content = px(contentOf(pane));
+    const settledInk = inkShare(settled, content);
+    let first: string | null = null;
+    let blank = 0;
+    let low = 1;
+    let span: [number, number] | null = null;
+    for (const f of reading.frames) {
+      if (f.wall < gestureWall) continue;
+      const sample = host.filter((s) => s.wall <= f.wall).at(-1);
+      if (sample === undefined || !sample.bodies.some((b) => b.cardId === id && b.visible)) continue;
+      const ink = inkShare(pngOf(f.path), content);
+      const ms = f.wall - gestureWall;
+      first ??= `${id} at ${ms} ms: content ink ${(ink * 100).toFixed(2)}% against settled ${(settledInk * 100).toFixed(2)}%`;
+      if (blankAgainst(ink, settledInk)) {
+        blank += 1;
+        low = Math.min(low, ink);
+        span = [span?.[0] ?? ms, ms];
+      }
+    }
+    unhid.push(first ?? `${id} never shown in the burst`);
+    if (blank > 0 && span !== null) {
+      blankFrames.push(`${id} surface-blank in ${blank} frames, ${span[0]}–${span[1]} ms, ink as low as ${(low * 100).toFixed(2)}% against settled ${(settledInk * 100).toFixed(2)}%`);
+    }
+  }
+  note(`${leg.label}: the first frame after the host showed each arriving view — ${unhid.join("; ")}`);
+  if (leg.revealsPainted) {
+    for (const id of leg.arriving) {
+      const log = await app.body(id).evalJS<[number, boolean][] | null>("window.__row10LidLog ?? null").catch(() => null);
+      const shownAt = host.find((s) => s.bodies.some((b) => b.cardId === id && b.visible))?.wall ?? Infinity;
+      const frames = (log ?? []).filter(([wall]) => wall >= shownAt);
+      const lidded = frames.filter(([, lid]) => lid);
+      note(
+        `${leg.label}: ${id}'s page drew ${frames.length} frames from its reveal, ` +
+          (lidded.length === 0 ? "none under its content lid" : `${lidded.length} under its content lid, ${lidded[0][0] - gestureWall}–${lidded[lidded.length - 1][0] - gestureWall} ms`),
+      );
+      if (lidded.length > 0) blankFrames.push(`${id}'s page drew ${lidded.length} frames under its content lid after its reveal`);
+    }
+  }
+  if (blankFrames.length > 0) note(`${leg.label}: revealed content boxes shown blank: ${blankFrames.join("; ")}`);
+  if (leg.revealsPainted) expect(blankFrames, `${leg.label}: no revealed body that had painted shows its content box surface-blank`).toEqual([]);
 }
 
 /** Which switch a piece reads: from the away workspace home, or (that one made first) home to away. */
@@ -231,11 +327,11 @@ export async function switchKind(kind: CardKind, leg: Leg, tier?: Tier): Promise
 
     if (leg === "home") {
       if (tier !== undefined) await intoTier(app, tier, "away, before the switch home");
-      await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K }, places, crop, standing.palette);
+      await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K, revealsPainted: tier !== "evicted" }, places, crop, standing.palette);
     } else {
       await switchQuietly(app, home, [K]);
       if (tier !== undefined) await intoTier(app, tier, "home, before the switch away");
-      await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [K2], departing: [K], watch: K2 }, places, crop, standing.palette);
+      await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [K2], departing: [K], watch: K2, revealsPainted: tier !== "evicted" }, places, crop, standing.palette);
     }
   } finally {
     await app.close();
@@ -300,11 +396,11 @@ export async function switchSessions(leg: Leg, tier?: Tier): Promise<void> {
 
     if (leg === "home") {
       if (tier !== undefined) await intoTier(app, tier, "away, before the switch home");
-      await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [A, B], departing: [C], watch: A }, places, crop, standing.palette);
+      await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [A, B], departing: [C], watch: A, revealsPainted: tier !== "evicted" }, places, crop, standing.palette);
     } else {
       await switchQuietly(app, home, [A, B]);
       if (tier !== undefined) await intoTier(app, tier, "home, before the switch away");
-      await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [C], departing: [A, B], watch: C }, places, crop, standing.palette);
+      await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [C], departing: [A, B], watch: C, revealsPainted: tier !== "evicted" }, places, crop, standing.palette);
     }
   } finally {
     await app.close();

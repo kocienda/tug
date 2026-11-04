@@ -20,6 +20,17 @@
  * not painted, so neither the departing card nor the canvas shows over an
  * arriving pane.
  *
+ * A parked workspace is a finished picture, so three more bars hold what a
+ * card in the right place may not do after the cut. Faced cards reveal as a
+ * set: every card the switch faced shows its page within a display frame
+ * of the others, or past the horizon, after which a painted card shows
+ * as it comes ({@link setSwapBad}). Asked for, a pane's content keeps the
+ * dominant colour the first switched frame gave it, so no card re-tints or
+ * brightens after the cut (`holdsColour`); and a revealed body that had
+ * painted never shows its content box surface-blank (`revealsPainted`,
+ * {@link blankAgainst}). Beside them the judge notes, per card, what the
+ * first frame after the host unhid its view showed.
+ *
  * Not a test: no `describe` here.
  */
 
@@ -59,6 +70,71 @@ const HELD_TITLE_SHARE = 0.75;
  */
 const STANDING_GRACE_MS = 100;
 const TOLERANCE = 8;
+/**
+ * How long after the switch the host holds a faced set for its last page:
+ * past it, a painted card shows as it comes, so a page that never paints
+ * holds nothing for ever. The host's own horizon is the number this mirrors.
+ */
+export const SET_HORIZON_MS = 2_000;
+/** How far apart the pages of one faced set may first show and still be one swap: a display frame and the sampler's tick. */
+export const SET_FRAME_MS = 20;
+/** A content box is surface-blank when it holds less than this share of its settled ink… */
+export const BLANK_SHARE = 0.2;
+/** …and its settled content carries at least this much ink, so a card that settles blank is never judged blank. */
+export const BLANK_FLOOR = 0.005;
+
+/** Whether a content box holding `ink` against its settled `settled` is surface-blank. */
+export const blankAgainst = (ink: number, settled: number): boolean => settled >= BLANK_FLOOR && ink < BLANK_SHARE * settled;
+
+/** A pane's content box: below its title band, inset from its edges. */
+export const contentOf = (r: Rect): Rect => {
+  const top = TITLE_TOP + TITLE_HEIGHT + 8;
+  return { x: r.x + 8, y: r.y + top, width: r.width - 16, height: r.height - top - 8 };
+};
+
+/**
+ * When each card the gesture faced first showed its own page after
+ * `choseWall`, read from the host's layer rows: the first row with no face,
+ * its container on screen and its page painted. A face may come down to the
+ * shell's stand-in before the page shows, so the page, not the face, is the
+ * reveal. A card never faced is absent; one whose page had not shown by the
+ * window's end is null.
+ */
+export function pageReveals(rows: readonly BodyLayerRow[], cardIds: readonly string[], choseWall: number): Record<string, number | null> {
+  const reveals: Record<string, number | null> = {};
+  for (const id of cardIds) {
+    const own = rows.filter((r) => r.cardId === id && r.wall >= choseWall).sort((a, b) => a.wall - b.wall);
+    const up = own.findIndex((r) => r.faced);
+    if (up < 0) continue;
+    const page = own.slice(up).find((r) => !r.faced && r.painted && !r.hidden && r.opacity > 0);
+    reveals[id] = page === undefined ? null : page.wall;
+  }
+  return reveals;
+}
+
+/**
+ * The faced set's failures: pages that first showed before the horizon
+ * across more than a frame, or some shown while others had not at a window's
+ * end that falls before the horizon.
+ */
+export function setSwapBad(rows: readonly BodyLayerRow[], cardIds: readonly string[], choseWall: number): string[] {
+  const reveals = pageReveals(rows, cardIds, choseWall);
+  const early = Object.entries(reveals).filter((e): e is [string, number] => e[1] !== null && e[1] - choseWall < SET_HORIZON_MS);
+  if (early.length === 0) return [];
+  const at = (w: number) => `${Math.round(w - choseWall)} ms`;
+  const bad: string[] = [];
+  const times = early.map(([, w]) => w);
+  const spread = Math.max(...times) - Math.min(...times);
+  if (spread > SET_FRAME_MS) {
+    bad.push(`the faced set swapped to pages across ${Math.round(spread)} ms before the horizon: ${early.map(([id, w]) => `${id} ${at(w)}`).join(", ")}`);
+  }
+  const still = Object.entries(reveals).filter(([, w]) => w === null).map(([id]) => id);
+  const end = rows.length > 0 ? Math.max(...rows.map((r) => r.wall)) : choseWall;
+  if (still.length > 0 && end - choseWall < SET_HORIZON_MS) {
+    bad.push(`the faced set split before the horizon: ${early.map(([id, w]) => `${id} shown at ${at(w)}`).join(", ")} while ${still.join(", ")} had not shown at ${at(end)}`);
+  }
+  return bad;
+}
 
 export interface Rect {
   x: number;
@@ -163,6 +239,7 @@ export async function readSwitch(
   cardIds: readonly string[],
   label: string,
   band: "title" | "chrome" = "title",
+  options: GestureOptions = {},
 ): Promise<string[]> {
   return readGesture(
     app,
@@ -170,7 +247,22 @@ export async function readSwitch(
     cardIds,
     label,
     band,
+    options,
   );
+}
+
+export interface GestureOptions {
+  /**
+   * How long the burst reads, from its arming — long enough for every page
+   * to paint inside it — and how far apart its frames are: a gesture showing
+   * many cards judges each frame once per card, so it reads fewer frames.
+   */
+  burstMs?: number;
+  intervalMs?: number;
+  /** Every pane's content keeps the dominant colour the first switched frame gave it. */
+  holdsColour?: boolean;
+  /** Every arriving card's body had painted before the gesture, so no frame showing its view may show its content box surface-blank. */
+  revealsPainted?: boolean;
 }
 
 /**
@@ -196,18 +288,16 @@ export async function readGesture(
    * for a card that has never had a page, whose title its page computes.
    */
   band: "title" | "chrome" = "title",
-  /**
-   * How long the burst reads, from its arming — long enough for every page
-   * to paint inside it — and how far apart its frames are: a gesture showing
-   * many cards judges each frame once per card, so it reads fewer frames.
-   */
-  { burstMs = BURST_MS, intervalMs = BURST_INTERVAL_MS }: { burstMs?: number; intervalMs?: number } = {},
+  { burstMs = BURST_MS, intervalMs = BURST_INTERVAL_MS, holdsColour = false, revealsPainted = false }: GestureOptions = {},
 ): Promise<string[]> {
   const width = await app.evalJS<number>("window.innerWidth");
   const height = await app.evalJS<number>("window.innerHeight");
   await app.captureBurst({ op: "arm", durationMs: burstMs, intervalMs, crop: { x: 0, y: 0, width, height } });
-  // The host's layers, tick by tick, over the same window: what it put on screen for each card.
-  await app.bodyLayers({ op: "arm", windowMs: burstMs });
+  // The host's layers, tick by tick, over the same window and on to just past
+  // the set's horizon: what it put on screen for each card, so a set that
+  // lands late in its horizon is read landing rather than never seen.
+  const layersMs = Math.max(burstMs, SET_HORIZON_MS + 200);
+  await app.bodyLayers({ op: "arm", windowMs: layersMs });
   await Bun.sleep(STANDING_MS);
   // The host's hand-overs before the switch, so the switch's own is the first after.
   const handOversBefore = (await app.handOvers()).handOvers;
@@ -238,16 +328,18 @@ export async function readGesture(
   const layers = (await settleFor(
     () => app.bodyLayers({ op: "read" }) as Promise<BodyLayersReading>,
     (r) => r.done,
-    burstMs + 5_000,
+    layersMs + 5_000,
   )) as BodyLayersReading;
   if (!layers.done) return ["the host's layer rows did not finish"];
   const account = await app.handOvers();
   const handOver = account.handOvers.find((h) => h.serial > serialBefore) ?? null;
   const handOverBad: string[] = [];
   // A hand-over is the host's when the gesture takes a view down over a card
-  // waiting on its page: one with no view on screen to take down plans none.
+  // waiting on its page: one with no view on screen to take down plans none,
+  // and neither does one whose arriving cards all stood painted at the cut.
   const departing = layers.rows.some((r) => r.wall >= choseWall && !cardIds.includes(r.cardId) && !r.hidden && r.opacity > 0);
-  if (handOver === null && departing) handOverBad.push("the switch planned no hand-over");
+  const waiting = cardIds.some((id) => layers.rows.find((r) => r.cardId === id && r.wall >= choseWall)?.painted !== true);
+  if (handOver === null && departing && waiting) handOverBad.push("the switch planned no hand-over");
   else if (handOver !== null && handOver.outcome !== "landed") handOverBad.push(`the switch's hand-over ended ${handOver.outcome}, not landed`);
   if (account.standing.length > 0) handOverBad.push(`faces still standing once every card painted: ${account.standing.join(", ")}`);
   note(
@@ -258,6 +350,11 @@ export async function readGesture(
           `face ink ${Object.entries(handOver.faceInk).map(([id, ink]) => `${id} ${(ink * 100).toFixed(1)}%`).join(", ")}; ` +
           `standing now [${account.standing.join(", ")}]; placer skip at the switch ${skipAtSwitch ?? "none"}`,
   );
+  const revealSetLog = (account.revealLog ?? [])
+    .map((line) => line.split(" "))
+    .filter(([wall]) => Number(wall) >= choseWall)
+    .map(([wall, ...rest]) => `${Number(wall) - choseWall} ms ${rest.join(" ")}`);
+  note(`${label}: reveal set ${revealSetLog.length === 0 ? "did nothing" : revealSetLog.join("; ")}`);
   const last = reading.frames[reading.frames.length - 1];
   // Every frame from the gesture, but the few still identical to the
   // standing frame while the commit reaches the compositor.
@@ -286,18 +383,29 @@ export async function readGesture(
       : `${id} face ${Math.round(rows[0].wall - choseWall)}–${Math.round(rows[rows.length - 1].wall - choseWall)} ms`;
   });
   note(`${label}: host faces ${faced.join("; ")}`);
+  // Faced cards reveal as a set, or past the horizon.
+  const setBad = setSwapBad(layers.rows, cardIds, choseWall);
+  const reveals = pageReveals(layers.rows, cardIds, choseWall);
+  if (Object.keys(reveals).length > 0) {
+    note(
+      `${label}: faced pages first shown ${Object.entries(reveals).map(([id, w]) => `${id} ${w === null ? "not by the window's end" : `${Math.round(w - choseWall)} ms`}`).join("; ")}` +
+        ` (one set within ${SET_FRAME_MS} ms, or past the ${SET_HORIZON_MS} ms horizon)`,
+    );
+  }
   const canvas = parseRgb(await app.evalJS<string>(asRgbJs(`getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')`)));
   const scale = reading.scale;
   const px = (r: Rect): FrameRegion => ({ x: r.x * scale, y: r.y * scale, width: r.width * scale, height: r.height * scale });
 
   const worst: Record<string, { ink: number; floor: number }> = {};
-  const bad: string[] = [...handOverBad];
+  const bad: string[] = [...handOverBad, ...setBad];
   let firstBad: { path: string; ms: number } | null = null;
   const titleOf = (r: Rect): FrameRegion => px({ x: r.x + 8, y: r.y + TITLE_TOP, width: r.width - 16, height: TITLE_HEIGHT });
   const boxOf = (r: Rect): FrameRegion => px({ x: r.x + 4, y: r.y + 4, width: r.width - 8, height: r.height - 8 });
   const settled = decodePngFile(last.path);
   const settledInk: Record<string, number> = {};
   const settledCanvas: Record<string, number> = {};
+  const settledContentInk: Record<string, number> = {};
+  const contentPx = (r: Rect): FrameRegion => px(contentOf(r));
   // Each card's palette for the bare-hole read: its own settled fill, the
   // canvas, and the window's background, which is what an open hole shows.
   const palettes: Record<string, Palette> = {};
@@ -306,12 +414,45 @@ export async function readGesture(
     settledCanvas[id] = canvasShare(settled, boxOf(rects[id]), canvas);
     const probe: Palette = { surface: canvas, canvas, bare: parseRgb(reading.windowBackground) };
     palettes[id] = { ...probe, surface: parseRgb(classifyFrame(last, probe, 8, boxOf(rects[id])).fill) };
+    settledContentInk[id] = inkShare(settled, contentPx(rects[id]));
   }
+  // The colour each pane's content wore at the first switched frame, and the frames that moved it.
+  const firstFill: Record<string, Rgb> = {};
+  const moved: Record<string, { ms: number; fill: string }[]> = {};
+  // The frames that showed a revealed body's content box surface-blank.
+  const blank: Record<string, { ms: number; ink: number }[]> = {};
+  // What the first frame after the host unhid each card's view showed.
+  const unhid: Record<string, string> = {};
+  const rgbText = (c: Rgb) => `rgb(${c.r}, ${c.g}, ${c.b})`;
   let firstTitleBad: { wall: number; path: string } | null = null;
   for (const f of switched) {
     const png = decodePngFile(f.path);
     for (const id of cardIds) {
       const r = rects[id];
+      const host = layers.rows.filter((row) => row.cardId === id && row.wall <= f.wall).at(-1);
+      const viewShows = host !== undefined && !host.faced && !host.hidden && host.opacity > 0;
+      const ms = Math.round(f.wall - choseWall);
+      const firstUnhid = viewShows && unhid[id] === undefined;
+      const content = holdsColour || firstUnhid ? classifyFrame(f, palettes[id], 8, contentPx(r)) : null;
+      const contentInk = (revealsPainted && viewShows) || firstUnhid ? inkShare(png, contentPx(r)) : 0;
+      if (firstUnhid && content !== null) {
+        const box = classifyFrame(f, palettes[id], 8, boxOf(r));
+        unhid[id] =
+          `${id} at ${ms} ms: content ${content.fill}, ink ${(contentInk * 100).toFixed(1)}% against settled ${(settledContentInk[id] * 100).toFixed(1)}%, ` +
+          `box bare ${(box.bare * 100).toFixed(1)}% canvas ${(box.canvas * 100).toFixed(1)}%`;
+      }
+      if (holdsColour && content !== null) {
+        const fill = parseRgb(content.fill);
+        const first = (firstFill[id] ??= fill);
+        if (!near(fill, first, TOLERANCE)) {
+          (moved[id] ??= []).push({ ms, fill: content.fill });
+          firstBad ??= { path: f.path, ms };
+        }
+      }
+      if (revealsPainted && viewShows && blankAgainst(contentInk, settledContentInk[id])) {
+        (blank[id] ??= []).push({ ms, ink: contentInk });
+        firstBad ??= { path: f.path, ms };
+      }
       const titleRegion = titleOf(r);
       // A title band holds the settled title's ink. A never-shown card's
       // title is its page's to compute, so its band need only hold the
@@ -321,7 +462,6 @@ export async function readGesture(
       const w = (worst[id] ??= { ink: 1, floor: 0 });
       w.ink = Math.min(w.ink, ink);
       w.floor = Math.max(w.floor, floor);
-      const ms = Math.round(f.wall - choseWall);
       // The floor is told by its grid as well as its colour: a card's own
       // dark surface (a Session card's restore lid) lies within the colour
       // tolerance of the canvas and draws no grid.
@@ -332,7 +472,6 @@ export async function readGesture(
       // An open hole draws no grid, so the grid gate above cannot see one.
       // Canvas-coloured paint with no grid in it is a hole only where the
       // host had nothing of the card's on screen: a lid is its page's own.
-      const host = layers.rows.filter((row) => row.cardId === id && row.wall <= f.wall).at(-1);
       const hostShows = host !== undefined && (host.faced || (!host.hidden && host.opacity > 0));
       const classes = classifyFrame(f, palettes[id], 8, boxOf(r));
       if (!hostShows && showsBareHole(classes)) {
@@ -351,6 +490,19 @@ export async function readGesture(
       }
     }
   }
+  for (const [id, frames] of Object.entries(moved)) {
+    bad.push(
+      `${id}: its content moved off the ${rgbText(firstFill[id])} the first switched frame gave it in ${frames.length} frames, ` +
+        `first at ${frames[0].ms} ms to ${frames[0].fill}, last at ${frames[frames.length - 1].ms} ms to ${frames[frames.length - 1].fill}`,
+    );
+  }
+  for (const [id, frames] of Object.entries(blank)) {
+    bad.push(
+      `${id}: its revealed content box was surface-blank in ${frames.length} frames, ${frames[0].ms}–${frames[frames.length - 1].ms} ms, ` +
+        `ink as low as ${(Math.min(...frames.map((b) => b.ink)) * 100).toFixed(2)}% against settled ${(settledContentInk[id] * 100).toFixed(2)}%`,
+    );
+  }
+  note(`${label}: the first frame showing each card's unhidden view — ${cardIds.map((id) => unhid[id] ?? `${id} never shown unhidden in the burst`).join("; ")}`);
   note(
     `${label}: ${switched.length} frames from the gesture, the first at ${Math.round(switched[0].wall - choseWall)} ms; ` +
       cardIds.map((id) => `${id} least title band ${band} ${(worst[id].ink * 100).toFixed(1)}%, most box canvas ${(worst[id].floor * 100).toFixed(1)}%`).join("; "),

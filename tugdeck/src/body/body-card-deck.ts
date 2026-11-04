@@ -186,6 +186,7 @@ export class BodyCardDeck implements CardDeck {
       prev.folded !== next.folded ||
       prev.arriving !== next.arriving ||
       prev.firstResponderCardId !== next.firstResponderCardId ||
+      prev.focused !== next.focused ||
       prev.railSide !== next.railSide
     ) {
       this.deckState = this.synthesize();
@@ -267,7 +268,7 @@ export class BodyCardDeck implements CardDeck {
     return {
       cards: [{ id: this.cardId, componentId: this.componentId, title: "", closable: true }],
       panes: [pane],
-      ...(this.context.firstResponderCardId === this.cardId ? { activePaneId: paneId } : {}),
+      ...(this.context.focused ? { activePaneId: paneId } : {}),
       imposition: { sidebars: { dashes: { side: defaultSidebarSide("dashes") } } },
       hasFocus: typeof document !== "undefined" ? document.hasFocus() : true,
       ...(this.context.arriving ? { arriving: { [paneId]: true as const } } : {}),
