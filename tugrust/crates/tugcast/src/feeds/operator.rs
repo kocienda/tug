@@ -182,12 +182,81 @@ pub async fn run_verb(ctx: &OperatorContext, name: &str, args: &Value) -> Result
         return Err(format!("{name}: args must be a JSON object"));
     }
     match tokio::time::timeout(VERB_TIMEOUT, dispatch(ctx, name, args)).await {
-        Ok(result) => result,
+        Ok(result) => result.map(|mut value| {
+            name_sessions(ctx, &mut value, &mut HashMap::new());
+            value
+        }),
         Err(_) => Err(format!(
             "{name}: timed out after {}s",
             VERB_TIMEOUT.as_secs()
         )),
     }
+}
+
+/// Put a name to every session a result names by id alone.
+///
+/// Facts, posts, shell commands and changes each carry the `session_id` that
+/// recorded them and nothing else about it, and the answer's voice rule asks
+/// for a session to be written as its `<project>/<callsign>` pair. A model
+/// handed the bare id has two outs, both wrong: spend a round on
+/// `session.transcript` to learn the name, or tell the reader the callsign
+/// "couldn't be resolved" while the app mounts the very atom it could not
+/// name beside that sentence. So every object in a verb's result that holds a
+/// `session_id` gains `session_name`, the pair already spelled, looked up
+/// once per id per call. A session nothing on the machine names, or a
+/// private one, gains nothing ([P05]).
+fn name_sessions(
+    ctx: &OperatorContext,
+    value: &mut Value,
+    names: &mut HashMap<String, Option<String>>,
+) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                name_sessions(ctx, item, names);
+            }
+        }
+        Value::Object(map) => {
+            if !map.contains_key("session_name")
+                && let Some(id) = map.get("session_id").and_then(Value::as_str)
+            {
+                let name = names
+                    .entry(id.to_string())
+                    .or_insert_with(|| session_name(ctx, id))
+                    .clone();
+                if let Some(name) = name {
+                    map.insert("session_name".to_string(), json!(name));
+                }
+            }
+            for (_, child) in map.iter_mut() {
+                name_sessions(ctx, child, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The `<project>/<callsign>` pair for one session id: this ledger's row
+/// first, then the machine-wide index, the order `locate_transcript` places
+/// a session in. `None` for a private session or one with no callsign on
+/// record.
+fn session_name(ctx: &OperatorContext, session_id: &str) -> Option<String> {
+    if ctx.ledger.is_session_private(session_id).unwrap_or(true) {
+        return None;
+    }
+    let ledger = ctx
+        .ledger
+        .get(session_id)
+        .ok()
+        .flatten()
+        .and_then(|row| Some((row.tag?, row.project_dir)));
+    let (callsign, project_dir) = ledger.or_else(|| {
+        tugcore::session_index::lookup_uuid(&ctx.session_index_path, session_id)
+            .into_iter()
+            .find_map(|entry| Some((entry.callsign?, entry.project_dir)))
+    })?;
+    let leaf = tugcore::session_index::project_leaf_of(&project_dir);
+    (!leaf.is_empty() && !callsign.is_empty()).then(|| format!("{leaf}/{callsign}"))
 }
 
 async fn dispatch(ctx: &OperatorContext, name: &str, args: &Value) -> Result<Value, String> {
@@ -4705,6 +4774,74 @@ mod tests {
         // description, and only that.
         assert!(bare["tag"].is_string());
         assert!(bare["synopsis"].is_null());
+    }
+
+    #[tokio::test]
+    async fn a_row_naming_a_session_by_id_carries_its_project_callsign_pair() {
+        // A commit fact carried its session's id and nothing else, so an
+        // answer resting on it told the reader the callsign "couldn't be
+        // resolved" beside the very atom the app had mounted for it. Every
+        // row naming a session_id now carries the pair the voice rule asks for.
+        let f = fixture();
+        f.ctx
+            .ledger
+            .record_spawn(
+                "sess-a",
+                "ws",
+                "/u/src/tug",
+                "card-1",
+                1_000,
+                "sess-a",
+                Some("fleecy-lotus"),
+            )
+            .expect("spawn");
+        f.ctx
+            .ledger
+            .record_spawn("secret", "ws", "/u/src/tug", "card-2", 1_000, "secret", Some("hush-hush"))
+            .expect("spawn");
+        f.ctx
+            .ledger
+            .set_session_private("secret", true)
+            .expect("marked private");
+        // One another instance recorded: the ledger has no row, the index does.
+        tugcore::session_index::SessionIndex::open(&f.ctx.session_index_path)
+            .expect("index")
+            .upsert(&index_entry("idx-far", "/u/src/eucit", "debug-b", 1_000))
+            .expect("indexed");
+        for (session, at_ms) in [("sess-a", 2_000), ("idx-far", 3_000), ("nobody", 5_000)] {
+            seed_fact(
+                &f.ctx,
+                &crate::session_ledger::NewFact {
+                    at_ms,
+                    kind: "commit".to_string(),
+                    session_id: Some(session.to_string()),
+                    subject: None,
+                    text: format!("commit from {session}"),
+                    payload: "{}".to_string(),
+                    dedupe_key: None,
+                },
+            );
+        }
+
+        let out = run_verb(&f.ctx, "facts.list", &json!({"kind": "commit"}))
+            .await
+            .expect("list ran");
+        let name_of = |session: &str| -> Value {
+            out["facts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["session_id"] == session)
+                .map(|r| r["session_name"].clone())
+                .unwrap_or(Value::String("no row".into()))
+        };
+        assert_eq!(name_of("sess-a"), "tug/fleecy-lotus");
+        assert_eq!(name_of("idx-far"), "eucit/cs-idx-far");
+        // Nothing on the machine names it: the row stays as it was.
+        assert_eq!(name_of("nobody"), Value::Null);
+        // A private session is never named, whatever row might cite it. The
+        // fact ledger refuses one outright, so the namer is asked directly.
+        assert_eq!(session_name(&f.ctx, "secret"), None);
     }
 
     #[tokio::test]
