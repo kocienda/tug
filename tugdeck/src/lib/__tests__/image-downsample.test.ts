@@ -18,6 +18,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   classifySourceMime,
+  encodeMimeFor,
   fitWithinLongEdge,
   isAnimatedGif,
   JPEG_QUALITY_LADDER,
@@ -643,4 +644,27 @@ describe("exported constants", () => {
       expect(JPEG_QUALITY_LADDER[i]!).toBeLessThan(JPEG_QUALITY_LADDER[i - 1]!);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// encodeMimeFor — what the raster branch re-encodes as
+// ---------------------------------------------------------------------------
+
+describe("encodeMimeFor", () => {
+  test.each([
+    ["image/png", "image/png"],
+    ["image/jpeg", "image/jpeg"],
+    ["image/webp", "image/webp"],
+    ["image/gif", "image/gif"],
+    ["IMAGE/PNG", "image/png"],
+  ])("%s keeps its type → %s", (source, encoded) => {
+    expect(encodeMimeFor(source)).toBe(encoded);
+  });
+
+  test.each(["image/heic", "image/heif", "image/avif"])(
+    "%s → image/jpeg (no canvas encodes it, and the API refuses it)",
+    (source) => {
+      expect(encodeMimeFor(source)).toBe("image/jpeg");
+    },
+  );
 });

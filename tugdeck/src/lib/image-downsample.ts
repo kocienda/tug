@@ -34,9 +34,10 @@
  *    raster, with the GIF / JPEG fallback ladder above.
  *  - `image/svg+xml` → rasterize to PNG at long-edge ≤ 1024 px.
  *  - `image/heic` / `image/heif` / `image/avif` → flow through the
- *    raster branch unchanged. WebKit (the engine Tug.app uses)
- *    decodes all three natively via `createImageBitmap`. Verified
- *    empirically (see [Q02] in `dev-atoms.md`).
+ *    raster branch, decoded natively by WebKit (the engine Tug.app
+ *    uses) via `createImageBitmap` (see [Q02] in `dev-atoms.md`), and
+ *    re-encoded as JPEG: no canvas encodes them, and the API accepts
+ *    only JPEG / PNG / GIF / WebP (see {@link encodeMimeFor}).
  *  - Anything else → `unsupported-format` discriminated error.
  *
  * ## Discriminated errors
@@ -183,6 +184,36 @@ const SUPPORTED_RASTER_MIMES: ReadonlySet<string> = new Set([
  * formats are out of scope per [Q03] / non-goals.
  */
 const ANIMATABLE_MIMES: ReadonlySet<string> = new Set(["image/gif"]);
+
+/**
+ * Media types a canvas re-encode may keep — the ones the Anthropic
+ * Vision API accepts. Everything else the pipeline decodes (HEIC, HEIF,
+ * AVIF) is re-encoded as JPEG: no engine's canvas encodes those, and the
+ * API would refuse them if one did.
+ */
+const API_ENCODE_MIMES: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+
+/**
+ * The media type the raster branch asks the canvas to encode a source
+ * of `sourceMime` as. A type the API accepts is kept; any other decodable
+ * source — a HEIC photo off an iPhone, say — becomes JPEG, which is what
+ * such a photo is closest to.
+ *
+ * @example
+ * ```ts
+ * encodeMimeFor("image/png")   // → "image/png"
+ * encodeMimeFor("image/heic")  // → "image/jpeg"
+ * ```
+ */
+export function encodeMimeFor(sourceMime: string): string {
+  const m = sourceMime.toLowerCase();
+  return API_ENCODE_MIMES.has(m) ? m : "image/jpeg";
+}
 
 // ---------------------------------------------------------------------------
 // Public types — mirror Spec S04 verbatim.

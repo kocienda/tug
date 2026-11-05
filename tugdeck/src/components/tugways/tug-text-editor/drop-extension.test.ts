@@ -13,6 +13,7 @@ import { EditorState } from "@codemirror/state";
 import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
 import { atomDecorationField, atomInvertedEffects } from "./atom-decoration";
 import {
+  imageMimeForPath,
   mixedInsertSpec,
   substrateInsertSpec,
   type DropMixedItem,
@@ -143,5 +144,17 @@ describe("substrateInsertSpec pads only its outer edges", () => {
 
   test("an empty substrate writes nothing", () => {
     expect(substrateInsertSpec(editor("foobar"), 3, "", [])).toBeNull();
+  });
+});
+
+describe("imageMimeForPath — the drop gate's image extensions", () => {
+  test.each([
+    ["/a/IMG_0001.HEIC", "image/heic"],
+    ["/a/photo.heif", "image/heif"],
+    ["/a/photo.avif", "image/avif"],
+    ["/a/shot.png", "image/png"],
+    ["/a/notes.txt", null],
+  ])("%s → %s", (path, mime) => {
+    expect(imageMimeForPath(path)).toBe(mime);
   });
 });

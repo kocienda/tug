@@ -73,6 +73,7 @@ import {
   SVG_RASTER_MAX_EDGE_PX,
   JPEG_QUALITY_LADDER,
   classifySourceMime,
+  encodeMimeFor,
   fitWithinLongEdge,
   isAnimatedGif,
   type DownsampleOutcome,
@@ -232,18 +233,25 @@ async function canvasToBlob(
 }
 
 /**
- * Encode-with-fallback. Tries the source MIME first; if the result
- * exceeds `MAX_BYTE_SIZE`, walks the JPEG quality ladder. Returns
- * the first encoded form that fits, or `null` if every step
- * exceeded the cap.
+ * Encode-with-fallback. Tries the source's encode MIME first
+ * (`encodeMimeFor` — the source's own type when the API accepts it,
+ * JPEG otherwise); if the result exceeds `MAX_BYTE_SIZE`, walks the
+ * JPEG quality ladder. Returns the first encoded form that fits, or
+ * `null` if every step exceeded the cap.
+ *
+ * The media type reported is the encoded blob's own, not the one asked
+ * for: a canvas that cannot encode a type silently returns PNG instead
+ * (WebKit does this for WebP), and labelling those bytes with the type
+ * requested would send the API a payload that is not what it says.
  */
 async function encodeWithFallback(
   canvas: OffscreenCanvas,
   sourceMime: string,
 ): Promise<{ blob: Blob; mediaType: string } | null> {
-  const tryNative = await canvasToBlob(canvas, sourceMime);
+  const target = encodeMimeFor(sourceMime);
+  const tryNative = await canvasToBlob(canvas, target);
   if (tryNative.size <= MAX_BYTE_SIZE) {
-    return { blob: tryNative, mediaType: sourceMime };
+    return { blob: tryNative, mediaType: tryNative.type || target };
   }
 
   for (const q of JPEG_QUALITY_LADDER) {

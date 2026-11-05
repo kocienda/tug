@@ -21,6 +21,11 @@
  *   `data-atom-type="image"` chip labelled `image-1`, and no `file` atom
  *   appears.
  *
+ *   **A HEIC photo is an image too.** A real `.heic` on disk (made by
+ *   `sips` from the PNG) lands as an image chip, not as its filename: the
+ *   gate admits the extension, and WebKit decodes it in the downsample
+ *   worker, which re-encodes it as JPEG for the API.
+ *
  *   **Anything else stays a file atom.** A `.txt` path lands as a
  *   `data-atom-type="file"` chip whose value is the absolute path.
  *
@@ -46,6 +51,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,6 +103,8 @@ describe.skipIf(!SHOULD_RUN)(
         const txtPath = join(fixtureDir, "notes.txt");
         const laterPath = join(fixtureDir, "later.txt");
         writeFileSync(pngPath, PNG_1X1);
+        const heicPath = join(fixtureDir, "IMG_0001.HEIC");
+        execFileSync("/usr/bin/sips", ["-s", "format", "heic", pngPath, "--out", heicPath], { stdio: "ignore" });
         writeFileSync(txtPath, "notes\n");
         writeFileSync(laterPath, "later\n");
 
@@ -143,6 +151,33 @@ describe.skipIf(!SHOULD_RUN)(
             "axis image: an inserted PNG mints no file atom",
           ).toBe(0);
 
+          // ── A HEIC photo is an image too ─────────────────────────────
+          // card-dom: shell — the menu's route, as above.
+          await app.evalJS<void>(
+            `(window.__tug.dispatchControlAction("insert-file", { path: ${JSON.stringify(heicPath)} }), null)`,
+          );
+          await app.body("A").waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 2`,
+            { timeoutMs: 15_000 },
+          );
+          const heic = await app.body("A").evalJS<{ label: string | null; text: string }>(
+            `(function(){
+              var imgs = document.querySelectorAll(${JSON.stringify(atomOfType("image"))});
+              return {
+                label: imgs[1].getAttribute("data-atom-label"),
+                text: document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent,
+              };
+            })()`,
+          );
+          expect(
+            heic.label,
+            "axis heic: an inserted HEIC decodes and attaches as an image",
+          ).toBe("image-2");
+          expect(
+            heic.text.includes("IMG_0001"),
+            "axis heic: the HEIC did not degrade to its filename",
+          ).toBe(false);
+
           // ── Anything else stays a file atom ──────────────────────────
           // card-dom: shell — the menu's route, as above.
           await app.evalJS<void>(
@@ -166,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(window.__tug.dispatchControlAction("insert-file", { paths: ${JSON.stringify([pngPath, laterPath])} }), null)`,
           );
           await app.body("A").waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} img[data-atom-type]`)}).length === 4`,
+            `document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} img[data-atom-type]`)}).length === 5`,
             { timeoutMs: 15_000 },
           );
           const order = await app.body("A").evalJS<Array<string | null>>(
@@ -177,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             order,
             "axis several: a multiple selection lands every file, in the panel's order",
-          ).toEqual(["image", txtPath, "image", laterPath]);
+          ).toEqual(["image", "image", txtPath, "image", laterPath]);
 
           // ── The chord asks the host's panel for paths ───────────────
           // The keydown goes to the composer, in A's body, and the panel is
@@ -201,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
           );
           await app.body("A").waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 4`,
+            `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 5`,
             { timeoutMs: 15_000 },
           );
           expect(

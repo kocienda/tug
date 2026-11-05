@@ -25,8 +25,9 @@
  *      WebView's default navigate-to-file-URL behavior, then a
  *      single transaction inserts each dropped file into the
  *      editor. Files with image extensions (png / jpg / jpeg /
- *      gif / svg / webp) become atoms (image chips routed through
- *      the downsample pipeline when a bytes-store is available);
+ *      gif / svg / webp / heic / heif / avif) become atoms (image
+ *      chips routed through the downsample pipeline when a
+ *      bytes-store is available);
  *      every other file inserts its basename as plain text. Mixed
  *      drops interleave the two with single-space separators, all
  *      in one CM6 transaction.
@@ -123,6 +124,11 @@ const IMG_MIME_BY_EXT: Readonly<Record<string, string>> = {
   gif: "image/gif",
   svg: "image/svg+xml",
   webp: "image/webp",
+  // Decoded by WebKit and re-encoded as JPEG by the downsampler, since the
+  // API takes none of the three as they stand.
+  heic: "image/heic",
+  heif: "image/heif",
+  avif: "image/avif",
 };
 const IMG_EXTS: ReadonlySet<string> = new Set(Object.keys(IMG_MIME_BY_EXT));
 
@@ -210,8 +216,8 @@ const DROP_CARET_HOST_ATTR = "data-drop-caret";
 /**
  * Decide whether a file should render as an image atom (chip) or
  * insert its basename as plain text. Extension-based: anything with
- * a recognized image extension (png / jpg / jpeg / gif / svg / webp)
- * becomes an atom; everything else becomes filename text.
+ * a recognized image extension (png / jpg / jpeg / gif / svg / webp /
+ * heic / heif / avif) becomes an atom; everything else becomes filename text.
  *
  * Extension-based on purpose. Inline atom-chip support is images-only
  * (the downsample pipeline only handles raster + svg). Non-image
@@ -222,6 +228,21 @@ const DROP_CARET_HOST_ATTR = "data-drop-caret";
 function isImageFile(file: File): boolean {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   return IMG_EXTS.has(ext);
+}
+
+/**
+ * `file` with the media type its extension names, when the drag left
+ * `File.type` empty. The downsampler routes on `Blob.type` and the upload
+ * stores by it, so an image the drop gate admitted by extension must
+ * arrive typed — WebKit types the common formats itself but cannot be
+ * relied on to for HEIC and its kin. A file that already carries a type,
+ * or is not an image, passes through unchanged.
+ */
+function withImageType(file: File): File {
+  if (file.type !== "") return file;
+  const mime = imageMimeForPath(file.name);
+  if (mime === null) return file;
+  return new File([file], file.name, { type: mime, lastModified: file.lastModified });
 }
 
 /**
@@ -941,6 +962,7 @@ export async function processAttachmentFiles(
   paths?: ReadonlyMap<string, string>,
 ): Promise<void> {
   if (files.length === 0) return;
+  files = files.map(withImageType);
 
   // Count existing image atoms up front so `image-N` numbering picks up
   // after them. Read before the await — positions can't have shifted
