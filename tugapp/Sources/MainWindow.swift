@@ -271,6 +271,16 @@ private final class WaveProgressView: NSView {
 /// deck realizes the activation half only — the click that raises the app makes
 /// the card under it active, and does not press the button or place the caret
 /// it happens to land on. Every later click is an ordinary one.
+///
+/// One activating click is delivered all the same: the one that answers a
+/// context menu. A secondary click does not activate a background app, so a
+/// right-click on a backgrounded deck opens the page's own menu with the app
+/// still inactive, and the click that chooses an item is the one that brings
+/// the app forward. Swallowed, it left the menu standing and its item unrun —
+/// Look Up in Dictionary among them. A native context menu acts on that click,
+/// so after a secondary click this view took while inactive, the next
+/// activating click into it is pressed as well as reported. Any other press or
+/// key in this view spends the exception.
 final class ClickThroughWebView: WKWebView {
     /// For a body's view: whether the shell has named this view's card for
     /// the keyboard. Nil for the shell's own view, which is never gated.
@@ -312,6 +322,11 @@ final class ClickThroughWebView: WKWebView {
     private var firstMouseEventNumber: Int?
 
     private var swallowingGesture = false
+
+    /// Set by a secondary click this view took while the app was inactive:
+    /// the page has opened its context menu, and the activating click that
+    /// follows is the one that chooses from it.
+    private var contextClickWhileInactive = false
 
     /// Whether a point in the superview's coordinates belongs to a view
     /// beneath this one. The overlay stands over the whole window and is
@@ -429,11 +444,28 @@ final class ClickThroughWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         if firstMouseEventNumber == event.eventNumber {
             firstMouseEventNumber = nil
+            if contextClickWhileInactive {
+                contextClickWhileInactive = false
+                onActivationClick?(event.locationInWindow)
+                super.mouseDown(with: event)
+                return
+            }
             swallowingGesture = true
             onActivationClick?(event.locationInWindow)
             return
         }
+        contextClickWhileInactive = false
         super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        contextClickWhileInactive = !NSApp.isActive || !(window?.isKeyWindow ?? false)
+        super.rightMouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        contextClickWhileInactive = false
+        super.keyDown(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -2479,6 +2511,13 @@ extension MainWindow {
             // the font size is scaled: it is the computed style, in layout px,
             // and the callout is redrawn over glyphs drawn at the zoom factor.
             guard !lookup.text.isEmpty else { return }
+            // The panel's own failures are silent, so the request is said once:
+            // a lookup that shows nothing can then be told from one that never
+            // arrived. The length, never the word.
+            TugLog.info("host", "look up in dictionary", [
+                TugLog.field("page", sender.pageName),
+                TugLog.field("chars", lookup.text.count),
+            ])
             let anchor = NSPoint(x: lookup.x, y: lookup.y)
             let font = MainWindow.definitionFont(
                 families: lookup.fontFamily,

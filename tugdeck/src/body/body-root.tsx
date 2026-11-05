@@ -46,6 +46,7 @@ import { paneChrome, paneCloseCard, paneClosePane, paneSelectTab } from "../bus/
 import type { CardTitleBarHandle } from "../components/chrome/card-title-bar";
 import { BodyChromeFrame } from "./body-chrome-frame";
 import { UsageContext } from "../lib/usage-context";
+import { isDictionaryLookupRequest, lookUpInDictionary } from "../lib/dictionary-lookup";
 import type { UsageStore } from "../lib/usage-store";
 
 export interface BodyRootProps {
@@ -154,6 +155,16 @@ function BodyPane({
       },
       [TUG_ACTIONS.REVEAL_STACK]: (_event: ActionEvent) => {
         titleBarRef.current?.revealStack();
+      },
+      // Look Up in Dictionary, from any text surface's context menu in this
+      // card. The shell answers it at the deck's root, which this page does
+      // not have, and it is not a command either, so unanswered it would walk
+      // off this root and go nowhere. It is posted from here and never handed
+      // to the shell: its anchor was measured in this page's viewport, and the
+      // host puts the panel up on the view that posted it.
+      [TUG_ACTIONS.LOOK_UP_IN_DICTIONARY]: (event: ActionEvent) => {
+        if (!isDictionaryLookupRequest(event.value)) return;
+        lookUpInDictionary(event.value);
       },
     }),
     [deck, paneId, cardId],

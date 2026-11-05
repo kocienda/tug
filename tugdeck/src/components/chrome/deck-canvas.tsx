@@ -2849,7 +2849,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // for the same reason Reveal in Finder does: the verb carries
       // everything it needs on the event, so the surface that offers it has
       // nothing left to contribute, and every text surface in the deck gets
-      // one handler instead of five.
+      // one handler instead of five. A card's body page has no deck root, so
+      // its own root answers the same verb (`body/body-root.tsx`).
       [TUG_ACTIONS.LOOK_UP_IN_DICTIONARY]: (event: ActionEvent) => {
         if (!isDictionaryLookupRequest(event.value)) return;
         lookUpInDictionary(event.value);
