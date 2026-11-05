@@ -119,6 +119,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// and the first paint is driven by `revealWebView` in
     /// `MainWindow.bridgeFrontendReady`.
     var frontendHasLoadedOnce = false
+    /// The launch's purge of WebKit's cache, begun beside tugcast's start;
+    /// `onReady` loads the interface only once it has finished, so the first
+    /// page never reads a record a prior build left. See `WebCachePurge`.
+    private var launchCachePurge: WebCachePurge?
     /// Text files handed to the app (Dock/Finder open, "Open With…") before
     /// the deck is live. Flushed to `open-file` control frames once
     /// `bridgeFrontendReady` fires; opened immediately when already live.
@@ -582,19 +586,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         ])
                     }
                     let viteURL = "http://127.0.0.1:\(self.vitePort)/auth?token=\(token)"
-                    self.window.loadURL(viteURL)
-                    lap("loadURL (vite)", entering: .waitingForInterface)
-                    // Notify tugcast to activate file watchers and set origin allowlist.
-                    self.processManager.sendDevMode(enabled: true, sourceTree: path, vitePort: self.vitePort)
+                    self.loadInterfaceOnceCachePurged {
+                        self.window.loadURL(viteURL)
+                        lap("loadURL (vite)", entering: .waitingForInterface)
+                        // Notify tugcast to activate file watchers and set origin allowlist.
+                        self.processManager.sendDevMode(enabled: true, sourceTree: path, vitePort: self.vitePort)
+                    }
                 }
             } else {
                 // Production mode: load directly from tugcast. No Vite process is spawned.
                 // tugcast serves pre-built dist/ files via ServeDir on port 55255.
                 let tugcastURL = "http://127.0.0.1:\(port)/auth?token=\(token)"
-                self.window.loadURL(tugcastURL)
-                lap("loadURL (tugcast)", entering: .waitingForInterface)
-                // Notify tugcast to update file watchers and clear dev_port from origin allowlist.
-                self.processManager.sendDevMode(enabled: false, sourceTree: self.sourceTreePath, vitePort: self.vitePort)
+                self.loadInterfaceOnceCachePurged {
+                    self.window.loadURL(tugcastURL)
+                    lap("loadURL (tugcast)", entering: .waitingForInterface)
+                    // Notify tugcast to update file watchers and clear dev_port from origin allowlist.
+                    self.processManager.sendDevMode(enabled: false, sourceTree: self.sourceTreePath, vitePort: self.vitePort)
+                }
             }
         }
 
@@ -627,8 +635,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if devServingEnabled, let path = sourceTreePath {
             processManager.spawnViteServer(sourceTree: path, tugcastPort: InstanceConfig.tugcastPort, vitePort: vitePort, devMode: true)
         }
+        // The cache purge runs under tugcast's start, which is the second
+        // the launch spends waiting anyway; `onReady` waits on it only if it
+        // is somehow slower than that.
+        launchCachePurge = WebCachePurge(reason: "launch")
+        lap("WebCachePurge begun")
         processManager.start(sourceTree: sourceTreePath)
         lap("processManager.start returned")
+    }
+
+    /// Run `load` once the launch's cache purge has finished — at once when it
+    /// already has, which is the usual case, tugcast's start being the longer
+    /// wait. A launch with no purge (none is begun on the restart branch, which
+    /// never reaches here) loads at once.
+    private func loadInterfaceOnceCachePurged(_ load: @escaping () -> Void) {
+        guard let purge = launchCachePurge else {
+            load()
+            return
+        }
+        purge.whenDone(load)
     }
 
     /// Fail loudly if the bundle ever declares support for sudden or

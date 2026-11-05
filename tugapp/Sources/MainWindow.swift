@@ -495,6 +495,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// and no other, so a Retry's reload can still reveal. DEBUG-only.
     private var suppressedFirstFrontendReady = false
     #endif
+    /// Set by `revealWebView`: the shell has booted once this launch. After
+    /// it, a script fault is the page's to handle, not the launch's.
+    private var shellRevealed = false
+    /// The shell is reloaded over a failed entry script once per launch.
+    private var shellReloadedAfterScriptFault = false
     private var contentController: WKUserContentController!
     /// The one microphone. Constructed once the web view exists, because its
     /// `emit` closure pushes across the bridge; it holds no audio resources
@@ -2049,12 +2054,36 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         bridgeDelegate?.bridgePageDidLoad()
     }
 
+    /// A shell whose entry script failed to load during boot is a shell that
+    /// cannot boot, and the one cause of that on a loopback origin is a stale
+    /// cache record — the page was served, so the server is there, and a
+    /// current dist never names a script it lacks (`dist_cache_policy` in
+    /// tugcast). The launch's own purge should have removed any such record,
+    /// but should is not enough for the deck's one door: once per launch, the
+    /// cache is purged again and the shell reloaded from origin. A body's
+    /// faults are the deck's to handle (its card shows a Reload), and a fault
+    /// after the reveal is the page's.
+    private func reloadShellIfEntryScriptFailed(_ fault: PageFault) {
+        guard fault.kind == .resource, !shellRevealed, !shellReloadedAfterScriptFault,
+              let url = URL(string: fault.source),
+              url.path.hasPrefix("/assets/"), url.pathExtension == "js"
+        else { return }
+        shellReloadedAfterScriptFault = true
+        TugLog.warn("launch", "entry script failed to load; purging the web cache and reloading the shell", [
+            TugLog.field("source", fault.source),
+        ])
+        WebCachePurge(reason: "entry script failed to load").whenDone { [weak self] in
+            self?.webView.reloadFromOrigin()
+        }
+    }
+
     /// Reveal the WebView. Called from frontendReady bridge message, which fires
     /// after JS has applied the theme, sent the canvas color, and constructed the
     /// DeckManager. This eliminates the flash of unstyled/default-themed content
     /// that would occur if we revealed on didFinishNavigation.
     func revealWebView() {
         NSLog("MainWindow: revealWebView called (isHidden=%d)", webView.isHidden ? 1 : 0)
+        shellRevealed = true
         // The event that closes the wait the splash opened. Cancelling here
         // and arming at the mount is the whole of the deadline's lifecycle
         // — nothing polls, and a reveal that beats the deadline leaves no
@@ -2689,6 +2718,7 @@ extension MainWindow {
             bodies.scheduleSpare()
         case .pageFault(let fault):
             PageFaultScript.log(fault)
+            if fromBody == nil { reloadShellIfEntryScriptFailed(fault) }
         case .quitConfirmed:
             bridgeDelegate?.bridgeQuitConfirmed()
         case .quitRequested:

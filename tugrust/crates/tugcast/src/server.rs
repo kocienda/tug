@@ -2348,8 +2348,37 @@ async fn api_gate(State(auth): State<SharedAuthState>, request: Request, next: N
     }
 }
 
-/// Mark every HTML page `Cache-Control: no-cache`, so a web view revalidates
-/// it on each load instead of trusting a heuristic lifetime.
+/// `base` with the dist behind it: `ServeDir` over `dist_path`, `index.html`
+/// for any path the dist lacks, and [`dist_cache_policy`] over all of it.
+///
+/// One composition, so the tests serve the dist exactly as `build_app` does.
+fn with_dist(base: Router, dist_path: &std::path::Path) -> Router {
+    let index_html = dist_path.join("index.html");
+    base.fallback_service(ServeDir::new(dist_path).not_found_service(ServeFile::new(index_html)))
+        .layer(middleware::from_fn(dist_cache_policy))
+}
+
+/// What a web view may keep of the dist's answers, so a page never loads
+/// from the wrong build. Three rules, checked in this order.
+///
+/// **A missing `/assets/*` is a plain 404, never the page.** The fallback
+/// answers every path the dist lacks with `index.html`, which is right for a
+/// deck route and wrong for a hashed asset. A tugcast whose dist lacked the
+/// script a cached page named used to answer the `<script>` with HTML, and
+/// WebKit stored that answer under the script's URL — a record no later
+/// build can correct, since a cached answer is served without a request. On
+/// 2026-11-04 an older Tug.app ran for half a minute on an instance a newer
+/// one had been using, and every launch of the newer one after it loaded
+/// its entry script from that record until the cache was moved aside by
+/// hand. An asset path that reaches the fallback is a build mismatch; it
+/// says so, and says it uncacheably.
+///
+/// **A 404 is `no-store`.** HTTP lets a cache keep a 404 for a heuristic
+/// lifetime when nothing says otherwise, and nothing here is worth
+/// remembering as missing.
+///
+/// **HTML is `no-cache`**, so a web view revalidates a page on each load
+/// instead of trusting a heuristic lifetime.
 ///
 /// The deck's pages carry a hashed script name that changes with every build,
 /// and a body loads at a URL that is the same across launches
@@ -2360,14 +2389,38 @@ async fn api_gate(State(auth): State<SharedAuthState>, request: Request, next: N
 /// still lets WebKit store the page: it just asks first, and `ServeDir`
 /// answers `304` through `If-Modified-Since` when nothing changed. The
 /// hashed assets are not touched; their names are their validator.
-async fn html_never_from_cache(request: Request, next: Next) -> Response {
+///
+/// The host purges WebKit's cache at every launch as well (`WebCachePurge`
+/// in tugapp), because these headers reach only the cache of a web view that
+/// asked this tugcast; a record an older one left is beyond them.
+async fn dist_cache_policy(request: Request, next: Next) -> Response {
+    let is_asset = request.uri().path().starts_with("/assets/");
     let mut response = next.run(request).await;
     let is_html = response
         .headers()
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.starts_with("text/html"));
-    if is_html {
+    if is_asset && is_html {
+        return (
+            StatusCode::NOT_FOUND,
+            [
+                (axum::http::header::CACHE_CONTROL, "no-store"),
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "text/plain; charset=utf-8",
+                ),
+            ],
+            "no such asset in this build",
+        )
+            .into_response();
+    }
+    if response.status() == StatusCode::NOT_FOUND {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        );
+    } else if is_html {
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("no-cache"),
@@ -2567,12 +2620,7 @@ pub(crate) fn build_app(
 
     let dist_path = crate::resources::source_tree().join("tugdeck").join("dist");
     if dist_path.is_dir() {
-        let index_html = dist_path.join("index.html");
-        return base
-            .fallback_service(
-                ServeDir::new(&dist_path).not_found_service(ServeFile::new(index_html)),
-            )
-            .layer(middleware::from_fn(html_never_from_cache));
+        return with_dist(base, &dist_path);
     } else {
         warn!(
             "dist directory not found at {}, static file serving disabled",
@@ -3102,29 +3150,33 @@ mod tests {
         builder.body(axum::body::Body::from("{}")).unwrap()
     }
 
-    // ── HTML is never served from a heuristic cache ──────────────────────
+    // ── The dist's cache policy ──────────────────────────────────────────
 
-    /// A stand-in for the dist: one HTML page and one hashed asset, both
-    /// behind the layer `build_app` puts over its static fallback.
-    fn pages_app() -> Router {
-        Router::new()
-            .route(
-                "/",
-                get(|| async { ([("content-type", "text/html; charset=utf-8")], "<html>") }),
-            )
-            .route(
-                "/assets/index-abc123.js",
-                get(|| async { ([("content-type", "text/javascript")], "export {}") }),
-            )
-            .layer(middleware::from_fn(html_never_from_cache))
+    /// A dist of one page and one hashed asset, served as `build_app` serves
+    /// the real one: the same `ServeDir`, fallback and policy layer.
+    fn dist_app() -> (tempfile::TempDir, Router) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "<html>").unwrap();
+        std::fs::create_dir(dir.path().join("assets")).unwrap();
+        std::fs::write(dir.path().join("assets/index-abc123.js"), "export {}").unwrap();
+        let app = with_dist(Router::new(), dir.path());
+        (dir, app)
     }
 
     async fn fetch(path: &str) -> axum::http::Response<axum::body::Body> {
         use tower::ServiceExt;
+        let (_dist, app) = dist_app();
         let request = axum::http::Request::get(path)
             .body(axum::body::Body::empty())
             .unwrap();
-        pages_app().oneshot(request).await.unwrap()
+        app.oneshot(request).await.unwrap()
+    }
+
+    fn header<'a>(
+        response: &'a axum::http::Response<axum::body::Body>,
+        name: &str,
+    ) -> Option<&'a str> {
+        response.headers().get(name).and_then(|v| v.to_str().ok())
     }
 
     /// A body's page is loaded at the same URL every launch, and it names a
@@ -3144,9 +3196,48 @@ mod tests {
     #[tokio::test]
     async fn hashed_assets_are_left_cacheable() {
         let response = fetch("/assets/index-abc123.js").await;
+        assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(axum::http::header::CACHE_CONTROL),
             None
+        );
+    }
+
+    /// The record that broke every launch on 2026-11-04: an older tugcast
+    /// answered a newer build's entry-script URL with its own `index.html`,
+    /// and WebKit kept the page under the script's URL. An asset the dist
+    /// lacks is a 404 that is not HTML and that no cache may store.
+    #[tokio::test]
+    async fn a_missing_asset_is_a_plain_uncacheable_404() {
+        let response = fetch("/assets/index-D2CRm9GK.js").await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(header(&response, "cache-control"), Some("no-store"));
+        assert!(
+            !header(&response, "content-type")
+                .unwrap_or("")
+                .starts_with("text/html"),
+            "a missing script must never be answered with a page"
+        );
+    }
+
+    /// A deck route the dist has no file for is still the page — the SPA
+    /// fallback is what the deck's own URLs rely on — and never from a
+    /// heuristic cache.
+    #[tokio::test]
+    async fn a_deck_route_is_the_page_and_not_from_a_heuristic_cache() {
+        let response = fetch("/some/deck/route").await;
+        assert!(
+            header(&response, "content-type")
+                .unwrap()
+                .starts_with("text/html")
+        );
+        assert!(
+            matches!(
+                header(&response, "cache-control"),
+                Some("no-cache") | Some("no-store")
+            ),
+            "got {:?}",
+            header(&response, "cache-control")
         );
     }
 

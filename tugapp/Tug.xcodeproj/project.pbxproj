@@ -36,6 +36,7 @@
 		AA000001000000000000001F /* TugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001C /* TugLog.swift */; };
 		AA0000010000000000000068 /* HostRunLoopWatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000005C /* HostRunLoopWatch.swift */; };
 		AA0000010000000000000028 /* PageFaultScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000025 /* PageFaultScript.swift */; };
+		B7C4E1A20000000000000CF1 /* WebCachePurge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C4E1A20000000000000CF2 /* WebCachePurge.swift */; };
 		AA0000010000000000000020 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001D /* ShellPathResolver.swift */; };
 		AA0000010000000000000021 /* NetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001E /* NetworkPathMonitor.swift */; };
 		AA0000010000000000000024 /* DictationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000021 /* DictationState.swift */; };
@@ -137,6 +138,7 @@
 		AA000002000000000000001C /* TugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugLog.swift; sourceTree = "<group>"; };
 		AA000002000000000000005C /* HostRunLoopWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostRunLoopWatch.swift; sourceTree = "<group>"; };
 		AA0000020000000000000025 /* PageFaultScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageFaultScript.swift; sourceTree = "<group>"; };
+		B7C4E1A20000000000000CF2 /* WebCachePurge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebCachePurge.swift; sourceTree = "<group>"; };
 		AA000002000000000000001D /* ShellPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolver.swift; sourceTree = "<group>"; };
 		AA000002000000000000001E /* NetworkPathMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkPathMonitor.swift; sourceTree = "<group>"; };
 		AA0000020000000000000021 /* DictationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationState.swift; sourceTree = "<group>"; };
@@ -266,6 +268,7 @@
 				AA000002000000000000001C /* TugLog.swift */,
 				AA000002000000000000005C /* HostRunLoopWatch.swift */,
 				AA0000020000000000000025 /* PageFaultScript.swift */,
+				B7C4E1A20000000000000CF2 /* WebCachePurge.swift */,
 				AA000002000000000000001D /* ShellPathResolver.swift */,
 				AA000002000000000000001E /* NetworkPathMonitor.swift */,
 				AA0000020000000000000021 /* DictationState.swift */,
@@ -472,6 +475,7 @@
 				AA000001000000000000001F /* TugLog.swift in Sources */,
 				AA0000010000000000000068 /* HostRunLoopWatch.swift in Sources */,
 				AA0000010000000000000028 /* PageFaultScript.swift in Sources */,
+				B7C4E1A20000000000000CF1 /* WebCachePurge.swift in Sources */,
 				AA0000010000000000000020 /* ShellPathResolver.swift in Sources */,
 				AA0000010000000000000021 /* NetworkPathMonitor.swift in Sources */,
 				AA0000010000000000000024 /* DictationState.swift in Sources */,
