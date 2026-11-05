@@ -3868,6 +3868,27 @@ impl SessionLedger {
         Ok(out)
     }
 
+    /// One scanned transcript's row, as `list_history_rows` serves it to the
+    /// Overview's session surface: the callsign of its line, the project it
+    /// was found in. `None` for a session this ledger holds — `get` answers
+    /// for those — for one the scanner excluded, or for one never scanned.
+    pub fn get_scan_row(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
+        let conn = self.db.lock();
+        let row = conn
+            .query_row(
+                &format!(
+                    "SELECT {SCAN_COLUMNS} FROM {SCAN_JOINED}
+                     WHERE c.session_id = ?1 AND c.excluded = 0
+                       AND c.session_id NOT IN (SELECT session_id FROM sessions)
+                     LIMIT 1"
+                ),
+                params![session_id],
+                scan_row_from_query,
+            )
+            .optional()?;
+        Ok(row)
+    }
+
     /// Every project directory this ledger has a session or a scanned
     /// transcript for — the workspace's projects, which is the default scope
     /// of the Overview's session surface. Stored spelling, which is the

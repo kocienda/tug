@@ -237,22 +237,37 @@ fn name_sessions(
 }
 
 /// The `<project>/<callsign>` pair for one session id: this ledger's row
-/// first, then the machine-wide index, the order `locate_transcript` places
-/// a session in. `None` for a private session or one with no callsign on
-/// record.
+/// first, then the transcript it has scanned, then the machine-wide index —
+/// the records the roster itself is drawn from, nearest first. A scanned
+/// session wears its line's callsign on the roster and in a search hit, so
+/// it is named the same way here. `None` for a private session, one with no
+/// callsign on record, or one the roster withholds as Tug's own — a shared-agent
+/// worker's or an app-test instance's — refused at either arm exactly as
+/// `locate_transcript` refuses it ([B06]), so naming never reaches a
+/// session the roster would not list.
 fn session_name(ctx: &OperatorContext, session_id: &str) -> Option<String> {
     if ctx.ledger.is_session_private(session_id).unwrap_or(true) {
         return None;
     }
-    let ledger = ctx
+    let row = ctx
         .ledger
         .get(session_id)
         .ok()
         .flatten()
-        .and_then(|row| Some((row.tag?, row.project_dir)));
+        .or_else(|| ctx.ledger.get_scan_row(session_id).ok().flatten());
+    if row
+        .as_ref()
+        .is_some_and(|row| is_tug_noise_project(&row.project_dir))
+    {
+        return None;
+    }
+    let ledger = row.and_then(|row| Some((row.tag?, row.project_dir)));
     let (callsign, project_dir) = ledger.or_else(|| {
         tugcore::session_index::lookup_uuid(&ctx.session_index_path, session_id)
             .into_iter()
+            .filter(|entry| {
+                !is_apptest_instance(&entry.instance) && !is_tug_noise_project(&entry.project_dir)
+            })
             .find_map(|entry| Some((entry.callsign?, entry.project_dir)))
     })?;
     let leaf = tugcore::session_index::project_leaf_of(&project_dir);
@@ -4842,6 +4857,134 @@ mod tests {
         // A private session is never named, whatever row might cite it. The
         // fact ledger refuses one outright, so the namer is asked directly.
         assert_eq!(session_name(&f.ctx, "secret"), None);
+    }
+
+    /// Spawn twelve sessions newer than anything a test seeds, so the
+    /// sessions it does seed sit outside the roster's dozen.
+    fn crowd_the_roster(ctx: &OperatorContext) {
+        for i in 0..SESSIONS_ROSTER_LIMIT {
+            ctx.ledger
+                .record_spawn(
+                    &format!("crowd-{i:02}"),
+                    "ws",
+                    "/u/src/tug",
+                    &format!("crowd-card-{i}"),
+                    100_000 + i as i64,
+                    &format!("crowd-{i:02}"),
+                    Some(&format!("crowd-{i}")),
+                )
+                .expect("spawn");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_post_names_its_session_off_the_roster_and_never_names_tugs_own() {
+        // A five-day-old session had dropped off the roster's dozen, so the
+        // answer guessed its project from a brief's path and said so. The
+        // name rides the row whatever the roster holds; the sessions the
+        // roster withholds as Tug's own get none.
+        let f = fixture();
+        let noise = tugcore::instance::base_data_dir()
+            .join("shared-agent")
+            .to_string_lossy()
+            .into_owned();
+        f.ctx
+            .ledger
+            .record_spawn("old", "ws", "/u/src/tug", "card-1", 1, "old", Some("sandy-snail"))
+            .expect("spawn");
+        f.ctx
+            .ledger
+            .record_spawn("worker", "ws", &noise, "card-2", 2, "worker", Some("busy-bee"))
+            .expect("spawn");
+        crowd_the_roster(&f.ctx);
+        let index =
+            tugcore::session_index::SessionIndex::open(&f.ctx.session_index_path).expect("index");
+        for entry in [
+            index_entry("harness", "/u/src/tug", "apptest-1234", 3),
+            index_entry("far-worker", &noise, "debug-b", 4),
+        ] {
+            index.upsert(&entry).expect("indexed");
+        }
+        for session in ["old", "worker", "harness", "far-worker"] {
+            seed_post(&f.ctx, &format!("keyboard glyphs from {session}"), Some(session));
+        }
+        assert!(
+            !roster_of(&f.ctx).contains("sandy-snail"),
+            "the seeded session is off the roster"
+        );
+
+        let out = run_verb(&f.ctx, "overview.search", &json!({"query": "glyphs"}))
+            .await
+            .expect("search ran");
+        let name_of = |session: &str| -> Value {
+            out["posts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["session_id"] == session)
+                .map(|r| r["session_name"].clone())
+                .unwrap_or(Value::String("no row".into()))
+        };
+        assert_eq!(name_of("old"), "tug/sandy-snail");
+        assert_eq!(name_of("worker"), Value::Null, "a shared-agent worker's ledger row");
+        assert_eq!(name_of("harness"), Value::Null, "an app-test instance's index entry");
+        assert_eq!(name_of("far-worker"), Value::Null, "a shared-agent worker's index entry");
+    }
+
+    #[tokio::test]
+    async fn a_scanned_session_is_named_by_its_lines_callsign() {
+        // A transcript the ledger scanned but never adopted wears its line's
+        // callsign on the roster and in every search hit, and the answer
+        // paired that callsign with a project it guessed, because no row
+        // named the session.
+        let f = fixture();
+        for (id, excluded) in [("scanned", false), ("scan-excluded", true)] {
+            f.ctx
+                .ledger
+                .upsert_scan_cache(&scan_row(id, "/u/src/upload", 2_000, excluded))
+                .expect("scan");
+            f.ctx.ledger.ensure_scan_line(id, 2_000).expect("line");
+        }
+        let callsign = f
+            .ctx
+            .ledger
+            .get_scan_row("scanned")
+            .unwrap()
+            .and_then(|row| row.tag)
+            .expect("the scan mints a callsign");
+        seed_post(&f.ctx, "uploader backoff", Some("scanned"));
+
+        let out = run_verb(&f.ctx, "overview.search", &json!({"query": "backoff"}))
+            .await
+            .expect("search ran");
+        assert_eq!(out["posts"][0]["session_name"], format!("upload/{callsign}"));
+        // The scanner's own exclusion holds here as it does on the roster.
+        assert_eq!(session_name(&f.ctx, "scan-excluded"), None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test]
+    async fn a_semantic_transcript_hit_names_its_session_off_the_roster() {
+        // The semantic verb copied a callsign onto a transcript hit and no
+        // project, so a session found by meaning arrived half-named.
+        let mut f = fixture();
+        with_semantic_index(&mut f, false).await;
+        crowd_the_roster(&f.ctx);
+        let row = f.ctx.ledger.get("sess-a").unwrap().expect("spawned");
+        let callsign = row.tag.expect("the ledger mints a callsign at spawn");
+        let leaf = tugcore::session_index::project_leaf_of(&row.project_dir);
+        assert!(!roster_of(&f.ctx).contains(&callsign), "off the roster");
+
+        let out = run_verb(
+            &f.ctx,
+            "search.semantic",
+            &json!({ "query": "retry backoff", "kind": "transcript" }),
+        )
+        .await
+        .unwrap();
+        let hit = &hits_of(&out)[0];
+        assert_eq!(hit["session_id"], "sess-a");
+        assert_eq!(hit["session_name"], format!("{leaf}/{callsign}"));
     }
 
     #[tokio::test]
