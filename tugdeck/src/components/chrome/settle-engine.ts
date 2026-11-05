@@ -130,9 +130,6 @@ import {
   velocityAt,
   type MotionCurve,
 } from "@/lib/imposer-motion";
-import {
-  dropPendingFlash,
-} from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { layoutRectOf, pageZoomFactor } from "@/lib/page-zoom-store";
 import {
@@ -2462,14 +2459,6 @@ export function useSettleEngine({
       // down, every sheet listening on it is coming down with it, and the
       // notice's only answer is a clamp measure against a container that is
       // about to leave the document.
-      //
-      // One listener does NOT come down with it, because it is not a sheet's
-      // and not React's: a flash parked on the settle that was running when
-      // this canvas was taken away. Its record is module-local, so nothing
-      // collects it and the next canvas's first settle would ring a pane this
-      // one no longer holds. This teardown being the one path with no notice
-      // is exactly why the drop has to be made here by hand.
-      dropPendingFlash();
       /* eslint-enable react-hooks/exhaustive-deps */
     };
   }, [store, containerRef, openMotionGate, openMotionGateAfterLand, closeMotionGate, teardownForTest]);

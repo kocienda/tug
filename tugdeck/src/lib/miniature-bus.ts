@@ -23,6 +23,7 @@
  * @module lib/miniature-bus
  */
 
+import type { DeckView } from "../card-deck";
 import type { DeckState } from "../layout-tree";
 import { pageBus, type PageBus } from "../bus/page-bus";
 import {
@@ -56,12 +57,13 @@ function standing(): GaugeEntry[] {
 // ---- The shell's half ----
 
 export interface ShellMiniatureOptions {
-  /** The shell's deck, read to find a card's pane. */
-  getSnapshot: () => DeckState;
+  /**
+   * The shell's deck: read to find a card's pane, and asked to ring a
+   * refused drop's card through the same verb every other ring takes.
+   */
+  deck: Pick<DeckView, "getSnapshot" | "flashCard">;
   /** The canvas's drop-zone host, read at each call. */
   getHost: () => DropZoneHost | null;
-  /** Flash `cardId`'s pane: a refused drop's answer. */
-  flashCard: (cardId: string) => void;
 }
 
 /**
@@ -95,15 +97,15 @@ export function answerMiniature(options: ShellMiniatureOptions, bus: PageBus = p
     unDemand,
     miniatureZones.on(bus).handle(({ cardId }) => {
       const host = options.getHost();
-      const paneId = paneOfCard(options.getSnapshot(), cardId);
+      const paneId = paneOfCard(options.deck.getSnapshot(), cardId);
       return host === null || paneId === null ? null : host.enumerateRemote(paneId);
     }),
     miniatureOutline.on(bus).handle(({ zone }) => options.getHost()?.outline(zone)),
     miniatureCarry.on(bus).handle(({ kind }) => options.getHost()?.carry(kind)),
     miniatureCommit.on(bus).handle(({ zone, cardId }) => {
       const host = options.getHost();
-      const paneId = paneOfCard(options.getSnapshot(), cardId);
-      if (host === null || paneId === null || !host.commit(zone, paneId)) options.flashCard(cardId);
+      const paneId = paneOfCard(options.deck.getSnapshot(), cardId);
+      if (host === null || paneId === null || !host.commit(zone, paneId)) options.deck.flashCard(cardId);
     }),
   ];
   return () => {

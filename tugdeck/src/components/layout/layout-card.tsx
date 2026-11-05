@@ -115,7 +115,7 @@
  * deck store directly in three narrow places that are not commands: the
  * strip's scrub (`previewFlowOffset`/`setFlowOffset`, per-frame appearance),
  * `goToSlot` (`setFlowOffset`, `raiseCard` and the arrival flash), and the
- * miniature's presses and drops (`raiseCard`/`flashCardPane`, and the drop-zone
+ * miniature's presses and drops (`raiseCard`/`flashCard`, and the drop-zone
  * host's `commit`) — the same calls the pane chrome makes for a click on a
  * card and a drag of one.
  *
@@ -163,7 +163,6 @@ import {
   miniatureWindowRect,
   type MiniaturePlaceRects,
 } from "@/components/layout/layout-miniature";
-import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
 import { useMiniatureGestures } from "@/components/layout/use-miniature-gestures";
 import { useMiniatureWindowDrag } from "@/components/layout/use-miniature-window-drag";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
@@ -1199,10 +1198,10 @@ export function LayoutContent(
         if (center !== null) store.setFlowOffset(center);
         const raiseCardId = options.raiseCardId;
         if (raiseCardId === null) {
-          flashSlot(store, slot);
+          store.flashSlot(slot);
         } else {
           raiseCard(store, raiseCardId);
-          flashCardPane(store, raiseCardId);
+          store.flashCard(raiseCardId);
         }
         return;
       }
@@ -1212,7 +1211,7 @@ export function LayoutContent(
         const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
         if (pane !== undefined) raiseCard(store, pane.activeCardId);
       }
-      flashSlot(store, slot);
+      store.flashSlot(slot);
     },
     [],
   );

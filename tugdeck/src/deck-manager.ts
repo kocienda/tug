@@ -276,6 +276,7 @@ import type { CardBinding } from "./protocol";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
 import { mark as perfMark } from "@/lib/perf-marks";
+import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
 import {
   mayDeferCommit,
   reactivateCurrentFocusDestination,
@@ -5272,6 +5273,10 @@ export class DeckManager implements IDeckManagerStore {
     const run = this._placeRunHeight("rail");
     return run > 0 ? run : null;
   }
+
+  /** The shell holds every pane frame, so the shell's deck rings them itself. */
+  public flashCard = (cardId: string): void => flashCardPane(this, cardId);
+  public flashSlot = (slot: number): void => flashSlot(this, slot);
 
   /**
    * The column offset that reveals `paneId` inside its own slot, or

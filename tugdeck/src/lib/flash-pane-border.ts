@@ -39,12 +39,16 @@
  * ([F05]). The ring is now drawn ONCE, statically, and only its `opacity`
  * moves — the compositor's own property ([B03], [B05]).
  *
- * ## And one thing it now waits for
+ * ## And one thing it does not wait for
  *
- * {@link flashPaneBorderOnSettle} parks the flash on the settle's completion
- * instead of starting it inside the click's frame, so the two seconds it runs
- * overlap no motion. Everything else about it is unchanged, including the
- * deferred retry for a pane the DOM does not hold yet.
+ * A ring starts in the task of the gesture that asked for it, whether or not
+ * that gesture set the deck moving. It once waited out the settle so its two
+ * seconds would overlap no motion, and the wait was what made a press answer
+ * at once, late, or never, according to whether the press happened to move
+ * the arrangement. Now that only `opacity` moves, a ring inside the motion
+ * costs the motion nothing, and the deck's answer to a gesture does not wait
+ * on the deck's own motion. The one wait left is the deferred retry for a
+ * pane the store holds and the DOM does not yet ({@link retryAfterCommit}).
  *
  * ## Where the ring is seen
  *
@@ -60,17 +64,12 @@
  * @module lib/flash-pane-border
  */
 
-import { paneCanvasOf } from "@/lib/pane-frame-selectors";
 import type { CardDeck } from "@/card-deck";
 import { afterGesture } from "@/lib/gesture-scope";
 import { scheduleAfterPaint } from "@/lib/after-paint";
-import { IMPOSER_SETTLE_END } from "./settle-notice";
 
 const FLASH_CLASS = "tug-pane-flash";
 const FLASH_ANIMATION_NAME = "tug-pane-border-flash";
-
-/** The canvas mark that says a settle is running. `settle-engine.ts` owns it. */
-const SETTLING_ATTRIBUTE = "data-imposer-settling";
 
 /**
  * The one flash currently on the deck: what it is lit on, and how to end it.
@@ -281,80 +280,6 @@ export function flashPaneFrame(frame: HTMLElement): void {
 /** Put out the ring on `frame` if it is the one lit: the shell rang another subject. */
 export function endPaneFrameFlash(frame: HTMLElement): void {
   if (activeFlash !== null && activeFlash.subject === frame) activeFlash.end(false);
-}
-
-/**
- * The flash parked on a settle that has not landed yet: the container it is
- * waiting on, and how to stop waiting.
- *
- * Module-local and single, for the same reason {@link activeFlash} is: one
- * ring on the deck at a time means one flash in flight at a time, parked or
- * lit.
- */
-let pendingFlash: { readonly drop: () => void } | null = null;
-
-/**
- * Forget a flash parked on a settle that will never end.
- *
- * `IMPOSER_SETTLE_END` is dispatched at every point the canvas takes
- * `data-imposer-settling` off with exactly one exception — the arm effect's
- * own unmount teardown — so this is the one path a parked flash cannot hear.
- * Left parked, the record holds a detached container alive and its listener
- * fires against a stale pane at the next canvas's first settle.
- *
- * `deck-canvas.tsx` calls this from that teardown. Safe to call when nothing
- * is parked.
- */
-export function dropPendingFlash(): void {
-  pendingFlash?.drop();
-  pendingFlash = null;
-}
-
-/**
- * Flash the pane with this id, but not until the settle has landed.
- *
- * The flash runs for nearly two seconds and the settle for a few hundred
- * milliseconds, so starting it in the click's frame means the ring's whole
- * first third overlaps the motion it is announcing ([B05]). Starting it on the
- * settle's own completion is a fact about the frame rather than a hand-tuned
- * offset — the imposer's spring can be retargeted mid-travel and a constant
- * would drift out of step with it ([B04]'s non-goal).
- *
- * **With no settle running, it flashes now.** The predicate is
- * `data-imposer-settling` on the canvas, read at call time, and that read is
- * decisive: `raiseCard` runs its activation through `flushSync`, so by the
- * time a dispatcher calls this the Last pass has already run and the mark is
- * either on or it is not. A `focus-session-card` naming a card already in the
- * reader's slot arms nothing, and a gesture that goes unanswered is the
- * feature lost.
- */
-export function flashPaneBorderOnSettle(paneId: string, allowRetry = true): void {
-  if (typeof document === "undefined") return;
-  const paneEl = paneFrame(paneId);
-  if (paneEl === null) {
-    // The same one-shot retry {@link flashPaneBorder} takes, and for the same
-    // reason: the pane is in the store and not yet in the DOM.
-    if (allowRetry) {
-      retryAfterCommit(() => flashPaneBorderOnSettle(paneId, false));
-    }
-    return;
-  }
-  // By identity through `paneCanvasOf`, because the notice does not bubble and
-  // a pane frame is not a direct child of the container it is dispatched on.
-  const canvas = paneCanvasOf(paneEl);
-  if (canvas === null || !canvas.hasAttribute(SETTLING_ATTRIBUTE)) {
-    flashPaneBorder(paneId, false);
-    return;
-  }
-  dropPendingFlash();
-  const onSettleEnd = (): void => {
-    pendingFlash = null;
-    flashPaneBorder(paneId, false);
-  };
-  canvas.addEventListener(IMPOSER_SETTLE_END, onSettleEnd, { once: true });
-  pendingFlash = {
-    drop: () => canvas.removeEventListener(IMPOSER_SETTLE_END, onSettleEnd),
-  };
 }
 
 /**

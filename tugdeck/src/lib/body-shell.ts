@@ -277,6 +277,8 @@ import {
   deckActivateSpace,
   deckAddCard,
   deckChooseSpaceTheme,
+  deckFlashCard,
+  deckFlashSlot,
   deckInterruptLiveSessions,
   deckMoveCardToSpace,
   deckPreviewFlowOffset,
@@ -591,9 +593,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // canvas verbs its drags drive (`miniature-bus.ts`).
   releases.push(
     answerMiniature({
-      getSnapshot: () => deck.getSnapshot(),
+      deck,
       getHost: getDropZoneHost,
-      flashCard: (cardId) => flashCardPane(deck, cardId),
     }),
   );
   // A rung pane's ring is drawn by its card's page, which stands opaque over
@@ -1312,6 +1313,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     deckActivateCard.handle(({ cardId, reveal }) =>
       reveal === undefined ? deck.activateCard(cardId) : deck.activateCard(cardId, { reveal }),
     ),
+    deckFlashCard.handle(({ cardId }) => deck.flashCard(cardId)),
+    deckFlashSlot.handle(({ slot }) => deck.flashSlot(slot)),
     deckSetFlowOffset.handle(({ offset, landing }) =>
       landing === undefined ? deck.setFlowOffset(offset) : deck.setFlowOffset(offset, landing),
     ),

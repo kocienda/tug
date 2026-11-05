@@ -80,7 +80,7 @@ describe("the gauges", () => {
     publishFlowOffset(0.25);
     bus = createTestBus();
     const shell = bus.shell();
-    releases.push(answerMiniature({ getSnapshot: () => DECK, getHost: () => null, flashCard: () => {} }, shell.bus));
+    releases.push(answerMiniature({ deck: { getSnapshot: () => DECK, flashCard: () => {} }, getHost: () => null }, shell.bus));
     const layout = bus.body("L", LAYOUT);
     releases.push(followMiniatureGauges(layout.bus));
     await bus.flush();
@@ -135,7 +135,7 @@ describe("the gauges", () => {
   test("a drawing that re-registers in one task keeps its demand, and a late one hears the drag ended", async () => {
     bus = createTestBus();
     const shell = bus.shell();
-    releases.push(answerMiniature({ getSnapshot: () => DECK, getHost: () => null, flashCard: () => {} }, shell.bus));
+    releases.push(answerMiniature({ deck: { getSnapshot: () => DECK, flashCard: () => {} }, getHost: () => null }, shell.bus));
     const layout = bus.body("L", LAYOUT);
     releases.push(followMiniatureGauges(layout.bus));
     await bus.flush();
@@ -176,7 +176,7 @@ describe("the drop-zone host", () => {
     } as unknown as DropZoneHost;
     bus = createTestBus();
     const shell = bus.shell();
-    releases.push(answerMiniature({ getSnapshot: () => DECK, getHost: () => host, flashCard: (id) => flashed.push(id) }, shell.bus));
+    releases.push(answerMiniature({ deck: { getSnapshot: () => DECK, flashCard: (id) => flashed.push(id) }, getHost: () => host }, shell.bus));
     const layout = bus.body("L", LAYOUT);
     const other = bus.body("M", LAYOUT);
     await bus.flush();

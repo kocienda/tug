@@ -42,6 +42,8 @@ import {
   deckActivateSpace,
   deckAddCard,
   deckChooseSpaceTheme,
+  deckFlashCard,
+  deckFlashSlot,
   deckInterruptLiveSessions,
   deckMoveCardToSpace,
   deckPreviewFlowOffset,
@@ -564,6 +566,8 @@ export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementRepl
     getRailRunHeight: (): number | null => arrangement?.railRunHeight ?? null,
     setFlowOffset: (offset: number, landing?: CommitLanding): void => deckSetFlowOffset.dispatch({ offset, landing }),
     previewFlowOffset: (offset: number): void => deckPreviewFlowOffset.dispatch({ offset }),
+    flashCard: (cardId: string): void => deckFlashCard.dispatch({ cardId }),
+    flashSlot: (slot: number): void => deckFlashSlot.dispatch({ slot }),
     subscribeSpaces: (callback: () => void): (() => void) => {
       spacesListeners.add(callback);
       return () => {

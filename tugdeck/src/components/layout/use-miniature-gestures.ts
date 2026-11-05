@@ -70,7 +70,6 @@ import {
   type DropZone,
   type DropZoneSet,
 } from "@/lib/drop-zones";
-import { flashCardPane } from "@/lib/flash-pane-border";
 import {
   publishDragFrame,
   publishDragZone,
@@ -306,7 +305,7 @@ export function useMiniatureGestures({
       .panes.find((p) => p.id === target.paneId);
     if (pane === undefined) return;
     raiseCard(store, pane.activeCardId);
-    flashCardPane(store, pane.activeCardId);
+    store.flashCard(pane.activeCardId);
   }, []);
 
   /** End the gesture, taking every drag affordance with it. Idempotent: it
@@ -449,8 +448,7 @@ export function useMiniatureGestures({
       const zone = drag.canvasZones.get(key);
       if (zone === undefined) return;
       if (!drag.host.commit(zone, drag.paneId)) {
-        const store = getDeckView();
-        if (store !== null) flashCardPane(store, drag.cardId);
+        getDeckView()?.flashCard(drag.cardId);
       }
     },
     [],

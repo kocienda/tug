@@ -1235,9 +1235,10 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
    [B05]). `will-change: opacity` rides the flash class rather than standing on
    every frame: the ring's own layer is wanted for the length of the run and a
    standing hint on every pane would be one more layer per card at rest, which
-   is the population cost `[D1]` is about. Creating it at the flash's start is
-   free of `[F03]`'s objection because `flashPaneBorderOnSettle` starts the run
-   when the frames have already stopped. */
+   is the population cost `[D1]` is about. The flash starts in the task of the
+   gesture that asked for it, which may be the first frame of a settle: one
+   pane's layer is made there, once, and the ring is the deck's answer to the
+   gesture, which does not wait on the deck's own motion. */
 @keyframes tug-pane-border-flash {
   0% {
     opacity: 1;

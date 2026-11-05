@@ -217,6 +217,20 @@ export const deckActivateCard = defineAction({
   codec: obj({ cardId: str, reveal: optional(bool) }),
 });
 
+/** Ring a card's pane: the frame is the shell's to find, and its page's to draw. */
+export const deckFlashCard = defineAction({
+  id: "deck.flashCard",
+  owner: "shell",
+  codec: obj({ cardId: str }),
+});
+
+/** Ring whatever stands at a place — the pane a card holds, or the held-open tile. */
+export const deckFlashSlot = defineAction({
+  id: "deck.flashSlot",
+  owner: "shell",
+  codec: obj({ slot: num }),
+});
+
 export const deckSetFlowOffset = defineAction({
   id: "deck.setFlowOffset",
   owner: "shell",

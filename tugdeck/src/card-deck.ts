@@ -684,6 +684,22 @@ export interface DeckView extends CardDeck {
    */
   previewFlowOffset: (offset: number) => void;
 
+  /**
+   * Ring the pane holding `cardId` with the accent ring ([P04]), or say
+   * nothing when no pane holds it. The pane frame is the shell's to find: a
+   * card's page holds only its own frame, so a body that rang another card
+   * from its own document would find nothing. A body's view asks the shell;
+   * the shell's deck rings it.
+   */
+  flashCard: (cardId: string) => void;
+
+  /**
+   * Ring whatever stands at `slot` — the pane if a card holds the place, the
+   * held-open tile if none does. {@link flashCard}'s twin for a gesture that
+   * names a place, asked of the shell for the same reason.
+   */
+  flashSlot: (slot: number) => void;
+
   // ---- The spaces store: the level above the deck ([P03], [L02]) ----
 
   /**

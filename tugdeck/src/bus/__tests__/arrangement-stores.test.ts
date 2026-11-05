@@ -114,13 +114,15 @@ describe("the arrangement stores", () => {
     expect(seen).toEqual([{ verb: "rename", contextArrived: true }]);
   });
 
-  test("the deck verbs a body may ask are exactly the eight moves and the two any card makes, and never a workspace delete", () => {
+  test("the deck verbs a body may ask are exactly the eight moves, the two rings and the two any card makes, and never a workspace delete", () => {
     const deckVerbs = ROUTED_ACTIONS.map((a) => a.key).filter((key) => key.startsWith("deck."));
     expect(deckVerbs.sort()).toEqual(
       [
         "deck.activateCard",
         "deck.activateSpace",
         "deck.chooseSpaceTheme",
+        "deck.flashCard",
+        "deck.flashSlot",
         "deck.moveCardToSpace",
         "deck.previewFlowOffset",
         "deck.renameSpace",

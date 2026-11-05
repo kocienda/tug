@@ -54,7 +54,6 @@ import { isFocusDirection } from "@/lib/directional-focus";
 import {
   flashCardPane,
   flashPaneBorder,
-  flashPaneBorderOnSettle,
 } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { isDiffDescriptor } from "@/lib/git-diff-store";
@@ -1137,12 +1136,11 @@ function wireActionDispatch(
   // appearance (a CSS class toggled on the pane header DOM, removed on
   // `animationend`), never React state ([L06]).
   //
-  // The flash waits for the settle this raise may have armed. On a flow deck
-  // the raise walks the strip, and a ring that starts in the same frame runs
-  // its first third over the motion it is announcing — so it is parked on
-  // `IMPOSER_SETTLE_END` instead ([B05]). A raise that moves nothing arms no
-  // settle and `flashPaneBorderOnSettle` rings immediately, which is what
-  // keeps a card already in the reader's slot from going unanswered.
+  // The ring lights in the press's own task, whether or not the raise armed a
+  // settle. A ring that waited for the strip to stop answered a press at once,
+  // late, or not at all according to whether the press moved the arrangement;
+  // the ring moves only `opacity`, so lighting it inside the motion costs the
+  // motion nothing.
   const focusSessionCard = (verb: string, cardId: unknown): cardId is string => {
     if (typeof cardId !== "string") {
       console.warn(`${verb}: missing or invalid cardId`, cardId);
@@ -1169,7 +1167,7 @@ function wireActionDispatch(
       return false;
     }
     raiseCard(deckManager, cardId);
-    flashPaneBorderOnSettle(pane.id);
+    flashPaneBorder(pane.id);
     perfMark("tug:action-end");
     // Where the action's own work landed relative to the task boundaries
     // after it — and the scheduling is asked for rather than unconditional,

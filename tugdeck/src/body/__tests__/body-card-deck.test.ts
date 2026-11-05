@@ -27,6 +27,8 @@ import {
   deckActivateSpace,
   deckAddCard,
   deckChooseSpaceTheme,
+  deckFlashCard,
+  deckFlashSlot,
   deckInterruptLiveSessions,
   deckMoveCardToSpace,
   deckPreviewFlowOffset,
@@ -102,6 +104,8 @@ async function bodyPage(componentId = "session"): Promise<Probe> {
   deckActivateCard.on(shell.bus).handle(hear("deck.activateCard"));
   deckSetFlowOffset.on(shell.bus).handle(hear("deck.setFlowOffset"));
   deckPreviewFlowOffset.on(shell.bus).handle(hear("deck.previewFlowOffset"));
+  deckFlashCard.on(shell.bus).handle(hear("deck.flashCard"));
+  deckFlashSlot.on(shell.bus).handle(hear("deck.flashSlot"));
   deckActivateSpace.on(shell.bus).handle(hear("deck.activateSpace"));
   deckRenameSpace.on(shell.bus).handle(hear("deck.renameSpace"));
   deckChooseSpaceTheme.on(shell.bus).handle(hear("deck.chooseSpaceTheme"));
@@ -518,6 +522,16 @@ const DECK_VIEW_EVIDENCE: {
     v.previewFlowOffset(60);
     await flush();
     expect(shellHeard).toEqual([["deck.previewFlowOffset", { offset: 60 }]]);
+  },
+  flashCard: async (v, { shellHeard, flush }) => {
+    v.flashCard("B");
+    await flush();
+    expect(shellHeard).toEqual([["deck.flashCard", { cardId: "B" }]]);
+  },
+  flashSlot: async (v, { shellHeard, flush }) => {
+    v.flashSlot(2);
+    await flush();
+    expect(shellHeard).toEqual([["deck.flashSlot", { slot: 2 }]]);
   },
   subscribeSpaces: (v, _p, r) => {
     const c = counter();
