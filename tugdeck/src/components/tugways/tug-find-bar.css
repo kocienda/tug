@@ -5,8 +5,9 @@
  * against the surface below it ([L20]).
  *
  * The toolbar needs nothing of its own: everything about the search — count,
- * options, ↑ / ↓ — is one trailing group, so the shell's centre slot is empty
- * and its two flex spacers collapse into one run of leading space.
+ * options, ↑ / ↓, and Replace and All at its end while the replace row is
+ * shown — is one trailing group, so the shell's centre slot is empty and its
+ * two flex spacers collapse into one run of leading space.
  */
 
 .tug-find-bar {

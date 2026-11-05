@@ -1694,6 +1694,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("find-replace")
     }
 
+    @objc func performReplaceNext(_ sender: Any?) {
+        sendControl("find-replace-next")
+    }
+
+    @objc func performReplaceAll(_ sender: Any?) {
+        sendControl("find-replace-all")
+    }
+
     // Go ▸ card navigation — chain-action round-trips for the
     // chords the menu bar now swallows.
     @objc func previousCard(_ sender: Any?) {

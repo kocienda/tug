@@ -504,6 +504,11 @@ export const TugCodeView = React.forwardRef<
           caseSensitive: spec.caseSensitive ?? false,
           regexp: spec.regexp ?? false,
           wholeWord: spec.wholeWord ?? false,
+          // The transcript matches a non-grep query literally, so the code
+          // view paints the same characters: without `literal` CodeMirror
+          // would unquote `\n` into a newline. A code view never replaces,
+          // so the flag costs nothing here.
+          literal: !(spec.regexp ?? false),
         }),
       ),
     });

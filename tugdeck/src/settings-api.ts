@@ -1171,6 +1171,13 @@ export function readFindReplacement(client: TugbankClient): string {
 /** Trailing quiet window before a typed replacement is written. */
 const FIND_REPLACEMENT_PUT_DELAY_MS = 400;
 let findReplacementPutTimer: ReturnType<typeof setTimeout> | null = null;
+/** The replacement the pending timer will write; `null` when none is waiting. */
+let findReplacementPending: string | null = null;
+const FIND_REPLACEMENT_URL = "/api/defaults/dev.tugapp.find/replacement";
+
+function findReplacementBody(replacement: string): string {
+  return JSON.stringify({ kind: "string", value: replacement });
+}
 
 /**
  * PUT the remembered Find replacement to tugbank (fire-and-forget). The text
@@ -1179,16 +1186,40 @@ let findReplacementPutTimer: ReturnType<typeof setTimeout> | null = null;
  */
 export function putFindReplacement(replacement: string): void {
   if (findReplacementPutTimer !== null) clearTimeout(findReplacementPutTimer);
+  findReplacementPending = replacement;
   findReplacementPutTimer = setTimeout(() => {
     findReplacementPutTimer = null;
-    fetch("/api/defaults/dev.tugapp.find/replacement", {
+    findReplacementPending = null;
+    fetch(FIND_REPLACEMENT_URL, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "string", value: replacement }),
+      body: findReplacementBody(replacement),
     }).catch((err) => {
       console.warn("[settings] PUT findReplacement failed:", err);
     });
   }, FIND_REPLACEMENT_PUT_DELAY_MS);
+}
+
+/**
+ * Write a replacement still waiting out its quiet window, now and
+ * synchronously, and cancel the timer. The teardown core calls it, because a
+ * replacement typed just before a quit would otherwise die with the page
+ * before its timer fired. A no-op when nothing is waiting. [L23]
+ */
+export function flushFindReplacementSync(): void {
+  if (findReplacementPutTimer === null || findReplacementPending === null) return;
+  clearTimeout(findReplacementPutTimer);
+  findReplacementPutTimer = null;
+  const replacement = findReplacementPending;
+  findReplacementPending = null;
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", FIND_REPLACEMENT_URL, false);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.send(findReplacementBody(replacement));
+  } catch (err) {
+    console.warn("[settings] sync PUT findReplacement failed:", err);
+  }
 }
 
 // ── Split pane layouts ──────────────────────────────────────────────────────

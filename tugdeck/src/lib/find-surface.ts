@@ -43,6 +43,20 @@ export interface FindSurfaceSnapshot {
    * it and the face never appears.
    */
   revealFailed: boolean;
+  /**
+   * True when the user asked for something the search had nothing for — a
+   * replace with no query or no match — and no gesture has happened since.
+   * The chip shows the refusal rather than the press being a silent no-op
+   * ([L31]); the next query edit, option toggle or step clears it, and so
+   * does a document edit that gives the query a match.
+   */
+  refused: boolean;
+  /**
+   * Monotonic refusal counter, bumped on every refused press, so a second
+   * refusal in a row restarts the chip's mark rather than reading as the
+   * same one still standing.
+   */
+  refusalSeq: number;
 }
 
 /** The engine-agnostic surface the shared find UI drives. */

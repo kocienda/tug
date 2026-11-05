@@ -48,6 +48,8 @@ import AppKit
     func performFindPrevious(_ sender: Any?)
     func performFindSelection(_ sender: Any?)
     func performFindAndReplace(_ sender: Any?)
+    func performReplaceNext(_ sender: Any?)
+    func performReplaceAll(_ sender: Any?)
     func performMakeLowercase(_ sender: Any?)
     func performMakeUppercase(_ sender: Any?)
     func performPaste(_ sender: Any?)
@@ -431,6 +433,11 @@ struct MenuBarBuilder {
         // surface's: only editable text registers it, and a read-only Text
         // card validates it disabled.
         findMenu.addItem(NSMenuItem(title: "Find and Replace…", action: #selector(MenuBarActions.performFindAndReplace(_:)), keyEquivalent: "f", modifierMask: [.command, .option]).identified("edit.findAndReplace"))
+        // ⌥⌘G / ⌥⇧⌘G — Replace and Replace All, the ⌥ variant of Find Next
+        // and its widening. Gated on a replace-capable bar being open; a press
+        // with nothing to replace is refused on the bar's count chip.
+        findMenu.addItem(NSMenuItem(title: "Replace", action: #selector(MenuBarActions.performReplaceNext(_:)), keyEquivalent: "g", modifierMask: [.command, .option]).identified("edit.replaceNext"))
+        findMenu.addItem(NSMenuItem(title: "Replace All", action: #selector(MenuBarActions.performReplaceAll(_:)), keyEquivalent: "g", modifierMask: [.command, .option, .shift]).identified("edit.replaceAll"))
         editMenu.addItem(findMenuItem)
 
         // Session Menu - position 3. The session card's command surfaces,
@@ -782,7 +789,9 @@ struct MenuBarBuilder {
             // File ▸ New submenu. Compile-time gated so release bundles
             // never expose the gallery + hello-world creation surfaces.
             mMenu.addItem(NSMenuItem.separator())
-            mMenu.addItem(NSMenuItem(title: "New Component Gallery Card", action: #selector(MenuBarActions.newComponentGalleryCard(_:)), keyEquivalent: "g", modifierMask: [.command, .option]).identified("maker.galleryCard"))
+            // No key equivalent: ⌥⌘G is Edit ▸ Find ▸ Replace, the ⌥ variant
+            // of Find Next, and a debug-only creator yields it.
+            mMenu.addItem(NSMenuItem(title: "New Component Gallery Card", action: #selector(MenuBarActions.newComponentGalleryCard(_:)), keyEquivalent: "").identified("maker.galleryCard"))
             mMenu.addItem(NSMenuItem(title: "New Hello World Card", action: #selector(MenuBarActions.newHelloWorldCard(_:)), keyEquivalent: "n", modifierMask: [.command, .option, .shift]).identified("maker.helloCard"))
             // The Spikes index. No key equivalent: ⌥⌘G and ⌥⌘⇧N are taken,
             // and a chord for the design sandbox is not worth a tier.

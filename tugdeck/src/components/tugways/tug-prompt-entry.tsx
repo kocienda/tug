@@ -174,6 +174,7 @@ import {
 import { useSharedAgentReady } from "@/lib/shared-agent-store";
 import type { ShellClassifyStore } from "@/lib/shell-classify-store";
 import type { FindSession } from "@/lib/find-session";
+import type { TugFindBarHandle } from "@/components/tugways/tug-find-bar";
 import type { LandingKind, LandingMode } from "@/lib/landing-mode";
 import { useComposerDrop } from "./use-composer-drop";
 import { useSessionPromptInsertTarget } from "./use-prompt-insert-target";
@@ -781,6 +782,13 @@ export interface TugPromptEntryProps {
    */
   findSession?: FindSession;
   /**
+   * The composer's own find bar while it is open, or null — the bar
+   * {@link onFindReplace} opens. While it is open, ⌘G / ⇧⌘G with the caret in
+   * the composer step its matches rather than the transcript's: the step
+   * follows the bar the user opened over the text the caret is in.
+   */
+  getComposerFindBar?: () => TugFindBarHandle | null;
+  /**
    * ⌥⌘F with the caret in this composer — the host opens the composer's own
    * find bar with its replace row ([B04]). The entry answers `find-replace`
    * only while this is given and the editor is live, so with the caret
@@ -1220,6 +1228,7 @@ export const TugPromptEntry = React.forwardRef<
     shellClassifyStore,
     findSession,
     onFindReplace,
+    getComposerFindBar,
     landingMode,
     changesLandingKind = "commit",
     changesHasOffer = false,
@@ -2373,6 +2382,8 @@ export const TugPromptEntry = React.forwardRef<
   // live value at fire time [L07]. Absent in hosts without a transcript.
   const findSessionRef = useRef(findSession);
   findSessionRef.current = findSession;
+  const getComposerFindBarRef = useRef(getComposerFindBar);
+  getComposerFindBarRef.current = getComposerFindBar;
 
   // Helper: route the embedded substrate's selection through
   // selectionGuard for the inactive-paint channel.
@@ -3385,27 +3396,41 @@ export const TugPromptEntry = React.forwardRef<
     id,
     actions: {
       // ⌘G / ⇧⌘G — advance / retreat the active match with the caret in the
-      // composer. Gated on the SESSION holding matches, which is true exactly
-      // while the find bar is open: closing the bar clears the session, so
-      // these are inert without a live search. The transcript host reacts to
-      // the active-index change (scroll + flash).
+      // composer. With the composer's own find bar open the step is that
+      // bar's: it is the search over the text the caret is in. Otherwise it
+      // is the transcript's, gated on the session holding matches, which is
+      // true exactly while the transcript's bar is open: closing that bar
+      // clears the session, so these are inert without a live search. The
+      // transcript host reacts to the active-index change (scroll + flash).
       [TUG_ACTIONS.FIND_NEXT]: () => {
+        const composerBar = getComposerFindBarRef.current?.() ?? null;
+        if (composerBar !== null) {
+          composerBar.findNext();
+          return;
+        }
         const session = findSessionRef.current;
         if (session !== undefined && session.getSnapshot().count > 0) {
           session.next();
         }
       },
       [TUG_ACTIONS.FIND_PREVIOUS]: () => {
+        const composerBar = getComposerFindBarRef.current?.() ?? null;
+        if (composerBar !== null) {
+          composerBar.findPrevious();
+          return;
+        }
         const session = findSessionRef.current;
         if (session !== undefined && session.getSnapshot().count > 0) {
           session.previous();
         }
       },
       // ⌥⌘F — the composer's own find-and-replace bar, which the host mounts.
-      // Spread in only while there is a host to open it and an editor that
-      // can take an edit: the chain marks an action handled iff its key is
-      // present, so a stood-down composer leaves the item disabled.
-      ...(onFindReplace !== undefined && !deactivated
+      // Spread in whenever there is a host to open it, so the caret in the
+      // composer always claims the item; whether it is enabled is
+      // `validateAction`'s, read from the composer view's own read-only
+      // state, so every cause — a stand-down, a resume replay, an
+      // Auto-Message draft streaming in — disables it alike.
+      ...(onFindReplace !== undefined
         ? { [TUG_ACTIONS.FIND_REPLACE]: () => onFindReplace() }
         : {}),
       // The Z4A route group. `TugChoiceGroup` dispatches `selectValue` up to
@@ -3558,6 +3583,17 @@ export const TugPromptEntry = React.forwardRef<
             },
           }
         : {}),
+    },
+    // Find and Replace… is enabled exactly while the composer can take an
+    // edit, read from its view at the moment the menu asks. The undo-menu
+    // plugin requests a recompute when that state moves, so the item never
+    // reads a writability the composer no longer has.
+    validateAction: (action) => {
+      if (action === TUG_ACTIONS.FIND_REPLACE) {
+        const view = textEditorRef.current?.view() ?? null;
+        return view !== null && !view.state.readOnly;
+      }
+      return true;
     },
   });
 

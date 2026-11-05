@@ -40,3 +40,47 @@
 .tugx-find-count[data-empty] {
   display: none;
 }
+
+/* Refusal mark. A replace pressed with nothing to replace never fails
+   silently ([L31]): the chip that says why — "No results", or "No query" —
+   takes a caution ring that rises and fades. The attribute's value
+   alternates with each refusal, and each value names its own keyframes, so a
+   second press in a row plays the mark again without a reflow to restart it.
+   Under reduced motion the ring stands, still, until the next gesture clears
+   the attribute. */
+.tugx-find-count[data-refused="0"] {
+  animation: tugx-find-refuse-a var(--tug-motion-duration-slow)
+    var(--tug-motion-easing-exit);
+}
+
+.tugx-find-count[data-refused="1"] {
+  animation: tugx-find-refuse-b var(--tug-motion-duration-slow)
+    var(--tug-motion-easing-exit);
+}
+
+@keyframes tugx-find-refuse-a {
+  0%,
+  35% {
+    box-shadow: 0 0 0 2px var(--tug7-element-badge-border-outlined-caution-rest);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@keyframes tugx-find-refuse-b {
+  0%,
+  35% {
+    box-shadow: 0 0 0 2px var(--tug7-element-badge-border-outlined-caution-rest);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tugx-find-count[data-refused] {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--tug7-element-badge-border-outlined-caution-rest);
+  }
+}

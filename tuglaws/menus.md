@@ -256,11 +256,13 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⇥ | `cycle-focus-mode` | Cycle Focus Mode | JS, global |
 | ⌥⇧⌘C | `copy-as-plain-text` | Copy as Plain Text | JS, global |
 | ⌥⇧⌘E | `equalize-all-heights` | Equalize All Heights | menu bar (swept) |
+| ⌥⇧⌘G | `find-replace-all` | Replace All | JS, global |
 | ⌥⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
 | ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
 | ⌥⌘0 | `zoom-toggle-actual` | Toggle Actual Size | menu bar (swept) |
 | ⌥⌘F | `find-replace` | Find and Replace… | JS, global |
+| ⌥⌘G | `find-replace-next` | Replace | JS, global |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
@@ -319,6 +321,8 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `edit.pasteAsQuote` | `paste-as-quote` | first responder | registry gate |
 | `edit.quoteLines` | `quote-lines` | first responder | registry gate |
 | `edit.redo` | `redo` | first responder | host tier |
+| `edit.replaceAll` | `find-replace-all` | first responder | registry gate |
+| `edit.replaceNext` | `find-replace-next` | first responder | registry gate |
 | `edit.selectAll` | `select-all` | first responder | registry gate |
 | `edit.undo` | `undo` | first responder | host tier |
 | `edit.unquoteLines` | `unquote-lines` | first responder | registry gate |

@@ -99,8 +99,8 @@ export interface FindEngineDelegate {
   replaceAll?(replacement: string): void;
   /**
    * Whether the document can be written right now. Consulted only for an
-   * engine that implements replace; absent means writable. A host whose
-   * writability changes calls {@link FindSession.refresh}.
+   * engine that implements replace; absent means writable. An engine whose
+   * document's writability changes calls {@link FindSession.refresh}.
    */
   isWritable?(): boolean;
 }
@@ -187,6 +187,8 @@ export class FindSession extends Subscribable implements FindSurface {
       navSeq: 0,
       replacement: initialReplacement,
       canReplace: false,
+      refused: false,
+      refusalSeq: 0,
     };
   }
 
@@ -297,7 +299,8 @@ export class FindSession extends Subscribable implements FindSurface {
 
   /**
    * Replace the active match and step to the next. A no-op unless
-   * {@link FindSessionState.canReplace} and a query is live.
+   * {@link FindSessionState.canReplace} and the query has a match; a press
+   * with nothing to replace is refused visibly (see {@link refuseReplace}).
    *
    * The wrap rule differs from {@link next}'s: replacing the active match
    * removes it, so the match after it inherits its ordinal, and "the ordinal
@@ -306,7 +309,7 @@ export class FindSession extends Subscribable implements FindSurface {
    * is left.
    */
   replaceNext(): void {
-    if (!this.state.canReplace || this.state.query === "") return;
+    if (this.refuseReplace()) return;
     const prev = this.state.activeOrdinal;
     this.state = {
       ...this.state,
@@ -325,11 +328,12 @@ export class FindSession extends Subscribable implements FindSurface {
 
   /**
    * Replace every match. A no-op unless {@link FindSessionState.canReplace}
-   * and a query is live. Nothing is active afterwards; the count is what
-   * the document now holds, which for most replacements is none.
+   * and the query has a match, refused visibly otherwise. Nothing is active
+   * afterwards; the count is what the document now holds, which for most
+   * replacements is none.
    */
   replaceAll(): void {
-    if (!this.state.canReplace || this.state.query === "") return;
+    if (this.refuseReplace()) return;
     this.state = {
       ...this.state,
       revealFailed: false,
@@ -364,6 +368,7 @@ export class FindSession extends Subscribable implements FindSurface {
       revealFailed: false,
       wrapped: false,
       wrapDirection: 0,
+      refused: false,
     };
     this.emit();
   }
@@ -372,8 +377,8 @@ export class FindSession extends Subscribable implements FindSurface {
    * Re-read the engine's match summary and re-publish. The engine calls
    * this when results settle asynchronously (a debounced transcript
    * search, a navigation performed outside the session — e.g. the
-   * document editor's own ⌘G handler) — and the host calls it when the
-   * document's writability changes, which re-reads `canReplace`.
+   * document editor's own ⌘G handler) and when its document is edited or
+   * its writability changes, which re-reads the count and `canReplace`.
    */
   refresh(): void {
     this.state = { ...this.state, canReplace: this.readCanReplace() };
@@ -381,6 +386,24 @@ export class FindSession extends Subscribable implements FindSurface {
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
+
+  /**
+   * Refuse a replace that has nothing to act on — no replace-capable
+   * engine, no query, or no match — by marking the snapshot, which the chip
+   * draws. Returns whether it refused. The count is read from the engine
+   * rather than the snapshot, because a document edit may not have been
+   * republished yet.
+   */
+  private refuseReplace(): boolean {
+    if (this.state.canReplace && this.readInfo().count > 0) return false;
+    this.state = {
+      ...this.state,
+      refused: true,
+      refusalSeq: this.state.refusalSeq + 1,
+    };
+    this.emit();
+    return true;
+  }
 
   private readCanReplace(): boolean {
     const engine = this.engine;
@@ -413,6 +436,9 @@ export class FindSession extends Subscribable implements FindSurface {
         !preserveWrap && wrapDirection !== 0
           ? this.state.wrapSeq + 1
           : this.state.wrapSeq,
+      // A gesture clears a refusal; a background re-read keeps it until the
+      // query has something to replace again.
+      refused: preserveWrap ? this.state.refused && info.count === 0 : false,
     };
     this.emit();
   }

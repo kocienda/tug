@@ -125,6 +125,7 @@ import {
 } from "@/lib/tug-native-clipboard";
 import { tugTheme } from "./tug-text-editor/theme";
 import { search } from "@codemirror/search";
+import { findViewObserver } from "./editor-find-engine";
 import { hostFocusMirror } from "./tug-text-editor/host-state";
 import { hostClickToCaret } from "./tug-text-editor/host-click";
 import {
@@ -1268,6 +1269,9 @@ function buildExtensions(
     // editor engine. Its bundled panel is opened by the engine and kept
     // hidden by `tugTheme`; nothing here binds a search key.
     search({ top: true }),
+    // Tells the engine the document or its writability moved, so an open
+    // bar's count and replace row follow the composer as it is typed in.
+    findViewObserver,
     hostFocusMirror(host),
     // The host is the text surface: a click in the blank band below short
     // content (host taller than contentDOM) lands the caret instead of

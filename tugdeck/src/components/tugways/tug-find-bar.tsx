@@ -49,7 +49,7 @@
 
 import "./tug-find-bar.css";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -67,6 +67,13 @@ import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type { FindSession } from "@/lib/find-session";
+import { requestMenuStateRefresh } from "@/lib/host-menu-state";
+import {
+  advanceKeyViewFocus,
+  BASE_FOCUS_MODE,
+  getFocusManager,
+} from "@/components/tugways/focus-manager";
+import { dispatchCommand } from "@/command-dispatch";
 
 /** The bar's Tab stops, in reading order, as offsets from the host's
  *  `focusOrderBase`. The query field leads because it is where ⌘F lands and
@@ -90,6 +97,22 @@ const FIND_STOP_REPLACE_ALL = 6;
  */
 export function findBarStopCount(withReplaceRow: boolean): number {
   return withReplaceRow ? FIND_STOP_REPLACE_ALL + 1 : FIND_STOP_NEXT + 1;
+}
+
+/**
+ * Tab in a query field with no second field to move to: what ⌥⇥ then Tab
+ * does. The cycle action engages the host's cycle with the ring on the stop
+ * the caret is in — the query's own — and the shared advance performer then
+ * takes the step from there. Engaging first is what puts the step in the
+ * card's cycle rather than the page's base walk, which a card's stops are not
+ * in; with a cycle already up, the step is taken in it directly.
+ */
+function stepOutOfQuery(direction: 1 | -1): void {
+  const manager = getFocusManager();
+  if (manager !== null && manager.currentFocusMode() === BASE_FOCUS_MODE) {
+    dispatchCommand(TUG_ACTIONS.CYCLE_FOCUS_MODE);
+  }
+  advanceKeyViewFocus(getFocusManager(), direction);
 }
 
 export interface TugFindBarProps {
@@ -162,6 +185,23 @@ export interface TugFindBarHandle {
    * holds the keyboard owes it somewhere to land.
    */
   holdsKeyboard(): boolean;
+  /**
+   * Whether the bar is showing its replace row — the gate a host reads for
+   * Replace (⌥⌘G) and Replace All (⌥⇧⌘G) when the caret is outside the
+   * bar. Deliberately not "is there a match": a press with nothing to
+   * replace still arrives and is refused on the count chip ([L31]).
+   */
+  replaceShown(): boolean;
+  /** Replace the active match and step on — ⌥⌘G answered by the host. */
+  replaceNext(): void;
+  /** Replace every match — ⌥⇧⌘G answered by the host. */
+  replaceAll(): void;
+  /**
+   * Step the bar's session to the next / previous match — ⌘G / ⇧⌘G answered
+   * by a host whose caret is in the text this bar searches, outside the bar.
+   */
+  findNext(): void;
+  findPrevious(): void;
 }
 
 export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
@@ -200,6 +240,32 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
       () => session.getSnapshot().canReplace,
     );
     const replaceRowShown = replace && canReplace;
+    // Read by the responder's gate and the host's handle at dispatch time,
+    // so it is the value of the latest render rather than a closure's.
+    const replaceRowShownRef = useRef(replaceRowShown);
+    replaceRowShownRef.current = replaceRowShown;
+    // Replace and Replace All are gated on the row, and nothing in the chain
+    // sees it come and go — a read-only flip of the text moves it with no
+    // focus or registration change — so the bar republishes the menu state
+    // whenever it moves. Each republish waits a microtask, past the rest of
+    // the commit, so the host's ref to this bar is attached (or, at unmount,
+    // nulled) before the host's gate is read.
+    useLayoutEffect(() => {
+      queueMicrotask(requestMenuStateRefresh);
+    }, [replaceRowShown]);
+    useLayoutEffect(
+      () => () => {
+        queueMicrotask(requestMenuStateRefresh);
+      },
+      [],
+    );
+    // Replace and All act on a match, so with no query or a zero count they
+    // render disabled — the visible reason a press would do nothing ([L31]).
+    // Read from the same store as `canReplace` ([L02]).
+    const hasReplaceable = useSyncExternalStore(session.subscribe, () => {
+      const snap = session.getSnapshot();
+      return snap.hasQuery && snap.count > 0;
+    });
     // The replacement field takes the stop after the query, so the toolbar's
     // stops move down one while it shows and the span stays consecutive.
     const toolbarStopShift = replaceRowShown ? 1 : 0;
@@ -238,18 +304,25 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
             },
             // Tab moves between the bar's two fields and never writes a tab:
             // a find query is not indented. With no replace row there is no
-            // other field, and the key is still claimed.
+            // other field, so Tab does what ⌥⇥ then Tab does: it engages the
+            // host's cycle at the query's own stop and steps to the next (the
+            // options group), and ⇧Tab steps back. The key is never dead
+            // ([L31]).
             {
               key: "Tab",
               run: () => {
-                replacementFieldRef.current?.focus();
+                const replacement = replacementFieldRef.current;
+                if (replacement !== null) replacement.focus();
+                else stepOutOfQuery(1);
                 return true;
               },
             },
             {
               key: "Shift-Tab",
               run: () => {
-                replacementFieldRef.current?.focus();
+                const replacement = replacementFieldRef.current;
+                if (replacement !== null) replacement.focus();
+                else stepOutOfQuery(-1);
                 return true;
               },
             },
@@ -313,6 +386,19 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
             root.querySelector("[data-key-view]") !== null
           );
         },
+        replaceShown: () => replaceRowShownRef.current,
+        replaceNext: () => {
+          session.replaceNext();
+        },
+        replaceAll: () => {
+          session.replaceAll();
+        },
+        findNext: () => {
+          session.next();
+        },
+        findPrevious: () => {
+          session.previous();
+        },
       }),
       [session, writeQuery],
     );
@@ -336,6 +422,14 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
         [TUG_ACTIONS.FIND_PREVIOUS]: () => {
           session.previous();
         },
+        // ⌥⌘G / ⌥⇧⌘G with the caret in the bar. With nothing to replace the
+        // session refuses on the count chip, so the press is never silent.
+        [TUG_ACTIONS.FIND_REPLACE_NEXT]: () => {
+          session.replaceNext();
+        },
+        [TUG_ACTIONS.FIND_REPLACE_ALL]: () => {
+          session.replaceAll();
+        },
         // Escape after a CLICK on one of the bar's controls. The query
         // field's own `Prec.high` keymap covers the caret, and a host whose
         // Tab order reached these controls owns Escape at that point (the
@@ -345,6 +439,17 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
         [TUG_ACTIONS.CANCEL_DIALOG]: () => {
           onCloseRef.current();
         },
+      },
+      // Replace is live only while the row shows: a bar over read-only text
+      // has nothing to replace into.
+      validateAction: (action) => {
+        if (
+          action === TUG_ACTIONS.FIND_REPLACE_NEXT ||
+          action === TUG_ACTIONS.FIND_REPLACE_ALL
+        ) {
+          return replaceRowShownRef.current;
+        }
+        return true;
       },
     });
 
@@ -469,29 +574,41 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                 // always has: they act on what the search found, so they
                 // follow the controls that find it.
                 <>
-                  <TugPushButton
-                    size="sm"
-                    emphasis="outlined"
-                    role="action"
-                    onClick={() => session.replaceNext()}
-                    data-testid="find-replace-next"
-                    focusGroup={focusGroup}
-                    focusOrder={focusOrderBase + FIND_STOP_REPLACE}
+                  <TugActionTooltip
+                    action={TUG_ACTIONS.FIND_REPLACE_NEXT}
+                    content="Replace this match and go to the next"
                   >
-                    Replace
-                  </TugPushButton>
-                  <TugPushButton
-                    size="sm"
-                    emphasis="outlined"
-                    role="action"
-                    onClick={() => session.replaceAll()}
-                    aria-label="Replace all"
-                    data-testid="find-replace-all"
-                    focusGroup={focusGroup}
-                    focusOrder={focusOrderBase + FIND_STOP_REPLACE_ALL}
+                    <TugPushButton
+                      size="sm"
+                      emphasis="outlined"
+                      role="action"
+                      onClick={() => session.replaceNext()}
+                      disabled={!hasReplaceable}
+                      data-testid="find-replace-next"
+                      focusGroup={focusGroup}
+                      focusOrder={focusOrderBase + FIND_STOP_REPLACE}
+                    >
+                      Replace
+                    </TugPushButton>
+                  </TugActionTooltip>
+                  <TugActionTooltip
+                    action={TUG_ACTIONS.FIND_REPLACE_ALL}
+                    content="Replace every match"
                   >
-                    All
-                  </TugPushButton>
+                    <TugPushButton
+                      size="sm"
+                      emphasis="outlined"
+                      role="action"
+                      onClick={() => session.replaceAll()}
+                      disabled={!hasReplaceable}
+                      aria-label="Replace all"
+                      data-testid="find-replace-all"
+                      focusGroup={focusGroup}
+                      focusOrder={focusOrderBase + FIND_STOP_REPLACE_ALL}
+                    >
+                      All
+                    </TugPushButton>
+                  </TugActionTooltip>
                 </>
               ) : null}
             </>

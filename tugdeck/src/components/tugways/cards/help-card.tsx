@@ -48,9 +48,8 @@ import { TugFindBar, type TugFindBarHandle } from "@/components/tugways/tug-find
 import { documentFindEngine } from "@/components/tugways/document-find-engine";
 import { useResponder } from "@/components/tugways/use-responder";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { FindSession } from "@/lib/find-session";
-import { getTugbankClient } from "@/lib/tugbank-singleton";
-import { readFindOptions, putFindOptions } from "@/settings-api";
+import type { FindSession } from "@/lib/find-session";
+import { createFindSession } from "@/lib/create-find-session";
 import {
   fetchHelpDoc,
   helpAnchorSlug,
@@ -159,9 +158,7 @@ export function HelpCardContent({ cardId }: { cardId: string }): React.ReactElem
   const findSessionRef = useRef<FindSession | null>(null);
   const findSession = useCallback((): FindSession => {
     if (findSessionRef.current === null) {
-      const client = getTugbankClient();
-      const seeded = client ? readFindOptions(client) : null;
-      const session = new FindSession(seeded ?? undefined, { onOptionsChanged: putFindOptions });
+      const session = createFindSession({ replace: false });
       session.setDelegate(
         documentFindEngine({
           root: () =>

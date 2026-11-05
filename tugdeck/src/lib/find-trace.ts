@@ -69,7 +69,7 @@ export type FindTraceEvent =
       kind: "gesture";
       seq: number;
       t: number;
-      surface: "transcript" | "text";
+      surface: "transcript" | "text" | "composer";
       cardId: string | null;
       gesture: "query" | "options" | "next" | "previous" | "attach";
       navSeq: number;

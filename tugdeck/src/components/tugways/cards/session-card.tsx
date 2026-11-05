@@ -181,7 +181,7 @@ import type {
   CodeSessionSnapshot,
   CodeSessionStore,
 } from "@/lib/code-session-store";
-import { FindSession } from "@/lib/find-session";
+import { createFindSession } from "@/lib/create-find-session";
 import {
   ComposerFindBar,
   type ComposerFindBarHandle,
@@ -296,14 +296,9 @@ import {
 import { useSessionCardObserver } from "./use-session-card-observer";
 import { useLandingReceipts } from "./use-landing-receipts";
 import { useMenuStatePublication } from "./use-menu-state-publication";
-import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import { requestLogout } from "@/lib/logout-store";
 import { recordSwitch } from "@/lib/motion-guard/record-switch";
-import {
-  putFindOptions,
-  readFindOptions,
-} from "@/settings-api";
 import { encodeSetSessionPrivate } from "@/protocol";
 import {
   privateRefusalDetail,
@@ -1706,13 +1701,7 @@ export function SessionCardBody({
   // pane moves ([L23]), so a single instance survives the session. The option
   // toggles are seeded from the deck-wide persisted set (tugbank) so Case /
   // Word / Grep survive a card reload; a fresh deck falls back to all-off.
-  const [findSession] = useState(() => {
-    const client = getTugbankClient();
-    const seeded = client ? readFindOptions(client) : null;
-    return new FindSession(seeded ?? undefined, {
-      onOptionsChanged: putFindOptions,
-    });
-  });
+  const [findSession] = useState(() => createFindSession({ replace: false }));
 
   // [P03] Shade visibility is card chrome state, not route state. A per-card
   // `ShadeViewController` holds which transcript-slot view is showing; the
@@ -2007,6 +1996,9 @@ export function SessionCardBody({
     () => entryDelegateRef.current?.view() ?? null,
     [entryDelegateRef],
   );
+  // The composer's ⌘G steps this bar while it is open; React nulls the ref
+  // on unmount, which is exactly when the step goes back to the transcript.
+  const getComposerFindBar = useCallback(() => composerFindBarRef.current, []);
 
   useSessionCardObserver(cardId, codeSessionStore);
   // Landing receipts as transcript ink ([P09], Spec S04): every successful
@@ -4582,6 +4574,17 @@ export function SessionCardBody({
       [TUG_ACTIONS.CYCLE_FOCUS_MODE]: (_event: ActionEvent) => {
         cycle.toggle();
       },
+      // ⌥⌘G / ⌥⇧⌘G with the caret outside the composer's find bar — in the
+      // composer it searches, most often. The bar answers them itself with
+      // the caret inside it; this card owns the bar, so it answers the rest.
+      // Gated below on the bar showing its replace row, so the transcript
+      // find bar, which never replaces, leaves both items disabled.
+      [TUG_ACTIONS.FIND_REPLACE_NEXT]: (_event: ActionEvent) => {
+        composerFindBarRef.current?.replaceNext();
+      },
+      [TUG_ACTIONS.FIND_REPLACE_ALL]: (_event: ActionEvent) => {
+        composerFindBarRef.current?.replaceAll();
+      },
       // ⌃⌘[ / ⌃⌘] — step the transcript one turn back / forward. The
       // card-content responder owns this because the transcript is the
       // card's content; routing the chord here (rather than a listener
@@ -4773,6 +4776,18 @@ export function SessionCardBody({
           message,
         });
       },
+    },
+    // Replace and Replace All are live while the composer's find bar is open
+    // with its replace row; the bar republishes the menu state as the row
+    // comes and goes.
+    validateAction: (action) => {
+      if (
+        action === TUG_ACTIONS.FIND_REPLACE_NEXT ||
+        action === TUG_ACTIONS.FIND_REPLACE_ALL
+      ) {
+        return composerFindBarRef.current?.replaceShown() ?? false;
+      }
+      return true;
     },
   });
 
@@ -5637,6 +5652,7 @@ export function SessionCardBody({
                     : SESSION_PROMPT_PLACEHOLDER
                 }
                 onFindReplace={openComposerFind}
+                getComposerFindBar={getComposerFindBar}
               />
               {composerFindOpen ? (
                 // Docked under the entry shell, in the same cycle scope, so its
@@ -5648,9 +5664,6 @@ export function SessionCardBody({
                   cardRootRef={sessionCardRootRef}
                   focusGroup={SESSION_CYCLE_GROUP}
                   focusOrderBase={SESSION_CYCLE_ORDER_COMPOSER_FIND_BASE}
-                  // Every state that makes the composer's field read-only: the
-                  // stand-downs, and an Auto-Message draft streaming into it.
-                  readOnly={inlineDialogPending || replayHoldActive || drafting}
                   dataSlot="session-composer-find-bar"
                   inputTestId="session-composer-find-input"
                   replacementTestId="session-composer-replace-input"

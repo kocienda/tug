@@ -14,8 +14,9 @@
  *   1. Edit ▸ Find ▸ Find and Replace… from the field opens the composer's
  *      bar under the composer, with the replace row and the caret in the
  *      query.
- *   2. Return in the replacement field is Replace: it swaps the first match
- *      and moves on; All swaps the rest.
+ *   2. Edit ▸ Find ▸ Find Next with the caret in the field steps the
+ *      composer's own bar. Return in the replacement field is Replace: it
+ *      swaps the match ⌘G landed on and moves on; All swaps the rest.
  *   3. Escape closes the bar and hands the caret back to the field.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
@@ -102,7 +103,7 @@ describe.skipIf(!SHOULD_RUN)("AT0780: find and replace in the Overview composer"
         expect(under, "the bar docks under the composer").toBe(true);
         await body.waitForCondition<boolean>(caretIn(QUERY), { timeoutMs: 4000 });
 
-        // --- 2. Return replaces one; All replaces the rest. ---
+        // --- 2. ⌘G steps the bar; Return replaces one; All the rest. ---
         await app.nativeType("tide");
         // The whole query first: the count already reads 2 at "t", and a key
         // still in flight would land in whatever field is clicked next.
@@ -117,6 +118,25 @@ describe.skipIf(!SHOULD_RUN)("AT0780: find and replace in the Overview composer"
           })()`,
           { timeoutMs: 6000 },
         );
+        // ⌘G with the caret in the question steps its own bar, the Overview
+        // having no other search. From the end of the text the first press
+        // wraps to the first match and the second lands on the last, which
+        // is the one Return replaces below.
+        await body.nativeClickAtElement(FIELD);
+        await body.waitForCondition<boolean>(caretIn(FIELD), { timeoutMs: 4000 });
+        await app.nativeKey("End");
+        for (let i = 0; i < 2; i++) {
+          const stepped = await app.performMenuItem("edit.findNext");
+          expect(stepped.found && stepped.enabled, "Find Next is enabled with the bar open").toBe(true);
+          expect(stepped.found && stepped.performed, "Find Next performs").toBe(true);
+          await body.waitForCondition<boolean>(
+            `(() => {
+              const el = document.querySelector(${JSON.stringify(CHIP)});
+              return el !== null && (el.textContent || '').trim() === ${JSON.stringify(i === 0 ? "1 of 2" : "2 of 2")};
+            })()`,
+            { timeoutMs: 6000 },
+          );
+        }
         // The field seeds from the deck-wide remembered replacement, and a
         // click collapses the seed's selection, so clear it with bare keys.
         await body.nativeClickAtElement(REPLACEMENT);
@@ -131,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)("AT0780: find and replace in the Overview composer"
           { timeoutMs: 4000 },
         );
         await app.nativeKey("Return");
-        await fieldText("rock pool tide pool");
+        await fieldText("tide pool rock pool");
         await body.click(`${BAR} [data-testid="find-replace-all"]`);
         await fieldText("rock pool rock pool");
 

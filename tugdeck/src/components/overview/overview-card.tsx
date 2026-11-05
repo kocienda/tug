@@ -1987,10 +1987,27 @@ function OverviewComposer({
   const { ResponderScope: ComposerResponderScope, responderRef } = useResponder({
     id: "overview-composer",
     actions: {
-      // ⌥⌘F — find and replace in the question being typed. Spread in only
-      // while the field takes edits: the chain marks an action handled iff
-      // its key is present, so a waiting composer leaves the item disabled.
-      ...(!pending ? { [TUG_ACTIONS.FIND_REPLACE]: openFind } : {}),
+      // ⌥⌘F — find and replace in the question being typed. Always claimed
+      // with the caret here; `validateAction` enables it from the field's own
+      // read-only state, so a waiting composer leaves the item disabled.
+      [TUG_ACTIONS.FIND_REPLACE]: openFind,
+      // ⌘G / ⇧⌘G with the caret in the question step its own find bar. The
+      // Overview has no transcript, so there is no other search for them to
+      // mean; with the bar closed they are validated off below.
+      [TUG_ACTIONS.FIND_NEXT]: () => {
+        findBarRef.current?.findNext();
+      },
+      [TUG_ACTIONS.FIND_PREVIOUS]: () => {
+        findBarRef.current?.findPrevious();
+      },
+      // ⌥⌘G / ⌥⇧⌘G with the caret in the question rather than in its find
+      // bar, which answers them itself. Gated below on the bar's replace row.
+      [TUG_ACTIONS.FIND_REPLACE_NEXT]: () => {
+        findBarRef.current?.replaceNext();
+      },
+      [TUG_ACTIONS.FIND_REPLACE_ALL]: () => {
+        findBarRef.current?.replaceAll();
+      },
       [TUG_ACTIONS.REMOVE_ATTACHMENT]: (event) => {
         if (typeof event.value !== "string") return;
         removeAttachment(event.value);
@@ -2033,6 +2050,24 @@ function OverviewComposer({
             },
           }
         : {}),
+    },
+    // Find and Replace… reads the field's view at the moment the menu asks;
+    // the undo-menu plugin requests a recompute when its read-only moves.
+    validateAction: (action) => {
+      if (action === TUG_ACTIONS.FIND_REPLACE) {
+        const view = editorRef.current?.view() ?? null;
+        return view !== null && !view.state.readOnly;
+      }
+      if (
+        action === TUG_ACTIONS.FIND_REPLACE_NEXT ||
+        action === TUG_ACTIONS.FIND_REPLACE_ALL
+      ) {
+        return findBarRef.current?.replaceShown() ?? false;
+      }
+      if (action === TUG_ACTIONS.FIND_NEXT || action === TUG_ACTIONS.FIND_PREVIOUS) {
+        return findBarRef.current !== null;
+      }
+      return true;
     },
   });
 
@@ -2526,7 +2561,6 @@ function OverviewComposer({
         // Past the field, the mic, the send button and every tile: the bar
         // searches what those stops compose, so it follows them.
         focusOrderBase={100}
-        readOnly={pending}
         dataSlot="overview-composer-find-bar"
         inputTestId="overview-composer-find-input"
         replacementTestId="overview-composer-replace-input"

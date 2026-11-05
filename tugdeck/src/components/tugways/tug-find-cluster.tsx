@@ -147,13 +147,18 @@ export function TugFindCluster({
   // owes the reader rather than one it hides behind a confident ordinal.
   const total = snapshot.count;
   const revealFailed = snapshot.revealFailed && total > 0;
+  // A refused press with no query has no count to mark, so the chip
+  // appears to say why ([L31]); with a query it already reads "No results".
+  const refused = snapshot.refused;
   const countText =
     total > 0
       ? `${(snapshot.activeOrdinal ?? 0) + 1} of ${total}${snapshot.capped ? "+" : ""}` +
         (revealFailed ? " · not in view" : "")
       : snapshot.hasQuery
         ? "No results"
-        : "";
+        : refused
+          ? "No query"
+          : "";
 
   return (
     <ResponderScope>
@@ -174,6 +179,10 @@ export function TugFindCluster({
           // in place, leaving the badge stuck hidden with a live count).
           data-empty={countText === "" ? "" : undefined}
           data-reveal-failed={revealFailed ? "" : undefined}
+          // The refusal mark. Its value alternates with the refusal counter
+          // so a second refused press in a row switches keyframes and the
+          // mark plays again, with no reflow to restart it ([L06]).
+          data-refused={refused ? String(snapshot.refusalSeq % 2) : undefined}
           aria-live="polite"
           copyText={`Results: ${countText}`}
         >

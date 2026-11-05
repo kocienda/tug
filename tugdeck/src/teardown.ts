@@ -13,6 +13,7 @@
 import type { CardFlushResult } from "./card-state-cache";
 import type { SaveCallbackSource } from "./deck-trace";
 import { flushPromptHistorySync } from "./lib/prompt-history-api";
+import { flushFindReplacementSync } from "./settings-api";
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import { SETTLE_WAIT_BUDGET_MS, type CodeSessionStore } from "./lib/code-session-store";
@@ -131,6 +132,12 @@ export function teardownSave(
   if (options?.sync === true) {
     flushPromptHistorySync();
   }
+
+  // A find replacement still inside its write debounce goes now, on every
+  // teardown signal and not only a `sync` one: a quit runs this core
+  // asynchronously and can be over before the debounce would have fired.
+  // Nothing waiting writes nothing. [L23]
+  flushFindReplacementSync();
 
   const cardsPromise = deps.flushDirtyCardStates({
     sync: options?.sync,

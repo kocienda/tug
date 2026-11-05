@@ -12,7 +12,9 @@
  *
  * It is summoned by ⌥⌘F with the caret in the composer, so it always asks for
  * the replace row; the row shows while the composer is writable, which is the
- * session's `canReplace`.
+ * session's `canReplace`. The engine watches the composer's view, so the
+ * count follows typing and the row follows every read-only cause the
+ * composer has, with nothing pushed in from the host.
  *
  * The search anchors at the composer's caret, captured when the bar is
  * created — before its query field takes the keyboard — so the first match is
@@ -26,7 +28,7 @@
  * @module components/tugways/composer-find-bar
  */
 
-import React, { useEffect, useLayoutEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 
 import {
@@ -37,14 +39,8 @@ import {
   createEditorFindEngine,
   type EditorFindEngine,
 } from "@/components/tugways/editor-find-engine";
-import { getTugbankClient } from "@/lib/tugbank-singleton";
-import {
-  readFindOptions,
-  putFindOptions,
-  readFindReplacement,
-  putFindReplacement,
-} from "@/settings-api";
-import { FindSession } from "@/lib/find-session";
+import { createFindSession } from "@/lib/create-find-session";
+import type { FindSession } from "@/lib/find-session";
 
 export interface ComposerFindBarProps {
   /** Resolve the composer's live view (null while unmounted). */
@@ -57,11 +53,6 @@ export interface ComposerFindBarProps {
   focusGroup?: string;
   /** First of the bar's consecutive stop orders. */
   focusOrderBase?: number;
-  /**
-   * The composer's stood-down state. Pushed, so the bar re-reads its replace
-   * capability whenever it moves and the row cannot go stale.
-   */
-  readOnly?: boolean;
   dataSlot: string;
   inputTestId: string;
   replacementTestId: string;
@@ -79,7 +70,6 @@ export const ComposerFindBar = React.forwardRef<
     cardRootRef,
     focusGroup,
     focusOrderBase,
-    readOnly = false,
     dataSlot,
     inputTestId,
     replacementTestId,
@@ -92,18 +82,9 @@ export const ComposerFindBar = React.forwardRef<
   const engineRef = useRef<EditorFindEngine | null>(null);
   const sessionRef = useRef<FindSession | null>(null);
   if (sessionRef.current === null || engineRef.current === null) {
-    const engine = createEditorFindEngine(() => getViewRef.current());
+    const engine = createEditorFindEngine(() => getViewRef.current(), "composer");
     engine.captureFindAnchor("selection");
-    const client = getTugbankClient();
-    const seeded = client ? readFindOptions(client) : null;
-    const session = new FindSession(
-      seeded ?? undefined,
-      {
-        onOptionsChanged: putFindOptions,
-        onReplacementChanged: putFindReplacement,
-      },
-      client ? readFindReplacement(client) : "",
-    );
+    const session = createFindSession({ replace: true });
     session.setDelegate(engine);
     engineRef.current = engine;
     sessionRef.current = session;
@@ -119,9 +100,6 @@ export const ComposerFindBar = React.forwardRef<
     },
     [session, engine],
   );
-  useEffect(() => {
-    session.refresh();
-  }, [session, readOnly]);
 
   return (
     <TugFindBar

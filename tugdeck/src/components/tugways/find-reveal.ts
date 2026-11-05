@@ -1,5 +1,8 @@
 /**
- * find-reveal — how far a find landing may move the Text card's view.
+ * find-reveal — how far a find landing may move an editor's view.
+ *
+ * The shared editor engine (`editor-find-engine.ts`) lands every editable
+ * surface's search through this rule: the Text card and both composers.
  *
  * A typed query lands on the first match at or after the reader's anchor,
  * and the anchor is the first line the reader can see — so on a file where
@@ -21,7 +24,7 @@
  *  - **`"center"`** — no part of it is on screen. That is a genuine jump,
  *    and it lands where `findNext`/`findPrevious` land: the vertical centre.
  *
- * @module components/tugways/tug-text-card-editor/find-reveal
+ * @module components/tugways/find-reveal
  */
 
 /** A rect in one coordinate space — the viewport's, for both arguments. */

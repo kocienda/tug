@@ -1,5 +1,5 @@
 /**
- * How far a Text card find landing may move the view.
+ * How far an editor's find landing may move the view.
  *
  * Pinned because the clipped-top-line case was centred once: on a file where
  * every line matches, the landing is the scrollport's top line, and treating

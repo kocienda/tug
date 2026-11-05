@@ -344,7 +344,26 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 **Promotion to Edit ▸ Find ▸ Find and Replace… is R6's half of the grant**, beside its four siblings, with a construction-time `"f"` key equivalent under `[.command, .option]` — the same spelling the rest of the submenu uses, and the same rebind debt.
 
-**Its gate is the surface's, and it is pushed state.** Only a surface whose text can be replaced into registers the handler, so the item is disabled over a transcript or a help document. A Text card gone read-only validates it false; read-only is state the card pushes, so unlike a selection the gate cannot go stale between menuState pushes.
+**Its gate is the surface's.** Only a surface whose text can be replaced into registers the handler, so the item is disabled over a transcript or a help document. A Text card gone read-only validates it false from its document's state, and a composer validates it from its editor view's own `readOnly`, so every cause that stands a composer down disables it alike. Neither can go stale between menuState pushes: the editors' undo-menu plugin requests a recompute whenever a view's `readOnly` moves.
+
+---
+
+## The replace chords
+
+⌥⌘G replaces the active match and steps to the next; ⌥⇧⌘G replaces every match. Both act on the replace-capable find bar that is open.
+
+| Command | Chord | Derivation |
+|---|---|---|
+| `find-replace-next` | **⌥⌘G** | R1's ⌥ variant of ⌘G Find Next: the same step through the matches, replacing the one it leaves. |
+| `find-replace-all` | **⌥⇧⌘G** | ⌥⌘G widened to every match — ⇧ in its "widen" reading, not its "reverse" one, which ⇧⌘G Find Previous already holds on the plain tier. |
+
+**The debug gallery gave ⌥⌘G up.** Maker ▸ New Component Gallery Card held it as a construction-time key equivalent in debug builds only, outside the registry, which is why the free-seat survey missed it. A debug-only creator yields to a find command every user has, and it now has no key equivalent, as New Spikes Card has none.
+
+**Nothing below the menu takes them.** CodeMirror's `searchKeymap` puts go-to-line on `Mod-Alt-g`, but no Tug editor installs `searchKeymap` — only the `search()` state extension — so both chords reach the chain from inside an editor.
+
+**Promotion to Edit ▸ Find ▸ Replace and Replace All is R6's half of the grant**, after Find and Replace…, with construction-time `"g"` key equivalents under `[.command, .option]` and `[.command, .option, .shift]`, spelled the way the rest of the submenu is.
+
+**The gate is the bar, not the match.** The items are live while a replace-capable bar is open with its replace row — answered by the bar's responder with the caret in the bar and by the host that owns the bar otherwise — and the bar republishes the menu state as the row comes and goes. Whether there is anything to replace is deliberately not part of the gate: a press with nothing to replace arrives and is refused visibly on the bar's count chip, rather than being eaten as a dark menu item.
 
 ---
 

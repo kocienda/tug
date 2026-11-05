@@ -18,6 +18,10 @@
  *     undo/redo steps ("Typing", "Paste", …); the tops are registered in
  *     host-menu-state's per-editor label registry keyed by `view.dom`,
  *     where the publisher resolves them for the focused editor only.
+ *   - **Writability.** A gate that reads the view's `EditorState.readOnly`
+ *     (Find and Replace…, the editing commands) moves when the view goes
+ *     read-only or writable again, which is neither a focus change nor a
+ *     document change, so the plugin asks for a recompute then too.
  *
  * A ViewPlugin (not a bare updateListener) so per-instance state lives
  * on the plugin and `destroy()` clears the registry entry on unmount.
@@ -58,6 +62,9 @@ export const undoMenuStatePlugin: Extension = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate): void {
+      if (update.state.readOnly !== update.startState.readOnly) {
+        requestMenuStateRefresh();
+      }
       if (!update.docChanged) return;
 
       const isUndo = update.transactions.some((t) => t.isUserEvent("undo"));

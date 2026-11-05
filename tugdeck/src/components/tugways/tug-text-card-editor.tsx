@@ -106,11 +106,7 @@ import {
   undo,
   undoDepth,
 } from "@codemirror/commands";
-import {
-  search,
-  findNext as cmFindNext,
-  findPrevious as cmFindPrevious,
-} from "@codemirror/search";
+import { search } from "@codemirror/search";
 
 import { cn } from "@/lib/utils";
 import { cm6FocusKeepsPlace } from "@/lib/cm6-focus-keeps-place";
@@ -185,7 +181,11 @@ import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTextCardEditorTheme } from "./tug-text-card-editor/theme";
 import { tugPaintedCaret } from "./tug-text-editor/caret-layer";
 import { emptyLineSelection } from "./tug-text-card-editor/empty-line-selection";
-import { createEditorFindEngine, type EditorFindEngine } from "./editor-find-engine";
+import {
+  createEditorFindEngine,
+  findViewObserver,
+  type EditorFindEngine,
+} from "./editor-find-engine";
 
 // ---------------------------------------------------------------------------
 // Compartments and annotations
@@ -1198,6 +1198,9 @@ export const TugTextCardEditor = React.forwardRef<
           reportAttachmentFailure(name, message),
         ),
         search({ top: true }),
+        // Tells the find engine the document or its writability moved, so
+        // an open bar's count and replace row follow every edit.
+        findViewObserver,
         // Every user edit arms the autosave debounce. Store-driven
         // replacements (external-change reverts) carry the
         // `externalReplace` annotation and must NOT re-arm it.
@@ -1405,7 +1408,7 @@ export const TugTextCardEditor = React.forwardRef<
   // card before its bar mounts, so it cannot live with the bar.
   const findEngineRef = useRef<EditorFindEngine | null>(null);
   if (findEngineRef.current === null) {
-    findEngineRef.current = createEditorFindEngine(() => viewRef.current);
+    findEngineRef.current = createEditorFindEngine(() => viewRef.current, "text");
   }
   const findEngine = findEngineRef.current;
   useLayoutEffect(() => () => findEngine.dispose(), [findEngine]);
@@ -1893,17 +1896,18 @@ export const TugTextCardEditor = React.forwardRef<
     onFindSelectionRequestedRef.current?.(query);
   }, [selectedQuery]);
 
+  // ⌘G / ⇧⌘G from the editor step through the shared engine, as a step from
+  // the bar does, so the landing ring, the anchor and the trace gesture are
+  // the same whichever field the caret is in. The count chip then re-reads.
   const handleFindNext = useCallback((): ActionHandlerResult => {
-    const live = viewRef.current;
-    if (live !== null) cmFindNext(live);
+    findEngine.findNext?.();
     onFindNavigatedRef.current?.();
-  }, []);
+  }, [findEngine]);
 
   const handleFindPrevious = useCallback((): ActionHandlerResult => {
-    const live = viewRef.current;
-    if (live !== null) cmFindPrevious(live);
+    findEngine.findPrevious?.();
     onFindNavigatedRef.current?.();
-  }, []);
+  }, [findEngine]);
 
   const actions: Partial<Record<TugAction, ActionHandler>> = {
     [TUG_ACTIONS.SELECT_ALL]: handleSelectAll,

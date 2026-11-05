@@ -51,7 +51,7 @@
  *
  * @covers tugdeck/src/components/tugways/cards/text-card-find-bar.tsx
  * @covers tugdeck/src/components/tugways/tug-text-card-editor.tsx
- * @covers tugdeck/src/components/tugways/tug-text-card-editor/find-reveal.ts
+ * @covers tugdeck/src/components/tugways/find-reveal.ts
  * @covers tugdeck/src/components/tugways/cards/text-card.tsx
  * @covers tugdeck/src/lib/find-session.ts
  * @covers tugdeck/src/lib/find-trace.ts

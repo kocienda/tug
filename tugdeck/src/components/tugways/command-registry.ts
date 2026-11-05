@@ -1810,6 +1810,43 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
     mirrored: true,
   },
+  {
+    // ⌥⌘G: R1's ⌥ variant of ⌘G Find Next — the same step through the
+    // matches, replacing the one it leaves. No CodeMirror keymap Tug installs
+    // binds `Mod-Alt-g` (only `searchKeymap` does, as go-to-line, and no
+    // editor here installs it), so the chord reaches the chain from inside
+    // an editor.
+    //
+    // No predicate, like its siblings: the chain walk asks the focused
+    // surface. Only a surface that can open a replace-capable bar registers
+    // the handler, and it validates true while that bar is open with its
+    // replace row — the bar republishes the menu state when the row comes
+    // and goes. A press with nothing to replace still arrives, and is
+    // refused on the bar's count chip rather than gated away.
+    id: TUG_ACTIONS.FIND_REPLACE_NEXT,
+    title: "Replace",
+    routing: "first-responder",
+    menuItemId: "edit.replaceNext",
+    bindings: [
+      chord({ key: "KeyG", meta: true, alt: true, label: "g" }, { preventDefault: true }),
+    ],
+    mirrored: true,
+  },
+  {
+    // ⌥⇧⌘G: ⌥⌘G widened to every match — ⇧ in the "reverse, widen, or
+    // undo" reading chord-tiers.md gives it. Same gate.
+    id: TUG_ACTIONS.FIND_REPLACE_ALL,
+    title: "Replace All",
+    routing: "first-responder",
+    menuItemId: "edit.replaceAll",
+    bindings: [
+      chord(
+        { key: "KeyG", meta: true, alt: true, shift: true, label: "g" },
+        { preventDefault: true },
+      ),
+    ],
+    mirrored: true,
+  },
 
   // ---- Session ----
   {

@@ -365,6 +365,65 @@ describe("FindSession replace", () => {
     expect(replaced).toEqual([]);
   });
 
+  test("a replace with nothing to replace is refused, and the refusal shows", () => {
+    const { engine, replaced } = replaceEngine(0);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    // No query yet: refused.
+    session.replaceNext();
+    expect(session.getSnapshot().refused).toBe(true);
+    expect(session.getSnapshot().refusalSeq).toBe(1);
+    // A query with no match: refused again, and the counter moves so the
+    // mark plays a second time.
+    session.setQuery("q");
+    expect(session.getSnapshot().refused).toBe(false);
+    session.replaceAll();
+    expect(session.getSnapshot().refused).toBe(true);
+    expect(session.getSnapshot().refusalSeq).toBe(2);
+    session.replaceAll();
+    expect(session.getSnapshot().refusalSeq).toBe(3);
+    expect(replaced).toEqual([]);
+  });
+
+  test("a gesture clears the refusal; a re-read clears it only once a match exists", () => {
+    let count = 0;
+    const engine: FindEngineDelegate = {
+      matchInfo: (): FindMatchInfo => ({ count, activeOrdinal: count > 0 ? 0 : null, capped: false }),
+      replaceNext: () => {},
+      replaceAll: () => {},
+    };
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.replaceNext();
+    expect(session.getSnapshot().refused).toBe(true);
+
+    // A background re-read with still nothing to replace keeps the mark.
+    session.refresh();
+    expect(session.getSnapshot().refused).toBe(true);
+    // A document edit that gives the query a match clears it.
+    count = 1;
+    session.refresh();
+    expect(session.getSnapshot().refused).toBe(false);
+
+    // And any find gesture clears it outright.
+    count = 0;
+    session.replaceNext();
+    expect(session.getSnapshot().refused).toBe(true);
+    session.next();
+    expect(session.getSnapshot().refused).toBe(false);
+  });
+
+  test("a replace that acts is not a refusal", () => {
+    const { engine } = replaceEngine(2);
+    const session = new FindSession();
+    session.setDelegate(engine);
+    session.setQuery("q");
+    session.replaceNext();
+    expect(session.getSnapshot().refused).toBe(false);
+    expect(session.getSnapshot().refusalSeq).toBe(0);
+  });
+
   test("replacing a middle match does not read as a wrap", () => {
     const { engine } = replaceEngine(3);
     const session = new FindSession();

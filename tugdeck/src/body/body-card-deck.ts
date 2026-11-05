@@ -69,6 +69,7 @@ import type { SpaceLayerShownSource } from "../components/chrome/space-layer";
 import { defaultSidebarSide } from "../lib/layout-imposer";
 import { applyBagFocus } from "../focus-transfer";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
+import { flushFindReplacementSync } from "../settings-api";
 import { arrangementSnapshot } from "../lib/body-arrangement";
 
 /** How long a body waits for the shell to say which live sessions it interrupted ([L33]). */
@@ -383,8 +384,13 @@ export class BodyCardDeck implements CardDeck {
   /**
    * Capture the card, flush its bag, and wait for the write — the body's
    * half of a quit, a reload or a teardown. Resolves whether it landed.
+   *
+   * A find replacement still inside its write debounce goes first: the find
+   * bars of the Text card and the composers live in a body, so their
+   * remembered replacement is this page's to write before it goes. [L23]
    */
   async saveNow(options?: { sync?: boolean }): Promise<boolean> {
+    flushFindReplacementSync();
     // The card's save callback captures through the orchestrator and stores
     // the bag; a card with none registered has nothing newer to say.
     this.invokeSaveCallback(this.cardId, "manual");

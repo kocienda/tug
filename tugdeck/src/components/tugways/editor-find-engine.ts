@@ -20,9 +20,10 @@
  *    horizontal settle that favours zero horizontal scroll;
  *  - **the trace** — one `gesture` event per find gesture (`find-trace.ts`).
  *
- * Replace rides CodeMirror's own commands. `replaceNext` replaces the
- * selected match only when the selection is exactly that match, and
- * otherwise just selects the next one; `replaceAll` is one transaction.
+ * Replace rides CodeMirror's own commands. CodeMirror's `replaceNext`
+ * replaces the selection only when it is exactly a match, and otherwise just
+ * selects the next one, so the engine selects the next match first when none
+ * is selected and a press always replaces; `replaceAll` is one transaction.
  * Both carry CodeMirror's `input.replace` user events, so a host's store sees
  * ordinary edits and one ⌘Z undoes one replace gesture. Both refuse a
  * read-only state, and `isWritable` reports that state so the bar can hide
@@ -32,16 +33,25 @@
  * the engine opens the bundled panel, which the host keeps hidden, because
  * that panel's state field is what the match highlighter paints from.
  *
+ * Beside it the view installs {@link findViewObserver}, which is how the
+ * engine learns that the editor it searches moved: every document change and
+ * every change to `EditorState.readOnly` is reported, and an engine whose
+ * session is attached re-reads its count and its writability on the next
+ * frame. Nobody pushes writability in from outside; the view's own state is
+ * the one truth, and a new host gets it without listing its read-only causes.
+ *
  * Laws: [L06] appearance through CM6 decorations and the DOM ring, never React
  * state; [L07] the view is read through its getter at the moment each
  * operation runs, so a remounted editor is never searched through a stale
- * closure.
+ * closure; [L27] the observation is a registration that returns its release,
+ * released when the session detaches and when the engine is disposed; [L28]
+ * writability is read from the view, never re-derived beside it.
  *
  * @module components/tugways/editor-find-engine
  */
 
-import { EditorSelection } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorSelection, type Extension } from "@codemirror/state";
+import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import {
   SearchQuery,
   setSearchQuery,
@@ -62,7 +72,8 @@ import {
   type FindGestureSnapshot,
 } from "@/lib/find-trace";
 import { placeFindFlash, type FindFlashHandle } from "./find-flash";
-import { findRevealFor } from "./tug-text-card-editor/find-reveal";
+import { findRevealFor } from "./find-reveal";
+import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 
 /**
  * Enumeration cap for `matchInfo` — mirrors the transcript engine's
@@ -72,6 +83,99 @@ import { findRevealFor } from "./tug-text-card-editor/find-reveal";
 export const EDITOR_MATCH_INFO_CAP = 5000;
 
 const NO_MATCHES: FindMatchInfo = { count: 0, activeOrdinal: null, capped: false };
+
+/**
+ * The search text a `SearchQuery` is built from, for what the user typed.
+ *
+ * CodeMirror's query is not `literal`, so it unquotes `\n`, `\r`, `\t` and
+ * `\\` in the search text — and it unquotes the replacement under the same
+ * flag, which is how a literal-mode replacement expands `\n`. Turning
+ * `literal` on would make the query literal and kill the replacement's
+ * escapes with it. So in literal mode the query's backslashes are doubled
+ * here instead, and the unquote hands the user's text back unchanged: `\n`
+ * means the two characters on every surface, as it already does in the
+ * transcript and Help. A grep pattern is a regular expression and passes
+ * through untouched.
+ */
+export function editorSearchText(query: string, grep: boolean): string {
+  return grep ? query : query.replace(/\\/g, "\\\\");
+}
+
+// ── The view observer ──────────────────────────────────────────────────────
+
+/** One engine's interest in the views that report. */
+type FindViewListener = (view: object) => void;
+
+const findViewListeners = new Set<FindViewListener>();
+
+/**
+ * Say that `view`'s document or writability moved. The observer extension is
+ * the only caller in the product; every engine's listener hears it and keeps
+ * it only when the view is the one that engine searches.
+ */
+export function reportFindViewChange(view: object): void {
+  for (const listener of [...findViewListeners]) listener(view);
+}
+
+/**
+ * The extension every searchable editor installs beside `search()`. A view
+ * that is constructed reports too: a remounted editor is a new view behind
+ * the same getter, and the engine searching through it owes a re-read.
+ */
+export const findViewObserver: Extension = ViewPlugin.define((view) => {
+  reportFindViewChange(view);
+  return {
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.state.readOnly !== update.startState.readOnly) {
+        reportFindViewChange(update.view);
+      }
+    },
+  };
+});
+
+/** Run `fn` once, later; returns the release that cancels it. */
+export type FindChangeScheduler = (fn: () => void) => CancelAfterPaint;
+
+/**
+ * Watch the view `getView` resolves to, and call `onChange` at most once per
+ * frame however many changes it reports. The view is resolved when the frame
+ * runs rather than when the report arrives, so a report from a view still
+ * being constructed — before its host's ref points at it — is not lost.
+ * Returns the release; after it nothing further is called.
+ */
+export function observeFindView(
+  getView: () => object | null,
+  onChange: () => void,
+  schedule: FindChangeScheduler = scheduleAfterPaint,
+): () => void {
+  const reported = new Set<object>();
+  let pending = false;
+  let cancel: CancelAfterPaint | null = null;
+  const run = (): void => {
+    pending = false;
+    cancel = null;
+    const current = getView();
+    const hit = current !== null && reported.has(current);
+    reported.clear();
+    if (hit) onChange();
+  };
+  const listener: FindViewListener = (view) => {
+    reported.add(view);
+    if (pending) return;
+    pending = true;
+    // A scheduler with no frame to wait for runs `run` before it returns.
+    const release = schedule(run);
+    if (pending) cancel = release;
+  };
+  findViewListeners.add(listener);
+  return () => {
+    findViewListeners.delete(listener);
+    cancel?.();
+    cancel = null;
+    pending = false;
+    reported.clear();
+  };
+}
 
 /** The shared engine, plus the two things only its host can call. */
 export interface EditorFindEngine extends FindEngineDelegate {
@@ -90,12 +194,18 @@ export interface EditorFindEngine extends FindEngineDelegate {
   dispose(): void;
 }
 
+/** Which editable surface an engine searches, as its trace records it. */
+export type EditorFindSurface = "text" | "composer";
+
 /**
  * Build the engine over `getView`. One engine per editor: the anchor it keeps
  * outlives any one bar, because the host captures it before the bar mounts.
+ * `surface` names the editor in the trace, so a composer's search never reads
+ * as a Text card's.
  */
 export function createEditorFindEngine(
   getView: () => EditorView | null,
+  surface: EditorFindSurface,
 ): EditorFindEngine {
   /**
    * Where the reader is, for the landing rule. `null` until find opens — and
@@ -104,6 +214,12 @@ export function createEditorFindEngine(
    */
   let anchor: number | null = null;
   let flash: FindFlashHandle | null = null;
+  // The attached session's observation of the view, while one is attached.
+  let releaseObserver: (() => void) | null = null;
+  const stopObserving = (): void => {
+    releaseObserver?.();
+    releaseObserver = null;
+  };
 
   const removeFlash = (): void => {
     flash?.remove();
@@ -296,7 +412,7 @@ export function createEditorFindEngine(
     navSeq += 1;
     findTrace.record({
       kind: "gesture",
-      surface: "text",
+      surface,
       cardId: null,
       gesture: inferFindGesture(prev, snap),
       navSeq,
@@ -317,11 +433,17 @@ export function createEditorFindEngine(
 
   // A step moves the selection to the next match, and stepping IS the reader
   // moving: the next query edit starts from the match they stepped to, not
-  // from where find opened.
+  // from where find opened. With no live query, as when ⌘G reaches the
+  // editor with its bar closed, there is nothing to step to and the command
+  // is never run: CodeMirror's answer to an invalid query is to open its
+  // search panel seeded from the selection, which would paint matches under
+  // no visible bar. A command that found no match moves nothing either, so
+  // neither draws a ring on whatever the user had selected.
   const step = (command: (view: EditorView) => boolean): void => {
     const live = getView();
     if (live === null) return;
-    command(live);
+    if (!getSearchQuery(live.state).valid) return;
+    if (!command(live)) return;
     anchor = live.state.selection.main.from;
     settleNavigation();
   };
@@ -330,7 +452,8 @@ export function createEditorFindEngine(
   // `replace` is read only by the replace commands, so the field is written
   // at the moment of a replace rather than mirrored on every keystroke. The
   // spec is not `literal`, so a literal-mode replacement unquotes `\n`, `\t`
-  // and `\\`, and a grep-mode one expands `$1`…`$9` and `$&`.
+  // and `\\`, and a grep-mode one expands `$1`…`$9` and `$&`. The search
+  // text is the live query's own, already escaped by `editorSearchText`.
   const withReplacement = (live: EditorView, replacement: string): boolean => {
     const query = getSearchQuery(live.state);
     if (!query.valid) return false;
@@ -351,6 +474,11 @@ export function createEditorFindEngine(
   };
 
   return {
+    didAttach: (session) => {
+      stopObserving();
+      releaseObserver = observeFindView(getView, () => session.refresh());
+    },
+    didDetach: stopObserving,
     searchDidChange: (query, opts) => {
       const live = getView();
       if (live === null) return;
@@ -363,7 +491,7 @@ export function createEditorFindEngine(
       live.dispatch({
         effects: setSearchQuery.of(
           new SearchQuery({
-            search: query,
+            search: editorSearchText(query, opts.grep),
             caseSensitive: opts.caseSensitive,
             regexp: opts.grep,
             wholeWord: opts.wholeWord,
@@ -386,7 +514,16 @@ export function createEditorFindEngine(
       const live = getView();
       if (live === null || live.state.readOnly) return;
       if (!withReplacement(live, replacement)) return;
-      step((view) => cmReplaceNext(view));
+      // CodeMirror's replace only replaces a selection that is exactly a
+      // match, and otherwise just selects the next one. The caret leaves the
+      // match whenever the user clicks into the text — the case ⌥⌘G is for —
+      // so a press there would select without replacing. A Replace press
+      // always replaces: with no match selected, the next one is selected
+      // first, and that is the one replaced.
+      step((view) => {
+        if (matchInfo().activeOrdinal === null) cmFindNext(view);
+        return cmReplaceNext(view);
+      });
     },
     replaceAll: (replacement) => {
       const live = getView();
@@ -435,6 +572,9 @@ export function createEditorFindEngine(
       const pos = live.posAtCoords({ x: content.left + 1, y: port.top + 1 }, false);
       anchor = live.moveToLineBoundary(EditorSelection.cursor(pos), false, true).head;
     },
-    dispose: removeFlash,
+    dispose: () => {
+      removeFlash();
+      stopObserving();
+    },
   };
 }

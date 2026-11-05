@@ -916,6 +916,19 @@ export const TUG_ACTIONS = {
   //                         surface with nothing to replace into does not
   //                         register it, so the menu item disables there.
   //                         Dispatched by ⌥⌘F.
+  // FIND_REPLACE_NEXT:      payload — none. Replace the active match of an
+  //                         open replace-capable find bar with its
+  //                         replacement and step to the next match.
+  //                         Answered by the bar's responder with the caret
+  //                         in the bar, and by the host that owns the bar
+  //                         otherwise; registered only where such a bar can
+  //                         open and validated true only while it is open
+  //                         with its replace row. With nothing to replace
+  //                         the press is refused on the bar's count chip.
+  //                         Dispatched by ⌥⌘G.
+  // FIND_REPLACE_ALL:       payload — none. FIND_REPLACE_NEXT widened to
+  //                         every match, as one undoable edit. Same
+  //                         responders and gate. Dispatched by ⌥⇧⌘G.
   // SAVE:                   payload — none. Flush the first responder's
   //                         pending edits to disk now. Under the live
   //                         autosave model there is no dirty state —
@@ -1219,6 +1232,8 @@ export const TUG_ACTIONS = {
   FIND_PREVIOUS:          "find-previous",
   FIND_SELECTION:         "find-selection",
   FIND_REPLACE:           "find-replace",
+  FIND_REPLACE_NEXT:      "find-replace-next",
+  FIND_REPLACE_ALL:       "find-replace-all",
   SAVE:                   "save",
   SAVE_AS:                "save-as",
   SAVE_A_COPY:            "save-a-copy",

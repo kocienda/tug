@@ -1125,6 +1125,15 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         setReplaceShown(true);
         openFindBar();
       },
+      // ⌥⌘G / ⌥⇧⌘G with the caret in the editor. The bar answers them
+      // itself with the caret inside it; this card owns the bar, so it
+      // answers the rest. Gated below on the bar's replace row.
+      [TUG_ACTIONS.FIND_REPLACE_NEXT]: () => {
+        findBarRef.current?.replaceNext();
+      },
+      [TUG_ACTIONS.FIND_REPLACE_ALL]: () => {
+        findBarRef.current?.replaceAll();
+      },
       // ⌥⇥ toggles keyboard-focus-cycling ([P09]/[P10]). Registered on the
       // card-content responder for the same reason the Session card does it
       // there: key-card dispatch starts at this node wherever focus sits, so
@@ -1161,6 +1170,12 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // the user never chose.
       if (action === TUG_ACTIONS.REVEAL_CARD_FILE) return isBoundFile;
       if (action === TUG_ACTIONS.FIND_REPLACE) return !snapshot.readOnly;
+      if (
+        action === TUG_ACTIONS.FIND_REPLACE_NEXT ||
+        action === TUG_ACTIONS.FIND_REPLACE_ALL
+      ) {
+        return findBarRef.current?.replaceShown() ?? false;
+      }
       return true;
     },
   });
@@ -1384,7 +1399,6 @@ export function TextCardContent({ cardId }: { cardId: string }) {
               focusGroup={TEXT_CARD_CYCLE_GROUP}
               focusOrderBase={TEXT_CARD_CYCLE_ORDER_FIND_BASE}
               replace={replaceShown}
-              readOnly={snapshot.readOnly}
             />
           </cycle.CycleScope>
         ) : null}
