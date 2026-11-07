@@ -100,6 +100,15 @@ describe.skipIf(!SHOULD_RUN)("at0784 — the Overview's ⋯ menu clears the colu
         );
         await overview.nativeClickAtElement(CONFIRM_CLEAR);
         await overview.waitForCondition<boolean>(`${POST_TEXTS}.length === 0`, { timeoutMs: 5_000 });
+        // The empty column says what every rail says: `None`, centred.
+        const empty = await overview.evalJS<{ text: string; justify: string } | null>(
+          `(function(){
+            var el = document.querySelector(${JSON.stringify(`${CARD} .overview-empty`)});
+            if (el === null) return null;
+            return { text: (el.textContent || "").trim(), justify: getComputedStyle(el).justifyContent };
+          })()`,
+        );
+        expect(empty).toEqual({ text: "None", justify: "center" });
 
         // ---- a post written after the clear shows ----
         expect(await overview.evalJS<boolean>(`window.__tug.publishOverviewPost(${postJson(9203, "After the clear.")})`)).toBe(true);

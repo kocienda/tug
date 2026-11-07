@@ -1654,7 +1654,7 @@ export function OverviewContent({
           >
             {posts.length === 0 ? (
               <div className="overview-empty" role="status">
-                {status === "ready" ? "Nothing reported yet." : "Loading…"}
+                {status === "ready" ? "None" : "Loading…"}
               </div>
             ) : (
               renderColumn(renderPost)

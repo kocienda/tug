@@ -393,9 +393,14 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .overview-empty {
-  padding: var(--tug-space-sm);
-  /* The empty state is read at the same size as a post. */
-  font-size: 13px;
+  /* Every rail's empty state, in one voice: `None`, centred in a short row —
+     `.jots-empty` and `.cards-empty` are the same rule. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 28px;
+  padding-inline: 10px;
+  font-size: 12px;
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
