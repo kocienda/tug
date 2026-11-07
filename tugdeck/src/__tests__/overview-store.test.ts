@@ -22,6 +22,10 @@
  *   - [L26] a post keys by its request id, so the pending row and the answer
  *     that resolves it are the same row.
  *   - [L27] `dispose()` releases the frame registration and the pending timer.
+ *   - Clear: `clearView` marks the newest post held; the card's
+ *     `visibleOverviewPosts` shows only what lands after it, the store keeps
+ *     every post (the mastheads read them), the mark persists through
+ *     tugbank, and a column that reaches the mark asks for no older page.
  */
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -29,10 +33,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   DEFAULT_OVERVIEW_CARD_ROWS,
   OVERVIEW_CARD_ROWS_KEY,
+  OVERVIEW_CLEARED_KEY,
   OVERVIEW_DOMAIN,
   OVERVIEW_MAX_ROWS,
   OverviewStore,
   publishListOverviewPostsOk,
+  visibleOverviewPosts,
 } from "@/lib/overview-store";
 import { setTugbankClient } from "@/lib/tugbank-singleton";
 import type { TugbankClient } from "@/lib/tugbank-client";
@@ -724,6 +730,96 @@ describe("OverviewStore", () => {
     const before = requests(conn).length;
     store.loadOlder();
     expect(requests(conn).length).toBe(before);
+  });
+});
+
+describe("OverviewStore clear", () => {
+  function ready(ids: number[], hasMore = false): { store: OverviewStore; conn: FakeConnection } {
+    const made = makeStore();
+    stores.push(made.store);
+    made.store.getSnapshot();
+    publishListOverviewPostsOk({
+      posts: ids.map((id) => post(id, `post ${id}`)) as unknown as OverviewPostWire[],
+      has_more: hasMore,
+    });
+    return made;
+  }
+  const shown = (store: OverviewStore): string[] => {
+    const snap = store.getSnapshot();
+    return visibleOverviewPosts(snap.posts, snap.clearedThrough).map((p) => p.body);
+  };
+
+  it("an uncleared column shows every post, as the same array", () => {
+    const { store } = ready([1, 2]);
+    const snap = store.getSnapshot();
+    expect(snap.clearedThrough).toBeNull();
+    expect(visibleOverviewPosts(snap.posts, snap.clearedThrough)).toBe(snap.posts);
+  });
+
+  it("clearing hides everything held and shows only what lands after", () => {
+    const { store, conn } = ready([1, 2, 3]);
+    store.clearView();
+    expect(store.getSnapshot().clearedThrough?.id).toBe(3);
+    expect(shown(store)).toEqual([]);
+    // The store keeps the cleared posts: a Session card's masthead reads them.
+    expect(store.getSnapshot().posts.length).toBe(3);
+    conn.pushOverviewFrame(post(4, "post 4"));
+    expect(shown(store)).toEqual(["post 4"]);
+  });
+
+  it("a transient post from before the clear is cleared too", () => {
+    const { store, conn } = ready([1]);
+    conn.pushOverviewFrame({
+      at_ms: Date.now() - 1_000,
+      author: "operator",
+      body: "dropped",
+      refs: [],
+      transient: true,
+    });
+    store.clearView();
+    expect(shown(store)).toEqual([]);
+  });
+
+  it("does nothing before the tail has landed", () => {
+    const { store, conn } = makeStore();
+    stores.push(store);
+    store.getSnapshot();
+    conn.pushOverviewFrame(post(9, "live before the tail"));
+    store.clearView();
+    expect(store.getSnapshot().clearedThrough).toBeNull();
+  });
+
+  it("a column that reaches the mark asks for no older page", () => {
+    const { store, conn } = ready([5, 6], true);
+    expect(store.getSnapshot().hasMore).toBe(true);
+    store.clearView();
+    expect(store.getSnapshot().hasMore).toBe(false);
+    const before = conn.frames.length;
+    store.loadOlder();
+    expect(conn.frames.length).toBe(before);
+  });
+
+  it("the mark is written to tugbank and read back from it", () => {
+    const stored = new Map<string, unknown>();
+    setTugbankClient({
+      get: (domain: string, key: string) =>
+        domain === OVERVIEW_DOMAIN && stored.has(key) ? { value: stored.get(key) } : undefined,
+      put: (domain: string, key: string, value: { value: unknown }) => {
+        if (domain === OVERVIEW_DOMAIN) stored.set(key, value.value);
+      },
+      readDomain: () => undefined,
+      onDomainChanged: () => () => {},
+    } as unknown as TugbankClient);
+    try {
+      const first = ready([1, 2]);
+      first.store.clearView();
+      expect(stored.get(OVERVIEW_CLEARED_KEY)).toMatchObject({ id: 2 });
+      // A relaunch: a fresh store over the same tugbank stays cleared.
+      const second = ready([1, 2, 3]);
+      expect(shown(second.store)).toEqual(["post 3"]);
+    } finally {
+      setTugbankClient(null);
+    }
   });
 });
 

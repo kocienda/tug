@@ -205,9 +205,11 @@ import {
 import {
   getOverviewStore,
   useOverview,
+  visibleOverviewPosts,
   LOAD_OLDER_PX,
   type OverviewPostEntry,
 } from "@/lib/overview-store";
+import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
 import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
@@ -1075,7 +1077,25 @@ const PINNED_HEADER_EPSILON_PX = 1;
 export function OverviewContent({
   cardId,
 }: OverviewContentProps): React.ReactElement {
-  const { posts, status, pendingRequestId } = useOverview();
+  const { posts: heldPosts, status, pendingRequestId, clearedThrough } = useOverview();
+  // The column shows what was written since the reader last cleared it. The
+  // store keeps the rest, because a Session card's masthead still reads it.
+  const posts = useMemo(
+    () => visibleOverviewPosts(heldPosts, clearedThrough),
+    [heldPosts, clearedThrough],
+  );
+  // The rail's `⋯` menu: Clear, behind a confirm popover the title bar raises
+  // ([L25] — the chrome renders it; this card only says it belongs there).
+  useLayoutEffect(() => {
+    paneTitleBarItemsStore.set(cardId, [
+      {
+        commandId: TUG_ACTIONS.CLEAR_OVERVIEW,
+        placement: "menu",
+        confirm: { message: "Clear the Overview?", confirmLabel: "Clear" },
+      },
+    ]);
+    return () => paneTitleBarItemsStore.set(cardId, null);
+  }, [cardId]);
   // The Overview carries no content marker. It is a stream — its rendered
   // height is a function of the height it is given — so there is no finished
   // height on it to read, and Resize Sidebars to Fit stands it at a fraction
@@ -1598,6 +1618,11 @@ export function OverviewContent({
       },
       [TUG_ACTIONS.NEXT_TURN]: () => {
         pageByPost("down");
+      },
+      // The `⋯` menu's Clear, after its confirm popover. The title bar
+      // sends it here, to this card's content, in this card's own page.
+      [TUG_ACTIONS.CLEAR_OVERVIEW]: () => {
+        getOverviewStore()?.clearView();
       },
     },
   });

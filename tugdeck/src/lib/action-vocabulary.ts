@@ -845,6 +845,14 @@ export const TUG_ACTIONS = {
   //                         above.
   // TOGGLE_OVERVIEW:         payload — none. Show/hide the Overview rail. As
   //                         above.
+  // CLEAR_OVERVIEW:         payload — none. Empty the Overview's column: the
+  //                         card forgets every post up to now, as a
+  //                         terminal's Clear does. The ledger keeps every
+  //                         post, so the Operator's history and search are
+  //                         untouched; the mark persists in tugbank, so a
+  //                         relaunch stays cleared. Dispatched by the
+  //                         Overview's `⋯` menu after its confirm popover;
+  //                         handled by the Overview's card-content responder.
   // TOGGLE_RAIL:            payload — `value: "left" | "right"`. ⌃⌘← / ⌃⌘→.
   //                         Show/hide a whole SIDE of the deck, three-state:
   //                         hidden → show it and focus its frontmost member;
@@ -1103,6 +1111,7 @@ export const TUG_ACTIONS = {
   TOGGLE_CARDS:           "toggle-cards",
   TOGGLE_LAYOUT:          "toggle-layout",
   TOGGLE_OVERVIEW:         "toggle-overview",
+  CLEAR_OVERVIEW:         "clear-overview",
   TOGGLE_RAIL:            "toggle-rail",
   NEW_JOT:                "new-jot",
   EDIT_JOT:               "edit-jot",

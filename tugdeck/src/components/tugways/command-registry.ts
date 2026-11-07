@@ -1527,6 +1527,16 @@ export const COMMANDS: readonly CommandEntry[] = [
     routing: "key-card",
     paneChrome: true,
   },
+  // A row in the Overview's `⋯` menu, run once its confirm popover is
+  // accepted. KEY-CARD routed for the reason the two verbs above are: the
+  // title bar sends it to the Overview's own card-content responder, in the
+  // card's own page, whose chain is also what answers its enablement.
+  {
+    id: TUG_ACTIONS.CLEAR_OVERVIEW,
+    title: "Clear",
+    routing: "key-card",
+    paneChrome: true,
+  },
 
   // ---- Edit ----
   //

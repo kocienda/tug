@@ -135,21 +135,123 @@ function TitleBarItemButton({
           disabled={!enabled}
           aria-label={label}
           data-testid={`tug-pane-title-bar-item-${item.commandId}`}
-          onClick={() => {
-            // A body card's item goes to that card's content, in its own
-            // page: the key card the dispatch would walk from is the deck's
-            // first responder, which a press on this pane's bar has not
-            // moved yet.
-            const action = entry === undefined ? null : commandAction(entry);
-            if (activeCardId !== null && action !== null && bodyCardsStore.has(activeCardId)) {
-              sendToCardContent(activeCardId, action);
-              return;
-            }
-            dispatchCommand(item.commandId);
-          }}
+          onClick={() => invokeTitleBarItem(item, activeCardId)}
         />
       </span>
     </TugTooltip>
+  );
+}
+
+/**
+ * Run a title-bar item's command. A body card's item goes to that card's
+ * content, in its own page: the key card the dispatch would walk from is the
+ * deck's first responder, which a press on this pane's bar has not moved yet.
+ */
+function invokeTitleBarItem(item: PaneTitleBarItem, activeCardId: string | null): void {
+  const entry = commandEntry(item.commandId);
+  const action = entry === undefined ? null : commandAction(entry);
+  if (activeCardId !== null && action !== null && bodyCardsStore.has(activeCardId)) {
+    sendToCardContent(activeCardId, action);
+    return;
+  }
+  dispatchCommand(item.commandId);
+}
+
+/**
+ * The bar's `⋯` menu: the active card's `placement: "menu"` items as rows,
+ * standing at rest beside the place badge. A row whose item names a `confirm`
+ * raises a confirm popover off the `⋯` and dispatches only on Confirm.
+ *
+ * Rows ask the registry for their titles and enablement, as the rollup's
+ * buttons do, so a row and the same command anywhere else cannot disagree.
+ */
+function CardVerbMenu({
+  items,
+  activeCardId,
+  disabled,
+}: {
+  items: readonly PaneTitleBarItem[];
+  activeCardId: string | null;
+  disabled: boolean;
+}): React.ReactElement {
+  const chain = useResponderChain();
+  const [subscribe, getSnapshot] = useMemo(
+    () =>
+      chain !== null
+        ? ([chain.subscribe.bind(chain), chain.getValidationVersion.bind(chain)] as const)
+        : ([NOOP_SUBSCRIBE, NOOP_SNAPSHOT] as const),
+    [chain],
+  );
+  useSyncExternalStore(subscribe, getSnapshot);
+  const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
+  const [armed, setArmed] = useState<PaneTitleBarItem | null>(null);
+  const rows = items.map((item) => {
+    const entry = commandEntry(item.commandId);
+    return {
+      id: item.commandId,
+      label: entry?.title ?? item.commandId,
+      disabled: !(
+        item.enabled ?? (entry !== undefined && validateCommand(entry, commandValidationSource()))
+      ),
+    };
+  });
+  const onSelect = (id: string): void => {
+    const item = items.find((candidate) => candidate.commandId === id);
+    if (item === undefined) return;
+    if (item.confirm !== undefined) {
+      setArmed(item);
+      return;
+    }
+    invokeTitleBarItem(item, activeCardId);
+  };
+  return (
+    <>
+      <TugTooltip content="More">
+        <span className="tug-pane-title-bar-tooltip-anchor">
+          <TugPopupMenu
+            trigger={
+              <TugButton
+                ref={setAnchorEl}
+                subtype="icon"
+                emphasis="ghost"
+                role="action"
+                size="sm"
+                icon={<MoreHorizontal />}
+                aria-label="More"
+                disabled={disabled}
+                data-testid="tug-pane-title-bar-verb-menu-button"
+              />
+            }
+            align="end"
+            items={rows}
+            onSelect={onSelect}
+            data-testid="tug-pane-title-bar-verb-menu"
+          />
+        </span>
+      </TugTooltip>
+      <TugConfirmPopover
+        open={armed !== null}
+        anchorEl={anchorEl}
+        message={armed?.confirm?.message ?? ""}
+        confirmLabel={armed?.confirm?.confirmLabel ?? "OK"}
+        // Default focus on Cancel, so a reflexive Return clears nothing.
+        confirmRole="danger"
+        cancelLabel="Cancel"
+        side="bottom"
+        align="end"
+        arrow
+        sideOffset={6}
+        collisionBoundary={anchorEl?.closest(".tug-pane-chrome") ?? null}
+        sticky="always"
+        collisionPadding={8}
+        onConfirm={() => {
+          const item = armed;
+          setArmed(null);
+          if (item !== null) invokeTitleBarItem(item, activeCardId);
+        }}
+        onCancel={() => setArmed(null)}
+      />
+    </>
   );
 }
 
@@ -916,6 +1018,7 @@ function CardTitleBarBody({
   const titleBarButtonItems = useMemo(
     () =>
       (titleBarItems ?? [])
+        .filter((item) => item.placement !== "menu")
         .map((item, index) => ({ item, index }))
         .sort(
           (a, b) =>
@@ -925,6 +1028,11 @@ function CardTitleBarBody({
             a.index - b.index,
         )
         .map((entry) => entry.item),
+    [titleBarItems],
+  );
+  // The items worn as rows of the `⋯` menu beside the place badge.
+  const titleBarMenuItems = useMemo(
+    () => (titleBarItems ?? []).filter((item) => item.placement === "menu"),
     [titleBarItems],
   );
 
@@ -1874,6 +1982,16 @@ function CardTitleBarBody({
             Return-home ([B06], [B07]). See `card-fold-glyph.tsx`. */}
         {cardFold && folded && activeCardId !== undefined && activeCardId !== null && (
           <CardFoldGlyph cardId={activeCardId} />
+        )}
+        {/* The card's `⋯` menu, at rest beside the place badge — on a rail,
+            which has no rollup, the door to its occasional verbs (the
+            Overview's Clear). Nothing when the card publishes no menu rows. */}
+        {titleBarMenuItems.length > 0 && (
+          <CardVerbMenu
+            items={titleBarMenuItems}
+            activeCardId={activeCardId ?? null}
+            disabled={modalHeld}
+          />
         )}
         {/* THE PLACE PAIR, pinned against the trailing edge behind only the
             close box. Two controls that report where you are, reading

@@ -9,14 +9,14 @@
  * and nothing when there are none. `tug-pane.tsx` imports only this store —
  * never a card-specific module ([L10]/[L25]).
  *
- * An item is worn one way and only one: a ghost icon button standing in the
- * title bar's control cluster, one press with no menu to open first. A second
- * shape — a row in a shared `⋮` popup — stood here until it was cut. A card's
- * verb the reader has to open a menu to see, inside a row that is itself
- * revealed on hover, was two gestures deep before it was a verb, and the one
- * family that ever used it (the transcript's turn verbs) has its chords and
- * its own rows in the Go menu. A card that wants a verb on its title bar
- * gives it a glyph.
+ * An item is worn one of two ways. By default it is a ghost icon button in the
+ * title bar's rollup, one press with no menu to open first — the shape a verb
+ * the card offers every time it is open wants. A `placement: "menu"` item is
+ * a row in a `⋯` menu standing beside the place badge, outside the rollup, and
+ * is for a rail: a rail has no rollup, and its verbs are occasional ones that
+ * a confirm guards rather than a press a hand repeats (the Overview's Clear).
+ * An earlier `⋮` popup inside the rollup was cut because it put a verb two
+ * gestures deep behind a hover; this menu is visible at rest.
  *
  * The exact precedent is `card-title-store.ts`: a card publishes into a
  * per-card store, the pane subscribes and renders — no card coupling in
@@ -76,6 +76,14 @@ export interface PaneTitleBarItem {
    * Not a card's opinion: the body computes it with `validateCommand`.
    */
   enabled?: boolean;
+  /** Absent, a button in the rollup; `"menu"`, a row in the bar's `⋯` menu. */
+  placement?: "menu";
+  /**
+   * For a menu row whose command the reader should confirm: the chrome raises
+   * a confirm popover off the `⋯` with this copy, and dispatches the command
+   * only on Confirm.
+   */
+  confirm?: { message: string; confirmLabel: string };
 }
 
 class PaneTitleBarItemsStore extends Subscribable {

@@ -64,6 +64,14 @@ import { getTugbankClient } from "@/lib/tugbank-singleton";
 export const OVERVIEW_DOMAIN = "dev.tugapp.overview";
 export const OVERVIEW_CARD_ROWS_KEY = "card_rows";
 
+/**
+ * Tugbank key holding the Clear mark ({@link OverviewClearMark}): the column
+ * shows nothing at or before it. A view fact, not a ledger one — Clear never
+ * deletes a post, so the Operator's history and search are untouched — and in
+ * tugbank rather than in memory so a relaunch stays cleared.
+ */
+export const OVERVIEW_CLEARED_KEY = "cleared_through";
+
 /** Mirror of tugcast's tail length — the opening request when the knob is unset. */
 export const DEFAULT_OVERVIEW_CARD_ROWS = 50;
 
@@ -113,6 +121,38 @@ export interface OverviewPostEntry {
   transient: boolean;
 }
 
+/**
+ * Where the reader last cleared the column. `id` is the newest ledger rowid
+ * held at the time (null when nothing persisted was held), and `atMs` is when,
+ * for the transient posts that carry no rowid to compare.
+ */
+export interface OverviewClearMark {
+  id: number | null;
+  atMs: number;
+}
+
+/**
+ * The posts the column shows: every post newer than `mark`. The same array
+ * when there is no mark, so an uncleared column hands its memo nothing new.
+ *
+ * The store keeps the cleared posts. They are still the newest word about
+ * their sessions, which is what a Session card's masthead reads
+ * ({@link latestPostForSession}), and a clear in the Overview is not a reason
+ * for every masthead to go blank.
+ */
+export function visibleOverviewPosts(
+  posts: readonly OverviewPostEntry[],
+  mark: OverviewClearMark | null,
+): readonly OverviewPostEntry[] {
+  if (mark === null) return posts;
+  return posts.filter((p) => !isCleared(p, mark));
+}
+
+function isCleared(post: OverviewPostEntry, mark: OverviewClearMark): boolean {
+  if (post.id !== null) return mark.id !== null && post.id <= mark.id;
+  return post.atMs <= mark.atMs;
+}
+
 /** One session's per-turn current line, as the store holds it. */
 export interface SessionCurrentLineEntry {
   /** The line itself, already in the standing sentence's register. */
@@ -138,6 +178,9 @@ export interface OverviewSnapshot {
   /** Whether a page request is in flight; the card's guard against firing
    *  another on every scroll event while the first is out. */
   loadingOlder: boolean;
+  /** The reader's Clear mark, or null when the column has never been cleared.
+   *  The card shows {@link visibleOverviewPosts}; `posts` keeps everything. */
+  clearedThrough: OverviewClearMark | null;
   /**
    * The request id of a question awaiting its answer, or null. One at a time:
    * the composer is a single field and a second question while the first is
@@ -216,6 +259,7 @@ const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({
   hasMore: false,
   loadingOlder: false,
   pendingRequestId: null,
+  clearedThrough: null,
 });
 
 // ---------------------------------------------------------------------------
@@ -260,6 +304,12 @@ export class OverviewStore extends Subscribable {
   private pendingBefore: number | null = null;
   /** Whether the ledger reported history older than what is held. */
   private hasMore = false;
+  /**
+   * The last Clear mark read or written. The whole of it when there is no
+   * tugbank client (a fixture); otherwise only the identity cache for
+   * {@link readClearMark}, so the snapshot's mark is a stable object.
+   */
+  private localMark: OverviewClearMark | null = null;
   /**
    * The per-turn current line for each session that has one, newest write
    * wins ([B04]).
@@ -567,16 +617,68 @@ export class OverviewStore extends Subscribable {
           ? posts.slice(0, OVERVIEW_MAX_ROWS)
           : posts.slice(-OVERVIEW_MAX_ROWS)
         : posts;
+    const clearedThrough = this.readClearMark();
     this.snapshot = Object.freeze({
       status,
       posts: Object.freeze([...capped]) as readonly OverviewPostEntry[],
       cardRows: readCardRows(),
-      // A list at the ceiling stops asking, whatever the ledger still holds.
-      hasMore: this.hasMore && capped.length < OVERVIEW_MAX_ROWS,
+      // A list at the ceiling stops asking, whatever the ledger still holds;
+      // so does one whose oldest post already reaches the Clear mark, since
+      // every page older than it is history the column will not show.
+      hasMore:
+        this.hasMore &&
+        capped.length < OVERVIEW_MAX_ROWS &&
+        !reachesClearMark(capped, clearedThrough),
       loadingOlder: this.pendingBefore !== null,
+      clearedThrough,
       pendingRequestId,
     });
     this.notify();
+  }
+
+  /**
+   * Clear the column: everything held now stops showing, and only what is
+   * written after appears. The ledger is untouched — the Operator still
+   * searches every post — so this is a mark rather than a deletion.
+   *
+   * Not before the tail has landed: the mark is the newest rowid HELD, and
+   * until the tail arrives the store holds only whatever live posts beat it,
+   * which would leave the older history standing.
+   */
+  clearView(): void {
+    if (this.snapshot.status !== "ready") return;
+    let newest: number | null = null;
+    for (const post of this.snapshot.posts) {
+      if (post.id !== null && (newest === null || post.id > newest)) newest = post.id;
+    }
+    const mark: OverviewClearMark = { id: newest, atMs: Date.now() };
+    this.localMark = mark;
+    // The local cache first, so the commit below reads the new mark in this
+    // same frame; every other page hears the DEFAULTS frame.
+    getTugbankClient()?.put(
+      OVERVIEW_DOMAIN,
+      OVERVIEW_CLEARED_KEY,
+      { kind: "json", value: { id: mark.id, at_ms: mark.atMs } },
+      "overview-store",
+    );
+    this.commit(this.snapshot.posts, this.snapshot.status, this.snapshot.pendingRequestId);
+  }
+
+  /** The Clear mark: tugbank's when there is a client, else this store's own. */
+  private readClearMark(): OverviewClearMark | null {
+    const client = getTugbankClient();
+    if (!client) return this.localMark;
+    const value = client.get(OVERVIEW_DOMAIN, OVERVIEW_CLEARED_KEY)?.value;
+    if (typeof value !== "object" || value === null) return null;
+    const { id, at_ms: atMs } = value as { id?: unknown; at_ms?: unknown };
+    if (typeof atMs !== "number" || !Number.isFinite(atMs)) return null;
+    const markId = typeof id === "number" && Number.isFinite(id) ? id : null;
+    // Stable identity while the stored mark stands, so a commit that changed
+    // nothing else hands the card's filter memo the same object.
+    const held = this.localMark;
+    if (held !== null && held.id === markId && held.atMs === atMs) return held;
+    this.localMark = { id: markId, atMs };
+    return this.localMark;
   }
 
   /** `sessionId`'s current line as last written, or null. */
@@ -653,6 +755,20 @@ function mintRequestId(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   if (typeof uuid === "string") return uuid;
   return `gz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Whether `posts` already reach back to the Clear mark — the oldest held post
+ * is the first one after it, or older. Rowids rise as posts are written, so
+ * every page older than that is wholly cleared.
+ */
+function reachesClearMark(
+  posts: readonly OverviewPostEntry[],
+  mark: OverviewClearMark | null,
+): boolean {
+  if (mark === null || mark.id === null) return false;
+  const oldest = posts.find((p) => p.id !== null);
+  return oldest !== undefined && oldest.id !== null && oldest.id <= mark.id + 1;
 }
 
 /** The `card_rows` tugbank default; absent or nonsense reads as the mirror. */
