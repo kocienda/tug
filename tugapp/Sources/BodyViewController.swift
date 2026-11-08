@@ -367,6 +367,10 @@ final class BodyViewController {
         /// after the land.
         var crossingEdge: BodyBeats.EdgeStrip?
         var crossingTail: BodyCoverView?
+        /// The ground a centered split's page rides on: the scroller's own
+        /// background, where a page smaller than its box does not reach;
+        /// nil for every other crossing, and after the land.
+        var crossingGround: NSView?
         /// The last crossing's account, for the harness: its plan, its size,
         /// and how far ahead of the first beat the body was ready.
         var lastCrossing: CrossingAccount?
@@ -1941,7 +1945,7 @@ struct CrossingAccount: Equatable {
             "band": band.map {
                 .object(["restTop": .number($0.restTop), "height": .number($0.height), "reach": .number($0.reach)])
             } ?? .null,
-            "split": split.map { .object(["splitY": .number($0.splitY), "follows": .bool($0.follows)]) } ?? .null,
+            "split": split.map { .object(["splitY": .number($0.splitY), "follows": .bool($0.follows), "centerY": $0.centerY.map(JSONValue.number) ?? .null]) } ?? .null,
         ]
         if let surface { fields["surface"] = .array(surface.map(JSONValue.number)) }
         if restored { fields["restored"] = .bool(true) }

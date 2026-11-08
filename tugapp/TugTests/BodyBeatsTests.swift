@@ -217,6 +217,58 @@ final class BodyBeatsTests: XCTestCase {
         check("a split at the cover's top is refused", BodyBeats.CoverSplit(splitTop: 0, follows: true, viewport: 300, scale: 1, coverHeight: 600) == nil)
     }
 
+    func testACenteredSplitRidesItsScrollerOnTheBoxCenter() throws {
+        // A card of 600 shrinking to 300: a 50-point head, a 10-point foot,
+        // and a scroller between whose content is centered in it.
+        let track = BodyBeats.Track(
+            delayMs: 0, durationMs: 300, keyTimes: [0, 0.5, 1],
+            rects: [600, 400, 300].map { CGRect(x: 0, y: 0, width: 400, height: $0) },
+            opacities: nil, timings: [.linear, .linear]
+        )
+        let centered = try XCTUnwrap(BodyBeats.CoverSplit(
+            splitTop: 290, follows: false, viewport: 300, scale: 1, coverHeight: 600, centerTop: 50
+        ))
+        check("its head ends at the scroller's top", centered.centerY == 50)
+        check("its tail is the chrome below the scroller", centered.splitY == 590, "\(centered.splitY)")
+        let shrink = BodyBeats.splitRide(track, split: centered, coverHeight: 600, landingHeight: 300)
+        check("the tail frame's bottom is on the edge", shrink.tailTops == [0, -200, -300], "\(shrink.tailTops)")
+        check("the page's center rides the box's", shrink.pageOffsets == [150, 50, 0], "\(shrink.pageOffsets)")
+        check(
+            "only the page's scroller rows show, never its head or foot",
+            shrink.pageRows == [50, 50, 50].map { BodyBeats.Span(top: $0, bottom: 290) }, "\(shrink.pageRows)"
+        )
+        check(
+            "and the ground fills the box's scroller rows",
+            shrink.groundRows == [590, 390, 290].map { BodyBeats.Span(top: 50, bottom: $0) }, "\(shrink.groundRows)"
+        )
+
+        // The same card growing back, under a cover of the smaller form.
+        let grow = BodyBeats.Track(
+            delayMs: 0, durationMs: 300, keyTimes: [0, 0.5, 1],
+            rects: [300, 400, 600].map { CGRect(x: 0, y: 0, width: 400, height: $0) },
+            opacities: nil, timings: [.linear, .linear]
+        )
+        let small = try XCTUnwrap(BodyBeats.CoverSplit(
+            splitTop: 590, follows: false, viewport: 600, scale: 1, coverHeight: 300, centerTop: 50
+        ))
+        check("the smaller cover's tail is the same chrome", small.splitY == 290, "\(small.splitY)")
+        let grown = BodyBeats.splitRide(grow, split: small, coverHeight: 300, landingHeight: 600)
+        check("the page rides up by half the difference", grown.pageOffsets == [-150, -100, 0], "\(grown.pageOffsets)")
+        check(
+            "and shows only the rows the box's scroller has room for",
+            grown.pageRows == [BodyBeats.Span(top: 200, bottom: 440), BodyBeats.Span(top: 150, bottom: 490), BodyBeats.Span(top: 50, bottom: 590)],
+            "\(grown.pageRows)"
+        )
+        check(
+            "a center past the split is refused",
+            BodyBeats.CoverSplit(splitTop: 290, follows: false, viewport: 300, scale: 1, coverHeight: 600, centerTop: 295) == nil
+        )
+        check(
+            "and so is a following one",
+            BodyBeats.CoverSplit(splitTop: 48, follows: true, viewport: 300, scale: 1, coverHeight: 600, centerTop: 20) == nil
+        )
+    }
+
     func testAWideningCardRidesItsRightStripOnTheEdge() throws {
         // A card of 695 widening to 820, its pane 10 in from either side.
         let track = BodyBeats.Track(

@@ -358,39 +358,83 @@ enum BodyBeats {
     struct CoverSplit: Equatable {
         var splitY: Double
         var follows: Bool
+        /// For content centered in its box, where the head ends: the page
+        /// between it and the split rides the box's center, on `ground`.
+        var centerY: Double?
+        var ground: [Double]?
 
         /// From the page's reading, CSS px in the solved form, scaled by the
         /// page's points per CSS px. A following card splits at its
         /// scroller's top, the same in both forms; one that does not splits
-        /// at its scroller's bottom, fixed from the bottom. Nil for a split the
-        /// cover cannot carry.
-        init?(splitTop: Double, follows: Bool, viewport: Double, scale: Double, coverHeight: Double) {
+        /// at its scroller's bottom, fixed from the bottom. A centered one
+        /// also ends its head at its scroller's top, fixed from the top. Nil
+        /// for a split the cover cannot carry.
+        init?(
+            splitTop: Double, follows: Bool, viewport: Double, scale: Double, coverHeight: Double,
+            centerTop: Double? = nil, ground: [Double]? = nil
+        ) {
             guard viewport > 0, scale > 0, splitTop >= 0, splitTop <= viewport else { return nil }
             self.follows = follows
             self.splitY = follows ? splitTop * scale : coverHeight - (viewport - splitTop) * scale
             guard splitY > 0, splitY < coverHeight else { return nil }
+            if let centerTop {
+                // The head ends above the split in both forms: the solved
+                // one the page names, and the cover's.
+                let centerY = centerTop * scale
+                guard !follows, centerTop >= 0, centerTop < splitTop, centerY < splitY else { return nil }
+                self.centerY = centerY
+                self.ground = ground
+            }
         }
 
-        init(splitY: Double, follows: Bool) {
+        init(splitY: Double, follows: Bool, centerY: Double? = nil) {
             self.splitY = splitY
             self.follows = follows
+            self.centerY = centerY
         }
     }
 
     /// Where a split cover's tail and the page stand at each key of a
     /// track: the tail's top — the whole frame's, bottom-pinned, of which
     /// the rows below the split show — and the page's offset below its
-    /// model place, both from the container's top.
+    /// model place, both from the container's top. A centered split also
+    /// says, at each key, which of the page's own rows show — its scroller's,
+    /// cut to the box's — and where the ground behind them stands, in the
+    /// container.
     struct SplitRide: Equatable {
         var tailTops: [Double]
         var pageOffsets: [Double]
+        var pageRows: [Span] = []
+        var groundRows: [Span] = []
+    }
+
+    /// Rows from `top` to `bottom`.
+    struct Span: Equatable {
+        var top: Double
+        var bottom: Double
     }
 
     /// Carry `split` over `track`, whose rects are the container's: the
     /// tail's bottom on the edge throughout, and the page's bottom on it
-    /// when the content follows, else the page where it stands.
+    /// when the content follows, else the page where it stands — or, for
+    /// centered content, the page's scroller centered on the box's.
     static func splitRide(_ track: Track, split: CoverSplit, coverHeight: Double, landingHeight: Double) -> SplitRide {
         let heights = track.rects.map { Double($0.height) }
+        if let centerY = split.centerY {
+            // The bottom chrome below the split is the same height in both
+            // forms; the scroller between is what changes, and its center
+            // is the box's center less the head and the chrome.
+            let foot = coverHeight - split.splitY
+            let offsets = heights.map { ($0 - landingHeight) / 2 }
+            return SplitRide(
+                tailTops: heights.map { $0 - coverHeight },
+                pageOffsets: offsets,
+                pageRows: zip(heights, offsets).map { h, o in
+                    Span(top: max(centerY, centerY - o), bottom: max(centerY, min(landingHeight - foot, h - foot - o)))
+                },
+                groundRows: heights.map { Span(top: centerY, bottom: max(centerY, $0 - foot)) }
+            )
+        }
         return SplitRide(
             tailTops: heights.map { $0 - coverHeight },
             pageOffsets: heights.map { split.follows ? $0 - landingHeight : 0 }

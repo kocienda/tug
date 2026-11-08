@@ -31,6 +31,14 @@
  * bottom everything below its scroller, which the live page bottom-hangs
  * too: the composer and band, or an editor's status bar.
  *
+ * Content centered in its box — an image fitted to the card — has neither
+ * edge to hang from: held at the top it stands where the old box centered
+ * it while the page beyond the cover shows where the new one does, two
+ * pictures meeting at the cover's edge. Its scroller says so
+ * ([`data-crossing-scroller="center"`]), and the picture hangs from three
+ * places: the head from the top, the bottom chrome from the moving edge,
+ * and the live page's scroller centered between them, on its own ground.
+ *
  * @module lib/crossing-band
  */
 
@@ -41,6 +49,9 @@ export const CROSSING_BAND_ATTR = "data-crossing-band";
 
 /** Marks the element that absorbs a card's height: the scroller between its head and its bottom band. */
 export const CROSSING_SCROLLER_ATTR = "data-crossing-scroller";
+
+/** {@link CROSSING_SCROLLER_ATTR}'s value for a scroller whose content is centered in its box. */
+export const CROSSING_SCROLLER_CENTER = "center";
 
 /**
  * Marks chrome inside the scroller that pins to its top while its entry
@@ -108,15 +119,35 @@ export interface CrossingAnchor {
   /** The split is the scroller's top, the content following the bottom; else the scroller's bottom. */
   readonly follows: boolean;
   readonly viewport: number;
+  /** Set when the scroller's content is centered in its box; else null. */
+  readonly center: CrossingCenter | null;
 }
 
-/** Where the picture under `root` splits, or null when the card names no scroller. */
-export function readCrossingAnchor(root: ParentNode): CrossingAnchor | null {
+/** A centered scroller, which rides the box's center between the head and the split. */
+export interface CrossingCenter {
+  /** The scroller's top: the head above it hangs from the top. */
+  readonly top: number;
+  /** The scroller's own background as sRGB bytes, shown where the page does not reach; null when it paints none. */
+  readonly ground: number[] | null;
+}
+
+/**
+ * Where the picture under `root` splits, or null when the card names no
+ * scroller. `groundOf` reads a centered scroller's background as sRGB bytes.
+ */
+export function readCrossingAnchor(
+  root: ParentNode,
+  groundOf: (el: HTMLElement) => number[] | null = () => null,
+): CrossingAnchor | null {
   const scroller = root.querySelector<HTMLElement>(`[${CROSSING_SCROLLER_ATTR}]`);
   const viewport = window.innerHeight;
   if (scroller == null || !(viewport > 0)) return null;
+  if (scroller.getAttribute(CROSSING_SCROLLER_ATTR) === CROSSING_SCROLLER_CENTER) {
+    const rect = scroller.getBoundingClientRect();
+    return { splitTop: rect.bottom, follows: false, viewport, center: { top: rect.top, ground: groundOf(scroller) } };
+  }
   const follows = scroller.closest(`[${STILL_ANCHOR_ATTR}="bottom"]`) !== null;
-  if (!follows) return { splitTop: scroller.getBoundingClientRect().bottom, follows, viewport };
+  if (!follows) return { splitTop: scroller.getBoundingClientRect().bottom, follows, viewport, center: null };
   const top = scroller.getBoundingClientRect().top;
   let splitTop = top;
   // A pin is stuck when it sits at the scroller's top rather than at its
@@ -126,5 +157,5 @@ export function readCrossingAnchor(root: ParentNode): CrossingAnchor | null {
     const rect = pin.getBoundingClientRect();
     if (rect.top <= splitTop + 2 && rect.bottom > splitTop + 2) splitTop = rect.bottom;
   }
-  return { splitTop, follows, viewport };
+  return { splitTop, follows, viewport, center: null };
 }

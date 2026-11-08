@@ -420,6 +420,12 @@ final class BodyBeatsRunner {
     /// A following page that grows carries no tail: the page's own bottom
     /// rows ride the edge and are the honest picture, where the cover's
     /// would be the smaller form's — an unfold's folded strip, say.
+    ///
+    /// A centered page's head ends at its scroller's top, and its tail is
+    /// the chrome below the scroller: between them the page rides the box's
+    /// center, masked to its scroller's rows, on the scroller's ground
+    /// (`rideCenter`). The picture stays centered in the box throughout,
+    /// where held at the top it showed the old centering beside the new.
     private func rideSplit(
         _ body: Body, split: BodyBeats.CoverSplit, track: BodyBeats.Track, anchor: ClockAnchor, startWallMs: Double
     ) {
@@ -431,7 +437,7 @@ final class BodyBeatsRunner {
 
         let head = CALayer()
         head.backgroundColor = CGColor(gray: 0, alpha: 1)
-        head.frame = cover.convertToLayer(CGRect(x: 0, y: 0, width: size.width, height: splitY))
+        head.frame = cover.convertToLayer(CGRect(x: 0, y: 0, width: size.width, height: split.centerY.map { CGFloat($0) } ?? splitY))
         coverLayer.mask = head
 
         let insets = cover.paneInsets
@@ -446,6 +452,10 @@ final class BodyBeatsRunner {
             rideTail(body, cover: cover, split: split, pane: pane, ride: ride, track: track, begin: begin)
         }
 
+        if split.centerY != nil {
+            rideCenter(body, split: split, pane: pane, ride: ride, track: track, begin: begin)
+            return
+        }
         guard split.follows, let page = body.webView.layer,
               let pagePositions = Self.positions(of: body.webView, atTops: ride.pageOffsets) else { return }
         page.removeAnimation(forKey: Self.bandKey)
@@ -458,6 +468,48 @@ final class BodyBeatsRunner {
             page, of: body.webView, to: ride.pageOffsets.map { bounds.intersection(pane.offsetBy(dx: 0, dy: -CGFloat($0))) },
             track: track, begin: begin
         )
+    }
+
+    /// A centered split's page: its scroller centered on the box's between
+    /// the cover's head and tail, masked to the scroller's own rows, so its
+    /// head and chrome never show inside the box; and behind it the
+    /// scroller's ground, filling the box's scroller rows where a page
+    /// smaller than the box does not reach.
+    private func rideCenter(
+        _ body: Body, split: BodyBeats.CoverSplit, pane: CGRect, ride: BodyBeats.SplitRide,
+        track: BodyBeats.Track, begin: CFTimeInterval
+    ) {
+        let rows = { (span: BodyBeats.Span) in
+            CGRect(x: pane.minX, y: CGFloat(span.top), width: pane.width, height: CGFloat(max(0, span.bottom - span.top)))
+        }
+        if let ground = split.ground, let last = ride.groundRows.last {
+            let view = NSView(frame: rows(last))
+            view.wantsLayer = true
+            view.autoresizingMask = []
+            body.container.addSubview(view, positioned: .below, relativeTo: body.webView)
+            body.crossingGround = view
+            if let layer = view.layer {
+                layer.backgroundColor = BodyViewController.color(ground)
+                let frames = ride.groundRows.map { body.container.convertToLayer(rows($0)) }
+                let local = layer.convertTime(begin, from: nil)
+                layer.add(Self.keyframes(
+                    "position", values: frames.map { NSValue(point: CGPoint(x: $0.midX, y: $0.midY)) },
+                    keyTimes: track.keyTimes, timings: track.timings, durationMs: track.durationMs, begin: local
+                ), forKey: Self.bandKey + "-position")
+                layer.add(Self.keyframes(
+                    "bounds", values: frames.map { NSValue(rect: CGRect(origin: .zero, size: $0.size)) },
+                    keyTimes: track.keyTimes, timings: track.timings, durationMs: track.durationMs, begin: local
+                ), forKey: Self.bandKey + "-bounds")
+            }
+        }
+        guard let page = body.webView.layer,
+              let pagePositions = Self.positions(of: body.webView, atTops: ride.pageOffsets) else { return }
+        page.removeAnimation(forKey: Self.bandKey)
+        page.add(Self.keyframes(
+            "position", values: pagePositions, keyTimes: track.keyTimes, timings: track.timings,
+            durationMs: track.durationMs, begin: page.convertTime(begin, from: nil)
+        ), forKey: Self.bandKey)
+        Self.mask(page, of: body.webView, to: ride.pageRows.map(rows), track: track, begin: begin)
     }
 
     /// The split cover's tail: a second cover, cut above the split, its
@@ -684,7 +736,8 @@ final class BodyBeatsRunner {
         } else if let anchor, let cover = body.crossingCover, anchor.viewport > 0 {
             body.crossingSplit = BodyBeats.CoverSplit(
                 splitTop: anchor.splitTop, follows: anchor.follows, viewport: anchor.viewport,
-                scale: Double(body.webView.frame.height) / anchor.viewport, coverHeight: Double(cover.frame.height)
+                scale: Double(body.webView.frame.height) / anchor.viewport, coverHeight: Double(cover.frame.height),
+                centerTop: anchor.center?.top, ground: anchor.center?.ground
             )
             body.lastCrossing?.split = body.crossingSplit
         }
@@ -979,6 +1032,8 @@ final class BodyBeatsRunner {
         }
         body.crossingTail?.removeFromSuperview()
         body.crossingTail = nil
+        body.crossingGround?.removeFromSuperview()
+        body.crossingGround = nil
         CATransaction.commit()
         controller.send(.bodyCrossing(.land), to: body)
     }

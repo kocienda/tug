@@ -389,6 +389,11 @@ export function FileViewCardContent({ cardId }: { cardId: string }) {
         // holds its fractional position rather than an element's top edge,
         // which is the same place in the picture before and after.
         {...(kind === "image" ? { "data-tug-preserve": "fraction" } : {})}
+        // A fitted picture is centered in the card, so while the card's
+        // height crosses it hangs from the box's center rather than either
+        // edge (`lib/crossing-band.ts`): otherwise the old centering and the
+        // new one show at once, meeting at the cover's edge.
+        {...(kind === "image" ? { "data-crossing-scroller": "center" } : {})}
         data-file-view-kind={kind}
         // The image settings that the CARD's own frame answers for rather than
         // the image block: how the frame scrolls at Actual Size, and whether

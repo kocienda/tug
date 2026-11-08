@@ -759,7 +759,25 @@
           "anchor": {
             "splitTop": 96,
             "follows": true,
-            "viewport": 540
+            "viewport": 540,
+            "center": null
+          }
+        },
+        {
+          "band": null,
+          "anchor": {
+            "splitTop": 500,
+            "follows": false,
+            "viewport": 540,
+            "center": {
+              "top": 64,
+              "ground": [
+                28,
+                30,
+                34,
+                255
+              ]
+            }
           }
         }
       ],

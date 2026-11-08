@@ -453,6 +453,18 @@ struct CrossingSolved: Decodable, Equatable {
         /// bottom; else the bottom band's top.
         var follows: Bool
         var viewport: Double
+        /// Set when the scroller's content is centered in its box: the
+        /// head hangs from the top down to it, and the page between it and
+        /// the split rides the box's center.
+        var center: Center?
+
+        struct Center: Codable, Equatable {
+            /// The scroller's top, in the solved form.
+            var top: Double
+            /// The scroller's own background as sRGB bytes, shown where the
+            /// page does not reach; nil when it paints none.
+            var ground: [Double]?
+        }
     }
 
     var band: Band?

@@ -142,7 +142,12 @@ const crossingBandCodec: Codec<CrossingBand> = obj({
   viewport: num,
 });
 
-const crossingAnchorCodec: Codec<CrossingAnchor> = obj({ splitTop: num, follows: bool, viewport: num });
+const crossingAnchorCodec: Codec<CrossingAnchor> = obj({
+  splitTop: num,
+  follows: bool,
+  viewport: num,
+  center: nullable(obj({ top: num, ground: nullable(rgbaBytes) })),
+});
 
 /** The page's own surface as sRGB bytes, or null when it paints none. */
 export interface BodySurface {
@@ -177,7 +182,8 @@ export const crossingSolvedToHost = defineToHost<CrossingSolved>({
   samples: [
     { band: null, anchor: null },
     { band: { restFromBottom: 92, top: 74, height: 46, viewport: 136 }, anchor: null },
-    { band: null, anchor: { splitTop: 96, follows: true, viewport: 540 } },
+    { band: null, anchor: { splitTop: 96, follows: true, viewport: 540, center: null } },
+    { band: null, anchor: { splitTop: 500, follows: false, viewport: 540, center: { top: 64, ground: [28, 30, 34, 255] } } },
   ],
   refused: [true, {}, { band: null }, { band: { restFromBottom: 92, top: 74, height: 46 }, anchor: null }],
 });

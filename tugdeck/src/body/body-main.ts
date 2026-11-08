@@ -203,20 +203,25 @@ const LISTS_SESSIONS: ReadonlySet<string> = new Set([CARDS_CARD_ID, OVERVIEW_CAR
  * the host reads plain bytes.
  */
 function pageSurfaceRgba(): number[] | null {
+  for (const el of [document.getElementById("deck-container"), document.body, document.documentElement]) {
+    if (el === null) continue;
+    const rgba = backgroundRgba(el);
+    if (rgba !== null) return rgba;
+  }
+  return null;
+}
+
+/** `el`'s computed background as sRGB bytes, or null when it paints none. */
+function backgroundRgba(el: Element): number[] | null {
   const canvas = document.createElement("canvas");
   canvas.width = 1;
   canvas.height = 1;
   const g = canvas.getContext("2d");
   if (g === null) return null;
-  for (const el of [document.getElementById("deck-container"), document.body, document.documentElement]) {
-    if (el === null) continue;
-    g.clearRect(0, 0, 1, 1);
-    g.fillStyle = getComputedStyle(el).backgroundColor;
-    g.fillRect(0, 0, 1, 1);
-    const rgba = [...g.getImageData(0, 0, 1, 1).data];
-    if (rgba[3] > 0) return rgba;
-  }
-  return null;
+  g.fillStyle = getComputedStyle(el).backgroundColor;
+  g.fillRect(0, 0, 1, 1);
+  const rgba = [...g.getImageData(0, 0, 1, 1).data];
+  return rgba[3] > 0 ? rgba : null;
 }
 
 /**
@@ -1022,7 +1027,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
         // read is free.
         postToHost(crossingSolvedToHost, {
           band: foldLanded === true ? readCrossingBand(document) : null,
-          anchor: foldLanded === null ? readCrossingAnchor(document) : null,
+          anchor: foldLanded === null ? readCrossingAnchor(document, backgroundRgba) : null,
         });
       },
     });
