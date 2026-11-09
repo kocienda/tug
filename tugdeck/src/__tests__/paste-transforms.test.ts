@@ -6,9 +6,25 @@
  * - quoteMarkdown — per-line `> ` prefix, blank-line handling, empty input
  * - stripMarkdown — headings, emphasis, inline/fenced code, links, images,
  *   lists, blockquotes, tables, raw HTML, plain-text passthrough, empty input
+ *
+ * `stripMarkdown` runs `tugmark`'s WASM walk, so the module is loaded once
+ * at module scope, as the page entries do at startup.
  */
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { join, dirname } from "path";
+import { initSync } from "../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 import { quoteMarkdown, stripMarkdown } from "../lib/paste-transforms";
+
+const wasmPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../crates/tugmark-wasm/pkg/tugmark_wasm_bg.wasm",
+);
+
+beforeAll(() => {
+  initSync({ module: readFileSync(wasmPath) });
+});
 
 describe("quoteMarkdown", () => {
   it("prefixes a single line with '> '", () => {
@@ -78,6 +94,10 @@ describe("stripMarkdown", () => {
 
   it("passes plain text through unchanged", () => {
     expect(stripMarkdown("just plain text")).toBe("just plain text");
+  });
+
+  it("keeps straight quotes and dashes as typed", () => {
+    expect(stripMarkdown("\"quoted\" -- it's")).toBe("\"quoted\" -- it's");
   });
 
   it("returns empty input unchanged", () => {

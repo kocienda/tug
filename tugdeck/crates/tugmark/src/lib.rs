@@ -15,11 +15,15 @@
 //! - [`parse_blocks_to_html`] — parse a whole document in one pass and emit per-block HTML
 //!   so cross-block features (notably footnote ref ↔ definition linking) work correctly.
 //! - [`for_each_top_level_block`] — the canonical block walk every function above shares.
+//! - [`strip_markdown`] — the plain text of a markdown string (paste/copy as plain text).
 //!
 //! With `native`: `render_blocks` (sanitized, transformed blocks the page
 //! can draw), `rendered_text` (the find extraction) and `text_hash`.
 
 use pulldown_cmark::{Event, Options, Parser, Tag};
+
+mod plain;
+pub use plain::strip_markdown;
 
 #[cfg(feature = "native")]
 pub mod highlight;

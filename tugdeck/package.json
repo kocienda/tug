@@ -66,7 +66,6 @@
     "linkifyjs": "^4.3.3",
     "lucide": "^0.564.0",
     "lucide-react": "^1.21.0",
-    "marked": "^15.0.6",
     "pdfjs-dist": "^6.2.108",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

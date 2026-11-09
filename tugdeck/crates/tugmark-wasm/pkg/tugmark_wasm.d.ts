@@ -24,6 +24,12 @@ export function parse_blocks_to_html(text: string): any[];
  */
 export function parse_to_html(text: string): string;
 
+/**
+ * The plain text of a markdown string: formatting unwrapped, raw HTML
+ * dropped, blocks separated by a blank line.
+ */
+export function strip_markdown(text: string): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -32,6 +38,7 @@ export interface InitOutput {
     readonly lex_blocks: (a: number, b: number) => [number, number];
     readonly parse_blocks_to_html: (a: number, b: number) => [number, number];
     readonly parse_to_html: (a: number, b: number) => [number, number];
+    readonly strip_markdown: (a: number, b: number) => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

@@ -12,6 +12,7 @@
 //! - [`parse_to_html`] — parse a single fragment to an HTML string (no cross-block linking)
 //! - [`parse_blocks_to_html`] — parse a whole document in one pass and emit per-block HTML
 //!   so cross-block features (notably footnote ref ↔ definition linking) work correctly.
+//! - [`strip_markdown`] — the plain text of a markdown string (paste/copy as plain text)
 
 use wasm_bindgen::prelude::*;
 
@@ -44,4 +45,11 @@ pub fn parse_blocks_to_html(text: &str) -> Box<[JsValue]> {
 #[wasm_bindgen]
 pub fn lex_block_hashes(text: &str) -> Vec<u32> {
     tugmark::collect_block_hashes(text)
+}
+
+/// The plain text of a markdown string: formatting unwrapped, raw HTML
+/// dropped, blocks separated by a blank line.
+#[wasm_bindgen]
+pub fn strip_markdown(text: &str) -> String {
+    tugmark::strip_markdown(text)
 }

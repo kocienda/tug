@@ -1039,7 +1039,7 @@ From `tugdeck/crates/Cargo.lock` — 33 packages.
 
 ### npm packages bundled into tugdeck
 
-From `tugdeck/bun.lock` — 121 packages.
+From `tugdeck/bun.lock` — 120 packages.
 
 | Package | Version | License | Repository |
 |---|---|---|---|
@@ -1149,7 +1149,6 @@ From `tugdeck/bun.lock` — 121 packages.
 | linkifyjs | 4.3.3 | MIT | https://github.com/nfrasser/linkifyjs |
 | lucide | 0.564.0 | ISC | https://github.com/lucide-icons/lucide |
 | lucide-react | 1.21.0 | ISC | https://github.com/lucide-icons/lucide |
-| marked | 15.0.12 | MIT | https://github.com/markedjs/marked |
 | pdfjs-dist | 6.2.108 | Apache-2.0 | https://github.com/mozilla/pdf.js |
 | react | 19.2.4 | MIT | https://github.com/facebook/react |
 | react-dom | 19.2.4 | MIT | https://github.com/facebook/react |
