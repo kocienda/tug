@@ -67,10 +67,10 @@ export function factoryRails(prefix = "sc-rail", sides: readonly RailSide[] = SI
   };
 }
 
-/** The launch environment for a scene with rails: a jots file of its own under a temp directory. */
-export function railsEnv(): Record<string, string> {
+/** The launch environment for a scene with rails: a jots file of its own under a temp directory, holding `jots` (ids `j1`, `j2`, …). */
+export function railsEnv(jots: readonly string[] = JOTS): Record<string, string> {
   const path = join(mkdtempSync(join(tmpdir(), "tug-site-rails-")), "jots.json");
-  writeFileSync(path, JSON.stringify({ version: 1, jots: JOTS.map((text, i) => ({ id: `j${i + 1}`, text })) }, null, 2));
+  writeFileSync(path, JSON.stringify({ version: 1, jots: jots.map((text, i) => ({ id: `j${i + 1}`, text })) }, null, 2));
   return { TUG_JOTS_PATH: path };
 }
 

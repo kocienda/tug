@@ -121,6 +121,8 @@ export async function launchForMode(
     cardStates?: Record<string, unknown>;
     /** String settings to seed, as `[domain, key, value]`: how a masthead writes its path, for one. */
     settings?: readonly (readonly [string, string, string])[];
+    /** Bring the app to the front, so a drag runs as a real `NSDraggingSession` (a jot into a prompt, a file onto a composer). */
+    foreground?: boolean;
   } = {},
 ): Promise<App> {
   if (MODE === undefined) throw new Error("site clips: TUG_SITE_CLIPS_MODE must be dark or light");
@@ -160,6 +162,7 @@ export async function launchForMode(
     // caret held steady, so the two cuts of a scene have the same frames.
     clipMode: true,
     skipAccessibilityPreflight: true,
+    ...(extra.foreground ? { foreground: true } : {}),
   });
   if (extra.contentSize !== undefined) await app.setWindowContentSize(extra.contentSize);
   await app.waitForCondition<boolean>(
