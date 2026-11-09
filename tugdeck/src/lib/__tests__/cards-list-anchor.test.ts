@@ -13,10 +13,12 @@ import {
   anchorForRow,
   scrollTopForAnchor,
   shareCardsListAnchor,
+  slackAfterScroll,
+  slackForAnchor,
   type AnchorRow,
 } from "../cards-list-anchor";
 import { createTestBus, type TestBus } from "../../bus/test-bus";
-import { cardsListAnchor } from "../../bus/declarations/arrangement";
+import { cardsListAnchor, cardsListCursor } from "../../bus/declarations/arrangement";
 
 /** Thirty rows of 28 px, one after another, ids `r0`…`r29`. */
 const ROWS: AnchorRow[] = Array.from({ length: 30 }, (_, i) => ({
@@ -91,6 +93,48 @@ describe("scrollTopForAnchor", () => {
   });
 });
 
+describe("slackForAnchor", () => {
+  test("a row anchored low near the end asks a taller card for room past the list's end", () => {
+    // Clicked at r29's place in a 300 px card scrolled to its end.
+    const short = { clientHeight: 300, scrollHeight: LIST_HEIGHT };
+    const anchor = anchorForRow(row(29), LIST_HEIGHT - 300);
+    const taller = { clientHeight: 500, scrollHeight: LIST_HEIGHT };
+    const room = slackForAnchor(anchor, row(29), taller);
+    expect(room).toBe(200);
+    // Given that room, the placement puts the row back at its offset exactly.
+    const top = scrollTopForAnchor(anchor, row(29), {
+      clientHeight: taller.clientHeight,
+      scrollHeight: taller.scrollHeight + room,
+    })!;
+    expect(row(29).top - top).toBe(anchor.offset);
+    expect(scrollTopForAnchor(anchor, row(29), short)).toBe(LIST_HEIGHT - 300);
+  });
+
+  test("a card whose range already reaches needs no room", () => {
+    const tall = { clientHeight: 500, scrollHeight: LIST_HEIGHT };
+    expect(slackForAnchor(anchorForRow(row(18), 160), row(18), tall)).toBe(0);
+    expect(slackForAnchor({ rowId: "r1", offset: 100 }, row(1), tall)).toBe(0);
+  });
+
+  test("a row this list does not draw asks for none", () => {
+    const tall = { clientHeight: 500, scrollHeight: LIST_HEIGHT };
+    expect(slackForAnchor({ rowId: "r29", offset: 400 }, null, tall)).toBe(0);
+  });
+});
+
+describe("slackAfterScroll", () => {
+  test("the room holds while the scroller stands in it, and shrinks as it leaves", () => {
+    // 200 px of room below an 840 px list in a 500 px card, scrolled to the end.
+    expect(slackAfterScroll(200, LIST_HEIGHT + 200 - 500, 500, LIST_HEIGHT)).toBe(200);
+    expect(slackAfterScroll(200, LIST_HEIGHT + 50 - 500, 500, LIST_HEIGHT)).toBe(50);
+    expect(slackAfterScroll(200, 0, 500, LIST_HEIGHT)).toBe(0);
+  });
+
+  test("it never grows, so the reader cannot scroll further into it", () => {
+    expect(slackAfterScroll(30, LIST_HEIGHT + 200 - 500, 500, LIST_HEIGHT)).toBe(30);
+  });
+});
+
 describe("the anchor is the shell's, one for every Workspaces card's page", () => {
   let bus: TestBus;
   afterEach(() => bus?.dispose());
@@ -139,5 +183,21 @@ describe("the anchor is the shell's, one for every Workspaces card's page", () =
     cardsListAnchor.on(cards.bus).propose({ rowId: "r3", offset: 0 });
     await bus.flush();
     expect(cardsListAnchor.on(session.bus).arrived()).toBe(false);
+  });
+
+  test("the list's cursor is one for the deck too, beside the anchor", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    shareCardsListAnchor(shell.bus);
+    const one = bus.body("cards-1", "cards");
+    const two = bus.body("cards-2", "cards");
+    const session = bus.body("session-1", "session");
+    await bus.flush();
+
+    cardsListCursor.on(one.bus).propose("r7");
+    await bus.flush();
+    expect(cardsListCursor.on(shell.bus).getSnapshot()).toBe("r7");
+    expect(cardsListCursor.on(two.bus).getSnapshot()).toBe("r7");
+    expect(cardsListCursor.on(session.bus).arrived()).toBe(false);
   });
 });

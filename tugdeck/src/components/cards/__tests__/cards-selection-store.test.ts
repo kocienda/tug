@@ -16,6 +16,29 @@ import {
 
 const ORDER = ["a", "b", "c", "d", "e"];
 
+describe("park and unpark", () => {
+  test("a parked set is not the selection, and comes back pruned to the cards still there", () => {
+    const s = new CardsSelectionStore();
+    let notified = 0;
+    s.subscribe(() => {
+      notified += 1;
+    });
+    s.park("w0", { ids: ["a", "b", "c"], anchorId: "c" });
+    expect(notified).toBe(0);
+    expect(s.getSnapshot().ids).toEqual([]);
+    expect(s.unpark("w0", new Set(["a", "b"]))).toEqual({ ids: ["a", "b"], anchorId: null });
+    expect(s.unpark("w0", new Set(["a", "b"])), "taken back out once unparked").toBeNull();
+  });
+
+  test("an empty set, or one whose cards are all gone, comes back as none", () => {
+    const s = new CardsSelectionStore();
+    s.park("w0", { ids: [], anchorId: null });
+    expect(s.unpark("w0", new Set(["a"]))).toBeNull();
+    s.park("w1", { ids: ["z"], anchorId: "z" });
+    expect(s.unpark("w1", new Set(["a"]))).toBeNull();
+  });
+});
+
 describe("pickOnly", () => {
   test("replaces the selection and seats the anchor", () => {
     const s = new CardsSelectionStore();
@@ -428,6 +451,111 @@ describe("the prune behind the after-paint door", () => {
 
     paint();
     expect(selection.getSnapshot().ids).toEqual([]);
+
+    detach();
+  });
+
+  /** A deck of workspaces, each its own cards, whose switches this test lands by hand. */
+  function fakeSpaces(decks: Record<string, string[]>, start: string): {
+    deck: IDeckManagerStore;
+    commit: (cards: string[], firstResponder: string | null) => void;
+    switchTo: (space: string, firstResponder: string) => void;
+  } {
+    const cards = { ...decks };
+    let active = start;
+    let firstResponder: string | null = null;
+    let listener: (() => void) | null = null;
+    const deck = {
+      getSnapshot: () => ({ cards: cards[active].map((id) => ({ id })) }),
+      getSpacesSnapshot: () => ({ activeSpaceId: active }),
+      getFirstResponderCardId: () => firstResponder,
+      subscribeSync: (cb: () => void) => {
+        listener = cb;
+        return () => {
+          listener = null;
+        };
+      },
+      subscribe: () => () => {},
+    } as unknown as IDeckManagerStore;
+    return {
+      deck,
+      commit: (next, fr) => {
+        cards[active] = next;
+        firstResponder = fr;
+        listener?.();
+      },
+      // The swap commit, then the switch's own activation in the same task.
+      switchTo: (space, fr) => {
+        active = space;
+        listener?.();
+        firstResponder = fr;
+        listener?.();
+      },
+    };
+  }
+
+  test("a switch parks the departing set and the return restores it", async () => {
+    const selection = new CardsSelectionStore();
+    const { deck, switchTo } = fakeSpaces({ w0: ["a", "b", "c"], w1: ["x", "y"] }, "w0");
+    const detach = attachLayoutSelectionToDeck(deck, selection);
+    selection.toggle("a");
+    selection.toggle("b");
+
+    switchTo("w1", "x");
+    await Promise.resolve();
+    paint();
+    expect(selection.getSnapshot().ids, "the arriving workspace had no set: its fronted card is it").toEqual(["x"]);
+    selection.toggle("y");
+
+    switchTo("w0", "c");
+    await Promise.resolve();
+    paint();
+    expect(selection.getSnapshot().ids, "back in w0, its set is restored and the switch's activation leaves it").toEqual(["a", "b"]);
+    expect(selection.getSnapshot().anchorId).toBe("b");
+
+    switchTo("w1", "x");
+    await Promise.resolve();
+    paint();
+    expect(selection.getSnapshot().ids, "and w1's own set was parked, not collapsed").toEqual(["x", "y"]);
+
+    detach();
+  });
+
+  test("a card fronted after the switch's task is the reader moving on, and collapses the set", async () => {
+    const selection = new CardsSelectionStore();
+    const { deck, commit, switchTo } = fakeSpaces({ w0: ["a", "b", "c"], w1: ["x"] }, "w0");
+    const detach = attachLayoutSelectionToDeck(deck, selection);
+    selection.toggle("a");
+    selection.toggle("b");
+    switchTo("w1", "x");
+    await Promise.resolve();
+    paint();
+    switchTo("w0", "a");
+    await Promise.resolve();
+    paint();
+    expect(selection.getSnapshot().ids).toEqual(["a", "b"]);
+
+    commit(["a", "b", "c"], "c");
+    paint();
+    expect(selection.getSnapshot().ids).toEqual(["c"]);
+
+    detach();
+  });
+
+  test("a pick still waiting for its frame is what the departing workspace parks", async () => {
+    const selection = new CardsSelectionStore();
+    const { deck, commit, switchTo } = fakeSpaces({ w0: ["a", "b"], w1: ["x"] }, "w0");
+    const detach = attachLayoutSelectionToDeck(deck, selection);
+    commit(["a", "b"], "b");
+    switchTo("w1", "x");
+    await Promise.resolve();
+    paint();
+    expect(selection.getSnapshot().ids, "the pick for w0's card never lands in w1").toEqual(["x"]);
+
+    switchTo("w0", "a");
+    await Promise.resolve();
+    paint();
+    expect(selection.getSnapshot().ids).toEqual(["b"]);
 
     detach();
   });

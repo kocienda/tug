@@ -198,6 +198,24 @@ export const cardsListAnchor = defineSharedStore<CardsListAnchorValue | null, Ca
   proposals: obj({ rowId: str, offset: num }),
 });
 
+/**
+ * The Workspaces list's one cursor: the row the keyboard stands on, or null
+ * before any card has had one. One fact for the deck, beside the anchor,
+ * because every workspace's Workspaces card shows the same list and the
+ * keyboard has one position in it. A click makes the clicked row both the
+ * anchor and the cursor; an arrow moves the cursor alone. A card coming on
+ * screen adopts it as it places its scroller, with no reveal
+ * (`lib/cards-list-anchor.ts`), so no card keeps a cursor of its own.
+ */
+export const cardsListCursor = defineSharedStore<string | null, string>({
+  key: "cards.listCursor",
+  owner: "shell",
+  scope: { kinds: isCardsCard },
+  codec: nullable(str),
+  initial: null,
+  proposals: str,
+});
+
 // ---- A following card, and the About card ----
 
 /**

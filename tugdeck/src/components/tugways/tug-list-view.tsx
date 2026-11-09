@@ -924,8 +924,18 @@ export interface TugListViewHandle {
    * surviving neighbor instead of vanishing. The bar paints only while the
    * container holds the keyboard key view (the standard cursor gating).
    * No-op when the list is not engine-authored or the list is empty.
+   *
+   * `reveal: false` parks the cursor where it lands without scrolling — for a
+   * consumer that has already put the scroller where it belongs and is only
+   * telling the list which row the keyboard is on (a Workspaces card adopting
+   * the deck's one cursor as it comes on screen).
+   *
+   * `select: true` moves the list's own selection onto the landed row too, as
+   * a click there would — for a consumer whose cursor is shared with other
+   * lists, so a selection this list was left holding cannot go on painting a
+   * row that is no longer where the keyboard is.
    */
-  moveCursorTo(index: number): void;
+  moveCursorTo(index: number, options?: { reveal?: boolean; select?: boolean }): void;
 
   /**
    * Step the **attached-list cursor** one row, for a text field that has
@@ -6523,7 +6533,9 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // below this handle; the ref lets the handle read the live closure at call
     // time without pulling later-declared consts into its dependency array.
     const descendIntoRowRef = React.useRef<(index: number) => void>(() => {});
-    const moveCursorToRef = React.useRef<(index: number) => void>(() => {});
+    const moveCursorToRef = React.useRef<
+      (index: number, reveal: boolean, select: boolean) => void
+    >(() => {});
     // The attached-list cursor's three verbs, late-bound like their neighbors:
     // the handle is built above the callbacks that implement them.
     const attachedCursorMoveRef = React.useRef<
@@ -6627,8 +6639,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         descendIntoRow(index: number): void {
           descendIntoRowRef.current(index);
         },
-        moveCursorTo(index: number): void {
-          moveCursorToRef.current(index);
+        moveCursorTo(index: number, options?: { reveal?: boolean; select?: boolean }): void {
+          moveCursorToRef.current(index, options?.reveal ?? true, options?.select ?? false);
         },
         attachedCursorMove(direction: "up" | "down"): boolean {
           return attachedCursorMoveRef.current(direction);
@@ -7271,10 +7283,14 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       moveCursorTo(index, true);
       descendCursorRow();
     };
-    moveCursorToRef.current = (index: number): void => {
+    moveCursorToRef.current = (index: number, reveal: boolean, select: boolean): void => {
       if (!focusEngineActiveRef.current) return;
       const landing = cursorableNear(index, -1);
-      if (landing >= 0) moveCursorTo(landing, true);
+      if (landing < 0) return;
+      moveCursorTo(landing, reveal);
+      // The owned index a click would have moved, and only where a click
+      // moves it.
+      if (select) setSelectedIndex(landing);
     };
     attachedCursorMoveRef.current = attachedCursorMove;
     attachedCursorIndexReadRef.current = (): number =>

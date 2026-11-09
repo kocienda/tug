@@ -40,6 +40,13 @@
  * is the filter in every other's — a card standing up for the first time and
  * a card already mounted behind the one on screen alike.
  *
+ * A third holds the cursor half. Each card keeps a list cursor of its own,
+ * left on the header the reader clicked to leave it; the test parks that
+ * cursor just above the top edge of where the card will be placed, switches
+ * in, and asserts the clicked row stays put. It logs every write to the
+ * arriving card's scroller with its stack, and the one it sees is the
+ * placement — the card's own cursor is never revealed on arrival.
+ *
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts
@@ -71,6 +78,67 @@ const SECOND_TARGET = spaceId(12);
 
 /** Matches `T1` and `T10`–`T19`, so the filtered list still overflows. */
 const FILTER = "T1";
+
+/**
+ * The stale-cursor leg: the workspace whose card arrives, the workspace its
+ * card was left by (so that header is its own cursor), and how far past the
+ * top fold that header stands when the target is clicked.
+ */
+const HOP_TARGET_INDEX = 8;
+const HOP_TARGET = spaceId(HOP_TARGET_INDEX);
+const STALE_CURSOR_INDEX = 2;
+const STALE_CURSOR = spaceId(STALE_CURSOR_INDEX);
+const PAST_FOLD_PX = 6;
+
+/**
+ * Installed in a card's page before it arrives: every write to its scroller
+ * and every call that can scroll it, each with its stack, and every scroll
+ * the scroller reports, in order — so the writer of a hop is named rather than
+ * inferred.
+ */
+const SCROLL_WRITE_LOG = `(function () {
+   if (window.__at0792writes !== undefined) return null;
+   var log = window.__at0792writes = [];
+   var t0 = performance.now();
+   var at = function () { return Math.round(performance.now() - t0); };
+   var stack = function () {
+     return String(new Error().stack).split("\\n").slice(2, 10)
+       .map(function (s) { return s.trim(); }).join(" < ");
+   };
+   var nameOf = function (el) {
+     return el && el.className ? String(el.className).split(" ")[0] : String(el && el.nodeName);
+   };
+   var d = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
+   Object.defineProperty(Element.prototype, "scrollTop", {
+     configurable: true,
+     get: d.get,
+     set: function (v) {
+       if (this.classList && this.classList.contains("cards-card")) {
+         log.push({ at: at(), k: "scrollTop=", from: d.get.call(this), to: v, stack: stack() });
+       }
+       d.set.call(this, v);
+     },
+   });
+   ["scrollTo", "scrollBy", "scrollIntoView"].forEach(function (n) {
+     var o = Element.prototype[n];
+     Element.prototype[n] = function () {
+       log.push({ at: at(), k: n, on: nameOf(this), args: JSON.stringify([].slice.call(arguments)), stack: stack() });
+       return o.apply(this, arguments);
+     };
+   });
+   var f = HTMLElement.prototype.focus;
+   HTMLElement.prototype.focus = function (opts) {
+     log.push({ at: at(), k: "focus", on: nameOf(this), preventScroll: !!(opts && opts.preventScroll), stack: stack() });
+     return f.apply(this, arguments);
+   };
+   var root = document.querySelector(${JSON.stringify(".cards-card")});
+   if (root !== null) {
+     root.addEventListener("scroll", function () {
+       log.push({ at: at(), k: "scroll", top: root.scrollTop });
+     }, { passive: true });
+   }
+   return null;
+ })()`;
 
 const CARD_ROOT = ".cards-card";
 const FILTER_INPUT = `${CARD_ROOT} [data-testid="cards-filter"] input`;
@@ -405,6 +473,154 @@ describe.skipIf(!SHOULD_RUN)(
           expect(back, "the card mounted behind the switch dropped the filter too").toEqual(
             unfiltered,
           );
+        } finally {
+          await app.close().catch(() => undefined);
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    // The card that arrives keeps a cursor of its own — the header it was left
+    // by — standing just above its top edge once it is placed. Nothing reveals
+    // that cursor on arrival, and nothing that adopts the deck's cursor may
+    // start to: the placement is the one write to the scroller in the switch.
+    test(
+      "a card whose own cursor stands just past the fold arrives without a hop",
+      async () => {
+        const tugbankPath = mkTempTugbank();
+        seedTugbankForLaunch(tugbankPath);
+        tugbankWrite(
+          tugbankPath,
+          "dev.tugapp.deck.layout",
+          "layout",
+          "json",
+          JSON.stringify(blob()),
+        );
+
+        const app = await launchTugApp({
+          testName: "at0792-stale-cursor-hop",
+          env: { TUGBANK_PATH: tugbankPath },
+          skipAccessibilityPreflight: true,
+          persistInTestMode: true,
+          restoreInTestMode: true,
+        });
+        const cards = kindBody(app, "cards");
+        const arriving = app.body(`C${HOP_TARGET_INDEX}`);
+        const departing = app.body(`C${STALE_CURSOR_INDEX}`);
+
+        /** Click a header in the card on screen and wait for its workspace to show. */
+        const goBy = async (target: string): Promise<void> => {
+          await cards.evalJS(centre(target));
+          await settle(200);
+          await cards.nativeClickAtElement(headerFor(target));
+          await app.waitForCondition<boolean>(
+            `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(target)}`,
+            { timeoutMs: 10_000 },
+          );
+          await cards.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(headerFor(target))}) !== null`,
+            { timeoutMs: 15_000 },
+          );
+          await settle(600);
+        };
+
+        try {
+          await app.waitForCondition<boolean>(
+            `typeof window.tugdeck !== "undefined"
+             && window.tugdeck.diag.getSpaces().spaces.length === ${COUNT}`,
+            { timeoutMs: 25_000 },
+          );
+          await cards.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(SPACE_HEADER_CELL)}).length === ${COUNT}`,
+            { timeoutMs: 25_000 },
+          );
+          await settle();
+
+          // ---- Visit the target, and leave it by a header above it: the
+          // target's card keeps that header as its own cursor, the state a
+          // reader's deck is in after any switch. ----
+          await goBy(HOP_TARGET);
+          await goBy(STALE_CURSOR);
+
+          // ---- In the card that arrived, stand the target's header on
+          // screen with the target card's stale cursor row — this workspace's
+          // header — just hidden above the top edge, so a reveal of that
+          // cursor once the target's card is placed has a few pixels to move. ----
+          const placed = await departing.evalJS<{
+            spacing: number;
+            rowHeight: number;
+            clientHeight: number;
+          }>(
+            `(function () {
+               var card = document.querySelector(${JSON.stringify(CARD_ROOT)});
+               var stale = document.querySelector(${JSON.stringify(headerFor(STALE_CURSOR))});
+               var target = document.querySelector(${JSON.stringify(headerFor(HOP_TARGET))});
+               var top = function (el) {
+                 return el.getBoundingClientRect().top - card.getBoundingClientRect().top;
+               };
+               var rowHeight = stale.getBoundingClientRect().height;
+               card.scrollTop += top(stale) + rowHeight + ${PAST_FOLD_PX};
+               return { spacing: top(target) - top(stale), rowHeight: rowHeight, clientHeight: card.clientHeight };
+             })()`,
+          );
+          await settle(200);
+          const before = await departing.evalJS<number | null>(offsetOf(HOP_TARGET));
+
+          // The target's card stands hidden behind this one: log every write
+          // to its scroller, and every call that can scroll it, with the stack.
+          const staleCursor = await arriving.evalJS<string>(
+            `(function () {
+               var c = document.querySelector(".cards-list .tug-list-view-cell[data-selected] [data-cards-space-id]");
+               return c === null ? "none" : c.getAttribute("data-cards-space-id");
+             })()`,
+          );
+          await arriving.evalJS<null>(SCROLL_WRITE_LOG);
+
+          await cards.nativeClickAtElement(headerFor(HOP_TARGET));
+          await app.waitForCondition<boolean>(
+            `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(HOP_TARGET)}`,
+            { timeoutMs: 10_000 },
+          );
+          await settle(600);
+          const after = await arriving.evalJS<number | null>(offsetOf(HOP_TARGET));
+          const writes = await arriving.evalJS<string>(
+            `JSON.stringify(window.__at0792writes === undefined ? "instrument lost" : window.__at0792writes)`,
+          );
+          note(
+            `at0792 stale cursor: target card's cursor=${staleCursor} placed=${JSON.stringify(placed)} ` +
+              `before=${before} after=${after}`,
+          );
+          note(`at0792 stale cursor: writes in the arriving card=${writes}`);
+
+          expect(staleCursor, "the target's card keeps the header it was left by as its cursor").toBe(
+            STALE_CURSOR,
+          );
+          expect(before, "the target's header is on screen where it is clicked").not.toBeNull();
+          expect(after, "and in the card that arrived").not.toBeNull();
+          expect(
+            after ?? Number.NaN,
+            "a cursor of the arriving card's own, standing just past the fold, does not move the clicked row",
+          ).toBeCloseTo(before ?? Number.NaN, 0);
+          const log = JSON.parse(writes) as Array<{ k: string; preventScroll?: boolean }> | string;
+          expect(typeof log, "the instrument survived the switch").not.toBe("string");
+          const entries = typeof log === "string" ? [] : log;
+          expect(
+            entries.filter((e) => e.k === "scrollTop=").length,
+            "the placement is the one write to the arriving card's scroller",
+          ).toBe(1);
+          expect(
+            entries
+              .filter(
+                (e) =>
+                  e.k === "scrollIntoView" ||
+                  e.k === "scrollTo" ||
+                  e.k === "scrollBy" ||
+                  (e.k === "focus" && e.preventScroll !== true),
+              )
+              .map((e) => e.k),
+            "and nothing else in the switch asks it to scroll",
+          ).toEqual([]);
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);

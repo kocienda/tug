@@ -8,9 +8,15 @@
  * `cards.listAnchor` store and proposed by whichever card the reader is
  * scrolling or clicking in. A card that comes on screen places its scroller
  * from the anchor, so the row the reader last touched is where they left it —
- * pixel for pixel when the arriving card's box matches the departing one,
- * at the same offset in a card that moved when it does not, and clamped
- * "nearest" so it stays in view when the arriving card is shorter.
+ * pixel for pixel when the arriving card's box matches the departing one, at
+ * the same offset in a card that moved or grew when it does not — a taller
+ * card is given the room past the list's end that the offset needs, rather
+ * than clamping the row lower ({@link slackForAnchor}) — and clamped "nearest"
+ * so it stays in view when the arriving card is shorter.
+ *
+ * Beside the anchor stands the list's one cursor (`cards.listCursor`): the row
+ * the keyboard is on, which a card coming on screen adopts as it places, so
+ * that no card keeps a cursor of its own from the last time it was shown.
  *
  * A workspace with no Workspaces card reads nothing, and the anchor stands for
  * the next card that shows.
@@ -23,7 +29,11 @@
  * @module lib/cards-list-anchor
  */
 
-import { cardsListAnchor, type CardsListAnchorValue } from "@/bus/declarations/arrangement";
+import {
+  cardsListAnchor,
+  cardsListCursor,
+  type CardsListAnchorValue,
+} from "@/bus/declarations/arrangement";
 import { pageBus, type PageBus } from "@/bus/page-bus";
 
 /** A row and its offset from the top of the card's scroller, px. */
@@ -71,13 +81,24 @@ export function anchorAfterScroll(
 }
 
 /**
+ * The `scrollTop` the anchor asks for before the scroller's range has a say:
+ * the row at its offset, the offset clamped "nearest" so a row anchored near
+ * the bottom of a tall card is still wholly in view in a shorter one.
+ */
+function wantedTop(anchor: ListAnchor, row: AnchorRow, viewport: AnchorViewport): number {
+  const lowest = Math.max(0, viewport.clientHeight - row.height);
+  const offset = Math.min(anchor.offset, lowest);
+  return Math.max(0, row.top - offset);
+}
+
+/**
  * The `scrollTop` that puts the anchor's row at its offset, or `null` when the
  * row is not in this list (the caller leaves the scroller where it is).
  *
- * The offset is clamped "nearest" first, so a row anchored near the bottom of
- * a tall card is still wholly in view in a shorter one; the result is then
- * clamped to the scroller's range, which near either end of the list leaves
- * the row as close to its offset as the list can put it.
+ * The result is clamped to the scroller's range. Near the top of the list
+ * that leaves the row as close to its offset as the list can put it; near the
+ * end a placement gives the scroller {@link slackForAnchor}'s room first, so
+ * the clamp does not move the row there.
  */
 export function scrollTopForAnchor(
   anchor: ListAnchor,
@@ -85,20 +106,63 @@ export function scrollTopForAnchor(
   viewport: AnchorViewport,
 ): number | null {
   if (row === null || row.id !== anchor.rowId) return null;
-  const lowest = Math.max(0, viewport.clientHeight - row.height);
-  const offset = Math.min(anchor.offset, lowest);
   const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-  return Math.min(max, Math.max(0, row.top - offset));
+  return Math.min(max, wantedTop(anchor, row, viewport));
 }
 
 /**
- * The shell's half: take each Workspaces card's proposed anchor as the deck's.
- * Called once, by the shell; a body proposes through the store and reads its
- * replica. Returns the release.
+ * How far past the list's end the scroller must reach to put the anchor's row
+ * at its offset, px; 0 when its range already reaches.
+ *
+ * Each workspace sizes its own Workspaces card, so the card a switch arrives
+ * in can be taller than the one the reader clicked in. A taller card has less
+ * to scroll, and a row anchored low near the list's end asks for a
+ * `scrollTop` the taller card cannot reach: clamped, every row lands lower by
+ * the shortfall. That shortfall is the room this returns, measured against
+ * the list's natural `scrollHeight` — the placement stands it below the list
+ * so the row lands where it was clicked.
+ */
+export function slackForAnchor(
+  anchor: ListAnchor,
+  row: AnchorRow | null,
+  viewport: AnchorViewport,
+): number {
+  if (row === null || row.id !== anchor.rowId) return 0;
+  const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+  return Math.max(0, wantedTop(anchor, row, viewport) - max);
+}
+
+/**
+ * The room still wanted after a scroll: no more than keeps the scroller's
+ * bottom edge where it is, so the room collapses as the reader scrolls back
+ * up out of it and never lets them scroll further into it. `naturalHeight` is
+ * the list's `scrollHeight` without the room.
+ */
+export function slackAfterScroll(
+  slack: number,
+  scrollTop: number,
+  clientHeight: number,
+  naturalHeight: number,
+): number {
+  return Math.max(0, Math.min(slack, scrollTop + clientHeight - naturalHeight));
+}
+
+/**
+ * The shell's half: take each Workspaces card's proposed anchor, and its
+ * proposed cursor, as the deck's. Called once, by the shell; a body proposes
+ * through the stores and reads their replicas. Returns the release.
  */
 export function shareCardsListAnchor(bus: PageBus = pageBus()): () => void {
   const store = cardsListAnchor.on(bus);
-  return store.onProposal((anchor) => {
+  const releaseAnchor = store.onProposal((anchor) => {
     store.set(anchor);
   });
+  const cursor = cardsListCursor.on(bus);
+  const releaseCursor = cursor.onProposal((rowId) => {
+    cursor.set(rowId);
+  });
+  return () => {
+    releaseAnchor();
+    releaseCursor();
+  };
 }

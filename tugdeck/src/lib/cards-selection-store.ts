@@ -10,7 +10,16 @@
  * the set through `useSyncExternalStore`, never its owner.
  *
  * The set is ordered by pick sequence, and carries the anchor a ⇧-extension
- * ranges from. Transient by design: never persisted, never restored.
+ * ranges from. Transient by design: never persisted, never restored across a
+ * launch.
+ *
+ * **One set per workspace, and only the active one's is the selection.** A
+ * workspace switch sets the departing workspace's set aside and puts back the
+ * one the arriving workspace was left with ({@link CardsSelectionStore.park},
+ * {@link CardsSelectionStore.unpark}), in memory only. The snapshot is always
+ * the active workspace's, so it is the only set that paints in the Workspaces
+ * list and the only one the deck's verbs act on; a parked set names cards no
+ * verb can reach until its workspace is shown again.
  *
  * Two rules keep it honest against a deck that moves underneath it:
  *
@@ -21,6 +30,8 @@
  * - **Activation outside the set collapses it.** Fronting a content card that
  *   is not selected means the user has moved on; the set becomes that card.
  *   Building a multi-selection never fronts anything, so it never trips this.
+ *   A switch fronting the arriving workspace's own card is not the user moving
+ *   on, so it leaves a restored set standing.
  *
  * The Cards list builds the set and moves its cursor in the Cards card's own
  * page, while the deck's verbs read them in the shell. So the shell owns
@@ -53,6 +64,8 @@ const EMPTY: LensSelectionSnapshot = { ids: [], anchorId: null };
 export class CardsSelectionStore extends Subscribable {
   private snapshot: LensSelectionSnapshot = EMPTY;
   private autoSelectSuppressed = false;
+  /** Each workspace's set, as it was left, while another workspace is shown. */
+  private readonly parked = new Map<string, LensSelectionSnapshot>();
 
   getSnapshot = (): LensSelectionSnapshot => this.snapshot;
 
@@ -138,6 +151,31 @@ export class CardsSelectionStore extends Subscribable {
     const suppressed = this.autoSelectSuppressed;
     this.autoSelectSuppressed = false;
     return suppressed;
+  }
+
+  /**
+   * Set `snapshot` aside as the set `spaceId` was left with. Notifies nobody:
+   * a parked set is not the selection. An empty one parks as nothing.
+   */
+  park(spaceId: string, snapshot: LensSelectionSnapshot): void {
+    if (snapshot.ids.length === 0) this.parked.delete(spaceId);
+    else this.parked.set(spaceId, snapshot);
+  }
+
+  /**
+   * The set `spaceId` was left with, pruned to the cards still in it, or
+   * `null` when it was left with none; taken back out of the parked sets
+   * either way, since it is about to be the selection again.
+   */
+  unpark(spaceId: string, liveIds: ReadonlySet<string>): LensSelectionSnapshot | null {
+    const left = this.parked.get(spaceId);
+    this.parked.delete(spaceId);
+    if (left === undefined) return null;
+    const ids = left.ids.filter((id) => liveIds.has(id));
+    if (ids.length === 0) return null;
+    const anchorId =
+      left.anchorId !== null && liveIds.has(left.anchorId) ? left.anchorId : null;
+    return { ids, anchorId };
   }
 
   /**
@@ -382,11 +420,31 @@ export function shareLayoutSelection(
  * prune runs first, and a `pickOnly` after it would put a dead id back into
  * a selection the prune had just cleaned. Both are the one-frame window the
  * deferral opened, closed at the write.
+ *
+ * **A workspace switch parks one set and restores another ([B05]).** The
+ * commit that changes the active workspace sets the departing set aside — as
+ * a synchronous pass would see it, so a pick still waiting for its frame is
+ * the one parked — and drops whatever was waiting to be written, since it
+ * belonged to the workspace being left. The arriving workspace's set, pruned
+ * to its cards, is written through the same door. A switch fronts the
+ * arriving workspace's own card in the same task, and when that workspace
+ * had a set to restore that activation does not collapse it: the reader went
+ * to a workspace, they did not front a card.
  */
 export function attachLayoutSelectionToDeck(
-  deck: CardDeck,
+  deck: CardDeck & { getSpacesSnapshot?: () => { readonly activeSpaceId: string } },
   selection: CardsSelectionStore = cardsSelectionStore,
 ): () => void {
+  /** The active workspace, for a stand-in deck that has none `null`. */
+  const activeSpace = (): string | null =>
+    deck.getSpacesSnapshot?.().activeSpaceId ?? null;
+  let lastSpace = activeSpace();
+  // The restored set waiting for its frame, which a collapse test in the same
+  // frame reads as the selection, as it reads a pending pick.
+  let pendingRestore: LensSelectionSnapshot | null = null;
+  let cancelRestore: CancelAfterPaint | null = null;
+  // Set by a switch that restored a set, until the task that made it ends.
+  let arriving = false;
   let lastFirstResponder = deck.getFirstResponderCardId();
   // The coalesced deferral's one slot. Non-null means a write is scheduled
   // and has not run; a later transition replaces the id rather than queueing
@@ -408,6 +466,44 @@ export function attachLayoutSelectionToDeck(
   const handle = (): void => {
     const state = deck.getSnapshot();
     const liveIds = new Set(state.cards.map((c) => c.id));
+    const space = activeSpace();
+    if (space !== lastSpace) {
+      const departing = lastSpace;
+      lastSpace = space;
+      const standing: LensSelectionSnapshot =
+        pendingPick !== null
+          ? { ids: [pendingPick], anchorId: pendingPick }
+          : (pendingRestore ?? selection.getSnapshot());
+      cancelPick?.();
+      cancelPrune?.();
+      cancelRestore?.();
+      cancelPick = cancelPrune = cancelRestore = null;
+      pendingPick = null;
+      pendingPrune = null;
+      pendingRestore = null;
+      if (departing !== null) {
+        selection.park(departing, {
+          ids: standing.ids.filter((id) => lastLive.has(id)),
+          anchorId: standing.anchorId,
+        });
+      }
+      const restored = (space === null ? null : selection.unpark(space, liveIds)) ?? EMPTY;
+      arriving = restored.ids.length > 0;
+      if (arriving) queueMicrotask(() => {
+        arriving = false;
+      });
+      if (!isTugMotionEnabled()) {
+        selection.replace(restored);
+      } else {
+        pendingRestore = restored;
+        cancelRestore = scheduleAfterPaint(() => {
+          cancelRestore = null;
+          const next = pendingRestore;
+          pendingRestore = null;
+          if (next !== null) selection.replace(next);
+        });
+      }
+    }
     lastLive = liveIds;
     if (!isTugMotionEnabled()) {
       selection.pruneTo(liveIds);
@@ -440,9 +536,13 @@ export function attachLayoutSelectionToDeck(
     // The selection as a synchronous pass would see it: the pending pick,
     // when one is scheduled, is the selection this frame already made.
     const standing =
-      pendingPick !== null ? [pendingPick] : selection.getSnapshot().ids;
+      pendingPick !== null
+        ? [pendingPick]
+        : (pendingRestore ?? selection.getSnapshot()).ids;
     if (standing.includes(fr)) return;
     if (suppressed) return;
+    // The switch's own activation of the workspace it restored a set for.
+    if (arriving) return;
     // Reduced motion stands down: there is no tween whose first frame the
     // React commit could land in, so the write costs nothing where it is.
     if (!isTugMotionEnabled()) {
@@ -468,9 +568,11 @@ export function attachLayoutSelectionToDeck(
   return () => {
     cancelPick?.();
     cancelPrune?.();
-    cancelPick = cancelPrune = null;
+    cancelRestore?.();
+    cancelPick = cancelPrune = cancelRestore = null;
     pendingPick = null;
     pendingPrune = null;
+    pendingRestore = null;
     unsubscribe();
   };
 }
