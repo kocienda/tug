@@ -41,7 +41,7 @@
 import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
-import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
+import { underHold, type BodyViewSnapshot, type CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { bodyOfKind } from "../_harness/card-reach";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
@@ -242,6 +242,7 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   const pngOf = (path: string) => pngs.get(path) ?? pngs.set(path, decodePngFile(path)).get(path)!;
   const blankFrames: string[] = [];
   const unhid: string[] = [];
+  const holds = (await app.handOvers()).switchHolds;
   for (const [id, pane] of panes) {
     const content = px(contentOf(pane));
     const settledInk = inkShare(settled, content);
@@ -251,6 +252,9 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
     let span: [number, number] | null = null;
     for (const f of reading.frames) {
       if (f.wall < gestureWall) continue;
+      // A frame under the host's held picture shows the departed workspace,
+      // not this card's view, whatever the host's sample says of it.
+      if (underHold(holds, f.wall)) continue;
       const sample = host.filter((s) => s.wall <= f.wall).at(-1);
       if (sample === undefined || !sample.bodies.some((b) => b.cardId === id && b.visible)) continue;
       const ink = inkShare(pngOf(f.path), content);

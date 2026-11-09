@@ -351,6 +351,44 @@ function follow<T>(store: SharedStore<T>, apply: (value: T) => void): void {
   if (store.arrived()) apply(store.getSnapshot());
 }
 
+/** The bound card's deck, which a page shown again watches for quiet. */
+let boundDeck: BodyCardDeck | null = null;
+/** How many frames running the deck must hold still before a page shown again says it is drawn. */
+const SHOWN_QUIET_FRAMES = 3;
+/** How long a page shown again waits for its deck to hold still at most ([L33]). */
+const SHOWN_QUIET_MAX_MS = 120;
+/** How long past its word a page shown again keeps its transitions off, for a commit just behind it. */
+const SHOWN_STILL_MS = 300;
+
+/**
+ * A page shown again after being parked says `painted` once more when it
+ * has drawn as shown: once its deck has held still for a few frames, so what
+ * the shell commits for the workspace just shown — its imposition, its
+ * replicas — is drawn first. A switch's held picture waits on that word, and
+ * lifts onto a page drawn for the workspace now shown. Until a moment after
+ * it, nothing on the page transitions (`body-page.css`).
+ */
+function sayDrawnWhenQuiet(): void {
+  const root = document.documentElement;
+  root.setAttribute("data-body-catching-up", "");
+  const started = performance.now();
+  let still = 0;
+  const unsubscribe = boundDeck?.subscribe(() => {
+    still = 0;
+  }) ?? (() => {});
+  const tick = (): void => {
+    still += 1;
+    if (still < SHOWN_QUIET_FRAMES && performance.now() - started < SHOWN_QUIET_MAX_MS) {
+      requestAnimationFrame(tick);
+      return;
+    }
+    unsubscribe();
+    postToHost(paintedToHost, { content: true });
+    setTimeout(() => root.removeAttribute("data-body-catching-up"), SHOWN_STILL_MS);
+  };
+  requestAnimationFrame(tick);
+}
+
 /**
  * The motion switch's two writers in a body: the shell's hand switch,
  * followed from its deck facts, and the body's own dormancy, which stills its
@@ -518,6 +556,7 @@ function signalReadyWhenQuiet(
   publisher: InstalledBodyPublisher,
   mounting: boolean,
   onMounted: () => void,
+  slowMs: number,
 ): void {
   let done = false;
   const releases: Array<() => void> = [];
@@ -525,6 +564,13 @@ function signalReadyWhenQuiet(
     if (done) return;
     done = true;
     for (const release of releases) release();
+    // A page the harness has made slow (`BodyBind.contentPaintDelayMs`)
+    // waits here, its content quiet and its lid down, as a page whose
+    // content arrives late.
+    if (slowMs > 0) window.setTimeout(land, slowMs);
+    else land();
+  };
+  const land = (): void => {
     scheduleAfterPaint(() => {
       onMounted();
       deck.revealLayer();
@@ -735,6 +781,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   });
   // Other cards' bindings, titles, identities and phases: this page's stores
   // read them from `deck.cards`, and the own card's arc follows the shell's.
+  boundDeck = deck;
   followDeckCards(cardId);
   followOwnArcBinding(cardId);
   follow(cardContext, (context) => deck.applyContext(context));
@@ -868,7 +915,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     },
   } as unknown as typeof window.tugdeck;
 
-  signalReadyWhenQuiet(cardId, deck, publisher, intent.kind === "mount", markMounted);
+  signalReadyWhenQuiet(cardId, deck, publisher, intent.kind === "mount", markMounted, bind.contentPaintDelayMs ?? 0);
 }
 
 (async () => {
@@ -952,8 +999,14 @@ async function bindBody(bind: BodyBind): Promise<void> {
     void bindBody(bind);
   });
   // Whether the host has this body shown; hidden long enough, it goes dormant.
+  // Shown again after being hidden, a page that has painted its content says
+  // so once more when it has drawn as shown (`sayDrawnWhenQuiet`).
+  let shownNow = false;
   onHostMessage(bodyVisibilityToPage, (visibility) => {
     bodyVisibilityStore.apply(visibility);
+    const shownAgain = visibility.shown && !shownNow;
+    shownNow = visibility.shown;
+    if (shownAgain && cardPainted.getSnapshot()) sayDrawnWhenQuiet();
   });
   // The host is about to carry this card's box to a new size: pin every
   // preserve scroller across it, as the shell's own crossing does for an

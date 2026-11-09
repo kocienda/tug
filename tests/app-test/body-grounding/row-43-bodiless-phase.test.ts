@@ -6,9 +6,12 @@
  * holding a Cards rail, parked. The Session card streams a turn; the Cards
  * workspace is shown under it, which parks the Session card's, and the Cards
  * body lists the parked card.
- * The parked body goes dormant past its delay and is evicted past the
- * host's, both shortened here, so for most of the turn the card has a body
- * that hears nothing, and then none. Its row's dot in the Cards body reads
+ * The parked body goes dormant past its delay, shortened here, and is then
+ * evicted by critical memory pressure, so for most of the turn the card has
+ * a body that hears nothing, and then none. Pressure rather than the hidden
+ * clock: a page the clock evicts is made again ahead once the lane is idle
+ * (`body-make-ahead.ts`), and one pressure takes stays bodiless, which is
+ * the card this row is about. Its row's dot in the Cards body reads
  * working through both tiers, and when the turn ends on tugcast — which no
  * page of that card hears — the dot goes still. The facts the body last
  * published said streaming, so a dot read from them would run for ever.
@@ -40,9 +43,10 @@ const A = "r43-a";
 const CARDS = "r43-cards";
 const SESSION_SPACE = "r43-session";
 const CARDS_SPACE = "r43-cards-space";
-/** The delays before dormancy and before eviction, shortened for the row. */
+/** The delay before dormancy, shortened for the row. */
 const DORMANT_AFTER_MS = 800;
-const EVICT_AFTER_MS = 1_500;
+/** How long critical pressure has to take the parked body. */
+const EVICT_WITHIN_MS = 5_000;
 const WORDS_PER_MESSAGE = 100;
 const MESSAGES = 2;
 /** How long the turn streams, at the stub's pace (a delta a word). */
@@ -108,7 +112,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
         restoreInTestMode: true,
       });
       try {
-        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS, evictAfterMs: EVICT_AFTER_MS });
+        await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
         const sid = randomUUID();
         const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-r43-project-")));
         onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
@@ -133,8 +137,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
         expect(dormantDot, "the Cards row runs for a dormant card mid-turn").toBe("running");
 
         // ---- Evicted: no body at all, and the row still runs ----
-        const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), EVICT_AFTER_MS + 5_000);
-        expect(gone.some((b) => b.cardId === A), "the parked body is evicted past the eviction delay").toBe(false);
+        await app.simulateMemoryPressure("critical");
+        const gone = await settleFor(() => app.bodies(), (all) => !all.some((b) => b.cardId === A), EVICT_WITHIN_MS);
+        await app.simulateMemoryPressure("normal");
+        expect(gone.some((b) => b.cardId === A), "the parked body is evicted by memory pressure").toBe(false);
         const evictedAt = Date.now() - streamingAt;
         const evictedDot = await cards.evalJS<string | null>(rowDot(sid));
         note(`evicted ${evictedAt} ms into the turn; the row's dot ${evictedDot}`);

@@ -8,7 +8,7 @@
  * @module host/declarations/lifecycle
  */
 
-import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, str, type Codec } from "../../bus/codec";
+import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, rec, str, type Codec } from "../../bus/codec";
 import { defineToHost, definePageCall, defineToPage, noReply } from "../declare";
 import type { TerminationVerdict } from "../../teardown";
 import type { CrossingAnchor, CrossingBand } from "../../lib/crossing-band";
@@ -331,22 +331,32 @@ export const bodyDestroyToHost = defineToHost<BodyDestroy>({
  * shorten them through `__tug.bodyDelays`
  * (`test-surface.ts`), which sends this, and the host honours it only under
  * the harness.
+ *
+ * `contentPaintDelayMs` makes named cards' pages slow: the host tells each
+ * page it binds to a named card, in its bind, to wait that long once its
+ * content is quiet before it says it is ready and paints its content.
  */
 export interface BodyDelays {
   readonly dormantAfterMs: number | null;
   readonly evictAfterMs: number | null;
   readonly readyDeadlineMs: number | null;
+  readonly contentPaintDelayMs: Readonly<Record<string, number>> | null;
 }
 
 export const bodyDelaysToHost = defineToHost<BodyDelays>({
   name: "bodyDelays",
   from: "shell",
-  codec: obj({ dormantAfterMs: nullable(num), evictAfterMs: nullable(num), readyDeadlineMs: nullable(num) }),
+  codec: obj({
+    dormantAfterMs: nullable(num),
+    evictAfterMs: nullable(num),
+    readyDeadlineMs: nullable(num),
+    contentPaintDelayMs: nullable(rec(num)),
+  }),
   samples: [
-    { dormantAfterMs: null, evictAfterMs: 1_500, readyDeadlineMs: null },
-    { dormantAfterMs: 400, evictAfterMs: null, readyDeadlineMs: 50 },
+    { dormantAfterMs: null, evictAfterMs: 1_500, readyDeadlineMs: null, contentPaintDelayMs: null },
+    { dormantAfterMs: 400, evictAfterMs: null, readyDeadlineMs: 50, contentPaintDelayMs: { c1: 1_200 } },
   ],
-  refused: [1_500, { dormantAfterMs: null, evictAfterMs: "1500", readyDeadlineMs: null }],
+  refused: [1_500, { dormantAfterMs: null, evictAfterMs: "1500", readyDeadlineMs: null, contentPaintDelayMs: null }],
 });
 
 /** The card whose body takes the keyboard, or null for the shell. */
@@ -398,6 +408,8 @@ export interface BodyBind {
   readonly componentId: string;
   readonly intent: Record<string, unknown>;
   readonly facts: BindFacts;
+  /** The harness's word that this page is slow: how long it waits, content quiet, before it says it is ready (`BodyDelays`). Absent in the product. */
+  readonly contentPaintDelayMs?: number;
 }
 
 const bind: BodyBind = {
@@ -416,8 +428,13 @@ export const bodyBindToPage = defineToPage<BodyBind>({
     componentId: str,
     intent: jsonObject,
     facts: obj({ theme: str, zoom: num, keyboardAccess: bool, appActive: bool }),
+    contentPaintDelayMs: optional(num),
   }),
-  samples: [bind, { ...bind, intent: { kind: "restore" }, facts: { ...bind.facts, theme: "", zoom: 1.25 } }],
+  samples: [
+    bind,
+    { ...bind, intent: { kind: "restore" }, facts: { ...bind.facts, theme: "", zoom: 1.25 } },
+    { ...bind, contentPaintDelayMs: 1_200 },
+  ],
   refused: ["c1", { ...bind, facts: undefined }, { ...bind, intent: null }],
 });
 

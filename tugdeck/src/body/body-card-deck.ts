@@ -213,6 +213,9 @@ export class BodyCardDeck implements CardDeck {
     if (this.layerShown || prev.layerShown !== next.layerShown) {
       this.setLayerShown(next.layerShown);
     }
+    if (prev.spaceId !== next.spaceId) {
+      for (const listener of [...this.spaceListeners]) listener();
+    }
   }
 
   /** The page is about to post ready: from here the layer reads as the shell says. */
@@ -223,6 +226,16 @@ export class BodyCardDeck implements CardDeck {
   /** The shell's last `card.context`. */
   getContext(): CardContextValue {
     return this.context;
+  }
+
+  private readonly spaceListeners = new Set<() => void>();
+
+  /** Hear the card's own workspace change: its context's `spaceId`. */
+  subscribeOwnSpace(callback: () => void): () => void {
+    this.spaceListeners.add(callback);
+    return () => {
+      this.spaceListeners.delete(callback);
+    };
   }
 
   private setLayerShown(shown: boolean): void {
@@ -512,27 +525,64 @@ export interface ArrangementReplicas {
 }
 
 /**
+ * The arrangement as a card of workspace `own` sees it: its own workspace
+ * the shown one. The shell's replicas describe the workspace it shows, so an
+ * arrangement card of a parked workspace — made ahead, or shown before and
+ * parked since — would draw the departed workspace's layout and list, and
+ * redraw only once its own came up: a frame of another workspace's picture
+ * in a switch ([B05] of the workspace-skeletons brief). Read from its own
+ * workspace, it already shows what it will when that workspace is shown, so
+ * a switch onto it changes nothing in it. The rest — band width, run heights
+ * — are the window's, the same whichever workspace is shown.
+ */
+export function seenFrom(
+  own: string | null,
+  live: ArrangementDeckValue,
+  spaces: ArrangementSpaces,
+): { deck: ArrangementDeckValue; spaces: ArrangementSpaces } {
+  const ownDeck = own === null || own === spaces.activeSpaceId ? undefined : spaces.decks[own];
+  if (own === null || ownDeck === undefined) return { deck: live, spaces };
+  const decks: Record<string, DeckState> = { [live.spaceId]: live.deck };
+  for (const [id, deck] of Object.entries(spaces.decks)) if (id !== own) decks[id] = deck;
+  return {
+    deck: { ...live, spaceId: own, deck: ownDeck },
+    spaces: { ...spaces, activeSpaceId: own, decks },
+  };
+}
+
+/**
  * The deck an arrangement card sees: the card deck's own members, read live
  * from it, and the spaces, bands and run heights from the replicas, which it
- * follows from here on. A replica keeps its object until its value moves, so
- * identity is the change: a moved deck or band re-synthesizes the card
- * deck's snapshot, and moved workspaces rebuild the spaces snapshot too.
+ * follows from here on, seen from the card's own workspace ({@link seenFrom}).
+ * A replica keeps its object until its value moves, so identity is the
+ * change: a moved deck or band re-synthesizes the card deck's snapshot, and
+ * moved workspaces rebuild the spaces snapshot too.
  */
 export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementReplicas): DeckView {
   let arrangement: BodyArrangement | null = null;
+  let seen: { own: string | null; live: ArrangementDeckValue; liveSpaces: ArrangementSpaces; deck: ArrangementDeckValue; spaces: ArrangementSpaces } | null =
+    null;
   let spacesSnapshot: SpacesSnapshot = NO_SPACES;
   const spacesListeners = new Set<() => void>();
 
   const apply = (): void => {
-    const deck = replicas.deck.getSnapshot();
-    const spaces = replicas.spaces.getSnapshot();
-    if (deck === null) return;
+    const live = replicas.deck.getSnapshot();
+    const liveSpaces = replicas.spaces.getSnapshot();
+    if (live === null) return;
     // A workspace switch arrives as two frames, one per replica. Until both
     // name the same workspace, the pair is torn: the new live deck beside the
     // old list, whose parked decks still hold the arriving workspace's cards.
     // The Cards card drew those cards under both workspaces, and React, handed
     // the same row key twice, left two cells in the DOM it no longer tracked.
-    if (deck.spaceId !== spaces.activeSpaceId) return;
+    if (live.spaceId !== liveSpaces.activeSpaceId) return;
+    // Seen from the card's own workspace, held by identity while neither
+    // the replicas nor the workspace moved, so the checks below still see
+    // an unmoved arrangement as unmoved.
+    const own = cardDeck.getContext().spaceId;
+    if (seen === null || seen.own !== own || seen.live !== live || seen.liveSpaces !== liveSpaces) {
+      seen = { own, live, liveSpaces, ...seenFrom(own, live, liveSpaces) };
+    }
+    const { deck, spaces } = seen;
     const prev = arrangement;
     if (prev !== null && prev.spaces === spaces && prev.deck === deck.deck && prev.bandWidth === deck.bandWidth &&
       prev.columnRunHeight === deck.columnRunHeight && prev.railRunHeight === deck.railRunHeight) {
@@ -598,6 +648,7 @@ export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementRepl
 
   replicas.deck.subscribe(apply);
   replicas.spaces.subscribe(apply);
+  cardDeck.subscribeOwnSpace(apply);
   apply();
   return view;
 }

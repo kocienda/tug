@@ -734,6 +734,13 @@ export interface DeckView extends CardDeck {
    */
   activateSpace: (spaceId: string) => void;
 
+  /**
+   * Mount that space without showing it, so its cards are made ahead of its
+   * first visit. A no-op on a space already mounted. Optional: only the deck
+   * manager holds the mounted set.
+   */
+  mountSpaceAhead?: (spaceId: string) => void;
+
   /** Rename a workspace. Trims; a name empty after trimming is refused. */
   renameSpace: (spaceId: string, name: string) => void;
 

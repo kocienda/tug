@@ -106,7 +106,7 @@ export function pageReveals(rows: readonly BodyLayerRow[], cardIds: readonly str
     const own = rows.filter((r) => r.cardId === id && r.wall >= choseWall).sort((a, b) => a.wall - b.wall);
     const up = own.findIndex((r) => r.faced);
     if (up < 0) continue;
-    const page = own.slice(up).find((r) => !r.faced && r.painted && !r.hidden && r.opacity > 0);
+    const page = own.slice(up).find((r) => !r.faced && r.painted && r.held !== true && !r.hidden && r.opacity > 0);
     reveals[id] = page === undefined ? null : page.wall;
   }
   return reveals;
@@ -430,7 +430,8 @@ export async function readGesture(
     for (const id of cardIds) {
       const r = rects[id];
       const host = layers.rows.filter((row) => row.cardId === id && row.wall <= f.wall).at(-1);
-      const viewShows = host !== undefined && !host.faced && !host.hidden && host.opacity > 0;
+      // Under a held picture the frame is the departed workspace, not this view.
+      const viewShows = host !== undefined && !host.faced && host.held !== true && !host.hidden && host.opacity > 0;
       const ms = Math.round(f.wall - choseWall);
       const firstUnhid = viewShows && unhid[id] === undefined;
       const content = holdsColour || firstUnhid ? classifyFrame(f, palettes[id], 8, contentPx(r)) : null;
@@ -472,7 +473,7 @@ export async function readGesture(
       // An open hole draws no grid, so the grid gate above cannot see one.
       // Canvas-coloured paint with no grid in it is a hole only where the
       // host had nothing of the card's on screen: a lid is its page's own.
-      const hostShows = host !== undefined && (host.faced || (!host.hidden && host.opacity > 0));
+      const hostShows = host !== undefined && (host.faced || host.held === true || (!host.hidden && host.opacity > 0));
       const classes = classifyFrame(f, palettes[id], 8, boxOf(r));
       if (!hostShows && showsBareHole(classes)) {
         bad.push(`${id} at ${ms} ms: an open hole in the box, canvas ${(classes.canvas * 100).toFixed(1)}% grid ${(classes.grid * 100).toFixed(1)}% bare ${(classes.bare * 100).toFixed(1)}%, nothing of the card's on screen`);

@@ -44,7 +44,7 @@ import { createTestBus, type TestBus } from "../../bus/test-bus";
 import type { CardDeck, DeckView } from "../../card-deck";
 import { cardArrivingOf, cardFoldedOf } from "../../deck-store-selectors";
 import type { CardStateBag, DeckState, TugPaneState } from "../../layout-tree";
-import { bodyPaneId, createBodyCardDeck, createDeckView, type ArrangementReplicas, type BodyCardDeck } from "../body-card-deck";
+import { bodyPaneId, createBodyCardDeck, createDeckView, seenFrom, type ArrangementReplicas, type BodyCardDeck } from "../body-card-deck";
 
 const substrate = installJsdom();
 afterAll(() => substrate.restore());
@@ -552,6 +552,10 @@ const DECK_VIEW_EVIDENCE: {
     await flush();
     expect(shellHeard).toEqual([["deck.activateSpace", { spaceId: "s1" }]]);
   },
+  mountSpaceAhead: (v) => {
+    // Only the shell's deck manager holds the mounted set; a page has none.
+    expect(v.mountSpaceAhead).toBeUndefined();
+  },
   renameSpace: async (v, { shellHeard, flush }) => {
     v.renameSpace("s1", "Work");
     await flush();
@@ -852,5 +856,39 @@ describe("a rail card", () => {
     b.applyContext(context());
     expect(b.getRailSide()).toBe(null);
     expect(c.n).toBe(3);
+  });
+});
+
+describe("seenFrom", () => {
+  const deckOf = (id: string): DeckState => ({ cards: [{ id, componentId: "layout", title: id, closable: true }], panes: [] }) as unknown as DeckState;
+  const home = deckOf("home-card");
+  const away = deckOf("away-card");
+  const live = { spaceId: "home", deck: home, bandWidth: 900, columnRunHeight: 700, railRunHeight: 680 };
+  const spaces = {
+    activeSpaceId: "home",
+    spaces: [{ id: "home", name: "Home" }, { id: "away", name: "Away" }],
+    mountedSpaceIds: ["home", "away"],
+    decks: { away },
+    liveSessions: {},
+    cardCounts: { home: 1, away: 1 },
+  };
+
+  test("a card of the shown workspace sees the replicas as they are", () => {
+    const seen = seenFrom("home", live, spaces);
+    expect(seen.deck).toBe(live);
+    expect(seen.spaces).toBe(spaces);
+  });
+
+  test("a card of a parked workspace sees its own workspace shown and the shown one parked", () => {
+    const seen = seenFrom("away", live, spaces);
+    expect(seen.deck).toEqual({ ...live, spaceId: "away", deck: away });
+    expect(seen.spaces.activeSpaceId).toBe("away");
+    expect(seen.spaces.decks).toEqual({ home });
+    expect(seen.spaces.mountedSpaceIds).toEqual(["home", "away"]);
+  });
+
+  test("a card whose workspace is unknown, or has no deck in the list, sees the replicas as they are", () => {
+    expect(seenFrom(null, live, spaces).deck).toBe(live);
+    expect(seenFrom("gone", live, spaces).spaces).toBe(spaces);
   });
 });

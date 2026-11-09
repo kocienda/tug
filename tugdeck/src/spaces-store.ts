@@ -38,7 +38,8 @@ export class SpacesStore extends Subscribable {
   /**
    * The workspaces React is holding mounted ([P01], [B06]).
    *
-   * A workspace joins on its first activation and never leaves except by
+   * A workspace joins on its first activation, or earlier when its cards are
+   * made ahead ({@link mountAhead}), and never leaves except by
    * being deleted: a switch hides and shows rather than unmounting, so the
    * cost of returning to a workspace the user has already visited is a style
    * change rather than a rebuild of every card in it. The boot workspace is
@@ -197,6 +198,18 @@ export class SpacesStore extends Subscribable {
    */
   activate(spaceId: string): void {
     this.activeId = spaceId;
+    this.mounted.add(spaceId);
+    this.notify();
+  }
+
+  /**
+   * Mount `spaceId` without showing it, so its cards are made ahead of a
+   * first visit: its panes render in their hidden layer, and their cards
+   * become body cards whose pages the shell may make while the lane is idle.
+   * A no-op for a space already mounted or not in the list.
+   */
+  mountAhead(spaceId: string): void {
+    if (this.mounted.has(spaceId) || this.indexOf(spaceId) === -1) return;
     this.mounted.add(spaceId);
     this.notify();
   }

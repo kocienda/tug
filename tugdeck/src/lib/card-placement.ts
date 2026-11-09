@@ -200,6 +200,13 @@ export interface BodyPlacement {
    */
   readonly face?: true;
   /**
+   * A card of a workspace not shown: in no pane of the shown deck, or in a
+   * layer the deck has parked. Its page, never shown, is one the host may
+   * put to sleep once it has painted (a page made ahead). Never an arriving
+   * card, which is hidden until its arrival and must not sleep before it.
+   */
+  readonly parked?: true;
+  /**
    * What the host draws the card's face from: its stand-in read into a
    * display list, on a `face` card only. Read when the card becomes a face,
    * and carried by every later placement that still marks it until the
@@ -257,6 +264,8 @@ export interface CardPlacementEntry {
   readonly sibling?: true;
   /** The card wants a face ({@link BodyPlacement.face}). */
   readonly face?: true;
+  /** The card is a parked workspace's ({@link BodyPlacement.parked}). */
+  readonly parked?: true;
   /** What its face draws ({@link BodyPlacement.faceDraw}). */
   readonly faceDraw?: FaceDraw;
   readonly z: number;
@@ -423,6 +432,7 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
         visible: b.visible,
         ...(b.sibling === true ? { sibling: true as const } : {}),
         ...(b.face === true ? { face: true as const } : {}),
+        ...(b.parked === true ? { parked: true as const } : {}),
         ...(b.faceDraw !== undefined ? { faceDraw: b.faceDraw } : {}),
         z: b.z,
         grips: f.grips,
@@ -454,6 +464,7 @@ export function samePlacement(a: Placement | null, b: Placement): boolean {
       p.z !== q.z ||
       p.sibling !== q.sibling ||
       p.face !== q.face ||
+      p.parked !== q.parked ||
       // By reference: a carried list is not news.
       p.faceDraw !== q.faceDraw ||
       p.planId !== q.planId ||
@@ -813,6 +824,8 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, las
         : {}),
       // A card hidden only for want of its first paint: the host may face it.
       ...(face ? { face: true as const } : {}),
+      // A parked workspace's card: a page the host may sleep once painted.
+      ...(facts === null || !facts.layerShown ? { parked: true as const } : {}),
       ...(drawn !== null ? { faceDraw: drawn.draw, faceKey: drawn.key } : {}),
     });
   }

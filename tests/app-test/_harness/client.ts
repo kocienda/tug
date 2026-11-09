@@ -1476,11 +1476,29 @@ export interface HandOverAccount {
   standing: string[];
   /** What the host's reveal sets did: one line per open, hold, follow and landing, wall-clock ms first. */
   revealLog?: string[];
+  /** The host's held pictures over switches onto painted pages, oldest first: a frame inside one shows the departed workspace. */
+  switchHolds?: SwitchHoldRecord[];
 }
 
 /** The host's last 16 hand-overs and the faces on screen now. */
 export function handOvers(caller: HarnessCaller): Promise<HandOverAccount> {
   return caller.rpcCall("handOvers", {});
+}
+
+/** One held picture over a switch onto painted pages (`BodySwitchHold`). */
+export interface SwitchHoldRecord {
+  serial: number;
+  cards: string[];
+  /** Wall clock, ms, when the picture went up and came down (null while it stands). */
+  fromWall: number;
+  toWall: number | null;
+  heldMs: number | null;
+  outcome: "holding" | "landed" | "deadline";
+}
+
+/** Whether a frame captured at `wall` was taken under a held picture. */
+export function underHold(holds: readonly SwitchHoldRecord[] | undefined, wall: number): boolean {
+  return (holds ?? []).some((h) => wall >= h.fromWall && (h.toWall === null || wall <= h.toWall));
 }
 
 /** One body's host layers at one host frame, as `bodyLayers` samples them. */
@@ -1497,6 +1515,8 @@ export interface BodyLayerRow {
   opacity: number;
   /** A host face stands for the card. */
   faced: boolean;
+  /** A switch's held picture stands over the whole window: nothing beneath it is seen. */
+  held?: boolean;
   /** The host shows it: placed visible and showable. */
   shown: boolean;
   start: "warm" | "cold";

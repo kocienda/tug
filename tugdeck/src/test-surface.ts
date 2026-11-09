@@ -617,8 +617,13 @@ import {
  * raised from this page as any caller raises one, so a test can see where
  * it is drawn — in the overlay page wherever the host keeps one — and that
  * it stands clear of the rails. Additive; major stays `2`.
+ *
+ * `2.59.0`: adds `contentPaintDelayMs` to {@link TugTestSurface.bodyDelays}:
+ * named cards' pages wait that long, content quiet and lid down, before they
+ * say they are ready, so a test can make a switch's page slow. Additive;
+ * major stays `2`.
  */
-export const SURFACE_VERSION = "2.58.0" as const;
+export const SURFACE_VERSION = "2.59.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -629,6 +634,7 @@ const hostBodyDelays: { -readonly [K in keyof BodyDelays]: BodyDelays[K] } = {
   dormantAfterMs: null,
   evictAfterMs: null,
   readyDeadlineMs: null,
+  contentPaintDelayMs: null,
 };
 
 /**
@@ -1881,12 +1887,18 @@ export interface TugTestSurface {
    * has set both, so `{ dormantAfterMs: 400, pageDormantAfterMs: null }`
    * shortens the host's clock and leaves every page on its constant
    * (SURFACE_VERSION 2.57.0).
+   *
+   * `contentPaintDelayMs` makes the named cards' pages slow: each waits
+   * that long, its content quiet and its lid down, before it says it is
+   * ready and paints its content — told to the host, which tells each page
+   * bound from then on in its bind (SURFACE_VERSION 2.59.0).
    */
   bodyDelays(delays: {
     dormantAfterMs?: number | null;
     pageDormantAfterMs?: number | null;
     evictAfterMs?: number | null;
     readyDeadlineMs?: number | null;
+    contentPaintDelayMs?: Record<string, number> | null;
   }): void;
 
   /**
@@ -3693,10 +3705,12 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       }
       if (delays.evictAfterMs !== undefined) hostBodyDelays.evictAfterMs = delays.evictAfterMs;
       if (delays.readyDeadlineMs !== undefined) hostBodyDelays.readyDeadlineMs = delays.readyDeadlineMs;
+      if (delays.contentPaintDelayMs !== undefined) hostBodyDelays.contentPaintDelayMs = delays.contentPaintDelayMs;
       if (
         delays.dormantAfterMs !== undefined ||
         delays.evictAfterMs !== undefined ||
-        delays.readyDeadlineMs !== undefined
+        delays.readyDeadlineMs !== undefined ||
+        delays.contentPaintDelayMs !== undefined
       ) {
         postToHost(bodyDelaysToHost, { ...hostBodyDelays });
       }

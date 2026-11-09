@@ -38,6 +38,24 @@ final class BodyHandOverTests: XCTestCase {
         check("every face is listed", plan.faces == [HandOverFace(cardId: "a", rect: left), HandOverFace(cardId: "b", rect: right)], "\(plan.faces)")
     }
 
+    func testEveryStandInArrivesWithTheSetDrawnOrNot() throws {
+        // A switch onto two cards, one whose stand-in the shell could not
+        // read into a face: both stand in, so the reveal set holds both.
+        let text = CGRect(x: 0, y: 40, width: 1400, height: 500)
+        let plan = BodyHandOver.plan(
+            onScreen: ["text": text],
+            entries: [
+                try entry("text", text, visible: false),
+                try entry("a", left, visible: false, face: true),
+                try entry("b", right, visible: false, face: true, drawn: false),
+            ]
+        )
+        check("only the drawn one is a face", plan.faces.map(\.cardId) == ["a"], "\(plan.faces)")
+        check("both stand in", plan.standIns == ["a", "b"], "\(plan.standIns)")
+        let none = BodyHandOver.plan(onScreen: ["a": left], entries: [try entry("b", CGRect(x: 0, y: 600, width: 700, height: 300), visible: false, face: true)])
+        check("and with nothing handed over, the same", none.standIns == ["b"], "\(none.standIns)")
+    }
+
     func testADepartingViewMeetingNoFaceListsNoFaces() throws {
         // A close: `a` goes, and the face waits in a pane `a` never stood over.
         let below = CGRect(x: 0, y: 600, width: 700, height: 300)
@@ -239,5 +257,28 @@ final class BodyHandOverTests: XCTestCase {
         check("and d leaves", more == ["d"], "\(more)")
         check("b is held while e waits", set.painted("b") == .hold, "not held")
         check("e completes it", set.painted("e") == .complete, "not complete")
+    }
+
+    func testAPlacementHandingNothingOverOnlyAddsToTheSet() {
+        guard var set = BodyRevealSet.open(faces: ["a", "b"], painted: { _ in false }) else {
+            return check("the set opens", false, "nil")
+        }
+        // A later card stands in; b no longer does, read as shown under its cover.
+        set.join(["a", "s", "p"], painted: { $0 == "p" })
+        check("an unpainted newcomer waits, a painted one does not, and nobody leaves", set.waiting == ["a", "b", "s"], "\(set.waiting)")
+        check("a is held", set.painted("a") == .hold, "not held")
+        check("b is held", set.painted("b") == .hold, "not held")
+        check("s completes it", set.painted("s") == .complete, "not complete")
+    }
+
+    func testAClosedCardIsNeitherHeldNorWaitedOn() {
+        guard var set = BodyRevealSet.open(faces: ["a", "b", "c"], painted: { _ in false }) else {
+            return check("the set opens", false, "nil")
+        }
+        // c is closed before its page is made: the set lands without it.
+        set.forget("c")
+        check("c is no member", !set.faces.contains("c") && !set.waiting.contains("c"), "\(set.faces) \(set.waiting)")
+        check("a is held", set.painted("a") == .hold, "not held")
+        check("b completes it", set.painted("b") == .complete, "not complete")
     }
 }

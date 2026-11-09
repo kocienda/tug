@@ -101,6 +101,7 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
       visible: bool,
       sibling: trueFlag,
       face: trueFlag,
+      parked: trueFlag,
       faceDraw: optional(faceDrawCodec),
       z: num,
       grips: arr(edge),
@@ -200,6 +201,19 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           railTravel: { kind: "flow" },
         },
         {
+          cardId: "c5",
+          ...SAMPLE_RECT,
+          view: { x: 111, y: 86, width: 418, height: 503 },
+          insets: { top: 10, right: 10, bottom: 10, left: 10 },
+          shell: [],
+          visible: false,
+          parked: true,
+          z: 0,
+          grips: [],
+          free: false,
+          min: { width: 0, height: 0 },
+        },
+        {
           cardId: "c4",
           ...SAMPLE_RECT,
           view: { x: 111, y: 86, width: 418, height: 503 },
@@ -293,6 +307,27 @@ export const cardGestureToHost = defineToHost<CardGestureBegin>({
     { phase: "begin", kind: "move", meta: false, alt: false },
     { phase: "begin", kind: "fling", x: 1, y: 2, meta: false, alt: false },
   ],
+});
+
+/** `switchHold`: a workspace switch is starting onto these cards' painted pages. */
+export interface SwitchHold {
+  /** The arriving workspace's shown cards whose pages have painted. */
+  readonly cardIds: readonly string[];
+}
+
+/**
+ * A workspace switch onto pages that have already painted is starting, sent
+ * in the task that swaps the deck, before the shell renders the switched
+ * frame. The host holds a picture of the window as it stands until the
+ * shell's switched frame has rendered and every named card's page is on,
+ * then lifts it in one transaction ([B05] of the workspace-skeletons brief).
+ */
+export const switchHoldToHost = defineToHost<SwitchHold>({
+  name: "switchHold",
+  from: "shell",
+  codec: obj({ cardIds: arr(str) }),
+  samples: [{ cardIds: ["c1", "c2"] }],
+  refused: [null, { cardIds: "c1" }],
 });
 
 /**

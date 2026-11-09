@@ -140,6 +140,10 @@ struct CardPlacementEntry: Decodable, Equatable {
     /// show yet: the shell paints its stand-in, which a hand-over's face
     /// covers while a departing view goes (`BodyHandOver`).
     var face: Bool?
+    /// Present, and true, for a parked workspace's card: a never-shown page
+    /// of one sleeps once it has painted (a page made ahead). Never an
+    /// arriving card, which waits hidden on its paint to be shown.
+    var parked: Bool?
     /// What a face entry's face draws: its stand-in as the shell read it.
     var faceDraw: FaceDraw?
     /// The pane's computed `z-index`.
@@ -302,6 +306,12 @@ struct BodyCreate: Decodable, Equatable {
     var guardsClose: Bool?
 }
 
+/// `switchHold`: a workspace switch is starting onto these cards' painted
+/// pages; the host holds the window's picture until they are on.
+struct SwitchHold: Decodable, Equatable {
+    var cardIds: [String]
+}
+
 /// `bodyDestroy`: the shell is done with a card's body.
 struct BodyDestroy: Decodable, Equatable {
     var cardId: String
@@ -317,11 +327,14 @@ struct BodyPainted: Decodable, Equatable {
 /// `bodyDelays`: the harness's seam on the host's body clocks, never sent by
 /// the product — how long a hidden body waits before it is declared dormant,
 /// how long it keeps its process, and how long a new page has to say it is
-/// ready, ms; nil for the host's own constant.
+/// ready, ms; nil for the host's own constant. `contentPaintDelayMs` names
+/// cards whose pages are made slow: the host tells each page it binds to
+/// one, in its bind, how long to wait once its content is quiet.
 struct BodyDelays: Decodable, Equatable {
     var dormantAfterMs: Double?
     var evictAfterMs: Double?
     var readyDeadlineMs: Double?
+    var contentPaintDelayMs: [String: Double]?
 }
 
 /// `bodyFocus`: the card whose body takes the keyboard, or nil for the shell.
@@ -524,6 +537,8 @@ struct BodyBind: Codable, Equatable {
     var componentId: String
     var intent: JSONObject
     var facts: BindFacts
+    /// The harness's word that this page is slow (`BodyDelays`); nil in the product.
+    var contentPaintDelayMs: Double? = nil
 }
 
 /// `onBodyState`: what the host reports of a body to the shell.
@@ -945,7 +960,7 @@ enum ScrollPhaseEdge: String, Codable, Equatable {
 /// names it.
 enum ToHostName: String, CaseIterable {
     // Placement and gestures.
-    case placeCards, cardGesture, cardPlan
+    case placeCards, cardGesture, cardPlan, switchHold
     // The overlay's view.
     case overlayCreate, overlayClaim
     // Page lifecycle.
@@ -965,7 +980,7 @@ enum ToHostName: String, CaseIterable {
         switch self {
         case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
              .bodyCreate, .bodyDestroy, .bodyDelays, .bodyFocus, .hostFrames,
-             .cardPlan, .placeCards, .overlayCreate:
+             .cardPlan, .placeCards, .switchHold, .overlayCreate:
             return true
         default:
             return false
@@ -1010,6 +1025,7 @@ enum ToHost {
     case placeCards(PlaceCards)
     case cardGesture(CardGestureBegin)
     case cardPlan(CardPlan)
+    case switchHold(SwitchHold)
     case overlayCreate
     case overlayClaim(CardHitRegion.Claim)
     case bodyHello
@@ -1068,6 +1084,7 @@ enum ToHost {
         case .placeCards: return .placeCards(try read(PlaceCards.self))
         case .cardGesture: return .cardGesture(try read(CardGestureBegin.self))
         case .cardPlan: return .cardPlan(try read(CardPlan.self))
+        case .switchHold: return .switchHold(try read(SwitchHold.self))
         case .overlayCreate: _ = try read(EmptyPayload.self); return .overlayCreate
         case .overlayClaim: return .overlayClaim(try read(CardHitRegion.Claim.self))
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello

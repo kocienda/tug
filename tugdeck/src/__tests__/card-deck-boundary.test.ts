@@ -40,6 +40,7 @@ const SHELL_DECK_READERS: Record<string, string> = {
   "lib/card-placement.ts": "measures the shell's panes into body placements",
   "lib/body-shell.ts": "the shell's side of every body: arrangement, spaces and runs it sends",
   "lib/body-arrangement.ts": "projects the shell's arrangement for a listing body",
+  "lib/body-make-ahead.ts": "mounts the shell's parked workspaces unshown so their cards' pages are made ahead",
   "lib/body-handoff.ts": "hands a shell card's state over to its body",
   "lib/bodiless-facts-store.ts": "follows the sessions of the cards in workspaces the shell has not shown, which have no page",
   "lib/host-card-gesture.ts": "commits a body card's move or resize on the shell's arrangement",

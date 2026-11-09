@@ -277,6 +277,7 @@ import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
+import { spaceWillSwitch } from "@/lib/space-switch-signal";
 import {
   mayDeferCommit,
   reactivateCurrentFocusDestination,
@@ -1301,6 +1302,11 @@ export class DeckManager implements IDeckManagerStore {
   public getSpaceDeck = (spaceId: string): DeckState | null =>
     this.spacesStore.deckOf(spaceId, this.getSnapshot());
 
+  /** Mount a parked space unshown, its cards to be made ahead — see the store interface. */
+  public mountSpaceAhead = (spaceId: string): void => {
+    this.spacesStore.mountAhead(spaceId);
+  };
+
   /**
    * Every card id this instance holds, across every space.
    *
@@ -1374,6 +1380,9 @@ export class DeckManager implements IDeckManagerStore {
     // incoming one it would stand in a workspace it was never part of.
     this._reapDepartures();
     const incomingDeck = incoming.deck;
+    // Before the swap, in this task: the body shell asks the host to hold
+    // the window's picture over a switch onto pages that have painted.
+    spaceWillSwitch(spaceId, incomingDeck);
 
     // The switch instrument ([P09]). Every reading below is a delta from
     // `t0`, so the phases are separable and `totalMs` is the whole

@@ -1127,12 +1127,16 @@ export class App {
    * `pageDormantAfterMs` sets the pages' clock alone, after `dormantAfterMs`
    * has set both, so a test can leave the page's clock long and see the
    * host's dormant declaration arrive by itself.
+   * `contentPaintDelayMs` makes the named cards' pages slow: each waits that
+   * long, its content quiet and its lid down, before it says it is ready and
+   * paints its content.
    */
   bodyDelays(delays: {
     dormantAfterMs?: number | null;
     pageDormantAfterMs?: number | null;
     evictAfterMs?: number | null;
     readyDeadlineMs?: number | null;
+    contentPaintDelayMs?: Record<string, number> | null;
   }): Promise<null> {
     return this.evalJS<null>(`(window.__tug.bodyDelays(${JSON.stringify(delays)}), null)`);
   }

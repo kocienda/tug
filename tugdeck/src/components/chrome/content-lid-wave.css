@@ -1,0 +1,23 @@
+/* The wave over a lidded content box (`content-lid-wave.tsx`): centred,
+   above the body page's own lid (`body-page.css`), answering no point. */
+.tug-content-lid-wave {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2147483001;
+}
+
+/* Clear until armed, two painted frames after it mounts
+   (`content-lid-wave.tsx`). A clock in milliseconds could not say this: the
+   first frame that paints a lid can come long after the lid is made — a
+   switch's commit and the host's snapshot of the departing view lie between
+   — and an animation delay ran out unseen in every reading of a switch.
+   A wave the host's face has drawn (`data-face-drawn`, `lib/face-draw.ts`)
+   stands at once: the face showed it from the cut, and retires before the
+   delay can run. */
+.tug-content-lid-wave:not([data-lid-wave-armed]):not([data-face-drawn]) {
+  opacity: 0;
+}

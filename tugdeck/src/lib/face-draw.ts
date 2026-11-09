@@ -55,6 +55,23 @@ export interface FaceDraw {
 export const FACE_DRAW_ELEMENT_CAP = 128;
 
 /**
+ * An element the face draws as it will stand, whatever its opacity reads at
+ * the cut: the lid's wave, which waits out a short delay transparent
+ * (`components/chrome/content-lid-wave.tsx`). A face stands from the cut, so
+ * a face read inside the delay would otherwise draw the box bare.
+ */
+export const FACE_REST_ATTRIBUTE = "data-face-rest";
+
+/**
+ * Written by {@link faceDrawOf} on each {@link FACE_REST_ATTRIBUTE} element it
+ * reads: a face has shown it at rest, so it stands at rest from here in the
+ * shell too. The face retires as soon as the shell's switched frame is up,
+ * which can come before the element's own delay has run, and a box that wore
+ * the wave on its face must not go bare beneath it.
+ */
+export const FACE_DRAWN_ATTRIBUTE = "data-face-drawn";
+
+/**
  * An `rgb()`/`rgba()` colour, as computed style serializes one, written
  * `rgba(r, g, b, a)`; null for anything else, and for a colour with no
  * alpha at all, which paints nothing.
@@ -133,7 +150,9 @@ function cssColorToRgba(css: string): string | null {
  * viewport points). A box is kept for every element that paints a
  * background colour or a border; a text run for every element whose own
  * text is not blank, its rect the extent of that text. Elements not
- * rendered, invisible, or fully transparent are skipped with what they hold.
+ * rendered, invisible, or fully transparent are skipped with what they hold,
+ * but for one marked {@link FACE_REST_ATTRIBUTE}, which is drawn at rest and
+ * marked {@link FACE_DRAWN_ATTRIBUTE}.
  * `zoom` is the deck's View › Zoom factor: computed lengths are the deck's
  * own, and the face draws them in viewport points, as its rects are.
  */
@@ -146,10 +165,12 @@ export function faceDrawOf(standIn: Element, view: Rect, zoom = 1): FaceDraw {
   for (const el of elements) {
     if (skipped.some((s) => s.contains(el))) continue;
     const style = getComputedStyle(el);
-    if (style.display === "none" || style.opacity === "0") {
+    const rest = el.hasAttribute(FACE_REST_ATTRIBUTE);
+    if (style.display === "none" || (style.opacity === "0" && !rest)) {
       skipped.push(el);
       continue;
     }
+    if (rest) el.setAttribute(FACE_DRAWN_ATTRIBUTE, "");
     if (style.visibility === "hidden") continue;
     if (el instanceof SVGSVGElement) {
       const r = el.getBoundingClientRect();

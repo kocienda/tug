@@ -29,6 +29,12 @@ struct HandOverPlan: Equatable {
     var faces: [HandOverFace]
     /// Leaving views that meet a face: hidden only in the hand-over's transaction.
     var handedOver: [String]
+    /// Every card the placement shows by its shell stand-in for want of a
+    /// paint, drawn as a face or not, whether or not a hand-over is due. A
+    /// card whose stand-in the shell could not read into a face, or that
+    /// joins the placements after the switch's hand-over, still arrives with
+    /// the rest, so the reveal set holds it with them.
+    var standIns: [String] = []
 }
 
 enum BodyHandOver {
@@ -48,7 +54,8 @@ enum BodyHandOver {
             guard let rect = onScreen[cardId] else { return false }
             return faces.contains { meets(rect, $0.rect) }
         }
-        return HandOverPlan(leaving: leaving, faces: handedOver.isEmpty ? [] : faces, handedOver: handedOver)
+        let standIns = entries.filter { $0.face == true }.map(\.cardId)
+        return HandOverPlan(leaving: leaving, faces: handedOver.isEmpty ? [] : faces, handedOver: handedOver, standIns: standIns)
     }
 
     /// Every entry the shell marked `face` and read a display list for, in
@@ -183,20 +190,25 @@ enum BodyHandOver {
     }
 }
 
-/// A switch's faced cards, revealed as one set ([B04] of the switch's brief).
+/// A switch's arriving cards, revealed as one set ([B04] of the switch's brief).
 ///
-/// When a hand-over faces several cards whose pages have not painted, each
-/// page would show the moment it paints, and the lane makes them two at a
-/// time: the set pops in one card after another over a second or more. The
-/// set holds each member's paint — not shown, not reported to the shell, its
-/// cover kept — until every member has painted, and the controller then lands
-/// them all in one transaction. A horizon from the switch releases the hold,
-/// so a page that never paints holds nothing for ever ([L33]); past it,
-/// painted cards show as they come.
+/// When a hand-over stands several cards on their stand-ins whose pages have
+/// not painted, each page would show the moment it paints, and the lane
+/// makes them two at a time: the set pops in one card after another over a
+/// second or more. The members are every card standing in, a drawn face or
+/// not. The set holds each member's paint — not shown, not reported to the
+/// shell, its cover kept — until every member's content has painted, and the
+/// controller then lands them all in one transaction. A member counts at its
+/// content paint only, never its chrome's. A horizon from the switch releases
+/// the hold, so a page that never paints holds nothing for ever ([L33]): at
+/// it the painted members land together, and each member still to paint
+/// keeps its skeleton, the wave on it, until its content paints, then lands
+/// alone — the one place a card lands apart from its set.
 struct BodyRevealSet: Equatable {
     /// How long a set may hold, from its hand-over: past the lane's slowest
     /// recorded set of first paints (eight pages at 1.45 s, a create's five
-    /// rail cards at 1.6 s), so an ordinary set lands whole.
+    /// rail cards at 1.6 s, a cold switch onto eight cards of a user-shaped
+    /// deck at 1.39 s), so an ordinary set lands whole.
     static let horizonMs = 2_000
 
     /// What a member's paint does.
@@ -235,6 +247,14 @@ struct BodyRevealSet: Equatable {
         if faces.contains(cardId) { waiting.insert(cardId) }
     }
 
+    /// `cardId` was closed: the set neither holds it nor waits on it. A card
+    /// closed before its page was made would otherwise be waited on to the
+    /// horizon and then stand as a straggler that never paints.
+    mutating func forget(_ cardId: String) {
+        faces.remove(cardId)
+        waiting.remove(cardId)
+    }
+
     /// A later hand-over of the same switch faces `next`: a placement
     /// re-posted as the shell's stand-ins settle, which may name the faces
     /// differently. The set follows them — a card still faced keeps its
@@ -248,5 +268,17 @@ struct BodyRevealSet: Equatable {
         waiting = waiting.intersection(nextFaces).union(arrived)
         faces = nextFaces
         return left
+    }
+
+    /// A placement that hands nothing over stands `next` in: a card among
+    /// them the set does not hold yet, and whose page has not painted, joins
+    /// it and waits — a card whose page the shell asked for after the
+    /// switch's commit. No card leaves: the shell stops standing in a card
+    /// it reads as shown, as a revived one under its cover, and that is no
+    /// reason to land it apart from its set.
+    mutating func join(_ next: [String], painted: (String) -> Bool) {
+        let arrived = Set(next).subtracting(faces).filter { !painted($0) }
+        faces.formUnion(arrived)
+        waiting.formUnion(arrived)
     }
 }

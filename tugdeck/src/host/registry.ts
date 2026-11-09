@@ -18,6 +18,7 @@ import {
   cardGestureToPage,
   cardInsetsToPage,
   placeCardsToHost,
+  switchHoldToHost,
   windowResizeToPage,
 } from "./declarations/geometry";
 import {
@@ -92,6 +93,7 @@ export const TO_HOST: readonly ToHost<unknown>[] = [
   placeCardsToHost,
   cardGestureToHost,
   cardPlanToHost,
+  switchHoldToHost,
   // overlay
   overlayCreateToHost,
   overlayClaimToHost,

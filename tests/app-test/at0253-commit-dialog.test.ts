@@ -18,7 +18,10 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor/landing-message-structure.ts
  * @covers tugdeck/src/lib/changeset-draft-store.ts
  * @covers tugdeck/src/lib/landing-receipt.ts
- * @covers tugrust/crates/tugchanges-core/
+ * @covers tugrust/crates/tugchanges-core/src/changes.rs
+ * @covers tugrust/crates/tugchanges-core/src/ledger.rs
+ * @covers tugrust/crates/tugchanges-core/src/commit.rs
+ * @covers tugrust/crates/tugchanges-core/src/preflight.rs
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  */
 

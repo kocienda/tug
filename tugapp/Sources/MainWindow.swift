@@ -1755,6 +1755,21 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return NSImage(cgImage: cropped, size: containerView.bounds.size)
     }
 
+    /// The window's container as it stands now, bodies included, as a view
+    /// above everything in it that answers no point — or nil when the window
+    /// server cannot answer. The caller takes it down.
+    func holdPicture() -> NSView? {
+        guard let composite = containerComposite() else { return nil }
+        let picture = BodyHeldPicture(frame: containerView.bounds)
+        picture.layer?.contents = composite.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        picture.autoresizingMask = [.width, .height]
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        containerView.addSubview(picture, positioned: .above, relativeTo: nil)
+        CATransaction.commit()
+        return picture
+    }
+
     /// Capture the current WebView content as a snapshot overlay so the user
     /// sees a frozen frame while the page reloads. The overlay is added to
     /// the container view (sibling of the WebView, not a child) so WKWebView's
@@ -2941,6 +2956,10 @@ extension MainWindow {
         case .placeCards(let placement):
             // The shell's placement of every card's view.
             bodies.placeCards(placement)
+        case .switchHold(let hold):
+            // A switch onto painted pages is starting, before the shell's
+            // switched frame: hold the window's picture over it.
+            bodies.holdSwitch(hold.cardIds)
         case .cardGesture(let begin):
             // A card's page has taken a title-bar or grip press for the host
             // to carry. The shell never posts this.

@@ -64,6 +64,11 @@ html[data-body-page][data-chrome-frame] #deck-container {
   z-index: 2147483000;
 }
 
+/* The lid's wave stands only while the lid does (`content-lid-wave.tsx`). */
+.body-chrome-frame[data-content-painted] .tug-content-lid-wave {
+  display: none;
+}
+
 .body-canvas,
 .body-pane-frame,
 .body-pane-root {
@@ -123,4 +128,15 @@ html[data-body-page][data-chrome-frame] #deck-container {
 
 .body-pane-frame:not([data-focused="true"])::after {
   opacity: 1;
+}
+
+/* A page shown again after being parked catches up on what moved while it
+   was away under the host's held picture (`BodySwitchHold`), and lands it at
+   once: a glide begun under the picture would still be moving when the
+   picture lifts, a frame of neither workspace. Lifted a moment after the
+   page has said it is drawn as shown (`body-main.ts`). */
+:root[data-body-catching-up] *,
+:root[data-body-catching-up] *::before,
+:root[data-body-catching-up] *::after {
+  transition: none !important;
 }

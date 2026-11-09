@@ -152,6 +152,11 @@ export interface PaneChromeProps {
   contentRef: Ref<HTMLDivElement>;
   /** The single-card accessory; a pane of several cards draws its tab bar instead. */
   accessory: React.ReactNode | null;
+  /**
+   * Drawn inside the content box, beside whatever the card portals there: a
+   * lidded box's loading wave (`content-lid-wave.tsx`). Absent, nothing.
+   */
+  contentOverlay?: React.ReactNode;
   /** The responder scope the pane body stands in. */
   ResponderScope: React.FC<{ children: React.ReactNode }>;
 }
@@ -171,6 +176,7 @@ export function PaneChrome({
   accessoryRef,
   contentRef,
   accessory,
+  contentOverlay,
   ResponderScope,
 }: PaneChromeProps) {
   const resolvedAccessory: React.ReactNode | null =
@@ -282,7 +288,9 @@ export function PaneChrome({
                 ref={contentRef}
                 className="tug-pane-content"
                 data-testid="tug-pane-content"
-              />
+              >
+                {contentOverlay}
+              </div>
             </ResponderScope>
           </div>
 

@@ -12,7 +12,9 @@
  * painted (`painted`) at its first frame with chrome, so the card shows at
  * once; until the card's own content has painted (`card.painted`), the
  * content box is lidded in the pane's surface (`data-content-painted`), the
- * job the shell's placeholder lid did when the shell drew the chrome. The
+ * job the shell's placeholder lid did when the shell drew the chrome, and
+ * the lid wears the deck's progress wave after a short delay
+ * (`content-lid-wave.tsx`), so a slow card reads as one loading. The
  * shell's arrival keeps waiting on `card.painted`, so an arriving card
  * arrives whole.
  *
@@ -43,6 +45,7 @@ import { deckCards } from "../bus/declarations/deck";
 import { bodyChromeVerbs, chromeCardsKey, chromeFrameWhole, chromeModelOf, soleCardCloseAdvice } from "./body-chrome";
 import type { BodyCardDeck } from "./body-card-deck";
 import "../components/chrome/rail-shadow.css";
+import { ContentLidWave } from "../components/chrome/content-lid-wave";
 
 /** On the frame once the card's own content has painted: the content lid lifts. */
 export const CONTENT_PAINTED_ATTRIBUTE = "data-content-painted";
@@ -281,6 +284,7 @@ export function BodyChromeFrame({
               accessoryRef={accessoryRef}
               contentRef={setContentEl}
               accessory={null}
+              contentOverlay={<ContentLidWave />}
               ResponderScope={ResponderScope}
             />
           </ResponderScope>

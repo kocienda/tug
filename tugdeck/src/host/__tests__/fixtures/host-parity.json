@@ -129,6 +129,35 @@
               }
             },
             {
+              "cardId": "c5",
+              "x": 121,
+              "y": 96,
+              "width": 398,
+              "height": 483,
+              "view": {
+                "x": 111,
+                "y": 86,
+                "width": 418,
+                "height": 503
+              },
+              "insets": {
+                "top": 10,
+                "right": 10,
+                "bottom": 10,
+                "left": 10
+              },
+              "shell": [],
+              "visible": false,
+              "parked": true,
+              "z": 0,
+              "grips": [],
+              "free": false,
+              "min": {
+                "width": 0,
+                "height": 0
+              }
+            },
+            {
               "cardId": "c4",
               "x": 121,
               "y": 96,
@@ -533,6 +562,24 @@
       ]
     },
     {
+      "name": "switchHold",
+      "from": "shell",
+      "samples": [
+        {
+          "cardIds": [
+            "c1",
+            "c2"
+          ]
+        }
+      ],
+      "refused": [
+        null,
+        {
+          "cardIds": "c1"
+        }
+      ]
+    },
+    {
       "name": "overlayCreate",
       "from": "shell",
       "samples": [
@@ -896,12 +943,16 @@
         {
           "dormantAfterMs": null,
           "evictAfterMs": 1500,
-          "readyDeadlineMs": null
+          "readyDeadlineMs": null,
+          "contentPaintDelayMs": null
         },
         {
           "dormantAfterMs": 400,
           "evictAfterMs": null,
-          "readyDeadlineMs": 50
+          "readyDeadlineMs": 50,
+          "contentPaintDelayMs": {
+            "c1": 1200
+          }
         }
       ],
       "refused": [
@@ -909,7 +960,8 @@
         {
           "dormantAfterMs": null,
           "evictAfterMs": "1500",
-          "readyDeadlineMs": null
+          "readyDeadlineMs": null,
+          "contentPaintDelayMs": null
         }
       ]
     },
@@ -1836,6 +1888,20 @@
             "keyboardAccess": false,
             "appActive": true
           }
+        },
+        {
+          "cardId": "c1",
+          "componentId": "text",
+          "intent": {
+            "kind": "mount"
+          },
+          "facts": {
+            "theme": "ironclad",
+            "zoom": 1,
+            "keyboardAccess": false,
+            "appActive": true
+          },
+          "contentPaintDelayMs": 1200
         }
       ],
       "refused": [

@@ -113,6 +113,9 @@ import { heldModifiers, subscribeModifierLatch } from "./modifier-latch";
 import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore, pageless } from "./body-cards-store";
+import { installMakeAhead } from "./body-make-ahead";
+import { onSpaceWillSwitch } from "./space-switch-signal";
+import { switchHoldToHost } from "../host/declarations/geometry";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
@@ -704,6 +707,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    * in the store only, which the page brought back is sent all the same.
    */
   const wordsWriting = new Set<string>();
+  /** Cards whose page the host's clock evicted while hidden: made again ahead (`body-make-ahead.ts`). */
+  const timeEvicted = new Set<string>();
   /** The modal hold the shell holds for each body card whose run said so, with its release. */
   const modalHolds = new Map<string, () => void>();
   const dropModalHold = (cardId: string): void => {
@@ -946,10 +951,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // workspace switch's restore (`restoreSpaceSessions`, called right after
   // its commit) has registered what it decided first.
   //
-  // Only the shown workspace's cards are handed off. A parked workspace
-  // nobody has shown has no bodies: its cards arrive as any card arrives on
-  // its first visit, and a visited workspace's bodies go dormant once it is
-  // parked again.
+  // Only the shown workspace's cards are handed off here. A parked
+  // workspace's are handed off by the make-ahead pass while the lane is idle
+  // (`body-make-ahead.ts`), by these same rules; and a visited workspace's
+  // bodies go dormant once it is parked again.
   //
   // A Session card whose body outlived a shell reload is handed off here
   // too, bound or not: its page has said hello to this shell before this
@@ -1728,6 +1733,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // is revived once the word is durable, or once a stalled write has
         // been waited on long enough.
         wordsWriting.add(cardId);
+        // A page the host's clock took while hidden is made again while the
+        // lane is idle (`body-make-ahead.ts`); one pressure took is not.
+        if (report.cause === "hidden") timeEvicted.add(cardId);
+        else timeEvicted.delete(cardId);
         void keptWords.evicted(cardId, cardHolds.getFor(cardId)).then(() => {
           wordsWriting.delete(cardId);
           reviveWanted();
@@ -1810,6 +1819,47 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     }
   }
   releases.push(deck.subscribe(reviveWanted), deck.subscribeSpaces(reviveWanted));
+
+  // ---- Parked workspaces, made ahead while the lane is idle ----
+
+  releases.push(
+    installMakeAhead({
+      deck,
+      // What the shell hands off for the shown deck, it hands off ahead: a
+      // mount kind, and a Session card with no binding to restore. A parked
+      // workspace's bindings are not in the binding store until its restore
+      // pass runs at its first visit, so a Session card is unbound only when
+      // the ledger has answered and binds it to nothing; one the ledger binds
+      // is that pass's to make, and a page made ahead of it would spawn a
+      // second session.
+      handable: (cardId, componentId) =>
+        isMountBodyKind(componentId) ||
+        (sessionCardToHandOff(cardId, componentId) &&
+          !keptBody(cardId) &&
+          spaceBindingsLedgerStore.loaded() &&
+          spaceBindingsLedgerStore.get(cardId) === undefined),
+      handOff: (cardId, componentId) =>
+        void handOffToBody(cardId, () => (isMountBodyKind(componentId) ? { kind: "mount" } : { kind: "restore" })),
+      release: (cardId) => void releaseDeferredBody(cardId),
+      askAgain,
+      timeEvicted,
+    }),
+  );
+
+  // ---- A switch onto painted pages is held as one picture ----
+
+  // The host holds the window's picture from before the shell renders the
+  // switched frame until every arriving page named here is on, so the
+  // switch shows the departed workspace and then the finished one, never
+  // the shell's new chrome over the old pages or an empty pane between.
+  releases.push(
+    onSpaceWillSwitch((_spaceId, incoming) => {
+      const cardIds = incoming.panes
+        .map((p) => p.activeCardId)
+        .filter((id): id is string => typeof id === "string" && bodyCardsStore.stateOf(id) === "painted");
+      if (cardIds.length > 0) postToHost(switchHoldToHost, { cardIds });
+    }),
+  );
 
   // A failed card's Reload, from its placard.
   setBodyReloader(askAgain);
