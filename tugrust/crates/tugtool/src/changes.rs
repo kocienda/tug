@@ -225,10 +225,11 @@ fn tell_ownership_verb(
         None => std::env::current_dir()
             .map_err(|e| AppError::Exit1("failed", format!("cannot resolve cwd: {e}")))?,
     };
-    // Canonicalize so the project_dir matches a WorkspaceRegistry entry (the
-    // backend guards on it) regardless of symlinked checkout spellings.
-    let project_dir = std::fs::canonicalize(&project_dir)
-        .unwrap_or(project_dir)
+    // Through the path gateway ([L29]) so the project_dir matches a
+    // WorkspaceRegistry entry (the backend guards on it) whatever spelling the
+    // cwd wears — bare `canonicalize` turns `/u/…` into a `/System/Volumes/
+    // Data/…` form no registry entry is keyed by.
+    let project_dir = tugcore::pathform::resolve_to_claude_form(&project_dir)
         .to_string_lossy()
         .into_owned();
 

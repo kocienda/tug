@@ -159,12 +159,13 @@ pub(crate) fn sessions_for_path(
 
 /// Other sessions with a **live proof** claim on `file_path` — the genuine
 /// cross-session owners. A session qualifies when its `project_dir`
-/// canonicalizes to the same on-disk directory as `repo_root` and it has a
-/// proof row at or after `min_live_at_ms` (the row-liveness cut). Bracket
+/// resolves through the path gateway ([L29]) to the same directory as
+/// `repo_root` and it has a proof row at or after `min_live_at_ms` (the
+/// row-liveness cut). Bracket
 /// (`bash`/`turn`) rows never qualify a session here: a whole-tree fingerprint
 /// delta cannot distinguish this session's own writes from another session's
 /// concurrent save or a build's churn, so it is not authorship ([D112]). A row
-/// whose `project_dir` (or `repo_root`) fails to canonicalize, or resolves
+/// whose `project_dir` (or `repo_root`) no longer exists, or resolves
 /// elsewhere, is not foreign — it degrades to `unattributed`, visible.
 pub(crate) fn foreign_proof_sessions_for_path(
     conn: &Connection,
@@ -173,10 +174,10 @@ pub(crate) fn foreign_proof_sessions_for_path(
     repo_root: &Path,
     min_live_at_ms: i64,
 ) -> Result<Vec<String>, String> {
-    let canon_root = match std::fs::canonicalize(repo_root) {
-        Ok(p) => p,
-        Err(_) => return Ok(Vec::new()),
-    };
+    if !repo_root.exists() {
+        return Ok(Vec::new());
+    }
+    let canon_root = tugcore::pathform::resolve_to_claude_form(repo_root);
     let mut out = Vec::new();
     for claim in sessions_for_path(conn, file_path, exclude)? {
         let Some(exact_at) = claim.max_proof_at else {
@@ -185,10 +186,9 @@ pub(crate) fn foreign_proof_sessions_for_path(
         if exact_at < min_live_at_ms {
             continue;
         }
-        if let Ok(canon_proj) = std::fs::canonicalize(&claim.project_dir) {
-            if canon_proj == canon_root {
-                out.push(claim.session);
-            }
+        let project = Path::new(&claim.project_dir);
+        if project.exists() && tugcore::pathform::resolve_to_claude_form(project) == canon_root {
+            out.push(claim.session);
         }
     }
     Ok(out)

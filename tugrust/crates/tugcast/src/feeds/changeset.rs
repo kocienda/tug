@@ -2640,7 +2640,7 @@ mod tests {
     /// strings match what `repo_root_for` resolves.
     fn init_repo() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path().canonicalize().expect("canonicalize");
+        let root = tugcore::pathform::resolve_to_claude_form(dir.path());
         GitFixture::init(&root);
         std::fs::write(root.join("committed.txt"), "base\n").unwrap();
         git(&root, &["add", "."]);
@@ -6469,7 +6469,7 @@ Some context.
         );
 
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = tugcore::pathform::resolve_to_claude_form(tmp.path());
         std::fs::write(root.join("a.txt"), "x").unwrap();
         assert_eq!(
             repo_relative(
@@ -6545,7 +6545,7 @@ Some context.
         let (_dir, root) = init_repo();
         std::fs::write(root.join("a.txt"), "x").unwrap();
         let away = tempfile::tempdir().unwrap();
-        let away_file = away.path().canonicalize().unwrap().join("note.md");
+        let away_file = tugcore::pathform::resolve_to_claude_form(away.path()).join("note.md");
         std::fs::write(&away_file, "x").unwrap();
 
         let ledger = SessionLedger::open_in_memory().unwrap();
@@ -6726,7 +6726,7 @@ mod m02a_verification {
 
     fn seed_repo() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = tugcore::pathform::resolve_to_claude_form(dir.path());
         GitFixture::init(&root);
         let base: String = (1..=120).map(|n| format!("line {n}\n")).collect();
         std::fs::write(root.join(FILE), base).unwrap();
