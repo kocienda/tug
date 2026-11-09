@@ -452,7 +452,7 @@ const SESSION_CYCLE_ORDER_STATUS_BASE = 13;
 const SESSION_CYCLE_ORDER_EDITOR = 19;
 const SESSION_CYCLE_ORDER_ATTACHMENT_BASE = 20;
 // The composer's own find bar ([B03]) — query, options, ↑, ↓ and the replace
-// row's field, Replace and All — docked under the prompt entry while ⌥⌘F has
+// row's field, Replace and Replace All — docked under the prompt entry while ⌥⌘F has
 // it open. It is the bottom-most row on screen, but its stops come last in the
 // Tab walk, past every attachment tile: it searches the document the editor
 // holds, so it follows that document's stops rather than taking the toolbar's

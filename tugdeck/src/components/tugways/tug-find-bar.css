@@ -5,7 +5,7 @@
  * against the surface below it ([L20]).
  *
  * The toolbar needs nothing of its own: everything about the search — count,
- * options, ↑ / ↓, and Replace and All at its end while the replace row is
+ * options, ↑ / ↓, and Replace and Replace All at its end while the replace row is
  * shown — is one trailing group, so the shell's centre slot is empty and its
  * two flex spacers collapse into one run of leading space.
  */
@@ -50,7 +50,7 @@
 }
 
 /* The replace row: the shell's accessory row, between the query field and the
-   toolbar, holding the replacement field alone — its Replace and All buttons
+   toolbar, holding the replacement field alone — its Replace and Replace All buttons
    end the toolbar. A rule above it separates the replacement from the query,
    which share one surface. */
 .tugx-find-replace-row {

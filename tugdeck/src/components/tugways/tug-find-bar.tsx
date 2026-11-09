@@ -25,7 +25,7 @@
  * `canReplace` — so a read-only document never offers a button that does
  * nothing, and the transcript and help bars never show it at all. The row is
  * the shell's accessory row and holds the replacement field alone, wrapping
- * and growing as the query does; Replace and All end the toolbar, after Find
+ * and growing as the query does; Replace and Replace All end the toolbar, after Find
  * next. Return in that field is Replace, Tab moves between the two fields rather
  * than writing a tab, and Escape dismisses the whole bar. The
  * replacement lives in the row's CM6 doc and mirrors into the session the way
@@ -79,7 +79,7 @@ import { dispatchCommand } from "@/command-dispatch";
  *  `focusOrderBase`. The query field leads because it is where ⌘F lands and
  *  what every other control is about; the replacement field follows it while
  *  the replace row shows, so Tab walks field to field, and the toolbar's
- *  controls come after both — Replace and All last, where they sit. */
+ *  controls come after both — Replace and Replace All last, where they sit. */
 const FIND_STOP_QUERY = 0;
 const FIND_STOP_REPLACEMENT = 1;
 /** The toolbar's three, without the replace row; one later with it. */
@@ -259,7 +259,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
       },
       [],
     );
-    // Replace and All act on a match, so with no query or a zero count they
+    // Replace and Replace All act on a match, so with no query or a zero count they
     // render disabled — the visible reason a press would do nothing ([L31]).
     // Read from the same store as `canReplace` ([L02]).
     const hasReplaceable = useSyncExternalStore(session.subscribe, () => {
@@ -570,7 +570,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                 />
               </TugActionTooltip>
               {replaceRowShown ? (
-                // Replace and All end the toolbar, past every control the bar
+                // Replace and Replace All end the toolbar, past every control the bar
                 // always has: they act on what the search found, so they
                 // follow the controls that find it.
                 <>
@@ -601,12 +601,11 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                       role="action"
                       onClick={() => session.replaceAll()}
                       disabled={!hasReplaceable}
-                      aria-label="Replace all"
                       data-testid="find-replace-all"
                       focusGroup={focusGroup}
                       focusOrder={focusOrderBase + FIND_STOP_REPLACE_ALL}
                     >
-                      All
+                      Replace All
                     </TugPushButton>
                   </TugActionTooltip>
                 </>
@@ -658,7 +657,7 @@ interface FindReplaceFieldProps {
 }
 
 /**
- * The bar's second row: the replacement field, whose Replace and All buttons
+ * The bar's second row: the replacement field, whose Replace and Replace All buttons
  * end the toolbar below it. Mounted only while the bar shows it, so it seeds
  * from the session's remembered replacement each time the row appears.
  */

@@ -132,7 +132,7 @@ const TEXT_CARD_CYCLE_GROUP = "text-card-cycle";
 /**
  * The find bar's consecutive stops — query field, the options control, the
  * two navigation arrows ([D122]), and while the replace row shows the
- * replacement field, Replace and All — walked before the status strip
+ * replacement field, Replace and Replace All — walked before the status strip
  * because the bar sits above it: the walk reads the card downward from the
  * editor, the same order the Session card teaches. The strip starts past the
  * bar's largest span, so the row's three stops never land on its popups.
