@@ -212,10 +212,7 @@ mod tests {
 
     #[test]
     fn punctuation_stays_as_typed() {
-        assert_eq!(
-            strip_markdown("\"quoted\" -- it's"),
-            "\"quoted\" -- it's"
-        );
+        assert_eq!(strip_markdown("\"quoted\" -- it's"), "\"quoted\" -- it's");
     }
 
     #[test]

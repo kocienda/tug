@@ -3374,7 +3374,9 @@ mod tests {
         // join's holders name it rather than reading it as the user's own.
         assert!(file.prior_owner_live);
         assert_eq!(
-            live_holders(&snapshot).get("clip.ts").map(|(id, _)| id.as_str()),
+            live_holders(&snapshot)
+                .get("clip.ts")
+                .map(|(id, _)| id.as_str()),
             Some("seg-new")
         );
     }

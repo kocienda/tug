@@ -4812,7 +4812,15 @@ mod tests {
             .expect("spawn");
         f.ctx
             .ledger
-            .record_spawn("secret", "ws", "/u/src/tug", "card-2", 1_000, "secret", Some("hush-hush"))
+            .record_spawn(
+                "secret",
+                "ws",
+                "/u/src/tug",
+                "card-2",
+                1_000,
+                "secret",
+                Some("hush-hush"),
+            )
             .expect("spawn");
         f.ctx
             .ledger
@@ -4890,11 +4898,27 @@ mod tests {
             .into_owned();
         f.ctx
             .ledger
-            .record_spawn("old", "ws", "/u/src/tug", "card-1", 1, "old", Some("sandy-snail"))
+            .record_spawn(
+                "old",
+                "ws",
+                "/u/src/tug",
+                "card-1",
+                1,
+                "old",
+                Some("sandy-snail"),
+            )
             .expect("spawn");
         f.ctx
             .ledger
-            .record_spawn("worker", "ws", &noise, "card-2", 2, "worker", Some("busy-bee"))
+            .record_spawn(
+                "worker",
+                "ws",
+                &noise,
+                "card-2",
+                2,
+                "worker",
+                Some("busy-bee"),
+            )
             .expect("spawn");
         crowd_the_roster(&f.ctx);
         let index =
@@ -4906,7 +4930,11 @@ mod tests {
             index.upsert(&entry).expect("indexed");
         }
         for session in ["old", "worker", "harness", "far-worker"] {
-            seed_post(&f.ctx, &format!("keyboard glyphs from {session}"), Some(session));
+            seed_post(
+                &f.ctx,
+                &format!("keyboard glyphs from {session}"),
+                Some(session),
+            );
         }
         assert!(
             !roster_of(&f.ctx).contains("sandy-snail"),
@@ -4926,9 +4954,21 @@ mod tests {
                 .unwrap_or(Value::String("no row".into()))
         };
         assert_eq!(name_of("old"), "tug/sandy-snail");
-        assert_eq!(name_of("worker"), Value::Null, "a shared-agent worker's ledger row");
-        assert_eq!(name_of("harness"), Value::Null, "an app-test instance's index entry");
-        assert_eq!(name_of("far-worker"), Value::Null, "a shared-agent worker's index entry");
+        assert_eq!(
+            name_of("worker"),
+            Value::Null,
+            "a shared-agent worker's ledger row"
+        );
+        assert_eq!(
+            name_of("harness"),
+            Value::Null,
+            "an app-test instance's index entry"
+        );
+        assert_eq!(
+            name_of("far-worker"),
+            Value::Null,
+            "a shared-agent worker's index entry"
+        );
     }
 
     #[tokio::test]
@@ -4957,7 +4997,10 @@ mod tests {
         let out = run_verb(&f.ctx, "overview.search", &json!({"query": "backoff"}))
             .await
             .expect("search ran");
-        assert_eq!(out["posts"][0]["session_name"], format!("upload/{callsign}"));
+        assert_eq!(
+            out["posts"][0]["session_name"],
+            format!("upload/{callsign}")
+        );
         // The scanner's own exclusion holds here as it does on the roster.
         assert_eq!(session_name(&f.ctx, "scan-excluded"), None);
     }

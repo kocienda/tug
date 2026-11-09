@@ -40,7 +40,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, note, type App } from "../_harness";
+import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { pollFor } from "../body-grounding/_frames";
 import { kindPane } from "../body-grounding/_kinds";
