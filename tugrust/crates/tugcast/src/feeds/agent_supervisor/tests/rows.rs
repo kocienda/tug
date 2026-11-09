@@ -84,6 +84,79 @@ async fn set_session_private_acks_and_pushes_the_flag() {
     assert!(!ledger.is_session_private("sess").unwrap());
 }
 
+/// `attend_session` stamps the user's attention and pushes the row, which is
+/// what spends a standing unread mark on every surface ([B04]).
+#[tokio::test]
+async fn attend_session_spends_a_standing_mark_and_pushes_the_row() {
+    let (sup, ledger, mut rx) = make_supervisor_with_ledger();
+    ledger
+        .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, "sess", None)
+        .unwrap();
+    let ended = crate::session_ledger::now_millis();
+    ledger.record_turn_end("sess", ended).unwrap();
+    let row = ledger.get("sess").unwrap().unwrap();
+    assert!(row.last_turn_end_at > row.last_attended_at, "the mark stands");
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "attend_session",
+        "session_id": "sess",
+    }))
+    .unwrap();
+    sup.handle_control("attend_session", &payload, 10)
+        .await
+        .expect_handled();
+
+    let pushed = drain_until_action(&mut rx, "session_updated");
+    assert_eq!(pushed["session_id"], "sess");
+    let attended = pushed["fields"]["last_attended_at"].as_i64().unwrap();
+    let end = pushed["fields"]["last_turn_end_at"].as_i64().unwrap();
+    assert!(attended >= end, "the pushed row reads as seen");
+}
+
+/// A report about a session the ledger has no row for is dropped: there is
+/// no ack to send and nothing for the deck to undo.
+#[tokio::test]
+async fn attend_session_on_an_unknown_session_is_quietly_handled() {
+    let (sup, _ledger, _rx) = make_supervisor_with_ledger();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "attend_session",
+        "session_id": "nope",
+    }))
+    .unwrap();
+    sup.handle_control("attend_session", &payload, 10)
+        .await
+        .expect_handled();
+}
+
+/// A report names the session the user is attending now, and a `null` report
+/// says nobody: a turn that completes on the attended session is seen as it
+/// ends, and one that completes after the user looked away raises the mark.
+#[tokio::test]
+async fn attend_session_names_the_attended_session_for_the_turn_end() {
+    let (sup, ledger, _rx) = make_supervisor_with_ledger();
+    ledger
+        .record_spawn("sess", "ws-1", "/proj", "card-A", 1_000, "sess", None)
+        .unwrap();
+    let attend = |id: serde_json::Value| {
+        serde_json::to_vec(&serde_json::json!({ "action": "attend_session", "session_id": id }))
+            .unwrap()
+    };
+
+    sup.handle_control("attend_session", &attend("sess".into()), 10)
+        .await
+        .expect_handled();
+    ledger.record_turn_end("sess", crate::session_ledger::now_millis()).unwrap();
+    let row = ledger.get("sess").unwrap().unwrap();
+    assert!(row.last_turn_end_at <= row.last_attended_at, "seen as it ended");
+
+    sup.handle_control("attend_session", &attend(serde_json::Value::Null), 10)
+        .await
+        .expect_handled();
+    ledger.record_turn_end("sess", crate::session_ledger::now_millis() + 1).unwrap();
+    let row = ledger.get("sess").unwrap().unwrap();
+    assert!(row.last_turn_end_at > row.last_attended_at, "the mark stands");
+}
+
 #[tokio::test]
 async fn set_session_private_on_an_unknown_session_errs() {
     let (sup, _ledger, mut rx) = make_supervisor_with_ledger();

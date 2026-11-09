@@ -1,6 +1,7 @@
 //! The session-rows family of CONTROL actions: `trash_session`,
-//! `rename_session`, and `set_session_private` — the picker's edits to
-//! persisted session records.
+//! `rename_session`, `set_session_private` — the picker's edits to
+//! persisted session records — and `attend_session`, the deck's report that
+//! the user looked at a session.
 
 use super::super::*;
 use tugcast_core::ControlAction;
@@ -67,6 +68,18 @@ fn parse_set_session_private_payload(payload: &[u8]) -> Result<(String, bool), C
     Ok((id, private))
 }
 
+/// Parse an `attend_session` CONTROL payload: `{ session_id }`, where a
+/// `null` session id says the user is attending no session — the app went
+/// to the background, or the active card holds none.
+fn parse_attend_session_payload(payload: &[u8]) -> Result<Option<String>, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    match value.get("session_id") {
+        Some(serde_json::Value::Null) => Ok(None),
+        _ => parse_session_id_payload(payload).map(Some),
+    }
+}
+
 impl AgentSupervisor {
     /// The session-rows family's share of [`AgentSupervisor::handle_control`]:
     /// the same arms, the same replies, reached through one delegating arm there.
@@ -94,6 +107,13 @@ impl AgentSupervisor {
             ControlAction::SetSessionPrivate => match parse_set_session_private_payload(payload) {
                 Ok((session_id, private)) => {
                     self.do_set_session_private(&session_id, private).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            ControlAction::AttendSession => match parse_attend_session_payload(payload) {
+                Ok(session_id) => {
+                    self.do_attend_session(session_id.as_deref());
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -411,6 +431,52 @@ impl AgentSupervisor {
                 warn!(error = %e, session_id, "set_session_private ledger error");
                 send_control(&self.control_tx, err("ledger_write_failed"));
             }
+        }
+    }
+
+    /// Handle an `attend_session` CONTROL report ([B04]): the user attended
+    /// the session — its card became the active card while the app was
+    /// active — so stamp `last_attended_at`, which spends the unread mark,
+    /// and remember it as the session attended now, so a turn that completes
+    /// on it is seen as it ends ([`SessionLedger::set_attending`]). A `None`
+    /// report clears that and stamps nothing.
+    ///
+    /// A report, not a request: there is no ack, and a missing row or a
+    /// failed write is logged and dropped, because the deck has nothing to
+    /// undo. The stamp is written only while a mark stands, so the deck's
+    /// report on every move of the attended card costs no write and no frame
+    /// otherwise.
+    ///
+    /// [`SessionLedger::set_attending`]: crate::session_ledger::SessionLedger::set_attending
+    fn do_attend_session(&self, session_id: Option<&str>) {
+        let Some(ledger) = self.session_ledger.as_ref() else {
+            return;
+        };
+        ledger.set_attending(session_id);
+        let Some(session_id) = session_id else {
+            return;
+        };
+        match ledger.get(session_id) {
+            Ok(Some(row)) if row.last_turn_end_at > row.last_attended_at => {}
+            Ok(_) => return,
+            Err(err) => {
+                warn!(error = %err, session_id, "attend_session ledger read failed");
+                return;
+            }
+        }
+        if let Err(err) = ledger.record_attended(session_id, crate::session_ledger::now_millis()) {
+            warn!(error = %err, session_id, "attend_session ledger write failed");
+            return;
+        }
+        if let Ok(Some(row)) = ledger.get(session_id) {
+            let metrics = ledger.scan_metrics_for(session_id).unwrap_or(None);
+            let usage = ledger.usage_for(session_id).unwrap_or(None);
+            let _ = self.control_tx.send(build_session_updated_frame(
+                &row,
+                metrics,
+                usage,
+                ledger.turn_active(session_id),
+            ));
         }
     }
 }

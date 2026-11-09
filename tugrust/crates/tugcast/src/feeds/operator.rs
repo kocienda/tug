@@ -1177,6 +1177,8 @@ fn history_sessions(ctx: &OperatorContext, scope: HistoryScope) -> Result<Vec<Hi
                     arc_name: None,
                     line_id: entry.line_id,
                     background: false,
+                    last_turn_end_at: 0,
+                    last_attended_at: 0,
                 },
                 source: HistorySource::Index,
                 instance,

@@ -140,9 +140,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 47: a hidden card's hand-back",
         const heardAt = Date.now();
         note(`the shell heard the latch close ${heardAt - streamingAt} ms after the turn began`);
         expect(closed, "the session row says the turn ended").toBe(false);
-        const still = await settleFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s === "stopped", STILL_WITHIN_MS);
+        // Still as `completed`, the `done` reading: the turn finished while the
+        // user was on the Cards workspace, so its answer is unseen.
+        const still = await settleFor(() => cards.evalJS<string | null>(rowDot(sid)), (s) => s === "completed", STILL_WITHIN_MS);
         note(`the row's dot ${still} ${Date.now() - heardAt} ms after the shell heard the end`);
-        expect(still, "the row's dot stills within seconds of the turn's end").toBe("stopped");
+        expect(still, "the row's dot stills as done within seconds of the turn's end").toBe("completed");
         expect(await body.evalJS<boolean>("window.__tug.bodyDormancy().dormant"), "the body slept through the end").toBe(true);
       } finally {
         await app.close();

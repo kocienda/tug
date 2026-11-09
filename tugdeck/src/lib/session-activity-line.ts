@@ -17,7 +17,11 @@
  * labeled because a bare date-time beside a size and a count is ambiguous
  * about which of the three it dates. `Ready.` always closes the line — the
  * session is on disk and one gesture from another turn wherever the row is
- * read.
+ * read — except while a turn's answer stands unread: a turn that completed
+ * while the user looked elsewhere closes the line `Done.` until they attend
+ * the session, the same fact the dot's `done` key carries, and `Ready.`
+ * returns the moment attention spends it. The word and the state agree, so a
+ * copied or searched line says the true thing.
  *
  * **During a turn this line is not used at all** — the live beat replaces it,
  * with its own dwell pacing and middle truncation. This is the rest form only.
@@ -78,6 +82,12 @@ export interface SessionActivityFacts {
   fileSize: number | null;
   /** When the session was last used, in ms. `null` drops the stamp. */
   lastUsedAtMs: number | null;
+  /**
+   * Whether a turn completed while the user was not attending the session and
+   * they have not attended it since. Closes the line `Done.` rather than
+   * `Ready.`; omitted reads as seen.
+   */
+  turnEndUnseen?: boolean;
 }
 
 /**
@@ -85,7 +95,8 @@ export interface SessionActivityFacts {
  *
  * `<turns> turns, <size>. Last updated: <stamp>. Ready.` — the stamp omitted
  * at zero turns (a session never used has nothing to date), the size omitted
- * when unknown, the turns and the closing `Ready.` always present.
+ * when unknown, the turns and the closer always present. The closer is
+ * `Done.` while an unread turn end stands, `Ready.` otherwise.
  */
 export function sessionActivityRestLine(facts: SessionActivityFacts): string {
   const segments: string[] = [];
@@ -106,7 +117,7 @@ export function sessionActivityRestLine(facts: SessionActivityFacts): string {
     segments.push(`Last updated: ${formatRestingStamp(facts.lastUsedAtMs)}.`);
   }
 
-  segments.push("Ready.");
+  segments.push(facts.turnEndUnseen === true ? `${TURN_DONE_MARKER}.` : "Ready.");
 
   return segments.join(" ");
 }

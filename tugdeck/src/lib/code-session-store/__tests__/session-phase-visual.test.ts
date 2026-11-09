@@ -5,7 +5,8 @@
  * phaseLabels / phaseVisual API.
  *
  * Pins the precedence chain (offline > restoring > interrupt >
- * ask > ready-over-idle > background-over-idle > phase), every phase
+ * ask > ready-over-idle > done-over-idle > background-over-idle > phase),
+ * every phase
  * branch, and the human-readable label resolution.
  */
 
@@ -346,6 +347,52 @@ describe("sessionSessionPhaseKey — a standing join offer reads Ready", () => {
   });
 });
 
+describe("sessionSessionPhaseKey — an unseen turn end reads Done", () => {
+  // A turn completed while the user was elsewhere: the reducer says `idle`,
+  // true about the turn, and the ledger row says the answer is unread.
+  test("idle with an unseen turn end reads 'done'", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "idle", turnEndUnseen: true }))).toBe("done");
+  });
+
+  test("Done outranks background work — the answer is what waits on the user", () => {
+    expect(
+      sessionSessionPhaseKey(input({ phase: "idle", runningJobCount: 2, turnEndUnseen: true })),
+    ).toBe("done");
+  });
+
+  test("a standing join offer outranks it", () => {
+    expect(
+      sessionSessionPhaseKey(input({ phase: "idle", joinReady: true, turnEndUnseen: true })),
+    ).toBe("ready");
+  });
+
+  test("a dialog holding an answer outranks it", () => {
+    expect(
+      sessionSessionPhaseKey(input({ phase: "idle", pendingAsk: true, turnEndUnseen: true })),
+    ).toBe("awaiting_approval");
+  });
+
+  test("a turn in flight keeps its own phase", () => {
+    for (const phase of ["submitting", "streaming", "tool_work"] as const) {
+      expect(sessionSessionPhaseKey(input({ phase, turnEndUnseen: true }))).toBe(phase);
+    }
+  });
+
+  test.each(["offline", "restoring"] as const)(
+    "a %s wire still dominates an unseen turn end",
+    (transportState) => {
+      expect(
+        sessionSessionPhaseKey(input({ phase: "idle", transportState, turnEndUnseen: true })),
+      ).toBe(transportState);
+    },
+  );
+
+  test("false and omitted both make no Done claim", () => {
+    expect(sessionSessionPhaseKey(input({ phase: "idle", turnEndUnseen: false }))).toBe("idle");
+    expect(sessionSessionPhaseKey(input({ phase: "idle" }))).toBe("idle");
+  });
+});
+
 describe("sessionSessionPhaseVisual — role/state mapping", () => {
   test("offline → danger/aborted", () => {
     expect(sessionSessionPhaseVisual("offline")).toEqual({
@@ -403,6 +450,7 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     const ready = sessionSessionPhaseVisual("ready");
     for (const key of [
       "idle",
+      "done",
       "background",
       "streaming",
       "tool_work",
@@ -421,6 +469,23 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     const idle = sessionSessionPhaseVisual("idle");
     expect(ready.state).toBe("running");
     expect(ready.state).not.toBe(idle.state);
+  });
+
+  test("done → action/completed — the working tone, filled and still", () => {
+    expect(sessionSessionPhaseVisual("done")).toEqual({
+      role: "action",
+      state: "completed",
+    });
+  });
+
+  test("done sits between working and idle: a working dot's tone, idle's stillness", () => {
+    const done = sessionSessionPhaseVisual("done");
+    const working = sessionSessionPhaseVisual("streaming");
+    const idle = sessionSessionPhaseVisual("idle");
+    expect(done.role).toBe(working.role);
+    expect(done.state).not.toBe(working.state);
+    expect(done.role).not.toBe(idle.role);
+    expect(done.state).not.toBe(idle.state);
   });
 
   test("background → action/running as a diamond — working, turned", () => {
@@ -476,6 +541,7 @@ describe("SESSION_PHASE_LABELS — human-readable labels", () => {
     ["interrupting", "Interrupting"],
     ["background", "Running"],
     ["ready", "Ready"],
+    ["done", "Done"],
   ] as const)("key %s resolves to %s", (key, expected) => {
     expect(SESSION_PHASE_LABELS[key]).toBe(expected);
   });

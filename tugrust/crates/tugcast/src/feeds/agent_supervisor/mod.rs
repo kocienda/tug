@@ -756,6 +756,8 @@ fn build_listed_union(
                     // a scanned session has no `sessions` row to carry a card
                     // at all.
                     background: false,
+                    last_turn_end_at: 0,
+                    last_attended_at: 0,
                 },
                 origin: "external",
                 terminal_live,
@@ -2275,7 +2277,7 @@ impl AgentSupervisor {
             A::DeckSeatings | A::DeckLog => {
                 self.handle_deck_control(action, payload, client_id).await
             }
-            A::TrashSession | A::RenameSession | A::SetSessionPrivate => {
+            A::TrashSession | A::RenameSession | A::SetSessionPrivate | A::AttendSession => {
                 self.handle_rows_control(action, payload).await
             }
             A::RecordTurnTelemetry
@@ -5446,7 +5448,7 @@ pub(crate) struct NoopSessionsRecorder;
 #[cfg(test)]
 impl SessionsRecorder for NoopSessionsRecorder {
     fn record(&self, _record: SessionRecord<'_>) {}
-    fn record_turn(&self, _session_id: &str) {}
+    fn record_turn(&self, _session_id: &str, _completed: bool) {}
     fn set_turn_count(&self, _session_id: &str, _count: i64) {}
     fn engine_turn_count(&self, _session_id: &str, _project_dir: &str) -> Option<i64> {
         None
@@ -5517,7 +5519,7 @@ impl SessionsRecorder for CountingSessionsRecorder {
         self.counts.get(session_id).copied()
     }
     fn record(&self, _record: SessionRecord<'_>) {}
-    fn record_turn(&self, _session_id: &str) {}
+    fn record_turn(&self, _session_id: &str, _completed: bool) {}
     fn record_user_prompt(&self, _session_id: &str, _prompt: &str) {}
     fn mark_closed(&self, _session_id: &str) {}
     fn mark_failed(&self, _session_id: &str) {}
@@ -6273,6 +6275,8 @@ mod tests {
                 arc_name: None,
                 line_id: line_id.to_string(),
                 background: false,
+                last_turn_end_at: 0,
+                last_attended_at: 0,
             },
             origin: "tug",
             terminal_live: None,
@@ -6482,6 +6486,8 @@ mod tests {
             arc_name: None,
             line_id: String::new(),
             background: false,
+            last_turn_end_at: 0,
+            last_attended_at: 0,
         };
         let listed = build_listed_union(
             vec![row("busy"), row("quiet")],
@@ -6523,6 +6529,8 @@ mod tests {
             arc_name: None,
             line_id: String::new(),
             background: false,
+            last_turn_end_at: 0,
+            last_attended_at: 0,
         };
         let frame = build_session_updated_frame(&row, None, None, false);
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).expect("json");
@@ -6558,6 +6566,8 @@ mod tests {
             arc_name: None,
             line_id: String::new(),
             background: false,
+            last_turn_end_at: 0,
+            last_attended_at: 0,
         };
 
         // No scan-cache row: a null size, and the ledger's own count stands.
@@ -6602,6 +6612,8 @@ mod tests {
             arc_name: None,
             line_id: String::new(),
             background: false,
+            last_turn_end_at: 0,
+            last_attended_at: 0,
         };
 
         // A segment with no telemetry says nothing rather than zero — the
@@ -11612,7 +11624,7 @@ mod tests {
 
         // record_turn touches recency and still broadcasts a push, but no
         // longer writes the count ([P08]) — so the pushed turn_count holds.
-        sup.sessions_recorder.record_turn("s1");
+        sup.sessions_recorder.record_turn("s1", true);
         let second = drain_until_action(&mut rx, "session_updated");
         assert_eq!(second["fields"]["turn_count"].as_i64(), Some(0));
     }

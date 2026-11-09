@@ -53,7 +53,12 @@ pub trait SessionsRecorder: Send + Sync {
     /// Increment turn count and bump `last_used_at`. No-op if the row is
     /// missing or not in `live` state — see the trash-vs-late-turn race
     /// note in the plan's risk table.
-    fn record_turn(&self, session_id: &str);
+    ///
+    /// `completed` says the turn ended with a result the user has not yet
+    /// seen — a successful `turn_complete` — and stamps `last_turn_end_at`
+    /// as well, which raises the session's unread mark. An errored end
+    /// passes `false`.
+    fn record_turn(&self, session_id: &str, completed: bool);
 
     /// Overwrite the row's `turn_count` with the authoritative value — the
     /// `totalTurns` a successful replay reports. Unlike `record_turn` (which
@@ -418,7 +423,7 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         }
     }
 
-    fn record_turn(&self, session_id: &str) {
+    fn record_turn(&self, session_id: &str, completed: bool) {
         let now = crate::session_ledger::now_millis();
         // A live turn is proof of a running subprocess — the bridge only
         // calls this outside replay. A row the startup demote closed under
@@ -428,6 +433,11 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         if let Err(err) = self.ledger.record_turn(session_id, now) {
             warn!(error = %err, session_id, "ledger record_turn failed");
             return;
+        }
+        if completed {
+            if let Err(err) = self.ledger.record_turn_end(session_id, now) {
+                warn!(error = %err, session_id, "ledger record_turn_end failed");
+            }
         }
         tracing::debug!(
             target: "dev::session-lifecycle",
@@ -476,6 +486,15 @@ impl SessionsRecorder for LedgerSessionsRecorder {
             session_id,
             len = prompt.chars().count(),
         );
+        // A prompt submitted to the session is the user attending it ([B04]):
+        // whatever result stood before it has been seen, and the turn it
+        // starts will stamp its own end later than this.
+        if let Err(err) = self
+            .ledger
+            .record_attended(session_id, crate::session_ledger::now_millis())
+        {
+            warn!(error = %err, session_id, "ledger record_attended failed");
+        }
         self.broadcast_row(session_id);
     }
 
@@ -839,6 +858,11 @@ pub fn build_session_updated_frame(
             // latch — the one source of a card's phase while its body is not
             // listening. Not a column: see `SessionLedger::turn_active`.
             "turn_active": turn_active,
+            // The unread mark's two stamps. A resting state like privacy,
+            // and the deck replaces its row wholesale, so a push that omitted
+            // them would spend an unseen result nobody looked at.
+            "last_turn_end_at": row.last_turn_end_at,
+            "last_attended_at": row.last_attended_at,
         },
         // What the segment cost, beside the row rather than on it: `usage` is
         // a `SUM` over another table, not a `sessions` column, and the arc
@@ -980,7 +1004,7 @@ mod tests {
 
         // The bridge's turn-end stamp lands while the latch still reads open;
         // the supervisor's close is the push that ends it.
-        recorder.record_turn("claude-abc");
+        recorder.record_turn("claude-abc", true);
         assert!(
             turn_active(&mut rx),
             "the stamp alone does not end the turn"
@@ -1042,7 +1066,7 @@ mod tests {
         });
         expect_ping(Arc::clone(&signal), "record (spawn)").await;
 
-        recorder.record_turn("claude-abc");
+        recorder.record_turn("claude-abc", true);
         expect_ping(Arc::clone(&signal), "record_turn").await;
 
         recorder.mark_closed("claude-abc");
@@ -1084,8 +1108,8 @@ mod tests {
         // Live turns touch recency only; the count is the engine reconcile
         // ([P08]). Reconcile to 3, then live turns leave the count untouched.
         recorder.set_turn_count("claude-abc", 3);
-        recorder.record_turn("claude-abc");
-        recorder.record_turn("claude-abc");
+        recorder.record_turn("claude-abc", true);
+        recorder.record_turn("claude-abc", true);
         recorder.mark_closed("claude-abc");
 
         let row = ledger.get("claude-abc").unwrap().expect("row");
@@ -1095,6 +1119,50 @@ mod tests {
         // semantics — the persisted row keeps the binding so client-side
         // restore can reconstruct it.
         assert_eq!(row.card_id.as_deref(), Some("card-1"));
+    }
+
+    #[test]
+    fn ledger_recorder_stamps_the_turn_end_only_for_a_completed_turn() {
+        let (ledger, recorder) = fresh_ledger_recorder();
+        recorder.record(SessionRecord {
+            session_id: "claude-abc",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+
+        // An errored end keeps its own reading and raises no mark ([B03]).
+        recorder.record_turn("claude-abc", false);
+        let row = ledger.get("claude-abc").unwrap().expect("row");
+        assert_eq!(row.last_turn_end_at, 0);
+
+        recorder.record_turn("claude-abc", true);
+        let row = ledger.get("claude-abc").unwrap().expect("row");
+        assert!(row.last_turn_end_at > 0);
+        assert!(row.last_turn_end_at > row.last_attended_at);
+    }
+
+    #[test]
+    fn ledger_recorder_a_submitted_prompt_spends_the_mark() {
+        let (ledger, recorder) = fresh_ledger_recorder();
+        recorder.record(SessionRecord {
+            session_id: "claude-abc",
+            workspace_key: "ws-1",
+            project_dir: "/proj/x",
+            card_id: "card-1",
+            tag: None,
+            line_id: None,
+        });
+        recorder.record_turn("claude-abc", true);
+        let row = ledger.get("claude-abc").unwrap().expect("row");
+        assert!(row.last_turn_end_at > row.last_attended_at);
+
+        // Submitting a prompt is attending the session ([B04]).
+        recorder.record_user_prompt("claude-abc", "next");
+        let row = ledger.get("claude-abc").unwrap().expect("row");
+        assert!(row.last_attended_at >= row.last_turn_end_at);
     }
 
     /// A session ends once. Several paths call `mark_closed` for one ending —
@@ -1160,7 +1228,7 @@ mod tests {
             line_id: None,
         });
         recorder.mark_closed("claude-abc");
-        recorder.record_turn("claude-abc");
+        recorder.record_turn("claude-abc", true);
         let row = ledger.get("claude-abc").unwrap().expect("row");
         assert_eq!(row.turn_count, 0);
         assert_eq!(row.state, LedgerState::Closed);

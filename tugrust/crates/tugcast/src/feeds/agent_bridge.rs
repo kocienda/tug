@@ -2751,8 +2751,12 @@ async fn relay_session_io_tracked(
                                     entry.claude_session_id.clone()
                                 };
                                 if let Some(id) = claude_id {
+                                    // Only a turn that ended with a result
+                                    // raises the unread mark ([B03]); an
+                                    // errored end keeps its own reading.
+                                    let completed = turn_complete_succeeded(&line);
                                     offload_recorder(sessions_recorder, move |r| {
-                                        r.record_turn(&id)
+                                        r.record_turn(&id, completed)
                                     })
                                     .await;
                                 }
@@ -3925,6 +3929,24 @@ fn inject_replay_telemetry(
         serde_json::to_vec(&value).unwrap_or_else(|_| line.to_vec()),
         injected,
     )
+}
+
+/// Whether a live `turn_complete` line ended the turn with a result — the
+/// one turn end that raises a session's unread mark ([B03]). Tugcode writes
+/// `result: "error"` for a turn whose result was not a success and
+/// `is_api_error: true` for one that never ran; either is an errored end,
+/// which keeps its own reading. A line with no `result` is tugcode's
+/// default, a success. An unparseable line raises nothing.
+fn turn_complete_succeeded(line: &str) -> bool {
+    let Ok(frame) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+    let result_ok = frame
+        .get("result")
+        .and_then(|v| v.as_str())
+        .is_none_or(|r| r == "success");
+    let api_error = frame.get("is_api_error").and_then(|v| v.as_bool()) == Some(true);
+    result_ok && !api_error
 }
 
 /// Overlay one `turn_complete` frame's persisted timing keys in place.
@@ -7507,6 +7529,22 @@ mod tests {
         assert_eq!(parsed["type"], "turn_complete");
         assert_eq!(parsed["msg_id"], "msg-A");
         assert_eq!(parsed["result"], "success");
+    }
+
+    #[test]
+    fn only_a_successful_turn_complete_raises_the_unread_mark() {
+        assert!(turn_complete_succeeded(
+            r#"{"type":"turn_complete","msg_id":"m","seq":1,"result":"success"}"#
+        ));
+        // tugcode's default when the result carried no value.
+        assert!(turn_complete_succeeded(r#"{"type":"turn_complete","msg_id":"m"}"#));
+        assert!(!turn_complete_succeeded(
+            r#"{"type":"turn_complete","msg_id":"m","result":"error"}"#
+        ));
+        assert!(!turn_complete_succeeded(
+            r#"{"type":"turn_complete","msg_id":"m","result":"success","is_api_error":true}"#
+        ));
+        assert!(!turn_complete_succeeded("not json"));
     }
 
     #[test]

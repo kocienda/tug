@@ -188,7 +188,10 @@ import {
 import { parseBeatFileTarget } from "@/lib/beat-line/beat-file-target";
 import { formatRestingStamp } from "@/lib/session-activity-line";
 import { arcJoinReadyLine } from "@/lib/arc-join-register";
-import { useSessionJoinBase } from "@/lib/code-session-store/use-session-phase";
+import {
+  useSessionJoinBase,
+  useSessionTurnEndUnseen,
+} from "@/lib/code-session-store/use-session-phase";
 import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import {
   askPromptText,
@@ -1151,10 +1154,14 @@ export function SessionIdentityRow({
   const joinBase = useSessionJoinBase(sessionId);
   const joinReadyLine =
     joinBase !== null && !turnInFlight ? arcJoinReadyLine(joinBase) : null;
+  // An unread turn end closes the rest sentence `Done.` — the same fact, from
+  // the same derivation, as the dot's `done` key, so the two cannot disagree.
+  const turnEndUnseen = useSessionTurnEndUnseen(sessionId);
   const restLine = sessionActivityRestLine({
     turnCount: facts?.turn_count ?? 0,
     fileSize: facts?.file_size ?? null,
     lastUsedAtMs: facts?.last_used_at ?? null,
+    turnEndUnseen,
   });
   const choice = sessionActivity({
     override: activityOverride,

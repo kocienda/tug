@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import type { TugConnection } from "@/connection";
 import { FeedId } from "@/protocol";
-import type { SessionRow } from "@/protocol";
+import { sessionTurnEndUnseen, type SessionRow } from "@/protocol";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import {
   SessionLedgerStore,
@@ -44,6 +44,8 @@ function makeRow(partial: Partial<SessionRow> & { session_id: string }): Session
     origin: partial.origin ?? "tug",
     terminal_live: partial.terminal_live ?? null,
     background: partial.background ?? false,
+    last_turn_end_at: partial.last_turn_end_at ?? 0,
+    last_attended_at: partial.last_attended_at ?? 0,
   };
 }
 
@@ -230,6 +232,36 @@ describe("SessionLedgerStore", () => {
     const snap = store.getSnapshot("ws-1");
     expect(snap.rows.map((r) => r.session_id)).toEqual(["s2", "s1"]);
     expect(snap.rows[0].turn_count).toBe(1);
+    store.dispose();
+  });
+
+  it("session_updated carries the unread mark's stamps onto the row", () => {
+    const { store } = newStore();
+    store.getSnapshot("ws-1");
+    publishListSessionsOk({
+      dir_exists: true,
+      project_dir: "ws-1",
+      sessions: [makeRow({ session_id: "s1", last_user_prompt: "hello" })],
+    });
+    expect(sessionTurnEndUnseen(store.findRow("s1")!)).toBe(false);
+
+    publishSessionUpdated({
+      session_id: "s1",
+      fields: makeRow({ session_id: "s1", last_user_prompt: "hello", last_turn_end_at: 500 }),
+    });
+    expect(store.findRow("s1")?.last_turn_end_at).toBe(500);
+    expect(sessionTurnEndUnseen(store.findRow("s1")!)).toBe(true);
+
+    publishSessionUpdated({
+      session_id: "s1",
+      fields: makeRow({
+        session_id: "s1",
+        last_user_prompt: "hello",
+        last_turn_end_at: 500,
+        last_attended_at: 700,
+      }),
+    });
+    expect(sessionTurnEndUnseen(store.findRow("s1")!)).toBe(false);
     store.dispose();
   });
 

@@ -111,7 +111,14 @@ pub const CREATE_SESSIONS_SQL: &str = "
         -- to drop the arming, and tugcode reuses its manager's
         -- selector for every later spawn — so the card stayed pinned
         -- on a stage model through the user's own `/new`, forever.
-        hand_back_owed    INTEGER NOT NULL DEFAULT 0
+        hand_back_owed    INTEGER NOT NULL DEFAULT 0,
+        -- The unread mark's two stamps, in ms. `last_turn_end_at` is
+        -- the last live turn that completed (never a cancelled or an
+        -- errored one); `last_attended_at` is the last time the user
+        -- attended the session. The session reads `done` while the
+        -- first is newer than the second. Both `0` until written.
+        last_turn_end_at  INTEGER NOT NULL DEFAULT 0,
+        last_attended_at  INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE INDEX IF NOT EXISTS sessions_workspace_recent

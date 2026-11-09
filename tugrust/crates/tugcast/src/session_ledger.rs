@@ -496,6 +496,22 @@ pub struct SessionRow {
     /// Keep in lockstep with the TS `SessionRow.background`.
     #[serde(default)]
     pub background: bool,
+    /// When the last live turn that **completed** ended, in ms; `0` until
+    /// one has. A cancelled turn is the user's own act and an errored one
+    /// keeps its own reading, so neither writes it. One half of the unread
+    /// mark: the session reads `done` while this is newer than
+    /// `last_attended_at`; equal stamps read as seen, so an attention stamp
+    /// written at a turn's own end keeps the mark from rising. The deck owns
+    /// the derivation. Keep in lockstep with the TS
+    /// `SessionRow.last_turn_end_at`.
+    #[serde(default)]
+    pub last_turn_end_at: i64,
+    /// When the user last attended this session — activated its card in the
+    /// key window, or submitted a prompt to it — in ms; `0` until they have.
+    /// The other half of the unread mark. Keep in lockstep with the TS
+    /// `SessionRow.last_attended_at`.
+    #[serde(default)]
+    pub last_attended_at: i64,
 }
 
 /// One row of the `turns` submission journal. Authored by tugcast at
@@ -1070,6 +1086,13 @@ pub struct SessionLedger {
     /// forwarder takes the claim over. Leaf lock: taken after `db`,
     /// never the other way.
     changes_journal: Mutex<Option<crate::changes_journal::ChangesJournal>>,
+    /// The session the user is attending right now, as the deck last reported
+    /// it — the active card's session while the app is active, `None`
+    /// otherwise. In memory only: it is a fact about this moment, and a
+    /// restarted tugcast learns it again from the deck's next report. A turn
+    /// that completes on it is seen as it ends ([`Self::record_turn_end`]).
+    /// Leaf lock: never held across `db`.
+    attending: Mutex<Option<String>>,
     /// How this instance writes the shared ledger: holding the
     /// machine-wide writer claim, forwarding to whoever holds it, or
     /// unclaimed (a private/in-memory changes database). See
@@ -1298,6 +1321,7 @@ impl SessionLedger {
             stream_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
+            attending: Mutex::new(None),
             changes_access: Mutex::new(changes_access),
             forward_order: Mutex::new(()),
             changes_generation: AtomicU64::new(0),
@@ -1359,6 +1383,7 @@ impl SessionLedger {
             stream_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
+            attending: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
             forward_order: Mutex::new(()),
             changes_generation: AtomicU64::new(0),
@@ -1882,6 +1907,7 @@ impl SessionLedger {
         Self::migrate_sessions_arc_binding(conn)?;
         Self::migrate_sessions_add_demoted(conn)?;
         Self::migrate_sessions_add_hand_back_owed(conn)?;
+        Self::migrate_sessions_add_attention_stamps(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
         Self::migrate_overview_posts_add_elapsed_ms(conn)?;
         Self::migrate_overview_posts_add_project_dir(conn)?;
@@ -2702,6 +2728,34 @@ impl SessionLedger {
             Err(err) if is_duplicate_column(&err) => Ok(()),
             Err(err) => Err(err.into()),
         }
+    }
+
+    /// Self-healing add of the unread mark's two stamps,
+    /// `sessions.last_turn_end_at` and `sessions.last_attended_at`.
+    ///
+    /// A no-op when the table is absent (the CREATE batch then declares
+    /// them) and per column when it is already there. Rows written before
+    /// the columns read `0` for both, which reads as attended: a turn that
+    /// ended before the mark existed was never recorded as unseen, and
+    /// raising it on every old session at once would be a list of lies.
+    fn migrate_sessions_add_attention_stamps(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if cols.is_empty() {
+            return Ok(());
+        }
+        for name in ["last_turn_end_at", "last_attended_at"] {
+            if !cols.iter().any(|(n, _)| n == name) {
+                match conn.execute(
+                    &format!("ALTER TABLE sessions ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0"),
+                    [],
+                ) {
+                    Ok(_) => {}
+                    Err(err) if is_duplicate_column(&err) => {}
+                    Err(err) => return Err(err.into()),
+                }
+            }
+        }
+        Ok(())
     }
     /// Self-healing add of `minted_tags.line_id` — the line that owns a
     /// spelling ([P08]). A no-op when the table is absent (the CREATE-batch
@@ -3759,7 +3813,7 @@ impl SessionLedger {
              UNION ALL
              SELECT m.session_id, l.project_dir, l.project_dir, l.created_at,
                     l.last_used_at, 0, NULL, 'closed', NULL,
-                    l.name, l.name_user_set, l.tag, NULL, 0, NULL, NULL, l.line_id
+                    l.name, l.name_user_set, l.tag, NULL, 0, NULL, NULL, l.line_id, 0, 0
              FROM lines l
              JOIN minted_tags m ON m.line_id = l.line_id
              WHERE l.project_dir IN ({marks})
@@ -5592,6 +5646,60 @@ impl SessionLedger {
         }
         self.notify_sessions_changed();
         Ok(())
+    }
+
+    /// Stamp `last_turn_end_at` — a live turn **completed** ([B03]). The
+    /// caller decides what counts: a `turn_complete` whose result was a
+    /// success, never a `turn_cancelled` or an errored end. Gated on a live
+    /// row like [`Self::record_turn`], since a late turn on a closed row is
+    /// nobody's result to read. Never moves the stamp backwards.
+    ///
+    /// A turn that completes on the session the user is attending is seen as
+    /// it ends: the same write stamps `last_attended_at`, so no push ever
+    /// carries a mark the user was looking at when it was raised — on any
+    /// page, including one that cannot know which card is attended.
+    pub fn record_turn_end(&self, session_id: &str, now: i64) -> Result<(), LedgerError> {
+        let attended = self.attending.lock().as_deref() == Some(session_id);
+        let conn = self.db.lock();
+        conn.execute(
+            "UPDATE sessions
+             SET last_turn_end_at = MAX(last_turn_end_at, ?2),
+                 last_attended_at = CASE WHEN ?3 THEN MAX(last_attended_at, ?2)
+                                         ELSE last_attended_at END
+             WHERE session_id = ?1 AND state = 'live'",
+            params![session_id, now, attended],
+        )?;
+        drop(conn);
+        self.notify_sessions_changed();
+        Ok(())
+    }
+
+    /// Record which session the user is attending now, or that they are
+    /// attending none ([B04]). Writes no row: the stamp is
+    /// [`Self::record_attended`]'s, and this is only what
+    /// [`Self::record_turn_end`] consults.
+    pub fn set_attending(&self, session_id: Option<&str>) {
+        *self.attending.lock() = session_id.map(str::to_owned);
+    }
+
+    /// Stamp `last_attended_at` — the user attended the session ([B04]).
+    /// Not gated on state: attending a closed session's card is still the
+    /// user having looked at its result. Never moves the stamp backwards,
+    /// so a late report cannot raise a mark a newer one already spent.
+    /// Returns whether a row was there to stamp.
+    pub fn record_attended(&self, session_id: &str, now: i64) -> Result<bool, LedgerError> {
+        let conn = self.db.lock();
+        let affected = conn.execute(
+            "UPDATE sessions
+             SET last_attended_at = MAX(last_attended_at, ?2)
+             WHERE session_id = ?1",
+            params![session_id, now],
+        )?;
+        drop(conn);
+        if affected > 0 {
+            self.notify_sessions_changed();
+        }
+        Ok(affected > 0)
     }
 
     /// Refresh a row's `turn_count` to `engine(file)` regardless of state —
@@ -9062,7 +9170,8 @@ fn resume_ancestors(conn: &Connection, session_id: &str) -> Vec<String> {
 /// deck went line-correct without one of them changing.
 const SESSION_COLUMNS: &str = "s.session_id, s.workspace_key, s.project_dir, s.created_at,
      s.last_used_at, s.turn_count, s.last_user_prompt, s.state, s.card_id,
-     l.name, l.name_user_set, l.tag, s.synopsis, s.private, s.arc_id, s.arc_name, s.line_id";
+     l.name, l.name_user_set, l.tag, s.synopsis, s.private, s.arc_id, s.arc_name, s.line_id,
+     s.last_turn_end_at, s.last_attended_at";
 
 /// The `FROM` clause [`SESSION_COLUMNS`] is written against. `LEFT`, not
 /// inner: a row whose line is somehow missing reads back as a row with no
@@ -9114,6 +9223,10 @@ fn scan_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> 
         // Nor a background owner: this row's `card_id` is `None` above, and
         // an unadopted scan row has no `sessions` row to carry a card at all.
         background: false,
+        // Nor either stamp: no `sessions` row recorded a turn end or the
+        // user's attention, so the unread mark reads as spent.
+        last_turn_end_at: 0,
+        last_attended_at: 0,
     })
 }
 
@@ -9299,6 +9412,8 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
     let arc_id: Option<String> = row.get(14)?;
     let arc_name: Option<String> = row.get(15)?;
     let line_id: String = row.get::<_, Option<String>>(16)?.unwrap_or_default();
+    let last_turn_end_at: i64 = row.get(17)?;
+    let last_attended_at: i64 = row.get(18)?;
     let state = match state_str.parse::<SessionState>() {
         Ok(s) => s,
         Err(e) => return Ok(Err(e)),
@@ -9322,6 +9437,8 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
         arc_name,
         line_id,
         background,
+        last_turn_end_at,
+        last_attended_at,
     }))
 }
 
@@ -13557,6 +13674,131 @@ mod tests {
     }
 
     #[test]
+    fn a_ledger_predating_the_attention_stamps_migrates_in_place() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                 session_id        TEXT PRIMARY KEY,
+                 workspace_key     TEXT NOT NULL,
+                 project_dir       TEXT NOT NULL,
+                 created_at        INTEGER NOT NULL,
+                 last_used_at      INTEGER NOT NULL,
+                 state             TEXT NOT NULL
+             );
+             INSERT INTO sessions
+                 (session_id, workspace_key, project_dir, created_at,
+                  last_used_at, state)
+             VALUES ('legacy', 'ws', '/proj', 0, 5, 'closed');",
+        )
+        .expect("legacy schema");
+
+        let columns = |conn: &Connection| {
+            SessionLedger::table_columns(conn, "sessions")
+                .expect("columns")
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect::<Vec<_>>()
+        };
+        assert!(!columns(&conn).iter().any(|n| n == "last_turn_end_at"));
+        SessionLedger::migrate_sessions_add_attention_stamps(&conn).expect("migrate");
+        let cols = columns(&conn);
+        assert!(cols.iter().any(|n| n == "last_turn_end_at"));
+        assert!(cols.iter().any(|n| n == "last_attended_at"));
+        SessionLedger::migrate_sessions_add_attention_stamps(&conn).expect("re-migrate");
+
+        // A turn that ended before the mark existed was never unseen.
+        let (end, seen): (i64, i64) = conn
+            .query_row(
+                "SELECT last_turn_end_at, last_attended_at FROM sessions
+                 WHERE session_id = 'legacy'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read");
+        assert_eq!((end, seen), (0, 0));
+    }
+
+    #[test]
+    fn a_completed_turn_raises_the_mark_and_attention_spends_it() {
+        let l = fresh();
+        let t0 = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", t0);
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!((r.last_turn_end_at, r.last_attended_at), (0, 0));
+        assert!(r.last_turn_end_at <= r.last_attended_at);
+
+        l.record_turn_end("s1", t0 + 1_000).unwrap();
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!(r.last_turn_end_at, t0 + 1_000);
+        assert!(r.last_turn_end_at > r.last_attended_at);
+
+        assert!(l.record_attended("s1", t0 + 2_000).unwrap());
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!(r.last_attended_at, t0 + 2_000);
+        assert!(r.last_turn_end_at <= r.last_attended_at);
+
+        // A late report never moves either stamp backwards, so it cannot
+        // re-raise a mark a newer attention already spent.
+        assert!(l.record_attended("s1", t0 + 1_500).unwrap());
+        l.record_turn_end("s1", t0 + 500).unwrap();
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!((r.last_turn_end_at, r.last_attended_at), (t0 + 1_000, t0 + 2_000));
+
+        // Attention stamped at the turn's own end reads as seen.
+        l.record_turn_end("s1", t0 + 3_000).unwrap();
+        l.record_attended("s1", t0 + 3_000).unwrap();
+        let r = l.get("s1").unwrap().unwrap();
+        assert!(r.last_turn_end_at <= r.last_attended_at);
+    }
+
+    /// A turn that completes on the attended session is seen in the write
+    /// that ends it, so no push carries a mark the user was looking at; the
+    /// pointer moving away, or to nobody, leaves the next turn's mark raised.
+    #[test]
+    fn a_turn_completing_on_the_attended_session_never_raises_the_mark() {
+        let l = fresh();
+        let t0 = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", t0);
+        seed_live(&l, "s2", WS_A, "card-2", t0);
+
+        l.set_attending(Some("s1"));
+        l.record_turn_end("s1", t0 + 1_000).unwrap();
+        let r = l.get("s1").unwrap().unwrap();
+        assert_eq!((r.last_turn_end_at, r.last_attended_at), (t0 + 1_000, t0 + 1_000));
+
+        // Another session's turn is not the attended one's.
+        l.record_turn_end("s2", t0 + 1_500).unwrap();
+        let r = l.get("s2").unwrap().unwrap();
+        assert!(r.last_turn_end_at > r.last_attended_at);
+
+        l.set_attending(Some("s2"));
+        l.record_turn_end("s1", t0 + 2_000).unwrap();
+        let r = l.get("s1").unwrap().unwrap();
+        assert!(r.last_turn_end_at > r.last_attended_at);
+
+        l.set_attending(None);
+        l.record_turn_end("s2", t0 + 3_000).unwrap();
+        let r = l.get("s2").unwrap().unwrap();
+        assert_eq!(r.last_turn_end_at, t0 + 3_000);
+        assert!(r.last_turn_end_at > r.last_attended_at);
+    }
+
+    #[test]
+    fn a_turn_end_on_a_closed_row_raises_nothing_but_attention_still_lands() {
+        let l = fresh();
+        let t0 = millis(0);
+        seed_live(&l, "s1", WS_A, "card-1", t0);
+        l.mark_closed("s1").unwrap();
+
+        l.record_turn_end("s1", t0 + 1_000).unwrap();
+        assert_eq!(l.get("s1").unwrap().unwrap().last_turn_end_at, 0);
+
+        assert!(l.record_attended("s1", t0 + 2_000).unwrap());
+        assert_eq!(l.get("s1").unwrap().unwrap().last_attended_at, t0 + 2_000);
+        assert!(!l.record_attended("absent", t0).unwrap());
+    }
+
+    #[test]
     fn reconcile_turn_count_from_engine_sets_any_state_without_touching_recency() {
         // The migration / scan-refresh writer: corrects a stale count on a
         // row of ANY state (live, closed, external) and leaves last_used_at
@@ -16133,6 +16375,7 @@ mod tests {
             stream_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
+            attending: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
             forward_order: Mutex::new(()),
             changes_generation: AtomicU64::new(0),

@@ -212,6 +212,37 @@ export interface SessionRow {
    * card's body is not listening (`bodiless-facts-store.ts`).
    */
   turn_active?: boolean;
+  /**
+   * When the last live turn that **completed** ended, in ms; `0` until one
+   * has. A cancelled or errored end never writes it. One half of the unread
+   * mark: see {@link sessionTurnEndUnseen}. Defaults to `0` for an older
+   * tugcast. Keep in lockstep with the Rust `SessionRow.last_turn_end_at`.
+   */
+  last_turn_end_at?: number;
+  /**
+   * When the user last attended the session — activated its card in the key
+   * window, or submitted a prompt to it — in ms; `0` until they have. The
+   * other half of the unread mark. Defaults to `0` for an older tugcast.
+   * Keep in lockstep with the Rust `SessionRow.last_attended_at`.
+   */
+  last_attended_at?: number;
+}
+
+/**
+ * Whether a session's last completed turn is still unseen — it ended after
+ * the user last attended the session, so the session reads `done`.
+ *
+ * The two ledger stamps are the whole input, which is what lets the mark
+ * survive a reload and read the same on every surface; nothing here ages it
+ * out, because only the user's attention spends it. Equal stamps read as
+ * seen, so an attention stamp written at a turn's own end keeps a result read
+ * as it arrived from ever raising the mark. A row from an older tugcast
+ * carries neither stamp and reads as seen.
+ */
+export function sessionTurnEndUnseen(
+  row: Pick<SessionRow, "last_turn_end_at" | "last_attended_at">,
+): boolean {
+  return (row.last_turn_end_at ?? 0) > (row.last_attended_at ?? 0);
 }
 
 /** Busy/idle detail of a terminal-live session. */
@@ -260,6 +291,8 @@ export function normalizeSessionRow(
     private: row.private ?? false,
     line_id: row.line_id ?? "",
     background: row.background ?? false,
+    last_turn_end_at: row.last_turn_end_at ?? 0,
+    last_attended_at: row.last_attended_at ?? 0,
   };
 }
 
@@ -798,6 +831,18 @@ export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): 
     session_id: sessionId,
     private: isPrivate,
   });
+}
+
+/**
+ * Report that the user attended a session ([B04]): its card became the
+ * active card while the app was active. tugcast stamps `last_attended_at`,
+ * which spends the session's unread mark, and pushes the row when the stamp
+ * moved it. A report rather than a request — there is no ack. It also names
+ * the session attended now, so a turn that completes on it is seen as it
+ * ends; `null` says the user is attending none.
+ */
+export function encodeAttendSession(sessionId: string | null): Frame {
+  return controlFrame("attend_session", { session_id: sessionId });
 }
 
 /**

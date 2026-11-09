@@ -30,6 +30,24 @@ describe("sessionActivityRestLine", () => {
     ).toBe(`7 turns, 48 KB. Last updated: ${STAMP}. Ready.`);
   });
 
+  test("an unread turn end closes the line Done.", () => {
+    expect(
+      line({ turnCount: 7, fileSize: 49_357, lastUsedAtMs: AT_MS, turnEndUnseen: true }),
+    ).toBe(`7 turns, 48 KB. Last updated: ${STAMP}. Done.`);
+  });
+
+  test("a spent mark closes it Ready. again, and omitted reads as spent", () => {
+    expect(
+      line({ turnCount: 7, fileSize: 49_357, lastUsedAtMs: AT_MS, turnEndUnseen: false }),
+    ).toBe(`7 turns, 48 KB. Last updated: ${STAMP}. Ready.`);
+  });
+
+  test("the closer swaps one word and nothing else", () => {
+    const seen = line({ turnCount: 3, fileSize: null, lastUsedAtMs: null });
+    const unseen = line({ turnCount: 3, fileSize: null, lastUsedAtMs: null, turnEndUnseen: true });
+    expect(unseen).toBe(seen.replace(/Ready\.$/, "Done."));
+  });
+
   test("one turn is singular", () => {
     expect(line({ turnCount: 1, fileSize: 900, lastUsedAtMs: AT_MS })).toBe(
       `1 turn, 900 B. Last updated: ${STAMP}. Ready.`,

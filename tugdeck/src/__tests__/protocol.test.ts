@@ -17,6 +17,7 @@ import {
   normalizeSessionRow,
   parseActivityFrame,
   parseDigestFrame,
+  sessionTurnEndUnseen,
 } from "../protocol";
 
 const encode = (obj: unknown): Uint8Array =>
@@ -338,6 +339,43 @@ describe("normalizeSessionRow tag", () => {
   });
 });
 
+describe("sessionTurnEndUnseen", () => {
+  test("a turn end newer than the user's attention is unseen", () => {
+    expect(sessionTurnEndUnseen({ last_turn_end_at: 2_000, last_attended_at: 1_000 })).toBe(true);
+  });
+
+  test("attention after the turn end spends the mark", () => {
+    expect(sessionTurnEndUnseen({ last_turn_end_at: 2_000, last_attended_at: 3_000 })).toBe(false);
+  });
+
+  test("attention stamped at the turn's own end reads as seen", () => {
+    expect(sessionTurnEndUnseen({ last_turn_end_at: 2_000, last_attended_at: 2_000 })).toBe(false);
+  });
+
+  test("a session that never completed a turn reads as seen", () => {
+    expect(sessionTurnEndUnseen({ last_turn_end_at: 0, last_attended_at: 0 })).toBe(false);
+    expect(sessionTurnEndUnseen({})).toBe(false);
+  });
+
+  test("a row from an older tugcast normalizes to seen", () => {
+    const row = normalizeSessionRow({
+      session_id: "s1",
+      workspace_key: "ws-1",
+      project_dir: "/proj",
+      created_at: 1,
+      last_used_at: 2,
+      turn_count: 0,
+      last_user_prompt: null,
+      state: "live",
+      card_id: null,
+      name: null,
+    });
+    expect(row.last_turn_end_at).toBe(0);
+    expect(row.last_attended_at).toBe(0);
+    expect(sessionTurnEndUnseen(row)).toBe(false);
+  });
+});
+
 describe("session ledger CONTROL encoders / decoders", () => {
   function parsePayload(frame: { feedId: number; payload: Uint8Array }) {
     return JSON.parse(new TextDecoder().decode(frame.payload));
@@ -400,9 +438,10 @@ describe("session ledger CONTROL encoders / decoders", () => {
         card_id: "card-1",
         name: null,
         // Bare ledger-row pushes never carry origin/terminal_live/file_size/
-        // name_user_set/tag/lineage/synopsis/private/background; the decoder
-        // normalizes them to the tug/not-live/no-size/not-user-set/no-tag/
-        // root-session/no-description/public/deck-held defaults.
+        // name_user_set/tag/lineage/synopsis/private/background or the unread
+        // mark's stamps; the decoder normalizes them to the tug/not-live/
+        // no-size/not-user-set/no-tag/root-session/no-description/public/
+        // deck-held/seen defaults.
         origin: "tug",
         terminal_live: null,
         file_size: null,
@@ -411,6 +450,8 @@ describe("session ledger CONTROL encoders / decoders", () => {
         synopsis: null,
         private: false,
         background: false,
+        last_turn_end_at: 0,
+        last_attended_at: 0,
       },
     });
   });

@@ -63,6 +63,7 @@ export const CONTROL_ACTIONS = [
   "trash_session",
   "rename_session",
   "set_session_private",
+  "attend_session",
 
   // Supervisor: telemetry records and reads.
   "record_turn_telemetry",

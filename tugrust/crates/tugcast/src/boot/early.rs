@@ -164,6 +164,13 @@ struct SeedSession {
     /// line whose older segments are done and whose newest one is not.
     #[serde(default)]
     state: Option<String>,
+    /// A turn on this session completed while the user was elsewhere, written
+    /// through the same `record_turn_end` a successful `turn_complete` calls,
+    /// so the row carries a standing unread mark — which is how a test stands
+    /// up "a turn finished on a card you were not looking at" without a live
+    /// `claude` to finish one.
+    #[serde(default)]
+    turn_end_unseen: bool,
 }
 
 /// One file event to seed, with the sub-file evidence that decides whether
@@ -339,6 +346,12 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
         if session.state.as_deref() == Some("closed") {
             if let Err(e) = ledger.mark_closed(&session.session_id) {
                 eprintln!("tugcast: error: mark_closed failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        if session.turn_end_unseen {
+            if let Err(e) = ledger.record_turn_end(&session.session_id, now) {
+                eprintln!("tugcast: error: record_turn_end failed: {e}");
                 std::process::exit(1);
             }
         }

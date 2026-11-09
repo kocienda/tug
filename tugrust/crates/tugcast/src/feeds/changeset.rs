@@ -4693,6 +4693,8 @@ Some context.
             arc_name: None,
             line_id: String::new(),
             background: false,
+            last_turn_end_at: 0,
+            last_attended_at: 0,
         }
     }
 

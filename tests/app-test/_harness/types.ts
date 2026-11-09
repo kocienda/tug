@@ -597,6 +597,13 @@ export interface LedgerSeedSession {
    * segments are done and whose newest one is not.
    */
   state?: "live" | "closed";
+  /**
+   * A turn on this session completed while the user was elsewhere, written
+   * through the same `record_turn_end` a successful `turn_complete` calls, so
+   * the row carries a standing unread mark. An app-test has no live `claude`
+   * to finish a turn; this is that turn's end, as the ledger records it.
+   */
+  turn_end_unseen?: boolean;
 }
 
 /**

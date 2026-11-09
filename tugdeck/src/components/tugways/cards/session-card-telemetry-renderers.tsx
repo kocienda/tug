@@ -83,7 +83,10 @@ import {
   SESSION_PHASE_WIDEST_LABEL,
   type SessionPhaseInput,
 } from "@/lib/code-session-store/session-phase-visual";
-import { useSessionJoinReady } from "@/lib/code-session-store/use-session-phase";
+import {
+  useSessionJoinReady,
+  useSessionTurnEndUnseen,
+} from "@/lib/code-session-store/use-session-phase";
 import { ARC_JOIN_READY_CELL_WORD } from "@/lib/arc-join-register";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { TurnEntry } from "@/lib/code-session-store/types";
@@ -1194,6 +1197,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // through the one derivation `useSessionPhase` folds in, so the STATE cell
   // and the masthead dot cannot disagree about one arc.
   const joinReady = useSessionJoinReady(snap.tugSessionId);
+  const turnEndUnseen = useSessionTurnEndUnseen(snap.tugSessionId);
   // Live intra-turn usage rides the streaming document's per-path
   // observers ([L02]) — a `streaming_usage` frame ticks only this row,
   // never the whole-store snapshot (and so never the transcript list).
@@ -1419,6 +1423,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     // green, and the only word that says the work is done rather than that no
     // turn happens to be in flight.
     joinReady,
+    // A turn that finished while the user looked elsewhere reads Done, the
+    // same fact the dot reads, so the cell and the dot cannot disagree.
+    turnEndUnseen,
   };
   const statePhaseKey = sessionSessionPhaseKey(indicatorState);
   // STATE cell value — the human-readable phase title. The two

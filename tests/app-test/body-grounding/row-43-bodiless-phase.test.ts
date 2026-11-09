@@ -148,13 +148,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 43: a bodiless card's dot follo
         expect(evictedDot, "the Cards row runs for an evicted card mid-turn").toBe("running");
 
         // ---- The turn ends on tugcast, unheard by any page of the card: the row stills ----
+        // Still as `completed`, the `done` reading: the turn finished while the
+        // user was on the Cards workspace, so its answer is unseen.
         const still = await settleFor(
           () => cards.evalJS<string | null>(rowDot(sid)),
-          (s) => s === "stopped",
+          (s) => s === "completed",
           Math.max(0, streamingAt + TURN_MS - Date.now()) + 6_000,
         );
         note(`the row's dot ${still} ${Date.now() - streamingAt} ms after the turn began`);
-        expect(still, "the row's dot stills when the session's turn ends, its card still bodiless").toBe("stopped");
+        expect(still, "the row's dot stills as done when the session's turn ends unattended, its card still bodiless").toBe("completed");
         expect((await app.bodies()).some((b) => b.cardId === A), "the card is still without a body").toBe(false);
       } finally {
         await app.close();

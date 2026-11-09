@@ -43,6 +43,14 @@
  * citation dots and the Arcs card row from each deriving their own and
  * disagreeing.
  *
+ * **The unread mark is the session's, but not the session store's.** A turn
+ * that completed while the user looked elsewhere reads Done until they attend
+ * it, and that fact lives on the session's ledger row as two stamps
+ * (`sessionTurnEndUnseen`), not in the card's reducer. It is read beside the
+ * store rather than inside it, so it reaches a session with no card, or a card
+ * this page has no store for, on the same terms as one it does — every page
+ * holds the ledger.
+ *
  * Laws: [L02] every store read enters through `useSyncExternalStore`.
  *
  * @module lib/code-session-store/use-session-phase
@@ -56,7 +64,13 @@ import {
   cardIdForSession,
   useCardIdForSession,
   cardSessionBindingStore,
+  ledgerSegmentForCard,
 } from "@/lib/card-session-binding-store";
+import {
+  getSessionLedgerStore,
+  subscribeSessionLedger,
+} from "@/lib/session-ledger-store";
+import { sessionTurnEndUnseen } from "@/protocol";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { bodyFactsStore } from "@/lib/body-facts-store";
 import { bodilessFactsStore } from "@/lib/bodiless-facts-store";
@@ -134,6 +148,46 @@ export function joinOfferBase(
   return entry.base;
 }
 
+/**
+ * Whether `sessionId`'s ledger row carries an unseen turn end — the whole
+ * input to the `done` key.
+ *
+ * The row is the card's seated segment when a card holds the session (a seat
+ * moved by a fork or a rotation answers from the segment it sits on now), and
+ * the session's own row otherwise. A row the deck has not listed reads seen:
+ * doubt reads quiet here as everywhere on the dot.
+ */
+export function sessionTurnEndUnseenNow(sessionId: string, cardId: string | null): boolean {
+  const address = cardId === null
+    ? sessionId
+    : (cardSessionBindingStore.getBinding(cardId)?.tugSessionId ?? sessionId);
+  const rowId = cardId === null ? address : ledgerSegmentForCard(cardId, address);
+  const row = getSessionLedgerStore()?.findRow(rowId) ?? null;
+  return row !== null && sessionTurnEndUnseen(row);
+}
+
+/**
+ * Fold the unread mark onto a key that was computed without it: a key some
+ * other page reported, or the doubt reading of a session with no store here.
+ *
+ * The same precedence {@link sessionSessionPhaseKey} keeps — `done` promotes
+ * from a quiet session alone, which is `idle` or `background`, and every other
+ * key (a turn in flight, a dialog, a join offer, a dead wire) outranks it.
+ */
+export function withTurnEndUnseen(key: SessionPhaseKey, unseen: boolean): SessionPhaseKey {
+  return unseen && (key === "idle" || key === "background") ? "done" : key;
+}
+
+/** The two stores {@link sessionTurnEndUnseenNow} reads, as one subscription. */
+function subscribeUnseen(listener: () => void): () => void {
+  const releaseLedger = subscribeSessionLedger(listener);
+  const releaseBinding = cardSessionBindingStore.subscribe(listener);
+  return () => {
+    releaseLedger();
+    releaseBinding();
+  };
+}
+
 /** The arc bound to a card, read once. */
 function arcIdForCard(cardId: string | null): string | null {
   if (cardId === null) return null;
@@ -185,8 +239,9 @@ function useCardArcJoin(
 export function sessionPhaseFromSnapshot(
   snap: SessionPhaseSource | null,
   joinReady?: boolean,
+  turnEndUnseen?: boolean,
 ): SessionPhaseKey {
-  if (snap === null) return "idle";
+  if (snap === null) return withTurnEndUnseen("idle", turnEndUnseen === true);
   return sessionSessionPhaseKey({
     phase: snap.phase,
     transportState: snap.transportState,
@@ -202,6 +257,9 @@ export function sessionPhaseFromSnapshot(
     // the one green on the dot, and the only thing that says the work is done
     // rather than merely quiet.
     joinReady,
+    // A turn that finished while the user looked elsewhere reads Done from a
+    // list too — that row is how a card they left says its answer is in.
+    turnEndUnseen,
   });
 }
 
@@ -216,7 +274,8 @@ export function sessionPhaseFromSnapshot(
 export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
   const cardId = cardIdForSession(sessionId);
   const services = cardId === null ? null : cardServicesStore.getServices(cardId);
-  if (cardId !== null && services === null) return reportedPhaseOf(cardId);
+  const unseen = sessionTurnEndUnseenNow(sessionId, cardId);
+  if (cardId !== null && services === null) return withTurnEndUnseen(reportedPhaseOf(cardId), unseen);
   const joinReady = joinOfferStands(
     arcIdForCard(cardId),
     services?.changesController?.getSnapshot().arcs ?? [],
@@ -224,6 +283,7 @@ export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
   return sessionPhaseFromSnapshot(
     services?.codeSessionStore?.getSnapshot() ?? null,
     joinReady,
+    unseen,
   );
 }
 
@@ -278,20 +338,24 @@ export function useSessionPhase(sessionId: string): SessionPhaseKey {
   const store = services?.codeSessionStore ?? null;
   const join = useCardArcJoin(cardId, services?.changesController ?? null);
   const joinReady = joinOfferStands(join.arcId, join.arcs);
+  const unseen = useSyncExternalStore(subscribeUnseen, () =>
+    sessionTurnEndUnseenNow(sessionId, cardId),
+  );
   // The key is the selection: a publish that leaves it where it was — a tool
   // row, a cost line — re-renders nobody.
   const selectPhase = useCallback(
-    (): SessionPhaseKey => sessionPhaseFromSnapshot(store?.getSnapshot() ?? null, joinReady),
-    [store, joinReady],
+    (): SessionPhaseKey =>
+      sessionPhaseFromSnapshot(store?.getSnapshot() ?? null, joinReady, unseen),
+    [store, joinReady, unseen],
   );
   const phase = useSyncExternalStore(store?.subscribe ?? NOOP_SUBSCRIBE, selectPhase, () =>
-    sessionPhaseFromSnapshot(null, joinReady),
+    sessionPhaseFromSnapshot(null, joinReady, unseen),
   );
   // A card this page has no store for answers from what was reported for it.
   const reported = useSyncExternalStore(subscribeReported, () =>
     cardId === null ? "idle" : reportedPhaseOf(cardId),
   );
-  return cardId !== null && store === null ? reported : phase;
+  return cardId !== null && store === null ? withTurnEndUnseen(reported, unseen) : phase;
 }
 
 /**
@@ -346,6 +410,16 @@ export function useCardJoinReady(cardId: string | null): boolean {
   );
   const join = useCardArcJoin(cardId, services?.changesController ?? null);
   return joinOfferStands(join.arcId, join.arcs);
+}
+
+/**
+ * The unread-mark fact for a **session**, live — the same derivation
+ * {@link useSessionPhase} folds in, for the Z2 STATE cell, which builds its own
+ * {@link SessionPhaseInput} rather than reading the key.
+ */
+export function useSessionTurnEndUnseen(sessionId: string): boolean {
+  const cardId = useCardIdForSession(sessionId);
+  return useSyncExternalStore(subscribeUnseen, () => sessionTurnEndUnseenNow(sessionId, cardId));
 }
 
 /**

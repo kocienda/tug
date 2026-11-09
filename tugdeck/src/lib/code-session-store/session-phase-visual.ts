@@ -53,6 +53,13 @@
  * would kill the composer and light a Stop button with nothing to
  * stop.
  *
+ * `done` is the fourth, and the quietest: a turn on this session
+ * completed while the user was looking elsewhere, and they have not
+ * looked since. It is spent by attention, never by time, and the fact
+ * arrives from the session's ledger row (`sessionTurnEndUnseen`), not
+ * from the reducer — whose `idle` is again true about the turn and
+ * silent about the session. Like `ready` it keeps `canSubmit` true.
+ *
  * Migrated from the legacy `TugStateIndicator` — the visual
  * vocabulary is preserved; the API shape is reshaped to the unified
  * indicator's phase axis.
@@ -107,6 +114,14 @@ export interface SessionPhaseInput {
    * correctly reads as "makes no claim". Every live surface passes it.
    */
   readonly joinReady?: boolean;
+  /**
+   * Whether a turn on this session completed while the user was not
+   * attending it, and they have not attended it since — the unread mark
+   * the ledger row's two stamps carry. Optional for the same reason as
+   * `joinReady`: a replayed historical state-change row has no ledger row
+   * to consult, and absent correctly reads as "makes no claim".
+   */
+  readonly turnEndUnseen?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +134,7 @@ export type SessionPhaseKey =
   | "interrupting"
   | "stop_stalled"
   | "ready"
+  | "done"
   | "background"
   | CodeSessionPhase;
 
@@ -164,6 +180,13 @@ export type SessionPhaseKey =
  * standing join offer is patient. It sits below `pendingAsk` too — a
  * dialog holding an answer blocks the turn, and a join offer blocks
  * nothing.
+ *
+ * `done` promotes from `idle` alone too, directly below `ready`: a
+ * session wearing a join offer has finished by definition, and the
+ * offer is the louder reading of the same fact. It sits above
+ * `background` because what the user has not seen is the turn's answer,
+ * and that is the thing waiting on them; agents still running after it
+ * are context. A turn in flight keeps its own phase — the mark waits.
  */
 export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKey {
   if (input.transportState === "offline") return "offline";
@@ -172,6 +195,7 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
   if (input.stopStalled === true) return "stop_stalled";
   if (input.pendingAsk === true) return "awaiting_approval";
   if (input.phase === "idle" && input.joinReady === true) return "ready";
+  if (input.phase === "idle" && input.turnEndUnseen === true) return "done";
   if (input.phase === "idle" && (input.runningJobCount ?? 0) > 0) {
     return "background";
   }
@@ -199,6 +223,9 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
  * "Working" — a turn in flight — as the between-turns counterpart of
  * it. It replaced "Active", a word that made no claim a live turn does
  * not also make.
+ *
+ * `done` reads "Done" and never "Ready": "Ready" is the arc's word, for a
+ * join offer that stands, and a finished answer is not that.
  */
 export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   offline: "Disconnected",
@@ -207,6 +234,7 @@ export const SESSION_PHASE_LABELS: Record<SessionPhaseKey, string> = {
   stop_stalled: "Unanswered",
   idle: "Idle",
   ready: "Ready",
+  done: "Done",
   background: "Running",
   submitting: "Sending",
   awaiting_first_token: "Waiting",
@@ -240,6 +268,7 @@ export const SESSION_PHASE_WIDEST_LABEL = "Disconnected";
  *  - `restoring`, `interrupting` → `{ role: caution, state: running }`
  *  - `awaiting_approval`         → `{ role: caution, state: running }`
  *  - `ready`                     → `{ role: success, state: running }`
+ *  - `done`                      → `{ role: action,  state: completed }`
  *  - active stream phases        → `{ role: action,  state: running }`
  *  - `background`                → `{ role: action,  state: running, shape: diamond }`
  *  - `idle`                      → `{ role: inherit, state: stopped }`
@@ -264,6 +293,11 @@ export const SESSION_PHASE_WIDEST_LABEL = "Disconnected";
  * with it. The quiet `inherit` tone this used to wear made the dot
  * read as Idle-with-a-twitch, which is the one thing it is not. Idle
  * owns `inherit`; nothing that is working may borrow it.
+ *
+ * `done` is the working tone held still: filled where idle is a hollow
+ * ring, and still where a working dot breathes. Three readings on one
+ * glyph, in order of liveness — working, done, idle — and no new colour
+ * spent, because `success` stays the arc's alone.
  */
 export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicatorPhaseVisual {
   switch (phaseKey as SessionPhaseKey) {
@@ -288,6 +322,8 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
       return { role: "caution", state: "running" };
     case "ready":
       return { role: "success", state: "running" };
+    case "done":
+      return { role: "action", state: "completed" };
     case "background":
       return { role: "action", state: "running", shape: "diamond" };
     case "submitting":

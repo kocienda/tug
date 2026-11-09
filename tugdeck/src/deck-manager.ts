@@ -259,6 +259,7 @@ import {
   installLifecycleCascade,
   type LifecycleCascadeHandle,
 } from "./lib/lifecycle-cascade";
+import { installSessionAttention } from "./lib/session-attention";
 import type { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
 import {
   CardStateOrchestrator,
@@ -1087,6 +1088,9 @@ export class DeckManager implements IDeckManagerStore {
   private readonly lifecycleCascade: LifecycleCascadeHandle;
 
   private readonly releaseAppActivity: () => void;
+
+  /** Release for the session-attention reporter ([B04]). */
+  private readonly releaseSessionAttention: () => void;
 
   public addCardToPane: (
     paneId: string,
@@ -2425,6 +2429,27 @@ export class DeckManager implements IDeckManagerStore {
     // focus language is correctly quiet/lit on the very first paint (setHasFocus
     // only fires it on a subsequent transition).
     this.reflectAppActive(this.deckState.hasFocus);
+
+    // After the deck state exists, because the activation observer
+    // initial-syncs at subscribe and reads the focused card; and after the
+    // cascade and `followAppActivity`, so the app coming back to the front has
+    // set `hasFocus` before the cascade's re-activation reaches the reporter.
+    this.releaseSessionAttention = installSessionAttention({
+      isAppActive: () => this.deckState.hasFocus,
+      getFirstResponderCardId: () => this.getFirstResponderCardId(),
+      observeCardDidActivate: (cb) => this.cardLifecycle.observeCardDidActivate(null, cb),
+      observeDeck: (cb) => this.subscribeSync(() => cb(), "session-attention"),
+      observeWireOpen: (cb) => {
+        // On the edge into connected only: the state is re-announced while
+        // nothing about the wire moved, and each would be a needless report.
+        let open = false;
+        return this.connection.onDisconnectState((state) => {
+          if (!state.disconnected && !open) cb();
+          open = !state.disconnected;
+        });
+      },
+      send: (frame) => this.connection.send(frame.feedId, frame.payload),
+    });
 
     // Fire CONSTRUCTION for every card loaded from the saved layout so the
     // lifecycle's `constructedCards` set matches reality and later-subscribing
@@ -7587,5 +7612,6 @@ export class DeckManager implements IDeckManagerStore {
     window.removeEventListener("resize", this.dropContainerSize);
     this.lifecycleCascade.dispose();
     this.releaseAppActivity();
+    this.releaseSessionAttention();
   }
 }

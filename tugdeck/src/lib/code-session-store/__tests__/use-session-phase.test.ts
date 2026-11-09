@@ -30,6 +30,7 @@ import {
   reportedPhaseOf,
   sessionPhaseFromSnapshot,
   sessionPhaseNow,
+  withTurnEndUnseen,
   type SessionPhaseSource,
 } from "../use-session-phase";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -230,6 +231,45 @@ describe("the fold folds the offer in", () => {
 
   test("no snapshot still reads idle, offer or not", () => {
     expect(sessionPhaseFromSnapshot(null, true)).toBe("idle");
+  });
+});
+
+describe("the fold folds the unread mark in", () => {
+  test("a quiet session whose answer the user has not seen reads done", () => {
+    expect(sessionPhaseFromSnapshot(snapshot(), false, true)).toBe("done");
+  });
+
+  test("a standing join offer outranks it", () => {
+    expect(sessionPhaseFromSnapshot(snapshot(), true, true)).toBe("ready");
+  });
+
+  test("a turn in flight keeps its own phase — the mark waits", () => {
+    expect(sessionPhaseFromSnapshot(snapshot({ phase: "streaming" }), false, true)).toBe(
+      "streaming",
+    );
+  });
+
+  test("a session with no store here still reads done from its ledger row", () => {
+    expect(sessionPhaseFromSnapshot(null, false, true)).toBe("done");
+    expect(sessionPhaseFromSnapshot(null, false, false)).toBe("idle");
+  });
+});
+
+describe("withTurnEndUnseen — the mark on a key computed without it", () => {
+  test("promotes a quiet key, idle or background", () => {
+    expect(withTurnEndUnseen("idle", true)).toBe("done");
+    expect(withTurnEndUnseen("background", true)).toBe("done");
+  });
+
+  test("leaves every louder key where it is", () => {
+    for (const key of ["ready", "streaming", "tool_work", "awaiting_approval", "offline", "errored"] as const) {
+      expect(withTurnEndUnseen(key, true)).toBe(key);
+    }
+  });
+
+  test("a spent mark moves nothing", () => {
+    expect(withTurnEndUnseen("idle", false)).toBe("idle");
+    expect(withTurnEndUnseen("background", false)).toBe("background");
   });
 });
 

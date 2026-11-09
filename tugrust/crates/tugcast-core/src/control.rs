@@ -96,6 +96,7 @@ control_actions! {
     TrashSession => "trash_session",
     RenameSession => "rename_session",
     SetSessionPrivate => "set_session_private",
+    AttendSession => "attend_session",
 
     // Supervisor: telemetry records and reads.
     RecordTurnTelemetry => "record_turn_telemetry",
