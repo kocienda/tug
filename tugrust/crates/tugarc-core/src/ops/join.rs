@@ -5381,12 +5381,16 @@ mod tests {
 
         let files = ["shared.txt", "notes.txt"];
         let before = base_snapshot(repo, &files);
-        let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * (INDEX_LOCK_ATTEMPTS * 2));
+        // Held until the join returns, not for a guessed duration: a clock
+        // started here runs through the preflight too, and on a slow machine
+        // it released the lock before the landing ever tried it.
+        let lock = index_lock_path(repo);
+        fs::write(&lock, b"").unwrap();
         let err = join_in(&paths, repo, "lockedbase", mechanics())
             .unwrap_err()
             .to_string();
         let after = base_snapshot(repo, &files);
-        held.join().unwrap();
+        fs::remove_file(&lock).unwrap();
 
         assert!(err.contains("index.lock"), "git's own message: {err}");
         assert_eq!(before, after, "the base is byte-identical");
