@@ -350,10 +350,12 @@ fn paths_contend(
 ) -> Result<bool, String> {
     let spans = ledger::spans_for_path(conn, path)?;
     // Same repo-scoping rule as the owner queries: a span from a checkout
-    // that canonicalizes elsewhere is another repo's evidence. A parent dir
-    // that fails to canonicalize scopes nothing in — the row degrades out,
-    // which at worst widens.
-    let canon_root = std::fs::canonicalize(repo_root).ok();
+    // that resolves elsewhere through the path gateway ([L29]) is another
+    // repo's evidence. A parent dir that no longer exists scopes nothing in —
+    // the row degrades out, which at worst widens.
+    let canon_root = repo_root
+        .exists()
+        .then(|| tugcore::pathform::resolve_to_claude_form(repo_root));
     let mut canon_cache: HashMap<&str, bool> = HashMap::new();
     let mut by_session: HashMap<&str, Vec<contention::Anchor>> = HashMap::new();
     for row in &spans {
@@ -364,7 +366,8 @@ fn paths_contend(
             .entry(row.project_dir.as_str())
             .or_insert_with(|| {
                 canon_root.as_deref().is_some_and(|root| {
-                    std::fs::canonicalize(&row.project_dir).is_ok_and(|p| p == root)
+                    let dir = Path::new(&row.project_dir);
+                    dir.exists() && tugcore::pathform::resolve_to_claude_form(dir) == root
                 })
             });
         if !same_repo {
@@ -1216,7 +1219,7 @@ mod tests {
         let f = &buckets.foreign[0];
         assert_eq!(f.sessions, vec!["seg-old".to_string()]);
         assert!(f.elsewhere);
-        let canonical_there = std::fs::canonicalize(there.path()).unwrap();
+        let canonical_there = tugcore::pathform::resolve_to_claude_form(there.path());
         assert_eq!(
             f.project.as_deref(),
             Some(&*canonical_there.to_string_lossy())

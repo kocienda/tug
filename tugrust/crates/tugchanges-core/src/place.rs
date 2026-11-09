@@ -17,6 +17,8 @@
 
 use std::path::{Path, PathBuf};
 
+use tugcore::pathform::resolve_to_claude_form;
+
 use crate::git::repo_root_for;
 
 /// Where one owner stands relative to the repo being composed.
@@ -44,8 +46,11 @@ pub enum OwnerPlace {
 /// before an owner's project was read at all.
 pub fn owner_place(live: bool, owner_project: Option<&Path>, composing_root: &Path) -> OwnerPlace {
     if let Some(project) = owner_project.filter(|p| !p.as_os_str().is_empty()) {
-        let owner_root = canonical(&repo_root_for(project));
-        if owner_root != canonical(composing_root) {
+        // Both sides through the path gateway ([L29]): one directory has many
+        // spellings (`/u/…` → `/System/Volumes/Data/Users/…` ≡ `/Users/…`),
+        // and only the gateway's form makes them one string.
+        let owner_root = resolve_to_claude_form(&repo_root_for(project));
+        if owner_root != resolve_to_claude_form(composing_root) {
             return OwnerPlace::Elsewhere(owner_root);
         }
     }
@@ -54,13 +59,6 @@ pub fn owner_place(live: bool, owner_project: Option<&Path>, composing_root: &Pa
     } else {
         OwnerPlace::Dead
     }
-}
-
-/// The canonical spelling of `path`, or the path as given when it cannot be
-/// resolved (a removed worktree): a vanished root still compares by its
-/// recorded spelling rather than failing the question.
-fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]
@@ -102,10 +100,29 @@ mod tests {
     }
 
     #[test]
+    fn a_firmlinked_spelling_of_this_checkout_is_same_repo() {
+        // macOS reaches one directory by two paths through a firmlink:
+        // `/private/…` and `/System/Volumes/Data/private/…`. Bare
+        // `canonicalize` keeps the two apart, so a workspace opened through a
+        // symlink into the Data volume (`/u -> /System/Volumes/Data/Users/…`)
+        // read every session rooted on `/Users/…` as another repo, and a claim
+        // made there lifted straight back out as `elsewhere` ([L29]).
+        let here = repo();
+        let real = resolve_to_claude_form(here.path());
+        let data = Path::new("/System/Volumes/Data").join(real.strip_prefix("/").unwrap());
+        if !data.is_dir() {
+            return; // no Data-volume spelling on this host
+        }
+        assert_eq!(owner_place(true, Some(&real), &data), OwnerPlace::SameRepo);
+        assert_eq!(owner_place(true, Some(&data), &real), OwnerPlace::SameRepo);
+        assert_eq!(owner_place(false, Some(&real), &data), OwnerPlace::Dead);
+    }
+
+    #[test]
     fn an_owner_on_another_repo_is_elsewhere_live_or_not() {
         let here = repo();
         let there = repo();
-        let root = std::fs::canonicalize(there.path()).unwrap();
+        let root = resolve_to_claude_form(there.path());
         std::fs::create_dir_all(there.path().join("nested")).unwrap();
         assert_eq!(
             owner_place(true, Some(there.path()), here.path()),
