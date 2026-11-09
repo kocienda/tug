@@ -215,8 +215,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
-| ⌘" | `unquote-lines` | Unquote | menu bar (swept) |
-| ⌘' | `quote-lines` | Quote | menu bar (swept) |
+| ⌘" | `decrease-quote-level` | Decrease Quote Level | menu bar (swept) |
+| ⌘' | `increase-quote-level` | Increase Quote Level | menu bar (swept) |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |
 | ⌘- | `zoom-out` | Zoom Out | menu bar (swept) |
@@ -259,7 +259,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⇧⌘G | `find-replace-all` | Replace All | JS, global |
 | ⌥⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
 | ⌥⇧⌘V | `paste-as-plain-text` | Paste as Plain Text | JS, global |
-| ⌥⌘/ | `show-devtools` | Show DevTools | menu bar (swept) |
+| ⌥⌘/ | `toggle-line-comment` | Un/Comment Lines | menu bar (swept) |
 | ⌥⌘0 | `zoom-toggle-actual` | Toggle Actual Size | menu bar (swept) |
 | ⌥⌘F | `find-replace` | Find and Replace… | JS, global |
 | ⌥⌘G | `find-replace-next` | Replace | JS, global |
@@ -314,18 +314,14 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `edit.findAndReplace` | `find-replace` | first responder | registry gate |
 | `edit.findNext` | `find-next` | first responder | registry gate |
 | `edit.findPrevious` | `find-previous` | first responder | registry gate |
-| `edit.makeLowercase` | `make-lowercase` | first responder | registry gate |
-| `edit.makeUppercase` | `make-uppercase` | first responder | registry gate |
 | `edit.paste` | `paste` | AppKit performs it | registry gate |
 | `edit.pasteAsPlainText` | `paste-as-plain-text` | first responder | registry gate |
 | `edit.pasteAsQuote` | `paste-as-quote` | first responder | registry gate |
-| `edit.quoteLines` | `quote-lines` | first responder | registry gate |
 | `edit.redo` | `redo` | first responder | host tier |
 | `edit.replaceAll` | `find-replace-all` | first responder | registry gate |
 | `edit.replaceNext` | `find-replace-next` | first responder | registry gate |
 | `edit.selectAll` | `select-all` | first responder | registry gate |
 | `edit.undo` | `undo` | first responder | host tier |
-| `edit.unquoteLines` | `unquote-lines` | first responder | registry gate |
 | `edit.useSelectionForFind` | `find-selection` | first responder | registry gate |
 | `file.closeAllCardTabs` | `close-all` | first responder | registry gate |
 | `file.closeCard` | `close` | first responder | registry gate |
@@ -393,6 +389,18 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.toggleHistory` | `toggle-history-view` | key card | registry gate |
 | `session.unname` | `run-slash-command:unname` | key card | registry gate |
 | `session.usage` | `run-slash-command:usage` | key card | registry gate |
+| `text.addLineBreaks` | `add-line-breaks` | first responder | registry gate |
+| `text.decreaseQuoteLevel` | `decrease-quote-level` | first responder | registry gate |
+| `text.educateQuotes` | `educate-quotes` | first responder | registry gate |
+| `text.increaseQuoteLevel` | `increase-quote-level` | first responder | registry gate |
+| `text.makeLowercase` | `make-lowercase` | first responder | registry gate |
+| `text.makeUppercase` | `make-uppercase` | first responder | registry gate |
+| `text.removeLineBreaks` | `remove-line-breaks` | first responder | registry gate |
+| `text.straightenQuotes` | `straighten-quotes` | first responder | registry gate |
+| `text.stripQuotes` | `strip-quotes` | first responder | registry gate |
+| `text.toggleBlockComment` | `toggle-block-comment` | first responder | registry gate |
+| `text.toggleLineComment` | `toggle-line-comment` | first responder | registry gate |
+| `text.zapGremlins` | `zap-gremlins` | first responder | registry gate |
 | `view.actualSize` | `zoom-actual` | first responder | host tier |
 | `view.applyThemeToAllWorkspaces` | `apply-theme-to-all-workspaces` | registered handler | registry gate |
 | `view.bullseye` | `toggle-bullseye` | first responder | registry gate |

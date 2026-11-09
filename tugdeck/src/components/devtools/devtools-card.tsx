@@ -4,8 +4,8 @@
  * The interim home for the Log and Telemetry inspectors after the rail card that
  * rework moved them off the rail. A single card hosting the two inspectors
  * behind an internal `TugTabBar` (the Settings-card idiom) — a fixed,
- * non-closable tab set, not a multi-card pane stack. Opened by ⌥⌘/ (the
- * `show-devtools` action), reachable only that way (`hidden` from the `[+]`
+ * non-closable tab set, not a multi-card pane stack. Opened by Maker ▸ Show
+ * DevTools (the `show-devtools` action), reachable only that way (`hidden` from the `[+]`
  * type picker).
  *
  * The Telemetry tab follows the last non-DevTools key card — "the session I'm
@@ -92,7 +92,7 @@ export function DevToolsCardContent(): React.ReactElement {
 
 /**
  * Register the DevTools card. `hidden` keeps it out of the type-picker `[+]`
- * menu: it is reachable only through ⌥⌘/ (`show-devtools`).
+ * menu: it is reachable only through Maker ▸ Show DevTools (`show-devtools`).
  */
 export function registerDevtoolsCard(): void {
   registerCard({

@@ -1,6 +1,6 @@
 /**
- * row-06-menus-edit-text-kinds.test.ts — every other Edit item (undo, find,
- * case) performs with the body of each other kind first responder.
+ * row-06-menus-edit-text-kinds.test.ts — every other Edit item (undo, find)
+ * performs with the body of each other kind first responder.
  *
  * A piece of row 6 ([B02] row 6); the sweep and its parts are `_row-06.ts`'s.
  *

@@ -4,7 +4,7 @@
  * everything each is for works in its body.
  *
  * One body Session card, then each kind opened the user's way — the app
- * menu's item performed, the devtools chord, the Maker menu's `show-card` —
+ * menu's item performed, the Maker menu's `show-devtools` and `show-card` —
  * and read in its body before the next opens:
  *
  * - **Settings** — opens on General over its stored values, reached the
@@ -254,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: devtools, Settings, Ke
 
         // ── Devtools: follows the Session body; the inspection and the log relays ──
         await focusBody(app, A, { composer: false });
-        await app.nativeKey("/", ["alt", "cmd"]);
+        await app.dispatchControlAction("show-devtools");
         const devtools = await openedKind(app, "devtools");
         await devtools.body.nativeClickAtElement(DEVTOOLS_TAB("telemetry"));
         const inspector = await settleFor(() => devtools.body.evalJS<Record<string, string>>(inspectorRows), (r) => r["Tug session id"] === SID, READ_MS);

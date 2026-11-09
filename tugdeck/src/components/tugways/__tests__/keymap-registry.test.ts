@@ -256,7 +256,7 @@ describe("menuChords", () => {
       keyEquivalent: "/",
       command: true,
     });
-    expect(chords["maker.devTools"]).toEqual({
+    expect(chords["text.toggleLineComment"]).toEqual({
       keyEquivalent: "/",
       command: true,
       option: true,

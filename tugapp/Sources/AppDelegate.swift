@@ -1649,7 +1649,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("paste-as-plain-text")
     }
 
-    // Edit ▸ Make Uppercase / Make Lowercase — chain-action round-trips.
+    // Text ▸ Make Uppercase / Make Lowercase — chain-action round-trips.
     // The case transform is applied to the focused surface's selection by
     // the web responder chain; an unhandled dispatch is a silent no-op (no
     // editable surface focused, or nothing selected).
@@ -1661,15 +1661,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("make-lowercase")
     }
 
-    // Edit ▸ Quote / Unquote — chain-action round-trips. The CM6 editors
+    // Text ▸ Increase / Decrease Quote Level — chain-action round-trips. The CM6 editors
     // change the quote level of the lines the selection touches; an
     // unhandled dispatch is a silent no-op (no editor focused).
-    @objc func performQuoteLines(_ sender: Any?) {
-        sendControl("quote-lines")
+    @objc func performIncreaseQuoteLevel(_ sender: Any?) {
+        sendControl("increase-quote-level")
     }
 
-    @objc func performUnquoteLines(_ sender: Any?) {
-        sendControl("unquote-lines")
+    @objc func performDecreaseQuoteLevel(_ sender: Any?) {
+        sendControl("decrease-quote-level")
+    }
+
+    // Text ▸ Un/Comment Lines / Block — chain-action round-trips. The CM6
+    // editors toggle the active language's comment tokens; an unhandled
+    // dispatch is a silent no-op (no editor focused).
+    @objc func performToggleLineComment(_ sender: Any?) {
+        sendControl("toggle-line-comment")
+    }
+
+    @objc func performToggleBlockComment(_ sender: Any?) {
+        sendControl("toggle-block-comment")
+    }
+
+    // Text ▸ Add / Remove Line Breaks — chain-action round-trips. The CM6
+    // editors rewrite the touched lines in one transaction; an unhandled
+    // dispatch is a silent no-op (no editor focused).
+    @objc func performAddLineBreaks(_ sender: Any?) {
+        sendControl("add-line-breaks")
+    }
+
+    @objc func performRemoveLineBreaks(_ sender: Any?) {
+        sendControl("remove-line-breaks")
+    }
+
+    // Text ▸ Educate / Straighten Quotes and Strip Quotes — chain-action
+    // round-trips. The CM6 editors rewrite the text in one transaction; an
+    // unhandled dispatch is a silent no-op (no editor focused).
+    @objc func performEducateQuotes(_ sender: Any?) {
+        sendControl("educate-quotes")
+    }
+
+    @objc func performStraightenQuotes(_ sender: Any?) {
+        sendControl("straighten-quotes")
+    }
+
+    @objc func performStripQuotes(_ sender: Any?) {
+        sendControl("strip-quotes")
+    }
+
+    // Text ▸ Zap Gremlins — a chain-action round-trip, the same shape.
+    @objc func performZapGremlins(_ sender: Any?) {
+        sendControl("zap-gremlins")
     }
 
     // Edit ▸ Find — chain-action round-trips (the web responder chain's

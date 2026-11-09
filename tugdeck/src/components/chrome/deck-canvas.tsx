@@ -2901,7 +2901,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         });
       },
       [TUG_ACTIONS.SHOW_DEVTOOLS]: (_event: ActionEvent) => {
-        // ⌥⌘/ — open (or raise) the DevTools singleton card (Log +
+        // Show DevTools — open (or raise) the DevTools singleton card (Log +
         // Telemetry). Same find-or-create-then-focus-claim shape as
         // SHOW_SETTINGS.
         const snapshot = store.getSnapshot();

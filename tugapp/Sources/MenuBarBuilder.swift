@@ -42,12 +42,14 @@ import AppKit
     func performCopy(_ sender: Any?)
     func performCopyAsPlainText(_ sender: Any?)
     func performCut(_ sender: Any?)
+    func performDecreaseQuoteLevel(_ sender: Any?)
     func performDelete(_ sender: Any?)
     func performFind(_ sender: Any?)
     func performFindNext(_ sender: Any?)
     func performFindPrevious(_ sender: Any?)
     func performFindSelection(_ sender: Any?)
     func performFindAndReplace(_ sender: Any?)
+    func performIncreaseQuoteLevel(_ sender: Any?)
     func performReplaceNext(_ sender: Any?)
     func performReplaceAll(_ sender: Any?)
     func performMakeLowercase(_ sender: Any?)
@@ -55,11 +57,17 @@ import AppKit
     func performPaste(_ sender: Any?)
     func performPasteAsPlainText(_ sender: Any?)
     func performPasteAsQuote(_ sender: Any?)
-    func performQuoteLines(_ sender: Any?)
     func performRedo(_ sender: Any?)
     func performSelectAll(_ sender: Any?)
+    func performToggleBlockComment(_ sender: Any?)
+    func performToggleLineComment(_ sender: Any?)
     func performUndo(_ sender: Any?)
-    func performUnquoteLines(_ sender: Any?)
+    func performAddLineBreaks(_ sender: Any?)
+    func performRemoveLineBreaks(_ sender: Any?)
+    func performEducateQuotes(_ sender: Any?)
+    func performStraightenQuotes(_ sender: Any?)
+    func performStripQuotes(_ sender: Any?)
+    func performZapGremlins(_ sender: Any?)
     func previousCard(_ sender: Any?)
     func previousCardInStack(_ sender: Any?)
     func previousTurn(_ sender: Any?)
@@ -383,27 +391,6 @@ struct MenuBarBuilder {
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(MenuBarActions.performSelectAll(_:)), keyEquivalent: "a").identified("edit.selectAll"))
         editMenu.addItem(NSMenuItem.separator())
 
-        // The case pair — chain-action round-trips like the paste variants:
-        // the transform lives in the web responder chain, which rewrites the
-        // selection in one editor transaction so undo reverts it whole. Built
-        // with EMPTY key equivalents on purpose: their chords (⌥⌘U / ⌥⌘L) are
-        // the command registry's, published per item in the menu-state gate,
-        // and `applyCommandChords` writes them from there — a construction
-        // literal here would put a second author on the same keys and would
-        // survive a rebind.
-        editMenu.addItem(NSMenuItem(title: "Make Uppercase", action: #selector(MenuBarActions.performMakeUppercase(_:)), keyEquivalent: "").identified("edit.makeUppercase"))
-        editMenu.addItem(NSMenuItem(title: "Make Lowercase", action: #selector(MenuBarActions.performMakeLowercase(_:)), keyEquivalent: "").identified("edit.makeLowercase"))
-        editMenu.addItem(NSMenuItem.separator())
-
-        // The quote pair — chain-action round-trips like the case pair: the
-        // CM6 editors add or remove one Markdown quote level on every line
-        // the selection touches, in one transaction. Empty key equivalents
-        // for the case pair's reason: ⌘' / ⇧⌘' are the registry's, and
-        // `applyCommandChords` writes them.
-        editMenu.addItem(NSMenuItem(title: "Quote", action: #selector(MenuBarActions.performQuoteLines(_:)), keyEquivalent: "").identified("edit.quoteLines"))
-        editMenu.addItem(NSMenuItem(title: "Unquote", action: #selector(MenuBarActions.performUnquoteLines(_:)), keyEquivalent: "").identified("edit.unquoteLines"))
-        editMenu.addItem(NSMenuItem.separator())
-
         // Copy Last Response — the session card's `/copy` surface. Enablement
         // rides the command's registry gate on the menuState push.
         let copyLastItem = NSMenuItem(title: "Copy Last Response", action: #selector(MenuBarActions.runCardCommand(_:)), keyEquivalent: "").identified("edit.copyLastResponse")
@@ -440,7 +427,56 @@ struct MenuBarBuilder {
         findMenu.addItem(NSMenuItem(title: "Replace All", action: #selector(MenuBarActions.performReplaceAll(_:)), keyEquivalent: "g", modifierMask: [.command, .option, .shift]).identified("edit.replaceAll"))
         editMenu.addItem(findMenuItem)
 
-        // Session Menu - position 3. The session card's command surfaces,
+        // Text Menu - position 3. Transforms over the text of the focused
+        // editor, laid out after BBEdit's Text menu so its groups sit where
+        // a BBEdit user expects them. Every item is a chain-action round-trip
+        // like the paste variants: the transform lives in the web responder
+        // chain, which rewrites the selection in one editor transaction so
+        // undo reverts it whole. Built with EMPTY key equivalents on purpose:
+        // their chords are the command registry's, published per item in the
+        // menu-state gate, and `applyCommandChords` writes them from there —
+        // a construction literal here would put a second author on the same
+        // keys and would survive a rebind.
+        let textMenuItem = NSMenuItem()
+        mainMenu.addItem(textMenuItem)
+        let textMenu = NSMenu(title: "Text")
+        textMenuItem.submenu = textMenu
+
+        // The case pair — live in plain text inputs as well as the editors.
+        textMenu.addItem(NSMenuItem(title: "Make Uppercase", action: #selector(MenuBarActions.performMakeUppercase(_:)), keyEquivalent: "").identified("text.makeUppercase"))
+        textMenu.addItem(NSMenuItem(title: "Make Lowercase", action: #selector(MenuBarActions.performMakeLowercase(_:)), keyEquivalent: "").identified("text.makeLowercase"))
+        textMenu.addItem(NSMenuItem.separator())
+
+        // The comment pair — CM6's own toggles over the active language's
+        // comment tokens. Lines dims where the language has no line comment.
+        textMenu.addItem(NSMenuItem(title: "Un/Comment Lines", action: #selector(MenuBarActions.performToggleLineComment(_:)), keyEquivalent: "").identified("text.toggleLineComment"))
+        textMenu.addItem(NSMenuItem(title: "Un/Comment Block", action: #selector(MenuBarActions.performToggleBlockComment(_:)), keyEquivalent: "").identified("text.toggleBlockComment"))
+        textMenu.addItem(NSMenuItem.separator())
+
+        // The line-break pair — soft wraps made real, and paragraphs joined.
+        textMenu.addItem(NSMenuItem(title: "Add Line Breaks", action: #selector(MenuBarActions.performAddLineBreaks(_:)), keyEquivalent: "").identified("text.addLineBreaks"))
+        textMenu.addItem(NSMenuItem(title: "Remove Line Breaks", action: #selector(MenuBarActions.performRemoveLineBreaks(_:)), keyEquivalent: "").identified("text.removeLineBreaks"))
+        textMenu.addItem(NSMenuItem.separator())
+
+        // The curly-quote pair — straight quotes curled and curly ones
+        // straightened, over the selection or the whole document, skipping
+        // Markdown code.
+        textMenu.addItem(NSMenuItem(title: "Educate Quotes", action: #selector(MenuBarActions.performEducateQuotes(_:)), keyEquivalent: "").identified("text.educateQuotes"))
+        textMenu.addItem(NSMenuItem(title: "Straighten Quotes", action: #selector(MenuBarActions.performStraightenQuotes(_:)), keyEquivalent: "").identified("text.straightenQuotes"))
+        textMenu.addItem(NSMenuItem.separator())
+
+        // The quote-level group — the CM6 editors add or remove one Markdown
+        // quote level, or strip them all, on every line the selection touches.
+        textMenu.addItem(NSMenuItem(title: "Increase Quote Level", action: #selector(MenuBarActions.performIncreaseQuoteLevel(_:)), keyEquivalent: "").identified("text.increaseQuoteLevel"))
+        textMenu.addItem(NSMenuItem(title: "Decrease Quote Level", action: #selector(MenuBarActions.performDecreaseQuoteLevel(_:)), keyEquivalent: "").identified("text.decreaseQuoteLevel"))
+        textMenu.addItem(NSMenuItem(title: "Strip Quotes", action: #selector(MenuBarActions.performStripQuotes(_:)), keyEquivalent: "").identified("text.stripQuotes"))
+        textMenu.addItem(NSMenuItem.separator())
+
+        // Zap Gremlins — invisible and look-alike characters cleared, with no
+        // dialog, over the selection or the whole document.
+        textMenu.addItem(NSMenuItem(title: "Zap Gremlins", action: #selector(MenuBarActions.performZapGremlins(_:)), keyEquivalent: "").identified("text.zapGremlins"))
+
+        // Session Menu - position 4. The session card's command surfaces,
         // first-class in the menu bar. The menu is always present and its
         // items validate to disabled without a frontmost session card
         // (stable bars with disabled items beat vanishing menus for
@@ -561,7 +597,7 @@ struct MenuBarBuilder {
         sessionMenu.addItem(NSMenuItem.separator())
         sessionMenu.addItem(sessionCommandItem("Data Visualization…", "data-visualization", "session.dataVisualization"))
 
-        // Go Menu - position 4. Every verb that takes the reader somewhere,
+        // Go Menu - position 5. Every verb that takes the reader somewhere,
         // in one place and on four axes: which card, which direction, which
         // slot, which turn. The rows were spread across Window and a Session
         // submenu before, which made a reader look in two menus for one kind
@@ -651,7 +687,7 @@ struct MenuBarBuilder {
         gMenu.addItem(NSMenuItem(title: "First Turn", action: #selector(MenuBarActions.firstTurn(_:)), keyEquivalent: "").identified("go.firstTurn"))
         gMenu.addItem(NSMenuItem(title: "Last Turn", action: #selector(MenuBarActions.lastTurn(_:)), keyEquivalent: "").identified("go.lastTurn"))
 
-        // View Menu - position 5.
+        // View Menu - position 6.
         // How the content is shown: appearance, page zoom, card width and
         // posture, the sidebars, keyboard focus, and full screen. Rebuilt
         // WHOLE on every open in menuNeedsUpdate — this menu is not
@@ -667,7 +703,7 @@ struct MenuBarBuilder {
         // wraps it in a fresh parent item.
         let dynamicThemeMenu = NSMenu(title: "Theme")
 
-        // Window Menu - position 6. Static items are built once here and
+        // Window Menu - position 7. Static items are built once here and
         // never touched by the delegate; only the dynamic `window.pane.*`
         // slice (between paneListAnchor and the following separator) churns
         // in menuNeedsUpdate. NSApp.windowsMenu keeps AppKit's automatic
@@ -746,7 +782,7 @@ struct MenuBarBuilder {
         wMenu.addItem(NSMenuItem.separator())
         wMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "").identified("window.bringAllToFront"))
 
-        // Maker Menu - position 7. Tooling for makers *of* the app —
+        // Maker Menu - position 8. Tooling for makers *of* the app —
         // "session" stays free to mean the Session card's domain. Hidden (not
         // disabled) behind the maker-mode gate: a *mode*, not a focus
         // state, so hide-on-gate is the right shape here.
@@ -758,11 +794,11 @@ struct MenuBarBuilder {
         reloadItem.target = reloadTarget
         mMenu.addItem(reloadItem)
         mMenu.addItem(NSMenuItem.separator())
-        // Show DevTools (⌥⌘/) — the frontend's own inspector card. Chord left
-        // to the registry's sweep, like the Session items. Placing it in the
-        // Maker menu is also what keeps the chord working outside maker mode:
-        // the menu is hidden then, and a hidden menu's key equivalents fall
-        // through to the web view.
+        // Show DevTools — the frontend's own inspector card. It has no
+        // default chord (⌥⌘/ is Un/Comment Lines); one the keymap pane binds
+        // is written by the registry's sweep, like the Session items, and
+        // keeps working outside maker mode because a hidden menu's key
+        // equivalents fall through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(MenuBarActions.showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
         // The per-card sidebar rows live under View ▸ ⟨Card⟩, not here: a
         // release build hides this menu, and the only menu route to a sidebar
@@ -804,7 +840,7 @@ struct MenuBarBuilder {
         mMenu.addItem(NSMenuItem(title: "Source Tree...", action: #selector(MenuBarActions.sourceTree(_:)), keyEquivalent: "").identified("maker.sourceTree"))
         makerMenu.isHidden = !makerMode
 
-        // Help Menu - position 8
+        // Help Menu - position 9
         let helpMenuItem = NSMenuItem()
         mainMenu.addItem(helpMenuItem)
         let helpMenu = NSMenu(title: "Help")

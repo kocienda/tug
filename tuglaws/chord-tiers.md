@@ -119,7 +119,7 @@ Plain ⌘, for future grants under R3.
 | ~~⌘E~~ | **Spent** — `find-selection`, Use Selection for Find. The honest use the slot was held for; see below. |
 | ⌘B, ⌘U | Hold in reserve — bold/underline, and Tug renders markdown. |
 | ⌘P | Hold in reserve — the print reflex is strong. The only accepted repurposing is a command palette. |
-| ~~⌘'~~ | **Spent** — `quote-lines`, Quote, with ⇧⌘' Unquote as its counterpart; see below. |
+| ~~⌘'~~ | **Spent** — `increase-quote-level`, Increase Quote Level, with ⇧⌘' Decrease Quote Level as its counterpart; see below. |
 | ⌘; ⌘\ | Free punctuation. |
 | ⌘[ ⌘] | Reserved for any future back/forward navigation concept — and unable to carry turn navigation, which reads as one. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in both the composer and the text card, so a promoted ⌘[ would kill dedent app-wide and a scoped one would be dead in the composer — the one surface turn stepping is used from ([D184]). |
 
@@ -172,7 +172,7 @@ The algebra's first application. Each row's rationale is a derivation, not a pre
 
 **Claim All and Disclaim All are not an inverse on one set.** Claim acts on what is *not yet* this session's — the unattributed and orphaned buckets together — and Disclaim on what *is*. ⇧-as-counterpart was carrying "the opposite bulk verb of this shade", not "the same set, reversed". R1 promises a shared key and an opposite sense; it does not promise set inversion, and this pair is the reason to say so out loud.
 
-**Ratified unchanged:** ⌥⌘/ Show DevTools against ⌘/ Command Picker; the ⌥⌘↑/↓ + ⌥⇧⌘↑/↓ turn family (R2). *What was ratified there was the R2 exemption, not the arrow shape: the turn family later moved to the bracket row ([D184]), where R1 is satisfied outright.*
+**Ratified unchanged:** the ⌥⌘↑/↓ + ⌥⇧⌘↑/↓ turn family (R2). *⌥⌘/ Show DevTools was ratified here too, as a wink against ⌘/ Command Picker; the key has since been granted to Un/Comment Lines and DevTools has no chord — see the ⌥⌘/ grant under Known anomalies.* *What was ratified there was the R2 exemption, not the arrow shape: the turn family later moved to the bracket row ([D184]), where R1 is satisfied outright.*
 
 ---
 
@@ -251,12 +251,12 @@ Slim / Comfy / Wide keep their **Window-menu rows** and the title bar's width po
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `quote-lines` | **⌘'** | Plain-⌘ under R3, out of the free pool's punctuation. Quoting is reached many times an hour in a markdown prompt, where a quoted block is how a reader hands back what was said. Mail has Increase Quote Level on ⌘' too. |
-| `unquote-lines` | **⇧⌘'** | R1: the ⇧-counterpart of ⌘', on the same key and doing the opposite. It renders as ⌘" because a shifted-pair key spends its ⇧ on the character, the rule Previous Card (⌘{) reads by. |
+| `increase-quote-level` | **⌘'** | Plain-⌘ under R3, out of the free pool's punctuation. Quoting is reached many times an hour in a markdown prompt, where a quoted block is how a reader hands back what was said. Mail has Increase Quote Level on ⌘' too. |
+| `decrease-quote-level` | **⇧⌘'** | R1: the ⇧-counterpart of ⌘', on the same key and doing the opposite. It renders as ⌘" because a shifted-pair key spends its ⇧ on the character, the rule Previous Card (⌘{) reads by. |
 
 **Why not Mail's ⌥⌘'.** Mail puts Decrease Quote Level on ⌥⌘'. Here ⌥ is the variant operator, and removing a quote level is no variant of adding one: it is the opposite. Taking Mail's chord would have recorded an anomaly to buy a resemblance.
 
-**Promotion to Edit ▸ Quote / Unquote is R6's half of the grant.** Both are `menuEligible` with empty Swift key equivalents, like the case pair, so `applyCommandChords` writes them and both stay rebindable. Only the CM6 editors handle the pair, so the items are dark on every other surface.
+**Promotion to Text ▸ Increase / Decrease Quote Level is R6's half of the grant.** Both are `menuEligible` with empty Swift key equivalents, like the case pair, so `applyCommandChords` writes them and both stay rebindable. Only the CM6 editors handle the pair, so the items are dark on every other surface.
 
 ## Known anomalies
 
@@ -264,7 +264,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 *(Resolved: Cascade ⌃⌥C and Tile ⌃⌥T once sat here — ⌃⌥ with no ⌘, a set the algebra does not generate, invisible to the keymap pane. The menu-by-menu audit resolved the anomaly by deletion: both commands were removed with the Window-menu rework ([D129]), the Layouts system being how Tug arranges the deck.)*
 
-**⌥⌘/ Show DevTools is a wink, not a derivation.** ⌘/ opens the command picker and ⌥⌘/ opens DevTools; DevTools is not a "variant" of the picker in any sense R1 recognizes. It is ratified because the pairing reads as a joke a developer gets, and because the Maker menu is debug-only.
+**⌥⌘/ Un/Comment Lines is the user's grant, not a derivation.** Every editor puts commenting on the slash key, and in a code card it is reached many times an hour. ⌘/ is the command picker's, so the comment command takes the ⌥ slot beside it, the way BBEdit's Un/Comment sits on its slash. Un/Comment Lines is no "variant" of the picker in any sense R1 recognizes, so the seat is recorded as a grant, as ⌥⌘U / ⌥⌘L are. The key was Show DevTools', ratified earlier as a wink against ⌘/; the user took it back because DevTools is a debug-only Maker item that no longer needs a shortcut, and it now has no default chord. Un/Comment Block has none either. The item is `menuEligible` with an empty Swift key equivalent, so `applyCommandChords` writes the chord and it stays rebindable; where the language has no line comment (Markdown, the prompt) the item is dark and the chord is eaten with a beep.
 
 **⌥⌘U / ⌥⌘L are a mnemonic pair, not a derivation.** Make Uppercase and Make Lowercase are text-editing verbs on the ⌘ tier's own subject, but R1 wants a ⌘U and a ⌘L for ⌥ to twist and there is neither: ⌘U is held in reserve for underline in the free pool, and ⌘L was Focus Cards, which lowercasing a selection is no variant of. The grant rests on the initials — U for upper, L for lower — and on the symmetry, each chord teaching the other the way the rail pair does. The debt it leaves is on ⌘U: if the reserve is ever spent on Underline, ⌥⌘U will read as *that* command's variant and the pair will have to move together. Both are `menuEligible` with empty Swift key equivalents, so `applyCommandChords` writes them and both stay rebindable.
 

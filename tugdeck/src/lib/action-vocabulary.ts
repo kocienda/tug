@@ -243,20 +243,51 @@ export const TUG_ACTIONS = {
   //            Delete does. Bound to ⌥⌘U.
   // MAKE_LOWERCASE: payload — none. The lowercase twin of MAKE_UPPERCASE.
   //            Bound to ⌥⌘L.
-  // QUOTE_LINES: payload — none. The first responder adds one Markdown
+  // INCREASE_QUOTE_LEVEL: payload — none. The first responder adds one Markdown
   //            quote level (`> `) to every line its selection touches — a
   //            bare caret acts on its own line. Bound to ⌘'.
-  // UNQUOTE_LINES: payload — none. The counterpart of QUOTE_LINES: one
+  // DECREASE_QUOTE_LEVEL: payload — none. The counterpart of INCREASE_QUOTE_LEVEL: one
   //            level off every touched line that has one; a no-op when none
   //            does. Bound to ⇧⌘' (shown as ⌘").
+  // TOGGLE_LINE_COMMENT: payload — none. The first responder comments or
+  //            uncomments every line its selection touches with the active
+  //            language's line comment. Answered only where the language has
+  //            one (not Markdown, not the prompt). Bound to ⌥⌘/.
+  // TOGGLE_BLOCK_COMMENT: payload — none. The first responder wraps its
+  //            selection in the active language's block comment, or unwraps
+  //            it — `<!-- -->` in Markdown.
+  // ADD_LINE_BREAKS: payload — none. The first responder turns the soft
+  //            wraps in the lines its selection touches into real newlines,
+  //            where the view wraps them now.
+  // REMOVE_LINE_BREAKS: payload — none. The first responder joins the
+  //            lines of each touched paragraph with one space, keeping blank
+  //            lines; a bare caret acts on its paragraph.
+  // EDUCATE_QUOTES: payload — none. The first responder turns the straight
+  //            quotes in its selection — the whole document when the
+  //            selection is empty — into curly ones, skipping Markdown code.
+  // STRAIGHTEN_QUOTES: payload — none. The counterpart of EDUCATE_QUOTES:
+  //            curly quotes back to straight, over the same scope.
+  // STRIP_QUOTES: payload — none. The first responder removes every
+  //            Markdown quote level from every line its selection touches.
+  // ZAP_GREMLINS: payload — none. The first responder deletes control and
+  //            zero-width characters (keeping tab and newline) and makes
+  //            Unicode spaces plain, in its selection or the whole document.
   UNDO:      "undo",
   REDO:      "redo",
   DELETE:    "delete",
   DUPLICATE: "duplicate",
   MAKE_UPPERCASE: "make-uppercase",
   MAKE_LOWERCASE: "make-lowercase",
-  QUOTE_LINES:   "quote-lines",
-  UNQUOTE_LINES: "unquote-lines",
+  INCREASE_QUOTE_LEVEL: "increase-quote-level",
+  DECREASE_QUOTE_LEVEL: "decrease-quote-level",
+  TOGGLE_LINE_COMMENT: "toggle-line-comment",
+  TOGGLE_BLOCK_COMMENT: "toggle-block-comment",
+  ADD_LINE_BREAKS: "add-line-breaks",
+  REMOVE_LINE_BREAKS: "remove-line-breaks",
+  EDUCATE_QUOTES: "educate-quotes",
+  STRAIGHTEN_QUOTES: "straighten-quotes",
+  STRIP_QUOTES: "strip-quotes",
+  ZAP_GREMLINS: "zap-gremlins",
 
   // ---- Text services ----
   //

@@ -1689,7 +1689,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.MAKE_UPPERCASE,
     title: "Make Uppercase",
     routing: "first-responder",
-    menuItemId: "edit.makeUppercase",
+    menuItemId: "text.makeUppercase",
     bindings: [
       chord(
         { key: "KeyU", meta: true, alt: true, label: "u" },
@@ -1702,13 +1702,81 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.MAKE_LOWERCASE,
     title: "Make Lowercase",
     routing: "first-responder",
-    menuItemId: "edit.makeLowercase",
+    menuItemId: "text.makeLowercase",
     bindings: [
       chord(
         { key: "KeyL", meta: true, alt: true, label: "l" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
+    mirrored: true,
+  },
+  // The comment pair carries no predicate either: only the CM6 editors handle
+  // it, and each answers from the active language's comment tokens, so Lines
+  // is dark where the language has no line comment (Markdown, the prompt)
+  // rather than falling back to a block comment.
+  //
+  // ⌥⌘/ is the user's grant, recorded in chord-tiers.md: every editor puts
+  // commenting on the slash key, ⌘/ is the command picker's, and the ⌥ slot
+  // was taken from Show DevTools. Un/Comment Block has no chord.
+  {
+    id: TUG_ACTIONS.TOGGLE_LINE_COMMENT,
+    title: "Un/Comment Lines",
+    routing: "first-responder",
+    menuItemId: "text.toggleLineComment",
+    bindings: [
+      chord(
+        { key: "Slash", meta: true, alt: true, label: "/" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+  },
+  {
+    id: TUG_ACTIONS.TOGGLE_BLOCK_COMMENT,
+    title: "Un/Comment Block",
+    routing: "first-responder",
+    menuItemId: "text.toggleBlockComment",
+    bindings: [],
+    mirrored: true,
+  },
+  // The line-break pair: no predicate and no chord. Only the CM6 editors
+  // handle it, gated on a writable document like the quote pair. ⌥⇧⌘\ is
+  // free for Remove, but nothing yet shows either is reached often enough to
+  // earn a key.
+  {
+    id: TUG_ACTIONS.ADD_LINE_BREAKS,
+    title: "Add Line Breaks",
+    routing: "first-responder",
+    menuItemId: "text.addLineBreaks",
+    bindings: [],
+    mirrored: true,
+  },
+  {
+    id: TUG_ACTIONS.REMOVE_LINE_BREAKS,
+    title: "Remove Line Breaks",
+    routing: "first-responder",
+    menuItemId: "text.removeLineBreaks",
+    bindings: [],
+    mirrored: true,
+  },
+  // The curly-quote pair: no predicate and no chord, gated on a writable
+  // document like the line-break pair. Each acts on the selection, or on
+  // the whole document when it is empty, and skips Markdown code.
+  {
+    id: TUG_ACTIONS.EDUCATE_QUOTES,
+    title: "Educate Quotes",
+    routing: "first-responder",
+    menuItemId: "text.educateQuotes",
+    bindings: [],
+    mirrored: true,
+  },
+  {
+    id: TUG_ACTIONS.STRAIGHTEN_QUOTES,
+    title: "Straighten Quotes",
+    routing: "first-responder",
+    menuItemId: "text.straightenQuotes",
+    bindings: [],
     mirrored: true,
   },
   // The quote pair carries no predicate, for the case pair's reason: the
@@ -1722,10 +1790,10 @@ export const COMMANDS: readonly CommandEntry[] = [
   // puts Decrease Quote Level on ⌥⌘'; ⌥ is the variant operator here, not
   // the counterpart, so Tug reads the pair through ⇧.
   {
-    id: TUG_ACTIONS.QUOTE_LINES,
-    title: "Quote",
+    id: TUG_ACTIONS.INCREASE_QUOTE_LEVEL,
+    title: "Increase Quote Level",
     routing: "first-responder",
-    menuItemId: "edit.quoteLines",
+    menuItemId: "text.increaseQuoteLevel",
     bindings: [
       chord(
         { key: "Quote", meta: true, label: "'" },
@@ -1735,16 +1803,35 @@ export const COMMANDS: readonly CommandEntry[] = [
     mirrored: true,
   },
   {
-    id: TUG_ACTIONS.UNQUOTE_LINES,
-    title: "Unquote",
+    id: TUG_ACTIONS.DECREASE_QUOTE_LEVEL,
+    title: "Decrease Quote Level",
     routing: "first-responder",
-    menuItemId: "edit.unquoteLines",
+    menuItemId: "text.decreaseQuoteLevel",
     bindings: [
       chord(
         { key: "Quote", meta: true, shift: true, label: "'" },
         { preventDefault: true, menuEligible: true },
       ),
     ],
+    mirrored: true,
+  },
+  // Strip Quotes closes the quote-level group: every level off, no chord.
+  {
+    id: TUG_ACTIONS.STRIP_QUOTES,
+    title: "Strip Quotes",
+    routing: "first-responder",
+    menuItemId: "text.stripQuotes",
+    bindings: [],
+    mirrored: true,
+  },
+  // Zap Gremlins ends the menu: no dialog (so no ellipsis), no chord, gated
+  // on a writable document like the rest of the Text menu's editors-only set.
+  {
+    id: TUG_ACTIONS.ZAP_GREMLINS,
+    title: "Zap Gremlins",
+    routing: "first-responder",
+    menuItemId: "text.zapGremlins",
+    bindings: [],
     mirrored: true,
   },
   // The Find items carry no predicate: they are first-responder-routed, so
@@ -3158,17 +3245,11 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Show DevTools",
     routing: "first-responder",
     menuItemId: "maker.devTools",
-    bindings: [
-      chord(
-        { key: "Slash", meta: true, alt: true, label: "/" },
-        { preventDefault: true, menuEligible: true },
-      ),
-    ],
+    // No default chord: ⌥⌘/ went to Un/Comment Lines, which a code card
+    // reaches many times an hour, while this debug-only Maker item no
+    // longer needs one. The keymap pane can still bind it.
+    bindings: [],
     mirrored: true,
-    // The canvas handles it unconditionally, so the default chain walk
-    // answers true and the item never dims — which is why it can keep its
-    // chord attached without ever eating one.
-    disabledChord: "keep",
   },
   {
     id: TUG_ACTIONS.OPEN_COMMAND_PICKER,

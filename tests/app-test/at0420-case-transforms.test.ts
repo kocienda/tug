@@ -1,5 +1,5 @@
 /**
- * at0420-case-transforms.test.ts — Edit ▸ Make Uppercase / Make Lowercase
+ * at0420-case-transforms.test.ts — Text ▸ Make Uppercase / Make Lowercase
  * on the two text substrates, and the menu gate they ride.
  *
  * The pair is a chain-action round-trip, like the paste variants: the host
@@ -52,8 +52,8 @@ import { waitForBodyReady } from "./_harness/card-reach";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 150_000;
 
-const UPPERCASE = "edit.makeUppercase";
-const LOWERCASE = "edit.makeLowercase";
+const UPPERCASE = "text.makeUppercase";
+const LOWERCASE = "text.makeLowercase";
 
 /** `NSEvent.ModifierFlags` raw values, so an expectation reads as a chord. */
 const OPTION = 1 << 19;

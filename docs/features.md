@@ -99,7 +99,7 @@ The composer is at the bottom, where any messaging app puts it. ⌘K, or Session
 - **Dictation.** ⌘D or the microphone starts dictation into the composer, and ⌘D again stops it; ⇧⌘D stops it and sends. Session ▸ Start Dictation and Stop Dictation and Send are the same two acts. A microphone that cannot start says why on its hover.
 - **Stop.** The send button becomes a red Stop while a turn runs. It, ⌘. and Escape each take back the newest queued prompt first and stop the turn once the queue is empty, and an open sheet takes the Escape before any of that. Session ▸ Stop stops the turn. A taken-back prompt returns to the composer if the composer is empty.
 - **Routes.** ⌃⌘P is the prompt route and ⌃⌘C the Changes route, which the tabs on the card also choose. In the Changes route the composer is the commit message editor.
-- **Quote and Unquote** (⌘' and ⇧⌘'), **Paste as Quote** (⌥⌘V), **Paste as Plain Text** (⌥⇧⌘V), **Copy as Plain Text** (⌥⇧⌘C), **Make Uppercase** (⌥⌘U) and **Make Lowercase** (⌥⌘L) are in the Edit menu.
+- **Paste as Quote** (⌥⌘V), **Paste as Plain Text** (⌥⇧⌘V) and **Copy as Plain Text** (⌥⇧⌘C) are in the Edit menu. **Make Uppercase** (⌥⌘U), **Make Lowercase** (⌥⌘L), **Increase Quote Level** (⌘') and **Decrease Quote Level** (⇧⌘') are in the Text menu.
 
 ### Slash commands and the command picker
 
@@ -261,7 +261,7 @@ The Keyboard Shortcuts card (⌃⌘K) lists everything. The ones that matter mos
 | ⌘D / ⇧⌘D | Start dictation; stop dictation and send |
 | ⌘. or Escape | Cancel; take back a queued prompt, then stop the turn |
 | ⌥↑ / ⌥↓ | Earlier or later prompt |
-| ⌘' / ⇧⌘' | Quote; Unquote |
+| ⌘' / ⇧⌘' | Increase Quote Level; Decrease Quote Level |
 | ⌥⌘V / ⌥⇧⌘V / ⌥⇧⌘C | Paste as Quote; Paste as Plain Text; Copy as Plain Text |
 | ⌥⌘U / ⌥⌘L | Make Uppercase; Make Lowercase |
 | ⌃⌘[ / ⌃⌘] | Previous or next turn |

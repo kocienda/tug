@@ -110,7 +110,17 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTabKeyBinding } from "./editor-tab-key";
-import { quoteLinesSpec, unquoteLinesSpec } from "./editor-quote-lines";
+import { increaseQuoteLevelSpec, decreaseQuoteLevelSpec, stripQuotesSpec } from "./editor-quote-lines";
+import { educateQuotesSpec, straightenQuotesSpec } from "./editor-smart-quotes";
+import { zapGremlinsSpec } from "./editor-gremlins";
+import {
+  hasBlockComment,
+  hasLineComment,
+  toggleBlockCommentSpec,
+  toggleLineCommentSpec,
+} from "./editor-comments";
+import { addLineBreaksSpec, removeLineBreaksSpec, softWrapBreaks } from "./editor-line-breaks";
+import { requestMenuStateRefresh } from "@/lib/host-menu-state";
 import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { subscribeThemeChange } from "@/theme-tokens";
@@ -2584,10 +2594,11 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       [transformSelectionCase],
     );
 
-    // Quote / Unquote: one quote level on or off every line the selection
-    // touches (`editor-quote-lines.ts`). Deferred like the case pair, so a
-    // context-menu activation keeps the selection painted through the blink.
-    const editQuoteLevel = useCallback(
+    // A line-level edit given as a transaction spec over the live state — the
+    // quote-level pair (`editor-quote-lines.ts`) and the comment pair
+    // (`editor-comments.ts`). Deferred like the case pair, so a context-menu
+    // activation keeps the selection painted through the blink.
+    const editLines = useCallback(
       (spec: (state: EditorState) => TransactionSpec | null): ActionHandlerResult => {
         const view = viewRef.current;
         if (view === null) return;
@@ -2602,14 +2613,60 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       [],
     );
 
-    const handleQuoteLines = useCallback(
-      (): ActionHandlerResult => editQuoteLevel(quoteLinesSpec),
-      [editQuoteLevel],
+    const handleIncreaseQuoteLevel = useCallback(
+      (): ActionHandlerResult => editLines(increaseQuoteLevelSpec),
+      [editLines],
     );
 
-    const handleUnquoteLines = useCallback(
-      (): ActionHandlerResult => editQuoteLevel(unquoteLinesSpec),
-      [editQuoteLevel],
+    const handleDecreaseQuoteLevel = useCallback(
+      (): ActionHandlerResult => editLines(decreaseQuoteLevelSpec),
+      [editLines],
+    );
+
+    const handleToggleLineComment = useCallback(
+      (): ActionHandlerResult => editLines(toggleLineCommentSpec),
+      [editLines],
+    );
+
+    const handleToggleBlockComment = useCallback(
+      (): ActionHandlerResult => editLines(toggleBlockCommentSpec),
+      [editLines],
+    );
+
+    // Add Line Breaks reads the wrap points off the live view at the moment
+    // it runs; Remove is a pure spec (`editor-line-breaks.ts`).
+    const handleAddLineBreaks = useCallback(
+      (): ActionHandlerResult =>
+        editLines((state) => {
+          const live = viewRef.current;
+          return live === null ? null : addLineBreaksSpec(state, softWrapBreaks(live));
+        }),
+      [editLines],
+    );
+
+    const handleRemoveLineBreaks = useCallback(
+      (): ActionHandlerResult => editLines(removeLineBreaksSpec),
+      [editLines],
+    );
+
+    const handleEducateQuotes = useCallback(
+      (): ActionHandlerResult => editLines(educateQuotesSpec),
+      [editLines],
+    );
+
+    const handleStraightenQuotes = useCallback(
+      (): ActionHandlerResult => editLines(straightenQuotesSpec),
+      [editLines],
+    );
+
+    const handleStripQuotes = useCallback(
+      (): ActionHandlerResult => editLines(stripQuotesSpec),
+      [editLines],
+    );
+
+    const handleZapGremlins = useCallback(
+      (): ActionHandlerResult => editLines(zapGremlinsSpec),
+      [editLines],
     );
 
     // Submit: substrate-level handler so a "Submit" button somewhere
@@ -2685,8 +2742,16 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
       [TUG_ACTIONS.CORRECT_SPELLING]: handleCorrectSpelling,
       ...SPELLING_MEMORY_HANDLERS,
-      [TUG_ACTIONS.QUOTE_LINES]: handleQuoteLines,
-      [TUG_ACTIONS.UNQUOTE_LINES]: handleUnquoteLines,
+      [TUG_ACTIONS.INCREASE_QUOTE_LEVEL]: handleIncreaseQuoteLevel,
+      [TUG_ACTIONS.DECREASE_QUOTE_LEVEL]: handleDecreaseQuoteLevel,
+      [TUG_ACTIONS.TOGGLE_LINE_COMMENT]: handleToggleLineComment,
+      [TUG_ACTIONS.TOGGLE_BLOCK_COMMENT]: handleToggleBlockComment,
+      [TUG_ACTIONS.ADD_LINE_BREAKS]: handleAddLineBreaks,
+      [TUG_ACTIONS.REMOVE_LINE_BREAKS]: handleRemoveLineBreaks,
+      [TUG_ACTIONS.EDUCATE_QUOTES]: handleEducateQuotes,
+      [TUG_ACTIONS.STRAIGHTEN_QUOTES]: handleStraightenQuotes,
+      [TUG_ACTIONS.STRIP_QUOTES]: handleStripQuotes,
+      [TUG_ACTIONS.ZAP_GREMLINS]: handleZapGremlins,
       [TUG_ACTIONS.SUBMIT]: handleSubmit,
       // ---- Editing motion / deletion ----
       [TUG_ACTIONS.DELETE_TO_LINE_START]: handleDeleteToLineStart,
@@ -2720,7 +2785,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           const view = viewRef.current;
           return view !== null && redoDepth(view.state) > 0;
         }
-        // Delete, the two case transforms and the quote pair write, so they
+        // Delete, the two case transforms, the quote pair and the line-break
+        // pair write, so they
         // need a writable document — the same gate Cut carries, and the same
         // granularity: selection is not part of it. The pushed edit block is
         // republished on focus and registration changes, not on caret moves,
@@ -2733,11 +2799,27 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           action === TUG_ACTIONS.MAKE_UPPERCASE ||
           action === TUG_ACTIONS.MAKE_LOWERCASE ||
           action === TUG_ACTIONS.CORRECT_SPELLING ||
-          action === TUG_ACTIONS.QUOTE_LINES ||
-          action === TUG_ACTIONS.UNQUOTE_LINES
+          action === TUG_ACTIONS.INCREASE_QUOTE_LEVEL ||
+          action === TUG_ACTIONS.DECREASE_QUOTE_LEVEL ||
+          action === TUG_ACTIONS.ADD_LINE_BREAKS ||
+          action === TUG_ACTIONS.REMOVE_LINE_BREAKS ||
+          action === TUG_ACTIONS.EDUCATE_QUOTES ||
+          action === TUG_ACTIONS.STRAIGHTEN_QUOTES ||
+          action === TUG_ACTIONS.STRIP_QUOTES ||
+          action === TUG_ACTIONS.ZAP_GREMLINS
         ) {
           const view = viewRef.current;
           return view !== null && !view.state.readOnly;
+        }
+        // The comment pair also needs the language to declare the tokens.
+        // The prompt has none of its own; with markdown styling on it carries
+        // Markdown's, which has a block comment and no line comment.
+        if (action === TUG_ACTIONS.TOGGLE_LINE_COMMENT || action === TUG_ACTIONS.TOGGLE_BLOCK_COMMENT) {
+          const view = viewRef.current;
+          if (view === null || view.state.readOnly) return false;
+          return action === TUG_ACTIONS.TOGGLE_LINE_COMMENT
+            ? hasLineComment(view.state)
+            : hasBlockComment(view.state);
         }
         return true;
       },
@@ -3036,6 +3118,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         view.dispatch({
           effects: markdownStylingCompartment.reconfigure([]),
         });
+        queueMicrotask(requestMenuStateRefresh);
         return;
       }
       let alive = true;
@@ -3051,6 +3134,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         live.dispatch({
           effects: markdownStylingCompartment.reconfigure(bundle),
         });
+        // The comment pair's gates read the language this bundle carries.
+        queueMicrotask(requestMenuStateRefresh);
       });
       return () => {
         alive = false;

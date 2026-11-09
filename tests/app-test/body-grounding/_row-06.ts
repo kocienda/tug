@@ -31,14 +31,14 @@ export const A = "row06-a";
 export const B = "row06-b";
 
 /** The parts the row's sweep is cut into, each one launch inside the budget. */
-export type Part = "file-window" | "edit-clipboard" | "edit-text" | "view" | "view-themes" | "view-sidebars-1" | "view-sidebars-2" | "go";
+export type Part = "file-window" | "edit-clipboard" | "edit-text" | "text" | "view" | "view-themes" | "view-sidebars-1" | "view-sidebars-2" | "go";
 
 const CLIPBOARD = /^edit\.(cut|copy|copyAsPlainText|paste|pasteAsPlainText|pasteAsQuote|delete|selectAll)$/;
 const SIDEBARS_1 = /^view\.sidebar\.(dashes|jots|layout)\./;
 const THEMES = /^view\.(theme\.|nextTheme$|applyThemeToAllWorkspaces$)/;
 
 /**
- * Which items of the File, Edit, View, Go and Window menus each part takes,
+ * Which items of the File, Edit, Text, View, Go and Window menus each part takes,
  * by identifier. Every such item falls in exactly one part: each menu's
  * last part takes whatever the ones before it leave, so an item added to a
  * menu is swept without a change here.
@@ -47,6 +47,7 @@ const PARTS: Readonly<Record<Part, (id: string) => boolean>> = {
   "file-window": (id) => /^(file|window)\./.test(id),
   "edit-clipboard": (id) => CLIPBOARD.test(id),
   "edit-text": (id) => id.startsWith("edit.") && !CLIPBOARD.test(id),
+  text: (id) => id.startsWith("text."),
   view: (id) => id.startsWith("view.") && !id.startsWith("view.sidebar.") && !THEMES.test(id),
   "view-themes": (id) => THEMES.test(id),
   "view-sidebars-1": (id) => SIDEBARS_1.test(id),

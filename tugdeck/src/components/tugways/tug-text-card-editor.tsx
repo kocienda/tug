@@ -137,7 +137,17 @@ import { languageForExtension, tugEditingHighlightStyle } from "@/lib/language-r
 
 import { mdListHangingIndent } from "./tug-text-editor/list-hanging-indent";
 import { tugTabKeyBinding } from "./editor-tab-key";
-import { quoteLinesSpec, unquoteLinesSpec } from "./editor-quote-lines";
+import { increaseQuoteLevelSpec, decreaseQuoteLevelSpec, stripQuotesSpec } from "./editor-quote-lines";
+import { educateQuotesSpec, straightenQuotesSpec } from "./editor-smart-quotes";
+import { zapGremlinsSpec } from "./editor-gremlins";
+import {
+  hasBlockComment,
+  hasLineComment,
+  toggleBlockCommentSpec,
+  toggleLineCommentSpec,
+} from "./editor-comments";
+import { addLineBreaksSpec, removeLineBreaksSpec, softWrapBreaks } from "./editor-line-breaks";
+import { requestMenuStateRefresh } from "@/lib/host-menu-state";
 import { anchorLinkExtension } from "./tug-text-card-editor/anchor-links";
 import {
   fileDropExtension,
@@ -1384,6 +1394,7 @@ export const TugTextCardEditor = React.forwardRef<
       viewRef.current?.dispatch({
         effects: languageCompartment.reconfigure([]),
       });
+      queueMicrotask(requestMenuStateRefresh);
       return;
     }
     let alive = true;
@@ -1396,6 +1407,9 @@ export const TugTextCardEditor = React.forwardRef<
           language !== null ? [language, tugEditingHighlightStyle] : [],
         ),
       });
+      // The comment pair's gates read the language, and nothing else in
+      // the chain sees it arrive, so the menu state is republished.
+      queueMicrotask(requestMenuStateRefresh);
     });
     return () => {
       alive = false;
@@ -1814,9 +1828,10 @@ export const TugTextCardEditor = React.forwardRef<
     [transformSelectionCase],
   );
 
-  // Quote / Unquote: one quote level on or off every line the selection
-  // touches (`editor-quote-lines.ts`), in one transaction.
-  const editQuoteLevel = useCallback(
+  // A line-level edit given as a transaction spec over the live state — the
+  // quote-level pair (`editor-quote-lines.ts`) and the comment pair
+  // (`editor-comments.ts`) — in one transaction.
+  const editLines = useCallback(
     (spec: (state: EditorState) => TransactionSpec | null): ActionHandlerResult => {
       const live = viewRef.current;
       if (live === null || readOnlyRef.current) return;
@@ -1831,14 +1846,60 @@ export const TugTextCardEditor = React.forwardRef<
     [],
   );
 
-  const handleQuoteLines = useCallback(
-    (): ActionHandlerResult => editQuoteLevel(quoteLinesSpec),
-    [editQuoteLevel],
+  const handleIncreaseQuoteLevel = useCallback(
+    (): ActionHandlerResult => editLines(increaseQuoteLevelSpec),
+    [editLines],
   );
 
-  const handleUnquoteLines = useCallback(
-    (): ActionHandlerResult => editQuoteLevel(unquoteLinesSpec),
-    [editQuoteLevel],
+  const handleDecreaseQuoteLevel = useCallback(
+    (): ActionHandlerResult => editLines(decreaseQuoteLevelSpec),
+    [editLines],
+  );
+
+  const handleToggleLineComment = useCallback(
+    (): ActionHandlerResult => editLines(toggleLineCommentSpec),
+    [editLines],
+  );
+
+  const handleToggleBlockComment = useCallback(
+    (): ActionHandlerResult => editLines(toggleBlockCommentSpec),
+    [editLines],
+  );
+
+  // Add Line Breaks reads the wrap points off the live view at the moment
+  // it runs; Remove is a pure spec (`editor-line-breaks.ts`).
+  const handleAddLineBreaks = useCallback(
+    (): ActionHandlerResult =>
+      editLines((state) => {
+        const live = viewRef.current;
+        return live === null ? null : addLineBreaksSpec(state, softWrapBreaks(live));
+      }),
+    [editLines],
+  );
+
+  const handleRemoveLineBreaks = useCallback(
+    (): ActionHandlerResult => editLines(removeLineBreaksSpec),
+    [editLines],
+  );
+
+  const handleEducateQuotes = useCallback(
+    (): ActionHandlerResult => editLines(educateQuotesSpec),
+    [editLines],
+  );
+
+  const handleStraightenQuotes = useCallback(
+    (): ActionHandlerResult => editLines(straightenQuotesSpec),
+    [editLines],
+  );
+
+  const handleStripQuotes = useCallback(
+    (): ActionHandlerResult => editLines(stripQuotesSpec),
+    [editLines],
+  );
+
+  const handleZapGremlins = useCallback(
+    (): ActionHandlerResult => editLines(zapGremlinsSpec),
+    [editLines],
   );
 
   // SAVE — automatic mode: flush pending edits now (⌘S forces the debounce
@@ -1923,8 +1984,16 @@ export const TugTextCardEditor = React.forwardRef<
     [TUG_ACTIONS.CORRECT_SPELLING]: handleCorrectSpelling,
     ...SPELLING_MEMORY_HANDLERS,
     [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
-    [TUG_ACTIONS.QUOTE_LINES]: handleQuoteLines,
-    [TUG_ACTIONS.UNQUOTE_LINES]: handleUnquoteLines,
+    [TUG_ACTIONS.INCREASE_QUOTE_LEVEL]: handleIncreaseQuoteLevel,
+    [TUG_ACTIONS.DECREASE_QUOTE_LEVEL]: handleDecreaseQuoteLevel,
+    [TUG_ACTIONS.TOGGLE_LINE_COMMENT]: handleToggleLineComment,
+    [TUG_ACTIONS.TOGGLE_BLOCK_COMMENT]: handleToggleBlockComment,
+    [TUG_ACTIONS.ADD_LINE_BREAKS]: handleAddLineBreaks,
+    [TUG_ACTIONS.REMOVE_LINE_BREAKS]: handleRemoveLineBreaks,
+    [TUG_ACTIONS.EDUCATE_QUOTES]: handleEducateQuotes,
+    [TUG_ACTIONS.STRAIGHTEN_QUOTES]: handleStraightenQuotes,
+    [TUG_ACTIONS.STRIP_QUOTES]: handleStripQuotes,
+    [TUG_ACTIONS.ZAP_GREMLINS]: handleZapGremlins,
     [TUG_ACTIONS.SAVE]: handleSave,
     [TUG_ACTIONS.SAVE_AS]: handleSaveAs,
     [TUG_ACTIONS.SAVE_A_COPY]: handleSaveACopy,
@@ -1957,11 +2026,26 @@ export const TugTextCardEditor = React.forwardRef<
         action === TUG_ACTIONS.MAKE_UPPERCASE ||
         action === TUG_ACTIONS.MAKE_LOWERCASE ||
         action === TUG_ACTIONS.CORRECT_SPELLING ||
-        action === TUG_ACTIONS.QUOTE_LINES ||
-        action === TUG_ACTIONS.UNQUOTE_LINES ||
+        action === TUG_ACTIONS.INCREASE_QUOTE_LEVEL ||
+        action === TUG_ACTIONS.DECREASE_QUOTE_LEVEL ||
+        action === TUG_ACTIONS.ADD_LINE_BREAKS ||
+        action === TUG_ACTIONS.REMOVE_LINE_BREAKS ||
+        action === TUG_ACTIONS.EDUCATE_QUOTES ||
+        action === TUG_ACTIONS.STRAIGHTEN_QUOTES ||
+        action === TUG_ACTIONS.STRIP_QUOTES ||
+        action === TUG_ACTIONS.ZAP_GREMLINS ||
         action === TUG_ACTIONS.SAVE
       ) {
         return !readOnlyRef.current;
+      }
+      // The comment pair also needs the language to declare the tokens, read
+      // from the live view at query time [L07].
+      if (action === TUG_ACTIONS.TOGGLE_LINE_COMMENT || action === TUG_ACTIONS.TOGGLE_BLOCK_COMMENT) {
+        const live = viewRef.current;
+        if (live === null || readOnlyRef.current) return false;
+        return action === TUG_ACTIONS.TOGGLE_LINE_COMMENT
+          ? hasLineComment(live.state)
+          : hasBlockComment(live.state);
       }
       return true;
     },

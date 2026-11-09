@@ -1498,7 +1498,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// No Web Inspector, in any build. `developerExtrasEnabled` stays off so
     /// the context menu carries no Inspect Element, and `isInspectable` is
     /// never set so Safari's Develop menu cannot attach either. The
-    /// frontend's own inspector is the DevTools card (⌥⌘/).
+    /// frontend's own inspector is the DevTools card (Maker ▸ Show DevTools).
     func makeWebViewConfiguration(forShell: Bool) -> WKWebViewConfiguration {
         let controller = WKUserContentController()
         hostChannel.register(on: controller)

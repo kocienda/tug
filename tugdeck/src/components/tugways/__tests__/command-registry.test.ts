@@ -256,6 +256,20 @@ describe("the vocabulary is fully accounted for", () => {
   });
 });
 
+describe("the Text menu", () => {
+  /**
+   * Every Text item is answered by the focused editor alone, so its gate has
+   * to be published: an unmirrored item falls through the host's validator to
+   * its permissive default and stays lit on every surface, read-only ones
+   * included, where pressing it does nothing.
+   */
+  test("publishes every item's gate", () => {
+    const text = COMMANDS.filter((entry) => entry.menuItemId?.startsWith("text.") === true);
+    expect(text.length).toBe(12);
+    expect(text.filter((entry) => entry.mirrored !== true).map((entry) => entry.id)).toEqual([]);
+  });
+});
+
 describe("promoted commands", () => {
   /**
    * The commands that traded a chord-only existence for a menu door, and
@@ -276,7 +290,6 @@ describe("promoted commands", () => {
     [TUG_ACTIONS.OPEN_COMMAND_PICKER, "session.commandPicker", "detach"],
     [TUG_ACTIONS.TOGGLE_DICTATION, "session.dictate", "detach"],
     [TUG_ACTIONS.STOP_DICTATION_AND_SEND, "session.dictateAndSend", "detach"],
-    [TUG_ACTIONS.SHOW_DEVTOOLS, "maker.devTools", "keep"],
     [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "window.columnSplit", "keep"],
     [`${TUG_ACTIONS.MOVE_IN_COLUMN}:up`, "window.columnMoveUp", "keep"],
     [`${TUG_ACTIONS.MOVE_IN_COLUMN}:down`, "window.columnMoveDown", "keep"],
