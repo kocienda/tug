@@ -109,6 +109,7 @@ import { deriveContextWindows } from "@/lib/code-session-store/end-state";
 import type { ContextWindowStep } from "@/lib/code-session-store/end-state";
 import { agentTokensForTurn } from "@/lib/code-session-store/select-jobs";
 import { matchesArcReceipt, parseArcReceipt } from "@/lib/arc-receipt";
+import { arcAnsweredBy } from "@/lib/arc-note-command";
 import { parseJoinReceipt } from "@/lib/join-receipt";
 import { matchesJoinReceipt } from "@/lib/landing-mode";
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
@@ -529,6 +530,14 @@ function buildCommittedLayout(
  * fold is what keeps a red row with a live Resume button from standing over an
  * arc that is running again.
  *
+ * The pick-up and the endings are **arc notes** now ([B05]), not receipts, and
+ * a note has two seats: a quiet shell row (`arc resume <name>`, `arc joined
+ * <name>`, `arc discarded <name>`) when no turn was open, and a `source:
+ * "arc"` system note inside the turn when one was. The pass reads both, by the
+ * same synthetic command, so the fold does not depend on which seat the note
+ * happened to land in. A legacy `/arc-run` pick-up or ending row still answers
+ * through the receipt arm, as every parsed arc receipt does ([B06]).
+ *
  * One backward walk, carrying the arc names already seen as a superseder, so
  * the whole thing is O(rows) beside the ordinal pass it follows. The **last**
  * stop for an arc is never superseded, because nothing later answers it: an arc
@@ -547,14 +556,29 @@ function markSupersededArcStops(
   const answered = new Set<string>();
   for (let i = slots.length - 1; i >= 0; i--) {
     const slot = slots[i];
-    if (slot.cellKind !== "shell") continue;
     const group = slot.group;
     if (group === undefined) continue;
+    const messages = transcript[slot.turnIndex]?.messages;
+    if (messages === undefined) continue;
+    if (slot.cellKind !== "shell") {
+      // The mid-turn seat: a pick-up or ending said while a turn was open.
+      for (let m = group.start; m < group.end; m++) {
+        const arc = arcNoteAnswer(messages[m]);
+        if (arc !== null) answered.add(arc);
+      }
+      continue;
+    }
     // The same access `ShellTurnCell` makes: a shell row is one message, the
     // whole turn.
-    const message = transcript[slot.turnIndex]?.messages[group.start];
+    const message = messages[group.start];
     if (message === undefined || message.kind !== "shell_exchange") continue;
 
+    // The between-turns seat: the note's own quiet row.
+    const noted = arcAnsweredBy(message.command);
+    if (noted !== null) {
+      answered.add(noted);
+      continue;
+    }
     if (matchesJoinReceipt(message.command)) {
       const join = parseJoinReceipt(message.output);
       if (join !== null) answered.add(join.arc);
@@ -570,6 +594,50 @@ function markSupersededArcStops(
     // say the run went on past the sentence the earlier row is still giving.
     answered.add(arc.arc);
   }
+}
+
+/** The arc a turn's `source: "arc"` system note says went on, if any. */
+function arcNoteAnswer(message: TurnEntry["messages"][number] | undefined): string | null {
+  if (message === undefined || message.kind !== "system_note" || message.source !== "arc") {
+    return null;
+  }
+  return arcAnsweredBy(message.command);
+}
+
+/**
+ * The in-flight turn's half of the supersession pass.
+ *
+ * The committed pass memoizes on the transcript and cannot see the open
+ * turn, but a pick-up said while a turn is open seats inside it and should
+ * fold the stop now, not when the turn commits ([B05]). So the arcs the open
+ * turn's notes answer demote every still-live stop for them among the rows
+ * ahead of it — copied, never mutated, because those slots are the memoized
+ * walk's.
+ */
+function supersedeByOpenTurn(
+  head: ReadonlyArray<RowSlot>,
+  active: ActiveTurnSnapshot,
+  transcript: ReadonlyArray<TurnEntry>,
+): ReadonlyArray<RowSlot> {
+  const answered = new Set<string>();
+  for (const message of active.messages) {
+    const arc = arcNoteAnswer(message);
+    if (arc !== null) answered.add(arc);
+  }
+  if (answered.size === 0) return head;
+  let out: RowSlot[] | null = null;
+  for (let i = 0; i < head.length; i++) {
+    const slot = head[i];
+    if (slot.cellKind !== "shell" || slot.arcStopSuperseded || slot.group === undefined) continue;
+    const message = transcript[slot.turnIndex]?.messages[slot.group.start];
+    if (message === undefined || message.kind !== "shell_exchange") continue;
+    if (!matchesArcReceipt(message.command)) continue;
+    const parsed = parseArcReceipt(message.output);
+    if (parsed === null || parsed.outcome !== "stopped" || !answered.has(parsed.arc)) continue;
+    out ??= head.slice();
+    out[i] = { ...slot, arcStopSuperseded: true };
+  }
+  return out ?? head;
 }
 
 /**
@@ -714,7 +782,8 @@ function composeRowLayout(
   // Anything left is newer than every pending submission — it sits at the foot.
   while (m < moved.length) emitInk(moved[m]);
 
-  const slots = committed.slots.slice(0, cutRow).concat(tail);
+  const ahead = committed.slots.slice(0, cutRow);
+  const slots = (active === null ? ahead : supersedeByOpenTurn(ahead, active, snap.transcript)).concat(tail);
   return {
     totalRows: slots.length,
     slots,

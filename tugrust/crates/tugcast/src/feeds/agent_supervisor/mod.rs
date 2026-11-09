@@ -2930,25 +2930,15 @@ impl AgentSupervisor {
         let task_session = session.clone();
         let joined = tokio::task::spawn_blocking(move || {
             let session = task_session;
-            let Ok(Some(row)) = ledger.get(&session) else {
-                return;
-            };
-            let Some(arc) = row.arc_name.as_deref() else {
-                return;
-            };
-            if ledger.stage_provenance(&session).is_none() {
-                return;
-            }
+            let row = ledger.get(&session).ok().flatten()?;
+            let arc = row.arc_name.as_deref()?;
+            ledger.stage_provenance(&session)?;
             let project = std::path::Path::new(&row.project_dir);
-            let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project, arc) else {
-                return;
-            };
+            let record = tugarc_core::arc::read_arc(&Paths::from_env(), project, arc)?;
             if record.done || record.stopped.is_some() {
-                return;
+                return None;
             }
-            let Some(stage) = record.current_stage() else {
-                return;
-            };
+            let stage = record.current_stage()?;
             if let Err(e) = tugarc_core::arc::append_arc_note(
                 &Paths::from_env(),
                 project,
@@ -2957,10 +2947,30 @@ impl AgentSupervisor {
             ) {
                 warn!(arc = %arc, error = %e, "could not record a mid-stage model switch");
             }
+            Some((
+                row.project_dir.clone(),
+                arc.to_string(),
+                selector,
+                stage.as_str(),
+            ))
         })
         .await;
-        if let Err(e) = joined {
-            warn!(session = %session, error = %e, "the mid-stage model-switch note did not finish");
+        match joined {
+            // The card's quiet line, in the register of the Wheel's other
+            // notes; the record's note above is unchanged.
+            Ok(Some((project_dir, arc, selector, stage))) => {
+                self.record_arc_note(
+                    &session,
+                    &project_dir,
+                    &format!("arc model {arc}"),
+                    &format!("{arc}: model → {selector} · in {stage}"),
+                )
+                .await;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                warn!(session = %session, error = %e, "the mid-stage model-switch note did not finish");
+            }
         }
     }
 
@@ -2995,8 +3005,18 @@ impl AgentSupervisor {
         project_dir: &str,
         summary: &str,
     ) {
+        // One clock for the row and the frame: the deck seats the live copy
+        // by it, so the live seat and the one a restore computes from the
+        // ledger are the same seat.
+        let at_ms = crate::session_ledger::now_millis();
         let receipt_id = self
-            .record_landing_receipt_off_worker(Some(session), "/arc-run", summary, project_dir)
+            .record_landing_receipt_off_worker_at(
+                Some(session),
+                "/arc-run",
+                summary,
+                project_dir,
+                at_ms,
+            )
             .await;
         let body = serde_json::json!({
             "action": "arc_receipt",
@@ -3008,6 +3028,7 @@ impl AgentSupervisor {
             "tug_session_id": session,
             "receipt_id": receipt_id,
             "summary": summary,
+            "started_at_ms": at_ms,
         });
         send_control(&self.control_tx, body);
     }
@@ -3188,8 +3209,11 @@ impl AgentSupervisor {
             Some((card, _)) => card.as_str().to_string(),
             None => segment.to_string(),
         };
+        // The row's clock rides the frame, for the reason `record_arc_receipt`
+        // gives: a note seats by when it was written, never by when it arrived.
+        let at_ms = crate::session_ledger::now_millis();
         let receipt_id = self
-            .record_landing_receipt_off_worker(Some(&session), command, note, project_dir)
+            .record_landing_receipt_off_worker_at(Some(&session), command, note, project_dir, at_ms)
             .await;
         let body = serde_json::json!({
             "action": "arc_note",
@@ -3198,19 +3222,35 @@ impl AgentSupervisor {
             "command": command,
             "note": note,
             "receipt_id": receipt_id,
+            "started_at_ms": at_ms,
         });
         send_control(&self.control_tx, body);
     }
 
-    /// [`Self::record_landing_receipt`] on the blocking pool: the receipt is
-    /// a shell-ledger write keyed by the session ledger's line, and both are
-    /// synchronous.
+    /// [`Self::record_landing_receipt`] on the blocking pool, stamped now: the
+    /// receipt is a shell-ledger write keyed by the session ledger's line, and
+    /// both are synchronous.
     async fn record_landing_receipt_off_worker(
         &self,
         session: Option<&str>,
         command: &str,
         summary: &str,
         cwd: &str,
+    ) -> Option<i64> {
+        let at_ms = crate::session_ledger::now_millis();
+        self.record_landing_receipt_off_worker_at(session, command, summary, cwd, at_ms)
+            .await
+    }
+
+    /// [`Self::record_landing_receipt_off_worker`] at a clock the caller holds,
+    /// for the arc writers whose frame announces the row's own `started_at_ms`.
+    async fn record_landing_receipt_off_worker_at(
+        &self,
+        session: Option<&str>,
+        command: &str,
+        summary: &str,
+        cwd: &str,
+        at_ms: i64,
     ) -> Option<i64> {
         let shell = self.shell_ledger.clone();
         let sessions = self.ledger_handle();
@@ -3228,6 +3268,7 @@ impl AgentSupervisor {
                 &command,
                 &summary,
                 &cwd,
+                at_ms,
             )
         })
         .await

@@ -20,6 +20,8 @@
  *   - idle: state unchanged + one `ingest-ink-turn` effect whose sole
  *     message is a settled `arc …` shell exchange with the sentence as its
  *     output and the given exchangeId.
+ *   - a note written BEFORE the open turn was asked for takes the idle seat
+ *     too: it introduces that turn rather than narrating it.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -44,10 +46,19 @@ const SEND: CodeSessionEvent = {
   turnKey: "k1",
 } as CodeSessionEvent;
 
+/**
+ * When a note is written: during the turn it narrates. `send` stamps the
+ * turn's `submitAt` with the wall clock, and a note that narrates the turn
+ * was written after it — a fixed literal from the past would read as a note
+ * that predates every turn.
+ */
+const DURING = Date.now() + 60_000;
+
 function arcNote(
   text: string,
   exchangeId = "restored-7",
   command = "arc step demo start",
+  timestamp = DURING,
 ): CodeSessionEvent {
   return {
     type: "arc_note",
@@ -55,7 +66,7 @@ function arcNote(
     command,
     text,
     cwd: "/tmp/demo",
-    timestamp: 1_700_000_000_000,
+    timestamp,
   };
 }
 
@@ -111,8 +122,39 @@ describe("reducer — handleArcNote", () => {
       expect(msg.command).toBe("arc step demo start");
       expect(msg.output).toBe("demo: arc created");
       expect(msg.exitCode).toBe(0);
-      expect(msg.settledAtMs).toBe(1_700_000_000_000);
+      expect(msg.settledAtMs).toBe(DURING);
     }
+  });
+
+  it("seats a note written before the open turn's ask above the turn, not in it", () => {
+    // The Wheel says a pick-up before it sends the ask that resumes the stage,
+    // and the ask can still open the turn first. The note's own clock is what
+    // says which came first, and it introduces the turn rather than narrating
+    // it — so it is the between-turns row, which sorts above the pending
+    // submission by that clock.
+    let s = fresh();
+    s = reduce(s, SEND).state;
+    const submitAt = s.pendingTurn!.submitAt;
+    const { state, effects } = reduce(
+      s,
+      arcNote(
+        "demo: picked back up · a resume asked for it",
+        "restored-9",
+        "arc resume demo",
+        submitAt - 5,
+      ),
+    );
+    expect(
+      state.scratch.get("k1")!.messages.some((m) => m.kind === "system_note"),
+    ).toBe(false);
+    expect(effects.length).toBe(1);
+    const effect = effects[0]!;
+    if (effect.kind !== "ingest-ink-turn") {
+      throw new Error(`expected ingest-ink-turn, got ${effect.kind}`);
+    }
+    const msg = effect.entry.messages[0];
+    expect(msg?.kind === "shell_exchange" ? msg.startedAtMs : null).toBe(submitAt - 5);
+    expect(msg?.kind === "shell_exchange" ? msg.command : null).toBe("arc resume demo");
   });
 
   it("carries each gesture's own command, not one shape for all of them", () => {

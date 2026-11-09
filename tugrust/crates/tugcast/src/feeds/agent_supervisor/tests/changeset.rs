@@ -1365,7 +1365,15 @@ fn a_landing_receipt_needs_a_session_to_belong_to() {
     let ledger =
         Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("in-memory ledger"));
 
-    AgentSupervisor::record_landing_receipt(Some(&ledger), None, None, "/arc-join", "landed", "/p");
+    AgentSupervisor::record_landing_receipt(
+        Some(&ledger),
+        None,
+        None,
+        "/arc-join",
+        "landed",
+        "/p",
+        0,
+    );
     assert!(
         ledger.lines_with_rows().unwrap().is_empty(),
         "a sessionless landing writes no row"
@@ -1378,6 +1386,7 @@ fn a_landing_receipt_needs_a_session_to_belong_to() {
         "/arc-join",
         "landed",
         "/p",
+        crate::session_ledger::now_millis(),
     );
     assert_eq!(
         ledger.lines_with_rows().unwrap().len(),
@@ -1407,6 +1416,7 @@ fn the_arc_receipt_lands_as_ink_the_census_counts() {
         "/arc-run",
         "arc complete · foo\ndevise · opus · claude-a",
         "/p",
+        crate::session_ledger::now_millis(),
     );
     assert!(id.is_some(), "the row identity rides back to the deck");
 
@@ -1414,6 +1424,62 @@ fn the_arc_receipt_lands_as_ink_the_census_counts() {
     assert_eq!(census.len(), 1, "one session, one holding");
     assert_eq!(census[0].rows, 1, "one arc, one receipt");
     assert_eq!(census[0].tug_session_id, session);
+}
+
+/// **Both arc frames carry the ledger row's own clock.** An arc's receipt
+/// and its notes arrive unsolicited, and the deck used to seat their live
+/// copy by its own arrival time — later than the row the restore path seats
+/// by, so the two paths disagreed about where one event sat. The frame now
+/// carries the row's `started_at_ms`, and this pins that it is the same
+/// number the ledger holds, on both frames.
+#[tokio::test]
+async fn arc_frames_carry_the_ledger_rows_clock() {
+    let shell_ledger = Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().unwrap());
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let (state_tx, _s) = broadcast::channel(64);
+    let (meta_tx, _m) = broadcast::channel(8);
+    let (code_tx, _c) = broadcast::channel(8);
+    let (control_tx, mut rx) = broadcast::channel(128);
+    let recorder: Arc<dyn SessionsRecorder> = Arc::new(LedgerSessionsRecorder::with_broadcast(
+        Arc::clone(&ledger),
+        control_tx.clone(),
+    ));
+    let (mut sup, mut register_rx) = AgentSupervisor::new_with_ledger(
+        SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+        SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+        SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+        SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+        control_tx,
+        recorder,
+        Some(Arc::clone(&ledger)),
+        stall_spawner_factory(),
+        AgentSupervisorConfig::default(),
+        Arc::new(WorkspaceRegistry::new_for_test()),
+        CancellationToken::new(),
+        SupervisorDeps::default(),
+    );
+    sup.set_shell_ledger(Arc::clone(&shell_ledger));
+    tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+    sup.record_arc_note("sess", "/p", "arc step demo done 1", "demo: step 1 closed")
+        .await;
+    let note = drain_until_action(&mut rx, "arc_note");
+    sup.record_arc_receipt("sess", "demo", "/p", "arc complete · demo")
+        .await;
+    let receipt = drain_until_action(&mut rx, "arc_receipt");
+
+    let rows = shell_ledger
+        .list_exchanges_since("sess", None)
+        .expect("list");
+    assert_eq!(rows.len(), 2, "one note row, one receipt row: {rows:?}");
+    for (frame, row) in [(&note, &rows[0]), (&receipt, &rows[1])] {
+        assert_eq!(frame["receipt_id"].as_i64(), Some(row.id), "{frame}");
+        assert_eq!(
+            frame["started_at_ms"].as_i64(),
+            Some(row.started_at_ms),
+            "the frame's clock is the row's: {frame}"
+        );
+    }
 }
 
 // ── durable ink follows the line of work ────────────────────────────────
@@ -1432,6 +1498,7 @@ fn a_landing_receipt_written_under_any_segment_lands_on_the_line() {
         "/arc-join",
         "landed",
         "/proj",
+        crate::session_ledger::now_millis(),
     );
 
     assert_eq!(
@@ -1461,6 +1528,7 @@ fn a_landing_receipt_on_a_line_of_one_keys_under_that_line() {
         "/commit",
         "landed",
         "/proj",
+        crate::session_ledger::now_millis(),
     );
 
     assert_eq!(
@@ -1523,6 +1591,7 @@ fn a_landing_receipt_is_stamped_with_the_sessions_newest_assistant_message() {
         "/commit",
         "landed",
         "/proj",
+        crate::session_ledger::now_millis(),
     );
 
     let rows = shell.list_exchanges_since("solo", None).unwrap();
@@ -1553,6 +1622,7 @@ fn the_receipt_anchor_comes_from_the_segments_own_transcript() {
         "/arc-join",
         "landed",
         "/proj",
+        crate::session_ledger::now_millis(),
     );
 
     let line = sessions.line_of("parent").expect("the parent has a line");
@@ -1604,6 +1674,7 @@ fn the_receipt_anchor_is_the_lines_live_head_not_the_id_the_card_was_spawned_as(
         "/arc-join",
         "landed",
         "/proj",
+        crate::session_ledger::now_millis(),
     );
 
     let rows = shell.list_exchanges_since("line-1", None).unwrap();
@@ -1645,6 +1716,7 @@ fn a_receipt_from_a_transcript_less_session_still_lands_unanchored() {
         "/commit",
         "landed",
         "/proj",
+        crate::session_ledger::now_millis(),
     );
 
     let rows = shell.list_exchanges_since("zero-turns", None).unwrap();

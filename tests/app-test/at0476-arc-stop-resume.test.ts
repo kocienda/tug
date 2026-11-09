@@ -48,6 +48,10 @@
  * @covers tugrust/crates/tugtool/src/arc.rs
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
  * @covers tugdeck/src/lib/arc-receipt.ts
+ * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/lib/session-transcript-data-source.ts
+ * @covers tugdeck/src/lib/arc-note-command.ts
+ * @covers tugdeck/src/components/tugways/cards/session-arc-note-block.tsx
  * @covers tugdeck/src/components/tugways/tug-inline-dialog.tsx
  * @covers tugdeck/src/lib/arc-press-store.ts
  * @covers tugdeck/src/bus/declarations/relays.ts
@@ -58,8 +62,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
-import { sessionCardShape } from "./_harness/shapes";
+import { launchTugApp, note } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -77,27 +80,23 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import {
+  ARC_RESUME_OFFER_TITLE,
+  CARD,
+  RESUME_BUTTON,
+  SHELL_ROWS,
+  openCard,
+  readArcSeat,
+  seatProblems,
+  shellRowText,
+  shellUntil,
+  waitForPickUp,
+} from "./arc-stop-resume-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000476";
-const CARD = '[data-card-id="A"]';
-const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
-/**
- * The offer's own title, as the block renders it — and the reason a *stop*
- * receipt is counted by this rather than by the header words `arc stopped`.
- * The block consumes that header and draws an identity strip in its place, so
- * the words never reach the row's text; the offer is the one string a stop
- * receipt puts on screen and nothing else does.
- */
-const ARC_RESUME_OFFER_TITLE = "Resume this arc";
-/**
- * The Resume button inside the stop receipt's own block. Addressed through the
- * block's own class rather than the dialog primitive's slot, so a second
- * inline dialog appearing anywhere on the card cannot be pressed by accident.
- */
-const RESUME_BUTTON = `${CARD} .arc-receipt-resume [data-slot="tug-push-button"]`;
 
 const ARC_NAME = "at0476-stop";
 /** Every arc's brief lives at its own address, so there is nothing to name. */
@@ -123,40 +122,6 @@ afterAll(() => {
   rmArcScratchRepo(scratch);
   rmScratchSession(fixtureDir);
 });
-
-/**
- * Run a shell command on the card and wait for the transcript to carry
- * `marker`.
- *
- * Not `shellAndSettle`: that waits for an exact row count, and the receipt
- * this file is about **is itself a shell row** ([D111]). A stop that lands its
- * receipt therefore leaves two rows where the count-based wait demanded one,
- * and the wait can never come true — the thing under test defeats the helper
- * that was supposed to observe it. Waiting on the text is indifferent to how
- * many rows the act produced.
- */
-async function shellUntil(app: App, command: string, marker: string): Promise<void> {
-  const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.body("A").nativeClickAtElement(prompt);
-  await app.nativeType(`/shell ${command}`);
-  await new Promise((r) => setTimeout(r, 150));
-  await app.nativeKey("Enter", ["cmd"]);
-  await app.body("A").waitForCondition<boolean>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
-       .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
-    { timeoutMs: 60_000 },
-  );
-}
-
-/** Every shell row's text, in transcript order. */
-async function shellRowText(app: App): Promise<string[]> {
-  const raw = await app.body("A").evalJS<string>(
-    `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
-      SHELL_ROWS,
-    )})).map((el) => el.textContent || ""))`,
-  );
-  return JSON.parse(raw) as string[];
-}
 
 // Kept local: every file's `arcReport` reads the fields its own arc assertions
 // need, so the name is shared and the function is not.
@@ -219,17 +184,6 @@ async function pollUntil<T>(
   return last;
 }
 
-async function openCard(app: App): Promise<void> {
-  await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 660 }), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
-    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-    { timeoutMs: 30_000 },
-  );
-  await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
-  await app.awaitEngineReady("A", { timeoutMs: 30_000 });
-}
-
 describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", () => {
   test(
     "arc stop stops the arc, says so on the card, and arc run picks it back up",
@@ -242,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
       });
       const cli = tugtoolPath(CHECKOUT);
       try {
-        await openCard(app);
+        await openCard(app, SID, projectDir());
 
         // Opening the arc and stopping it are **one** shell line, and that is
         // not a convenience. A live arc on an idle card is a rotating arc:
@@ -285,6 +239,12 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // block; a CLI verb in the transcript is the implementation leaking
         // into something the user reads.
         expect(receipt).not.toContain("tugtool arc run");
+        // The header keeps the Wheel's name and the time, and nothing a typed
+        // exchange would carry: a stop ran in no directory, so there is no
+        // cwd to reveal, and nobody typed it, so there is no `#s` address to
+        // recall it by.
+        expect(receipt).not.toMatch(/#s\d+/);
+        expect(receipt).not.toContain(projectDir());
         note("at0476 card with the stop receipt", (await app.screenshot()).path);
 
         // ── And the way back into the work is a button ────────────────────
@@ -298,6 +258,36 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
           { timeoutMs: 30_000 },
         );
         note("at0476 card with the Resume button", (await app.screenshot()).path);
+
+        // ── And the frame the offer sits in pads evenly ───────────────────
+        //
+        // A header-only dialog — a title and an action, no description and no
+        // options — used to inherit the padding of the shape that has rows
+        // under it, so the offer sat high in its own frame. The layout the
+        // primitive derives is what says which shape this is. Read before the
+        // press, because the press's pick-up folds the offer away.
+        const framing = await app.body("A").evalJS<string>(
+          `(() => {
+            const root = document.querySelector(${JSON.stringify(
+              `${CARD} .arc-receipt-resume`,
+            )});
+            if (root === null) return JSON.stringify({ layout: null });
+            const style = getComputedStyle(root);
+            return JSON.stringify({
+              layout: root.getAttribute("data-layout"),
+              top: style.paddingTop,
+              bottom: style.paddingBottom,
+            });
+          })()`,
+        );
+        const frame = JSON.parse(framing) as {
+          layout: string | null;
+          top?: string;
+          bottom?: string;
+        };
+        note("at0476 resume frame", framing);
+        expect(frame.layout).toBe("header");
+        expect(frame.bottom).toBe(frame.top);
         await app.body("A").nativeClickAtElement(RESUME_BUTTON);
 
         // The record is the reading, and it is a **moving target**: the press
@@ -354,31 +344,6 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         }
         expect(grew).toBe(false);
 
-        // ── And the press was heard where it was made ─────────────────────
-        //
-        // The Resume is pressed in the card's own page, and its answer lands
-        // at the shell. While each page kept its own press store, this page
-        // never heard the `arc_resume_ok`: the button sat greyed over an arc
-        // that had resumed, and forty-five seconds on its horizon spoke
-        // "Couldn't resume — no answer". The receipt is a record and stays,
-        // so its button is still here to read: by now it has to have let go.
-        const held = await app.body("A").evalJS<boolean>(
-          `(() => {
-            const button = document.querySelector(${JSON.stringify(RESUME_BUTTON)});
-            return button === null ||
-              button.disabled === true ||
-              button.getAttribute("aria-disabled") === "true";
-          })()`,
-        );
-        expect(held).toBe(false);
-
-        const rowsAfterResume = await shellRowText(app);
-        note("at0476 rows after the resume", JSON.stringify(rowsAfterResume));
-        expect(
-          rowsAfterResume.filter((row) => row.includes(ARC_RESUME_OFFER_TITLE))
-            .length,
-        ).toBe(1);
-
         const logLines = readFileSync(arcLogPath(scratch?.dataRoot ?? ""), "utf8")
           .split("\n")
           .filter((line) => line.includes(`\t${ARC_NAME}\t`) || line.includes(ARC_NAME));
@@ -391,34 +356,37 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
           logLines.slice(resumeAt + 1).some((line) => line.includes("arc-stop")),
         ).toBe(false);
 
-        // ── And the frame the offer sits in pads evenly ───────────────────
+        // ── And the pick-up is said, in its place, and the offer folds ────
         //
-        // A header-only dialog — a title and an action, no description and no
-        // options — used to inherit the padding of the shape that has rows
-        // under it, so the offer sat high in its own frame. The layout the
-        // primitive derives is what says which shape this is.
-        const framing = await app.body("A").evalJS<string>(
-          `(() => {
-            const root = document.querySelector(${JSON.stringify(
-              `${CARD} .arc-receipt-resume`,
-            )});
-            if (root === null) return JSON.stringify({ layout: null });
-            const style = getComputedStyle(root);
-            return JSON.stringify({
-              layout: root.getAttribute("data-layout"),
-              top: style.paddingTop,
-              bottom: style.paddingBottom,
-            });
-          })()`,
+        // The resume is the Wheel's to announce: a quiet line, `Picked back
+        // up`, seated by when it was written — below the stop it answers and
+        // above the first row of the turn the resume opened, never under it.
+        // The stop is a record and stays; what changes is that a later row
+        // has answered it, so its Resume offer folds away.
+        await waitForPickUp(app);
+        const seat = await readArcSeat(app);
+        note("at0476 seat after the resume", JSON.stringify(seat));
+        note("at0476 card after the pick-up", (await app.screenshot()).path);
+        expect(seatProblems(seat)).toEqual([]);
+
+        // ── And the press was heard where it was made ─────────────────────
+        //
+        // The Resume is pressed in the card's own page, and its answer lands
+        // at the shell. While each page kept its own press store, this page
+        // never heard the `arc_resume_ok`: the button sat greyed over an arc
+        // that had resumed, and forty-five seconds on its horizon spoke
+        // "Couldn't resume — no answer". The pick-up has folded the offer
+        // away, so the button can no longer say whether it let go; the page's
+        // press store, which the button read, still can.
+        const held = await app.body("A").evalJS<boolean>(
+          `window.__tug.arcPressPending(${JSON.stringify(ARC_NAME)}, "resume")`,
         );
-        const frame = JSON.parse(framing) as {
-          layout: string | null;
-          top?: string;
-          bottom?: string;
-        };
-        note("at0476 resume frame", framing);
-        expect(frame.layout).toBe("header");
-        expect(frame.bottom).toBe(frame.top);
+        expect(held).toBe(false);
+        const rowsAfterResume = await shellRowText(app);
+        note("at0476 rows after the resume", JSON.stringify(rowsAfterResume));
+        expect(
+          rowsAfterResume.filter((row) => row.includes(ARC_RESUME_OFFER_TITLE)).length,
+        ).toBe(0);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

@@ -12,7 +12,8 @@ import { describe, expect, it } from "bun:test";
 import {
   ARC_FINISH_SLOT,
   ARC_RESUME_OFFER_TITLE,
-  arcFinishNote,
+  arcQuietNote,
+  ARC_NOTE_SLOT,
   arcReceiptFindParts,
   arcReceiptPhase,
   arcReceiptPresentation,
@@ -99,6 +100,7 @@ describe("parsing a completed arc", () => {
       plan: "arc/foo.md",
       stop: null,
       resumed: null,
+      ended: null,
     });
   });
 
@@ -246,15 +248,10 @@ describe("what does not parse", () => {
 });
 
 /**
- * The third outcome: a silence-judged stop the stopped stage itself
- * contradicted, which the runner undoes on its own. The literal is copied
- * verbatim from `a_step_closing_on_a_stopped_arc_picks_it_back_up`, the same
- * pinning every other literal in this file does.
- *
- * `outcome` is a three-member union with three readers that each split it two
- * ways, so the risk this block covers is not the parse — it is a reader falling
- * through: a pick-up drawn as an audited arc, labelled with the word *stopped*,
- * in the error tone.
+ * A legacy pick-up row: the `/arc-run` receipt the runner wrote before a
+ * pick-up became an arc note. Such rows are in shell ledgers and replay on
+ * every reload, so they still parse — and they render as the quiet line the
+ * note paints today, never as the stop they answered ([B06]).
  */
 describe("parsing an arc picked back up", () => {
   const PICKED_UP = "arc picked back up · demo · in implement · a step closed";
@@ -294,24 +291,59 @@ describe("parsing an arc picked back up", () => {
     expect(parseArcReceipt(COMPLETE)?.outcome).toBe("complete");
   });
 
-  it("draws as an arc that is running, not one the audit finished", () => {
-    // The fall-through this covers: `trackModelFor`'s complete arm seats the
-    // strip at `audit` with `done: true`, which is what a pick-up would have
-    // been drawn as. It is running in the stage the header names instead.
-    const parsed = parseArcReceipt(PICKED_UP);
-    expect(parsed).not.toBeNull();
-    const model = trackModelFor(parsed!);
-    const audited = trackModelFor(parseArcReceipt(COMPLETE)!);
-    expect(model.phase).not.toBe(audited.phase);
+  it("renders as the quiet line a pick-up note paints today ([B06])", () => {
+    // A row written before the pick-up became an arc note reads exactly as one
+    // written after: the same command, the same sentence, the note's slot.
+    const quiet = arcQuietNote(parseArcReceipt(PICKED_UP)!);
+    expect(quiet).toEqual({
+      command: "arc resume demo",
+      sentence: "demo: picked back up · a step closed",
+      slot: ARC_NOTE_SLOT,
+    });
+    const { name, label, subject, glyph } = arcNoteParts(quiet!.command, quiet!.sentence);
+    expect([name, label, subject, glyph]).toEqual([
+      "demo",
+      "Picked back up",
+      "a step closed",
+      "RotateCw",
+    ]);
+    expect(arcReceiptFindParts(message(PICKED_UP))).toEqual([
+      "demo Picked back up",
+      "a step closed",
+    ]);
   });
 
-  it("wears the success tone, never the error one", () => {
-    // `error` says *do something about this*, and there is nothing to do about
-    // an arc that picked itself back up.
-    const parsed = parseArcReceipt(PICKED_UP);
-    expect(arcReceiptPhase(parsed!, false)).toBe("success");
+  it("a stop wears the error tone until it is answered", () => {
     expect(arcReceiptPhase(parseArcReceipt(STOPPED)!, false)).toBe("error");
     expect(arcReceiptPhase(parseArcReceipt(STOPPED)!, true)).toBe("idle");
+    expect(trackModelFor(parseArcReceipt(STOPPED)!).phase).not.toBe(
+      trackModelFor(parseArcReceipt(COMPLETE)!).phase,
+    );
+  });
+});
+
+describe("a legacy mid-stage ending is the same quiet line", () => {
+  const JOINED =
+    "arc joined · demo · the stage's turn will end and the card returns to opus";
+
+  it("renders as the arc note's ending line, under the wheel", () => {
+    const quiet = arcQuietNote(parseArcReceipt(JOINED)!);
+    expect(quiet).toEqual({
+      command: "arc joined demo",
+      sentence: "demo: joined · the stage's turn will end and the card returns to opus",
+      slot: ARC_NOTE_SLOT,
+    });
+    const { label, subject, glyph } = arcNoteParts(quiet!.command, quiet!.sentence);
+    expect([label, subject, glyph]).toEqual([
+      "Joined",
+      "the stage's turn will end and the card returns to opus",
+      "ShipWheel",
+    ]);
+  });
+
+  it("offers no resume, and takes the quiet seat", () => {
+    expect(shouldOfferResume(parseArcReceipt(JOINED)!, undefined)).toBe(false);
+    expect(arcReceiptPresentation(message(JOINED))).toBe("quiet");
   });
 });
 
@@ -357,21 +389,21 @@ describe("the row the transcript builds around it", () => {
  * exactly the one unit the line paints.
  */
 describe("a complete arc finishes as a quiet line", () => {
-  it("takes the quiet seat, and leaves the other two outcomes in their entry", () => {
+  it("takes the quiet seat, and leaves a stop alone in its entry", () => {
     expect(arcReceiptPresentation(message(COMPLETE))).toBe("quiet");
     expect(arcReceiptPresentation(message(STOPPED))).toBe("entry");
     expect(
       arcReceiptPresentation(
         message("arc picked back up · demo · in implement · a step closed"),
       ),
-    ).toBe("entry");
+    ).toBe("quiet");
     // A row that does not parse falls through to the generic block, which has
     // always worn the entry.
     expect(arcReceiptPresentation(message("arc did a thing"))).toBe("entry");
   });
 
   it("says what the lifecycle strip said, through the arc-note grammar", () => {
-    const finish = arcFinishNote(parseArcReceipt(COMPLETE)!);
+    const finish = arcQuietNote(parseArcReceipt(COMPLETE)!)!;
     const { name, label, subject, glyph } = arcNoteParts(finish.command, finish.sentence);
     // The arc's own quiet run, then the gesture as one bold label — the event
     // rather than a detail under one ([B09]).
@@ -384,7 +416,7 @@ describe("a complete arc finishes as a quiet line", () => {
   it("counts one stage in the singular", () => {
     expect(arcStagesPhrase(1)).toBe("1 stage");
     expect(arcStagesPhrase(0)).toBe("0 stages");
-    const one = arcFinishNote(parseArcReceipt("arc complete · solo\ndevise · opus · c-a")!);
+    const one = arcQuietNote(parseArcReceipt("arc complete · solo\ndevise · opus · c-a")!)!;
     expect(arcNoteParts(one.command, one.sentence).label).toBe("Finished · 1 stage");
   });
 

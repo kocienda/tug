@@ -2780,12 +2780,14 @@ async fn deliver_prompt(
     if let Some(note) = compact_note {
         let (project, name) = (arc.project.clone(), arc.name.clone());
         let arc_note = format!("compacted at {note}");
+        let said = format!("compacted · {note}");
         let paths = Arc::clone(&ctx.paths);
         let _ = tokio::task::spawn_blocking(move || {
             let _ = append_arc_log(&paths, &project, &name, "compact", &note);
             append_arc_note(&paths, &project, &name, &arc_note)
         })
         .await;
+        announce_runner_note(&ctx.supervisor, arc, "compact", &said).await;
 
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
@@ -2833,6 +2835,17 @@ async fn deliver_prompt(
         let _ =
             tokio::task::spawn_blocking(move || append_arc_note(&paths, &project, &name, &note))
                 .await;
+        announce_runner_note(
+            &ctx.supervisor,
+            arc,
+            "jobs",
+            &format!(
+                "prompted past {} open background job(s) · {}",
+                jobs.len(),
+                jobs.join(", ")
+            ),
+        )
+        .await;
 
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
@@ -3046,6 +3059,23 @@ async fn rotate(
     })
     .await;
     report_append(&project, &name, "arc-dispatch", outcome);
+    // **The pick-up is said before the ask** ([B03]). A rotated resume is the
+    // arc running again, and the line that says so goes down before the
+    // rotation sends its prompt, so the transcript reads in the order things
+    // happened: picked back up, the Wheel's ask, the stage's work. A refused
+    // rotation still writes its stop afterwards; the line above it was true
+    // when it was written, and a pick-up is not a stop for the later one to
+    // supersede.
+    if resuming {
+        announce_pickup(&ctx.supervisor, arc, RESUME_ASKED).await;
+    }
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.ask_sent",
+        arc = %arc.name,
+        stage = rotation.stage.as_str(),
+        road = "rotate",
+    );
     let outcome = wheel::rotate(&ctx.supervisor, &request).await;
     {
         let mut map = state.lock().await;
@@ -3096,10 +3126,6 @@ async fn rotate(
                 ?delivery,
                 "arc rotated a stage",
             );
-            // A rotated resume answers the stop row as a reversal does.
-            if resuming {
-                record_resume_receipt(ctx, arc, rotation.stage).await;
-            }
         }
         Err(refusal) => {
             warn!(
@@ -3209,14 +3235,7 @@ async fn reverse(
         );
     }
 
-    ctx.supervisor
-        .record_arc_receipt(
-            arc.session.as_str(),
-            &arc.name,
-            &arc.project.to_string_lossy(),
-            &format_arc_pickup_receipt(&arc.name, stage, what_moved),
-        )
-        .await;
+    announce_pickup(&ctx.supervisor, arc, what_moved).await;
 
     {
         let mut map = state.lock().await;
@@ -3404,11 +3423,25 @@ async fn continue_stage(
     let dirty = dirty_clause(worktree_dirt_for(arc).await);
     let text = wheel::prompt::compose(&ask, Some(&place), &[], &[], resume, dirty.as_deref());
 
+    // **The pick-up is said before the ask** ([B03]): the line that the arc is
+    // running again goes down ahead of the prompt that runs it, so it is a
+    // fact that preceded the turn — seated above it — rather than ink newer
+    // than the submission, which rides beneath the turn for its whole length.
+    // It is also what answers the stop row's Resume offer.
+    announce_pickup(&ctx.supervisor, arc, RESUME_ASKED).await;
+
     // Dispatched exactly as `deliver_prompt` dispatches: the wheel's own row
     // on CODE_OUTPUT first, then the submission, then Tug's record of what the
     // wheel said. A prompt the reader cannot see the cause of is the
     // unannounced server turn the doctrine forbids.
     let session = arc.session.as_str().to_string();
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.ask_sent",
+        arc = %arc.name,
+        stage = stage.as_str(),
+        road = "continue",
+    );
     ctx.supervisor.code_output.publish_tagged(Frame::new(
         FeedId::CODE_OUTPUT,
         super::base_motion::notice_payload(&session, WHEEL_NOTICE_ORIGIN, &text, None),
@@ -3422,11 +3455,6 @@ async fn continue_stage(
     ctx.supervisor
         .sessions_recorder
         .record_wheel_prompt(&session, &text);
-    // The stop row's offer is answered by a later receipt for the arc
-    // (Spec S04), and a continued resume is the arc running again as surely
-    // as a reversal is. Without it the stop's Resume button stands over a
-    // stage that is already working.
-    record_resume_receipt(ctx, arc, stage).await;
 
     {
         let mut map = state.lock().await;
@@ -3461,43 +3489,65 @@ async fn continue_stage(
     );
 }
 
-/// The pick-up receipt a resume the user asked for leaves — by the stop row's
-/// Resume, or `tugtool arc resume` — on either road the runner takes it:
-/// continued on the seated session or rotated onto a fresh one.
+/// Say on the card that the arc is running again — a resume the user asked
+/// for, on either road the runner takes it, or a reversal a fact forced.
 ///
-/// The stop receipt is frozen text and its offer is retired only by a later
-/// receipt for the same arc ([`format_arc_pickup_receipt`], Spec S04). A
-/// reversal wrote one; a resume wrote none, so the offer outlived the resume.
-async fn record_resume_receipt(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage) {
-    ctx.supervisor
-        .record_arc_receipt(
+/// It rides the arc-note channel rather than the receipt channel ([B02]): a
+/// pick-up carries no offer and no stage words, so it is a quiet line like
+/// every other gesture the Wheel announces, and the stop is the only Wheel row
+/// left with entry chrome. The note's two seats come with the channel — inside
+/// the open turn when the card is mid-turn, its own quiet row between turns —
+/// and the later row is what folds the stop's Resume offer (Spec S04). The
+/// arc log's own `arc-resume` marker stays unpainted, so the line is said once.
+async fn announce_pickup(supervisor: &AgentSupervisor, arc: &BoundArc, moved: &str) {
+    info!(
+        target: "dev::session-lifecycle",
+        event = "arc.picked_back_up",
+        arc = %arc.name,
+        moved,
+    );
+    supervisor
+        .record_arc_note(
             arc.session.as_str(),
-            &arc.name,
             &arc.project.to_string_lossy(),
-            &format_arc_pickup_receipt(&arc.name, stage, RESUME_ASKED),
+            &format!("arc resume {}", arc.name),
+            &format_arc_pickup_note(&arc.name, moved),
         )
         .await;
 }
 
-/// What moved, on a pick-up receipt a resume left: the ask itself.
+/// What moved, on a pick-up a resume asked for: the ask itself.
 const RESUME_ASKED: &str = "a resume asked for it";
 
-/// The receipt a reversal leaves: one row saying the arc is running again, and
-/// which fact said so (Spec S04).
-///
-/// The stage is on the header because the block cannot draw its identity strip
-/// without one — a receipt is a frozen record of a past moment with no live
-/// store to ask, the same reason the stop receipt reads its own terminality off
-/// its own frozen sentence.
+/// The sentence a pick-up says: the arc is running again, and which fact said
+/// so (Spec S04). In the register of every other arc note — `<arc>: …`.
 ///
 /// It does not replace the stop's row. The stop happened, and a transcript that
 /// erased it would be lying about a minute of the arc's life; the superseding
 /// pass folds the older row instead, and this one is what supersedes it.
-fn format_arc_pickup_receipt(arc: &str, stage: ArcStage, moved: &str) -> String {
-    format!(
-        "arc picked back up · {arc} · in {} · {moved}",
-        stage.as_str()
-    )
+fn format_arc_pickup_note(arc: &str, moved: &str) -> String {
+    format!("{arc}: picked back up · {moved}")
+}
+
+/// The runner's own interstitial facts — a compaction, a boundary prompted
+/// past open background jobs — said on the card as quiet arc notes, in the
+/// pick-up's register: `arc <verb> <name>` for the command, `<arc>: <what>`
+/// for the sentence. The arc record's own note is written beside it and is
+/// unchanged; this is the card's line, never the record.
+async fn announce_runner_note(
+    supervisor: &AgentSupervisor,
+    arc: &BoundArc,
+    verb: &str,
+    what: &str,
+) {
+    supervisor
+        .record_arc_note(
+            arc.session.as_str(),
+            &arc.project.to_string_lossy(),
+            &format!("arc {verb} {}", arc.name),
+            &format!("{}: {what}", arc.name),
+        )
+        .await;
 }
 
 /// The arc's terminal receipt, as one string.
@@ -3647,45 +3697,52 @@ pub(crate) async fn stop_arc_for_session(
         HandBack::Arm => state.arm_hand_back(session.as_str()),
     }
 
-    {
-        let summary = if reason.is_resumable() {
-            // The record supplies the arc name the receipt reads back. A stop
-            // with no record left to read is still worth saying, so a missing
-            // one falls back to a record naming only this arc and stage.
-            let record = read_arc(&Paths::from_env(), project, name).unwrap_or_else(|| ArcRecord {
-                arc: name.to_owned(),
-                document: None,
-                kind: None,
-                plan: None,
-                stages: Vec::new(),
-                notes: Vec::new(),
-                stopped: None,
-                last_stop: None,
-                stopping: None,
-                resume: None,
-                dispatched: None,
-                owner: None,
-                done: false,
-                last_activity: None,
-            });
-            format_arc_stop_receipt(&record, stage, reason)
-        } else {
-            // The two endings are the reasons whose stop has not happened yet:
-            // the arc is gone, but the stage is mid-turn and is retired at
-            // that turn's end. So the receipt announces the retirement rather
-            // than reporting a stop, and names the model the card comes back
-            // to.
-            let model = supervisor
-                .deck_model_for(session.as_str())
-                .await
-                .unwrap_or_else(|| "the account default".to_string());
-            format!(
-                "arc {} · {name} · the stage's turn will end and the card returns to {model}",
-                reason.as_str(),
-            )
-        };
+    if reason.is_resumable() {
+        // The record supplies the arc name the receipt reads back. A stop
+        // with no record left to read is still worth saying, so a missing
+        // one falls back to a record naming only this arc and stage.
+        let record = read_arc(&Paths::from_env(), project, name).unwrap_or_else(|| ArcRecord {
+            arc: name.to_owned(),
+            document: None,
+            kind: None,
+            plan: None,
+            stages: Vec::new(),
+            notes: Vec::new(),
+            stopped: None,
+            last_stop: None,
+            stopping: None,
+            resume: None,
+            dispatched: None,
+            owner: None,
+            done: false,
+            last_activity: None,
+        });
+        let summary = format_arc_stop_receipt(&record, stage, reason);
         supervisor
             .record_arc_receipt(session.as_str(), name, &project.to_string_lossy(), &summary)
+            .await;
+    } else {
+        // The two endings are the reasons whose stop has not happened yet:
+        // the arc is gone, but the stage is mid-turn and is retired at that
+        // turn's end. So the line announces the retirement rather than
+        // reporting a stop, and names the model the card comes back to. It is
+        // a quiet arc note rather than a receipt ([B01]): an ending carries no
+        // offer and no stage words, and the join or discard receipt the user's
+        // own gesture leaves is the landing's record.
+        let model = supervisor
+            .deck_model_for(session.as_str())
+            .await
+            .unwrap_or_else(|| "the account default".to_string());
+        let word = reason.as_str();
+        supervisor
+            .record_arc_note(
+                session.as_str(),
+                &project.to_string_lossy(),
+                &format!("arc {word} {name}"),
+                &format!(
+                    "{name}: {word} · the stage's turn will end and the card returns to {model}"
+                ),
+            )
             .await;
     }
 
@@ -6212,10 +6269,11 @@ Some context.
         let command: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
         assert_eq!(command["stage"]["name"], "review");
         // The rotated resume answers the stop row, or its Resume offer stands
-        // over a stage that is running again (Spec S04).
+        // over a stage that is running again (Spec S04) — as a quiet arc note,
+        // never a receipt.
         assert_eq!(
-            receipts(&mut control_rx),
-            vec!["arc picked back up · demo · in review · a resume asked for it".to_string()],
+            arc_lines(&mut control_rx),
+            vec!["$ arc resume demo · demo: picked back up · a resume asked for it".to_string()],
         );
     }
 
@@ -6282,6 +6340,30 @@ Some context.
             }
             if let Some(summary) = value.get("summary").and_then(|s| s.as_str()) {
                 out.push(summary.to_string());
+            }
+        }
+        out
+    }
+
+    /// Every arc line the supervisor published, receipts and notes alike, in
+    /// the order they went out: a receipt as its summary, a note as
+    /// `$ <command> · <sentence>`. The pick-up and the endings are notes, and
+    /// a stop is a receipt, so a sequence crossing the two reads here.
+    fn arc_lines(rx: &mut tokio::sync::broadcast::Receiver<Frame>) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
+                continue;
+            };
+            let field = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_string);
+            match value.get("action").and_then(|a| a.as_str()) {
+                Some("arc_receipt") => out.extend(field("summary")),
+                Some("arc_note") => {
+                    if let (Some(command), Some(note)) = (field("command"), field("note")) {
+                        out.push(format!("$ {command} · {note}"));
+                    }
+                }
+                _ => {}
             }
         }
         out
@@ -6770,12 +6852,13 @@ Some context.
                 },
             )
             .await;
-            let said = receipts(&mut control_rx);
+            // A quiet arc note, not a receipt: an ending carries no offer.
+            let said = arc_lines(&mut control_rx);
             assert_eq!(said.len(), 1, "got {said:?}");
             assert_eq!(
                 said[0],
                 format!(
-                    "arc {word} · demo · the stage's turn will end and the card returns to opus"
+                    "$ arc {word} demo · demo: {word} · the stage's turn will end and the card returns to opus"
                 ),
             );
             assert!(ctx.wheel.take_hand_back("claude-1"));
@@ -6813,7 +6896,7 @@ Some context.
         )
         .await;
 
-        let said = receipts(&mut control_rx);
+        let said = arc_lines(&mut control_rx);
         assert_eq!(said.len(), 1, "got {said:?}");
         assert!(
             said[0].ends_with("the card returns to the account default"),
@@ -6874,7 +6957,7 @@ Some context.
             "the restore is armed for the turn's end",
         );
         assert_eq!(
-            receipts(&mut control_rx).len(),
+            arc_lines(&mut control_rx).len(),
             1,
             "and the card is told now"
         );
@@ -7723,6 +7806,7 @@ Some context.
         boundary_project(root);
 
         let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
         let state = settling_state(root);
         {
             let mut guard = entry.lock().await;
@@ -7773,6 +7857,11 @@ Some context.
                 .map(String::as_str),
             Some("prompted past 1 open background job(s): t1"),
             "the note names what the prompt walked past, because a count cannot be checked later"
+        );
+        assert_eq!(
+            arc_lines(&mut control_rx),
+            vec!["$ arc jobs demo · demo: prompted past 1 open background job(s) · t1".to_string()],
+            "and the card says it as a quiet line"
         );
         let memory = state.lock().await[&demo_key(root)].clone();
         assert_eq!(
@@ -8752,8 +8841,8 @@ Some context.
         // The continue answers the stop row as a reversal does, or the stop's
         // Resume offer stands over a stage already working again (Spec S04).
         assert_eq!(
-            receipts(&mut control_rx),
-            vec!["arc picked back up · demo · in implement · a resume asked for it".to_string()],
+            arc_lines(&mut control_rx),
+            vec!["$ arc resume demo · demo: picked back up · a resume asked for it".to_string()],
         );
     }
 
@@ -9311,11 +9400,11 @@ Some context.
             "the card goes back on the stage's model, not the deck's",
         );
 
-        let said = receipts(&mut control_rx);
-        assert_eq!(said.len(), 1, "one receipt, got {said:?}");
+        let said = arc_lines(&mut control_rx);
+        assert_eq!(said.len(), 1, "one line, got {said:?}");
         assert_eq!(
             said[0],
-            "arc picked back up · demo · in implement · a step closed",
+            "$ arc resume demo · demo: picked back up · a step closed",
         );
     }
 
@@ -9447,10 +9536,10 @@ Some context.
             read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None
         );
-        let said = receipts(&mut control_rx);
+        let said = arc_lines(&mut control_rx);
         assert_eq!(
             said,
-            vec!["arc picked back up · demo · in implement · a wake on its session".to_string()],
+            vec!["$ arc resume demo · demo: picked back up · a wake on its session".to_string()],
         );
     }
 
@@ -9470,14 +9559,14 @@ Some context.
         woke(&entry).await;
         sweep(&ctx, &state).await;
 
-        let said = receipts(&mut control_rx);
+        let said = arc_lines(&mut control_rx);
         assert_eq!(said.len(), 2, "two rows, got {said:?}");
         assert!(
             said[0].starts_with("arc stopped · demo · in implement"),
             "{said:?}"
         );
         assert!(
-            said[1].starts_with("arc picked back up · demo · in implement"),
+            said[1].starts_with("$ arc resume demo · demo: picked back up"),
             "{said:?}"
         );
     }
@@ -9622,6 +9711,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 350_000).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
         let state = Arc::new(Mutex::new(HashMap::new()));
         state.lock().await.insert(
             demo_key(root),
@@ -9655,6 +9745,13 @@ Some context.
             .expect("a compact line");
         assert_eq!(compact.1, "demo");
         assert_eq!(compact.3, "350000 > 300000");
+
+        // And the card is told, as a quiet line in the Wheel's register: the
+        // record's note is the arc's, this line is the user's.
+        assert_eq!(
+            arc_lines(&mut control_rx),
+            vec!["$ arc compact demo · demo: compacted · 350000 > 300000".to_string()],
+        );
     }
 
     /// The threshold is a token count and nothing else: the harness declares a
@@ -10777,6 +10874,116 @@ Some context.
                 read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
                 None,
                 "and the record says the arc is running again",
+            );
+        }
+
+        /// **A pick-up said before the ask, in place.** A
+        /// resume continued on the stage's own session writes its pick-up line
+        /// before the Wheel's ask goes out. Written after, the line was ink
+        /// newer than the turn's submission and rode beneath the streaming
+        /// turn for its whole length — the report the order exists for.
+        #[tokio::test]
+        async fn a_continued_resume_says_the_pick_up_before_the_ask() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            implementing_project(root, "done", "pending");
+            tugarc_core::arc::append_arc_stop(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ArcStage::Implement,
+                ArcStopReason::ImplementIdle,
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_resume(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ArcStage::Implement,
+            )
+            .unwrap();
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            set_context(&entry, 100_000).await;
+            let state = Arc::new(Mutex::new(HashMap::new()));
+
+            let lines = capturing_lines(async {
+                sweep(&ctx, &state).await;
+            })
+            .await;
+            assert_said_before_the_ask(&lines, "continue");
+        }
+
+        /// **The same order on the rotate road.** A resume on a
+        /// card that is no longer the stage's rotates, and the pick-up goes
+        /// down before the rotation sends its prompt.
+        #[tokio::test]
+        async fn a_rotated_resume_says_the_pick_up_before_the_ask() {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            project_with_document(root, ".tug/arcs/demo/brief.md");
+            std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
+            tugarc_core::arc::append_arc_start(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ".tug/arcs/demo/brief.md",
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_stage(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ArcStage::Devise,
+                "claude-1",
+                None,
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_stop(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ArcStage::Review,
+                ArcStopReason::SpawnQueueFull,
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Review)
+                .unwrap();
+
+            let (ctx, entry, _register_rx) = harness(root).await;
+            entry.lock().await.claude_session_id = Some("claude-2".to_string());
+            let state = Arc::new(Mutex::new(HashMap::new()));
+
+            let lines = capturing_lines(async {
+                sweep(&ctx, &state).await;
+            })
+            .await;
+            assert_said_before_the_ask(&lines, "rotate");
+        }
+
+        /// The pick-up line and the ask both happened, once each, on `road`,
+        /// and the pick-up came first.
+        fn assert_said_before_the_ask(lines: &[String], road: &str) {
+            let at = |event: &str| -> Vec<usize> {
+                lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, line)| line.contains(&format!("event=\"{event}\"")))
+                    .map(|(i, _)| i)
+                    .collect()
+            };
+            let picked = at("arc.picked_back_up");
+            let asked = at("arc.ask_sent");
+            assert_eq!(picked.len(), 1, "one pick-up: {lines:#?}");
+            assert_eq!(asked.len(), 1, "one ask: {lines:#?}");
+            assert!(
+                lines[asked[0]].contains(&format!("road=\"{road}\"")),
+                "the ask went out on the {road} road: {}",
+                lines[asked[0]],
+            );
+            assert!(
+                picked[0] < asked[0],
+                "the pick-up is said before the ask: {lines:#?}",
             );
         }
 

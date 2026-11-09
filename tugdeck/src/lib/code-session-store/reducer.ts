@@ -9115,6 +9115,13 @@ function handleShellExchange(
  * The suppressed-`/compact`-turn edge (open turn, no scratch) takes the same
  * fallback: a note must land somewhere, and a turn whose commit is dropped is
  * nowhere.
+ *
+ * So does a note **written before the open turn was asked for**. The Wheel
+ * says a pick-up before it sends the ask that resumes the stage, but the two
+ * travel on different channels and the ask can open the turn first. Such a
+ * note does not narrate the turn — it introduces it — so it takes the
+ * between-turns seat, whose row sorts by its own clock and lands above the
+ * pending submission rather than inside the turn, under its ask.
  */
 function handleArcNote(
   state: CodeSessionState,
@@ -9122,7 +9129,9 @@ function handleArcNote(
 ): { state: CodeSessionState; effects: Effect[] } {
   const turnKey = state.pendingTurn?.turnKey;
   const entry = turnKey !== undefined ? state.scratch.get(turnKey) : undefined;
-  if (turnKey === undefined || entry === undefined) {
+  const predatesTurn =
+    state.pendingTurn !== null && event.timestamp < state.pendingTurn.submitAt;
+  if (turnKey === undefined || entry === undefined || predatesTurn) {
     const row = buildShellTurnEntry(
       shellMessage({
         type: "shell_exchange_complete",

@@ -34,9 +34,13 @@ import type React from "react";
 import {
   CircleCheck,
   CircleMinus,
+  Cpu,
+  FoldVertical,
   GitCommitHorizontal,
+  Layers,
   ListChecks,
   RotateCcw,
+  RotateCw,
   ShipWheel,
   Undo2,
   Wrench,
@@ -70,10 +74,14 @@ const GLYPHS: Record<ArcNoteGlyph, LucideIcon> = {
   CircleCheck,
   CircleMinus,
   RotateCcw,
+  RotateCw,
   Undo2,
   GitCommitHorizontal,
   ListChecks,
   ShipWheel,
+  FoldVertical,
+  Layers,
+  Cpu,
 };
 
 export interface ArcNoteLineProps {

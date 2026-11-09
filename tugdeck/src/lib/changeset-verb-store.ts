@@ -301,6 +301,8 @@ export interface ArcReceipt {
   summary: string;
   /** The persisted ledger row's id — see {@link CommitState.receiptId}. */
   receiptId: number | null;
+  /** The ledger row's clock — see {@link startedAtMsOf}. */
+  startedAtMs: number | null;
 }
 
 /**
@@ -320,6 +322,8 @@ export interface ArcNote {
   note: string;
   /** The persisted ledger row's id — see {@link CommitState.receiptId}. */
   receiptId: number | null;
+  /** The ledger row's clock — see {@link startedAtMsOf}. */
+  startedAtMs: number | null;
   /** This store's arrival order. Strictly increasing, never reused. */
   seq: number;
 }
@@ -368,6 +372,16 @@ function verbKey(workspaceKey: string, arc: string): string {
  */
 function receiptIdOf(body: Record<string, unknown>): number | null {
   return typeof body.receipt_id === "number" ? body.receipt_id : null;
+}
+
+/**
+ * The `started_at_ms` an arc frame carries — the clock of the ledger row it
+ * announces. A card seats its live copy by it, so the live seat and the one a
+ * restore computes from the same row agree. Absent (an older tugcast) or
+ * non-numeric reads as `null`, and the card falls back to arrival time.
+ */
+function startedAtMsOf(body: Record<string, unknown>): number | null {
+  return typeof body.started_at_ms === "number" ? body.started_at_ms : null;
 }
 
 /**
@@ -619,6 +633,7 @@ export class ChangesetVerbStore extends Subscribable {
         arc: typeof body.arc === "string" ? body.arc : "",
         summary,
         receiptId: receiptIdOf(body),
+        startedAtMs: startedAtMsOf(body),
       });
       this.notify();
     } else if (body.action === "arc_note") {
@@ -637,6 +652,7 @@ export class ChangesetVerbStore extends Subscribable {
         command: typeof body.command === "string" ? body.command : "arc",
         note,
         receiptId: receiptIdOf(body),
+        startedAtMs: startedAtMsOf(body),
         seq: this._arcNoteSeq,
       });
       // A long run makes hundreds; the transcript keeps them, this does not

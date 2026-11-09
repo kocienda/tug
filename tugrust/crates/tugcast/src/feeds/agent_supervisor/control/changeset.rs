@@ -1965,6 +1965,12 @@ impl AgentSupervisor {
     /// to a forked session's parent until the next relaunch, so without this
     /// resolution a landing recorded in that window lands under an id nothing
     /// will ever ask about again.
+    ///
+    /// `at_ms` is the row's clock, chosen by the caller so a frame announcing
+    /// the row can carry the very `started_at_ms` the row holds. An arc's
+    /// unsolicited frames do that: the deck seats their live copy by the
+    /// row's clock rather than by its own arrival time, which is what makes
+    /// the live seat and the restored seat one answer.
     pub(in crate::feeds::agent_supervisor) fn record_landing_receipt(
         ledger: Option<&Arc<crate::shell_ledger::ShellLedger>>,
         sessions: Option<&Arc<crate::session_ledger::SessionLedger>>,
@@ -1972,6 +1978,7 @@ impl AgentSupervisor {
         command: &str,
         summary: &str,
         cwd: &str,
+        at_ms: i64,
     ) -> Option<i64> {
         let (Some(session_id), Some(ledger)) = (session_id.filter(|s| !s.is_empty()), ledger)
         else {
@@ -1992,10 +1999,6 @@ impl AgentSupervisor {
         // which locates that file.
         let anchor_msg_id =
             sessions.and_then(|s| s.latest_assistant_msg_id(&session_id, Some(cwd)));
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
         match ledger.record_exchange(&crate::shell_ledger::NewShellExchange {
             tug_session_id: session_id.clone(),
             line_id,
@@ -2004,8 +2007,8 @@ impl AgentSupervisor {
             exit_code: Some(0),
             cwd: cwd.to_string(),
             cwd_after: None,
-            started_at_ms: now,
-            settled_at_ms: now,
+            started_at_ms: at_ms,
+            settled_at_ms: at_ms,
             anchor_msg_id,
         }) {
             Ok(id) => Some(id),

@@ -981,7 +981,14 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
         // The cwd is a clickable affordance: hover-underlined, it opens
         // that directory in Finder via the host bridge — the same
         // `openPathInOS(dir, "folder")` gesture the Project / Cwd chips use.
+        //
+        // A Wheel row keeps the time alone. A stop ran in no directory and
+        // nobody typed it, so neither the cwd nor the `#s{n}` address — the
+        // number a typed exchange is recalled by — says anything true of it.
         timestamp={
+          isArcRow ? (
+            timestamp !== undefined && timestamp !== "" ? timestamp : undefined
+          ) : (
           <>
             {timestamp !== undefined && timestamp !== "" ? timestamp : null}
             {timestamp !== undefined && timestamp !== "" ? " • " : null}
@@ -1003,8 +1010,9 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
               {message.cwd}
             </button>
           </>
+          )
         }
-        address={address}
+        address={isArcRow ? undefined : address}
         body={
           // The same whole-block collapse a Bash block wears ([P02]): the
           // chrome renders the header expand/collapse chevron, and fold-

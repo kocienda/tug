@@ -31,13 +31,41 @@
  * rather than spelling `Finished · N stages` a second time. So `arc done` is
  * a gesture {@link arcNoteParts} knows and {@link ARC_NOTE_COMMAND} does not
  * claim: nothing writes that command to the shell ledger.
+ *
+ * **The Wheel's own lines are arc notes too** ([B01]). A pick-up writes
+ * `arc resume <name>` and an ending `arc joined <name>` / `arc discarded
+ * <name>` through the same channel, so the matcher claims those verbs and
+ * the grammar reads them. A stop is the one Wheel row that stays a receipt.
+ *
+ * So are the runner's own interstitial facts: a compaction (`arc compact
+ * <name>`), a boundary prompted past open background jobs (`arc jobs
+ * <name>`), and a model switched mid-stage (`arc model <name>`).
  */
 
-export const ARC_NOTE_COMMAND = /^(arc|dash) (create|step|mark|commit)\s+\S+/;
+export const ARC_NOTE_COMMAND =
+  /^(arc|dash) (create|step|mark|commit|resume|joined|discarded|compact|jobs|model)\s+\S+/;
 
 /** Whether a shell-ledger command is an arc gesture's synthetic quiet line. */
 export function matchesArcNote(command: string): boolean {
   return ARC_NOTE_COMMAND.test(command);
+}
+
+/**
+ * The Wheel's lines that answer a stop: a pick-up, a join and a discard.
+ * Only the `arc` head — nothing ever wrote these verbs under `dash`.
+ */
+const STOP_ANSWER_COMMAND = /^arc (?:resume|joined|discarded) (\S+)/;
+
+/**
+ * The arc a quiet line says went on past a stop, or `null` when the command
+ * is not a pick-up or an ending ([B05]). Read off the synthetic command in
+ * either seat — a turn's `source: "arc"` system note carries it as `command`,
+ * a between-turns row as the shell row's own command — so the supersession
+ * pass asks one question of both.
+ */
+export function arcAnsweredBy(command: string | undefined): string | null {
+  if (command === undefined) return null;
+  return STOP_ANSWER_COMMAND.exec(command.trim())?.[1] ?? null;
 }
 
 /**
@@ -65,7 +93,11 @@ export type ArcNoteGlyph =
   | "Undo2"
   | "GitCommitHorizontal"
   | "ListChecks"
-  | "ShipWheel";
+  | "ShipWheel"
+  | "RotateCw"
+  | "FoldVertical"
+  | "Layers"
+  | "Cpu";
 
 /**
  * The parts one arc-note row renders: three weights left to right, plus the
@@ -100,6 +132,12 @@ type ArcGesture =
   | "built"
   | "audited"
   | "finished"
+  | "resumed"
+  | "joined"
+  | "discarded"
+  | "compacted"
+  | "past-jobs"
+  | "model"
   | "round";
 
 const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
@@ -113,6 +151,14 @@ const GLYPHS: Record<ArcGesture, ArcNoteGlyph> = {
   built: "ShipWheel",
   audited: "ShipWheel",
   finished: "ShipWheel",
+  // The arc turning over again: the rotate glyph, clockwise, so it is never
+  // mistaken for a step parked back (`RotateCcw`).
+  resumed: "RotateCw",
+  joined: "ShipWheel",
+  discarded: "ShipWheel",
+  compacted: "FoldVertical",
+  "past-jobs": "Layers",
+  model: "Cpu",
   round: "GitCommitHorizontal",
 };
 
@@ -139,6 +185,17 @@ function readCommand(command: string): { gesture: ArcGesture; name: string } | n
       return { gesture: "created", name };
     case "done":
       return { gesture: "finished", name };
+    case "resume":
+      return { gesture: "resumed", name };
+    case "joined":
+    case "discarded":
+      return { gesture: verb, name };
+    case "compact":
+      return { gesture: "compacted", name };
+    case "jobs":
+      return { gesture: "past-jobs", name };
+    case "model":
+      return { gesture: "model", name };
     case "commit":
       return { gesture: "round", name };
     case "mark":
@@ -162,6 +219,28 @@ function readCommand(command: string): { gesture: ArcGesture; name: string } | n
       return null;
   }
 }
+
+/**
+ * The Wheel's own lines: the word each sentence opens with after its
+ * `{arc}: ` prefix, and the label it reads as.
+ */
+const WHEEL_LINES: Record<"resumed" | "joined" | "discarded", [string, string]> = {
+  resumed: ["picked back up", "Picked back up"],
+  joined: ["joined", "Joined"],
+  discarded: ["discarded", "Discarded"],
+};
+
+/**
+ * The runner's own lines: each sentence's head after its `{arc}: ` prefix
+ * opens with this, and its ` · ` clause is the detail. The head itself is the
+ * label — it carries the fact (`model → opus`, `prompted past 2 open
+ * background job(s)`) — capitalised as the register's bold verb.
+ */
+const RUNNER_LINES: Record<"compacted" | "past-jobs" | "model", string> = {
+  compacted: "compacted",
+  "past-jobs": "prompted past ",
+  model: "model → ",
+};
 
 /**
  * The sentence with its `{arc}: ` prefix taken off, and its ` — ` tail split
@@ -231,6 +310,30 @@ export function arcNoteParts(command: string, sentence: string): ArcNoteParts {
     case "built":
     case "audited":
       return { name, label: `Marked ${gesture}`, subject: null, glyph };
+    case "resumed":
+    case "joined":
+    case "discarded": {
+      // `<arc>: picked back up · <what moved>` and `<arc>: joined · <the
+      // retirement>`: the verb is the label, the clause after its ` · ` the
+      // subject. The Wheel's sentence, read in the register's three weights.
+      const [verb, label] = WHEEL_LINES[gesture];
+      const tail = new RegExp(`^${verb} · (.+)$`).exec(rest)?.[1] ?? null;
+      if (tail === null && rest !== verb) return unread;
+      return { name, label, subject: tail, glyph };
+    }
+    case "compacted":
+    case "past-jobs":
+    case "model": {
+      const at = rest.indexOf(" · ");
+      const said = at === -1 ? rest : rest.slice(0, at);
+      if (!said.startsWith(RUNNER_LINES[gesture])) return unread;
+      return {
+        name,
+        label: said.charAt(0).toUpperCase() + said.slice(1),
+        subject: at === -1 ? null : rest.slice(at + 3) || null,
+        glyph,
+      };
+    }
     case "run-through": {
       const through = /^run declared (.+)$/.exec(head)?.[1];
       return through ? { name, label: "Run declared", subject: through, glyph } : unread;

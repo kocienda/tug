@@ -18,7 +18,7 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { arcNoteParts } from "../arc-note-command";
+import { arcAnsweredBy, arcNoteParts, matchesArcNote } from "../arc-note-command";
 
 describe("arcNoteParts — the [B01] table", () => {
   test("arc create: the wheel signs the arc's opening, and there is no tail", () => {
@@ -157,6 +157,94 @@ describe("arcNoteParts — the [B01] table", () => {
       subject: null,
       glyph: "GitCommitHorizontal",
     });
+  });
+});
+
+describe("arcNoteParts — the Wheel's own lines ([B01])", () => {
+  test("a pick-up: the rotate glyph, the label, and what moved as its subject", () => {
+    expect(arcNoteParts("arc resume demo", "demo: picked back up · a resume asked for it")).toEqual({
+      name: "demo",
+      label: "Picked back up",
+      subject: "a resume asked for it",
+      glyph: "RotateCw",
+    });
+  });
+
+  test("an ending: the wheel, the word, and the retirement it announces", () => {
+    const sentence = (word: string) =>
+      `demo: ${word} · the stage's turn will end and the card returns to opus`;
+    expect(arcNoteParts("arc joined demo", sentence("joined"))).toEqual({
+      name: "demo",
+      label: "Joined",
+      subject: "the stage's turn will end and the card returns to opus",
+      glyph: "ShipWheel",
+    });
+    expect(arcNoteParts("arc discarded demo", sentence("discarded")).label).toBe("Discarded");
+  });
+
+  test("a Wheel line whose sentence did not read keeps its name, shape and words", () => {
+    expect(arcNoteParts("arc resume demo", "demo: something else")).toEqual({
+      name: "demo",
+      label: null,
+      subject: "something else",
+      glyph: "RotateCw",
+    });
+  });
+
+  test("the matcher claims the three commands, so the rows render quiet", () => {
+    expect(matchesArcNote("arc resume demo")).toBe(true);
+    expect(matchesArcNote("arc joined demo")).toBe(true);
+    expect(matchesArcNote("arc discarded demo")).toBe(true);
+    // A typed verb spells its binary; only the synthetic head is claimed.
+    expect(matchesArcNote("tugtool arc resume demo")).toBe(false);
+  });
+});
+
+describe("arcNoteParts — the runner's own lines", () => {
+  test("a compaction: the fold glyph, the word, and the reading that forced it", () => {
+    expect(arcNoteParts("arc compact demo", "demo: compacted · 350000 > 300000")).toEqual({
+      name: "demo",
+      label: "Compacted",
+      subject: "350000 > 300000",
+      glyph: "FoldVertical",
+    });
+  });
+
+  test("a boundary prompted past open jobs: the count is the label, the jobs the subject", () => {
+    expect(
+      arcNoteParts("arc jobs demo", "demo: prompted past 2 open background job(s) · t1, t2"),
+    ).toEqual({
+      name: "demo",
+      label: "Prompted past 2 open background job(s)",
+      subject: "t1, t2",
+      glyph: "Layers",
+    });
+  });
+
+  test("a mid-stage model switch: the model is the label, the stage the subject", () => {
+    expect(arcNoteParts("arc model demo", "demo: model → opus · in implement")).toEqual({
+      name: "demo",
+      label: "Model → opus",
+      subject: "in implement",
+      glyph: "Cpu",
+    });
+  });
+
+  test("a runner line whose sentence did not read keeps its name, shape and words", () => {
+    expect(arcNoteParts("arc model demo", "demo: swapped engines")).toEqual({
+      name: "demo",
+      label: null,
+      subject: "swapped engines",
+      glyph: "Cpu",
+    });
+  });
+
+  test("the matcher claims the three commands, and none of them answers a stop", () => {
+    for (const verb of ["compact", "jobs", "model"]) {
+      expect(matchesArcNote(`arc ${verb} demo`)).toBe(true);
+      expect(arcAnsweredBy(`arc ${verb} demo`)).toBeNull();
+    }
+    expect(arcAnsweredBy("arc resume demo")).toBe("demo");
   });
 });
 

@@ -14,9 +14,12 @@
  * arc gesture reads in — because the record it used to carry now folds behind
  * the `Joined` boundary once the arc lands ([B02]), and a second full report
  * of one event is the doubling this whole report ended. An arc that *stopped*
- * or *picked itself back up* keeps the receipt below, because it carries the
- * stage's own words and the Resume offer, which a line cannot hold. The seat
- * follows the shape: `arcReceiptPresentation` is what the registry reads.
+ * keeps the receipt below, because it carries the stage's own words and the
+ * Resume offer, which a line cannot hold — the only Wheel row that does
+ * ([B01]). A pick-up or a mid-stage join or discard is an arc note now; a row
+ * of either written before that change still parses here and renders as the
+ * same quiet line the note would ([B06]). The seat follows the shape:
+ * `arcReceiptPresentation` is what the registry reads.
  *
  * **The header wears {@link ArcLifecycleBlock} in its row layout**, which is
  * the whole design: the same block the Arcs card, the Changes shade's
@@ -110,24 +113,12 @@ export function arcReceiptPhase(
  * leaves. A stopped arc rests on the stage it stopped in and carries the
  * reason, which is what paints the strip's stopped tone.
  *
- * A **picked-back-up** arc is neither: it is running again, in the stage the
- * header names, with no `stopped` and no `done` — which is exactly what makes
- * `arcRunning` read true and paints the strip as work in progress. Named
- * rather than left to fall through, because falling through would draw a
- * pick-up as an arc the audit had finished.
- *
  * Exported for the same reason `shouldOfferResume` is: the deck's tests are
  * pure-logic `bun:test` with no fake DOM, so a reader only the JSX reaches is
  * a reader nothing can assert.
  */
 export function trackModelFor(parsed: ParsedArcReceipt): ReturnType<typeof arcTrackModel> {
   const documents = recordDocuments(parsed.document, parsed.plan);
-  if (parsed.outcome === "resumed") {
-    return arcTrackModel({
-      documents,
-      arc: { stage: parsed.resumed?.stage ?? "implement" },
-    });
-  }
   if (parsed.outcome === "stopped") {
     return arcTrackModel({
       documents,
@@ -332,13 +323,23 @@ export function arcStagesPhrase(count: number): string {
 export const ARC_FINISH_SLOT = "arc-finish-line";
 
 /**
- * The finish as an arc gesture: the synthetic command its quiet line is read
- * from, and the sentence beside it ([B04]).
+ * The `data-slot` a legacy pick-up or ending row wears — the arc note's own,
+ * because it is the same line the note paints today.
+ */
+export const ARC_NOTE_SLOT = "session-arc-note-line";
+
+/**
+ * A quiet `/arc-run` row as an arc gesture: the synthetic command its line is
+ * read from, and the sentence beside it ([B04], [B06]). `null` for a stop,
+ * the one outcome that keeps the receipt.
  *
  * **The shape is composed, the words are not invented.** `Finished · N
  * stages` is what the lifecycle strip said on this row before it became a
  * line, and what the join boundary's strip still says over the same record
  * ([B02]) — so the finish reads the same wherever the reader meets it.
+ * A legacy pick-up or ending is recomposed into exactly the command and
+ * sentence tugcast writes for one now, from the words its own header carries,
+ * so an old row and a new one are one line.
  *
  * It goes through `arcNoteParts` rather than around it because the row is now
  * in the arc-note register, and a second composition of a register's row is
@@ -349,29 +350,49 @@ export const ARC_FINISH_SLOT = "arc-finish-line";
  *
  * Pure and exported: the deck's tests are `bun:test` with no fake DOM.
  */
-export function arcFinishNote(parsed: ParsedArcReceipt): {
-  command: string;
-  sentence: string;
-} {
-  return {
-    command: `arc done ${parsed.arc}`,
-    sentence: `${parsed.arc}: finished · ${arcStagesPhrase(parsed.stages.length)}`,
-  };
+export function arcQuietNote(
+  parsed: ParsedArcReceipt,
+): { command: string; sentence: string; slot: string } | null {
+  switch (parsed.outcome) {
+    case "complete":
+      return {
+        command: `arc done ${parsed.arc}`,
+        sentence: `${parsed.arc}: finished · ${arcStagesPhrase(parsed.stages.length)}`,
+        slot: ARC_FINISH_SLOT,
+      };
+    case "resumed":
+      return {
+        command: `arc resume ${parsed.arc}`,
+        sentence: `${parsed.arc}: picked back up · ${parsed.resumed?.moved ?? ""}`,
+        slot: ARC_NOTE_SLOT,
+      };
+    case "ended": {
+      const word = parsed.ended?.word ?? "joined";
+      return {
+        command: `arc ${word} ${parsed.arc}`,
+        sentence: `${parsed.arc}: ${word} · ${parsed.ended?.said ?? ""}`,
+        slot: ARC_NOTE_SLOT,
+      };
+    }
+    case "stopped":
+      return null;
+  }
 }
 
 /**
  * Which seat a `/arc-run` row takes, read off the row ([B04], [F08]).
  *
- * A finished arc is one derived sentence and takes the quiet seat every other
- * arc gesture has; a stop and a pick-up keep the entry, because they carry the
- * stage's own words and the Resume offer, which a quiet line cannot hold. A
- * row whose output does not parse falls through to `ShellExchangeBlock` and
- * takes the entry it would have had anyway.
+ * A finished arc, and a legacy pick-up or ending, is one derived sentence and
+ * takes the quiet seat every other arc gesture has; a stop keeps the entry,
+ * because it carries the stage's own words and the Resume offer, which a
+ * quiet line cannot hold. A row whose output does not parse falls through to
+ * `ShellExchangeBlock` and takes the entry it would have had anyway.
  */
 export function arcReceiptPresentation(
   message: ShellExchangeMessage,
 ): CommandBlockPresentation {
-  return parseArcReceipt(message.output)?.outcome === "complete" ? "quiet" : "entry";
+  const parsed = parseArcReceipt(message.output);
+  return parsed !== null && arcQuietNote(parsed) !== null ? "quiet" : "entry";
 }
 
 /**
@@ -435,33 +456,6 @@ function ArcResumeOffer({ arc }: { arc: string }): React.ReactElement {
   );
 }
 
-/**
- * The finished row: the quiet line and nothing more.
- *
- * It carries no act. A standing join offer already has its doors — the Z2
- * ARC cell, the Changes segment's dot and the composer's placeholder — and a
- * Join here was a fourth that kept reading as an offer while the join it
- * pointed at was already running.
- */
-function ArcFinishLine({
-  parsed,
-  atMs,
-}: {
-  parsed: ParsedArcReceipt;
-  atMs: number;
-}): React.ReactElement {
-  const finish = arcFinishNote(parsed);
-  return (
-    <ArcNoteLine
-      command={finish.command}
-      sentence={finish.sentence}
-      atMs={atMs}
-      className="session-arc-note-line"
-      slot={ARC_FINISH_SLOT}
-    />
-  );
-}
-
 export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactElement {
   const parsed = parseArcReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
@@ -469,8 +463,21 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   // to carry is not lost: it folds behind the `Joined` boundary once the arc
   // lands ([B02]), and until then it is the Arcs card's. What is left here is
   // the moment itself, in the register every other arc gesture reads in.
-  if (parsed.outcome === "complete") {
-    return <ArcFinishLine parsed={parsed} atMs={props.message.startedAtMs} />;
+  //
+  // A legacy pick-up or ending is the same quiet line the arc note paints
+  // today ([B06]). None of the three carries an act: a standing join offer
+  // already has its doors, and the Resume offer belongs to the stop alone.
+  const quiet = arcQuietNote(parsed);
+  if (quiet !== null) {
+    return (
+      <ArcNoteLine
+        command={quiet.command}
+        sentence={quiet.sentence}
+        atMs={props.message.startedAtMs}
+        className="session-arc-note-line"
+        slot={quiet.slot}
+      />
+    );
   }
   // A stop a later row in this transcript has already answered ([P08]). The
   // row is **demoted, never rewritten**: `copyText`, the stage list, the
@@ -479,21 +486,13 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
   // record of that moment, so what changes is how loudly it is offered —
   // `error` says *do something about this*, and there is nothing left to do.
   const demoted = props.superseded === true && parsed.outcome === "stopped";
-  // The row's note, one arm per outcome, in the line's own grammar — the same
-  // vocabulary the strip beside it reads in ([B08]). It is an override rather
-  // than the line's own derivation because a receipt is a frozen record: its
-  // three outcomes are parsed from the text the server wrote, and no live
-  // model can be asked what an arc was doing weeks ago.
-  //
-  // A pick-up's `stop` is `null`, so the stopped arm's `?? "stopped"` would
-  // label a row saying the arc is running again with the word *stopped* —
-  // the fall-through this arm exists to stop.
-  //
-  // There is no complete arm: that outcome left above, as a quiet line.
-  const note =
-    parsed.outcome === "resumed"
-      ? "Picked back up"
-      : `Stopped · ${parsed.stop?.reason ?? "stopped"}`;
+  // The row's note, in the line's own grammar — the same vocabulary the strip
+  // beside it reads in ([B08]). It is an override rather than the line's own
+  // derivation because a receipt is a frozen record: its outcome is parsed
+  // from the text the server wrote, and no live model can be asked what an
+  // arc was doing weeks ago. Only a stop reaches here; every other outcome
+  // left above, as a quiet line.
+  const note = `Stopped · ${parsed.stop?.reason ?? "stopped"}`;
   const identity = (
     <span className="arc-receipt-identity">
       <ArcLifecycleBlock
@@ -519,11 +518,6 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
         copyText={props.message.output}
       >
         <div className="arc-receipt-body">
-          {parsed.resumed !== null ? (
-            <p className="arc-receipt-doc" data-tugx-findable="">
-              {parsed.resumed.moved}
-            </p>
-          ) : null}
           <ArcRecordBlock
             document={parsed.document}
             stages={parsed.stages}
@@ -558,18 +552,18 @@ export function SessionArcReceiptBlock(props: CommandBlockProps): React.ReactEle
  * anybody searches for, and projecting it would put eight hex characters into
  * the index for every stage of every arc.
  *
- * A **finished** arc projects the quiet line instead, and projects it the way
- * {@link ArcNoteLine} paints it: one unit for the label node, whose bytes are
- * the name and the verb with one space between them. There is no subject on
- * this gesture, so there is no second unit — the declare-both-halves rule read
- * off the same `arcNoteParts` the row renders from.
+ * A **quiet** row — a finish, a legacy pick-up or ending — projects the line
+ * instead, and projects it the way {@link ArcNoteLine} paints it: one unit for
+ * the label node, whose bytes are the name and the verb with one space
+ * between them, and the subject when there is one — the declare-both-halves
+ * rule read off the same `arcNoteParts` the row renders from.
  */
 export function arcReceiptFindParts(message: ShellExchangeMessage): string[] | null {
   const parsed = parseArcReceipt(message.output);
   if (parsed === null) return null;
-  if (parsed.outcome === "complete") {
-    const finish = arcFinishNote(parsed);
-    const { name, label, subject } = arcNoteParts(finish.command, finish.sentence);
+  const quiet = arcQuietNote(parsed);
+  if (quiet !== null) {
+    const { name, label, subject } = arcNoteParts(quiet.command, quiet.sentence);
     return [[name, label].filter((part) => part !== null).join(" "), subject ?? ""].filter(
       (part) => part !== "",
     );

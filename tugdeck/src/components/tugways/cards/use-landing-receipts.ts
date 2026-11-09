@@ -100,9 +100,18 @@ export function useLandingReceipts(
      * Append one landing's summary as a shell-exchange row ([D111]), under the
      * identity {@link landingExchangeId} derives — which is what keeps one
      * landing to one transcript turn across the live and restore paths.
+     *
+     * `atMs` is the ledger row's clock when the frame carried one — an arc's
+     * unsolicited rows do — so the live row seats where its restore will;
+     * absent, the row is stamped at arrival.
      */
-    const append = (command: string, output: string, receiptId: number | null): void => {
-      const now = Date.now();
+    const append = (
+      command: string,
+      output: string,
+      receiptId: number | null,
+      atMs: number | null = null,
+    ): void => {
+      const now = atMs ?? Date.now();
       codeSessionStore.ingestShellExchange({
         phase: "complete",
         exchangeId: landingExchangeId(receiptId),
@@ -153,7 +162,7 @@ export function useLandingReceipts(
       // the join offer is the shade's to raise ([D147], [D152]).
       const arc = verbStore.arcReceipt(tugSessionId);
       if (arc !== null && arc.receiptId !== prevArcReceipt) {
-        append("/arc-run", arc.summary, arc.receiptId);
+        append("/arc-run", arc.summary, arc.receiptId, arc.startedAtMs);
       }
       prevArcReceipt = arc?.receiptId ?? prevArcReceipt;
 
@@ -170,7 +179,9 @@ export function useLandingReceipts(
           command: arcNote.command,
           text: arcNote.note,
           cwd: changesController.projectDir,
-          timestamp: Date.now(),
+          // The row's own clock, so a note written before the turn it
+          // precedes seats above it live exactly as it does on restore.
+          timestamp: arcNote.startedAtMs ?? Date.now(),
         });
         prevNoteSeq = arcNote.seq;
       }

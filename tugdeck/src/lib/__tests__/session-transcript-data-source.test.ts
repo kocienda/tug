@@ -39,7 +39,10 @@ import {
 } from "../code-session-store/__tests__/_helpers/messages";
 import { createInitialState, reduce } from "@/lib/code-session-store/reducer";
 import type { CodeSessionEvent } from "@/lib/code-session-store/events";
-import type { AppendTranscriptEffect } from "@/lib/code-session-store/effects";
+import type {
+  AppendTranscriptEffect,
+  IngestInkTurnEffect,
+} from "@/lib/code-session-store/effects";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 
 // ---------------------------------------------------------------------------
@@ -406,6 +409,51 @@ describe("trailing shell rows merge into the pending block by timestamp", () => 
     ]);
     expect(layout.activeStartRow).toBe(3);
     expect(layout.turnStartRow[1]).toBe(2);
+  });
+
+  test("an arc note stamped before the pending submission never seats at the foot", () => {
+    // An arc note lands as its own quiet row between turns, through the same
+    // reducer arm a live frame takes. Its clock is the ledger row's, so a
+    // note written before the ask it precedes sits above the in-flight turn
+    // for the whole turn — not beneath it, where a row stamped at arrival
+    // would ride until the turn committed.
+    const quietRow = (timestamp: number): TurnEntry => {
+      const state = createInitialState(FIXTURE_IDS.TUG_SESSION_ID, "test", "new");
+      const r = reduce(state, {
+        type: "arc_note",
+        exchangeId: "restored-7",
+        command: "arc resume demo",
+        text: "demo: picked back up · a resume asked for it",
+        cwd: "/proj",
+        timestamp,
+      });
+      const ink = r.effects.filter((e): e is IngestInkTurnEffect => e.kind === "ingest-ink-turn");
+      expect(ink).toHaveLength(1);
+      return ink[0].entry;
+    };
+    const layoutAt = (timestamp: number) =>
+      buildRowLayout(
+        snapshotWith({
+          transcript: [normalTurn("t1", "hi", "yo"), quietRow(timestamp)],
+          activeTurn: activeTurn({ turnKey: "L", isWake: false, withText: "go", submitAt: 50 }),
+        }),
+      );
+
+    const written = layoutAt(40);
+    expect(written.slots.map((s) => s.cellKind)).toEqual([
+      "user",
+      "assistant",
+      "shell", // ← the note, above the turn it preceded
+      "user",
+      "assistant",
+    ]);
+    expect(written.activeStartRow).toBe(3);
+
+    // The contrast is the defect the row's clock retires: the same note
+    // stamped when it arrived, after the submit, sits at the foot.
+    const arrived = layoutAt(100);
+    expect(arrived.slots[arrived.slots.length - 1].cellKind).toBe("shell");
+    expect(arrived.activeStartRow).toBe(2);
   });
 
   test("the merge splits a run of exchanges around the submissions they bracket", () => {
@@ -922,6 +970,115 @@ describe("superseded arc stop receipts (Spec S04)", () => {
     const demoted = { ...live, arcStopSuperseded: true };
     expect(sameTranscriptRowData(live, live)).toBe(true);
     expect(sameTranscriptRowData(live, demoted)).toBe(false);
+  });
+
+  // The Wheel's pick-up and endings are arc notes, and a note has two seats:
+  // its own quiet row between turns, and a `source: "arc"` system note inside
+  // a turn that was open when it was said ([B05]).
+
+  /** A between-turns arc note: the quiet row `handleArcNote` ingests. */
+  const noteRow = (key: string, command: string, at: number, sentence: string): TurnEntry =>
+    shellTurn(key, command, at, sentence);
+
+  /** A turn with an arc note seated inside it, among the work it narrated. */
+  function turnWithNote(turnKey: string, command: string, text: string): TurnEntry {
+    return turnEntry({
+      turnKey,
+      msgId: `msg-${turnKey}`,
+      messages: [
+        userMessage({ turnKey, text: "go on" }),
+        assistantText({ msgId: `msg-${turnKey}`, blockIndex: 0, text: "working" }),
+        {
+          kind: "system_note",
+          messageKey: `arc-note-${turnKey}`,
+          createdAt: 0,
+          text,
+          command,
+          source: "arc",
+        },
+      ],
+    });
+  }
+
+  test("a pick-up's quiet row supersedes the stop before it", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/arc-run", 1, stopReceipt("alpha")),
+        noteRow("s2", "arc resume alpha", 2, "alpha: picked back up · a resume asked for it"),
+      ]),
+    ).toEqual([true, false]);
+  });
+
+  test("a join or discard note's quiet row supersedes it the same way", () => {
+    for (const word of ["joined", "discarded"]) {
+      expect(
+        supersededFlags([
+          shellTurn("s1", "/arc-run", 1, stopReceipt("alpha")),
+          noteRow("s2", `arc ${word} alpha`, 2, `alpha: ${word} · the card returns to opus`),
+        ]),
+      ).toEqual([true, false]);
+    }
+  });
+
+  test("a pick-up seated inside a later turn supersedes the stop", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/arc-run", 1, stopReceipt("alpha")),
+        turnWithNote("T", "arc resume alpha", "alpha: picked back up · a resume asked for it"),
+      ]),
+    ).toEqual([true]);
+  });
+
+  test("a note for another arc, or a step note for this one, answers nothing", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/arc-run", 1, stopReceipt("alpha")),
+        noteRow("s2", "arc resume beta", 2, "beta: picked back up · a resume asked for it"),
+        noteRow("s3", "arc step alpha start 2", 3, "alpha: step 2/3 started"),
+        turnWithNote("T", "arc commit alpha", "alpha: round abc1234"),
+      ]),
+    ).toEqual([false, false, false]);
+  });
+
+  test("a pick-up BEFORE the stop answers nothing — order is still the whole claim", () => {
+    expect(
+      supersededFlags([
+        noteRow("s1", "arc resume alpha", 1, "alpha: picked back up · a resume asked for it"),
+        shellTurn("s2", "/arc-run", 2, stopReceipt("alpha")),
+      ]),
+    ).toEqual([false, false]);
+  });
+
+  test("the legacy pick-up receipt still supersedes through the /arc-run arm (B06)", () => {
+    expect(
+      supersededFlags([
+        shellTurn("s1", "/arc-run", 1, stopReceipt("alpha")),
+        shellTurn("s2", "/arc-run", 2, "arc picked back up · alpha · in audit · a resume asked for it"),
+      ]),
+    ).toEqual([true, false]);
+  });
+
+  test("a pick-up inside the open turn folds the stop before the turn commits", () => {
+    const stop = shellTurn("s1", "/arc-run", 1, stopReceipt("alpha"));
+    const open = activeTurn({ turnKey: "L", isWake: false, withText: "go on", submitAt: 5 });
+    const live: ActiveTurnSnapshot = {
+      ...open,
+      messages: [
+        ...open.messages,
+        {
+          kind: "system_note",
+          messageKey: "arc-note-live",
+          createdAt: 6,
+          text: "alpha: picked back up · a resume asked for it",
+          command: "arc resume alpha",
+          source: "arc",
+        },
+      ],
+    };
+    const before = buildRowLayout(snapshotWith({ transcript: [stop], activeTurn: open }));
+    const after = buildRowLayout(snapshotWith({ transcript: [stop], activeTurn: live }));
+    expect(before.slots[0].arcStopSuperseded).toBe(false);
+    expect(after.slots[0].arcStopSuperseded).toBe(true);
   });
 });
 

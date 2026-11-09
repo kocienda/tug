@@ -88,6 +88,7 @@ import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
 import { compactionProgressStore } from "./lib/compaction-progress-store";
+import { arcPressStore, type ArcTransportVerb } from "./lib/arc-press-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendCloseSessionKeepingBinding, sendSpawnSession } from "./lib/session-lifecycle";
 import { fireNewSpawn } from "./lib/session-restore";
@@ -622,8 +623,14 @@ import {
  * named cards' pages wait that long, content quiet and lid down, before they
  * say they are ready, so a test can make a switch's page slow. Additive;
  * major stays `2`.
+ *
+ * `2.60.0`: adds {@link TugTestSurface.arcPressPending}, on every page:
+ * whether this page reads an arc transport press as still held — its own
+ * store in the shell, the shell's replica in a body — so a test can say a
+ * press was heard where it was made after the control that made it has
+ * gone. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.59.0" as const;
+export const SURFACE_VERSION = "2.60.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2234,6 +2241,13 @@ export interface TugTestSurface {
    * 2.50.0).
    */
   bodyDormancy(): { shown: boolean; since: number; dormant: boolean };
+
+  /**
+   * Whether this page reads `arc`'s `verb` press as still held, from its arc
+   * press store — the shell's own, or a body's replica of it (SURFACE_VERSION
+   * 2.60.0).
+   */
+  arcPressPending(arc: string, verb: ArcTransportVerb): boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -4137,6 +4151,10 @@ function pageStoreSurfaceMethods() {
     bodyDormancy(): { shown: boolean; since: number; dormant: boolean } {
       const { shown, since, dormant } = bodyVisibilityStore.getSnapshot();
       return { shown, since, dormant };
+    },
+
+    arcPressPending(arc: string, verb: ArcTransportVerb): boolean {
+      return arcPressStore.isPending(arc, verb);
     },
 
     publishDraftFrame(payloadJson: string): boolean {

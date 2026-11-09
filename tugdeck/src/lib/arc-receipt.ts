@@ -1,6 +1,9 @@
 /**
  * The arc receipt's parser — the `/arc-run` row the shell ledger records when
- * an arc completes, stops, or picks itself back up.
+ * an arc completes or stops — and, in ledgers written before the Wheel's
+ * pick-up and endings became arc notes, when one picked itself back up or was
+ * joined or discarded mid-stage. Those older rows still parse, so a transcript
+ * recorded before the change reads the same as one recorded after ([B06]).
  *
  * Pure: `SessionArcReceiptBlock` renders what this reads and re-exports it,
  * and the transcript data source reads it to know what a row is without
@@ -24,7 +27,7 @@ export interface ArcReceiptStage {
 
 /** The display facts parsed from an arc receipt, complete or stopped. */
 export interface ParsedArcReceipt {
-  outcome: "complete" | "stopped" | "resumed";
+  outcome: "complete" | "stopped" | "resumed" | "ended";
   arc: string;
   /** The document the arc opened on; absent on a record that had none. */
   document: string | null;
@@ -64,6 +67,12 @@ export interface ParsedArcReceipt {
    * carried on the wire.
    */
   resumed: { stage: string; moved: string } | null;
+  /**
+   * An ending's word (`joined` or `discarded`) and the retirement it
+   * announced, on a row written before endings became arc notes; `null` on
+   * every other outcome.
+   */
+  ended: { word: "joined" | "discarded"; said: string } | null;
 }
 
 // The two headers, matched exactly. `·` is U+00B7 and the em arc U+2014, so a
@@ -78,6 +87,13 @@ const STOPPED_RE = /^arc stopped · (.+?) · in (.+?) — (.+)$/;
  * is the discipline that keeps a fourth header from having to think about it.
  */
 const RESUMED_RE = /^arc picked back up · (.+?) · in (.+?) · (.+)$/;
+/**
+ * The fourth header, kept for the same reason as the third: a join or discard
+ * that ended an arc mid-stage used to write `arc joined · <arc> · <the
+ * retirement>` as a `/arc-run` row. It differs from every other header in its
+ * second word, so the order it is tried in cannot matter.
+ */
+const ENDED_RE = /^arc (joined|discarded) · (.+?) · (.+)$/;
 /**
  * A stage line, keyed on the closed stage vocabulary rather than on the shape
  * of a session id. `ArcStage::as_str` is the whole set, and matching it is what
@@ -104,13 +120,22 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
   const lines = output.split("\n");
   const head = lines[0] ?? "";
   const resumed = RESUMED_RE.exec(head);
-  const stopped = resumed === null ? STOPPED_RE.exec(head) : null;
-  const complete = resumed === null && stopped === null ? COMPLETE_RE.exec(head) : null;
-  if (resumed === null && stopped === null && complete === null) return null;
+  const ended = resumed === null ? ENDED_RE.exec(head) : null;
+  const stopped = resumed === null && ended === null ? STOPPED_RE.exec(head) : null;
+  const complete =
+    resumed === null && ended === null && stopped === null ? COMPLETE_RE.exec(head) : null;
+  if (resumed === null && ended === null && stopped === null && complete === null) return null;
 
   const parsed: ParsedArcReceipt = {
-    outcome: resumed !== null ? "resumed" : stopped !== null ? "stopped" : "complete",
-    arc: (resumed?.[1] ?? (stopped !== null ? stopped[1] : complete?.[1])) ?? "",
+    outcome:
+      resumed !== null
+        ? "resumed"
+        : ended !== null
+          ? "ended"
+          : stopped !== null
+            ? "stopped"
+            : "complete",
+    arc: (resumed?.[1] ?? ended?.[2] ?? stopped?.[1] ?? complete?.[1]) ?? "",
     document: null,
     stages: [],
     plan: null,
@@ -126,6 +151,10 @@ export function parseArcReceipt(output: string): ParsedArcReceipt | null {
     resumed:
       resumed !== null
         ? { stage: resumed[2] ?? "", moved: resumed[3] ?? "" }
+        : null,
+    ended:
+      ended !== null
+        ? { word: ended[1] === "joined" ? "joined" : "discarded", said: ended[3] ?? "" }
         : null,
   };
 

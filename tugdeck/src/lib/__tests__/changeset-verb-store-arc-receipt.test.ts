@@ -51,6 +51,7 @@ const frame = (over: Record<string, unknown> = {}): Record<string, unknown> => (
   tug_session_id: SESSION,
   receipt_id: 41,
   summary: SUMMARY,
+  started_at_ms: 1_700_000_000_123,
   ...over,
 });
 
@@ -70,6 +71,9 @@ describe("an arc receipt nobody asked for", () => {
       arc: "foo",
       summary: SUMMARY,
       receiptId: 41,
+      // The ledger row's clock: the card seats the live copy where the
+      // restore will.
+      startedAtMs: 1_700_000_000_123,
     });
     expect(h.store.arcReceipt("some-other-session")).toBeNull();
   });
@@ -93,6 +97,11 @@ describe("an arc receipt nobody asked for", () => {
     expect(h.store.arcReceipt(SESSION)?.receiptId).toBeNull();
   });
 
+  test("an older tugcast that sends no clock reads as null, and the card stamps arrival", () => {
+    h.reply(frame({ started_at_ms: undefined }));
+    expect(h.store.arcReceipt(SESSION)?.startedAtMs).toBeNull();
+  });
+
   test("a frame naming no session, or carrying no words, is not a receipt", () => {
     h.reply(frame({ tug_session_id: "" }));
     h.reply(frame({ summary: "" }));
@@ -106,6 +115,7 @@ describe("an arc receipt nobody asked for", () => {
       arc: "bar",
       summary: "arc complete · bar",
       receiptId: 42,
+      startedAtMs: 1_700_000_000_123,
     });
   });
 });

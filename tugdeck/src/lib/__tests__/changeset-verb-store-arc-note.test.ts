@@ -48,6 +48,7 @@ const frame = (over: Record<string, unknown> = {}): Record<string, unknown> => (
   command: "arc step foo done 1",
   note: "foo: step 1/7 closed (999353ca1)",
   receipt_id: 41,
+  started_at_ms: 1_700_000_000_123,
   ...over,
 });
 
@@ -98,6 +99,16 @@ describe("arc_note", () => {
     // identity rather than dropping the line.
     h.reply(frame({ receipt_id: undefined }));
     expect(h.store.arcNotes(SESSION)[0].receiptId).toBeNull();
+  });
+
+  test("the ledger row's clock rides the note, so the card seats it by when it was written", () => {
+    h.reply(frame());
+    expect(h.store.arcNotes(SESSION)[0].startedAtMs).toBe(1_700_000_000_123);
+  });
+
+  test("an older tugcast that sends no clock reads as null, and the card stamps arrival", () => {
+    h.reply(frame({ started_at_ms: undefined }));
+    expect(h.store.arcNotes(SESSION)[0].startedAtMs).toBeNull();
   });
 
   test("subscribers are notified, because a card paints on the edge", () => {
