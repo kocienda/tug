@@ -1482,6 +1482,27 @@ export function TugSheetContent({
   openRef.current = open;
   const sheetContentRef = useRef<HTMLDivElement | null>(null);
   const clipRef = useRef<HTMLDivElement | null>(null);
+
+  // An open sheet owns the first responder, so ⌘. — the registry's Cancel
+  // binding, dispatched to the first responder — reaches this sheet's
+  // `CANCEL_DIALOG` ([D126]). The engine's own settle cannot be relied on for
+  // it: the content's seeded key view places in a child layout effect, before
+  // this sheet's responder registers, so that settle's DOM walk skips the sheet
+  // and leaves the first responder on the pane, and with focus parked on the
+  // key sink outside the sheet the content's `onKeyDown` never hears the key
+  // either. Runs once the portaled content is `mounted` — its element carries
+  // `data-responder-id`, so the chain can project `data-first-responder` onto
+  // it — and after the trap's push has captured the prior first responder,
+  // which the pop restores. A passive shade claims nothing, and a first
+  // responder already inside the sheet keeps it.
+  useLayoutEffect(() => {
+    if (!open || !mounted || shadePassive || !manager) return;
+    if (sheetContentRef.current === null || !manager.hasResponder(responderId)) return;
+    const current = manager.getFirstResponder();
+    if (current !== null && manager.nodeIsWithin(current, responderId)) return;
+    manager.makeFirstResponder(responderId);
+  }, [open, mounted, shadePassive, manager, responderId]);
+
   // Whether this sheet's workspace layer is the shown one. Both canvas clamps
   // below refuse to measure while it is false and re-run when it flips — the
   // re-arm [L32]'s third clause requires of a refusal.
