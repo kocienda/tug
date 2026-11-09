@@ -390,11 +390,18 @@ fn print_preflight_plain(report: &tugchanges_core::PreflightReport) {
             report.foreign.len()
         );
         for f in &report.foreign {
+            // An owner rooted on another repo shows on no card here — its card
+            // composes its own repo — so the read-out names where it lives.
+            let elsewhere = match (&f.elsewhere, &f.project) {
+                (true, Some(project)) => format!("  rooted in {project}"),
+                _ => String::new(),
+            };
             println!(
-                "  {:<2} {}  owner {}",
+                "  {:<2} {}  owner {}{}",
                 f.git_status,
                 f.path,
-                f.sessions.join(", ")
+                f.sessions.join(", "),
+                elsewhere
             );
         }
     }

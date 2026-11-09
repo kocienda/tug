@@ -42,6 +42,7 @@ use crate::contention;
 use crate::git::{self, repo_root_for};
 use crate::hunks;
 use crate::ledger;
+use crate::place::{OwnerPlace, owner_place};
 
 /// Options for [`changes`]. `session` defaults from `$TUG_SESSION_ID`; `project`
 /// defaults to cwd; `all` keeps committed/reverted files; `diff` attaches each
@@ -79,11 +80,21 @@ pub struct Change {
 /// never this session's to commit by default; `sessions` lists the claiming
 /// `tug_session_id`s so the agent can see whose work it is. `diff` is present
 /// only when requested (`context` always requests it).
+///
+/// `elsewhere` marks a file whose every owner is rooted on another repo
+/// ([`crate::owner_place`]), and `project` names that repo's root. No card
+/// rooted here would ever show such a file under its owner — the owner's card
+/// composes its own repo — so this is the one bucket entry nobody else will
+/// tell you about. Both keys are absent for an ordinary foreign file.
 #[derive(Debug, Clone, Serialize)]
 pub struct ForeignChange {
     pub path: String,
     pub git_status: String,
     pub sessions: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub elsewhere: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
 }
@@ -448,6 +459,10 @@ fn compute_changes(
     let mut attributed: Vec<Change> = Vec::new();
     let mut unattributed: Vec<Change> = Vec::new();
     let mut foreign: Vec<ForeignChange> = Vec::new();
+    // Each foreign owner's place, resolved once per compute: the rule spends
+    // a `git rev-parse` per owner project, and an owner usually claims many
+    // paths.
+    let mut places: HashMap<String, Option<OwnerPlace>> = HashMap::new();
 
     for path in &dirty_paths {
         let git_status = status_map.get(path).cloned().unwrap_or_default();
@@ -521,10 +536,14 @@ fn compute_changes(
         } else if !foreign_proof.is_empty() {
             // Another session proof-owns the file; this session at most
             // bracket-grabbed it (contamination). It is theirs — foreign.
+            let project = sessions_conn
+                .and_then(|s| elsewhere_project(s, repo_root, &foreign_proof, &mut places));
             foreign.push(ForeignChange {
                 path: path.clone(),
                 git_status,
                 sessions: foreign_proof,
+                elsewhere: project.is_some(),
+                project,
                 diff: None,
             });
         } else if let Some(latest) = live_self.last() {
@@ -579,6 +598,34 @@ fn compute_changes(
         unattributed,
         foreign,
     })
+}
+
+/// The repo root every one of `owners` is rooted on, when each is rooted
+/// elsewhere — the shared rule's `Elsewhere`, read per owner from its line's
+/// seat. `None` as soon as any owner is unknown to this instance's sessions
+/// or rooted on this repo: one owner here surfaces the file, and an owner
+/// with no row cannot be placed at all. Owners rooted on two different other
+/// repos name the first, in the order the claimants were listed.
+fn elsewhere_project(
+    sessions: &Connection,
+    repo_root: &Path,
+    owners: &[String],
+    places: &mut HashMap<String, Option<OwnerPlace>>,
+) -> Option<String> {
+    let mut project = None;
+    for owner in owners {
+        let place = places.entry(owner.clone()).or_insert_with(|| {
+            ledger::seat_project(sessions, owner)
+                .map(|(dir, live)| owner_place(live, Some(Path::new(&dir)), repo_root))
+        });
+        match place {
+            Some(OwnerPlace::Elsewhere(root)) => {
+                project.get_or_insert_with(|| root.to_string_lossy().into_owned());
+            }
+            _ => return None,
+        }
+    }
+    project
 }
 
 /// The sentinel `Change` for a dirty path no live row claims.
@@ -1119,6 +1166,131 @@ mod tests {
         assert_eq!(f.path, "shared.rs");
         assert_eq!(f.sessions, vec!["theirs".to_string()]);
         assert_eq!(f.git_status, "??");
+    }
+
+    /// Root `session` on `project` in the fixture's `sessions.db`, on `line`,
+    /// in `state` — what the elsewhere tests vary per owner.
+    fn root_session(db: &tempfile::TempDir, session: &str, line: &str, project: &str, state: &str) {
+        let ledgers = tugcore::test_fixtures::Ledgers::at(db.path());
+        ledgers.add_line(line, line);
+        ledgers.add_session(session, line);
+        ledgers
+            .sessions()
+            .execute(
+                "UPDATE sessions SET project_dir = ?2, line_id = ?3, state = ?4
+                 WHERE session_id = ?1",
+                rusqlite::params![session, project, line, state],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn a_foreign_file_whose_line_is_rooted_on_another_repo_is_elsewhere() {
+        // The case that prompted the flag: a closed segment wrote the row into
+        // this repo, and the live segment of its line is rooted on another
+        // repo. The owner's card composes that repo, so the file is named
+        // with where its owner lives.
+        let repo = init_repo(&["clip.rs"]);
+        let root = repo.path();
+        let rootstr = root.to_string_lossy().into_owned();
+        let there = init_repo(&[]);
+        let therestr = there.path().to_string_lossy().into_owned();
+        let db = seed_sessions(&[
+            ("mine", "clean.rs", &rootstr),
+            ("seg-old", "clip.rs", &rootstr),
+        ]);
+        root_session(&db, "seg-old", "line-v", &therestr, "closed");
+        root_session(&db, "seg-new", "line-v", &therestr, "live");
+        let sessions = tugcore::test_fixtures::Ledgers::at(db.path()).sessions();
+
+        let buckets = compute_changes(
+            &open(&db),
+            Some(&sessions),
+            root,
+            &["mine".to_owned()],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(buckets.foreign.len(), 1);
+        let f = &buckets.foreign[0];
+        assert_eq!(f.sessions, vec!["seg-old".to_string()]);
+        assert!(f.elsewhere);
+        let canonical_there = std::fs::canonicalize(there.path()).unwrap();
+        assert_eq!(
+            f.project.as_deref(),
+            Some(&*canonical_there.to_string_lossy())
+        );
+        let wire = serde_json::to_value(f).unwrap();
+        assert_eq!(wire["elsewhere"], true);
+    }
+
+    #[test]
+    fn a_foreign_file_owned_from_this_repo_is_not_elsewhere() {
+        // A session rooted on a subdirectory of this checkout is this repo:
+        // its own card shows the file, so the entry carries neither key.
+        let repo = init_repo(&["shared.rs"]);
+        let root = repo.path();
+        let rootstr = root.to_string_lossy().into_owned();
+        let sub = root.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let db = seed_sessions(&[
+            ("mine", "clean.rs", &rootstr),
+            ("theirs", "shared.rs", &rootstr),
+        ]);
+        root_session(&db, "theirs", "line-t", &sub.to_string_lossy(), "live");
+        let sessions = tugcore::test_fixtures::Ledgers::at(db.path()).sessions();
+
+        let buckets = compute_changes(
+            &open(&db),
+            Some(&sessions),
+            root,
+            &["mine".to_owned()],
+            false,
+        )
+        .unwrap();
+
+        let f = &buckets.foreign[0];
+        assert!(!f.elsewhere);
+        assert_eq!(f.project, None);
+        let wire = serde_json::to_value(f).unwrap();
+        assert!(wire.get("elsewhere").is_none() && wire.get("project").is_none());
+    }
+
+    #[test]
+    fn a_foreign_file_is_elsewhere_only_when_every_owner_is() {
+        // One co-owner rooted here surfaces the file on its own card, so the
+        // entry is an ordinary foreign file even beside an elsewhere owner.
+        let repo = init_repo(&["both.rs"]);
+        let root = repo.path();
+        let rootstr = root.to_string_lossy().into_owned();
+        let there = init_repo(&[]);
+        let db = seed_sessions(&[
+            ("mine", "clean.rs", &rootstr),
+            ("away", "both.rs", &rootstr),
+            ("home", "both.rs", &rootstr),
+        ]);
+        root_session(
+            &db,
+            "away",
+            "line-a",
+            &there.path().to_string_lossy(),
+            "live",
+        );
+        root_session(&db, "home", "line-h", &rootstr, "live");
+        let sessions = tugcore::test_fixtures::Ledgers::at(db.path()).sessions();
+
+        let buckets = compute_changes(
+            &open(&db),
+            Some(&sessions),
+            root,
+            &["mine".to_owned()],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(buckets.foreign[0].sessions.len(), 2);
+        assert!(!buckets.foreign[0].elsewhere);
     }
 
     /// The wire shape carries the whole classification, not just this

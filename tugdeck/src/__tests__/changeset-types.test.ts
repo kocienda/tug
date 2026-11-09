@@ -29,6 +29,12 @@ describe("changeset wire contract", () => {
     expect(snapshot.branch).toBe("main");
     expect(snapshot.changesets).toHaveLength(2);
     expect(snapshot.unattributed).toHaveLength(1);
+    // An older sender's orphan carries no reason; an elsewhere orphan names
+    // the repo its owner is rooted on.
+    const [closed, elsewhere] = snapshot.orphaned ?? [];
+    expect(closed.reason).toBeUndefined();
+    expect(elsewhere.reason).toBe("elsewhere");
+    expect(elsewhere.prior_owner_project).toBe("/Users/dev/src/vids");
 
     const [session, arc] = snapshot.changesets;
     expect(session.kind).toBe("session");

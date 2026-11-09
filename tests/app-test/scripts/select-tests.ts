@@ -859,6 +859,9 @@ function showAt(sha: string, path: string): string | null {
  * over-broad. The ledger's classification narrows it to what this session touched.
  *
  * The `foreign` bucket is never consulted: those files are another session's to test.
+ * That includes a foreign entry flagged `elsewhere` — every owner rooted on another
+ * repo, so no card of theirs shows it here. It is still somebody else's work until
+ * this session claims it, and a claim makes it attributed, which this selection reads.
  * The `unattributed` bucket contributes only entries carrying a this-session hint
  * (`origin !== "none"`), because an unattributed file with no hint at all is as likely
  * to be the user's own hand-save as anything this session did.

@@ -17,8 +17,9 @@ use tugcore::instance::Paths;
 
 use tugcast_core::types::{
     ArcStep, ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DocumentArcEntry,
-    OrphanedFile, SharedOwner, UnattributedFile,
+    OrphanReason, OrphanedFile, SharedOwner, UnattributedFile,
 };
+use tugchanges_core::{OwnerPlace, owner_place};
 
 use super::agent_supervisor::BusyProbe;
 use super::attribution::{parse_worktree_states, repo_root_for};
@@ -92,6 +93,58 @@ struct OwnerAgg {
     /// repo-relative path → file row; `BTreeMap` for deterministic output
     /// order (diff-suppression compares whole snapshots).
     files: BTreeMap<String, ChangesetFile>,
+}
+
+/// Where each owner stands relative to the repo being composed — the shared
+/// rule of [`owner_place`], applied to every owner with the project its seat
+/// segment is rooted on. An owner keyed by an id with no `sessions` row has
+/// no project to read and is judged by liveness alone.
+///
+/// The rule resolves each distinct project's repo root through git, so it
+/// runs off the async workers, once per distinct project per compose.
+async fn owner_places(
+    owners: &BTreeMap<String, OwnerAgg>,
+    ledger: Option<&SessionLedger>,
+    repo_root: &Path,
+) -> HashMap<String, OwnerPlace> {
+    let asks: Vec<(String, bool, Option<String>)> = owners
+        .iter()
+        .map(|(id, agg)| {
+            let project = ledger
+                .and_then(|l| l.get(id).ok().flatten())
+                .map(|row| row.project_dir);
+            (id.clone(), agg.live, project)
+        })
+        .collect();
+    let root = repo_root.to_path_buf();
+    // A failed task answers with the rule as it stood before an owner's
+    // project was read — liveness alone — never with an empty map, which
+    // would read as "nobody surfaces anything" and lift every file.
+    let by_liveness: HashMap<String, OwnerPlace> = owners
+        .iter()
+        .map(|(id, agg)| {
+            let place = if agg.live {
+                OwnerPlace::SameRepo
+            } else {
+                OwnerPlace::Dead
+            };
+            (id.clone(), place)
+        })
+        .collect();
+    tokio::task::spawn_blocking(move || {
+        let mut by_project: HashMap<(bool, Option<String>), OwnerPlace> = HashMap::new();
+        asks.into_iter()
+            .map(|(id, live, project)| {
+                let place = by_project
+                    .entry((live, project.clone()))
+                    .or_insert_with(|| owner_place(live, project.as_deref().map(Path::new), &root))
+                    .clone();
+                (id, place)
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or(by_liveness)
 }
 
 /// Compose one `ChangesetSnapshot` for the checkout containing
@@ -544,24 +597,37 @@ pub(crate) async fn compose_snapshot(
             }
         }
     }
-    // Orphan lift ([D120]): a file owned only by non-live ("dead") sessions is
-    // invisible — a closed session keeps its proof rows, but no live card
-    // surfaces another session's entry. Lift such files into the `orphaned`
-    // bucket so a live session can reclaim them. A file any live session
-    // proof-owns stays in that live entry (it is not orphaned), so a file
-    // qualifies only when EVERY owner holding it is dead.
+    // Orphan lift ([D120]): a file no card surfaces is invisible, and a card
+    // surfaces exactly one session entry — its own — from the changeset of
+    // the repo it is rooted on. So an owner surfaces a file here only when it
+    // is live *and* rooted on this repo: a closed session keeps its proof
+    // rows but has no card, and a session rooted on another repo composes
+    // that repo's changeset, never this one, however live it is. Lift the
+    // files only such owners hold into the `orphaned` bucket, with the reason,
+    // so a session here can reclaim them. A file any surfacing owner
+    // proof-owns stays in that entry, so a file qualifies only when EVERY
+    // owner holding it surfaces nothing here.
+    let places = owner_places(&owners, ledger, &repo_root).await;
+    let surfaces = |id: &str| matches!(places.get(id), Some(OwnerPlace::SameRepo));
     let live_paths: HashSet<String> = owners
-        .values()
-        .filter(|agg| agg.live)
-        .flat_map(|agg| agg.files.keys().cloned())
+        .iter()
+        .filter(|(id, _)| surfaces(id))
+        .flat_map(|(_, agg)| agg.files.keys().cloned())
         .collect();
-    // Keyed by path so two dead co-owners of one file yield a single orphan
+    // Keyed by path so two non-surfacing co-owners of one file yield a single orphan
     // (the most-recently-touched owner wins the provenance).
     let mut orphaned_by_path: BTreeMap<String, OrphanedFile> = BTreeMap::new();
     for (owner_id, agg) in owners.iter_mut() {
-        if agg.live {
+        if surfaces(owner_id) {
             continue;
         }
+        let (reason, prior_owner_project) = match places.get(owner_id) {
+            Some(OwnerPlace::Elsewhere(root)) => (
+                OrphanReason::Elsewhere,
+                Some(root.to_string_lossy().into_owned()),
+            ),
+            _ => (OrphanReason::Closed, None),
+        };
         let orphan_paths: Vec<String> = agg
             .files
             .keys()
@@ -580,6 +646,9 @@ pub(crate) async fn compose_snapshot(
                 prior_owner_name: agg.display_name.clone(),
                 prior_owner_id: owner_id.clone(),
                 last_touched: file.last_touched,
+                reason,
+                prior_owner_project: prior_owner_project.clone(),
+                prior_owner_live: agg.live,
             };
             orphaned_by_path
                 .entry(path)
@@ -722,25 +791,7 @@ pub(crate) async fn attach_arc_composition(
     // for the same reason the occupancy registry is: the join's blockers have
     // to tell the user's own uncommitted edit — which a resolve may fold into
     // an arc — from another session's, which nothing may touch.
-    let live_dirt: BTreeMap<String, (String, String)> = snapshot
-        .changesets
-        .iter()
-        .filter_map(|entry| match entry {
-            ChangesetEntry::Session {
-                owner_id,
-                display_name,
-                live: true,
-                files,
-                ..
-            } => Some((owner_id, display_name, files)),
-            _ => None,
-        })
-        .flat_map(|(id, name, files)| {
-            files
-                .iter()
-                .map(move |file| (file.path.clone(), (id.clone(), name.clone())))
-        })
-        .collect();
+    let live_dirt = live_holders(snapshot);
 
     let mut arcs = arc_entries(&repo_root, ledger, busy, &live_dirt).await;
 
@@ -1672,7 +1723,22 @@ pub(crate) async fn live_base_dirt_for(
     let bound: Option<String> = ledger
         .and_then(|l| l.bound_session_by_arc().ok())
         .and_then(|m| m.get(&owner_key).cloned());
-    snapshot
+    let mut live = live_holders(&snapshot);
+    live.retain(|_, (id, _)| bound.as_ref() != Some(id));
+    live
+}
+
+/// Base paths a live session is working, mapped to that session's
+/// `(owner_id, display_name)` — the one derivation both the join's blockers
+/// and the resolve-base fold read holders from.
+///
+/// A live session's files are in its own entry, except when it is rooted on
+/// another repo: the orphan lift moves those into `orphaned` as `elsewhere`,
+/// because no card here surfaces them. The lift is about what a card shows,
+/// not about whose work it is, so a live elsewhere owner is a holder exactly
+/// as a live entry is, and its work is never read as the user's own.
+fn live_holders(snapshot: &ChangesetSnapshot) -> BTreeMap<String, (String, String)> {
+    let entries = snapshot
         .changesets
         .iter()
         .filter_map(|e| match e {
@@ -1682,17 +1748,25 @@ pub(crate) async fn live_base_dirt_for(
                 live: true,
                 files,
                 ..
-            } if bound.as_ref() != Some(owner_id) => {
-                Some((owner_id.clone(), display_name.clone(), files.clone()))
-            }
+            } => Some((owner_id, display_name, files)),
             _ => None,
         })
         .flat_map(|(id, name, files)| {
             files
-                .into_iter()
+                .iter()
                 .map(move |f| (f.path.clone(), (id.clone(), name.clone())))
-        })
-        .collect()
+        });
+    let elsewhere = snapshot
+        .orphaned
+        .iter()
+        .filter(|f| f.reason == OrphanReason::Elsewhere && f.prior_owner_live)
+        .map(|f| {
+            (
+                f.path.clone(),
+                (f.prior_owner_id.clone(), f.prior_owner_name.clone()),
+            )
+        });
+    entries.chain(elsewhere).collect()
 }
 
 /// Whether any session holding this arc is still working.
@@ -3223,6 +3297,8 @@ mod tests {
             format!("ghost work : {leaf}/ghost-badge")
         );
         assert_eq!(snapshot.orphaned[0].origin, "exact");
+        assert_eq!(snapshot.orphaned[0].reason, OrphanReason::Closed);
+        assert_eq!(snapshot.orphaned[0].prior_owner_project, None);
 
         // sess-dead has no surviving entry (its only exclusive file was lifted;
         // shared.txt stays but under the live owner too — dead keeps its shared
@@ -3244,6 +3320,113 @@ mod tests {
             !snapshot.unattributed.iter().any(|f| f.path == "orphan.txt"),
             "an orphan is owned (by a dead session), never unattributed"
         );
+    }
+
+    #[tokio::test]
+    async fn compose_lifts_a_live_line_rooted_elsewhere_as_elsewhere() {
+        // The case that prompted the rule: a closed segment wrote the rows
+        // into this repo, and a live segment of the same line is rooted on
+        // another repo. That line's card composes the other repo's changeset,
+        // so nothing would surface the files; they lift here as `elsewhere`,
+        // naming the seat and its repo, however live the line is.
+        let (_dir, root) = init_repo();
+        let (_other_dir, other) = init_repo();
+        std::fs::write(root.join("clip.ts"), "x").unwrap();
+        let other_project = other.to_string_lossy().into_owned();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "seg-old",
+                "ws",
+                &other_project,
+                "card",
+                0,
+                "line-v",
+                Some("lordly-thyme"),
+            )
+            .unwrap();
+        ledger
+            .record_file_event(&event("seg-old", "tu-1", &root.join("clip.ts"), &root))
+            .unwrap();
+        ledger.mark_closed("seg-old").unwrap();
+        ledger
+            .record_spawn("seg-new", "ws", &other_project, "card", 1, "line-v", None)
+            .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        let orphaned: Vec<&str> = snapshot.orphaned.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(orphaned, ["clip.ts"], "a live elsewhere line's file lifts");
+        let file = &snapshot.orphaned[0];
+        assert_eq!(file.reason, OrphanReason::Elsewhere);
+        assert_eq!(file.prior_owner_id, "seg-new", "the line's seat names it");
+        assert_eq!(
+            file.prior_owner_project.as_deref(),
+            Some(other_project.as_str())
+        );
+        assert!(
+            !snapshot.changesets.iter().any(|e| matches!(e,
+                ChangesetEntry::Session { owner_id, .. } if owner_id == "seg-new")),
+            "the elsewhere owner keeps no entry here"
+        );
+        // Lifted is not abandoned: the line is still working the file, so the
+        // join's holders name it rather than reading it as the user's own.
+        assert!(file.prior_owner_live);
+        assert_eq!(
+            live_holders(&snapshot).get("clip.ts").map(|(id, _)| id.as_str()),
+            Some("seg-new")
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_keeps_a_live_owner_rooted_on_a_subdirectory() {
+        // Same repo is decided by repo root, not raw project dir: a live
+        // session rooted on a subdirectory of this checkout surfaces its own
+        // files here, exactly as one rooted on the checkout does.
+        let (_dir, root) = init_repo();
+        let sub = root.join("tests/app-test");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("rails.ts"), "x\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "rails"]);
+        std::fs::write(sub.join("rails.ts"), "y\n").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "sess-sub",
+                "ws",
+                &sub.to_string_lossy(),
+                "card",
+                0,
+                "sess-sub",
+                None,
+            )
+            .unwrap();
+        // Stamped after the commit above, or the row-liveness cut spends it.
+        let mut row = event("sess-sub", "tu-1", &sub.join("rails.ts"), &root);
+        row.at = i64::MAX / 2;
+        ledger.record_file_event(&row).unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        assert!(
+            snapshot.orphaned.is_empty(),
+            "a same-repo live owner lifts nothing"
+        );
+        let files = snapshot.changesets.iter().find_map(|e| match e {
+            ChangesetEntry::Session {
+                owner_id, files, ..
+            } if owner_id == "sess-sub" => Some(files),
+            _ => None,
+        });
+        let paths: Vec<&str> = files
+            .expect("the subdirectory session's entry")
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(paths, ["tests/app-test/rails.ts"]);
     }
 
     #[tokio::test]

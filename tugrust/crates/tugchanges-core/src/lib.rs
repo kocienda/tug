@@ -13,6 +13,7 @@ pub mod contention;
 pub mod git;
 pub mod hunks;
 mod ledger;
+pub mod place;
 pub mod preflight;
 pub mod shell_ops;
 pub mod trailer;
@@ -35,6 +36,7 @@ pub use hunks::{
     HUNK_DIFF_FLAGS, Hunk, HunkDrift, content_hash, file_diff_hunks, file_header, file_hunks,
     filtered_patch, hunk_id, parse_hunks,
 };
+pub use place::{OwnerPlace, owner_place};
 pub use preflight::{
     DayStat, DiffOptions, DiffReport, LogEntry, LogOptions, LogReport, PathStat, PreflightOptions,
     PreflightReport, diff, log, numstat_by_commit, numstat_by_day, numstat_by_path, path_prefix,

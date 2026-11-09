@@ -4,6 +4,7 @@ import {
   diffablePathsOf,
   entryDiffDescriptor,
   fileExpandKey,
+  projectLeaf,
   sharedIsReleasable,
   sharedWithTitle,
   type TugChangesListEntry,
@@ -132,6 +133,19 @@ describe("sharedWithTitle", () => {
     expect(
       sharedWithTitle(sharedFile([{ id: "s1", name: "alpha", live: true }], false)),
     ).toBeNull();
+  });
+});
+
+describe("projectLeaf", () => {
+  it("names a project by its last component, trailing slashes ignored", () => {
+    expect(projectLeaf("/Users/k/Mounts/u/vids")).toBe("vids");
+    expect(projectLeaf("/Users/k/Mounts/u/vids/")).toBe("vids");
+  });
+
+  it("has nothing to say for an absent or rootless path", () => {
+    expect(projectLeaf(undefined)).toBeNull();
+    expect(projectLeaf("/")).toBeNull();
+    expect(projectLeaf("")).toBeNull();
   });
 });
 

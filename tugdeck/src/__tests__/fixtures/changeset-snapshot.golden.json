@@ -61,5 +61,27 @@
       "path": "docs/scratch.md",
       "git_status": "??"
     }
+  ],
+  "orphaned": [
+    {
+      "path": "notes/left-open.md",
+      "git_status": ".M",
+      "op": "edit",
+      "origin": "exact",
+      "prior_owner_name": "ghost work : tugtool/ivory-gumbo",
+      "prior_owner_id": "sess-0197a2b4-0000-7e02-9f3a-b5c6d7e8f902",
+      "last_touched": 1752263000000
+    },
+    {
+      "path": "tests/app-test/site-clips/_rails.ts",
+      "git_status": ".M",
+      "op": "edit",
+      "origin": "exact",
+      "prior_owner_name": "clips : vids/lordly-thyme",
+      "prior_owner_id": "f5dc16cc-f803-4c5c-bcd0-f74d00f12487",
+      "last_touched": 1752263500000,
+      "reason": "elsewhere",
+      "prior_owner_project": "/Users/dev/src/vids"
+    }
   ]
 }

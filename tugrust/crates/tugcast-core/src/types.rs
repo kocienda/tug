@@ -510,12 +510,14 @@ pub struct UnattributedFile {
     pub hinted_by: Vec<String>,
 }
 
-/// A file owned only by non-live ("dead") sessions — a closed session keeps
-/// its proof rows ([D120]), so its dirty files stay attributed, but no live
-/// card surfaces another session's entry, leaving these files invisible. The
-/// orphaned bucket lifts them out so a live session can reclaim them; a proof
-/// row a live session still holds keeps the file in that session's entry
-/// instead, so a file lands here only when EVERY owner of it is dead.
+/// A file no card surfaces: every owner of it is either non-live ("dead") or
+/// rooted on another repo. A closed session keeps its proof rows ([D120]), so
+/// its dirty files stay attributed, and a Session card reads only the
+/// changeset of the repo it is rooted on, so a session rooted elsewhere never
+/// shows the files it changed here — live or not, these files are invisible.
+/// The orphaned bucket lifts them out so a session here can reclaim them; a
+/// proof row a live same-repo session still holds keeps the file in that
+/// session's entry instead.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrphanedFile {
     /// Path relative to the repository root.
@@ -526,14 +528,39 @@ pub struct OrphanedFile {
     pub op: String,
     /// Attribution origin carried over from the dead owner's proof row.
     pub origin: String,
-    /// The dead session that last proof-owned this file (its display name),
-    /// shown so the reclaim reads as "orphaned from <name>".
+    /// The session that last proof-owned this file (its display name), shown
+    /// so the reclaim names who changed it.
     pub prior_owner_name: String,
-    /// The dead session's tug id — the row a claim severs so the originator
+    /// That session's tug id — the row a claim severs so the originator
     /// can't silently re-own the file on re-open.
     pub prior_owner_id: String,
     /// Epoch milliseconds of the most recent attribution event for this file.
     pub last_touched: i64,
+    /// Why no card surfaces the file: its owner closed, or is rooted on
+    /// another repo.
+    #[serde(default)]
+    pub reason: OrphanReason,
+    /// The repo root the prior owner is rooted on, present when `reason` is
+    /// `elsewhere` — the project the row names beside the owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prior_owner_project: Option<String>,
+    /// Whether the prior owner is live. Server-side only and never on the
+    /// wire: a live owner rooted elsewhere may still be working the file, so
+    /// the join's holder attribution names it as it names any live session.
+    #[serde(skip)]
+    pub prior_owner_live: bool,
+}
+
+/// Why an [`OrphanedFile`] is surfaced by no card.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OrphanReason {
+    /// Every owner is a non-live session rooted on this repo.
+    #[default]
+    Closed,
+    /// The owner is rooted on another repo, so its card composes that repo's
+    /// changeset and never this one — whether or not it is live.
+    Elsewhere,
 }
 
 /// The maintained commit-message draft for a changeset entry (Spec S10), the
@@ -1139,9 +1166,9 @@ pub struct ChangesetSnapshot {
     pub changesets: Vec<ChangesetEntry>,
     /// Dirty files no owner claims.
     pub unattributed: Vec<UnattributedFile>,
-    /// Dirty files owned only by non-live sessions — claimable orphans
-    /// ([D120]). Empty in the common case; populated when a closed session's
-    /// proof-owned files are still dirty and no live session shares them.
+    /// Dirty files no card surfaces — claimable orphans ([D120]). Empty in
+    /// the common case; populated when every owner of a dirty file is a
+    /// closed session or a session rooted on another repo.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub orphaned: Vec<OrphanedFile>,
 }
@@ -2025,6 +2052,16 @@ mod tests {
         assert_eq!(snapshot.ahead, 2);
         assert_eq!(snapshot.changesets.len(), 2);
         assert_eq!(snapshot.unattributed.len(), 1);
+        // An older sender's orphan carries no reason and reads as closed; an
+        // elsewhere orphan names the repo its owner is rooted on.
+        assert_eq!(snapshot.orphaned.len(), 2);
+        assert_eq!(snapshot.orphaned[0].reason, OrphanReason::Closed);
+        assert_eq!(snapshot.orphaned[0].prior_owner_project, None);
+        assert_eq!(snapshot.orphaned[1].reason, OrphanReason::Elsewhere);
+        assert_eq!(
+            snapshot.orphaned[1].prior_owner_project.as_deref(),
+            Some("/Users/dev/src/vids")
+        );
 
         match &snapshot.changesets[0] {
             ChangesetEntry::Session {

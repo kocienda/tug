@@ -64,21 +64,28 @@ export interface UnattributedFile {
   hinted_by?: string[];
 }
 
-/** A file owned only by non-live ("dead") sessions — a claimable orphan
- *  ([D120]). A closed session keeps its proof rows, but no live card surfaces
- *  another session's entry, so these are lifted into their own bucket. */
+/** Why no card surfaces an orphaned file: its owner closed, or is rooted on
+ *  another repo (its card composes that repo's changeset, never this one). */
+export type OrphanReason = "closed" | "elsewhere";
+
+/** A file no card surfaces — a claimable orphan ([D120]). Every owner of it
+ *  is either a closed session (which keeps its proof rows but has no card)
+ *  or a session rooted on another repo, live or not. */
 export interface OrphanedFile {
   path: string;
   git_status: string;
   /** Attribution op/origin carried over from the dead owner's proof row. */
   op: string;
   origin: string;
-  /** The dead session that last proof-owned this file, for the "orphaned
-   *  from <name>" label. */
+  /** The session that last proof-owned this file, named on the row. */
   prior_owner_name: string;
-  /** The dead session's tug id. */
+  /** That session's tug id. */
   prior_owner_id: string;
   last_touched: number;
+  /** Absent from an older server, which only ever lifted closed owners. */
+  reason?: OrphanReason;
+  /** The repo root the owner is rooted on, present for `elsewhere`. */
+  prior_owner_project?: string;
 }
 
 /** The maintained commit-message draft for a changeset entry (Spec S10). */
@@ -827,7 +834,12 @@ export function isOrphanedFile(value: unknown): value is OrphanedFile {
     typeof value.origin === "string" &&
     typeof value.prior_owner_name === "string" &&
     typeof value.prior_owner_id === "string" &&
-    typeof value.last_touched === "number"
+    typeof value.last_touched === "number" &&
+    (value.reason === undefined ||
+      value.reason === "closed" ||
+      value.reason === "elsewhere") &&
+    (value.prior_owner_project === undefined ||
+      typeof value.prior_owner_project === "string")
   );
 }
 

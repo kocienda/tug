@@ -27,6 +27,7 @@
  */
 
 import type { SectionLabel } from "@/components/tugways/tug-section-label";
+import type { OrphanedFile } from "@/lib/changeset-types";
 
 /** Files this session is the proven owner of. */
 export const SESSION_LABEL: SectionLabel = {
@@ -50,6 +51,30 @@ export const ORPHANED_LABEL: SectionLabel = {
   name: "orphaned",
   qualifier: "claim to bring into this session",
 };
+
+/**
+ * The same bucket when every file in it was changed by a session rooted on
+ * another project. Those owners may still be working, so the bucket is not
+ * named for being left behind; each row names its owner and project, and
+ * Claim works as it does for any orphan.
+ */
+export const ELSEWHERE_LABEL: SectionLabel = {
+  name: "from another project",
+  qualifier: "claim to bring into this session",
+};
+
+/**
+ * The orphaned bucket's label for the rows it holds: {@link ELSEWHERE_LABEL}
+ * when every row's owner is rooted on another project, {@link ORPHANED_LABEL}
+ * otherwise — so a shade with no such rows draws exactly what it drew before.
+ */
+export function orphanedSectionLabel(
+  files: readonly Pick<OrphanedFile, "reason">[],
+): SectionLabel {
+  return files.length > 0 && files.every((f) => f.reason === "elsewhere")
+    ? ELSEWHERE_LABEL
+    : ORPHANED_LABEL;
+}
 
 /**
  * The fronted row's header, which is two headers because fronting is two

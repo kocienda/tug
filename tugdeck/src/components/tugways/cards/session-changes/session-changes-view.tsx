@@ -43,10 +43,10 @@ import {
 } from "@/components/tugways/tug-no-git-notice";
 import { useHostTools } from "@/lib/host-tools-store";
 import {
-  ORPHANED_LABEL,
   SESSION_LABEL,
   UNATTRIBUTED_DEGRADED_LABEL,
   UNATTRIBUTED_LABEL,
+  orphanedSectionLabel,
 } from "./changes-section-labels";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
@@ -680,7 +680,9 @@ export function SessionChangesView({
           }
           onClaimUnattributed={(path) => changesController.claim([path])}
           onClaimAllUnattributed={(paths) => changesController.claim(paths)}
-          orphanedLabel={ORPHANED_LABEL}
+          orphanedLabel={orphanedSectionLabel(
+            orphanedItem?.kind === "orphaned" ? orphanedItem.files : [],
+          )}
           onClaimOrphaned={(path) => changesController.claim([path])}
           onClaimAllOrphaned={(paths) => changesController.claim(paths)}
           claimPending={claimPending}

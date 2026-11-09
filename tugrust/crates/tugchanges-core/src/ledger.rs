@@ -297,6 +297,39 @@ pub(crate) fn session_exists(conn: &Connection, session: &str) -> Result<bool, S
     Ok(count > 0)
 }
 
+/// The project the seat of `session`'s line is rooted on, and whether any
+/// segment of that line is live — the two facts [`crate::owner_place`] needs
+/// to say whether an owner surfaces its files on this repo's cards.
+///
+/// The seat is chosen as tugcast's `line_ownership` chooses it: a live segment
+/// first, then any segment that has not failed, then one nothing was forked
+/// from, then the newest — so the
+/// project read here is the one the owner's card is rooted on now, not the
+/// one an older segment wrote its rows from. A session with no line answers
+/// for itself; one with no row answers `None`.
+pub(crate) fn seat_project(conn: &Connection, session: &str) -> Option<(String, bool)> {
+    conn.query_row(
+        "SELECT s.project_dir,
+                EXISTS (SELECT 1 FROM sessions l
+                        WHERE l.line_id = s.line_id AND l.state = 'live')
+                    OR s.state = 'live'
+         FROM sessions s
+         WHERE s.session_id = ?1
+            OR (s.line_id <> '' AND s.line_id =
+                (SELECT line_id FROM sessions WHERE session_id = ?1))
+         ORDER BY (s.state = 'live') DESC,
+                  (s.state <> 'failed') DESC,
+                  (NOT EXISTS (SELECT 1 FROM sessions child
+                               WHERE child.forked_from_session_id = s.session_id)) DESC,
+                  s.created_at DESC,
+                  s.rowid DESC
+         LIMIT 1",
+        [session],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)),
+    )
+    .ok()
+}
+
 /// Which of `ids` are running, against the **`sessions.db`** connection.
 ///
 /// `sessions` is a per-instance table while `file_events` is machine-global

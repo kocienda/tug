@@ -676,9 +676,15 @@ function unattributedFileData(
 }
 
 /**
- * Orphaned row data ([D120]): a file stranded on a dead session, shown with a
- * `from <prior owner>` hint so the reclaim reads as adoption. Keeps the dead
- * owner's op/origin provenance.
+ * Orphaned row data ([D120]): a file no card surfaces, shown with its prior
+ * owner so the reclaim reads as adoption. Keeps the owner's op/origin
+ * provenance.
+ *
+ * A file stranded on a closed session reads `from <owner>`. A file whose owner
+ * is rooted on another repo reads `changed by <owner> in <project>` instead:
+ * that owner may still be working, so nothing on the row may say it closed,
+ * and the project is the one fact this card cannot otherwise learn — the
+ * owner's own card composes its own repo, never this one.
  *
  * The prior owner is named by a citation chip rather than by the feed's
  * `prior_owner_name` string. The string was a name with no identifier behind
@@ -687,22 +693,40 @@ function unattributedFileData(
  * row says which session and lets the reader go to it.
  */
 function orphanedFileData(file: OrphanedFile): FileBlockData {
+  const citation = (
+    <TugSessionCitation
+      citedId={file.prior_owner_id}
+      recordedTag={file.prior_owner_name}
+    />
+  );
+  const project =
+    file.reason === "elsewhere" ? projectLeaf(file.prior_owner_project) : null;
   return {
     path: file.path,
     git_status: file.git_status,
     op: file.op,
     origin: file.origin,
     shared: false,
-    hint: (
-      <span className="tug-changes-list-file-hint-from">
-        from{" "}
-        <TugSessionCitation
-          citedId={file.prior_owner_id}
-          recordedTag={file.prior_owner_name}
-        />
-      </span>
-    ),
+    hint:
+      file.reason === "elsewhere" ? (
+        <span className="tug-changes-list-file-hint-from" data-reason="elsewhere">
+          changed by {citation}
+          {project !== null ? ` in ${project}` : null}
+        </span>
+      ) : (
+        <span className="tug-changes-list-file-hint-from">from {citation}</span>
+      ),
   };
+}
+
+/**
+ * The last component of a project path — `vids` for `/Users/k/src/vids` — or
+ * `null` for a path with none to give.
+ */
+export function projectLeaf(project: string | undefined): string | null {
+  if (project === undefined) return null;
+  const leaf = project.replace(/\/+$/, "").split("/").pop() ?? "";
+  return leaf.length > 0 ? leaf : null;
 }
 
 /**
