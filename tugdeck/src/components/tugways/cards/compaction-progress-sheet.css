@@ -15,20 +15,17 @@
   gap: 0;
 }
 
-/* This sheet owns the bar's placement: its vertical margin, and a width a
-   touch narrower than the sheet's content (95%), centered. The bar's own
-   behavior — the indeterminate barber-pole with no value — is the
-   TugProgressIndicator's standard `variant="bar"`, not the sheet's concern.
-   The width rule is scoped through the sheet and the variant attribute so it
-   outranks the variant's own `width: 100%`. */
+/* This sheet owns the bar's vertical margin and nothing else about its
+   geometry. The bar spans the sheet's content column edge to edge — flush
+   with the title icon's left edge and the Cancel button's right edge — the
+   way a Classic Mac OS progress dialog laid its bar across the whole box,
+   with the button tucked under its right end. (An earlier 95% centered inset
+   was removed for this.) The bar's own behavior — the indeterminate
+   barber-pole with no value — is the TugProgressIndicator's standard
+   `variant="bar"`, whose `width: 100%` does the spanning. */
 .compaction-progress-sheet-bar {
   margin-top: 0;
   margin-bottom: var(--tugx-sheet-space-b);
-}
-
-.compaction-progress-sheet .compaction-progress-sheet-bar[data-variant="bar"] {
-  width: 95%;
-  align-self: center;
 }
 
 /* Spacing below the bar is the bar's own margin — drop the shared actions
