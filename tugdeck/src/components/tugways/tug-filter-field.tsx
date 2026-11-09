@@ -40,7 +40,10 @@
  * it, and the ✕'s visibility is a `data-empty` attribute flipped in the input
  * handler — no React state, no re-render per keystroke ([L06]). Reset the
  * field from outside by remounting it with a React `key` (the picker keys its
- * field on the project path).
+ * field on the project path). A host whose query lives in a store other
+ * fields write too passes it as `query`: when it differs from the field's
+ * text the field takes it, as a DOM write that notifies nobody, so the caret
+ * of the field that typed it is never disturbed.
  *
  * ## Escape, and why it is not a `stopPropagation`
  *
@@ -162,6 +165,14 @@ export interface TugFilterFieldProps {
   /** Initial text. The field is uncontrolled; reset it by `key` remount. */
   defaultValue?: string;
   /**
+   * The query as a store outside the field holds it, for a query several
+   * fields share. Whenever it differs from the field's text, the field's text
+   * becomes it — written to the DOM in a layout effect, with no change
+   * notification, since the store already holds it. The field that typed the
+   * value already shows it, so for that field this is a no-op.
+   */
+  query?: string;
+  /**
    * Fill the row instead of taking the standard width
    * (`--tugx-filter-field-width`). For a field that IS its row — a sheet's
    * lead control, a narrow inspector column — where a short box would strand
@@ -210,6 +221,7 @@ export function TugFilterField({
   attachment,
   placeholder,
   defaultValue,
+  query,
   fill = false,
   size = "sm",
   disabled = false,
@@ -310,6 +322,16 @@ export function TugFilterField({
     },
     [syncEmptyAttribute],
   );
+
+  // A shared query written elsewhere lands in this field's text. Layout
+  // effect, so the text and the list it trims change in the same frame.
+  React.useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (query === undefined || input === null || input.value === query) return;
+    input.value = query;
+    syncEmptyAttribute();
+  }, [query, syncEmptyAttribute]);
+
   React.useLayoutEffect(() => {
     if (attachment === undefined) return;
     return attachment.publishField({

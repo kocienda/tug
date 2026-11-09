@@ -104,4 +104,17 @@ describe("CardsStore — persistence", () => {
     await Promise.resolve();
     expect(captured.filter((c) => c.method === "PUT").length).toBe(0);
   });
+
+  it("setFilterQuery PUTs the query as a json string, once per change", async () => {
+    cardsStore.setFilterQuery("T1");
+    cardsStore.setFilterQuery("T1");
+    await Promise.resolve();
+    const puts = captured.filter(
+      (c) =>
+        c.method === "PUT" &&
+        c.url.endsWith(`/${CARDS_KEYS.CARDS_FILTER_QUERY}`),
+    );
+    expect(puts.length).toBe(1);
+    expect(puts[0].body).toEqual({ kind: "json", value: "T1" });
+  });
 });

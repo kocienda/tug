@@ -34,6 +34,7 @@ export const CARDS_KEYS = {
   CARDS_GROUP_ORDER: "cardsGroupOrder",
   CARDS_COLLAPSED_GROUPS: "cardsCollapsedGroups",
   CARDS_COLLAPSED_SPACES: "cardsCollapsedSpaces",
+  CARDS_FILTER_QUERY: "cardsFilterQuery",
 } as const;
 
 /**
@@ -75,4 +76,12 @@ export interface CardsSnapshot {
    * back the way the user left it.
    */
   collapsedSpaces: readonly string[];
+  /**
+   * The filter field's query. One fact for the deck, not one per card: every
+   * workspace mounts its own Workspaces card, and a list that filtered
+   * differently in each would hand the reader a different list at every
+   * switch. Empty is no filter. Persisted beside the folds, which is also how
+   * every card's page hears a query typed in another.
+   */
+  filterQuery: string;
 }

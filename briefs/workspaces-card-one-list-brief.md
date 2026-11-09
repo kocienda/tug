@@ -24,9 +24,13 @@ On hearing the cause — that the list after the switch is a different list — 
 
 **[F05] Several writers can move the arriving card's scroller during a switch.** The card-host `regionScroll` replay, the list view's saved-anchor restore (`useSavedRegionScroll` in `tugdeck/src/components/tugways/tug-list-view.tsx:2806`), a cursor reveal, and any `focus()` without `preventScroll`. Any one of them landing a frame after the carried position would undo it. **(inferred from the code paths; which of them actually fire on a switch is for the arc to establish.)**
 
+**[F05] answered: none of them fires; the placement had nothing to place.** A log of every placement, scroll and anchor arrival in the arriving card, over `at0792`'s two switches, read: the card mounts, comes on screen and hears the anchor within about 30 ms, and every one of those placements finds the list with no rows yet (`scrollHeight` equal to `clientHeight`), because a card standing up for a workspace gets its rows after it is shown. No scroll event follows, so no restore, reveal or focus moved the scroller; it stayed at 0 because nothing placed it once the rows came. **(verified, 2026-11-09)**
+
 **[F06] The `[B06]` broadcast guard is this bug's sibling.** `useSpaceLayerShown` exists because several mounted Workspaces cards each answered one Delete Workspace request (`space-layer.ts`, "Whether the workspace a card is mounted in is the one on screen"). Both are consequences of N instances standing in for one card. **(verified)**
 
 **[F07] Unverified: whether the active workspace's block has the same row heights as a parked one.** Active styling moves from A's block to B's at the switch. If it is ink only, a carried offset is pixel-exact; if it adds or grows a row, only the row anchor below holds. The arc should check before claiming pixel-identity.
+
+**[F07] answered: the active mark is ink alone, so no row's height moves.** The active header's name and eye take the accent (`cards-card.css`, `[data-cards-space-active="true"]`), the eye swaps open or closed inside a glyph column of fixed inline size with a fixed-size svg (`cards-space-header.tsx`), and a parked workspace's rows drop to `opacity: 0.72` (`[data-cards-space-inactive="true"]`, from `spaceRowAttrs` and `cards-session-cell.tsx`). Nothing else reads the active workspace. So [B02]'s first tier stands as written: with matching boxes the row is back to the pixel, and `at0792` asserts every row's height equal across the switch and the clicked row's offset to within half a pixel. **(verified, 2026-11-09)**
 
 ---
 
@@ -44,13 +48,15 @@ On hearing the cause — that the list after the switch is a different list — 
 
 **[B06] The arriving card takes the carried position inside the switch epoch, and every other scroll writer stands down for its length.** `DeckManager` writes `SPACE_SWITCHING_ATTRIBUTE` inside the swap commit, before any layer's effects run, which is the one moment that precedes the first shown frame. The carried anchor is applied in that window, and the writers in [F05] must not move the scroller while the epoch is open. A fix that lands the position and lets a restore undo it a frame later has not fixed it.
 
+*Resolved in the building:* the arriving card is its own body, and `SPACE_SWITCHING_ATTRIBUTE` is the shell's, so the seam with the decision's purpose — the position in place before the first frame that shows the row — is in the body: a placement asked for before the list has rows stays owed, and the card content's `ResizeObserver` delivery, after the rows' layout and before their first paint, pays it. With no writer firing on a switch ([F05] answered), there is nothing to stand down.
+
 **[B07] No separate "same position" special case.** The user floated one. The anchor in [B02] yields exactness whenever the boxes match, for free; a second code path for that case would be a second thing to keep honest and would buy nothing.
 
 ---
 
 ## Open Questions {#open-questions}
 
-- **Does any part of the active-block styling change a row's height?** ([F07]) Settled by reading the row components and `cards-card.css`; if a height does change, the pixel claim in [B02]'s first tier weakens to the second tier, and the brief's promise should be restated to match.
+- ~~**Does any part of the active-block styling change a row's height?**~~ Answered under [F07]: no, the active mark is ink alone, so [B02]'s first tier stands.
 
 ---
 

@@ -196,6 +196,26 @@ describe("CardsStore reducer — toggle_space_collapsed", () => {
   });
 });
 
+describe("CardsStore reducer — set_filter_query", () => {
+  it("sets the query, and an empty one clears it", () => {
+    const typed = reduce(fresh(), { type: "set_filter_query", query: "T1" });
+    expect(typed.filterQuery).toBe("T1");
+    expect(reduce(typed, { type: "set_filter_query", query: "" }).filterQuery).toBe("");
+  });
+
+  it("the same query keeps the state reference", () => {
+    const typed = reduce(fresh(), { type: "set_filter_query", query: "T1" });
+    expect(reduce(typed, { type: "set_filter_query", query: "T1" })).toBe(typed);
+  });
+
+  it("leaves the folds and orders untouched", () => {
+    const before = reduce(fresh(), { type: "toggle_space_collapsed", spaceId: "s1" });
+    const next = reduce(before, { type: "set_filter_query", query: "T1" });
+    expect(next.collapsedSpaces).toBe(before.collapsedSpaces);
+    expect(next.cardsRowOrder).toBe(before.cardsRowOrder);
+  });
+});
+
 describe("CardsStore reducer — hydrate", () => {
   it("missing fields keep the existing in-state value (same-ref)", () => {
     const seeded: CardsState = {
@@ -203,6 +223,7 @@ describe("CardsStore reducer — hydrate", () => {
       cardsGroupOrder: ["tools"],
       collapsedCardGroups: ["files"],
       collapsedSpaces: ["s1"],
+      filterQuery: "w1",
     };
     expect(reduce(seeded, { type: "hydrate" })).toBe(seeded);
   });
@@ -214,6 +235,7 @@ describe("CardsStore reducer — hydrate", () => {
       cardsGroupOrder: ["tools", "files"],
       collapsedCardGroups: ["files"],
       collapsedSpaces: ["s1"],
+      filterQuery: "w1",
     });
     expect(next.cardsRowOrder).toEqual({
       sessions: ["s1"],
@@ -223,6 +245,7 @@ describe("CardsStore reducer — hydrate", () => {
     expect(next.cardsGroupOrder).toEqual(["tools", "files"]);
     expect(next.collapsedCardGroups).toEqual(["files"]);
     expect(next.collapsedSpaces).toEqual(["s1"]);
+    expect(next.filterQuery).toBe("w1");
   });
 
   it("equal hydrate values do not bump the reference", () => {
@@ -231,6 +254,7 @@ describe("CardsStore reducer — hydrate", () => {
       cardsGroupOrder: ["files", "tools"],
       collapsedCardGroups: [],
       collapsedSpaces: ["s1"],
+      filterQuery: "w1",
     };
     const next = reduce(seeded, {
       type: "hydrate",
@@ -257,6 +281,7 @@ describe("CardsStore reducer — toSnapshot", () => {
       cardsGroupOrder: ["tools", "sessions"],
       collapsedCardGroups: ["files"],
       collapsedSpaces: [],
+      filterQuery: "",
     };
     const snap = toSnapshot(s);
     expect(snap.cardsRowOrder.sessions).toEqual(["s1"]);

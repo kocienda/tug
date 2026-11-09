@@ -175,6 +175,29 @@ export const layoutSelection = defineSharedStore<LayoutSelectionValue, LayoutSel
   applyProposal: (prev, patch) => ({ ...prev, ...patch }),
 });
 
+/**
+ * Where the reader is in the Workspaces list: a row and its offset from the
+ * top of the card that showed it, or null before anyone has scrolled or
+ * clicked. One fact for the deck, because every workspace's Workspaces card
+ * shows the same list ([B04] retires per-workspace list memory). The shell
+ * holds it so it outlives any one card; the card the reader is in proposes
+ * each change, and a card coming on screen places its scroller from it
+ * (`lib/cards-list-anchor.ts`).
+ */
+export interface CardsListAnchorValue {
+  rowId: string;
+  offset: number;
+}
+
+export const cardsListAnchor = defineSharedStore<CardsListAnchorValue | null, CardsListAnchorValue>({
+  key: "cards.listAnchor",
+  owner: "shell",
+  scope: { kinds: isCardsCard },
+  codec: nullable(obj({ rowId: str, offset: num })),
+  initial: null,
+  proposals: obj({ rowId: str, offset: num }),
+});
+
 // ---- A following card, and the About card ----
 
 /**

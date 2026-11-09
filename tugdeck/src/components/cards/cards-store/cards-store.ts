@@ -95,6 +95,7 @@ class CardsStore {
     const cardsRowOrder = readCardsRowOrder(
       this._read(CARDS_KEYS.CARDS_ROW_ORDER),
     );
+    const filterQuery = readString(this._read(CARDS_KEYS.CARDS_FILTER_QUERY));
     this._dispatch(
       {
         type: "hydrate",
@@ -102,6 +103,7 @@ class CardsStore {
         ...(cardsGroupOrder !== undefined ? { cardsGroupOrder } : {}),
         ...(collapsedCardGroups !== undefined ? { collapsedCardGroups } : {}),
         ...(collapsedSpaces !== undefined ? { collapsedSpaces } : {}),
+        ...(filterQuery !== undefined ? { filterQuery } : {}),
       },
       { persist: false },
     );
@@ -135,6 +137,9 @@ class CardsStore {
     }
     if (prev.collapsedSpaces !== next.collapsedSpaces) {
       putJson(CARDS_KEYS.CARDS_COLLAPSED_SPACES, next.collapsedSpaces);
+    }
+    if (prev.filterQuery !== next.filterQuery) {
+      putJson(CARDS_KEYS.CARDS_FILTER_QUERY, next.filterQuery);
     }
   }
 
@@ -186,6 +191,15 @@ class CardsStore {
   toggleSpaceCollapsed = (spaceId: string): void => {
     this._ensureInitialized();
     this._dispatch({ type: "toggle_space_collapsed", spaceId });
+  };
+
+  /**
+   * Set the filter query every Workspaces card filters by. Persists, so the
+   * cards in other workspaces' pages hear it through the domain push.
+   */
+  setFilterQuery = (query: string): void => {
+    this._ensureInitialized();
+    this._dispatch({ type: "set_filter_query", query });
   };
 
   /**
@@ -268,6 +282,15 @@ function readCardsRowOrder(
     out[group] = list;
   }
   return out as CardsRowOrder;
+}
+
+/**
+ * Read a persisted string. Anything else is rejected as `undefined`, so the
+ * reducer keeps the query it has — the same reject-and-keep discipline.
+ */
+function readString(entry: TaggedValue | undefined): string | undefined {
+  if (!entry || entry.kind !== "json") return undefined;
+  return typeof entry.value === "string" ? entry.value : undefined;
 }
 
 function putJson(key: string, value: unknown): void {

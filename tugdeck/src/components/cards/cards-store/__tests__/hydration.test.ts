@@ -108,6 +108,7 @@ describe("CardsStore — the retired fields leave no trace", () => {
       "cardsRowOrder",
       "collapsedCardGroups",
       "collapsedSpaces",
+      "filterQuery",
     ]);
     expect(snap.cardsRowOrder).toEqual({ sessions: [], files: [], tools: [] });
   });
@@ -150,5 +151,50 @@ describe("CardsStore — the row-order reader", () => {
       fakeClient({ [CARDS_KEYS.CARDS_COLLAPSED_GROUPS]: jsonArray(["tools"]) }),
     );
     expect(cardsStore.getSnapshot().collapsedCardGroups).toEqual(["tools"]);
+  });
+
+  it("reads the filter query, and rejects a value that is not a string", () => {
+    setTugbankClient(
+      fakeClient({
+        [CARDS_KEYS.CARDS_FILTER_QUERY]: { kind: "json", value: "T1" } as TaggedValue,
+      }),
+    );
+    expect(cardsStore.getSnapshot().filterQuery).toBe("T1");
+
+    (cardsStore as unknown as { _disposeForTest: () => void })._disposeForTest();
+    setTugbankClient(
+      fakeClient({
+        [CARDS_KEYS.CARDS_FILTER_QUERY]: { kind: "json", value: 7 } as TaggedValue,
+      }),
+    );
+    expect(cardsStore.getSnapshot().filterQuery).toBe("");
+  });
+
+  it("a query another page writes reaches this page through the domain push", () => {
+    // Every Workspaces card is its own page with its own store, so the push
+    // is the only way one card's query becomes another's.
+    const current: Stored = {};
+    let push: ((domain: string) => void) | null = null;
+    const client = {
+      ...fakeClient(current),
+      onDomainChanged(cb: (domain: string) => void): () => void {
+        push = cb;
+        return () => {
+          push = null;
+        };
+      },
+    } as unknown as TugbankClient;
+    setTugbankClient(client);
+    expect(cardsStore.getSnapshot().filterQuery).toBe("");
+
+    let notified = 0;
+    const unsub = cardsStore.subscribe(() => {
+      notified += 1;
+    });
+    current[CARDS_KEYS.CARDS_FILTER_QUERY] = { kind: "json", value: "W1" } as TaggedValue;
+    push!(CARDS_DOMAIN);
+    expect(cardsStore.getSnapshot().filterQuery).toBe("W1");
+    expect(notified).toBe(1);
+    unsub();
   });
 });

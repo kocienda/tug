@@ -294,6 +294,7 @@ import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
 import { flashCardPane, setPaneFlashRelay } from "./flash-pane-border";
 import { shareLayoutSelection } from "./cards-selection-store";
+import { shareCardsListAnchor } from "./cards-list-anchor";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
 import { closeGuardWalk } from "./close-guard-walk";
@@ -1259,6 +1260,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     bodyStandInStore.attach(),
     // The layout selection is the shell's, and the Cards list proposes to it.
     shareLayoutSelection(bus),
+    // Where the reader is in the Workspaces list is the shell's, so it
+    // outlives any one card; the card the reader is in proposes it.
+    shareCardsListAnchor(bus),
     // A body card's binding is the shell's, and its body proposes each change.
     shareCardBinding(bus),
     // The arc transport presses are the shell's, where their answers arrive:

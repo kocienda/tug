@@ -76,7 +76,18 @@ import {
 } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
-import { useSpaceLayerShown } from "@/components/chrome/space-layer";
+import {
+  useSpaceLayerShown,
+  useSpaceLayerShownSource,
+} from "@/components/chrome/space-layer";
+import { cardsListAnchor } from "@/bus/declarations/arrangement";
+import {
+  anchorAfterScroll,
+  anchorForRow,
+  scrollTopForAnchor,
+  type AnchorRow,
+  type ListAnchor,
+} from "@/lib/cards-list-anchor";
 import { BlockDropCaret } from "@/components/tugways/block-drop-caret";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { useBlockReorder } from "@/components/tugways/block-reorder";
@@ -804,16 +815,169 @@ function useCardsInputs(filterQuery: string): CardsDataSource {
   return dataSource;
 }
 
+/** Every drawn row's box, in the card scroller's content coordinates. */
+function readRowBoxes(root: HTMLElement, dataSource: CardsDataSource): AnchorRow[] {
+  const rootTop = root.getBoundingClientRect().top;
+  const count = dataSource.numberOfItems();
+  const rows: AnchorRow[] = [];
+  for (const cell of root.querySelectorAll<HTMLElement>(
+    ".cards-list .tug-list-view-cell[data-tug-list-cell-index]",
+  )) {
+    const index = Number(cell.getAttribute("data-tug-list-cell-index"));
+    if (!Number.isInteger(index) || index < 0 || index >= count) continue;
+    const box = cell.getBoundingClientRect();
+    rows.push({
+      id: dataSource.idForIndex(index),
+      top: box.top - rootTop + root.scrollTop,
+      height: box.height,
+    });
+  }
+  return rows;
+}
+
+const sameAnchor = (a: ListAnchor | null, b: ListAnchor | null): boolean =>
+  a === b ||
+  (a !== null && b !== null && a.rowId === b.rowId && Math.abs(a.offset - b.offset) < 0.5);
+
+/**
+ * Keep this card's scroller one with the deck's list anchor
+ * (`cards.listAnchor`), which replaces any per-card scroll memory ([B04]).
+ *
+ * - **Written** while the card is on screen: a pointer-down on a row anchors
+ *   that row, and a scroll keeps the anchored row while any of it is in view,
+ *   or takes the first row in view when it is not.
+ * - **Read** at mount and each time the card comes on screen, and when the
+ *   anchor arrives in a card on screen that the reader has not touched — so
+ *   a card standing up for a workspace places itself from where the reader
+ *   was in whichever card they left.
+ * - **Held** until the list has rows. A card standing up for a workspace
+ *   mounts, comes on screen and hears the anchor before its rows arrive, and
+ *   a placement then has nothing to measure; so it stays owed, and the
+ *   content's `ResizeObserver` delivery — after the rows' layout, before the
+ *   frame that shows them — pays it. Nothing else moves the scroller on a
+ *   switch, so the row lands where it was clicked in that first frame and
+ *   stays there ([B06]).
+ *
+ * Both halves are DOM work driven by a store, so the store is observed
+ * directly in a layout effect rather than read through a render ([L22],
+ * [L03]); the scroll the placement itself causes is not taken back as a
+ * reading.
+ */
+function useSharedListAnchor(
+  rootRef: React.RefObject<HTMLDivElement | null>,
+  dataSource: CardsDataSource,
+): void {
+  const shownSource = useSpaceLayerShownSource();
+  const dataSourceRef = useRef(dataSource);
+  dataSourceRef.current = dataSource;
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (root === null) return;
+    /** The `scrollTop` the last placement landed, until its scroll event comes. */
+    let placedTop: number | null = null;
+    /** Whether the reader has scrolled or clicked in this card. */
+    let touched = false;
+    /** Whether a placement is owed: asked for before the list had rows to place. */
+    let owed = false;
+
+    const place = (): void => {
+      owed = false;
+      const anchor = cardsListAnchor.getSnapshot();
+      if (anchor === null) return;
+      const rows = readRowBoxes(root, dataSourceRef.current);
+      if (rows.length === 0) {
+        owed = true;
+        return;
+      }
+      const row = rows.find((r) => r.id === anchor.rowId) ?? null;
+      const top = scrollTopForAnchor(anchor, row, root);
+      if (top === null) return;
+      root.scrollTop = top;
+      placedTop = root.scrollTop;
+    };
+    const propose = (next: ListAnchor | null): void => {
+      if (next === null || sameAnchor(next, cardsListAnchor.getSnapshot())) return;
+      cardsListAnchor.propose(next);
+    };
+
+    const onScroll = (): void => {
+      if (placedTop !== null && Math.abs(root.scrollTop - placedTop) < 0.5) {
+        placedTop = null;
+        return;
+      }
+      placedTop = null;
+      if (!shownSource.get()) return;
+      touched = true;
+      propose(
+        anchorAfterScroll(
+          readRowBoxes(root, dataSourceRef.current),
+          root.scrollTop,
+          root.clientHeight,
+          cardsListAnchor.getSnapshot(),
+        ),
+      );
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!shownSource.get() || !(event.target instanceof Element)) return;
+      const cell = event.target.closest<HTMLElement>(
+        ".cards-list .tug-list-view-cell[data-tug-list-cell-index]",
+      );
+      if (cell === null) return;
+      const index = Number(cell.getAttribute("data-tug-list-cell-index"));
+      const row = readRowBoxes(root, dataSourceRef.current).find(
+        (r) => r.id === dataSourceRef.current.idForIndex(index),
+      );
+      if (row === undefined) return;
+      touched = true;
+      propose(anchorForRow(row, root.scrollTop));
+    };
+
+    place();
+    let wasShown = shownSource.get();
+    const releaseShown = shownSource.subscribe(() => {
+      const shown = shownSource.get();
+      if (shown && !wasShown) place();
+      // A card put away is placed afresh when it next shows, and follows the
+      // anchor until the reader touches it there.
+      if (!shown && wasShown) touched = false;
+      wasShown = shown;
+    });
+    const releaseAnchor = cardsListAnchor.subscribe(() => {
+      // A hidden card is placed when it comes on screen, so only a card on
+      // screen that the reader has not touched follows the anchor's arrival.
+      if (!touched && shownSource.get()) place();
+    });
+    const content = root.querySelector<HTMLElement>(".cards-card-content");
+    const rowsArrived = new ResizeObserver(() => {
+      if (owed && !touched) place();
+    });
+    if (content !== null) rowsArrived.observe(content);
+    root.addEventListener("scroll", onScroll, { passive: true });
+    root.addEventListener("pointerdown", onPointerDown, { capture: true });
+    return () => {
+      releaseShown();
+      releaseAnchor();
+      rowsArrived.disconnect();
+      root.removeEventListener("scroll", onScroll);
+      root.removeEventListener("pointerdown", onPointerDown, { capture: true });
+    };
+  }, [rootRef, shownSource]);
+}
+
 export interface CardsContentProps {
   /** The Cards card's id. */
   cardId: string;
 }
 
 export function CardsContent({ cardId }: CardsContentProps): React.ReactElement {
-  // The query is card-local: the field and the list are siblings under this
-  // one component, so nothing has to cross a module store to pair them — which
-  // is what the section's filter store existed to do.
-  const [filterQuery, setFilterQuery] = useState("");
+  // The query is the deck's, not this card's: every mounted workspace holds
+  // its own Workspaces card, and they are one list, so a filter typed in one
+  // filters them all. It lives in `cardsStore` beside the folds and enters
+  // React like them ([L02]).
+  const filterQuery = useSyncExternalStore(
+    cardsStore.subscribe,
+    useCallback(() => cardsStore.getSnapshot().filterQuery, []),
+  );
   const dataSource = useCardsInputs(filterQuery);
   const focusManager = useFocusManager();
   const count = dataSource.numberOfItems();
@@ -1485,7 +1649,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   }, [focusManager, cardId]);
   const filterDelegate = useMemo(
     () => ({
-      filterFieldDidChangeQuery: setFilterQuery,
+      filterFieldDidChangeQuery: cardsStore.setFilterQuery,
       onAdvance: advanceToList,
       ...filter.delegate,
     }),
@@ -1529,6 +1693,8 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     [responderRef],
   );
 
+  useSharedListAnchor(cardRootRef, dataSource);
+
   return (
     <ResponderScope>
     <div
@@ -1555,6 +1721,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           attachment={filter}
           placeholder="Filter Workspaces"
           defaultValue={filterQuery}
+          query={filterQuery}
           disabled={!hasItems}
           data-testid="cards-filter"
           focusGroup={CARDS_FOCUS_GROUP}
@@ -1602,7 +1769,6 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
               dataSource={dataSource}
               delegate={delegate}
               cellRenderers={CARDS_CELL_RENDERERS}
-              scrollKey="cards-card"
               inline
               rowLayout="flush"
               focusGroup={hasContent ? CARDS_FOCUS_GROUP : undefined}

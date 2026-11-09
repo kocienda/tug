@@ -26,6 +26,7 @@ export interface CardsState {
   cardsGroupOrder: readonly string[];
   collapsedCardGroups: readonly string[];
   collapsedSpaces: readonly string[];
+  filterQuery: string;
 }
 
 export type CardsEvent =
@@ -51,6 +52,7 @@ export type CardsEvent =
       type: "prune_to_spaces";
       live: ReadonlySet<string>;
     }
+  | { type: "set_filter_query"; query: string }
   | {
       /**
        * Apply hydrated values from tugbank. Each field is optional — a
@@ -63,6 +65,7 @@ export type CardsEvent =
       cardsGroupOrder?: readonly string[];
       collapsedCardGroups?: readonly string[];
       collapsedSpaces?: readonly string[];
+      filterQuery?: string;
     };
 
 export function createInitialState(): CardsState {
@@ -71,6 +74,7 @@ export function createInitialState(): CardsState {
     cardsGroupOrder: [],
     collapsedCardGroups: [],
     collapsedSpaces: [],
+    filterQuery: "",
   };
 }
 
@@ -189,6 +193,11 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
       };
     }
 
+    case "set_filter_query": {
+      if (state.filterQuery === event.query) return state;
+      return { ...state, filterQuery: event.query };
+    }
+
     case "hydrate": {
       let next = state;
       const bump = (): void => {
@@ -225,6 +234,13 @@ export function reduce(state: CardsState, event: CardsEvent): CardsState {
       ) {
         bump();
         next.collapsedSpaces = [...event.collapsedSpaces];
+      }
+      if (
+        event.filterQuery !== undefined &&
+        state.filterQuery !== event.filterQuery
+      ) {
+        bump();
+        next.filterQuery = event.filterQuery;
       }
       return next;
     }
