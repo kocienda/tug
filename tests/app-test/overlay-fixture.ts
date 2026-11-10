@@ -60,3 +60,24 @@ export async function restoreGateGone(app: App, timeoutMs = 15_000): Promise<voi
     { timeoutMs },
   );
 }
+
+/**
+ * Wait until a resumed card's cold restore is over and the gate it raised has
+ * come down — the point after which a gesture meant for the card reaches it.
+ *
+ * {@link restoreGateGone} alone is a race straight after a resume: engine
+ * ready comes before the replay's reveal, and the gate rises for the reveal,
+ * so a read made in between sees no gate and passes, and the click and the
+ * keys that follow land under the modal (at0525's `/shell` line, typed into
+ * the overlay a key at a time, each one a beep). So the card's own page is
+ * asked first whether its restore is over — the hold it publishes to the
+ * gate, `__tug.restoreSettled` (tugdeck SURFACE_VERSION 2.61.0) — and only
+ * then is the gate waited down.
+ */
+export async function restoreSettled(app: App, cardId: string, timeoutMs = 30_000): Promise<void> {
+  await app.body(cardId).waitForCondition<boolean>(
+    `window.__tug.restoreSettled(${JSON.stringify(cardId)})`,
+    { timeoutMs },
+  );
+  await restoreGateGone(app, timeoutMs);
+}

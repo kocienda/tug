@@ -21,6 +21,7 @@ mock.module("@/lib/diff-card-open-registry", () => ({
 mock.module("@/focus-transfer", () => ({
   transferFocusForActivation: ({ commitMutation }: { commitMutation: () => void }) =>
     commitMutation(),
+  mayDeferCommitInView: () => false,
 }));
 
 let openDiffInCard: typeof import("@/lib/open-diff-in-card").openDiffInCard;
@@ -30,14 +31,18 @@ beforeAll(async () => {
 
 const DESCRIPTOR: DiffDescriptor = { kind: "head", root: "/repo", paths: ["a.ts"] };
 
-function makeStore() {
+function makeStore(cards: Array<{ id: string; componentId: string; content?: unknown }> = []) {
   const calls: { addCard: unknown[][]; activated: string[] } = { addCard: [], activated: [] };
   const store = {
     getFirstResponderCardId: () => null,
     // `openDiffInCard` flashes the arriving card's pane. No pane holds these
     // ids, which is silence rather than a warning — the reuse behavior under
     // test is unaffected either way.
-    getSnapshot: () => ({ panes: [] }),
+    getSnapshot: () => ({ panes: [], cards: cards.map(({ id, componentId }) => ({ id, componentId })) }),
+    getCardState: (id: string) => {
+      const card = cards.find((c) => c.id === id);
+      return card === undefined ? undefined : { content: card.content };
+    },
     activateCard: (id: string) => calls.activated.push(id),
     addCard: (...args: unknown[]) => {
       calls.addCard.push(args);
@@ -70,5 +75,27 @@ describe("open-diff-in-card ([P20])", () => {
     expect(calls.addCard).toHaveLength(0);
     expect(calls.activated).toEqual(["d1"]);
     expect(setDescriptor).toHaveBeenCalledTimes(1);
+  });
+
+  test("a Diff card mounted in another page is found by its bag's descriptor, and activated", () => {
+    // The shell's registry holds no body card: every Diff card under per-card
+    // web views is one, and before this a second `/diff` stacked a duplicate.
+    existing = null;
+    const { store, calls } = makeStore([
+      { id: "s1", componentId: "session", content: { descriptor: DESCRIPTOR } },
+      { id: "d2", componentId: "diff", content: { descriptor: { kind: "head", root: "/other", paths: ["a.ts"] } } },
+      { id: "d3", componentId: "diff", content: { descriptor: { ...DESCRIPTOR } } },
+    ]);
+    openDiffInCard(store as never, DESCRIPTOR);
+    expect(calls.addCard).toHaveLength(0);
+    expect(calls.activated).toEqual(["d3"]);
+  });
+
+  test("a Diff card whose bag holds no descriptor is not a match", () => {
+    existing = null;
+    const { store, calls } = makeStore([{ id: "d4", componentId: "diff", content: undefined }]);
+    openDiffInCard(store as never, DESCRIPTOR);
+    expect(calls.activated).toEqual([]);
+    expect(calls.addCard).toHaveLength(1);
   });
 });

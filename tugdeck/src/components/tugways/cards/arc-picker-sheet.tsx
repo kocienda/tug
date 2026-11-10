@@ -7,11 +7,19 @@
  * sheet on the card's existing host and never transcript ink. A disposable
  * choice does not belong permanently in the record.
  *
- * The list owns its cursor: `TugListView` in `singleSelect` mode with
- * `commitOnEnter="act"` gives arrow motion, Return, and click for free ([L19]),
- * and the card's own arc seeds the selection so Return with no arrow presses
- * is a no-op rebind rather than a surprise. Nothing here mirrors the selection
- * into React state.
+ * The list owns its cursor: `TugListView` with `commitOnEnter="act"` gives
+ * arrow motion, Return, and click for free ([L19]), and the card's own arc
+ * seeds the cursor so Return with no arrow presses is a no-op rebind rather
+ * than a surprise. Nothing here mirrors the selection into React state.
+ *
+ * It is NOT a `singleSelect` list, though a picker reads like one. A
+ * single-select list commits the row its cursor lands on and leaves Return
+ * to the surface's default button; this sheet's commit IS the bind, and it
+ * has no default button. So under `singleSelect` the first arrow bound the
+ * next arc and closed the sheet, and the Return meant to choose fell on no
+ * page and beeped (at0421, 2026-11-10). As a cursor list the arrows only
+ * move, Return acts on the cursor row (`onActivate`), and a click or Space
+ * picks the row it lands on (`onSelect`).
  *
  * The sheet resolves with no value. The bind's outcome arrives through the
  * `bind_arc_ok` broadcast and the card-scoped bind-error store, both of which
@@ -187,7 +195,6 @@ export function ArcPickerSheet({
         rowLayout="flush"
         focusGroup={focusGroup}
         focusOrder={0}
-        singleSelect
         initialSelectedIndex={currentIndex}
         commitOnEnter="act"
         className="arc-picker-list"

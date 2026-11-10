@@ -60,7 +60,7 @@ import {
   registerOpenDiffCard,
   unregisterOpenDiffCard,
 } from "@/lib/diff-card-open-registry";
-import type { DiffCardSeed } from "@/lib/open-diff-in-card";
+import { coerceDescriptor, type DiffCardSeed } from "@/lib/open-diff-in-card";
 
 const IDLE_SNAPSHOT: GitDiffSnapshot = {
   phase: "idle",
@@ -70,18 +70,6 @@ const IDLE_SNAPSHOT: GitDiffSnapshot = {
 };
 
 const NOOP_SUBSCRIBE = (): (() => void) => () => {};
-
-/** Narrow an unknown restore bag into a `DiffDescriptor`. */
-function coerceDescriptor(value: unknown): DiffDescriptor | null {
-  if (typeof value !== "object" || value === null) return null;
-  const descriptor = (value as { descriptor?: unknown }).descriptor;
-  if (typeof descriptor !== "object" || descriptor === null) return null;
-  const kind = (descriptor as { kind?: unknown }).kind;
-  if (kind === "head" || kind === "range" || kind === "commit") {
-    return descriptor as DiffDescriptor;
-  }
-  return null;
-}
 
 /** True for the repo-wide guise: `git diff HEAD` with no pathspec. */
 function isProjectDiffDescriptor(descriptor: DiffDescriptor): boolean {

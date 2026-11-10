@@ -54,6 +54,14 @@ export const CONTENT_PAINTED_ATTRIBUTE = "data-content-painted";
 export const CHROME_FRAME_ATTRIBUTE = "data-chrome-frame";
 
 /**
+ * The class the page's pane frame wears beside `tug-pane`, which is how the
+ * page's own code finds its frame. One name, here, because the frame was
+ * renamed once (`.body-pane-frame` until `7ee393cd9`) and a reader holding
+ * the old string found nothing for three weeks without failing.
+ */
+export const BODY_CHROME_FRAME_CLASS = "body-chrome-frame";
+
+/**
  * Where the pane stands within the view, per side, in this page's layout px:
  * the host's insets are points, and the deck root is scaled by View › Zoom.
  */
@@ -266,7 +274,7 @@ export function BodyChromeFrame({
       <div className="body-canvas" {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}>
         <div
           ref={setFrame}
-          className="tug-pane body-chrome-frame"
+          className={`tug-pane ${BODY_CHROME_FRAME_CLASS}`}
           data-testid="tug-pane"
           data-pane-id={paneId}
           data-card-id={cardId}

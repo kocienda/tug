@@ -91,10 +91,11 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
 
           // The card is its own page: the pane's content box it scrolls in
-          // is the body's own, under the body's pane root. The pane frame,
-          // its width and its episode stamp stay the shell's.
+          // is the body's own — the page draws its pane's chrome and holds
+          // that one pane. The pane frame, its width and its episode stamp
+          // stay the shell's.
           const card = await waitForBodyReady(app, "A");
-          const scroller = `.body-pane-root[data-card-id="A"] .tug-pane-content`;
+          const scroller = `.tug-pane-content`;
           await card.waitForCondition<boolean>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(scroller)});
@@ -238,7 +239,8 @@ describe.skipIf(!SHOULD_RUN)(
           const widthBefore = await paneWidth(app, FRAME);
           const episodesBefore = await episodeCount(app);
 
-          await chooseWidth(app, "p1", "slim");
+          // The pane's chrome, width popup and all, is the card's own page's.
+          await chooseWidth(app, "p1", "slim", "A");
           await waitForEpisodesClosed(app, FRAME);
 
           const widthAfter = await paneWidth(app, FRAME);

@@ -52,6 +52,7 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import { kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
+import { restoreSettled } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -122,6 +123,9 @@ async function openCard(app: App): Promise<void> {
   // would keep composing over the checkout. See `seedScratchSession`.
   await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
+  // The resume's reveal raises the restore gate after engine ready, and the
+  // gate takes the keyboard; the command typed below waits it out.
+  await restoreSettled(app, "A");
   // The picker lists what the snapshot holds, so wait until it holds the
   // fixtures — before the first compose the bare form would caution instead.
   // The Arcs card reads the same `ChangesetAllStore` the card's
@@ -208,6 +212,15 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         const rows = await namesIn(app);
         await app.nativeKey("ArrowDown");
         await settle();
+        // The arrow only moves the cursor: the sheet stands and nothing is
+        // bound. As a single-select list the arrow itself bound the next arc
+        // and closed the sheet, and this Return fell on no page and beeped.
+        expect(
+          await app.body("A").evalJS<{ open: boolean; chips: number }>(
+            `({ open: document.querySelector(${JSON.stringify(PICKER)}) !== null,
+                chips: document.querySelectorAll(${JSON.stringify(CHIP)}).length })`,
+          ),
+        ).toEqual({ open: true, chips: 0 });
         await app.nativeKey("Return");
         // The chip moves on `bind_arc_ok`, never on the click — so this
         // assertion is about the round trip, not about the handler.

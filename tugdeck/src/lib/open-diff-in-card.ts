@@ -8,7 +8,11 @@
  * activation taxonomy matches every other route) and re-points it; otherwise
  * a fresh Diff card is created seeded with the descriptor through `addCard`'s
  * initial-content channel. Two cards showing the same diff would be pure
- * duplication.
+ * duplication. The card is found in this page's open registry, else — a
+ * card mounted in its own page, which is every Diff card under per-card web
+ * views — among the deck's cards by the descriptor its bag holds; until
+ * 2026-11-10 only the first was asked, and a second `/diff` stacked a
+ * duplicate (at0360).
  *
  * Placement and the flash are the file opener's, for the same reason: a diff
  * popped out of a changeset row belongs beside the card the row is in
@@ -33,25 +37,56 @@ export interface DiffCardSeed {
   descriptor: DiffDescriptor;
 }
 
+/** Narrow an unknown restore bag into a `DiffDescriptor`. */
+export function coerceDescriptor(value: unknown): DiffDescriptor | null {
+  if (typeof value !== "object" || value === null) return null;
+  const descriptor = (value as { descriptor?: unknown }).descriptor;
+  if (typeof descriptor !== "object" || descriptor === null) return null;
+  const kind = (descriptor as { kind?: unknown }).kind;
+  if (kind === "head" || kind === "range" || kind === "commit") {
+    return descriptor as DiffDescriptor;
+  }
+  return null;
+}
+
+/**
+ * A Diff card showing `key` whose content is mounted in another page — a body
+ * card — found among the deck's cards by the descriptor in the bag this deck
+ * holds for it. The open registry is per page, so the shell's holds none of
+ * these, and a card's published identity names a diff only as a reader
+ * would ("Project Diff"), which is not a key. The bag is the descriptor the
+ * card was seeded with, and a body's Diff card is never re-pointed after
+ * that: the re-point below reaches only a card mounted in this page.
+ */
+function bodyDiffCardByKey(store: CardDeck, key: string): string | null {
+  for (const card of store.getSnapshot().cards) {
+    if (card.componentId !== "diff") continue;
+    const descriptor = coerceDescriptor(store.getCardState(card.id)?.content);
+    if (descriptor !== null && diffDescriptorKey(descriptor) === key) return card.id;
+  }
+  return null;
+}
+
 export function openDiffInCard(
   store: CardDeck,
   descriptor: DiffDescriptor,
   originCardId: string | null = null,
 ): void {
   const key = diffDescriptorKey(descriptor);
-  const existing = findDiffCardByKey(key);
-  if (existing) {
+  const local = findDiffCardByKey(key);
+  const existingId = local?.cardId ?? bodyDiffCardByKey(store, key);
+  if (existingId !== null) {
     transferFocusForActivation({
       outgoingCardId: store.getFirstResponderCardId(),
-      incomingCardId: existing.cardId,
+      incomingCardId: existingId,
       store,
-      commitMutation: () => store.activateCard(existing.cardId),
-      deferCommit: mayDeferCommitInView(existing.cardId),
+      commitMutation: () => store.activateCard(existingId),
+      deferCommit: mayDeferCommitInView(existingId),
     });
     // Re-point defensively (a same-key open is a no-op re-request, which is
     // harmless and refreshes the diff).
-    existing.entry.setDescriptor(descriptor);
-    flashCardPane(store, existing.cardId);
+    local?.entry.setDescriptor(descriptor);
+    flashCardPane(store, existingId);
     return;
   }
   const seed: DiffCardSeed = { descriptor };

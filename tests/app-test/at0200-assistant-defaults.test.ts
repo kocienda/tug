@@ -67,9 +67,9 @@ const SETTINGS_AI = `${SETTINGS} [data-slot="ai-config-editor"]`;
 // Sheets portal into their host PANE's frame and linger through the exit
 // animation — scope every sheet read/click to the pane that owns it so a
 // closing sheet in another pane can never swallow a click. The frame is the
-// card's own body page's (`.body-pane-frame[data-pane-id="body-pane-<card>"]`),
-// so these are read in card A's body.
-const CARD_A_SHEET = '.body-pane-frame[data-pane-id="body-pane-A"] [data-slot="tug-sheet"]';
+// card's own body page's (`.body-chrome-frame[data-pane-id="body-pane-<card>"]`,
+// `.body-pane-frame` until `7ee393cd9`), so these are read in card A's body.
+const CARD_A_SHEET = '.body-chrome-frame[data-pane-id="body-pane-A"] [data-slot="tug-sheet"]';
 
 /** The model channel is an option list; each row carries its own selector. */
 const MODEL_LIST = '[data-testid="ai-config-model"]';

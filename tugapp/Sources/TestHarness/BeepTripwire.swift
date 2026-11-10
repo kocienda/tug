@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Foundation
+import WebKit
 
 // MARK: - BeepTripwire
 //
@@ -36,6 +37,13 @@ struct BeepRecord {
     let origin: String
     /// The last harness verb dispatched before the beep, when one is known.
     let verb: String?
+    /// The key that went unhandled — its characters, or its key code when it
+    /// has none worth printing — read off the event AppKit is dispatching.
+    let key: String?
+    /// The class of the window's first responder when the key fell through,
+    /// which says whose key it was: a card's web view, the shell's, or a view
+    /// with no key handling at all.
+    let responder: String?
     /// The top of the call stack at the beep, trimmed.
     let stack: [String]
 }
@@ -78,8 +86,36 @@ final class BeepTripwire {
         // that let the key go — a WKWebView handing an unhandled key back, or
         // a view with no key handling at all — which is what names the cause.
         let stack = Thread.callStackSymbols.prefix(16).map { String($0) }
-        records.append(BeepRecord(origin: origin, verb: lastVerb, stack: stack))
+        let event = NSApp.currentEvent
+        let key = event.flatMap { BeepTripwire.describeKey($0) }
+        let responder = (event?.window ?? NSApp.keyWindow)?.firstResponder.map { BeepTripwire.describeResponder($0) }
+        records.append(BeepRecord(origin: origin, verb: lastVerb, key: key, responder: responder, stack: stack))
         return true
+    }
+
+    /// A first responder as a reader would name it: its class, and for a web
+    /// view the page it holds, since the shell and every card's body are the
+    /// same class and only the page tells them apart.
+    private static func describeResponder(_ responder: NSResponder) -> String {
+        let name = String(describing: type(of: responder))
+        guard let web = responder as? WKWebView, let url = web.url else { return name }
+        let page = url.path + (url.query.map { "?" + $0 } ?? "")
+        return "\(name) \(page)"
+    }
+
+    /// A key event as a reader would name it: its modifiers, then its
+    /// characters, or its key code when those are a control character.
+    private static func describeKey(_ event: NSEvent) -> String? {
+        guard event.type == .keyDown || event.type == .keyUp else { return nil }
+        var mods = ""
+        let flags = event.modifierFlags
+        if flags.contains(.control) { mods += "⌃" }
+        if flags.contains(.option) { mods += "⌥" }
+        if flags.contains(.shift) { mods += "⇧" }
+        if flags.contains(.command) { mods += "⌘" }
+        let chars = event.charactersIgnoringModifiers ?? ""
+        let printable = !chars.isEmpty && chars.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value < 0xF700 }
+        return mods + (printable ? chars : "keyCode \(event.keyCode)")
     }
 
     /// The caught beeps as the `beepReport` RPC payload, clearing the buffer so
@@ -89,6 +125,8 @@ final class BeepTripwire {
         let beeps: [[String: Any]] = records.map { r in
             var obj: [String: Any] = ["origin": r.origin, "stack": r.stack]
             if let verb = r.verb { obj["verb"] = verb }
+            if let key = r.key { obj["key"] = key }
+            if let responder = r.responder { obj["responder"] = responder }
             return obj
         }
         let payload: [String: Any] = ["count": records.count, "beeps": beeps]

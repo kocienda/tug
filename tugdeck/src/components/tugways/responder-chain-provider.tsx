@@ -873,13 +873,15 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       // captured only transiently by an open completion": Escape closes the
       // completion first rather than ascending a scope. (Tab is already deferred
       // by the focus-walk listener via the same marker.)
+      // The marker is set for as long as an editor holds focus, so it cannot
+      // tell an editor inside the top surface from one beneath it: an editor
+      // under a trapped surface it is no member of hands Escape to the ladder,
+      // which dismisses the surface (`editorKeepsEscape`).
       if (key === "Escape") {
         const active = document.activeElement;
-        if (
-          active instanceof Element &&
-          active.closest(`[${TAB_CONSUME_ATTRIBUTE}="true"]`) !== null
-        ) {
-          return;
+        if (active instanceof Element && active.closest(`[${TAB_CONSUME_ATTRIBUTE}="true"]`) !== null) {
+          const host = active.closest("[data-tug-focusable]");
+          if (focusManager.editorKeepsEscape(host?.getAttribute("data-tug-focusable") ?? null)) return;
         }
       }
 

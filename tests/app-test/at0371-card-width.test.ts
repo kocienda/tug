@@ -55,7 +55,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { chooseWidth, widthButton } from "./fixtures/card-width";
+import { chooseWidth } from "./fixtures/card-width";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -70,6 +70,9 @@ const WIDE = 1230;
  *  not move at all. */
 const SEEDED_WIDTH = 420;
 const RAIL_WIDTH = 260;
+
+/** The card whose page draws each pane's chrome. */
+const CARD_OF: Record<string, string> = { p1: "A", p2: "B", pRail: "L" };
 
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween. */
 const AFTER_LAND_MS = 900;
@@ -131,7 +134,9 @@ async function setWidth(
   preset: "slim" | "comfy" | "wide",
   expected: number,
 ): Promise<void> {
-  await chooseWidth(app, paneId, preset);
+  // Every card draws its pane's chrome, width popup and all, in its own page;
+  // the shell holds a stand-in only until that page paints.
+  await chooseWidth(app, paneId, preset, CARD_OF[paneId]);
   await app.waitForCondition<boolean>(
     `(${PANE_WIDTH_JS(paneId)}) === ${expected}`,
     { timeoutMs: 8_000 },
@@ -222,8 +227,16 @@ describe.skipIf(!SHOULD_RUN)(
           // --- A rail has no width to set, so it draws no affordance. -------
           // Absence, not a disabled control: a sidebar's width is the
           // allocator's answer, so there is no preset for a picker to offer.
-          const railButtons = await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(widthButton("pRail"))}).length`,
+          // Read where the rail's chrome is drawn, its card's page, and only
+          // once that chrome stands, so an absence is the rail's and not a
+          // title bar that had not painted yet.
+          const railPage = app.body(CARD_OF.pRail!);
+          await railPage.waitForCondition<boolean>(
+            `document.querySelector('[data-testid="tug-pane-title-bar"]') !== null`,
+            { timeoutMs: 8_000 },
+          );
+          const railButtons = await railPage.evalJS<number>(
+            `document.querySelectorAll('[data-testid="tug-pane-title-bar-width-button"]').length`,
           );
           note(`rail width buttons: ${railButtons}`);
           expect(

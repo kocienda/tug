@@ -68,6 +68,7 @@ import { resolve } from "node:path";
 
 import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { restoreSettled } from "./overlay-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -251,6 +252,9 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
           projectDir: projectDir(),
         });
         await app.awaitEngineReady("A", { timeoutMs: 15_000 });
+        // The resume's reveal raises the restore gate after engine ready, and
+        // the gate takes the keyboard: the shell line typed under it beeped.
+        await restoreSettled(app, "A");
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`, 0);
 
         // ── 1. The Arcs card's block ───────────────────────────────────────

@@ -22,6 +22,10 @@ export interface CaughtBeep {
   readonly origin: string;
   /** The last harness verb dispatched before the beep, when one is known. */
   readonly verb?: string;
+  /** The key that fell through, as the app names it (`Escape` is `keyCode 53`). */
+  readonly key?: string;
+  /** The class of the window's first responder when it fell through. */
+  readonly responder?: string;
   /** The top of the call stack at the beep, trimmed. */
   readonly stack?: readonly string[];
   /**
@@ -100,13 +104,25 @@ export function formatBeepFailure(beeps: readonly CaughtBeep[]): string {
   const plural = n === 1 ? "beep" : "beeps";
   const header = `${n} ${plural} during this run — the harness contract is silence (brief [B03]).`;
 
-  // Group by launch + origin + verb, preserving first-seen order for the tie-break.
-  const counts = new Map<string, { launch?: string; origin: string; verb?: string; count: number; frames: string[] }>();
+  // Group by launch + origin + verb + key + responder, preserving first-seen
+  // order for the tie-break.
+  const counts = new Map<
+    string,
+    { launch?: string; origin: string; verb?: string; key?: string; responder?: string; count: number; frames: string[] }
+  >();
   for (const beep of beeps) {
-    const key = `${beep.launch ?? ""}\u0000${beep.origin}\u0000${beep.verb ?? ""}`;
+    const key = [beep.launch, beep.origin, beep.verb, beep.key, beep.responder].map((p) => p ?? "").join("\u0000");
     const prior = counts.get(key);
     if (prior === undefined) {
-      counts.set(key, { launch: beep.launch, origin: beep.origin, verb: beep.verb, count: 1, frames: provokingFrames(beep.stack) });
+      counts.set(key, {
+        launch: beep.launch,
+        origin: beep.origin,
+        verb: beep.verb,
+        key: beep.key,
+        responder: beep.responder,
+        count: 1,
+        frames: provokingFrames(beep.stack),
+      });
     } else {
       prior.count += 1;
     }
@@ -117,8 +133,10 @@ export function formatBeepFailure(beeps: readonly CaughtBeep[]): string {
     .flatMap((g) => {
       const times = g.count === 1 ? "" : ` ×${g.count}`;
       const after = g.verb ? ` after verb \`${g.verb}\`` : " with no verb recorded";
+      const on = g.key ? ` on key \`${g.key}\`` : "";
+      const holder = g.responder ? ` (first responder ${g.responder})` : "";
       const where = g.launch ? ` in launch \`${g.launch}\`` : "";
-      return [`  • ${g.origin}${after}${where}${times}`, ...g.frames.map((f) => `      ${f}`)];
+      return [`  • ${g.origin}${after}${on}${holder}${where}${times}`, ...g.frames.map((f) => `      ${f}`)];
     });
 
   return [header, ...lines].join("\n");

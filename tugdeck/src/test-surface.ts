@@ -87,11 +87,12 @@ import type { CardBinding, SessionRow } from "./protocol";
 import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
+import { readRestoreHold } from "./body/body-publisher";
 import { compactionProgressStore } from "./lib/compaction-progress-store";
 import { arcPressStore, type ArcTransportVerb } from "./lib/arc-press-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendCloseSessionKeepingBinding, sendSpawnSession } from "./lib/session-lifecycle";
-import { fireNewSpawn } from "./lib/session-restore";
+import { fireNewSpawn, sessionRestoreRegistry } from "./lib/session-restore";
 import { handOffToBody, isDeferredBody } from "./lib/body-handoff";
 import { sessionLineStore } from "./lib/session-line-store";
 import { applyRestoredShellExchanges } from "./lib/shell-session-store";
@@ -629,8 +630,14 @@ import {
  * store in the shell, the shell's replica in a body — so a test can say a
  * press was heard where it was made after the control that made it has
  * gone. Additive; major stays `2`.
+ *
+ * `2.61.0`: adds {@link TugTestSurface.restoreSettled}, on every page:
+ * whether a card's cold restore — its replay and the reveal behind it — is
+ * over, by the hold its page publishes to the restore gate, so a test can
+ * make its first gesture after the gate has risen and come down rather than
+ * under it. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.60.0" as const;
+export const SURFACE_VERSION = "2.61.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2004,6 +2011,18 @@ export interface TugTestSurface {
   sessionSettled(cardId: string): boolean;
 
   /**
+   * Whether one card's cold restore is over: its session store stands, and
+   * the restore hold its page publishes (`readRestoreHold`, the reading the
+   * restore gate folds) is neither `"waiting"` nor `"holding"` — the replay
+   * has ended and its reveal has settled, or the card has errored. False
+   * before the card's session store exists, so a wait on it cannot pass
+   * ahead of a restore that has not begun. Read it in the page that holds
+   * the card. A gesture made before this is true can land under the restore
+   * gate, which rises in the overlay for the reveal and takes the keyboard.
+   */
+  restoreSettled(cardId: string): boolean;
+
+  /**
    * The last `user_message` one card's session store put on the wire, as its
    * JSON string, or `null` when it has sent none.
    *
@@ -3032,6 +3051,12 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
 
     sessionSettled(cardId: string): boolean {
       return cardServicesStore.getServices(cardId)?.codeSessionStore.isSettled() ?? true;
+    },
+
+    restoreSettled(cardId: string): boolean {
+      const snapshot = cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null;
+      if (snapshot === null) return false;
+      return readRestoreHold(snapshot, sessionRestoreRegistry.has(cardId)) === null;
     },
 
     driveSession(cardId: string, action: SessionDriveAction): void {

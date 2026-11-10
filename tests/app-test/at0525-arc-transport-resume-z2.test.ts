@@ -34,6 +34,7 @@ import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { restoreSettled } from "./overlay-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -179,6 +180,10 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         );
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+        // The resume's reveal raises the restore gate after engine ready, and
+        // the gate takes the keyboard: the `/shell` line typed under it goes
+        // to the overlay a key at a time.
+        await restoreSettled(app, "A");
 
         // Both verbs on one shell line, as `at0476` runs them and for the same
         // reason: a live arc on an idle card is a rotating arc, and a tick

@@ -55,8 +55,13 @@ import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-/** The region a banner locks, in the card's body page. */
-const PANE_BODY = ".body-pane-root > .tug-pane-content";
+/**
+ * The region a banner locks, in the card's body page: `.tug-pane-body`, which
+ * the page draws with its pane's chrome (`PaneChrome`) and which the lock
+ * targets first (`paneBodyOf`). The page's old `.body-pane-root` wrapper is
+ * gone, and a selector that finds nothing reads as "inert" here.
+ */
+const PANE_BODY = ".tug-pane-body";
 const BANNER = '[data-slot="tug-pane-banner"]';
 const BULLETIN = ".tug-pane-bulletin";
 const BULLETIN_TITLE = `${BULLETIN} [data-title]`;

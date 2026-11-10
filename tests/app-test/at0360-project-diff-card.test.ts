@@ -74,10 +74,28 @@ afterAll(() => {
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 async function runDiff(app: Awaited<ReturnType<typeof launchTugApp>>): Promise<void> {
+  // The Diff card opens over A, covering its composer, so the second run's
+  // click would land on the Diff card and its keys go there. A is brought
+  // forward first, as a user would bring it, and the keys wait until A's
+  // composer holds the caret.
+  await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
+  await app.body("A").waitForCondition<boolean>(`document.hasFocus()`, { timeoutMs: 5000 });
   await app.body("A").nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").waitForCondition<boolean>(
+    `document.hasFocus() && document.activeElement === document.querySelector(${JSON.stringify(PROMPT_INPUT)})`,
+    { timeoutMs: 5000 },
+  );
   await app.nativeType("/diff");
   await settle();
   await app.body("A").nativeClickAtElement(SUBMIT_BTN);
+  // Sent, the composer empties — by the entry's `data-empty`, the designed
+  // emptiness probe, since the editor's placeholder is text in its content.
+  // The second run's reuse is a claim about a `/diff` that was submitted,
+  // not one that never left the composer.
+  await app.body("A").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${CARD} [data-slot="tug-prompt-entry"]`)})?.getAttribute("data-empty") === "true"`,
+    { timeoutMs: 5000 },
+  );
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => {
@@ -116,20 +134,15 @@ describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => 
         // lead line rather than in `tug-pane-title`, which no longer renders
         // on this pane at all.
         //
-        // The pane and its masthead are the shell's; the card is its own page.
-        // So the pane is found through the deck's record of which pane holds
-        // the diff card, and the title is waited for: the shell's chrome
-        // commits on its own clock, a beat after the body's document stands.
-        // card-dom: shell
-        const paneTitle = await app.waitForCondition<string>(
+        // A document card draws its chrome, masthead and all, in its own page
+        // (`feee863b8`); the shell draws a stand-in only until that page
+        // paints, so a read of the shell's DOM races the paint and loses. The
+        // title is waited for in the card's page: it commits a beat after the
+        // document stands.
+        const paneTitle = await kindBody(app, "diff").waitForCondition<string>(
           `(() => {
-             const s = window.tugdeck.diag.getDeckState();
-             const diffCard = s.cards.find((c) => c.componentId === "diff");
-             const diffPane = diffCard === undefined ? undefined : s.panes.find((p) => p.cardIds.includes(diffCard.id));
-             const mastheadTitle = diffPane === undefined
-               ? null
-               : document.querySelector('.tug-pane[data-pane-id="' + diffPane.id + '"] [data-testid="card-masthead-title"]');
-             return mastheadTitle === null || mastheadTitle.textContent === "" ? false : mastheadTitle.textContent;
+             const el = document.querySelector('[data-testid="card-masthead-title"]');
+             return el === null || el.textContent === "" ? false : el.textContent;
            })()`,
           { timeoutMs: 10000 },
         );

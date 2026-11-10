@@ -66,6 +66,20 @@ describe("formatBeepFailure", () => {
     expect(lines).toHaveLength(3);
   });
 
+  test("names the key that fell through and who held first responder, and keeps keys apart", () => {
+    const beeps: CaughtBeep[] = [
+      { origin: "noResponderFor(keyDown:)", verb: "nativeKey", key: "keyCode 53", responder: "BodyWebView" },
+      { origin: "noResponderFor(keyDown:)", verb: "nativeKey", key: "keyCode 53", responder: "BodyWebView" },
+      { origin: "noResponderFor(keyDown:)", verb: "nativeKey", key: "⌘keyCode 36", responder: "MainWindow" },
+    ];
+    const lines = formatBeepFailure(beeps).split("\n");
+    expect(lines[1]).toBe(
+      "  • noResponderFor(keyDown:) after verb `nativeKey` on key `keyCode 53` (first responder BodyWebView) ×2",
+    );
+    expect(lines[2]).toBe("  • noResponderFor(keyDown:) after verb `nativeKey` on key `⌘keyCode 36` (first responder MainWindow)");
+    expect(lines).toHaveLength(3);
+  });
+
   test("shows the first beep's stack past the tripwire, as image and symbol", () => {
     const stack = [
       "0   Tug                                 0x0000000104a1b2c3 $s3Tug12BeepTripwireC6record6originSbSS_tF + 120",

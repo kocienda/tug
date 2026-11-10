@@ -96,6 +96,7 @@ import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { restoreSettled } from "./overlay-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -299,6 +300,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // repo as a workspace, so its arc reaches the aggregate.
         await app.spawnSessionResume("A", { tugSessionId: HELD_SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The resume's reveal raises the restore gate after engine ready.
+        await restoreSettled(app, "A");
         // The resumed transcript's one committed turn, on screen — typing into
         // the composer before the card reaches its resting state races the
         // resume's own repaint.
@@ -417,6 +420,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // committed turn, which is the card's resting state.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The resume's reveal raises the restore gate after engine ready.
+        await restoreSettled(app, "A");
         await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },

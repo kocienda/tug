@@ -91,6 +91,7 @@ import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { restoreSettled } from "./overlay-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -181,6 +182,8 @@ async function openCard(app: App, sid: string): Promise<void> {
   );
   await app.spawnSessionResume("A", { tugSessionId: sid, projectDir: projectDir() });
   await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+  // The resume's reveal raises the restore gate after engine ready.
+  await restoreSettled(app, "A");
 }
 
 /** Run a shell command on the card through its own `$` route. */

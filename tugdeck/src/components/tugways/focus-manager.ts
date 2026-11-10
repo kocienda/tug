@@ -1969,6 +1969,26 @@ export class FocusContext {
   }
 
   /**
+   * Whether a focused editor that owns Escape (`data-tug-tab-consume`, which an
+   * editor sets for as long as it holds focus) keeps an Escape the ladder would
+   * otherwise spend. `focusableId` is the editor's registered focusable, or
+   * null when it registers none.
+   *
+   * It keeps it at the base mode and under a non-trapped scope, where Escape
+   * closing a completion is the editor's first meaning; and under a trapped
+   * surface only when the editor is that surface's own member — a field inside
+   * the sheet. An editor BENEATH a trapped surface does not: it still has DOM
+   * focus because the surface was opened with the pointer from chrome that
+   * takes no focus (a masthead popover), and the Escape belongs to the surface
+   * the user can see. Before this the composer swallowed it and the popover
+   * would not close from the keyboard at all (at0423, 2026-11-10).
+   */
+  editorKeepsEscape(focusableId: string | null): boolean {
+    if (!this.currentFocusModeTrapped()) return true;
+    return this.currentModeMember(focusableId);
+  }
+
+  /**
    * Whether the current (top) focus mode opted into Escape-exit (`escapeExits`) —
    * a focus-cycle that Escape pops back to rest, distinct from a modal surface that
    * owns its own Escape. `false` at the base mode. The act dispatch consults this to
@@ -4529,6 +4549,9 @@ export class FocusManager extends Subscribable {
   }
   currentFocusModeTrapped(): boolean {
     return this.activeContext().currentFocusModeTrapped();
+  }
+  editorKeepsEscape(focusableId: string | null): boolean {
+    return this.activeContext().editorKeepsEscape(focusableId);
   }
   currentModeMember(id: string | null): boolean {
     return this.activeContext().currentModeMember(id);

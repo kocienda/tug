@@ -46,7 +46,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { overlayReady } from "./overlay-fixture";
+import { overlayReady, restoreSettled } from "./overlay-fixture";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   createArc,
@@ -182,6 +182,8 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
         // bind verb resolves the owning instance through.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The resume's reveal raises the restore gate after engine ready.
+        await restoreSettled(app, "A");
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WIDGET)}) !== null`,
           { timeoutMs: 15_000 },

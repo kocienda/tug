@@ -184,6 +184,7 @@ import { installHmrLanded } from "../lib/hmr-landed";
 import { installScopedReload } from "../lib/scoped-reload";
 import { createBodyCardDeck, createDeckView, type BodyCardDeck } from "./body-card-deck";
 import { renderBodyRoot } from "./body-root";
+import { BODY_CHROME_FRAME_CLASS } from "./body-chrome-frame";
 import { installBodyPublisher, type InstalledBodyPublisher } from "./body-publisher";
 import { parseBodyIntent, replayBodyIntent, type BodyIntent } from "./body-intent";
 import { answerBodyVerbs } from "./body-verbs";
@@ -775,8 +776,12 @@ async function bindBody(bind: BodyBind): Promise<void> {
   });
   // The crossing the shell's pane stands under, held here on this page's
   // own frame so the card root holds through it as an in-document one does.
+  // The frame is `BodyChromeFrame`'s, found by the class it names; until
+  // 2026-11-10 this asked for `.body-pane-frame`, the class the frame wore
+  // before `7ee393cd9`, found nothing, and every body card re-flowed through
+  // the crossings it should have held still through.
   follow(cardCrossing, (crossing) => {
-    const frame = document.querySelector<HTMLElement>(".body-pane-frame");
+    const frame = document.querySelector<HTMLElement>(`.${BODY_CHROME_FRAME_CLASS}`);
     if (frame !== null) applyCrossingMirror(frame, crossing);
   });
   // Other cards' bindings, titles, identities and phases: this page's stores
