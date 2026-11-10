@@ -132,6 +132,7 @@ import { computePageNavigation } from "@/components/tugways/internal/list-view-p
 import {
   createTopPostStore,
   overviewCellTops,
+  overviewPrependPush,
   overviewReaderLeftEdge,
   PENDING_TOP_POST,
   type TopPostStore,
@@ -1133,6 +1134,10 @@ export function OverviewContent({
   // measures against; leaving it stale there would have the next prepend
   // count that growth a second time.
   const prevScrollHeightRef = useRef(0);
+  // The `scrollTop` as of the same moments, and as of every scroll event: a
+  // position that has moved since, with no scroll to say so, is the engine's
+  // scroll anchoring answering a change above the reader.
+  const prevScrollTopRef = useRef(0);
   const prevFirstKeyRef = useRef<string | null>(null);
   // The `scrollTop` this card last WROTE while pinning to the live edge, so a
   // scroll event can be read for whose act it was. Every pin goes through
@@ -1169,27 +1174,38 @@ export function OverviewContent({
   // pass, the one place that already reads the top post's rect each frame.
   // Set once the window hook has run, below.
   const noteTopPostRef = useRef<(key: string | null, offset: number) => void>(() => {});
+  // Find the top post and hand the window its reading. The pass below does
+  // this once a frame; the scroll handler does it as well, because a reader
+  // who scrolls and a page of older posts that lands before the next frame
+  // would otherwise hold the reader where they were a scroll ago (at0367).
+  const readTopPost = useCallback(
+    (el: HTMLDivElement): { portTop: number; top: HTMLElement | null; topRect: DOMRect | null } => {
+      const portTop = layoutRectOf(el).top;
+      let top: HTMLElement | null = null;
+      let topRect: DOMRect | null = null;
+      for (const cell of el.querySelectorAll<HTMLElement>(":scope > .overview-cell")) {
+        const rect = layoutRectOf(cell);
+        if (rect.bottom > portTop) {
+          top = cell;
+          topRect = rect;
+          break;
+        }
+      }
+      noteTopPostRef.current(
+        top === null || topRect === null || top.dataset.pending !== undefined
+          ? null
+          : (top.dataset.postKey ?? null),
+        topRect === null ? 0 : portTop - topRect.top,
+      );
+      return { portTop, top, topRect };
+    },
+    [],
+  );
   const placePinnedHeader = useCallback((): void => {
     const el = scrollRef.current;
     const header = pinnedHeaderRef.current;
     if (el === null || header === null) return;
-    const portTop = layoutRectOf(el).top;
-    let top: HTMLElement | null = null;
-    let topRect: DOMRect | null = null;
-    for (const cell of el.querySelectorAll<HTMLElement>(":scope > .overview-cell")) {
-      const rect = layoutRectOf(cell);
-      if (rect.bottom > portTop) {
-        top = cell;
-        topRect = rect;
-        break;
-      }
-    }
-    noteTopPostRef.current(
-      top === null || topRect === null || top.dataset.pending !== undefined
-        ? null
-        : (top.dataset.postKey ?? null),
-      topRect === null ? 0 : portTop - topRect.top,
-    );
+    const { portTop, top } = readTopPost(el);
     const entry = top?.querySelector<HTMLElement>(".tug-transcript-entry") ?? null;
     const pin = entry?.querySelector<HTMLElement>(".tug-transcript-entry__pin") ?? null;
     if (top === null || entry === null || pin === null) {
@@ -1218,7 +1234,7 @@ export function OverviewContent({
       header.style.transform = `translateY(${snapped}px)`;
     }
     header.dataset.visible = String(visible);
-  }, [topPostStore]);
+  }, [topPostStore, readTopPost]);
   const pinnedRafRef = useRef(0);
   const schedulePinnedHeader = useCallback((): void => {
     if (pinnedRafRef.current !== 0) return;
@@ -1333,6 +1349,7 @@ export function OverviewContent({
         if (back) pinToBottom(el);
       }
       prevScrollHeightRef.current = el.scrollHeight;
+      prevScrollTopRef.current = el.scrollTop;
       schedulePinnedHeader();
     },
     [setFollowing, atBottom, pinToBottom, schedulePinnedHeader],
@@ -1419,9 +1436,16 @@ export function OverviewContent({
       // A drain hold owns it too: posts prepended with heights still to
       // measure are held by the window, which re-lands the reader's post as
       // they resolve.
-      el.scrollTop += el.scrollHeight - prevScrollHeightRef.current;
+      //
+      // WebKit's scroll anchoring may have done it already: the commit's
+      // layout moved `scrollTop` on its own to keep the anchor post under
+      // the eye. Whatever it moved since this card last saw the position is
+      // taken off the push, or the insert is counted twice (at0367).
+      const anchored = el.scrollTop - prevScrollTopRef.current;
+      el.scrollTop += overviewPrependPush(el.scrollHeight - prevScrollHeightRef.current, anchored);
     }
     prevScrollHeightRef.current = el.scrollHeight;
+    prevScrollTopRef.current = el.scrollTop;
     prevFirstKeyRef.current = firstKey;
     // Keyed on the posts as rendered, not as stored: a post that arrived
     // under a held commit is followed by the commit after the gate opens,
@@ -1485,6 +1509,10 @@ export function OverviewContent({
     ) {
       setFollowing(false);
     }
+    // The reader's line as of this scroll, for a page that lands before the
+    // next frame's pass: see `readTopPost`, and `prevScrollTopRef`.
+    readTopPost(el);
+    prevScrollTopRef.current = el.scrollTop;
     // Near the top, ask for the page before this one. The store owns every
     // guard — nothing to ask for, nothing to anchor on, a request already
     // out — because this fires many times per scroll gesture.

@@ -130,8 +130,10 @@
  *
  * Cut from `at0629-motion-render-cost` to fit the 20 s budget, each piece on
  * its own launch of the same bench. This file carries the streamed commit and
- * its demoted control, and the pause leg, with the quiet reading they are
- * noted against; `at0629-motion-render-cost-budget` carries the calibration,
+ * its demoted control, with the quiet reading they are noted against; the
+ * pause leg, which this file carried too until it ran 16 s of a 17 s file
+ * deadline and lost its last reading to the cut, is `-pause`, on the same
+ * prologue (`quietBench`); `at0629-motion-render-cost-budget` carries the calibration,
  * the quiet claim, residency, the weld and the forcing probe, `-rest` the
  * at-rest gauge, the bisect, the composer chip and the switch, and
  * `-offscreen` the list benches. The deck and the readers are
@@ -164,88 +166,29 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  BENCH,
   BENCH_COUNT,
   BENCH_DOTS,
-  BENCH_LOOPS,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   cost,
-  deckShape,
   mean,
   meanOf,
-  type OffscreenReading,
+  quietBench,
 } from "./motion-render-cost-fixture";
 
 
 describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
   test(
-    "a streamed commit is priced by the running loops, and the pause leg pauses every loop in the bench",
+    "a streamed commit is priced by the running loops, and stilling them prices it at nothing",
     async () => {
+      // The population, the armed probe, the off-screen rule parked (the
+      // dots the pane clips still run) and the quiet reading, asserted.
       const app = await launchTugApp({
         testName: "at0629-motion-render-cost",
         visible: true,
       });
       try {
-        await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
-
-        // ---- The population, counted inside the bench card. --------------
-        await app.body("B").waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length === ${BENCH_COUNT}`,
-          { timeoutMs: 30_000 },
-        );
-
-        // ---- The probe armed itself off the registry's rising edge. ------
-        const armed = await app.body("B").evalJS<{
-          armed: boolean;
-          holds: number;
-          budgetMs: number;
-          restBudgetPerSecond: number;
-          demoted: boolean;
-        }>(`(function(){
-          var p = window.__tugMotion.probe();
-          return {
-            armed: p.armed, holds: p.holds,
-            budgetMs: p.budgetMs, restBudgetPerSecond: p.restBudgetPerSecond,
-            demoted: p.demoted,
-          };
-        })()`);
-        note("at0629 probe", armed);
-        expect(armed.armed).toBe(true);
-        expect(armed.holds).toBeGreaterThan(0);
-        expect(armed.demoted).toBe(false);
-        const budgetMs = armed.budgetMs;
-        const restBudget = armed.restBudgetPerSecond;
-        expect(restBudget).toBeGreaterThan(0);
-
-        // The flow bench is read with the off-screen rule OFF, so the dots
-        // the pane clips still run: these legs are about the glyph's own
-        // cost and the gauge's two ends, and the rule would take the
-        // clipped population out of both. The rule's own legs come last.
-        const ruleOff = await app.body("B").evalJS<OffscreenReading>(
-          `window.__tugMotion.offscreen(false)`,
-        );
-        note("at0629 off-screen rule parked for the flow bench", ruleOff);
-        expect(ruleOff.enabled).toBe(false);
-        expect(ruleOff.paused).toBe(0);
-
-        // ---- The quiet reading: the claim. -------------------------------
-        const quiet = await cost(app.body("B"), "__at0629quiet", 60);
-        note("at0629 quiet render cost", {
-          p50: quiet.p50,
-          p95: quiet.p95,
-          max: quiet.max,
-          budgetMs,
-        });
-        expect(
-          quiet.p95,
-          `the quiet p95 was ${quiet.p95} ms against a ${budgetMs} ms budget. ` +
-            `The budget is calibrated at twice this reading's own worst p95 on ` +
-            `the bench, so a red here says either the deck regressed or the ` +
-            `calibration wants re-reading on this machine. The first response ` +
-            `is to re-read it into RENDER_COST_BUDGET_MS with the doctrine's ` +
-            `rule, never to loosen the assertion.`,
-        ).toBeLessThan(budgetMs);
+        const { budgetMs, quiet } = await quietBench(app);
 
         // ---- The streamed commit: the deck the deck actually is. --------
         //
@@ -356,47 +299,12 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
             `them running. A reading that does not fall is a reading about ` +
             `the commit rather than about the loops it is supposed to price.`,
         ).toBeLessThan(mean(streamed.burst));
-        // ...and the driver is off before the pause, demote and breaker legs
-        // below, which would otherwise read a deck with a rAF loop on it.
+        // ...and the driver is off once the leg is done.
         expect(
           await app.body("B").evalJS<boolean>(
             `document.querySelector('[data-tug-stream-node]') === null`,
           ),
         ).toBe(true);
-
-        // ---- The pause leg: the cost belongs to the loops. ---------------
-        //
-        // The count is derived from what the census reports inside the bench,
-        // never written down: how many loops one glyph carries is a fact about
-        // the stylesheet, and this test is about neither that number nor the
-        // bench's count.
-        const longRunningInBench = await app.body("B").evalJS<number>(
-          `window.__tugMotion.list({ within: ${JSON.stringify(BENCH)} }).longRunning`,
-        );
-        const paused = await app.body("B").evalJS<number>(
-          `window.__tugMotion.pause(${JSON.stringify(BENCH_LOOPS)}).paused`,
-        );
-        const pausedStates = await app.body("B").evalJS<string[]>(
-          `Array.from(new Set(
-             window.__tugMotion.list({ within: ${JSON.stringify(BENCH)} })
-               .entries.map(function (e) { return e.playState; })
-           ))`,
-        );
-        const pausedCost = await cost(app.body("B"), "__at0629paused", 60);
-        const resumed = await app.body("B").evalJS<number>(
-          `window.__tugMotion.resume(${JSON.stringify(BENCH_LOOPS)}).resumed`,
-        );
-        note("at0629 pause leg", {
-          longRunningInBench,
-          paused,
-          resumed,
-          pausedStates,
-          pausedP50: pausedCost.p50,
-          breathingP50: quiet.p50,
-        });
-        expect(paused).toBeGreaterThanOrEqual(longRunningInBench);
-        expect(pausedStates).toEqual(["paused"]);
-        expect(resumed).toBe(paused);
       } finally {
         await app.close();
       }

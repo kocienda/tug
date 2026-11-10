@@ -30,7 +30,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type BodyApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -200,7 +200,7 @@ describe.skipIf(!SHOULD_RUN)(
 
         /** Bring a header to the card's middle, click it, and wait for its workspace. */
         const goBy = async (target: string): Promise<void> => {
-          const from = cardOf(here);
+          const from: BodyApp = cardOf(here);
           await from.evalJS<null>(
             `(function () {
                var card = document.querySelector(${JSON.stringify(CARD_ROOT)});

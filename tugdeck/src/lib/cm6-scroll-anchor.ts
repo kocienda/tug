@@ -41,6 +41,7 @@ import {
   PRESERVE_SCROLLER_ATTR,
   RESIZE_PRESERVE_BEGIN,
   RESIZE_PRESERVE_END,
+  holdThroughSettleTail,
 } from "./resize-episode";
 
 /** Where a CM6 surface's viewport top falls, in the coordinates a re-wrap preserves. */
@@ -134,16 +135,27 @@ function readCm6PosAnchor(view: EditorView): Cm6PosAnchor | null {
 
 class Cm6ScrollAnchor implements PluginValue {
   private readonly scroller: HTMLElement;
-  /** Non-null exactly while a resize episode is open on this scroller. */
+  /**
+   * Non-null while a resize episode is open on this scroller, and through the
+   * settle tail after its end ({@link holdThroughSettleTail}).
+   */
   private held: Cm6PosAnchor | null = null;
+  /** The settle tail's cancel, while one runs. */
+  private cancelTail: (() => void) | null = null;
 
   private readonly onScroll = (): void => {
     this.publish();
   };
 
   private readonly onPreserveBegin = (event: Event): void => {
+    // A new episode inside the last one's tail reads its own anchor.
+    this.cancelTail?.();
+    this.cancelTail = null;
     const anchor = readCm6PosAnchor(this.view);
-    if (anchor === null) return;
+    if (anchor === null) {
+      this.held = null;
+      return;
+    }
     // Claim only once there is something to hold. Declining leaves the
     // episode's generic element anchor in charge, which is the better of the
     // two answers available when CM6 has not measured yet.
@@ -153,8 +165,24 @@ class Cm6ScrollAnchor implements PluginValue {
 
   private readonly onPreserveEnd = (): void => {
     this.reland();
-    this.held = null;
-    this.publish();
+    if (this.held === null) {
+      this.publish();
+      return;
+    }
+    // The episode can end before this view has re-wrapped: CodeMirror
+    // measures in its own frame after the resize, and the body page's
+    // crossing solve ends the episode in the `resize` event itself. So the
+    // anchor stays through the settle tail, and `update` re-lands it on the
+    // geometry change that measure brings — and once more in that measure
+    // regardless, since the resize may already have been read.
+    this.relandInMeasure();
+    this.cancelTail?.();
+    this.cancelTail = holdThroughSettleTail(this.scroller, (why) => {
+      this.cancelTail = null;
+      if (why === "settled") this.reland();
+      this.held = null;
+      this.publish();
+    });
   };
 
   constructor(private readonly view: EditorView) {
@@ -173,11 +201,19 @@ class Cm6ScrollAnchor implements PluginValue {
     if (!update.geometryChanged) return;
     // Mid-episode the geometry change IS the re-wrap, so re-land rather than
     // record: publishing here would save the position the reflow just broke.
-    if (this.held !== null) this.reland();
+    //
+    // In CodeMirror's measure rather than here: a plugin's `update` runs before
+    // the view redraws, so a rect read now is the layout the change is about
+    // to replace, and the view's own scroll anchoring then moves the
+    // scrollport after it. A measure request's write is the last word in the
+    // cycle that carries the new geometry.
+    if (this.held !== null) this.relandInMeasure();
     else this.publish();
   }
 
   destroy(): void {
+    this.cancelTail?.();
+    this.cancelTail = null;
     this.scroller.removeEventListener("scroll", this.onScroll);
     this.scroller.removeEventListener(RESIZE_PRESERVE_BEGIN, this.onPreserveBegin);
     this.scroller.removeEventListener(RESIZE_PRESERVE_END, this.onPreserveEnd);
@@ -200,14 +236,32 @@ class Cm6ScrollAnchor implements PluginValue {
     );
   }
 
-  private reland(): void {
-    if (this.held === null) return;
+  /** The scrollTop that puts the held character back where it stood, or null. */
+  private relandTarget(): number | null {
+    if (this.held === null) return null;
     const delta = measurePosDelta(this.view, this.held.pos);
-    if (delta === null) return;
-    const next = Math.max(0, this.scroller.scrollTop + delta - this.held.delta);
+    if (delta === null) return null;
+    return Math.max(0, this.scroller.scrollTop + delta - this.held.delta);
+  }
+
+  private writeScrollTop(next: number | null): void {
+    if (next === null) return;
     if (Math.abs(this.scroller.scrollTop - next) > 0.5) {
       this.scroller.scrollTop = next;
     }
+  }
+
+  private reland(): void {
+    this.writeScrollTop(this.relandTarget());
+  }
+
+  /** Re-land in the view's next measure cycle, read and write in their phases. */
+  private relandInMeasure(): void {
+    this.view.requestMeasure({
+      key: this,
+      read: () => this.relandTarget(),
+      write: (next) => this.writeScrollTop(next),
+    });
   }
 }
 

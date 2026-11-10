@@ -26,6 +26,7 @@ import { COMMANDS_BY_ID, type CommandEntry } from "../components/tugways/command
 import { bodyUnhandledRoute } from "../lib/body-command-route";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { commandForCard, commandForShell } from "./declarations/verbs";
+import { layoutSelectionStands } from "./declarations/arrangement";
 import { page } from "./page";
 
 /** Who runs a command: the shell, the key card (in its body when it is one), or AppKit. */
@@ -99,15 +100,16 @@ export function keyCardWalkEdge(direction: 1 | -1): boolean {
  * edit history is the focused surface's and what is left unanswered here is
  * a native control's; Cancel is sent and not claimed, so the key goes on to
  * the surface in this page that owns it while the shell's chain may still
- * take Escape's last rung. Anything else is sent and claimed. In the shell,
- * or in a body with no card yet, nothing is sent.
+ * take Escape's last rung — unless a layout selection stands, when that rung
+ * is certain to spend it and the key is claimed. Anything else is sent and
+ * claimed. In the shell, or in a body with no card yet, nothing is sent.
  */
 export function forwardToShell(
   entry: Pick<CommandEntry, "id">,
   payload: Record<string, unknown> | undefined,
 ): boolean {
   if (!page.isBody || page.cardId === null) return false;
-  const route = bodyUnhandledRoute(entry.id);
+  const route = bodyUnhandledRoute(entry.id, layoutSelectionStands.getSnapshot());
   if (route === "decline") return false;
   commandForShell.dispatch({ id: entry.id, ...(payload !== undefined ? { payload } : {}) });
   return route === "forward";

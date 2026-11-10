@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createTopPostStore,
   overviewCellTops,
+  overviewPrependPush,
   overviewReaderLeftEdge,
   overviewSpacerHeight,
   pinnedRangeFor,
@@ -157,5 +158,23 @@ describe("overviewReaderLeftEdge", () => {
     expect(
       overviewReaderLeftEdge({ ...unpinned, scrollTop: 1500, scrollHeight: 2000, clientHeight: 500 }),
     ).toBe(false);
+  });
+});
+
+describe("overviewPrependPush", () => {
+  // at0367's shape: four 131px posts land above a reader at 644.
+  test("with no scroll anchoring, the push is the whole growth", () => {
+    expect(overviewPrependPush(525, 0)).toBe(525);
+  });
+
+  test("where the engine anchored the reader already, nothing is left to push", () => {
+    // WebKit moved 644 → 1170 in the commit's layout; pushing the growth on
+    // top of that walked the reader 525px down (clamped, the 97px drift).
+    expect(overviewPrependPush(525, 526)).toBe(-1);
+    expect(overviewPrependPush(525, 525)).toBe(0);
+  });
+
+  test("an anchoring that moved part of the growth leaves the rest to push", () => {
+    expect(overviewPrependPush(525, 400)).toBe(125);
   });
 });

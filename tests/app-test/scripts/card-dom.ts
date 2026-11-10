@@ -232,6 +232,44 @@ export function skipBalanced(src: string, i: number, open: string, close: string
   return src.length;
 }
 
+/**
+ * `src` with the text of every string and template literal blanked, a
+ * template's `${…}` holes kept as code: the words left are the code's own.
+ */
+export function codeOnly(src: string): string {
+  const out = src.split("");
+  const blank = (from: number, to: number): void => {
+    for (let k = from; k < to && k < out.length; k++) if (out[k] !== "\n") out[k] = " ";
+  };
+  let j = 0;
+  while (j < src.length) {
+    const c = src[j];
+    if (c === "'" || c === '"') {
+      const end = skipString(src, j);
+      blank(j, end);
+      j = end;
+    } else if (c === "`") {
+      let k = j + 1;
+      let from = j;
+      while (k < src.length && src[k] !== "`") {
+        if (src[k] === "\\") k += 2;
+        else if (src[k] === "$" && src[k + 1] === "{") {
+          blank(from, k + 2);
+          const close = skipBalanced(src, k + 1, "{", "}");
+          // The hole's code may hold strings of its own.
+          const inner = codeOnly(src.slice(k + 2, close - 1));
+          for (let q = 0; q < inner.length; q++) out[k + 2 + q] = inner[q];
+          from = close - 1;
+          k = close;
+        } else k++;
+      }
+      blank(from, k + 1);
+      j = k + 1;
+    } else j++;
+  }
+  return out.join("");
+}
+
 /** `src` with every comment's characters blanked (newlines kept), so offsets and lines still match. */
 export function maskComments(src: string): string {
   const out = src.split("");
@@ -267,8 +305,16 @@ export function maskComments(src: string): string {
 export function fileBindings(src: string): Map<string, string> {
   const bindings = new Map<string, string>();
   const decl = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*/g;
+  // A module-level name is the one an importer or a top-level call means: a
+  // local of the same spelling inside some function body never replaces it.
+  const topLevel = new Set<string>();
   for (const m of src.matchAll(decl)) {
-    const start = (m.index ?? 0) + m[0].length;
+    const at = m.index ?? 0;
+    const lead = src.slice(src.lastIndexOf("\n", at - 1) + 1, at);
+    const isTop = /^(?:export\s+)?$/.test(lead);
+    if (!isTop && topLevel.has(m[1])) continue;
+    if (isTop) topLevel.add(m[1]);
+    const start = at + m[0].length;
     bindings.set(m[1], src.slice(start, initialiserEnd(src, start)));
   }
   const fn = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g;
@@ -315,7 +361,11 @@ export function expandText(text: string, bindings: Map<string, string>, depth = 
   let frontier = text;
   for (let d = 0; d < depth; d++) {
     let added = "";
-    for (const m of frontier.matchAll(/[A-Za-z_$][\w$]*/g)) {
+    // Only the test's own code names its bindings: a word inside a string or
+    // a template's text (`"at0746-a"`, `"activate-space"`, a script the page
+    // runs) is the page's or nobody's, and expanding it as a name drags in a
+    // binding that merely shares the spelling.
+    for (const m of codeOnly(frontier).matchAll(/[A-Za-z_$][\w$]*/g)) {
       const name = m[0];
       if (seen.has(name)) continue;
       seen.add(name);

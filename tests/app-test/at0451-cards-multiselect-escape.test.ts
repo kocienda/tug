@@ -222,13 +222,13 @@ describe.skipIf(!SHOULD_RUN)(
             await getSelection(app),
             "press 2 takes the selection",
           ).toEqual([]);
-
-          await app.nativeKey("Escape");
-          await wait(400);
-          expect(
-            await getSelection(app),
-            "press 3 has nothing left to shrink, and hands back no selection",
-          ).toEqual([]);
+          // No third press. With the filter and the selection both gone,
+          // nothing in Card A's page or the shell answers Escape, so the key
+          // reaches AppKit unanswered and beeps, as any unanswered key does.
+          // The table's last rung, focus out, is the Cards card's, and the
+          // keyboard is not there. Both presses above were claimed: a body
+          // claims the Escape it hands the shell while a selection stands
+          // (`forwardToShell`), where it once let the key run on and beep.
         } finally {
           await app.close();
         }

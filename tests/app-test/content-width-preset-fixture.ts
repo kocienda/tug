@@ -4,12 +4,24 @@
  *
  * `set-content-width` is the Layout card's Card Width row: it re-widths every
  * content pane to the named preset and re-solves the rails in the same commit
- * (`DeckManager.setContentWidth`). A pane lands on `min(preset, band)`, to the
- * pixel, both in the record and on screen. The gesture meets three starting
+ * (`DeckManager.setContentWidth`). A pane lands on the preset, to the pixel,
+ * both in the record and on screen. The gesture meets three starting
  * points — free panes, slotted panes under an imposition, and a pane standing
  * in bullseye — and each is its own file, split from
  * `at0681-content-width-lands-on-preset` to fit the 20 s file budget ([B07]
  * of the bodies migration brief).
+ *
+ * The preset is held between the stack's `sizePolicy` bounds and nothing else
+ * ([D128]: `resolveContentWidthPx`). The band is NOT a ceiling: no door ever
+ * clamped a content pane to it, and a pane wider than its band is a case the
+ * deck answers by placement (flow pins its left edge, pane-model.md § "The
+ * strip is revealed, not scrolled"), never by narrowing the card. The file
+ * once asserted `min(preset, band)`; that held only while the band was wider
+ * than `wide` (1230), and the Roomy 15px gap (`5fa88c72a`) with the 375px
+ * Layout rail (`9d1ba6d9d`) put the free deck's band at 1210, where the
+ * product — unchanged — kept the 1230 it was asked for. Gallery cards carry no
+ * bounds that bind at 675/800/1230, so every pane lands on the preset itself.
+ * The band is still read and noted, so a reader sees it beside the width.
  *
  * @module tests/app-test/content-width-preset-fixture
  */
@@ -153,7 +165,7 @@ export interface PresetCase {
 
 /** The test title every file states its case under. */
 export function caseTitle(c: PresetCase): string {
-  return `${c.name}: every content pane takes min(preset, band) exactly, on screen and in the record`;
+  return `${c.name}: every content pane takes its preset exactly, on screen and in the record`;
 }
 
 /** Seed `c`'s deck and read every preset in turn: each pane on min(preset, band). */
@@ -179,7 +191,6 @@ export async function landsOnPreset(c: PresetCase): Promise<void> {
       );
       await landed(app);
       const band = await bandWidth(app);
-      const want = Math.min(px, band);
       for (const paneId of ["p1", "p2"]) {
         const got = await landing(app, paneId);
         note(
@@ -188,12 +199,12 @@ export async function landsOnPreset(c: PresetCase): Promise<void> {
         );
         expect(
           got.record,
-          `${c.name} ${preset}: ${paneId}'s record holds min(${px}, band ${band})`,
-        ).toBe(want);
+          `${c.name} ${preset}: ${paneId}'s record holds the preset ${px} (band ${band})`,
+        ).toBe(px);
         expect(
           got.screen,
-          `${c.name} ${preset}: ${paneId} is drawn at min(${px}, band ${band})`,
-        ).toBe(want);
+          `${c.name} ${preset}: ${paneId} is drawn at the preset ${px} (band ${band})`,
+        ).toBe(px);
       }
     }
   } finally {

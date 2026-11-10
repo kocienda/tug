@@ -171,6 +171,25 @@ describe("what the ledger said", () => {
     expect(sessionCitationStore.getAnswer(FULL)).toEqual({ status: "pending" });
   });
 
+  test("cites a session asked about by its full id, a short id, or a spelling that resolved to it", () => {
+    // What a body page's filter admits pushes for (at0521): nothing until asked.
+    expect(sessionCitationStore.cites(FULL)).toBe(false);
+    sessionCitationStore.request(FULL);
+    expect(sessionCitationStore.cites(FULL)).toBe(true);
+    sessionCitationStore.forgetAll();
+    sessionCitationStore.request(SHORT);
+    expect(sessionCitationStore.cites(FULL)).toBe(true);
+    expect(sessionCitationStore.cites("0badf00d-1111-2222-3333-444455556666")).toBe(false);
+    sessionCitationStore.forgetAll();
+    sessionCitationStore.applyResolved({
+      found: [{ queried: "the-mint-work", session: row() }],
+      elsewhere: [],
+      unknown: [],
+    });
+    expect(sessionCitationStore.cites(FULL)).toBe(true);
+    expect(sessionCitationStore.cites("")).toBe(false);
+  });
+
   test("forgetAll drops every answer — what a reconnect does", () => {
     sessionCitationStore.applyResolved({
       found: [{ queried: FULL, session: row() }],

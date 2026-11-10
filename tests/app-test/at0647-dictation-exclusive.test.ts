@@ -214,7 +214,20 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         // The caret has to be in the field for the responder walk to start at
         // this composer, which is the real gesture: the user is mid-sentence and
         // changes their mind.
-        await app.body("A").nativeClickAtElement(SESSION_EDITOR);
+        // The press goes at the field's right end, beside the mic: the
+        // Overview rail opened above stands over the Session card's left
+        // part (a rail stands over the free cards it outranks), so the
+        // field's centre is under the rail, and a press there lands in the
+        // Overview's page — moving the keyboard to it, which ends the mic as
+        // a focus-out (`blurred`, finish-shaped, keeping the words) before
+        // Escape is pressed.
+        const fieldEnd = await app.body("A").evalJS<{ x: number; y: number }>(
+          `(function(){
+             var r = document.querySelector(${JSON.stringify(SESSION_EDITOR)}).getBoundingClientRect();
+             return { x: Math.round(r.right - 12), y: Math.round(r.top + r.height / 2) };
+           })()`,
+        );
+        await app.body("A").nativeClick(fieldEnd);
         await app.body("A").waitForCondition<boolean>(
           `(function(){
              var field = document.querySelector(${JSON.stringify(SESSION_EDITOR)});
@@ -223,6 +236,14 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
            })()`,
           { timeoutMs: 10_000 },
         );
+        expect(
+          await app.evalJS<string | null>(`window.__tug.getActiveCardId()`),
+          "the press kept the keyboard in the Session card",
+        ).toBe("A");
+        expect(
+          await app.body("A").evalJS<boolean>(modeIs(SESSION_MIC, "live")),
+          "the press into the field leaves the mic live, so Escape is what ends it",
+        ).toBe(true);
         await app.nativeKey("Escape");
 
         await app.body("A").waitForCondition<boolean>(modeIs(SESSION_MIC, "idle"), {

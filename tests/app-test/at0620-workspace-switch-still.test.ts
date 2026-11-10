@@ -150,6 +150,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
 import type { App } from "./_harness";
+import { bodyOf, settleFor } from "./body-grounding/_bodies";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -241,6 +242,14 @@ const SWITCHING_MARK = "[data-space-switching]";
  * than one that closed late under load.
  */
 const EPOCH_WAIT_MS = 1_500;
+
+/**
+ * How long the parked workspace has to be made ahead in, from the shown one's
+ * frames standing: the make-ahead pass's second of quiet, the mount, the next
+ * quiet, and four pages through the host's lane. at0791 allows six seconds
+ * for two.
+ */
+const MADE_AHEAD_MS = 8_000;
 
 const settle = (ms = 400): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -1043,13 +1052,42 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).length >= 4`,
             { timeoutMs: 30_000 },
           );
-          await settle(800);
+
+          // ---- The parked workspace, made ahead. --------------------------
+          // A parked workspace's pages are made ahead, hidden, once the shown
+          // one has painted (`body-make-ahead.ts`, `d207de043`), and that is
+          // the state the switches this file judges land from. A switch
+          // before it has run is the COLD one, whose pages load after the cut
+          // under their skeletons — at0786–at0791's subject, not this file's.
+          // Since per-card pages (`7ee393cd9`) the cold path's late geometry
+          // lands past any epoch: an unbound Session card's picker first
+          // reports its floor from a page that comes up half a second after
+          // the swap, and its pane eases from the card's 600px floor down to
+          // its stored 360px. Made ahead, the picker claims that floor on the
+          // parked record while the workspace is hidden
+          // (`applyReservations` in `body-shell.ts`), and the arrival is laid
+          // out at it. So the first switch waits for Two's pages to have
+          // painted, hidden, which also stands in for the settle this wait
+          // used to be.
+          const aheadFrom = Date.now();
+          const ahead = await settleFor(
+            () => Promise.all(CARDS_OF[SPACE_TWO].map((id) => bodyOf(app, id))),
+            (all) => all.every((b) => b !== null && b.state === "ready" && b.painted === true),
+            MADE_AHEAD_MS,
+          );
+          note(
+            `at0620 Two made ahead in ${Date.now() - aheadFrom}ms: ${CARDS_OF[SPACE_TWO].map((id, i) => `${id}=${ahead[i] === null ? "no page" : `${ahead[i]!.state}/painted ${ahead[i]!.painted}/visible ${ahead[i]!.visible}`}`).join(" ")}`,
+          );
+          expect(
+            ahead.every((b) => b !== null && b.state === "ready" && b.painted === true && !b.visible),
+            `the parked workspace's pages were made ahead, unseen, within ${MADE_AHEAD_MS}ms`,
+          ).toBe(true);
 
           // ---- Condition 1: plain. ---------------------------------------
-          // First, so it is also what mounts the parked workspace — every
+          // First, so it is also the parked workspace's first SHOW — every
           // condition after this one crosses between two workspaces whose
-          // cards are already standing, which is the state [B06] leaves the
-          // deck in for every switch but the first.
+          // cards have already been on screen, which is the state [B06]
+          // leaves the deck in for every switch but the first.
           const plainTo = await recordSwitch(app, "plain A->B", SPACE_TWO);
           await settle(600);
           const plainBack = await recordSwitch(app, "plain B->A", SPACE_ONE);

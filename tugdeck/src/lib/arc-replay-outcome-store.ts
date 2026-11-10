@@ -50,11 +50,21 @@ export interface ArcReplayOutcome {
    * without either guessing from presented state ([P01]): a shade that happens
    * to be up when an Arcs-card press answers is a timing coincidence, not an
    * origin, and a reader keyed on it would claim the other surface's press.
+   * An answer to a press another page made — the Arcs card's, heard in the
+   * Session card's page — carries {@link ANOTHER_PAGE_ENTRY_KEY}.
    */
   readonly entryKey: string;
   /** Bumped on every outcome so two identical answers in a row still notify. */
   readonly seq: number;
 }
+
+/**
+ * The entry key of an outcome this page did not press for. Every card is its
+ * own page, so a replay pressed on the Arcs card is answered in that card's
+ * page under its own key and, in the page of the Session card whose session it
+ * names, under this one: no shade's key, so the card's bulletin speaks it.
+ */
+export const ANOTHER_PAGE_ENTRY_KEY = "another-page";
 
 /**
  * The conflicting paths, as a sentence rather than a list nobody can read.

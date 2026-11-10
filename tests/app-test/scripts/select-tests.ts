@@ -148,7 +148,7 @@ const CORE_TIER = [
     "harness-smoke/smoke.test.ts", // bridge floor: boot, handshake, close
     "harness-smoke/smoke-native.test.ts", // native CGEvent gesture pipeline
     "harness-smoke/smoke-cold-boot.test.ts", // two-process tugbank round-trip
-    "at0024-prompt-state-roundtrip.test.ts", // prompt state across reload + relaunch
+    "at0024-prompt-state-roundtrip-session.test.ts", // prompt state across reload + relaunch
     "at0084-session-lifecycle-coordination.test.ts", // session lifecycle state-to-zone matrix
     "at0145-permission-dialog-keyboard.test.ts", // card-modal dialog keyboard model
     "at0165-activation-first-responder.test.ts", // responder-chain accelerators

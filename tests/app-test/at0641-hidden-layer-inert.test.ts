@@ -20,9 +20,10 @@
  *     a hidden layer. `visibility: hidden` and `content-visibility: hidden`
  *     each say so on their own; the reading is what says they said so here.
  *  3. **Take focus.** After a switch nothing in a hidden layer is the active
- *     element, and a hidden editor `.focus()`ed by hand does not become one —
- *     the composer in a parked workspace cannot be typed into by a script
- *     that found it.
+ *     element, and a hidden editor `.focus()`ed by hand in its own page does
+ *     not take the keyboard — its page is not the window's first responder
+ *     and the deck's active card does not move — so an editor in a parked
+ *     workspace cannot be typed into by a script that found it.
  *  4. **Move.** A loop on an element under a hidden layer is `paused` and the
  *     same loop under the shown layer is `running`. `display: none` stilled a
  *     hidden workspace's loops for free; what does it now is
@@ -91,6 +92,9 @@ const CONFIRM = '[data-slot="tug-confirm-popover"]';
 /** The Workspaces card of the shown workspace (one), and of the hidden one (two). */
 const SHOWN_CARDS = "at0641-c1";
 const HIDDEN_CARDS = "at0641-c2";
+/** The hidden workspace's Text cards; leg 3 tries the first one's editor. */
+const HIDDEN_TEXT_IDS = ["at0641-t2a", "at0641-t2b"];
+const HIDDEN_TEXT = "at0641-t2a";
 
 /** The probe loop leg 4 installs. Named so a leaked one is recognisable. */
 const PROBE_CLASS = "at0641-probe-spin";
@@ -420,7 +424,10 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- 3. Focus cannot land in it. --------------------------------
           // The layers are the shell's: a hidden layer and what stands in it
-          // are read in the shell's document.
+          // are read in the shell's document. Since `feee863b8` (card-is-one-
+          // view) every card draws its chrome and content in its own page, so
+          // the shell's hidden layer holds stand-ins and nothing focusable;
+          // the editor to try is the hidden Text card's, in its own page.
           // card-dom: shell
           const focus = await app.evalJS<FocusReading>(FOCUS_READ);
           note(`at0641 focus: ${JSON.stringify(focus)}`);
@@ -428,10 +435,29 @@ describe.skipIf(!SHOULD_RUN)(
             focus.activeInHiddenBefore,
             "after the switch the active element is not in a hidden layer",
           ).toBe(false);
-          expect(focus.hiddenEditorFound, "a hidden editor was there to try").toBe(true);
           expect(
             focus.activeInHiddenAfterFocus,
-            "a hidden editor focused by hand does not become the active element",
+            "nothing in the shell's hidden layer becomes the active element",
+          ).toBe(false);
+          const hiddenText = (await app.bodies()).find((b) => b.cardId === HIDDEN_TEXT);
+          expect(hiddenText?.shown, "the hidden workspace's Text card keeps an unshown page").toBe(false);
+          const tried = await app.body(HIDDEN_TEXT).evalJS<boolean>(
+            // An unopened Text card stands in its chooser: its path field is the editor to try.
+            `(function () { var e = document.querySelector(".cm-content, input, textarea, [contenteditable=true]"); if (e === null) return false; e.focus(); return true; })()`,
+          );
+          expect(tried, "a hidden editor was there to try").toBe(true);
+          await settle(300);
+          const afterFocus = (await app.bodies()).find((b) => b.cardId === HIDDEN_TEXT);
+          const activeCard = await app.evalJS<string | null>(`window.__tug.getActiveCardId()`);
+          note(`at0641 hidden focus: firstResponder=${afterFocus?.firstResponder} shown=${afterFocus?.shown} active=${activeCard}`);
+          expect(
+            afterFocus?.firstResponder,
+            "a hidden editor focused by hand does not take the keyboard: its page is not the first responder",
+          ).toBe(false);
+          expect(afterFocus?.shown, "and its page is still not shown").toBe(false);
+          expect(
+            HIDDEN_TEXT_IDS.includes(activeCard ?? ""),
+            "and the deck's active card is still the shown workspace's",
           ).toBe(false);
 
           // ---- 4. Nothing moves in the dark. ------------------------------

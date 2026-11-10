@@ -1,11 +1,12 @@
 /**
- * at0427-refs-match-search.test.ts — `/match`, `/search`, `/ref` end to end.
+ * at0427-refs-match-search.test.ts — `/match`, `/search`, `/ref` end to end,
+ * and the reload restore ([AT0427]).
  *
- * Drives the REAL refs backend: a `/match` or `/search` submitted through the
- * prompt sends a run on REFS_INPUT, tugcast walks the workspace on a blocking
- * thread, and the REFS_OUTPUT frames stream a numbered `#r` block into the
- * transcript as non-context ink. Nothing here is injected — the paths in the
- * block are paths the Rust walk actually found on disk.
+ * Drives the REAL refs backend (see `refs-match-search-fixture.ts`): the
+ * paths in each block are paths the Rust walk actually found on disk. The
+ * slice's other half — the Grep block's inert rows, a long line's excerpt,
+ * and Cancel — is `at0427-refs-blocks.test.ts`; the two are split so each
+ * file stays under the 20 s file budget.
  *
  *   1. **`/match` finds files by name** — the block settles with one numbered
  *      row per file, rendered through `PathListBlock`, and the rows are
@@ -20,14 +21,11 @@
  *      opens the second run's first ref, not the first run's.
  *   4. **`/ref` opens by number** — and reports a number the run does not
  *      have rather than opening something else.
- *   5. **Reload restore** — after Maker ▸ Reload the last settled run comes
- *      back from the ledger with its numbering intact, and `/ref N` still
- *      resolves against it.
- *   6. **Excerpting** — a hit inside a very long line renders as windows
- *      around each match with the rest elided, and the spans the row hands
- *      the editor still name the whole line.
- *   7. **Cancel** — a run over a large tree settles as `interrupted` when the
- *      block's Cancel is pressed, keeping the refs it had already found.
+ *   5. **Reload restore** — after the card's page is loaded afresh the last
+ *      settled run comes back from the ledger with its numbering intact, and
+ *      `/ref N` still resolves against it. Since `06e4041de` (2026-10-22)
+ *      Maker ▸ Reload keeps a card's page, so the page is reloaded on its own
+ *      after the shell's, as `at0216` does.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -42,198 +40,41 @@
  * @covers tugdeck/src/components/tugways/cards/refs-result-view.ts
  * @covers tugdeck/src/components/tugways/body-kinds/search-result-block.tsx
  * @covers tugdeck/src/components/tugways/body-kinds/path-list-block.tsx
+ * @family at0427-refs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { launchTugApp, type App } from "./_harness";
-import { enforcedTimeout } from "./_harness/rpc";
-import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
-
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 180_000;
-
-const SID = "b3c0d1ea-0000-4000-8000-000000000427";
-
-const CARD = '[data-card-id="A"]';
-const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const REFS_ROWS = `${CARD} [data-slot="session-transcript-refs-row"]`;
-const EDITOR = '[data-slot="tug-text-card-editor"] .cm-content';
+import { launchTugApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
+import {
+  REFS_ROWS,
+  SHOULD_RUN,
+  SID,
+  TEST_TIMEOUT_MS,
+  editorTexts,
+  editorTextsOf,
+  makeProjectDir,
+  refsRunFacts,
+  runRefs,
+  seedSessionCard,
+  submit,
+  textCardIds,
+  waitForEditorTexts,
+} from "./refs-match-search-fixture";
 
 /** The workspace the deterministic half searches. */
 let projectDir = "";
-/** A workspace big enough that a run over it is still going when we cancel. */
-let bigDir = "";
-/** A workspace whose one file is a single very long line, minified-bundle style. */
-let longDir = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  // realpath: macOS resolves the temp dir through /private, and the Rust walk
-  // reports paths under the root it was handed — encode + search the SAME
-  // string, or every absolute-path assertion here is off by that prefix.
-  projectDir = realpathSync(mkdtempSync(join(tmpdir(), "at0427-proj-")));
-  mkdirSync(join(projectDir, "src"));
-  // Two files whose NAMES carry the match needle, and whose CONTENT carries
-  // the search needle on known lines.
-  writeFileSync(
-    join(projectDir, "src", "kestrel-alpha.ts"),
-    ["const a = 1;", "// spinnaker rides here", "const b = 2;"].join("\n"),
-  );
-  writeFileSync(
-    join(projectDir, "src", "kestrel-beta.ts"),
-    ["export const beta = 0;", "const c = 3;", "// spinnaker again", ""].join("\n"),
-  );
-  writeFileSync(
-    join(projectDir, "src", "kestrel-gamma.ts"),
-    ["export const gamma = 7;", "// spinnaker last", ""].join("\n"),
-  );
-  // A file neither needle names, so a run that returns everything fails.
-  writeFileSync(join(projectDir, "src", "unrelated.ts"), "nothing to see\n");
-
-  // One line, two hits 1,000 chars apart, 2,206 chars end to end — the shape
-  // a `.jsonl` fixture or a minified bundle has, at a size an assertion can
-  // name exactly.
-  longDir = realpathSync(mkdtempSync(join(tmpdir(), "at0427-long-")));
-  writeFileSync(
-    join(longDir, "bundle.js"),
-    `${"x".repeat(100)}spinnaker${"y".repeat(1000)}spinnaker${"z".repeat(1097)}\n`,
-  );
-
-  bigDir = realpathSync(mkdtempSync(join(tmpdir(), "at0427-big-")));
-  const body = `${"// filler line\n".repeat(120)}const marker = "spinnaker";\n`;
-  for (let i = 0; i < 8000; i++) {
-    writeFileSync(join(bigDir, `f${i}.ts`), body);
-  }
+  projectDir = makeProjectDir();
 });
 
 afterAll(() => {
-  for (const dir of [projectDir, bigDir, longDir]) {
-    if (dir !== "" && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
-  }
+  if (projectDir !== "" && existsSync(projectDir)) rmSync(projectDir, { recursive: true, force: true });
 });
-
-/**
- * Submit one line through the real prompt entry.
- *
- * The typed text is read back before the submit chord: an open Text card can
- * sit over the session pane, and a click that lands on it instead of the
- * composer would otherwise send the keystrokes nowhere and leave the caller
- * waiting on an outcome that was never asked for.
- */
-async function submit(app: App, line: string): Promise<void> {
-  await app.body("A").nativeClickAtElement(PROMPT);
-  await app.nativeType(line);
-  await new Promise((r) => setTimeout(r, 200));
-  // The command name becomes a chip atom, so the composer's text is the ARGS
-  // alone — that tail is what proves the keystrokes landed here.
-  const args = line.slice(line.indexOf(" ") + 1);
-  const typed = await app.body("A").evalJS<string>(
-    `(document.querySelector(${JSON.stringify(PROMPT)}) || {}).textContent || ""`,
-  );
-  if (!typed.includes(args)) {
-    throw new Error(`composer did not receive "${line}" (it holds "${typed}")`);
-  }
-  await app.nativeKey("Enter", ["cmd"]);
-}
-
-/** Submit a refs command and block until run `expectedIndex` (0-based) has
- *  settled — the lifecycle dot leaves `in_flight`. */
-async function runRefs(app: App, line: string, expectedIndex: number): Promise<void> {
-  await submit(app, line);
-  await app.body("A").waitForCondition<boolean>(
-    `(function(){
-      var rows = document.querySelectorAll(${JSON.stringify(REFS_ROWS)});
-      if (rows.length !== ${expectedIndex + 1}) return false;
-      var strip = rows[${expectedIndex}].querySelector('[data-phase]');
-      return strip !== null && strip.getAttribute("data-phase") !== "in_flight";
-    })()`,
-    { timeoutMs: 30_000 },
-  );
-}
-
-/** Per-run facts: the echoed command, the header count, the lifecycle phase,
- *  and every annotated row's path/line in document order. */
-async function refsRunFacts(
-  app: App,
-  index: number,
-): Promise<{
-  command: string;
-  summary: string;
-  phase: string;
-  paths: string[];
-  lines: string[];
-}> {
-  return JSON.parse(
-    await app.body("A").evalJS<string>(`JSON.stringify((function(){
-      var row = document.querySelectorAll(${JSON.stringify(REFS_ROWS)})[${index}];
-      if (!row) return { command: "", summary: "", phase: "", paths: [], lines: [] };
-      var cmd = row.querySelector(".refs-result-command-text");
-      var sum = row.querySelector('[data-slot="tool-call-header-summary"]');
-      var strip = row.querySelector('[data-phase]');
-      var marks = Array.from(row.querySelectorAll('[data-tug-annotation="file-path"]'));
-      return {
-        command: cmd ? cmd.textContent.trim() : "",
-        summary: sum ? sum.textContent.trim() : "",
-        phase: strip ? (strip.getAttribute("data-phase") || "") : "",
-        paths: marks.map(function(m){ return m.getAttribute("data-path") || ""; }),
-        lines: marks.map(function(m){ return m.getAttribute("data-line") || ""; }),
-      };
-    })())`),
-  ) as {
-    command: string;
-    summary: string;
-    phase: string;
-    paths: string[];
-    lines: string[];
-  };
-}
-
-/** The card ids of every Text card the host holds a body for: each is its own page. */
-async function textCardIds(app: App): Promise<string[]> {
-  return (await app.bodies())
-    .filter((b) => b.componentId === "text" && b.cardId !== null && (b.state === "bound" || b.state === "ready"))
-    .map((b) => b.cardId as string);
-}
-
-/** Every open Text card's editor text, read card by card in each card's body. */
-async function editorTexts(app: App): Promise<string[]> {
-  const texts: string[] = [];
-  for (const id of await textCardIds(app)) {
-    texts.push(
-      ...(await app.body(id).evalJS<string[]>(
-        `Array.from(document.querySelectorAll(${JSON.stringify(EDITOR)}))
-           .map(function(el){ return el.textContent || ""; })`,
-      )),
-    );
-  }
-  return texts;
-}
-
-/**
- * Wait until the open Text cards' editor texts satisfy `holds` — the
- * cross-page form of a `waitForCondition` over every editor, since each Text
- * card is its own body. Timeout scaled as `waitForCondition`'s is.
- */
-async function waitForEditorTexts(
-  app: App,
-  holds: (texts: string[]) => boolean,
-  opts: { timeoutMs: number },
-): Promise<void> {
-  const budget = enforcedTimeout(opts.timeoutMs);
-  const deadline = Date.now() + budget;
-  for (;;) {
-    // A body still loading may not answer yet; that is "not yet", not a verdict.
-    const texts = await editorTexts(app).catch(() => null);
-    if (texts !== null && holds(texts)) return;
-    if (Date.now() >= deadline) {
-      throw new Error(`the Text card editors did not reach the expected state within ${budget} ms (read ${JSON.stringify(texts)})`);
-    }
-    await Bun.sleep(100);
-  }
-}
 
 describe.skipIf(!SHOULD_RUN)(
   "AT0427: /match, /search, /ref — the refs vertical slice",
@@ -243,11 +84,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({ testName: "at0427-refs-match-search" });
         try {
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 30_000 },
-          );
+          await seedSessionCard(app);
           await app.bindSession("A", {
             tugSessionId: SID,
             projectDir,
@@ -344,13 +181,20 @@ describe.skipIf(!SHOULD_RUN)(
           await app.body("A").click(LAST_ROW);
           await waitForEditorTexts(app, (texts) => texts.length === 3, { timeoutMs: 20_000 });
 
-          // --- Maker ▸ Reload: the ledger restores the latest run --------
+          // --- Reload: the ledger restores the latest run ---------------
+          // Since `06e4041de` (2026-10-22) a shell reload keeps the card's own
+          // page, and its store still holds both live runs; the restore this
+          // asserts is the one a page loaded afresh makes, so the card's page
+          // reloads too, as `at0216` does.
+          await app.body("A").evalJS<boolean>(`(window.__at0427Kept = true)`);
           await app.appReload();
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 20_000 },
+          await seedSessionCard(app);
+          await app.body("A").evalJS<null>(`(location.reload(), null)`);
+          await app.body("A").waitForCondition<boolean>(
+            `window.__at0427Kept !== true && typeof window.__tug !== "undefined"`,
+            { timeoutMs: 15_000 },
           );
+          await waitForBodyReady(app, "A");
           await app.bindSession("A", {
             tugSessionId: SID,
             projectDir,
@@ -377,221 +221,20 @@ describe.skipIf(!SHOULD_RUN)(
 
           // And the restored refs are what `/ref` resolves against — the
           // block on screen would be a lie if its numbers opened nothing.
+          // The Text cards the live half opened are pages the host still
+          // holds across the reload, so the claim is read off the card this
+          // `/ref` opens: one more Text card, holding a restored ref's file.
+          const before = new Set(await textCardIds(app));
           await submit(app, "/ref 1");
           await waitForEditorTexts(
             app,
             (eds) => eds.length === 1 && eds[0].indexOf("spinnaker") !== -1,
-            { timeoutMs: 20_000 },
-          );
-
-          process.stdout.write("VERDICT: PASS\n");
-        } catch (err) {
-          process.stdout.write("VERDICT: FAIL\n");
-          const tail = app.tailLog(200);
-          if (tail !== "") process.stderr.write(`\n[at0427] log tail:\n${tail}\n`);
-          throw err;
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "a Grep tool block's match rows stay inert — clickability is opt-in",
-      async () => {
-        const app = await launchTugApp({ testName: "at0427-refs-grep-inert" });
-        const ingest = (decoded: unknown) =>
-          app.driveSession("A", { op: "ingestFrame", feedId: 0x40, decoded });
-        try {
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 30_000 },
-          );
-          await app.bindSession("A", { tugSessionId: `${SID}-grep`, projectDir });
-
-          // The same body kind the refs block uses, from its other consumer.
-          // A Grep result names files Claude searched, not refs the user
-          // asked to open, so its rows carry no annotation: `openable` is
-          // opt-in, and only the refs block opts in.
-          const hit = join(projectDir, "src", "kestrel-alpha.ts");
-          await app.driveSession("A", { op: "send", text: "grep it" });
-          await ingest({
-            type: "tool_use",
-            msg_id: "m1",
-            tool_use_id: "tc-g1",
-            tool_name: "Grep",
-            input: { pattern: "spinnaker", path: projectDir, output_mode: "content" },
-            seq: 1,
-          });
-          await ingest({
-            type: "tool_result",
-            is_error: false,
-            tool_use_id: "tc-g1",
-            output: `${hit}:2:// spinnaker rides here`,
-          });
-          await ingest({
-            type: "tool_use_structured",
-            tool_use_id: "tc-g1",
-            tool_name: "Grep",
-            structured_result: {
-              mode: "content",
-              numFiles: 1,
-              truncated: false,
-              files: [
-                {
-                  path: hit,
-                  matches: [{ line: 2, text: "// spinnaker rides here", spans: [[3, 12]] }],
-                },
-              ],
+            {
+              timeoutMs: 20_000,
+              read: async () =>
+                editorTextsOf(app, (await textCardIds(app)).filter((id) => !before.has(id))),
             },
-          });
-          await ingest({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
-
-          const GREP = `${CARD} [data-slot="grep-tool-block"]`;
-          await app.body("A").waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(GREP)}) !== null`,
-            { timeoutMs: 10_000 },
           );
-          await app.body("A").click(`${GREP} [data-slot="tool-call-header-disclosure"]`);
-          await app.body("A").waitForCondition<boolean>(
-            `document.querySelector(
-               ${JSON.stringify(`${GREP} [data-slot="search-result-match"]`)}) !== null`,
-            { timeoutMs: 10_000 },
-          );
-          const annotated = await app.body("A").evalJS<number>(
-            `document.querySelectorAll(
-               ${JSON.stringify(`${GREP} [data-slot="search-result-match"][data-tug-annotation]`)}).length`,
-          );
-          expect(annotated, "Grep match rows carry no file-path annotation").toBe(0);
-
-          process.stdout.write("VERDICT: PASS\n");
-        } catch (err) {
-          process.stdout.write("VERDICT: FAIL\n");
-          const tail = app.tailLog(200);
-          if (tail !== "") process.stderr.write(`\n[at0427] log tail:\n${tail}\n`);
-          throw err;
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "a hit inside a very long line renders as an excerpt, not the line",
-      async () => {
-        const app = await launchTugApp({ testName: "at0427-refs-excerpt" });
-        try {
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 30_000 },
-          );
-          await app.bindSession("A", {
-            tugSessionId: `${SID}-excerpt`,
-            projectDir: longDir,
-            workspaceKey: longDir,
-          });
-
-          await runRefs(app, "/search spinnaker", 0);
-
-          // What the row DRAWS. The line is 2,206 chars with two hits 1,000
-          // apart; the row shows two windows and the elisions between them.
-          const drawn = await app.body("A").evalJS<string>(
-            `(document.querySelector(${JSON.stringify(
-              `${REFS_ROWS} [data-slot="search-result-match"] .tugx-search-linetext`,
-            )}) || {}).textContent || ""`,
-          );
-          expect(
-            drawn.length,
-            "the row is an excerpt, not a 2,206-char line",
-          ).toBeLessThan(200);
-          expect(drawn).toContain("spinnaker");
-          const elisions = await app.body("A").evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(
-              `${REFS_ROWS} [data-slot="search-result-elision"]`,
-            )}).length`,
-          );
-          expect(elisions, "head, middle, and tail of the line are elided").toBe(3);
-
-          // BOTH hits paint — an excerpt that showed only the first match
-          // would be answering a different question than the one asked.
-          const hits = await app.body("A").evalJS<string[]>(
-            `Array.from(document.querySelectorAll(${JSON.stringify(
-              `${REFS_ROWS} .tugx-search-hit`,
-            )})).map(function(m){ return m.textContent || ""; })`,
-          );
-          expect(hits).toEqual(["spinnaker", "spinnaker"]);
-
-          // And the span the row hands the editor still names the LINE: the
-          // first hit sits at chars 100..109, not at its offset inside the
-          // window that draws it.
-          const columns = await app.body("A").evalJS<string | null>(
-            `(document.querySelector(${JSON.stringify(
-              `${REFS_ROWS} [data-slot="search-result-match"]`,
-            )}) || {}).getAttribute
-               ? document.querySelector(${JSON.stringify(
-                 `${REFS_ROWS} [data-slot="search-result-match"]`,
-               )}).getAttribute("data-columns")
-               : null`,
-          );
-          expect(columns, "spans stay in whole-line coordinates ([P14])").toBe("100,109");
-
-          process.stdout.write("VERDICT: PASS\n");
-        } catch (err) {
-          process.stdout.write("VERDICT: FAIL\n");
-          const tail = app.tailLog(200);
-          if (tail !== "") process.stderr.write(`\n[at0427] log tail:\n${tail}\n`);
-          throw err;
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "a long run settles as interrupted when its Cancel is pressed",
-      async () => {
-        const app = await launchTugApp({ testName: "at0427-refs-cancel" });
-        try {
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 30_000 },
-          );
-          // A workspace of four thousand matching files: the run streams a
-          // frame per file, so it is unambiguously still going when we press
-          // Stop — no sleep-and-hope.
-          await app.bindSession("A", {
-            tugSessionId: `${SID}-cancel`,
-            projectDir: bigDir,
-            workspaceKey: bigDir,
-          });
-
-          await submit(app, "/search spinnaker");
-          const CANCEL = `${REFS_ROWS} [data-slot="refs-result-cancel"]`;
-          await app.body("A").waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(CANCEL)}) !== null`,
-            { timeoutMs: 20_000 },
-          );
-          await app.body("A").click(CANCEL);
-
-          // The block settles as interrupted, keeping what it had found —
-          // a cancel is a stop, not a discard.
-          await app.body("A").waitForCondition<boolean>(
-            `(function(){
-              var strip = document.querySelector(
-                ${JSON.stringify(`${REFS_ROWS} [data-phase]`)});
-              return strip !== null && strip.getAttribute("data-phase") === "interrupted";
-            })()`,
-            { timeoutMs: 20_000 },
-          );
-          const cancelled = await refsRunFacts(app, 0);
-          expect(cancelled.phase).toBe("interrupted");
-          expect(cancelled.summary).toContain("ref");
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

@@ -30,7 +30,7 @@ import { describe, expect, test } from "bun:test";
 import { note } from "./_harness";
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import { SHOULD_RUN } from "./settle-frames-fixture";
-import { BAR_SPEC, CHART, launchWithCharts } from "./tugchart-fixture";
+import { BAR_SPEC, CARD, CHART, launchWithCharts } from "./tugchart-fixture";
 
 const TEST_NAME = "at0770-tugchart-hover";
 
@@ -111,7 +111,8 @@ describe.skipIf(!SHOULD_RUN)("at0770 — a chart mark reads its row on hover", (
   test(
     "hovering a bar shows its table row in the one tooltip bubble",
     async () => {
-      const { app, tugbankPath, page } = await launchWithCharts(TEST_NAME, [BAR_SPEC]);
+      const { app, tugbankPath } = await launchWithCharts(TEST_NAME, [BAR_SPEC]);
+      const page = app.body(CARD);
       try {
         const hit = await page.evalJS<{ targets: number; row: string }>(READ_HIT);
         note(`at0770 targets: ${hit.targets}, under the bar: row ${hit.row}`);

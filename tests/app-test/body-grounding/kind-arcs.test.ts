@@ -27,7 +27,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "../_harness";
-import { bodyOfKind } from "../_harness/card-reach";
+import { bodyOfKind, waitForBodyPainted } from "../_harness/card-reach";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { createArc, makeArcScratchRepo, rmArcScratchRepo, type ArcScratchRepo } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
@@ -115,6 +115,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Arcs", () => {
         expect(bind, "the Arcs body offers Bind to the followed Session card's session").toBe("offered");
 
         // ── The row's menu opens inside the body ────────────────────────
+        // A native press needs the body placed: a ready page may still stand
+        // unplaced, and a point in its viewport is then outside the view.
+        await waitForBodyPainted(app, "dashes");
+        const placed = (await app.bodies()).find((b) => b.cardId === arcsId);
+        const rowAt = await arcs.evalJS<string>(
+          `(function () { var r = document.querySelector(${JSON.stringify(ROW)}).getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(",") + " in " + innerWidth + "x" + innerHeight; })()`,
+        );
+        note(`Arcs body frame ${JSON.stringify(placed?.frame)} page ${JSON.stringify(placed?.pageSize)}; row ${rowAt}`);
         await arcs.nativeClickAtElement(ROW, { button: "right" });
         const menu = await settleFor(() => arcs.evalJS<boolean>(present(MENU_BIND)), (v) => v, 5_000);
         expect(menu, "the row's menu opens in the Arcs body and offers Bind").toBe(true);

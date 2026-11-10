@@ -118,12 +118,19 @@ function str(value: unknown): string | null {
  * cache its rows read. Nothing it is shown drives a session — the card-keyed
  * acks and the arc and rename answers stay its own card's — and a cut list
  * would replace the page's whole bindings cache with its own card's one row.
+ *
+ * A card is also shown the row pushes of a session it **cites** (`cites`):
+ * an arc's record names each stage's segment and shows what it cost, a figure
+ * the turn-telemetry write moves by a `session_updated` push for that
+ * segment, not the card's own. The push only fills the identity and usage
+ * caches the citation reads, so admitting it drives nothing (at0521).
  */
 export function bodyCardFilter(
   held: () => HeldSession,
-  options: { lists?: boolean } = {},
+  options: { lists?: boolean; cites?: (sessionId: string) => boolean } = {},
 ): SessionControlFilter {
   const lists = options.lists === true;
+  const cites = options.cites ?? (() => false);
   return (action, payload) => {
     if (lists && (action === "session_updated" || action === "list_card_bindings_ok")) {
       return payload;
@@ -152,7 +159,10 @@ export function bodyCardFilter(
         return wearsSession(str(payload.tug_session_id)) ? payload : null;
       case "session_updated": {
         const fields = payload.fields as Record<string, unknown> | undefined;
-        return wearsSession(str(payload.session_id)) || wearsLine(str(fields?.line_id))
+        const sessionId = str(payload.session_id);
+        return wearsSession(sessionId) ||
+          wearsLine(str(fields?.line_id)) ||
+          (sessionId !== null && cites(sessionId))
           ? payload
           : null;
       }

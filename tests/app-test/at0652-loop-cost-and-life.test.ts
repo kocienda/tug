@@ -56,7 +56,14 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const CARD = '[data-card-id="A"]';
-const WAVE = `${CARD} [data-slot="tug-progress-wave"]`;
+/**
+ * The in-flight footer's wave (`session-card-z1c.tsx`), by its own slot. The
+ * card's page also draws the content lid's wave (`content-lid-wave.tsx`, in
+ * `body-chrome-frame.tsx` since `d207de043`), which stands still and unseen
+ * at rest and comes first in document order, so an unscoped wave selector
+ * reads the lid's.
+ */
+const WAVE = `${CARD} [data-slot="session-z1c"] [data-slot="tug-progress-wave"]`;
 /**
  * The dot in the card's HEADER, not the first one in the document.
  *

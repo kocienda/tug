@@ -289,6 +289,15 @@ describe("bodyUnhandledRoute", () => {
     expect(bodyUnhandledRoute(TUG_ACTIONS.CANCEL_DIALOG)).toBe("forward-unclaimed");
   });
 
+  test("Cancel is claimed while a layout selection stands, since the shell's root spends it", () => {
+    // Left to run on in the page, a key the shell answered reaches AppKit
+    // unhandled and beeps (at0451's Escape presses from a fronted card).
+    expect(bodyUnhandledRoute(TUG_ACTIONS.CANCEL_DIALOG, true)).toBe("forward");
+    expect(bodyUnhandledRoute(TUG_ACTIONS.CANCEL_DIALOG, false)).toBe("forward-unclaimed");
+    // The selection has no say over anything else.
+    expect(bodyUnhandledRoute(TUG_ACTIONS.UNDO, true)).toBe("decline");
+  });
+
   test("Undo and Redo stay in the page; anything else is the shell's", () => {
     expect(bodyUnhandledRoute(TUG_ACTIONS.UNDO)).toBe("decline");
     expect(bodyUnhandledRoute(TUG_ACTIONS.REDO)).toBe("decline");

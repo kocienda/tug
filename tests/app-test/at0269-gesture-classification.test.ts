@@ -15,9 +15,10 @@
  *      seams and below-the-fold geometry silently deselect the deck.
  *
  * The interpreter is the shell's, so every press it classifies here lands on
- * the shell: the canvas, and the pane's title bar for the re-select between
- * the two scenarios. The pane's content is the card's body, a page of its
- * own, and a press there never reaches this interpreter.
+ * the shell: the canvas. The pane — its title bar and its content — is the
+ * card's body, a page of its own, and a press there never reaches this
+ * interpreter; the re-select between the two scenarios is a press on the
+ * title bar, read by the pane it selects.
  *
  * Scenario 2 dispatches its pointerdown at a named element (the deck root
  * wrapper, which is not the marked background surface) because the geometry it
@@ -121,19 +122,12 @@ describe.skipIf(!SHOULD_RUN)("at0269 — gesture classification", () => {
         );
 
         // Re-select for scenario 2: a click on the pane's title bar activates
-        // it again.
+        // it again. The title bar is the card's own chrome, drawn in its body
+        // since every card stands over the shell (`7ee393cd9`), so the press
+        // lands in the card's page and never reaches the shell's interpreter:
+        // what is read is the pane selected again, not a shell gesture record.
         await app.nativeMouseDown({ x: 200, y: 58 });
-        await app.waitForCondition<boolean>(
-          `window.__tug.currentGesture() !== null`,
-          { timeoutMs: 6000 },
-        );
-        const reselectGesture = await app.evalJS<GestureRecord | null>(
-          `window.__tug.currentGesture()`,
-        );
         await app.nativeMouseUp({ x: 200, y: 58 });
-        console.log("[at0269] reselect gesture:", JSON.stringify(reselectGesture));
-        expect(reselectGesture?.site).toBe("pane");
-        expect(reselectGesture?.activation).toBe("activate");
         await app.waitForCondition<boolean>(paneSelected("p1"), {
           timeoutMs: 6000,
         });

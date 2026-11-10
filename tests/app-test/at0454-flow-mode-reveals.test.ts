@@ -336,9 +336,9 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: what it reveals", () => {
 
         await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
         await takeCuts(app);
-        await app.nativeClickAtElement(
-          `.tug-pane[data-pane-id="p5"] [data-testid="tug-pane-close-button"]`,
-        );
+        // The pane's chrome is drawn in its card's own page, so E's X is
+        // pressed there; the shell's stand-in holds no close button.
+        await app.body("E").nativeClickAtElement(`[data-testid="tug-pane-close-button"]`);
         await app.waitForCondition<boolean>(
           `document.querySelector('.tug-pane[data-pane-id="p5"]') === null`,
           { timeoutMs: 4_000 },

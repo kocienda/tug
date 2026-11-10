@@ -1,6 +1,9 @@
 /**
- * at0024-prompt-state-roundtrip.test.ts — comprehensive prompt-state
- * round-trip matrix across reload + relaunch ([AT0024]).
+ * prompt-state-roundtrip-fixture.ts — the shared body of the prompt-state
+ * round-trip matrix across reload + relaunch ([AT0024]). The matrix runs in
+ * two files, one per card, so neither crosses the 20 s file budget:
+ * `at0024-prompt-state-roundtrip-gallery.test.ts` and
+ * `at0024-prompt-state-roundtrip-session.test.ts`.
  *
  * ## Why this exists
  *
@@ -108,7 +111,7 @@
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
 import {
   mkTempTugbank,
@@ -117,15 +120,15 @@ import {
   tugbankRead,
 } from "./_harness/tugbank-helpers";
 
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
-const TEST_TIMEOUT_MS = 90_000;
+export const TEST_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
 // Card targets
 // ---------------------------------------------------------------------------
 
-type PromptComponentId =
+export type PromptComponentId =
   | "gallery-prompt-entry"
   | "session";
 
@@ -649,7 +652,7 @@ async function assertLiveState(app: App): Promise<void> {
  * process, fresh WKWebView. The temp tugbank persists the bag across
  * the reload because `prepareForReload` flushes synchronously.
  */
-async function runAppReloadScenario(
+export async function runAppReloadScenario(
   componentId: PromptComponentId,
 ): Promise<void> {
   const tugbankPath = mkTempTugbank();
@@ -680,7 +683,7 @@ async function runAppReloadScenario(
  * Run the full round-trip against the `quitGracefully` + relaunch
  * trigger. Two separate Tug.app processes, same temp tugbank.
  */
-async function runRelaunchScenario(
+export async function runRelaunchScenario(
   componentId: PromptComponentId,
 ): Promise<void> {
   const tugbankPath = mkTempTugbank();
@@ -726,35 +729,3 @@ async function runRelaunchScenario(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Test cases — 3 cards × 2 triggers
-// ---------------------------------------------------------------------------
-
-describe.skipIf(!SHOULD_RUN)(
-  "m24: prompt-state round-trip across reload + relaunch",
-  () => {
-    test(
-      "gallery-prompt-entry × appReload",
-      () => runAppReloadScenario("gallery-prompt-entry"),
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "gallery-prompt-entry × relaunch",
-      () => runRelaunchScenario("gallery-prompt-entry"),
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "dev × appReload",
-      () => runAppReloadScenario("session"),
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "dev × relaunch",
-      () => runRelaunchScenario("session"),
-      TEST_TIMEOUT_MS,
-    );
-  },
-);

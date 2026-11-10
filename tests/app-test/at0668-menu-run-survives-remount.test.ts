@@ -29,6 +29,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, note } from "./_harness";
+import { restoreSettled } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -130,6 +131,12 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
           `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
           { timeoutMs: 10_000 },
         );
+        // The replay raised the restore gate in the overlay page, and while it
+        // stands it claims the whole window: a right-click made then reaches
+        // the overlay (read there, 2026-11-10: claim `all`, the gate up, the
+        // `contextmenu` the overlay's), A's page hears nothing and no menu
+        // opens. The gesture waits for the gate to come down.
+        await restoreSettled(app, "A");
 
         // The wire drops: the card can no longer send, so the run arms.
         await app.driveSession("A", { op: "transportClose" });

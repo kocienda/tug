@@ -25,10 +25,9 @@
  *  - **the click opens the file** in a Text card showing its content;
  *  - **Open in Editor**, the reference's own menu item, sends the same
  *    `open-file` command carrying the same target;
- *  - **a bare filename** with no path at all resolves through the project's
- *    file index — backticked, and unbackticked split out of the sentence —
- *    where it actually lives, nowhere near the root the name was resolved
- *    against;
+ *  - **a bare filename** resolving through the project's file index is
+ *    `at0307-transcript-file-path-links-bare.test.ts`, split out so neither
+ *    file crosses the 20 s file budget;
  *  - **a cited line range** (`path:124-135`) opens the file at those lines;
  *    until the range parsed, the suffix rode along as part of the path and
  *    the reference resolved to nothing.
@@ -68,12 +67,10 @@ import {
   CODE_OUTPUT_FEED,
   FILE_BODY,
   FILE_NAME,
-  INDEXED_NAME,
   MISSING_NAME,
   openAnnotationMenu,
   replayComplete,
   replayStarted,
-  REPO_ROOT,
   SHOULD_RUN,
   SID,
   spanStateJS,
@@ -271,160 +268,6 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
             { timeoutMs: 12_000 },
           );
-
-          process.stdout.write("VERDICT: PASS\n");
-        } catch (err) {
-          process.stdout.write("VERDICT: FAIL\n");
-          const tail = app.tailLog(200);
-          if (tail !== "") process.stderr.write(`\n[at0307] log tail:\n${tail}\n`);
-          throw err;
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "a bare filename in prose resolves through the project's file index",
-      async () => {
-        const app = await launchTugApp({
-          testName: "at0307-transcript-file-path-links-name",
-        });
-        const ingest = (decoded: unknown) =>
-          app.driveSession("A", {
-            op: "ingestFrame",
-            feedId: CODE_OUTPUT_FEED,
-            decoded,
-          });
-
-        try {
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 30_000 },
-          );
-          // Bound to this repository, which is the app-test bootstrap
-          // workspace — so FILETREE answers about real files here.
-          await app.bindSession("A", {
-            tugSessionId: SID,
-            sessionMode: "resume",
-            projectDir: REPO_ROOT,
-            workspaceKey: REPO_ROOT,
-          });
-
-          // A bare filename with no path at all, written as code — the
-          // form the corpus actually uses, and the one the grammar
-          // trusts. `fs/stat` cannot answer it (a name says what to look
-          // for, not where), so the whole case rests on the index.
-          await ingest(replayStarted());
-          await ingest(userMsg("which file"));
-          await ingest(
-            asstText("m1", `I changed \`${INDEXED_NAME}\` to match.`, 1),
-          );
-          await ingest(turnDone("m1"));
-          await ingest(replayComplete());
-
-          // The span is entirely one reference, so it is marked on the
-          // `<code>` element it already has rather than split out.
-          const MARK = `[data-card-id="A"] code[data-tug-annotation="file-path"]`;
-          await app.body("A").waitForCondition<boolean>(
-            `document.querySelector('${MARK}') !== null`,
-            { timeoutMs: 20_000 },
-          );
-          const mark = JSON.parse(
-            await app.body("A").evalJS<string>(`JSON.stringify((function(){
-              var el = document.querySelector('${MARK}');
-              return { text: el.textContent, path: el.getAttribute('data-path') };
-            })())`),
-          ) as { text: string; path: string | null };
-          expect(mark.text).toBe(INDEXED_NAME);
-          // The index knows where it actually lives, which is nowhere near
-          // the repo root the name was resolved against.
-          expect(mark.path).toBe(
-            `${REPO_ROOT}/tugdeck/src/components/tugways/internal/${INDEXED_NAME}`,
-          );
-
-          process.stdout.write("VERDICT: PASS\n");
-        } catch (err) {
-          process.stdout.write("VERDICT: FAIL\n");
-          const tail = app.tailLog(200);
-          if (tail !== "") process.stderr.write(`\n[at0307] log tail:\n${tail}\n`);
-          throw err;
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-
-    test(
-      "the same bare filename marks unbackticked, split out of the sentence",
-      async () => {
-        const app = await launchTugApp({
-          testName: "at0307-transcript-file-path-links-bare",
-        });
-        const ingest = (decoded: unknown) =>
-          app.driveSession("A", {
-            op: "ingestFrame",
-            feedId: CODE_OUTPUT_FEED,
-            decoded,
-          });
-
-        try {
-          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            { timeoutMs: 30_000 },
-          );
-          await app.bindSession("A", {
-            tugSessionId: SID,
-            sessionMode: "resume",
-            projectDir: REPO_ROOT,
-            workspaceKey: REPO_ROOT,
-          });
-
-          // The same name as the case above, with the backticks taken
-          // off. Whether the model reached for backticks decides the code
-          // TONE and nothing else; the resolver is the only gate on the
-          // mark, so this run has to come back marked exactly like its
-          // backticked twin — split out of the sentence, since it is a run
-          // inside a longer text node rather than its own element.
-          await ingest(replayStarted());
-          await ingest(userMsg("which file"));
-          await ingest(asstText("m1", `I changed ${INDEXED_NAME} to match.`, 1));
-          await ingest(turnDone("m1"));
-          await ingest(replayComplete());
-
-          const MARK = `[data-card-id="A"] span[data-tugx-wrapped][data-tug-annotation="file-path"]`;
-          // The mark's own words come back one render after the mark does:
-          // the file tip portals into the run, and hosting a portal means
-          // emptying the span first (`file-tip-portals.tsx`). Waiting on the
-          // element alone would read the empty host mid-flight.
-          await app.body("A").waitForCondition<boolean>(
-            `(function () {
-              var el = document.querySelector('${MARK}');
-              return el !== null && (el.textContent || "") !== "";
-            })()`,
-            { timeoutMs: 20_000 },
-          );
-          const mark = JSON.parse(
-            await app.body("A").evalJS<string>(`JSON.stringify((function(){
-              var el = document.querySelector('${MARK}');
-              return {
-                text: el.textContent,
-                path: el.getAttribute('data-path'),
-                inCode: el.closest('code') !== null,
-              };
-            })())`),
-          ) as { text: string; path: string | null; inCode: boolean };
-          expect(mark.text).toBe(INDEXED_NAME);
-          expect(mark.path).toBe(
-            `${REPO_ROOT}/tugdeck/src/components/tugways/internal/${INDEXED_NAME}`,
-          );
-          // Running prose, not a code span — this is the run the old
-          // license refused.
-          expect(mark.inCode).toBe(false);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

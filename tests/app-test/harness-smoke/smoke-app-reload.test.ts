@@ -20,7 +20,7 @@
  *
  * ## Why this exists as a smoke test, not an AT-tag test
  *
- * See also: `at0024-prompt-state-roundtrip.test.ts`,
+ * See also: `at0024-prompt-state-roundtrip-session.test.ts`,
  * which uses `app.appReload()` as one of its two reload triggers. If
  * `app.appReload()` itself is broken, the AT-tag tests cannot
  * possibly pass — the failure attribution would conflate "the

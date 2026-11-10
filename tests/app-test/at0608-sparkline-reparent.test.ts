@@ -65,9 +65,8 @@ function tabSelectorFor(cardId: string): string {
   return `[data-testid="tug-tab-${cardId}"]`;
 }
 
-function tabBarSelectorFor(paneId: string): string {
-  return `.tug-tab-bar[data-pane-id="${paneId}"]`;
-}
+/** A card's page draws its one pane's tab bar. */
+const TAB_BAR = ".body-chrome-frame .tug-tab-bar";
 
 /** Two multi-tab panes, so the drop resolves against a real tab bar. */
 function deckShape() {
@@ -183,15 +182,16 @@ describe.skipIf(!SHOULD_RUN)(
           note("at0608 instrument before the move", JSON.stringify(before));
 
           // The move itself — the same path a user's tab drag commits.
-          // The card draws its own tab bar, so its tab is pressed in its own
-          // page, at window points, and dropped on the other pane's bar in
-          // the shell.
-          const view = (await app.bodies()).find((b) => b.cardId === "A")!.frame;
+          // Every card draws its own chrome (`7ee393cd9`), so A's tab is
+          // pressed in A's page and the other pane's tab bar is read in the
+          // page of that pane's active card, C; both at window points.
+          const frames = await app.bodies();
+          const view = frames.find((b) => b.cardId === "A")!.frame;
+          const target = frames.find((b) => b.cardId === "C")!.frame;
           const centre = `(function (s) { var r = document.querySelector(s).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })`;
           const tab = await app.body("A").evalJS<{ x: number; y: number }>(`${centre}(${JSON.stringify(tabSelectorFor("A"))})`);
-          // card-dom: shell — the other pane's tab bar is the shell's.
-          const bar = await app.evalJS<{ x: number; y: number }>(`${centre}(${JSON.stringify(tabBarSelectorFor("p2"))})`);
-          await app.nativeDrag({ x: view.x + tab.x, y: view.y + tab.y }, bar);
+          const bar = await app.body("C").evalJS<{ x: number; y: number }>(`${centre}(${JSON.stringify(TAB_BAR)})`);
+          await app.nativeDrag({ x: view.x + tab.x, y: view.y + tab.y }, { x: target.x + bar.x, y: target.y + bar.y });
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getDeckState().panes.some(function (p) { return p.id === "p2" && p.cardIds.indexOf("A") !== -1; })`,
             { timeoutMs: 15_000 },

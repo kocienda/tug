@@ -43,6 +43,7 @@ import {
   seedPickerSessions,
   type PickerSessionsFixture,
 } from "./picker-sessions-fixture";
+import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -59,9 +60,12 @@ export const TEST_TIMEOUT_MS = 180_000;
  * column's last member). This is the ONLY number in this file, and it is a
  * shape rather than a height: it is what turns the panel the app measured into
  * the member floor the app bid, so claim 4 can put the two on the same footing
- * without either of them being written down anywhere.
+ * without either of them being written down anywhere. The card gap term is
+ * the imported default `IMPOSITION_GAP_PX`, not a typed 10: the Roomy 15px
+ * default (`5fa88c72a`) moved it, and a literal 64 then read every bid 10px
+ * off.
  */
-export const SHEET_PANEL_TO_MEMBER_PX = 64;
+export const SHEET_PANEL_TO_MEMBER_PX = 37 + 32 - IMPOSITION_GAP_PX;
 
 /**
  * How far the bid may sit from a fresh reading of the live panel.

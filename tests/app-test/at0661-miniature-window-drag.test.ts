@@ -105,16 +105,27 @@ function committedOffset(app: App): Promise<number> {
 }
 
 /**
- * Where the Layout card's body sits in the window: its placeholder's rect on
- * the shell, in viewport px. A rect read in the body is in the body's own
- * viewport, whose origin is this.
+ * Where the Layout card's body page sits in the window, in viewport px. A
+ * rect read in the body is in the body's own viewport, whose origin is this.
+ *
+ * The page is the pane's rect OUTSET by the 10px apron (`CARD_APRON_PX`,
+ * `lib/chrome-placement.ts`, since `7ee393cd9`), so the origin is the
+ * shell's pane frame less where the page draws that same frame
+ * (`.body-chrome-frame`). The placeholder's rect alone, which this once
+ * returned, is the frame's corner: it put the drag's press 10px right of the
+ * grip it aimed at — off the frame's edge, where nothing takes a drag.
  */
-function bodyOrigin(app: App): Promise<{ left: number; top: number }> {
+async function bodyOrigin(app: App): Promise<{ left: number; top: number }> {
   // card-dom: shell — the body's placeholder is the shell's.
-  return app.evalJS<{ left: number; top: number }>(`(function () {
+  const frame = await app.evalJS<{ left: number; top: number }>(`(function () {
     var r = document.querySelector('[data-body-placeholder][data-card-id="L"]').getBoundingClientRect();
     return { left: r.left, top: r.top };
   })()`);
+  const inPage = await app.body("L").evalJS<{ left: number; top: number }>(`(function () {
+    var r = document.querySelector(".body-chrome-frame").getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  })()`);
+  return { left: frame.left - inPage.left, top: frame.top - inPage.top };
 }
 
 /** The flow-offset gauge the committed drawing carries, as a fraction. */

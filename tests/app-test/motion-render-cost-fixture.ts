@@ -4,10 +4,13 @@
  *
  * Split out of `at0629-motion-render-cost.test.ts` when that file was cut into
  * `at0629-motion-render-cost-budget`, `-stream`, `-rest` and `-offscreen` to
- * keep each under the 20 s budget.
+ * keep each under the 20 s budget; `-stream`'s pause leg went to `-pause`
+ * for the same reason, the two sharing `quietBench`.
  */
 
-import { type App, type BodyApp } from "./_harness";
+import { expect } from "bun:test";
+
+import { note, type App, type BodyApp } from "./_harness";
 import { waitForBodyReady } from "./_harness/card-reach";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -271,6 +274,56 @@ export async function cost(
     var r = window.${slot}.reading;
     return { p50: r.p50, p95: r.p95, max: r.max, burst: r.burst };
   })()`);
+}
+
+/** The bench's probe armed, the off-screen rule parked, and its quiet reading taken. */
+export interface QuietBench {
+  budgetMs: number;
+  quiet: CostReading;
+}
+
+/**
+ * The prologue the `-stream` and `-pause` files share, on an app each
+ * launches itself `visible: true` (see their headers' *Occlusion*; the launch
+ * stays in the file, where `app-test-foreground-check` reads it): seat the
+ * bench deck, wait for its population, require the probe armed off the
+ * registry's rising edge, park the off-screen rule so the clipped dots still
+ * run, and take the quiet reading each later leg is noted against, asserted
+ * under the budget.
+ */
+export async function quietBench(app: App): Promise<QuietBench> {
+  await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
+  await app.body("B").waitForCondition<boolean>(
+    `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length === ${BENCH_COUNT}`,
+    { timeoutMs: 30_000 },
+  );
+  const armed = await app.body("B").evalJS<{ armed: boolean; holds: number; budgetMs: number; restBudgetPerSecond: number; demoted: boolean }>(
+    `(function(){
+      var p = window.__tugMotion.probe();
+      return { armed: p.armed, holds: p.holds, budgetMs: p.budgetMs, restBudgetPerSecond: p.restBudgetPerSecond, demoted: p.demoted };
+    })()`,
+  );
+  note("at0629 probe", armed);
+  expect(armed.armed).toBe(true);
+  expect(armed.holds).toBeGreaterThan(0);
+  expect(armed.demoted).toBe(false);
+  expect(armed.restBudgetPerSecond).toBeGreaterThan(0);
+  const ruleOff = await app.body("B").evalJS<OffscreenReading>(`window.__tugMotion.offscreen(false)`);
+  note("at0629 off-screen rule parked for the flow bench", ruleOff);
+  expect(ruleOff.enabled).toBe(false);
+  expect(ruleOff.paused).toBe(0);
+  const quiet = await cost(app.body("B"), "__at0629quiet", 60);
+  note("at0629 quiet render cost", { p50: quiet.p50, p95: quiet.p95, max: quiet.max, budgetMs: armed.budgetMs });
+  expect(
+    quiet.p95,
+    `the quiet p95 was ${quiet.p95} ms against a ${armed.budgetMs} ms budget. ` +
+      `The budget is calibrated at twice this reading's own worst p95 on ` +
+      `the bench, so a red here says either the deck regressed or the ` +
+      `calibration wants re-reading on this machine. The first response ` +
+      `is to re-read it into RENDER_COST_BUDGET_MS with the doctrine's ` +
+      `rule, never to loosen the assertion.`,
+  ).toBeLessThan(armed.budgetMs);
+  return { budgetMs: armed.budgetMs, quiet };
 }
 
 export interface RestReading {

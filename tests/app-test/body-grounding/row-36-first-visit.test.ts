@@ -1,18 +1,24 @@
 /**
- * row-36-first-visit.test.ts — a parked workspace's cards become bodies on its
- * first visit, and go dormant when it is parked again.
+ * row-36-first-visit.test.ts — a parked workspace's cards have pages made
+ * ahead, asleep; its first visit shows and wakes them, and parking it again
+ * puts them back to sleep.
  *
  * The app launches on two workspaces, each holding a Text card, the second
- * never shown. Nothing warms the second ahead of a visit: once the shown
- * workspace's body has painted, and well past the moment the old warming ran,
- * the host holds no body for the parked card. The first visit makes it one,
- * as any card arrives; the row records what that costs, from the switch to the
- * body shown. Parked again, the body is hidden, and past its delay — shortened
- * here through the harness's `bodyDelays` — it goes dormant and stays a body.
- * The return shows it and wakes it.
+ * never shown. Once the shown workspace's body has painted and the deck has
+ * been quiet, the shell makes the parked workspace's page ahead
+ * (`body-make-ahead.ts`, `d207de043`): ready and painted, never visible, and
+ * dormant from the moment it paints. This reverses the row's first premise —
+ * "a never-shown workspace has no bodies", from [B04]'s retirement of the old
+ * warming — which `d207de043` (workspace-skeletons) undid on purpose so a
+ * switch lands the finished cards at once; `at0791` pins the switch half.
+ * The first visit shows the page; the row records what that costs, from the
+ * switch to the body shown. Parked again, the body is hidden, and past its
+ * delay — shortened here through the harness's `bodyDelays` — it goes
+ * dormant and stays a body. The return shows it and wakes it.
  *
  * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/lib/body-shell.ts
+ * @covers tugdeck/src/lib/body-make-ahead.ts
  * @covers tugdeck/src/body/body-dormancy.ts
  */
 
@@ -31,8 +37,12 @@ const H = "r36-h";
 const W = "r36-w";
 /** The body's delay before dormancy, shortened from five minutes for the row. */
 const DORMANT_AFTER_MS = 800;
-/** How long the row waits, with the home body painted, for a parked body that should never come. */
-const NO_WARM_MS = 2_000;
+/**
+ * How long after home has painted the parked card's page may take to be
+ * made ahead: `MAKE_AHEAD_QUIET_MS` (1 s) of quiet, a mount pass, a hand-off
+ * pass, and the page's own load (as `at0791`'s `AHEAD_MS`).
+ */
+const MADE_AHEAD_MS = 6_000;
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 
 function textDeck(cardId: string): Record<string, unknown> {
@@ -79,7 +89,7 @@ const dormancyOf = (app: App, cardId: string): Promise<Dormancy> =>
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 36: a parked workspace's first visit", () => {
   test(
-    "a never-shown workspace has no bodies; its first visit makes them, and parking it again puts them to sleep",
+    "a never-shown workspace's page is made ahead asleep; its first visit shows it, and parking it again puts it to sleep",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
@@ -93,13 +103,20 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 36: a parked workspace's first 
       });
       try {
         await app.bodyDelays({ dormantAfterMs: DORMANT_AFTER_MS });
-        // ---- Home stands; the parked workspace has no body ----
+        // ---- Home stands; the parked workspace's page is made ahead, unshown and asleep ----
         const home = await settleFor(() => bodyOf(app, H), (b) => b?.visible === true, 30_000);
         expect(home?.visible, "the shown workspace's card is a body, shown").toBe(true);
-        await Bun.sleep(NO_WARM_MS);
-        expect(await bodyOf(app, W), "the never-shown workspace's card has no body").toBeNull();
+        const ahead = await settleFor(() => bodyOf(app, W), (b) => b?.state === "ready" && b.painted, MADE_AHEAD_MS);
+        note(`made ahead: ${ahead === null ? "no page" : `${ahead.state}, painted ${ahead.painted}, shown ${ahead.shown}, start ${ahead.start}`}`);
+        expect(ahead?.painted, "the never-shown workspace's card has a page made ahead").toBe(true);
+        expect(ahead?.visible, "a page made ahead is not visible").toBe(false);
+        expect(ahead?.shown, "nor told it is shown").toBe(false);
+        expect(await settleFor(() => dormancyOf(app, W), (d) => d.dormant, 5_000), "and it sleeps until its workspace is shown").toEqual({
+          shown: false,
+          dormant: true,
+        });
 
-        // ---- The first visit makes it a body ----
+        // ---- The first visit shows it ----
         const visitAt = Date.now();
         await activate(app, AWAY);
         const arrived = await settleFor(() => bodyOf(app, W), (b) => b?.visible === true, 30_000);

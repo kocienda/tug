@@ -328,6 +328,17 @@ export function pinnedRangeFor(
   return first <= last ? { first, last } : null;
 }
 
+/**
+ * How far to push `scrollTop` for older posts prepended above a reader:
+ * the column's growth, less what the engine's scroll anchoring already moved
+ * the position by in the commit's layout. With anchoring, that is nothing
+ * (the browser kept the anchor post under the eye); without it, the whole
+ * growth. Counting both is the reader's line walking down by the insert.
+ */
+export function overviewPrependPush(grown: number, anchored: number): number {
+  return grown - anchored;
+}
+
 /** The key of the in-flight answer's placeholder row, which has no post key. */
 export const PENDING_TOP_POST = "pending";
 

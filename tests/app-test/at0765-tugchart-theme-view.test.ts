@@ -64,7 +64,8 @@ describe.skipIf(!SHOULD_RUN)("at0765 — a chart follows the theme in place and 
   test(
     "the same rect changes fill on a theme switch, and the table view survives a remount",
     async () => {
-      const { app, tugbankPath, page } = await launchWithCharts(TEST_NAME, [BAR_SPEC]);
+      const { app, tugbankPath } = await launchWithCharts(TEST_NAME, [BAR_SPEC]);
+      const page = app.body(CARD);
       try {
         // ---- Theme: the same node, a different fill ----
         const before = await page.evalJS<{ fill: string; mode: string | null }>(

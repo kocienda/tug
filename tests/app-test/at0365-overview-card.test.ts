@@ -207,16 +207,10 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         await app.nativeKey("o", ["cmd", "ctrl"]);
         await waitForNoBodyOfKind(app, "overview", { timeoutMs: 10_000 });
 
-        // The chord this card used to answer to is now nobody's, and driving
-        // it has to leave the rail shut. Asserting that directly would race
-        // the keystroke — "still absent" is true a moment before the app has
-        // even read the event. So the NEXT chord carries the proof: the rail
-        // is down, ⌃⌘G runs, and ⌃⌘O is expected to bring it UP. Had ⌃⌘G
-        // opened it, ⌃⌘O would put it away and the wait below would time out
-        // rather than pass. This is also what makes the claim about the
-        // binding MOVING rather than gaining a second spelling — the positive
-        // claim above passes either way.
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        // The chord this card used to answer to, ⌃⌘G, is nobody's now. That
+        // is the keymap's claim, held in `keymap-registry.test.ts` ("the
+        // shipped table"): pressed here it would reach AppKit unanswered and
+        // beep, which the harness rightly counts as a failure.
 
         // Back up for the rest of the test.
         await app.nativeKey("o", ["cmd", "ctrl"]);

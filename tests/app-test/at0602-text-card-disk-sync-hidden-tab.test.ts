@@ -8,9 +8,9 @@
  *
  * 6. **A card that is not in front: a hidden background tab.** The stacked
  *    non-active card's placeholder carries `display: none` and the host stops
- *    showing its body, and inside the body its card host is `display: none`
- *    too, so the editor has no layout and CM6 can neither measure nor anchor
- *    in it. Park the viewport in front, switch
+ *    showing its body; inside its own page the card stays laid out (since
+ *    `feee863b8` a page mounts its one card's host active), so the reload
+ *    lands in an editor nobody can see. Park the viewport in front, switch
  *    away, write the file from outside, switch back: the content must be the
  *    disk's AND the reading position must be where it was left. The editor's
  *    hidden-card deferral removed turned this red (and the hidden-workspace
@@ -89,12 +89,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   // -------------------------------------------------------------------------
   //
   // The harder half of the not-in-front case. A stacked card that is not the
-  // active one is mounted and alive but carries `display: none`
-  // (`card-host.tsx`), so it has NO layout: CM6 cannot measure it and cannot
-  // anchor a change in it. `_applyDiskRead` calls `bridge.replaceText`
-  // regardless of whether the bridge's view is visible, so the reload lands in
-  // a view that cannot compute where to put the reader — and until this
-  // scenario nothing said what the card shows when it comes forward.
+  // active one is mounted and alive in its own page, which the host does not
+  // show. `_applyDiskRead` calls `bridge.replaceText` regardless of whether
+  // the card is shown, so the reload lands in a view nobody is reading — and
+  // until this scenario nothing said what the card shows when it comes
+  // forward.
   //
   // The shape: park the viewport while the card is in front, switch to the
   // other tab, write the file from outside, switch back, and read. Both answers
@@ -155,26 +154,27 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // card-dom: shell — the tab's `display: none` is on its placeholder in the shell's pane.
         await app.waitForCondition<boolean>(PLACEHOLDER_HIDDEN, { timeoutMs: 6000 });
         expect(await hostShows(app, "A", false), "the background tab's body is not shown").toBe(false);
-        // [B29] would restate this as "the unshown body keeps its layout"
-        // ([B27]). Measured 2026-10-18 it does not, for a stacked tab: the
-        // body's own card host is `display: none` while inactive
-        // (`card-host.tsx`), so the editor reads 0 px. Kept as written until
-        // the restatement is ruled again; the host fact is asserted above.
+        // The unshown body keeps its layout. Until `feee863b8` (card-is-one-
+        // view, 2026-10-19) a stacked tab's card host was `display: none`
+        // inside its body and the editor read 0 px ([B29]); since then a
+        // card's page draws only its own card and mounts its host active
+        // (`body-chrome-frame.tsx`, `<CardHost … isActive />`), and hiding a
+        // background tab is the host's alone — the page stays laid out at
+        // its pane's size, as a hidden workspace's does ([B27]).
         const hiddenHeight = await app.body("A").evalJS<number>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
         );
         expect(
           hiddenHeight,
-          "a display:none editor has no layout to measure",
-        ).toBe(0);
+          "the unshown tab's editor keeps its layout in its own page",
+        ).toBeGreaterThan(100);
 
         // Write from outside the app while the card is in the background.
         fs.writeFileSync(file, "EXTERNAL-WRITER LINE\n" + TALL_CONTENT, "utf8");
 
-        // Nothing observable is coming while the card is hidden: `innerText` is
-        // empty for a `display: none` subtree, and CM6 renders no new viewport
-        // without a measure pass. So wait the delivery out rather than polling
-        // for it. `proveWatchLive` above measured the real latency for this
+        // What is owed is what the card shows when it comes forward, not what
+        // its unseen page holds meanwhile, so wait the delivery out rather
+        // than polling for it. `proveWatchLive` above measured the real latency for this
         // fixture and noted it — a few hundred milliseconds; this is an order of
         // magnitude more than that.
         await new Promise((resolve) => setTimeout(resolve, 6000));
@@ -299,14 +299,13 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // card-dom: shell — the tab's `display: none` is on its placeholder in the shell's pane.
         await app.waitForCondition<boolean>(PLACEHOLDER_HIDDEN, { timeoutMs: 6000 });
         expect(await hostShows(app, "A", false), "the background tab's body is not shown").toBe(false);
-        // [B29]'s "layout kept" restatement does not hold for a stacked tab
-        // (see Scenario 6): kept as written.
+        // The unshown body keeps its layout (see Scenario 6).
         expect(
           await app.body("A").evalJS<number>(
             `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
           ),
-          "a display:none editor has no layout to measure",
-        ).toBe(0);
+          "the unshown tab's editor keeps its layout in its own page",
+        ).toBeGreaterThan(100);
 
         // The external write, distant from the typing, while nothing is in
         // front. The store merges it and re-captures the aside.

@@ -63,6 +63,7 @@ import {
 import { requestQuit } from "../lib/quit-guard-store";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
+import { sessionCitationStore } from "../lib/session-citation-store";
 import { cardSessionBindingStore, seedBindingLines, shareCardBinding } from "../lib/card-session-binding-store";
 import { shareArcPresses } from "../lib/arc-press-store";
 import { cardServicesStore } from "../lib/card-services-store";
@@ -696,7 +697,9 @@ async function bindBody(bind: BodyBind): Promise<void> {
   installLifecycleCascade(deck.cardLifecycle, appLifecycle);
 
   // The session acks this card holds, and no other card's. The card's
-  // sessions are read fresh per ack, so a rebind is admitted at once.
+  // sessions are read fresh per ack, so a rebind is admitted at once. The
+  // row pushes of a session the page cites are admitted too: an arc record's
+  // stage rows read their segments' usage from them.
   registerSessionControlActions(
     bodyCardFilter(() => {
       const binding = cardSessionBindingStore.getBinding(cardId);
@@ -704,7 +707,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
         ? intent.kind === "restore" || intent.kind === "mount" ? [] : [intent.tugSessionId]
         : [binding.tugSessionId, ...(binding.seatedSessionId === undefined ? [] : [binding.seatedSessionId])];
       return { cardId, sessionIds: sessions, lineId: binding?.lineId ?? null };
-    }, { lists: LISTS_SESSIONS.has(componentId) }),
+    }, { lists: LISTS_SESSIONS.has(componentId), cites: (id) => sessionCitationStore.cites(id) }),
   );
   // A card that lists every card's session reads the bindings cache, which
   // only a restore pass installs, and no restore pass runs here.

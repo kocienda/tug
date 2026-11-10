@@ -46,7 +46,7 @@ import { isSidebarCard } from "@/card-registry";
 import type { CardDeck } from "@/card-deck";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "@/lib/scale-timing";
-import { layoutSelection } from "@/bus/declarations/arrangement";
+import { layoutSelection, layoutSelectionStands } from "@/bus/declarations/arrangement";
 import { pageBus, type PageBus } from "@/bus/page-bus";
 
 /** The selected card ids in pick order, plus the anchor ⇧-extension ranges from. */
@@ -304,11 +304,15 @@ export function shareLayoutSelection(
   cursor: LayoutCursor = layoutCursor,
 ): () => void {
   const store = layoutSelection.on(bus);
+  const stands = layoutSelectionStands.on(bus);
   const releases: Array<() => void> = [];
   if (bus.page.role === "shell") {
     const publish = (): void => {
       const { ids, anchorId } = selection.getSnapshot();
       store.set({ ids: [...ids], anchorId, cursor: cursor.get() });
+      // Every body reads only whether one stands: its unanswered Escape is
+      // the shell root's while it does (`forwardToShell`).
+      stands.set(ids.length > 0);
     };
     /** The Cards card whose list cursor the shell's cursor is, if one is. */
     let cursorFrom: string | null = null;

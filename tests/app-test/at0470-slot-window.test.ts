@@ -39,183 +39,33 @@
  * Read from live geometry and `data-` attributes. Nothing here reads back a
  * declared style value.
  *
+ * Points 1 to 4's first cases run here; the run popup, the selection move and
+ * the rest run in `at0470-slot-window-moves.test.ts`, and the deck and the
+ * row reads both files use are `slot-window-fixture.ts`. The split keeps each
+ * file under the 20 s file budget.
+ *
  * @covers tugdeck/src/components/cards/slot-picker.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.css
  * @covers tugdeck/src/lib/slot-window-pref.ts
  * @covers tugdeck/src/action-dispatch.ts
+ * @family at0470
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
-import { mkSeededTugbank, rmTempTugbank } from "./_harness/tugbank-helpers";
+import { note } from "./_harness";
+import {
+  launchSlotWindowApp,
+  openDeck,
+  pressPosition,
+  SHOULD_RUN,
+  TEST_TIMEOUT_MS,
+  cleanUpSlotWindowTugbanks,
+  windows,
+} from "./slot-window-fixture";
 
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-
-/**
- * The window width is a PERSISTED preference, deck-wide and machine-global,
- * which is exactly what it is meant to be — and exactly why it has to be
- * stated here. Left ambient, the last test to widen it would set the starting
- * width of the first test of the next run, and this file would pass once and
- * fail forever after on a claim about the deck rather than about itself.
- *
- * It is stated in the tugbank the app opens, which reaches every page: the
- * rows draw in the Cards card's body, and a page-local cache write there
- * would also outrank the server's answer to the `set-slot-window` PUT, whose
- * domain generation it had already spent.
- */
-const tugbanks: string[] = [];
-async function launchSlotWindowApp(): Promise<App> {
-  const tugbank = mkSeededTugbank([
-    { domain: "dev.tugapp.slot-window", key: "slotWindow", type: "int", value: "3" },
-  ]);
-  tugbanks.push(tugbank);
-  return launchTugApp({ testName: "at0470-slot-window", env: { TUGBANK_PATH: tugbank } });
-}
-afterAll(() => {
-  for (const tugbank of tugbanks) rmTempTugbank(tugbank);
-});
-const TEST_TIMEOUT_MS = 120_000;
-
-const CARDS_WIDTH = 460;
-const PANE_WIDTH = 400;
-const AFTER_LAND_MS = 900;
-
-const wait = (ms: number): Promise<void> =>
-  new Promise<void>((r) => setTimeout(r, ms));
-
-const PICKER = '[data-testid="cards-slot-picker"]';
-const JUMP = '[data-testid="cards-slot-picker-jump"]';
-
-/** What one row's window is drawing, left to right. */
-interface WindowFacts {
-  /** Every drawn chip's numeral. */
-  positions: string[];
-  /** Which position carries the lit chip, or -1 when none does. */
-  litAt: number;
-  /** The run's own trailing edge — the vertical the coordinate ends on. */
-  runRight: number;
-}
-
-/**
- * Six-up with the Cards card on the right and three cards spread across the run —
- * one at each end and one in the middle, which is what makes the stub claim
- * and the alignment claim readable in a single deck.
- */
-function deckShape() {
-  const members: [string, number, string][] = [
-    ["p1", 0, "A"],
-    ["p2", 2, "B"],
-    ["p3", 5, "C"],
-  ];
-  return {
-    cards: [
-      ...members.map(([, , cardId]) => ({
-        id: cardId,
-        componentId: "hello",
-        title: `Card ${cardId}`,
-        closable: true,
-      })),
-      { id: "L", componentId: "cards", title: "Cards", closable: true },
-    ],
-    panes: [
-      ...members.map(([id, slot, cardId]) => ({
-        id,
-        position: { x: 40, y: 40 },
-        size: { width: PANE_WIDTH, height: 400 },
-        cardIds: [cardId],
-        activeCardId: cardId,
-        title: "",
-        acceptsFamilies: ["maker"],
-        slot,
-      })),
-      {
-        id: "pCards",
-        position: { x: 0, y: 0 },
-        size: { width: CARDS_WIDTH, height: 900 },
-        cardIds: ["L"],
-        activeCardId: "L",
-        title: "Cards",
-        acceptsFamilies: [],
-      },
-    ],
-    activePaneId: "p1",
-    imposition: { kind: "six-up", sidebars: { cards: { side: "right" } } },
-    hasFocus: true,
-  };
-}
-
-async function openDeck(app: App): Promise<void> {
-  await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugapp.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
-  );
-  // The window width starts at three, from the tugbank the app was launched
-  // on (`launchSlotWindowApp`).
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-  await app.body("L").waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
-    { timeoutMs: 8_000 },
-  );
-  await app.body("L").waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(PICKER)}).children.length === 3`,
-    { timeoutMs: 4_000 },
-  );
-  await wait(AFTER_LAND_MS);
-}
-
-/** Every row's window, in the Cards card's own order. */
-async function windows(app: App): Promise<WindowFacts[]> {
-  return app.body("L").evalJS<WindowFacts[]>(
-    `Array.prototype.map.call(
-       document.querySelectorAll(${JSON.stringify(PICKER)}),
-       function (run) {
-         var drawn = Array.prototype.slice.call(run.children);
-         var litAt = -1;
-         var positions = drawn.map(function (el, i) {
-           var state = el.getAttribute("data-state");
-           if (state === "filled" || state === "outlined") litAt = i;
-           return el.textContent.trim();
-         });
-         return {
-           positions: positions,
-           litAt: litAt,
-           runRight: Math.round(run.getBoundingClientRect().right),
-         };
-       },
-     )`,
-  );
-}
-
-/** Press one of a row's drawn positions. */
-async function pressPosition(
-  app: App,
-  row: number,
-  position: number,
-): Promise<void> {
-  const selector =
-    `document.querySelectorAll(${JSON.stringify(PICKER)})[${row}]` +
-    `.children[${position}]`;
-  await app.body("L").evalJS<boolean>(`(function () { ${selector}.click(); return true; })()`);
-  await wait(500);
-}
-
-/** Every card's slot, read off the deck rather than off the rows. */
-async function slotsByCard(app: App): Promise<Record<string, number | null>> {
-  return app.evalJS<Record<string, number | null>>(
-    `(function () {
-      var deck = window.tugdeck.diag.getDeckState();
-      var out = {};
-      for (var i = 0; i < deck.panes.length; i += 1) {
-        var pane = deck.panes[i];
-        for (var j = 0; j < pane.cardIds.length; j += 1) {
-          out[pane.cardIds[j]] = pane.slot === undefined ? null : pane.slot;
-        }
-      }
-      return out;
-    })()`,
-  );
-}
+cleanUpSlotWindowTugbanks();
 
 describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
@@ -327,179 +177,6 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
           moved?.positions,
           "with its new neighbours drawn either side",
         ).toEqual(["3", "4", "5"]);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "the card's own chip opens the whole run, and a place the window cannot show is reachable there",
-    async () => {
-      const app = await launchSlotWindowApp();
-      try {
-        await openDeck(app);
-        expect(
-          await app.body("L").evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(JUMP)}).length`,
-          ),
-          "nothing is open until the card's own chip is pressed",
-        ).toBe(0);
-
-        const rows = await windows(app);
-        const row = rows.findIndex((r) => r.positions[0] === "1" && r.litAt === 0);
-        expect(row, "a row for the card in slot 1").toBeGreaterThanOrEqual(0);
-        // The card is in slot 1 and its window reaches slot 3. Slot 5 is the
-        // case the door exists for.
-        await pressPosition(app, row, 0);
-        await app.body("L").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(JUMP)}) !== null`,
-          { timeoutMs: 8_000 },
-        );
-
-        const run = await app.body("L").evalJS<string[]>(
-          `Array.prototype.map.call(
-             document.querySelectorAll(
-               ${JSON.stringify(JUMP)} + ' [data-slot="tug-slot"]'
-             ),
-             function (el) { return el.textContent.trim(); },
-           )`,
-        );
-        note(`jump popup offers: ${run.join(" ")}`);
-        expect(
-          run,
-          "the popup is the WHOLE arrangement — that is what it is for",
-        ).toEqual(["1", "2", "3", "4", "5", "6"]);
-
-        await app.body("L").evalJS<boolean>(
-          `(function () {
-             var chips = document.querySelectorAll(
-               ${JSON.stringify(JUMP)} + ' [data-slot="tug-slot"]'
-             );
-             chips[4].click();
-             return true;
-           })()`,
-        );
-        await wait(600);
-
-        const after = await windows(app);
-        note(
-          `after the jump: ${after
-            .map((r) => `[${r.positions.join(" ")}]lit@${r.litAt}`)
-            .join(" ")}`,
-        );
-        const landed = after[row];
-        expect(
-          landed === undefined ? undefined : landed.positions[landed.litAt],
-          "the card landed where the popup said, four places from where it stood",
-        ).toBe("5");
-        expect(
-          await app.body("L").evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(JUMP)}).length`,
-          ),
-          "and the popup closed in the same act that moved it",
-        ).toBe(0);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a chip on a selected row moves every selected card, and a row outside the selection moves only its own",
-    async () => {
-      const app = await launchSlotWindowApp();
-      try {
-        await openDeck(app);
-        // A (slot 1) and C (slot 6) selected; B (slot 3) left out.
-        await app.evalJS<null>(
-          `(window.__tug.setLayoutSelection(["A", "C"]), null)`,
-        );
-        await wait(300);
-
-        const rows = await windows(app);
-        const row = rows.findIndex((r) => r.positions[0] === "1" && r.litAt === 0);
-        expect(row, "a row for card A in slot 1").toBeGreaterThanOrEqual(0);
-        // A's window is [1 2 3]; the chip saying 2 is a move, not the door.
-        await pressPosition(app, row, 1);
-
-        const grouped = await slotsByCard(app);
-        note(`after the group move: ${JSON.stringify(grouped)}`);
-        expect(grouped.A, "the pressed row's card went to position 2").toBe(1);
-        expect(grouped.C, "and so did the other selected card").toBe(1);
-        expect(grouped.B, "the unselected card stayed where it was").toBe(2);
-
-        // B's row is outside the selection: its press is B's alone.
-        const after = await windows(app);
-        const bRow = after.findIndex(
-          (r) => r.litAt >= 0 && r.positions[r.litAt] === "3",
-        );
-        expect(bRow, "a row for card B in slot 3").toBeGreaterThanOrEqual(0);
-        const fourAt = after[bRow]?.positions.indexOf("4") ?? -1;
-        expect(fourAt, "B's window shows position 4").toBeGreaterThanOrEqual(0);
-        await pressPosition(app, bRow, fourAt);
-
-        const single = await slotsByCard(app);
-        note(`after the single move: ${JSON.stringify(single)}`);
-        expect(single.B, "B moved to position 4").toBe(3);
-        expect(single.A, "A did not follow it").toBe(1);
-        expect(single.C, "nor did C").toBe(1);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "the `set-slot-window` action is what sets the width",
-    async () => {
-      const app = await launchSlotWindowApp();
-      try {
-        await openDeck(app);
-        expect(
-          (await windows(app))[0]?.positions.length,
-          "three to begin with",
-        ).toBe(3);
-
-        // Driven through the action, which is the whole of the switch now. The
-        // Layout section carried a Slot Window row for a while and no longer
-        // does — the window settled at five, and a row asking the reader to
-        // choose sat oddly in a section otherwise entirely about the deck. The
-        // preference and the action outlived it, so the width is still a thing
-        // that changes and this is still the path it changes by.
-        await app.dispatchControlAction("set-slot-window", { size: 5 });
-        await wait(700);
-
-        const wide = await windows(app);
-        note(
-          `at five: ${wide
-            .map((r) => `[${r.positions.join(" ")}]lit@${r.litAt}`)
-            .join(" ")}`,
-        );
-        for (const row of wide) {
-          expect(row.positions.length, "every row widened together").toBe(5);
-          for (const chip of row.positions) {
-            expect(chip, "and every chip still names a real slot").toMatch(/^[1-6]$/);
-          }
-        }
-
-        // Card A holds slot 1, so a five-wide window on a six-up deck slides
-        // all the way to the head rather than reaching two places past it.
-        const head = wide.find((r) => r.litAt === 0);
-        expect(
-          head?.positions,
-          "at the head a five-wide window shows the run's first five places",
-        ).toEqual(["1", "2", "3", "4", "5"]);
-
-        // Put it back. The preference is machine-global and outlives the app,
-        // so a file that widens it and walks away sets the starting width for
-        // every other test that renders a Cards row.
-        await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
-        );
       } finally {
         await app.close();
       }

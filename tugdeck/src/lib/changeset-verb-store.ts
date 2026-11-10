@@ -56,6 +56,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
 import {
+  ANOTHER_PAGE_ENTRY_KEY,
   arcReplayOutcomeStore,
   type ArcReplayOutcomeWord,
 } from "./arc-replay-outcome-store";
@@ -778,12 +779,19 @@ export class ChangesetVerbStore extends Subscribable {
       const arc = typeof body.arc === "string" ? body.arc : null;
       if (arc === null) return;
       const key = verbKey(sentDir, arc);
-      const entryKey = this._replayInflight.get(key);
-      if (entryKey === undefined) return;
-      this._replayInflight.delete(key);
       const outcome = typeof body.outcome === "string" ? body.outcome : null;
       const detail = typeof body.detail === "string" ? body.detail : null;
-      this._setReplay(entryKey, { phase: "done", outcome, detail, error: null });
+      // A press this page did not make is still this page's to hear when it
+      // names a session the page shows: every card is its own page, and the
+      // Arcs card presses Replay for a session whose card is another page
+      // (at0469). Only a press answers `changeset_replay` — the base-motion
+      // engine sends none — so the frame is always somebody's press.
+      const inflight = this._replayInflight.get(key);
+      if (inflight !== undefined) {
+        this._replayInflight.delete(key);
+        this._setReplay(inflight, { phase: "done", outcome, detail, error: null });
+      }
+      const entryKey = inflight ?? ANOTHER_PAGE_ENTRY_KEY;
       // The outcomes that move nothing have no other voice ([P06]). Stamped
       // with the entry the press went out under, so the Changes shade's band
       // and the card's corner lane can divide one slot by origin rather than
@@ -804,11 +812,14 @@ export class ChangesetVerbStore extends Subscribable {
       const arc = typeof body.arc === "string" ? body.arc : null;
       if (arc === null) return;
       const key = verbKey(sentDir, arc);
-      const entryKey = this._replayInflight.get(key);
-      if (entryKey === undefined) return;
-      this._replayInflight.delete(key);
       const detail = typeof body.detail === "string" ? body.detail : "replay failed";
-      this._setReplay(entryKey, { phase: "error", outcome: null, detail: null, error: detail });
+      // As on `_ok`: another page's press is heard here too.
+      const inflight = this._replayInflight.get(key);
+      if (inflight !== undefined) {
+        this._replayInflight.delete(key);
+        this._setReplay(inflight, { phase: "error", outcome: null, detail: null, error: detail });
+      }
+      const entryKey = inflight ?? ANOTHER_PAGE_ENTRY_KEY;
       const sessionId = typeof body.session_id === "string" ? body.session_id : null;
       if (sessionId !== null) {
         arcReplayOutcomeStore.report(sessionId, {

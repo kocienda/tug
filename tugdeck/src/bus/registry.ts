@@ -32,6 +32,7 @@ import {
   deckSetFlowOffset,
   deckShowSingletonCard,
   layoutSelection,
+  layoutSelectionStands,
 } from "./declarations/arrangement";
 import {
   overlayAlert,
@@ -171,6 +172,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   cardsListAnchor,
   cardsListCursor,
   layoutSelection,
+  layoutSelectionStands,
   cardFollowed,
   appInfo,
   cardBinding,

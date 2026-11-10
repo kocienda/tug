@@ -1,57 +1,22 @@
 /**
- * at0594-column-flip-cover.test.ts — a column mode flip is a cover, not a
- * fade.
+ * column-flip-cover-fixture.ts — the body of at0594, a column mode flip is a
+ * cover, not a fade.
  *
- * Stack Column and Split Column play as one motion. The column's z-frontmost
- * member — the SURVIVOR, the card a stack actually shows — runs a single fused
- * beat: its translate and its height change are the same edge, so they ride
- * one `room` beat rather than a move and then a grow. Every other member
- * animates nothing. On a stack it holds its old tile at full opacity until the
- * survivor has grown over it, and is released only at the chain's completion;
- * on a split it is simply at its tile behind the survivor, uncovered as the
- * survivor retreats. No card fades in either direction
- * (`briefs/column-flip-cover-brief.md`, [B01]–[B03]).
- *
- * The defect this pins: the retiring member used to fade out on a shorter
- * clock than the survivor's two-beat chain, come back at full strength at its
- * committed rect — the full run — and then be painted over by the survivor's
- * grow beat. Every claim below is sampled every frame through the settle,
- * because that defect lives in the frames between the commit and the landing.
- *
- *   1. **No member ever fades.** Every sampled computed opacity is 1, and no
- *      inline opacity is written at any sample.
- *   2. **The survivor's crossing is one fused beat.** Every beat the canvas
- *      names while settling is `room`; no `move` or `grow` is ever sampled.
- *   3. **The stack's retiring member holds its tile until it is covered.**
- *      While the survivor is mid-flight the retiring member is never at its
- *      committed rect: it stands at the tile it is leaving.
- *   4. **The split's revealed member never travels.** It is at its committed
- *      tile from the first settling frame, and the survivor's retreat is what
- *      uncovers it — nothing slides it into place.
- *   5. **Nothing is left behind.** After each settle no member wears an inline
- *      opacity or transform, none keeps the pixel height it was held at, and
- *      no cover mark remains.
- *   6. **The flip never cuts.** The cut census, armed across both directions,
- *      records nothing — a member the flip commits behind its survivor is
- *      read as covered rather than as a jump.
- *
- * The three-member case — middle member frontmost, both directions — holds the
- * same claims and, because the brief left how it READS as an open question,
- * records the survivor's rect through each settle as `note()` lines so the
- * fused beat can be read from the report.
- *
- * @covers tugdeck/src/components/chrome/settle-plan.ts
- * @covers tugdeck/src/components/chrome/settle-engine.ts
- * @covers tugdeck/src/lib/cut-detector.ts
+ * at0594 was one file running both member counts, one launch each, and the
+ * two launches together sat at the 20 s file budget (19 s green on
+ * 2026-10-18, 20–21 s and `OVERTIME` since). It is now one file per member
+ * count — `at0594-column-flip-cover-two` and `-three` — and this module is
+ * the deck, the sampler and the claims both register. The claims and the
+ * argument for them are in the two-member file's docblock.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, type App } from "./_harness";
 import { PIXEL_TOL } from "./_harness/tolerances";
 
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 180_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 180_000;
 
 /**
  * How long the sampler runs. A fused settle is one `room` beat at 1.0× of the
@@ -60,12 +25,12 @@ const TEST_TIMEOUT_MS = 180_000;
  */
 const CENSUS_MS = 1_400;
 /** The settle window, with room for the last frame to land. */
-const AFTER_LAND_MS = 1_800;
+export const AFTER_LAND_MS = 1_800;
 
 const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 
-const wait = (ms: number): Promise<void> =>
+export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 interface FrameSample {
@@ -82,7 +47,7 @@ interface FrameSample {
   covered: boolean;
 }
 
-interface Sample {
+export interface Sample {
   t: number;
   settling: boolean;
   beat: string;
@@ -175,7 +140,7 @@ const sampleScript = (paneIds: string[]): string => `
   })()`;
 
 /** Every member's live frame right now. */
-async function readNow(app: App, paneIds: string[]): Promise<Sample> {
+export async function readNow(app: App, paneIds: string[]): Promise<Sample> {
   return app.evalJS<Sample>(sampleScript(paneIds));
 }
 
@@ -187,7 +152,7 @@ async function readNow(app: App, paneIds: string[]): Promise<Sample> {
  * so the first sample is the pre-motion geometry and every frame of the
  * motion is in the record.
  */
-async function census(
+export async function census(
   app: App,
   paneIds: string[],
   mode: "stack" | "split",
@@ -214,10 +179,10 @@ async function census(
 }
 
 /** The frames the settle covered, by the imposer's own account. */
-const settlingFrames = (samples: Sample[]): Sample[] =>
+export const settlingFrames = (samples: Sample[]): Sample[] =>
   samples.filter((s) => s.settling);
 
-const sameRect = (a: FrameSample, b: FrameSample): boolean =>
+export const sameRect = (a: FrameSample, b: FrameSample): boolean =>
   Math.abs(a.top - b.top) < PIXEL_TOL && Math.abs(a.height - b.height) < PIXEL_TOL;
 
 /**
@@ -225,7 +190,7 @@ const sameRect = (a: FrameSample, b: FrameSample): boolean =>
  * no fade, one fused beat, the covered members where the cover says they are,
  * and nothing left behind.
  */
-function assertCover(
+export function assertCover(
   label: string,
   samples: Sample[],
   paneIds: string[],
@@ -340,7 +305,7 @@ function assertCover(
 }
 
 /** The member at a given rank from the top of the split run. */
-function memberAtRank(sample: Sample, paneIds: string[], rank: number): string {
+export function memberAtRank(sample: Sample, paneIds: string[], rank: number): string {
   const ordered = paneIds
     .filter((id) => sample.panes[id] !== undefined)
     .sort((a, b) => sample.panes[a]!.top - sample.panes[b]!.top);
@@ -349,7 +314,7 @@ function memberAtRank(sample: Sample, paneIds: string[], rank: number): string {
   return id;
 }
 
-async function launch(memberCount: number, testName: string): Promise<App> {
+export async function launch(memberCount: number, testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.evalJS<null>(
     `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
@@ -364,138 +329,17 @@ async function launch(memberCount: number, testName: string): Promise<App> {
 }
 
 /** Bring one member to the front of its column — the raise, z-order only. */
-async function raise(app: App, paneId: string): Promise<void> {
+export async function raise(app: App, paneId: string): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.activateCard(${JSON.stringify(cardOf(paneId))}), null)`,
   );
   await wait(300);
 }
 
-async function takeCuts(app: App): Promise<string> {
+export async function takeCuts(app: App): Promise<string> {
   await app.evalJS<null>(`(window.__tug.disarmCutDetector(), null)`);
   const cuts = await app.evalJS<{ paneId: string; kind: string }[]>(
     `window.__tug.takeCutRecords()`,
   );
   return cuts.map((c) => `${c.paneId}:${c.kind}`).join("; ");
 }
-
-describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover", () => {
-  test(
-    "a two-member column with the bottom member frontmost flips both ways as a cover",
-    async () => {
-      const paneIds = ["p1", "p2"];
-      const app = await launch(2, "at0594-column-flip-cover-two");
-      try {
-        // Split first, so the bottom member can be found and raised. This
-        // flip is not under test; it lands before anything samples.
-        // card-dom: shell — a deck command dispatched in the shell, reaching no card's DOM.
-        await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
-        );
-        await wait(AFTER_LAND_MS);
-        const split = await readNow(app, paneIds);
-        const survivor = memberAtRank(split, paneIds, 1);
-        const other = paneIds.find((id) => id !== survivor)!;
-        await raise(app, survivor);
-        note(`two-member: bottom member ${survivor} raised; ${other} retires`);
-
-        await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
-
-        // ── Stack: the survivor rises and grows; the other holds its tile. ──
-        const stacked = await census(app, paneIds, "stack");
-        assertCover("stack", stacked, paneIds, survivor, "stack");
-        {
-          const end = stacked[stacked.length - 1]!.panes;
-          expect(
-            sameRect(end[survivor]!, end[other]!),
-            "stacked members share one rect",
-          ).toBe(true);
-        }
-
-        // ── Split: the survivor retreats to its tile; the other is uncovered. ──
-        const divided = await census(app, paneIds, "split");
-        assertCover("split", divided, paneIds, survivor, "split");
-        {
-          const end = divided[divided.length - 1]!.panes;
-          expect(
-            sameRect(end[other]!, split.panes[other]!),
-            "the revealed member is back at its tile",
-          ).toBe(true);
-          expect(
-            sameRect(end[survivor]!, split.panes[survivor]!),
-            "the survivor is back at its tile",
-          ).toBe(true);
-        }
-
-        expect(
-          await takeCuts(app),
-          "stack and split on a column produce no cut records",
-        ).toBe("");
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a three-member column with the middle member frontmost flips both ways as a cover",
-    async () => {
-      const paneIds = ["p1", "p2", "p3"];
-      const app = await launch(3, "at0594-column-flip-cover-three");
-      try {
-        // card-dom: shell — a deck command dispatched in the shell, reaching no card's DOM.
-        await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
-        );
-        await wait(AFTER_LAND_MS);
-        const split = await readNow(app, paneIds);
-        const survivor = memberAtRank(split, paneIds, 1);
-        await raise(app, survivor);
-        note(
-          `three-member: middle member ${survivor} raised at ${Math.round(split.panes[survivor]!.top)}..${Math.round(split.panes[survivor]!.bottom)}`,
-        );
-
-        await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
-
-        // The survivor's rect through each settle, for the eye the arc does
-        // not have: both edges move on a stack from the middle tile, and both
-        // retreat on the split. Read the samples for one edge sweep per beat.
-        const trace = (label: string, samples: Sample[]): void => {
-          const rows = settlingFrames(samples)
-            .filter((_, i) => i % 3 === 0)
-            .map((s) => {
-              const p = s.panes[survivor]!;
-              return `${Math.round(s.t)}ms ${s.beat || "-"} ${Math.round(p.top)}..${Math.round(p.bottom)}`;
-            });
-          note(`${label} survivor: ${rows.join(" | ")}`);
-        };
-
-        const stacked = await census(app, paneIds, "stack");
-        trace("stack", stacked);
-        assertCover("stack", stacked, paneIds, survivor, "stack");
-
-        const divided = await census(app, paneIds, "split");
-        trace("split", divided);
-        assertCover("split", divided, paneIds, survivor, "split");
-        {
-          const end = divided[divided.length - 1]!.panes;
-          for (const id of paneIds) {
-            expect(
-              sameRect(end[id]!, split.panes[id]!),
-              `${id} is back at its tile after the round trip`,
-            ).toBe(true);
-          }
-        }
-
-        expect(
-          await takeCuts(app),
-          "stack and split on a three-member column produce no cut records",
-        ).toBe("");
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});

@@ -41,7 +41,7 @@ import { note } from "./_harness";
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import { tugtoolPath } from "./arc-fixture";
 import { SHOULD_RUN } from "./settle-frames-fixture";
-import { BAR_SPEC, CHART, launchWithCharts } from "./tugchart-fixture";
+import { BAR_SPEC, CARD, CHART, launchWithCharts } from "./tugchart-fixture";
 
 const TEST_NAME = "at0767-chart-standalone-agreement";
 
@@ -106,7 +106,8 @@ describe.skipIf(!SHOULD_RUN)("at0767 — the standalone render agrees with the d
   test(
     "the same strings in the same order, every x within 0.5 px",
     async () => {
-      const { app, tugbankPath, page } = await launchWithCharts(TEST_NAME, [SPEC]);
+      const { app, tugbankPath } = await launchWithCharts(TEST_NAME, [SPEC]);
+      const page = app.body(CARD);
       const dir = mkdtempSync(join(tmpdir(), "at0767-"));
       try {
         const deck = await page.evalJS<DeckFacts>(READ_DECK);

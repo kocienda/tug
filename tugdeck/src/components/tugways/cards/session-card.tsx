@@ -273,6 +273,8 @@ import {
 } from "@/lib/session-spawn-error-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { getCardDeck } from "@/lib/deck-store-registry";
+import type { CardDeck } from "@/card-deck";
+import type { CardContextValue } from "@/bus/declarations/card";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { cardArrivingOf, cardFoldedOf } from "@/deck-store-selectors";
 import {
@@ -1393,6 +1395,41 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       });
     });
   }, [cardLifecycle, cardId, presentSheet]);
+
+  // A page made ahead for a PARKED workspace presents now, when that
+  // workspace was left on this card ([B01]). The switch back will make it
+  // first responder, and the activation above would then present the picker
+  // after the switch's frame — its first report reaching the shell a quarter
+  // second later, past the switch's epoch, and the pane easing from the
+  // card's 600px floor down to the picker's in front of the reader (at0620).
+  // Presented while parked, the report goes on the parked record
+  // (`applyReservations` in `body-shell.ts`), the switch swaps in a deck
+  // already laid out at it, and the activation finds the picker up. Nobody
+  // can see a parked frame, so there is no tween to protect and nothing to
+  // defer; and a parked card is no first responder, so [B06]'s door is the
+  // workspace's own record — the card its active pane shows.
+  //
+  // Read off the page's `card.context`, which only a body page's deck
+  // carries: a shell-rendered card in a parked layer has no context, and
+  // keeps waiting for its activation as before.
+  const layerShownSource = useSpaceLayerShownSource();
+  useLayoutEffect(() => {
+    const deck = getCardDeck() as (CardDeck & { getContext?: () => CardContextValue }) | null;
+    if (deck === null || deck.getContext === undefined) return;
+    const getContext = deck.getContext.bind(deck);
+    const presentIfParkedOnThisCard = (): void => {
+      const context = getContext();
+      if (context.layerShown || !context.focused || context.spaceId === null) return;
+      presentSheet();
+    };
+    presentIfParkedOnThisCard();
+    const offDeck = deck.subscribe(presentIfParkedOnThisCard);
+    const offLayer = layerShownSource.subscribe(presentIfParkedOnThisCard);
+    return () => {
+      offDeck();
+      offLayer();
+    };
+  }, [cardId, layerShownSource, presentSheet]);
 
   // A card that goes away takes its reservation with it ([B05]). The sheet
   // clears its own on close and on unmount, so on every ordinary ending this

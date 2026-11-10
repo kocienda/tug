@@ -294,22 +294,49 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: the strip", () => {
           leftCapCanvas: boolean;
         }>(
           `(function () {
-            // At rest the strip runs 2120px into a ~1550px band, so a card is
-            // guaranteed to straddle the far edge — the reveal above parked
-            // the strip on a boundary, where nothing crosses the gutter and
-            // the assertion would prove nothing.
+            // The strip runs well past the band, so some card can always be
+            // made to straddle the far edge — but not at any offset. The
+            // reveal above parked the strip on a boundary, where nothing
+            // crosses the gutter and the assertion would prove nothing, and
+            // offset 0 is no better: the space allocator flexes the rail
+            // until the band holds whole cards, so at 0 the band's edge is a
+            // card's edge too and the gutter's middle is the seam after it.
+            // (Under the old 5px card gap the gutter's middle fell inside a
+            // card at 0; since the 15px Roomy default, 5fa88c72a, the rail
+            // solves to 332px on this deck and it falls on the seam between
+            // the third card and the fourth.) So the strip is put
+            // where a card's middle stands on the gutter's middle — the
+            // first card whose middle lies past it at 0, drawn back onto it.
             //
             // The offset does not inherit: it is written on each reader.
-            document
-              .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
-              .forEach(function (el) {
-                el.style.setProperty("--tug-imposer-flow-offset", "0px");
-              });
+            function writeOffset(px) {
+              document
+                .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
+                .forEach(function (el) {
+                  el.style.setProperty("--tug-imposer-flow-offset", px + "px");
+                });
+            }
             function paneAt(x, y) {
               var el = document.elementFromPoint(x, y);
               var pane = el && el.closest ? el.closest(".tug-pane") : null;
               return pane === null ? null : pane.getAttribute("data-pane-id");
             }
+            writeOffset(0);
+            var railAtZero = document
+              .querySelector('.tug-pane[data-pane-id="pRail"]')
+              .getBoundingClientRect();
+            var gutterMid = railAtZero.left - ${RAIL_GUTTER_PX} / 2;
+            var straddle = 0;
+            var slotted = document.querySelectorAll('.tug-pane[data-imposed]');
+            for (var k = 0; k < slotted.length; k++) {
+              if (slotted[k].getAttribute("data-pane-id") === "pRail") continue;
+              var sr = slotted[k].getBoundingClientRect();
+              var mid = sr.left + sr.width / 2;
+              if (mid > gutterMid && (straddle === 0 || mid - gutterMid < straddle)) {
+                straddle = mid - gutterMid;
+              }
+            }
+            writeOffset(Math.round(straddle));
             var rail = document
               .querySelector('.tug-pane[data-pane-id="pRail"]')
               .getBoundingClientRect();

@@ -123,10 +123,23 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           // Both preferences are seeded, so nothing here depends on a default:
-          // the Overview at its ch-derived width, the Layout card at 420.
+          // the Overview at its comfort width for the surplus case, the Layout
+          // card at 420.
+          //
+          // The surplus case seeds the Overview at its COMFORT width rather
+          // than its full measure. The two rails' preferences plus the 60px
+          // surplus have to leave three Hello cards at least their 200px floor
+          // on the pinned 1659px harness canvas, and at the full measure
+          // (420 + 545 + 60) they no longer do since the Roomy 15px card gap
+          // (`5fa88c72a`) added each rail's air and seam: the fixture asked
+          // for 186px cards, which the deck raises to 200 and the arithmetic
+          // below stops describing. Which preference the Overview starts from
+          // is not the claim; that the greedier rail takes the whole surplus
+          // past it while the Layout card stands still is.
+          const overviewPreference = COMFORT_OVERVIEW_WIDTH_PX;
           await seedPreferredWidth(app, PREFERRED);
           await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${MEASURE_OVERVIEW_WIDTH_PX} }), null)`,
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${overviewPreference} }), null)`,
           );
           await seedFixture(app, 400, PREFERRED);
 
@@ -137,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)(
           // goes to the Overview and the Layout card does not move at all. ────
           const surplusPane = twoRailPaneWidth(
             canvas,
-            PREFERRED + MEASURE_OVERVIEW_WIDTH_PX + 60,
+            PREFERRED + overviewPreference + 60,
           );
           expect(surplusPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, surplusPane);
@@ -152,11 +165,17 @@ describe.skipIf(!SHOULD_RUN)(
             0,
           );
           expect(fedOverview).toBeCloseTo(surplusTotal - PREFERRED, 0);
-          expect(fedOverview).toBeGreaterThan(MEASURE_OVERVIEW_WIDTH_PX);
+          expect(fedOverview).toBeGreaterThan(overviewPreference);
           expect(Math.round(fedOverview)).not.toBe(Math.round(heldRail));
           for (const seam of await seams(app)) {
             expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
+
+          // The deficit case is read from the Overview's full measure, as it
+          // always was: its 140px descent lands between comfort and measure.
+          await app.evalJS<null>(
+            `(window.__tug.setTugbankValue("dev.tugapp.overview", "widthPx", { kind: "i64", value: ${MEASURE_OVERVIEW_WIDTH_PX} }), null)`,
+          );
 
           // ── Deficit. Now the chain wants 140px LESS rail than the two
           // preferences total, which is more than the Layout card alone can give.

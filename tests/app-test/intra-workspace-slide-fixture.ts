@@ -405,6 +405,13 @@ describe.skipIf(!SHOULD_RUN || arm.skip)(
           "json",
           JSON.stringify(twoSpaceBlob()),
         );
+        // The Layout card's reopen width, seeded BEFORE launch so the deck's
+        // boot solve reads it. Written after launch, as this file once did,
+        // the boot solve had already stood the rail at the card's registered
+        // width (375px) and nothing re-solved it until the switch back to
+        // One, whose `activateSpace` re-solve read 420 and moved the rail
+        // 45px inside the window this file asserts it never moves in.
+        tugbankWrite(tugbankPath, "dev.tugapp.layout", "widthPx", "int", String(RAIL_WIDTH));
 
         const app = await launchTugApp({
           testName: `at0621-intra-workspace-slide-${arm.size}`,
@@ -414,9 +421,6 @@ describe.skipIf(!SHOULD_RUN || arm.skip)(
           restoreInTestMode: true,
         });
         try {
-          await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
-          );
           await app.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).length >= 5`,
             { timeoutMs: 30_000 },

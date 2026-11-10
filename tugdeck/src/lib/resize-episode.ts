@@ -87,6 +87,73 @@ export const GESTURE_EPISODE_WINDOW_MS = 60_000;
  */
 export const RESIZE_SETTLE_TAIL_MS = 600;
 
+/**
+ * The events that say the READER has taken the scroller back: a wheel, a press
+ * (the scrollbar's included), a key, a touch. A settle tail that kept re-landing
+ * through one of these would be fighting the hand for the scroll position.
+ */
+export const SETTLE_TAIL_INTENT_EVENTS = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
+
+/** Why a settle tail let go: it ran its course, or the reader took the scroller back. */
+export type SettleTailRelease = "settled" | "intent";
+
+/** The clock a settle tail runs on, injectable so the rule is a unit test. */
+export interface SettleTailTimers {
+  readonly set: (cb: () => void, ms: number) => unknown;
+  readonly clear: (handle: unknown) => void;
+}
+
+const WINDOW_TIMERS: SettleTailTimers = {
+  set: (cb, ms) => setTimeout(cb, ms),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/**
+ * Keep a claimed scroller's anchor standing through {@link RESIZE_SETTLE_TAIL_MS}
+ * after its episode's `end`, then call `release` once — `"settled"` when the
+ * tail ran out, `"intent"` the moment the reader takes the scroller back.
+ *
+ * The episode's end is the GESTURE's, and a surface that lays itself out on a
+ * clock of its own has not re-flowed yet when it arrives. A CodeMirror view
+ * measures in its own animation frame after the resize, and a PDF re-scales
+ * from a `ResizeObserver` and a React commit; the body page's crossing solve
+ * ends the episode in the very `resize` event that changes the width, before
+ * either has run. An anchor dropped at `end` is gone by the time the reflow
+ * lands, and the reflow then moves the reader. So a claimed scroller keeps its
+ * anchor through the tail, re-landing it on every re-layout of its own, as the
+ * list view does.
+ *
+ * Returns the cancel, which releases the listeners and the timer and does NOT
+ * call `release` — for a new episode's begin, or a teardown ([L27]).
+ */
+export function holdThroughSettleTail(
+  scroller: Pick<EventTarget, "addEventListener" | "removeEventListener">,
+  release: (why: SettleTailRelease) => void,
+  timers: SettleTailTimers = WINDOW_TIMERS,
+): () => void {
+  let open = true;
+  let handle: unknown = null;
+  const onIntent = (): void => finish("intent");
+  const cancel = (): void => {
+    if (!open) return;
+    open = false;
+    timers.clear(handle);
+    for (const type of SETTLE_TAIL_INTENT_EVENTS) {
+      scroller.removeEventListener(type, onIntent, { capture: true });
+    }
+  };
+  const finish = (why: SettleTailRelease): void => {
+    if (!open) return;
+    cancel();
+    release(why);
+  };
+  handle = timers.set(() => finish("settled"), RESIZE_SETTLE_TAIL_MS);
+  for (const type of SETTLE_TAIL_INTENT_EVENTS) {
+    scroller.addEventListener(type, onIntent, { capture: true, passive: true });
+  }
+  return cancel;
+}
+
 /** A scroller that has drifted this far from the anchor is mid-teleport, not mid-reflow; stop correcting. */
 const MAX_ANCHOR_CORRECTION_PX = 100_000;
 

@@ -42,6 +42,7 @@ import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import { claudeProjectDir } from "./_harness/claude-home";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -196,13 +197,28 @@ describe.skipIf(!SHOULD_RUN)(
           const live = await inkFacts(app);
           expect(live.shellTurns, "every exec settled an ink turn").toBe(COMMANDS.length);
 
-          // --- Reload → real resume replay + ledger restore. ---
+          // --- Maker ▸ Reload: the shell reloads, and the card's page is kept. ---
+          // Since `06e4041de` (2026-10-22) a shell reload no longer reloads the
+          // card's own page, so its store still holds the five live rows; a
+          // resume made on that page restores five more over them (ten shell
+          // turns, each command twice). The restore this file is about is the
+          // one a page loaded afresh makes, so the card's page reloads too,
+          // exactly as `at0216` does.
+          await app.body("A").evalJS<boolean>(`(window.__at0461Kept = true)`);
           await app.appReload();
           await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 15_000 },
           );
+
+          // --- The card's own page reloads → real resume replay + ledger restore. ---
+          await app.body("A").evalJS<null>(`(location.reload(), null)`);
+          await app.body("A").waitForCondition<boolean>(
+            `window.__at0461Kept !== true && typeof window.__tug !== "undefined"`,
+            { timeoutMs: 15_000 },
+          );
+          await waitForBodyReady(app, "A");
           await app.spawnSessionResume("A", { tugSessionId: SID, projectDir });
 
           // Poll the STORE, not the DOM: a windowed transcript can paint zero
@@ -241,7 +257,9 @@ describe.skipIf(!SHOULD_RUN)(
 
           // 3. No gap notice when nothing is missing — the affordance must be
           //    silent in the healthy case or it is noise, not a signal.
-          const gapNotices = await app.evalJS<number>(
+          //    The transcript is the card's page's, so the notice would be
+          //    there; read in the shell's page this could never count one.
+          const gapNotices = await app.body("A").evalJS<number>(
             `document.querySelectorAll('[data-slot="session-transcript-ink-gap"]').length`,
           );
           expect(gapNotices, "a complete restore shows no gap notice").toBe(0);

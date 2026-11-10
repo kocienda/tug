@@ -176,6 +176,22 @@ export const layoutSelection = defineSharedStore<LayoutSelectionValue, LayoutSel
 });
 
 /**
+ * Whether a layout selection stands, for every body. The selection itself
+ * reaches only the Cards card's page, but every body has to know one thing
+ * about it: while it stands, the shell's root spends an Escape nothing else
+ * took (`deck-canvas.tsx`, the conditional `CANCEL_DIALOG`). A body that hands
+ * the shell an unanswered Escape claims the key then, rather than letting it
+ * run on in the page to an AppKit beep (`forwardToShell`).
+ */
+export const layoutSelectionStands = defineSharedStore<boolean>({
+  key: "layout.selectionStands",
+  owner: "shell",
+  scope: { deck: true },
+  codec: bool,
+  initial: false,
+});
+
+/**
  * Where the reader is in the Workspaces list: a row and its offset from the
  * top of the card that showed it, or null before anyone has scrolled or
  * clicked. One fact for the deck, because every workspace's Workspaces card

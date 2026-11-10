@@ -5,17 +5,17 @@
  *
  * `set-content-width` is the Layout card's Card Width row: it re-widths every
  * content pane to the named preset and re-solves the rails in the same commit
- * (`DeckManager.setContentWidth`). The preset is the ask and the band is the
- * ceiling, so a pane lands on `min(preset, band)` — and on exactly that, to
- * the pixel, both in the record and on screen. A pane one pixel short reads as
+ * (`DeckManager.setContentWidth`). A pane lands on the preset — held only by
+ * its stack's `sizePolicy` bounds ([D128]); the band is not a ceiling (see the
+ * fixture) — and on exactly that, to the pixel, both in the record and on
+ * screen. A pane one pixel short reads as
  * a card that did not quite take the width it was given, and the seams beside
  * it stand a pixel off the ones `setCardWidths` produces for the same preset.
  *
  * The fixture is two free content panes beside a pinned Layout rail, because
  * the rail re-solve is the half of the gesture only this door runs. Every
- * preset is read in turn, and the band is read from the live
- * `--tug-imposer-inset-*` values rather than typed here, so a deck whose band
- * is narrower than `wide` still asks the honest question.
+ * preset is read in turn; the band is read from the live
+ * `--tug-imposer-inset-*` values and noted beside each width.
  *
  * One piece of the at0681-content-width-lands-on-preset split ([B07] of the
  * bodies migration brief); `-free` starts from free panes and `-three-up` from slotted panes under an imposition. The deck, the readers and the case body

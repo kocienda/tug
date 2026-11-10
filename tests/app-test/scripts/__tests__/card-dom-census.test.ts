@@ -95,6 +95,20 @@ describe("an entry", () => {
     expect(covered[0].kind).toBe("jots");
   });
 
+  test("does not expand a word inside a string as a binding of the same spelling", () => {
+    // `"activate-space"` holds the word `activate`, and `"x-a"` the word `a`:
+    // neither is the test's name, though the file binds both.
+    const helper = `const a = app.evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))})\`);\nasync function activate(app: App) {\n  return cardHost("a");\n}\n`;
+    expect(census(`${SEED}${helper}const A = "x-a";\nawait app.evalJS(\`window.tugdeck.lab.dispatch("activate-space", { id: \${JSON.stringify(A)} })\`);\n`)).toHaveLength(1);
+  });
+
+  test("keeps an imported module-level name over a local of the same spelling in a function body", () => {
+    const imported = importedBindings(`import { jots } from "./fixture";\n`, () =>
+      `export const jots = (app: App) => kindBody(app, "jots");\nexport function rows() {\n  const jots = [];\n  return jots;\n}\n`,
+    );
+    expect(census(`${SEED}await jots(app).evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`, imported)).toEqual([]);
+  });
+
   test("ignores calls inside comments", () => {
     expect(census(`${SEED}// await app.evalJS(cardHost("a"));\n/* app.evalJS(cardHost("a")) */\n`)).toEqual([]);
     expect(maskComments(`a // b\nc`)).toBe(`a     \nc`);

@@ -43,7 +43,7 @@ import { describe, expect, test } from "bun:test";
 import { note } from "./_harness";
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import { SHOULD_RUN } from "./settle-frames-fixture";
-import { BAR_SPEC, CHART, INVALID_SPEC, launchWithCharts } from "./tugchart-fixture";
+import { BAR_SPEC, CARD, CHART, INVALID_SPEC, launchWithCharts } from "./tugchart-fixture";
 
 const TEST_NAME = "at0765-tugchart-fence";
 
@@ -128,7 +128,8 @@ describe.skipIf(!SHOULD_RUN)("at0765 — a tugchart fence renders as a token-sty
   test(
     "the figure is laid out against the page's faces, coloured by token, and an invalid spec says why",
     async () => {
-      const { app, tugbankPath, page } = await launchWithCharts(TEST_NAME, [BAR_SPEC, INVALID_SPEC, SPARKLINE_SPEC]);
+      const { app, tugbankPath } = await launchWithCharts(TEST_NAME, [BAR_SPEC, INVALID_SPEC, SPARKLINE_SPEC]);
+      const page = app.body(CARD);
       try {
         const facts = await page.evalJS<ChartFacts>(READ_FACTS);
         note(`at0765 chart states: ${JSON.stringify(facts.states)}; texts: ${facts.texts.length}`);

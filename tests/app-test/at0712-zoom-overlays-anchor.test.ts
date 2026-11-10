@@ -132,15 +132,26 @@ async function windowBox(app: App): Promise<{ width: number; height: number }> {
 }
 
 /**
- * Where a card's body sits in the window: its placeholder's rect on the
- * shell, in viewport px. A rect read in the body is in the body's own
- * viewport, whose origin is this.
+ * Where a card's body page sits in the window, in viewport px. A rect read in
+ * the body is in the body's own viewport, whose origin is this.
+ *
+ * The page is the pane's rect OUTSET by the apron (`CARD_APRON_PX`,
+ * `lib/chrome-placement.ts`), and the apron is window px at every zoom — so
+ * the origin is the shell's pane frame less where the page draws that same
+ * frame (`.body-chrome-frame`), read in each page. The placeholder's rect
+ * alone, which this once returned, is the frame's corner, not the page's: a
+ * constant 10px off that read as `10·(1 − f)` against a scaled offset.
  */
 async function bodyOrigin(app: App, cardId: string): Promise<{ left: number; top: number }> {
-  return app.evalJS(`(function () {
+  const frame = await app.evalJS<{ left: number; top: number }>(`(function () {
     var r = document.querySelector('[data-body-placeholder][data-card-id=${JSON.stringify(cardId)}]').getBoundingClientRect();
     return { left: r.left, top: r.top };
   })()`);
+  const inPage = await app.body(cardId).evalJS<{ left: number; top: number }>(`(function () {
+    var r = document.querySelector(".body-chrome-frame").getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  })()`);
+  return { left: frame.left - inPage.left, top: frame.top - inPage.top };
 }
 
 /** A body-viewport rect in the window's viewport px. */
@@ -164,20 +175,35 @@ const SHEET_TRIGGER = '[data-testid="gallery-sheet-trigger"]';
 const SHEET = '[data-slot="tug-sheet"]';
 const PANE = '.tug-pane[data-pane-id="p1"]';
 
-/** Popover's offset from its trigger, viewport px. */
+/**
+ * Popover's offset from its trigger, viewport px.
+ *
+ * The popover read is the Positioning section's "Bottom" one, whose short
+ * content is placed by its ANCHOR at every factor. It was the Basic section's
+ * "Open Popover", whose paragraph sets the popover 736px wide; since every
+ * card draws in its own page (`7ee393cd9`) that popover lives in a page only
+ * the card's width plus its apron wide (580px here), so it collides with the
+ * page's left edge and stands there at every factor. A collision placement is
+ * the page edge's, not the trigger's, and the page edge sits the 10px apron
+ * outside the frame in WINDOW px at every zoom (`CARD_APRON_PX`, written as
+ * `apron / f` layout px by `body-chrome-frame.tsx`) — so its offset was
+ * `-(10 + 21·f)`, never `-31·f`, and said nothing about anchoring.
+ */
 async function popoverOffset(app: App): Promise<{ dx: number; dy: number; box: Box }> {
   await seed(app, "popover", "gallery-popover", "Popover", '[data-testid="gallery-popover"]');
   const body = app.body("popover");
-  // Tag the first "Open Popover" button so the native click can name it.
+  // Tag the Positioning section's "Bottom" button so the native click can name it.
   await body.evalJS<void>(`(function () {
     var b = Array.from(document.querySelectorAll('[data-testid="gallery-popover"] button'))
-      .find(function (x) { return x.textContent.trim() === "Open Popover"; });
+      .find(function (x) { return x.textContent.trim() === "Bottom"; });
     b.setAttribute("data-at0712", "popover-trigger");
   })()`);
   const trigger = await settledRect(body, POPOVER_TRIGGER);
   await body.nativeClickAtElement(POPOVER_TRIGGER);
   const box = await settledRect(body, POPOVER);
   await app.nativeKey("Escape");
+  // The premise of the × f reading: nothing but the trigger placed it.
+  expect(box.left, "the popover stands clear of its page's left edge — placed by its anchor").toBeGreaterThan(1);
   return { dx: box.left - trigger.left, dy: box.top - trigger.bottom, box: await inWindow(app, "popover", box) };
 }
 

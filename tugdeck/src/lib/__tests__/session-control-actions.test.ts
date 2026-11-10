@@ -73,6 +73,20 @@ describe("a body's card filter", () => {
     expect(filter("rename_session_ok", { line_id: "line-2", name: "n" })).toBe(null);
   });
 
+  test("admits a cited session's row push, and still nothing else of it", () => {
+    // at0521: an arc record on this card names a stage's segment, and the
+    // stage's cost moves by that segment's push, not the card's own.
+    const citing = bodyCardFilter(() => ({ sessionIds: ["s1"], lineId: "line-1" }), {
+      cites: (id) => id === "stage-1",
+    });
+    const stage = { session_id: "stage-1", usage: { turns: 1, tokens: 10, active_ms: 5 } };
+    expect(citing("session_updated", stage)).toBe(stage);
+    expect(citing("session_updated", { session_id: "s9", usage: {} })).toBe(null);
+    expect(citing("set_session_private_ok", { session_id: "stage-1", private: true })).toBe(null);
+    // With no citer, a session the card does not wear stays refused.
+    expect(filter("session_updated", stage)).toBe(null);
+  });
+
   test("cuts the bindings list to its own card's row", () => {
     const admitted = filter("list_card_bindings_ok", {
       bindings: [{ card_id: "c1", session_id: "s1" }, { card_id: "c2", session_id: "s2" }],

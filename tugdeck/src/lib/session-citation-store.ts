@@ -170,6 +170,22 @@ class SessionCitationStore {
     this.answers.get(citedId.trim()) ?? PENDING;
 
   /**
+   * Whether this page has asked about the session `sessionId` names — by its
+   * full id, by a short id it starts with, or by any spelling that resolved
+   * to it. A body page admits the ledger's pushes for a session it cites
+   * (`bodyCardFilter`), which is how a cited segment's figures stay current.
+   */
+  cites(sessionId: string): boolean {
+    const full = sessionId.trim();
+    if (full.length === 0) return false;
+    for (const [asked, answer] of this.answers) {
+      if (full.startsWith(asked)) return true;
+      if (answer.status === "found" && answer.sessionId === full) return true;
+    }
+    return false;
+  }
+
+  /**
    * Ask the ledger about `citedId` unless it is already asked or answered.
    * Called from an effect ([L02]); safe to call on every render of every chip.
    */

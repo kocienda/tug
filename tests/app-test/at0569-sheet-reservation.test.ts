@@ -114,21 +114,29 @@
  * @covers tugdeck/src/lib/sheet-reservation.ts
  * @covers tugdeck/src/lib/opening-bid.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-registration.tsx
+ * @family at0569
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { note, type App } from "./_harness";
 import { bodyOfKind, kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
-import { testTmpDir } from "./_harness/test-cleanup";
-import {
-  mkTempTugbank,
-  rmTempTugbank,
-  seedTugbankForLaunch,
-  tugbankWrite,
-} from "./_harness/tugbank-helpers";
+import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
+import {
+  PICKER_FORM,
+  REPORTER_DRIFT,
+  SHEET_PANEL,
+  SHEET_PANEL_TO_MEMBER_PX,
+  SHOULD_RUN,
+  TEST_TIMEOUT_MS,
+  bidMismatches,
+  landed,
+  launchOnQuietProject,
+  pins,
+  reservations,
+} from "./sheet-reservation-fixture";
 import {
   describePickerFit,
   pickerFit,
@@ -141,12 +149,6 @@ import {
   type PickerSessionsFixture,
 } from "./picker-sessions-fixture";
 
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 120_000;
-
-/** The settle window, with room for the tween to land. */
-const AFTER_LAND_MS = 900;
-
 /**
  * The Session card's own stack floor (`session-card-registration.tsx`). Named
  * here because the pin standing somewhere the floor would not put the card is
@@ -154,49 +156,6 @@ const AFTER_LAND_MS = 900;
  * assumed.
  */
 const SESSION_FLOOR_PX = 600;
-
-/**
- * How far the deck's claim may sit from a fresh reading of the panel.
- *
- * The two use the IDENTICAL formula — `scrollHeight` plus borders plus margins
- * — so this is not a tolerance on the arithmetic. It is a tolerance on WHEN:
- * the sheet reports on change and re-measures from a `ResizeObserver` on the
- * panel's own box, and a late content reflow that changes `scrollHeight`
- * without changing that box does not re-fire it. So the standing claim can be
- * a pixel or two behind a reading taken afterwards.
- *
- * What the assertion is for survives it whole: the alternatives a wrong number
- * would be — the card's floor, the frame's height, nothing at all — are tens or
- * hundreds of pixels away, not two.
- */
-const REPORTER_DRIFT = 3;
-
-/**
- * How far a MEASURED bid may sit from a fresh reading of the panel it was
- * measured off.
- *
- * Tighter than {@link REPORTER_DRIFT} on purpose, and the tightness is the
- * claim: the bid and the live report come from the identical component through
- * the identical formula, taken a second apart with nothing between them but
- * the commit that appended the pane. Sub-pixel layout rounding is the whole of
- * what may differ. A looser bar here would let a bid that was merely CLOSE
- * pass, and close is what a constant is.
- */
-const MEASURED_BID_DRIFT = 1;
-
-/**
- * What the deck adds between a sheet's panel and the member under it —
- * `memberFloorForSheetPanel`'s sum, copied for the reason every other constant
- * in this header is: `--jsx` is off here, so nothing under `components/` can be
- * imported, and `lib/sheet-reservation.ts` reaches the card registry through
- * the `@` alias this file does not resolve.
- *
- * 37 (the pane's title bar and the 1px its sheet clip drops below it) + 32
- * (`SHEET_CANVAS_GAP`) − the card gap (`IMPOSITION_GAP_PX`, already under a
- * column's last member). A copy that drifts fails the assertions below rather
- * than passing quietly.
- */
-const SHEET_PANEL_TO_MEMBER_PX = 64;
 
 /**
  * The opening bid this fixture SEEDS. It is no longer a copy of anything in
@@ -238,52 +197,6 @@ beforeAll(() => {
 afterAll(() => {
   removePickerSessions(fixture);
 });
-
-const PICKER_FORM = ".session-card-picker-form";
-const SHEET_PANEL = '[data-slot="tug-sheet"].tug-sheet-content';
-
-const wait = (ms: number): Promise<void> =>
-  new Promise<void>((r) => setTimeout(r, ms));
-
-/**
- * Let the deck land before a reading: the landing window, then until no settle
- * is in flight. The picker's claim can reach its height in more than one
- * report, and a later one arms a second settle late in the window — the deck
- * trace shows that settle planned and not yet landed at the reading — so a
- * reading taken on the clock alone catches the frames mid-flight, short of
- * what the store already says.
- */
-async function landed(app: App): Promise<void> {
-  await wait(AFTER_LAND_MS);
-  await app.waitForCondition<boolean>(
-    `document.querySelector("[data-imposer-settling]") === null`,
-    { timeoutMs: 8_000 },
-  );
-}
-
-/**
- * Launch with `default-project-path` pointed at an empty directory.
- *
- * An unbound card's picker opens on that project. Left unseeded, a debug build
- * opens it on the source tree, and whatever sessions this machine holds there
- * fill the picker's list — so the picker's first height, and every reading
- * that leans on it, would be this machine's rather than this file's.
- */
-async function launchOnQuietProject(
-  testName: string,
-): Promise<{ app: App; tugbankPath: string }> {
-  const tugbankPath = mkTempTugbank();
-  seedTugbankForLaunch(tugbankPath);
-  tugbankWrite(
-    tugbankPath,
-    "dev.tugapp.app",
-    "default-project-path",
-    "string",
-    testTmpDir("at0569-quiet-project-"),
-  );
-  const app = await launchTugApp({ testName, env: { TUGBANK_PATH: tugbankPath } });
-  return { app, tugbankPath };
-}
 
 interface Rect {
   top: number;
@@ -419,45 +332,6 @@ async function paneOfCard(app: App, cardId: string): Promise<string | null> {
       var pane = lid === null ? null : lid.closest('.tug-pane');
       return pane === null ? null : '.tug-pane[data-pane-id="' + pane.getAttribute("data-pane-id") + '"]';
     })()`,
-  );
-}
-
-/** The reservations the live store holds, keyed by member. */
-async function reservations(app: App): Promise<Record<string, number> | null> {
-  return app.evalJS<Record<string, number> | null>(
-    `(window.tugdeck.diag.getDeckState().sheetReservations || null)`,
-  );
-}
-
-/**
- * Every `opening-bid-mismatch` the deck has recorded this run.
- *
- * The kind is always-recorded — it does not wait on `enable(true)` — because a
- * first live report disagreeing with the bid is the one thing the deck wants
- * on the record whether or not anybody armed the trace ([Spec S04]).
- */
-async function bidMismatches(
-  app: App,
-): Promise<{ memberId: string; bid: number; report: number }[]> {
-  return app.evalJS(
-    `(function () {
-      var out = [];
-      var events = window.__deckTrace.since(0);
-      for (var i = 0; i < events.length; i += 1) {
-        var e = events[i];
-        if (e.kind === "opening-bid-mismatch") {
-          out.push({ memberId: e.memberId, bid: e.bid, report: e.report });
-        }
-      }
-      return out;
-    })()`,
-  );
-}
-
-/** The opening bids the live store holds, keyed by member. */
-async function pins(app: App): Promise<Record<string, number> | null> {
-  return app.evalJS<Record<string, number> | null>(
-    `(window.tugdeck.diag.getDeckState().openingBids || null)`,
   );
 }
 
@@ -842,144 +716,6 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
           Math.abs(settled.p2.height - (run - IMPOSITION_GAP_PX) * 0.75),
           "and the division really is the stored 3:1",
         ).toBeLessThanOrEqual(PIXEL_TOL);
-      } finally {
-        await app.close();
-        rmTempTugbank(tugbankPath);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a card added on the production path bids what it measured, and the picker reports the same number",
-    async () => {
-      // The quiet project matters most here: this test needs the picker's
-      // first form to be the short one.
-      const { app, tugbankPath } = await launchOnQuietProject("at0569-measured-bid");
-      try {
-        // No Session card and no seeded bid in this fixture: the card arrives
-        // through `addCard`, which is the only thing that MEASURES one. Slot 0
-        // is a split column holding a single `hello` card, so the newcomer
-        // joins it as a second member rather than stacking.
-        await app.seedDeckState({
-          state: {
-            cards: [
-              { id: "A", componentId: "hello", title: "Card A", closable: true },
-              { id: "C", componentId: "hello", title: "Card C", closable: true },
-            ],
-            panes: [
-              {
-                id: "p1",
-                position: { x: 40, y: 40 },
-                size: { width: 600, height: 400 },
-                cardIds: ["A"],
-                activeCardId: "A",
-                title: "",
-                acceptsFamilies: ["maker"],
-                slot: 0,
-              },
-              {
-                id: "p3",
-                position: { x: 40, y: 40 },
-                size: { width: 600, height: 400 },
-                cardIds: ["C"],
-                activeCardId: "C",
-                title: "",
-                acceptsFamilies: ["maker"],
-                slot: 1,
-              },
-            ],
-            activePaneId: "p1",
-            imposition: {
-              kind: "two-up",
-              sidebars: {},
-              columns: { 0: { mode: "split", order: ["p1"] } },
-            },
-            hasFocus: true,
-          },
-          focusCardId: "A",
-        });
-        await app.waitForCondition<boolean>(
-          `document.querySelector('.tug-pane[data-pane-id="p3"]') !== null`,
-          { timeoutMs: 8_000 },
-        );
-        await landed(app);
-
-        await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
-        );
-        // The picker is in the new Session card's body — the deck's only one.
-        await kindBody(app, "session").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
-          { timeoutMs: 15_000 },
-        );
-        await landed(app);
-
-        const newcomer = await app.evalJS<string | null>(
-          `(function () {
-            var seeded = ["p1", "p3"];
-            var frames = document.querySelectorAll(".tug-pane[data-pane-id]");
-            for (var i = 0; i < frames.length; i += 1) {
-              var id = frames[i].getAttribute("data-pane-id");
-              if (seeded.indexOf(id) === -1) return id;
-            }
-            return null;
-          })()`,
-        );
-        expect(newcomer, "the card arrived").not.toBeNull();
-
-        // ── ONE ROW. A fresh instance's `sessions.db` is empty, so the picker
-        //    the card raises lists a single "New session" row and its panel is
-        //    the short one. The number the deck holds for the member is what
-        //    the app measured off that panel before it committed the pane, and
-        //    the panel the user is now looking at reports the same number
-        //    through the same arithmetic ([P02], [P04]). ──
-        const oneRowPanel = await pickerPanelNaturalHeight(kindBody(app, "session"));
-        const oneRowHeld =
-          (await reservations(app))?.[newcomer ?? ""] ??
-          (await pins(app))?.[newcomer ?? ""] ??
-          -1;
-        note(
-          `one-row picker: panel natural ${(oneRowPanel ?? -1).toFixed(1)}px, the deck holds ${oneRowHeld.toFixed(1)}px for the member`,
-        );
-        expect(oneRowPanel, "the picker's panel is on screen").not.toBeNull();
-        expect(
-          Math.abs(oneRowHeld - ((oneRowPanel ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
-          "the first live report is the bid — the number the app measured before the commit",
-        ).toBeLessThanOrEqual(MEASURED_BID_DRIFT);
-        expect(
-          await bidMismatches(app),
-          "and the deck recorded no disagreement, because there was none",
-        ).toEqual([]);
-
-        // ── AT THE CAP. Filling the list is a genuine change to the picker,
-        //    so the report it provokes is an honest update rather than a
-        //    contradiction ([P05]). The member's number follows it, and the
-        //    two heights are far enough apart that no single constant could
-        //    have been right at both — which is the whole case for measuring.
-        //    ──
-        if (fixture === null) {
-          throw new Error("the picker sessions fixture was not seeded");
-        }
-        await pointPickerAt(kindBody(app, "session"), fixture);
-        await landed(app);
-        const cappedPanel = await pickerPanelNaturalHeight(kindBody(app, "session"));
-        const cappedHeld = (await reservations(app))?.[newcomer ?? ""] ?? -1;
-        note(
-          `list at its cap: panel natural ${(cappedPanel ?? -1).toFixed(1)}px, the deck holds ${cappedHeld.toFixed(1)}px for the member`,
-        );
-        expect(
-          Math.abs(cappedHeld - ((cappedPanel ?? -1) + SHEET_PANEL_TO_MEMBER_PX)),
-          "the claim follows the picker that changed under it",
-        ).toBeLessThanOrEqual(REPORTER_DRIFT);
-        expect(
-          cappedHeld - oneRowHeld,
-          "and the two pickers are far enough apart that no constant fits both",
-        ).toBeGreaterThan(100);
-        expect(
-          await bidMismatches(app),
-          "an honest update is not a mismatch",
-        ).toEqual([]);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

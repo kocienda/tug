@@ -384,10 +384,6 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         );
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // Bound, because the notice is the card's: the controller reports for
-        // the session this card holds.
-        bindArc(projectDir(), CLASH, SID, scratch?.cli ?? {});
-
         // Driven from the SHADE rather than the rail, deliberately, and that is
         // now two facts rather than one: the shade's press carries its own card's
         // session id with no dependence on which card the rail is following, and
@@ -403,6 +399,15 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 15000 },
         );
+        // Bound, because the notice is the card's: the controller reports for
+        // the session this card holds. Bound only once the shade is up, in
+        // commit mode: a bound arc with work to join is revealed by the card
+        // on its own (the passive reveal enters join mode at a quiet moment),
+        // and bound before the `/commit` submit, that reveal could win the
+        // race and turn the ⌘Return into a press of an empty Join — whose
+        // refusal then held the notice slot this case reads. With a landing
+        // already up, the reveal defers.
+        bindArc(projectDir(), CLASH, SID, scratch?.cli ?? {});
         const shadeRow = `${SHEET} [data-slot="session-changes-arc-row"][data-arc="${CLASH}"]`;
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(shadeRow)}) !== null`,

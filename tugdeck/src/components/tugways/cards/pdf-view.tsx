@@ -100,6 +100,7 @@ import {
   PRESERVE_SCROLLER_ATTR,
   RESIZE_PRESERVE_BEGIN,
   RESIZE_PRESERVE_END,
+  holdThroughSettleTail,
 } from "@/lib/resize-episode";
 import { usePageZoom } from "@/lib/page-zoom-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -499,19 +500,36 @@ export function PdfView({
     const scroller = scrollerRef.current;
     if (scroller === null) return;
     scroller.setAttribute(PRESERVE_SCROLLER_ATTR, "");
+    /** The settle tail's cancel, while one runs. */
+    let cancelTail: (() => void) | null = null;
     const onPreserveBegin = (event: Event): void => {
+      // A new episode inside the last one's tail reads its own anchor.
+      cancelTail?.();
+      cancelTail = null;
       const anchor = pageAnchorAt(layoutRef.current, scroller.scrollTop);
+      pageAnchorRef.current = anchor;
       if (anchor === null) return;
       event.preventDefault();
-      pageAnchorRef.current = anchor;
     };
     const onPreserveEnd = (): void => {
       relandPageAnchor();
-      pageAnchorRef.current = null;
+      if (pageAnchorRef.current === null) return;
+      // The episode can end before this surface has re-scaled: the layout
+      // follows the scroller's `ResizeObserver` and a commit, and the body
+      // page's crossing solve ends the episode in the `resize` event itself.
+      // So the anchor stays through the settle tail, and the layout effect
+      // below re-lands it on the commit that carries the new scale.
+      cancelTail?.();
+      cancelTail = holdThroughSettleTail(scroller, (why) => {
+        cancelTail = null;
+        if (why === "settled") relandPageAnchor();
+        pageAnchorRef.current = null;
+      });
     };
     scroller.addEventListener(RESIZE_PRESERVE_BEGIN, onPreserveBegin);
     scroller.addEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
     return () => {
+      cancelTail?.();
       scroller.removeEventListener(RESIZE_PRESERVE_BEGIN, onPreserveBegin);
       scroller.removeEventListener(RESIZE_PRESERVE_END, onPreserveEnd);
       scroller.removeAttribute(PRESERVE_SCROLLER_ATTR);

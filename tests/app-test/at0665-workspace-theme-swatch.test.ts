@@ -187,6 +187,19 @@ async function openThemeMenu(app: App, spaceId: string): Promise<void> {
   );
 }
 
+/** Wait until `cardId`'s body is the visible one; throws with the cards' bodies when it is not in 10 s. */
+async function waitForCardsBodyVisible(app: App, cardId: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const cards = (await app.bodies()).filter((b) => b.componentId === "cards");
+    if (cards.some((b) => b.cardId === cardId && b.visible)) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`${cardId}'s body is not visible after 10 s (${cards.map((b) => `${b.cardId}:${b.state}:${b.visible ? "visible" : "hidden"}`).join(", ")})`);
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 async function waitMenuClosed(app: App): Promise<void> {
   // The menu closes inside a card that stays standing.
   await kindBody(app, "cards").waitForCondition<boolean>(
@@ -348,6 +361,12 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
 
           // (5) A pick for the workspace on screen is the Theme menu's path:
           // the screen, this record alone, and the menu-bar checkmark.
+          // Workspace two's own Workspaces card (`C2`) has a page made ahead
+          // since `d207de043`, so at the switch both cards' pages stand, and
+          // for a moment neither is visible; `kindBody` would answer the
+          // first of them, workspace one's, now hidden. Wait for the arriving
+          // card's page to be the one on screen before reaching through it.
+          await waitForCardsBodyVisible(app, "C2");
           await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(swatchButtonFor(SPACE_TWO))}) !== null`,
             { timeoutMs: 10_000 },

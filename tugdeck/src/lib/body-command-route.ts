@@ -98,6 +98,8 @@ export function bodyCommandRoute(facts: BodyCommandFacts): string | null {
  *   page. Cancel: what this page's chain did not want may still be a native
  *   control's or an editor keymap's, and the shell's root may want it too —
  *   Escape's last rung while a layout selection stands.
+ *   While one does stand, Cancel is `forward`: the shell's root spends it,
+ *   and a key left to run on here would reach AppKit unhandled, which beeps.
  * - `decline`: keep it. Undo and Redo are the focused surface's edit
  *   history; unanswered here, they are a native control's, reached when the
  *   funnel lets the key go on. The page-zoom commands are AppKit's: the View
@@ -106,9 +108,12 @@ export function bodyCommandRoute(facts: BodyCommandFacts): string | null {
  *   ⌘-, ⌘0 and ⌥⌘0 died in the body and the shell, where nothing answers
  *   them. A surface that zooms itself (the PDF card) answered them already.
  */
-export function bodyUnhandledRoute(id: string): "forward" | "forward-unclaimed" | "decline" {
+export function bodyUnhandledRoute(
+  id: string,
+  layoutSelectionStands = false,
+): "forward" | "forward-unclaimed" | "decline" {
   if (id === TUG_ACTIONS.UNDO || id === TUG_ACTIONS.REDO || HOST_ZOOM.has(id)) return "decline";
-  if (id === TUG_ACTIONS.CANCEL_DIALOG) return "forward-unclaimed";
+  if (id === TUG_ACTIONS.CANCEL_DIALOG) return layoutSelectionStands ? "forward" : "forward-unclaimed";
   return "forward";
 }
 

@@ -241,6 +241,20 @@ describe("matchChord reads the global layer", () => {
   });
 });
 
+describe("the shipped table", () => {
+  const shipped = new KeymapRegistry(COMMANDS);
+  shipped.setEnvironment(EMPTY_KEYMAP_ENVIRONMENT);
+  const ctrlCmd = (code: string) =>
+    ({ code, ctrlKey: true, metaKey: true, shiftKey: false, altKey: false }) as KeyboardEvent;
+
+  test("⌃⌘O toggles the Overview, and ⌃⌘G, the chord it moved from, is nobody's", () => {
+    // at0365 used to prove the move by pressing ⌃⌘G in the app, which beeps:
+    // a chord nothing answers reaches AppKit unhandled. The table says it.
+    expect(shipped.matchChord(ctrlCmd("KeyO"))?.commandId).toBe(TUG_ACTIONS.TOGGLE_OVERVIEW);
+    expect(shipped.matchChord(ctrlCmd("KeyG"))).toBeNull();
+  });
+});
+
 describe("menuChords", () => {
   const registry = new KeymapRegistry(COMMANDS);
   registry.setEnvironment(EMPTY_KEYMAP_ENVIRONMENT);

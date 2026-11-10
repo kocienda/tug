@@ -65,7 +65,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -86,6 +86,22 @@ const WHEEL_ROW = '.tug-transcript-entry[data-participant="wheel"]';
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 
 const sheetCount = `document.querySelectorAll(${JSON.stringify(COMPACTION)}).length`;
+
+/** Wait until the host presents `cardId`'s body where its placement stands it: no motion carries it. */
+async function bodyLanded(app: App, cardId: string, timeoutMs = 8000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const view = (await app.bodies()).find((b) => b.cardId === cardId);
+    if (view !== undefined) {
+      const f = view.frame;
+      const p = view.presentedFrame;
+      const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.5;
+      if (near(f.x, p.x) && near(f.y, p.y) && near(f.width, p.width) && near(f.height, p.height)) return;
+    }
+    if (Date.now() > deadline) throw new Error(`card ${cardId}'s body did not land within ${timeoutMs} ms`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 
 describe.skipIf(!SHOULD_RUN)(
   "AT0492: a compacting card refuses every door but its own",
@@ -241,6 +257,17 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 12000 },
           );
           expect(await body.evalJS<number>(sheetCount), "one cover, not two").toBe(1);
+
+          // The unfold is a motion, and the cover is back in A's page before
+          // the card has grown to show it: read mid-unfold, the body's frame
+          // is 640 tall and its container is presented 165 tall, so a press
+          // at the Cancel's centre is a press below the card as it stands on
+          // screen — the host hands it to the shell's canvas, and A's page
+          // hears nothing. That is the host's hit region doing its job (a card
+          // a settle carries answers where it stands on screen,
+          // `BodyViewController.regionNow`), so the press waits for the card
+          // to land, as a hand would.
+          await bodyLanded(app, "A");
 
           // Cancel — the run's own door. It settles the store, which raises the
           // closing bulletin and clears, and the sheet dismisses with it.

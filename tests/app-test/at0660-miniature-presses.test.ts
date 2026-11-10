@@ -204,6 +204,46 @@ async function press(app: App, selector: string): Promise<void> {
   });
 }
 
+/** How long a press's raise may take to come back from the shell. */
+const ROUND_TRIP_MS = 3_000;
+
+/**
+ * Wait until the press has come back: the shell's active card is `cardId`,
+ * and — for a block press — the Layout card's own picture shows `frontPaneId`
+ * at the front of the slot. Returns the active card the shell holds, which is
+ * `cardId` unless the press reached something else.
+ *
+ * The pointerup alone is no longer the press's end. Since every card draws in
+ * its own page (`7ee393cd9`), the raise a press asks for crosses the bus to
+ * the shell, and the deck the Layout card reads comes back the same way, some
+ * tens of milliseconds later. The press handler decides which card of a stack
+ * a press reaches off THAT deck (`stackPressCardId`), so a press issued before
+ * the last one's raise has come back is read off the picture before it: the
+ * file once pressed four times in about as many milliseconds, read the stale
+ * front every time, and saw `D → D → D → D`. A reader's presses are a hundred
+ * milliseconds apart at the least; this is the wait that puts the file's on
+ * the same footing.
+ */
+async function pressLanded(
+  app: App,
+  cardId: string,
+  frontPaneId?: string,
+): Promise<string | null> {
+  const deadline = Date.now() + ROUND_TRIP_MS;
+  let active = await app.getActiveCardId();
+  while (active !== cardId && Date.now() < deadline) {
+    await wait(20);
+    active = await app.getActiveCardId();
+  }
+  if (active === cardId && frontPaneId !== undefined) {
+    await app.body("L").waitForCondition<boolean>(
+      `document.querySelector('.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-face[data-pane-id="${frontPaneId}"]') !== null`,
+      { timeoutMs: ROUND_TRIP_MS },
+    );
+  }
+  return active;
+}
+
 function committedOffset(app: App): Promise<number> {
   return app.evalJS<number>(
     `(window.tugdeck.diag.getDeckState().flowOffset || 0)`,
@@ -228,35 +268,50 @@ describe.skipIf(!SHOULD_RUN)("at0660 — the miniature's parts take presses", ()
 
         // (a) A block goes to its slot and raises the card standing there.
         await press(app, '[data-testid="layout-card-target-block-0"]');
-        expect(await app.getActiveCardId(), "block 0 raises A").toBe("A");
+        expect(await pressLanded(app, "A", "p1"), "block 0 raises A").toBe("A");
 
         // (b) A stack three deep: three presses visit three cards, and the
-        // fourth comes home.
+        // fourth comes home. The ring is the one `stackPressCardId` names:
+        // the front card first, then each press raises the stack's
+        // bottom-most — B, then C — and the fourth brings D home.
+        const ring: [string, string][] = [
+          ["D", "p4"],
+          ["B", "p2"],
+          ["C", "p3"],
+          ["D", "p4"],
+        ];
         const visited: (string | null)[] = [];
-        for (let i = 0; i < 4; i += 1) {
+        for (const [cardId, paneId] of ring) {
           await press(app, '[data-testid="layout-card-target-block-1"]');
-          visited.push(await app.getActiveCardId());
+          visited.push(await pressLanded(app, cardId, paneId));
         }
         note(`stack presses: ${visited.join(" → ")}`);
         expect(visited[0], "the first press reaches the front card").toBe("D");
         expect(new Set(visited.slice(0, 3)).size, "three distinct cards").toBe(3);
+        expect(visited, "the ring: front, then bottom-most each time").toEqual(
+          ring.map(([cardId]) => cardId),
+        );
         expect(visited[3], "the fourth press comes home").toBe(visited[0]);
 
         // (c) A split member raises its own card, and never cycles.
         const member = '[data-target="member"][data-pane-id="p6"]';
         await press(app, member);
-        expect(await app.getActiveCardId(), "member F").toBe("F");
+        expect(await pressLanded(app, "F"), "member F").toBe("F");
         await press(app, member);
-        expect(await app.getActiveCardId(), "member F again").toBe("F");
+        // A press that changes nothing has no arrival to wait on: give a raise
+        // it should not make time to come back before reading.
+        await wait(200);
+        expect(await pressLanded(app, "F"), "member F again").toBe("F");
 
         // (d) A rail member activates that sidebar card.
         await press(app, '[data-target="rail"][data-pane-id="pJots"]');
-        expect(await app.getActiveCardId(), "the Jots rail member").toBe("J");
+        expect(await pressLanded(app, "J"), "the Jots rail member").toBe("J");
 
         // (e) An empty slot raises nothing: the press activated the Layout
         // card on its way down, and nothing moves activation off it.
         await press(app, '[data-testid="layout-card-target-block-3"]');
-        expect(await app.getActiveCardId(), "an empty slot leaves Layout").toBe(
+        await wait(200);
+        expect(await pressLanded(app, "L"), "an empty slot leaves Layout").toBe(
           "L",
         );
       } finally {
@@ -281,12 +336,15 @@ describe.skipIf(!SHOULD_RUN)("at0660 — the miniature's parts take presses", ()
         ).toBe(true);
 
         await press(app, '[data-testid="layout-card-target-block-4"]');
+        // The travel is dispatched before the raise, on the same wire, so
+        // once E is raised the offset has been committed too.
+        const raised = await pressLanded(app, "E");
         const after = await committedOffset(app);
         note(`flow offset ${before} → ${after}`);
         expect(after, "the band travelled to the last slot").toBeGreaterThan(
           before,
         );
-        expect(await app.getActiveCardId(), "and its card is raised").toBe("E");
+        expect(raised, "and its card is raised").toBe("E");
       } finally {
         await app.close();
       }
