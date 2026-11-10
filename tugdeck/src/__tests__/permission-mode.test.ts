@@ -86,8 +86,8 @@ describe("resolveSeedPermissionMode", () => {
     expect(resolveSeedPermissionMode(null, "acceptEdits")).toBe("acceptEdits");
   });
 
-  test("is null when neither is set (leave the session untouched)", () => {
-    expect(resolveSeedPermissionMode(null, null)).toBeNull();
+  test("falls back to the built-in default (auto) when neither is set", () => {
+    expect(resolveSeedPermissionMode(null, null)).toBe("auto");
   });
 });
 

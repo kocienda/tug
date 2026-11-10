@@ -135,24 +135,32 @@ export const PERMISSION_MODE_DEFAULT_DOMAIN = "dev.tugapp.permission-mode";
 export const PERMISSION_MODE_DEFAULT_KEY = "default";
 
 /**
+ * The built-in global default — the mode a new card spawns with when the
+ * user has set no deck-wide default in Settings. `auto` is what a first
+ * launch gets.
+ */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
+
+/**
  * The mode a freshly-mounted card should align its session to: its own
- * per-card persisted mode when present, otherwise the global default. `null`
- * when neither is set — the caller then leaves the session at whatever mode it
- * spawned with (no frame sent). The per-card value always wins, so a card that
- * has been used keeps its remembered mode regardless of the global default.
+ * per-card persisted mode when present, otherwise the global default, and
+ * otherwise the built-in {@link DEFAULT_PERMISSION_MODE}. The per-card value
+ * always wins, so a card that has been used keeps its remembered mode
+ * regardless of the global default.
  */
 export function resolveSeedPermissionMode(
   persisted: PermissionMode | null,
   globalDefault: PermissionMode | null,
-): PermissionMode | null {
-  return persisted ?? globalDefault;
+): PermissionMode {
+  return persisted ?? globalDefault ?? DEFAULT_PERMISSION_MODE;
 }
 
 /**
  * The session's effective permission mode for display / publication:
  * live metadata when the `system_metadata` round-trip has landed, the
  * per-card persisted mode as the pre-population fallback, and
- * `default` (what tugcode spawns with) when neither is known. The
+ * {@link DEFAULT_PERMISSION_MODE} (what a fresh card spawns with) when
+ * neither is known. The
  * single fallback chain shared by the chip, the permission sheet, and
  * the host menu-state publication — keep all consumers on this helper
  * so they can never disagree.
@@ -161,5 +169,5 @@ export function resolvePermissionMode(
   live: string | null | undefined,
   persisted: string | null | undefined,
 ): string {
-  return live ?? persisted ?? "default";
+  return live ?? persisted ?? DEFAULT_PERMISSION_MODE;
 }

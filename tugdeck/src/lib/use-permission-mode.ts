@@ -34,6 +34,7 @@ import {
   PERMISSION_MODE_DOMAIN,
   cyclePermissionMode,
   parsePersistedPermissionMode,
+  resolvePermissionMode,
   resolveSeedPermissionMode,
 } from "@/lib/permission-mode";
 import type { PermissionMode } from "@tugproto/inbound";
@@ -162,25 +163,28 @@ export function usePermissionMode({
   // relying on a coincidental fallback match (the old `else` branch marked the
   // seed "sent" without applying or persisting it, which let the chip and the
   // actual mode silently diverge). A card with neither a persisted mode nor a
-  // global default has `seedMode === null` and is left untouched. A manual
+  // global default seeds the built-in `DEFAULT_PERMISSION_MODE`. A manual
   // change via `setMode` pre-arms `sentRef`, superseding any pending restore.
   const seedMode = resolveSeedPermissionMode(persistedMode, globalDefaultMode);
   useEffect(() => {
     if (sentRef.current) return;
     if (!sessionAlive) return;
-    if (seedMode === null) return;
     setMode(seedMode, { fromRestore: true });
   }, [sessionAlive, seedMode, setMode]);
 
   const cycle = useCallback(() => {
     // Read the current mode fresh from the store rather than a render-time
     // closure so the handler registered once on the responder is never
-    // stale [L07]. A session with no metadata yet is in `default` (what the
-    // chip shows), so cycling from it advances `default → acceptEdits` — not
-    // a no-op reset that would leave the chip unchanged.
-    const current = sessionMetadataStore.getSnapshot().permissionMode ?? "default";
+    // stale [L07]. A session with no metadata yet is in whatever the chip
+    // shows — the same `resolvePermissionMode` chain, read fresh — so the
+    // cycle advances from that, not a no-op reset that would leave the chip
+    // unchanged.
+    const current = resolvePermissionMode(
+      sessionMetadataStore.getSnapshot().permissionMode,
+      parsePersistedPermissionMode(getTugbankClient()?.get(PERMISSION_MODE_DOMAIN, cardId)),
+    );
     setMode(cyclePermissionMode(current));
-  }, [sessionMetadataStore, setMode]);
+  }, [sessionMetadataStore, setMode, cardId]);
 
   return { cycle, setMode };
 }

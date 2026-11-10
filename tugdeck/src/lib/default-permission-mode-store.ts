@@ -23,6 +23,7 @@ import { Subscribable } from "./subscribable";
 import { getTugbankClient } from "./tugbank-singleton";
 import { putDefaultPermissionMode } from "@/settings-api";
 import {
+  DEFAULT_PERMISSION_MODE,
   PERMISSION_MODE_DEFAULT_DOMAIN,
   PERMISSION_MODE_DEFAULT_KEY,
   isPermissionMode,
@@ -30,8 +31,7 @@ import {
 } from "./permission-mode";
 import type { PermissionMode } from "@tugproto/inbound";
 
-/** The mode new cards spawn with when nothing else is configured. */
-export const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
+export { DEFAULT_PERMISSION_MODE };
 
 export class DefaultPermissionModeStore extends Subscribable {
   private _mode: PermissionMode;

@@ -53,9 +53,10 @@ import {
 /**
  * Resolve the permission mode a freshly-spawned session should start in,
  * read synchronously from the tugbank cache at spawn time: the card's own
- * per-card persisted mode if any, else the deck-wide default. `undefined`
- * when neither is set (and when the tugbank client isn't ready yet) — the
- * caller then sends no `permission_mode` and tugcode keeps its own default.
+ * per-card persisted mode if any, else the deck-wide default, else the
+ * built-in `DEFAULT_PERMISSION_MODE`. `undefined` only when the tugbank client
+ * isn't ready yet — the caller then sends no `permission_mode` and the
+ * post-spawn seed in `usePermissionMode` applies it once the session is alive.
  *
  * Forwarded in the `spawn_session` frame so tugcast passes `--permission-mode`
  * to tugcode and the spawned claude starts in the right mode from its first
@@ -73,7 +74,7 @@ function resolveSpawnPermissionMode(cardId: string): string | undefined {
   const globalDefault = parsePersistedPermissionMode(
     client.get(PERMISSION_MODE_DEFAULT_DOMAIN, PERMISSION_MODE_DEFAULT_KEY),
   );
-  return resolveSeedPermissionMode(persisted, globalDefault) ?? undefined;
+  return resolveSeedPermissionMode(persisted, globalDefault);
 }
 
 /**

@@ -147,9 +147,8 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(AUTO_OPTION)}) !== null`,
             { timeoutMs: 4000 },
           );
-          // Aim only once the sheet has risen: its OK row is pinned to the
-          // panel's bottom, just under the MODE row in this card, so a click
-          // aimed mid-entrance can land on the row instead.
+          // Aim only once the sheet has risen: its OK row sits just under the
+          // MODE row, so a click aimed mid-entrance can land on the row instead.
           await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}).getAnimations({ subtree: true }).length === 0`,
             { timeoutMs: 4000 },
@@ -187,6 +186,24 @@ describe.skipIf(!SHOULD_RUN)(
             "the chip must not move before OK — the sheet is a transaction",
           ).toBe(afterCycle);
 
+          // The mixer is taller than this card, so the panel scrolls (by
+          // design: the footer is reachable, not pinned) and OK rests below the
+          // fold, where its centre lies under the pane's south resize strip.
+          // Scroll it into view as a user would, and prove the native click
+          // will land on OK before sending it.
+          await app.body("A").evalJS<void>(
+            `document.querySelector(${JSON.stringify(SHEET_OK)}).scrollIntoView({ block: "nearest" })`,
+          );
+          await app.body("A").waitForCondition<boolean>(
+            `(function(){
+              var b = document.querySelector(${JSON.stringify(SHEET_OK)});
+              if (b === null) return false;
+              var r = b.getBoundingClientRect();
+              var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return hit !== null && b.contains(hit);
+            })()`,
+            { timeoutMs: 4000 },
+          );
           await app.body("A").nativeClickAtElement(SHEET_OK);
           await app.body("A").waitForCondition<boolean>(
             `${CHIP_MODE_EXPR} === "Auto"`,
