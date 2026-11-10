@@ -37,7 +37,10 @@
  * alone. The reveal ends on `COLD_REVEAL_SETTLE_BOUND_MS` if the list
  * never settles. So one card's lost frame or unmeasured list can never
  * hold every other card behind a modal with no way out — which, with no
- * dismiss, is the only way out there is.
+ * dismiss, is the only way out there is. Those horizons are the card's
+ * page's; the shell keeps its own over them (`restore-gate-store.ts`): only
+ * a card in the shown workspace whose page is awake holds, an open gate
+ * reads every card again each two seconds, and no card holds past twenty.
  *
  * ## What it says
  *

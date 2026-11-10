@@ -23,9 +23,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cardFacts, cardRestoreHold, type CardFactsValue } from "../../bus/declarations/card";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { restoreGateStore } from "../restore-gate-store";
+import { HOLD_HORIZON_MS } from "../restore-gate-store";
 import { restoreGateRoster } from "../restore-gate-roster";
 import { bodyCardsStore } from "../body-cards-store";
 import { bodyFactsStore } from "../body-facts-store";
+import { registerShellDeck } from "../deck-store-registry";
+import type { IDeckManagerStore } from "../../deck-manager-store";
 import { readRestoreHold } from "../../body/body-publisher";
 import type { CodeSessionSnapshot } from "../code-session-store";
 
@@ -48,6 +51,7 @@ afterEach(() => {
   // pending member from one case into the next.
   restoreGateRoster.take();
   restoreGateStore._resetForTest();
+  registerShellDeck(null);
 });
 
 /** The shell, installed as this page's bus, and a body page for each card. */
@@ -149,6 +153,102 @@ describe("the shell's gate over body cards", () => {
     expect(restoreGateStore.getSnapshot().open).toBe(true);
     bodyCardsStore.drop("a");
     expect(restoreGateStore.getSnapshot().open).toBe(false);
+  });
+});
+
+describe("who may hold the gate, and for how long", () => {
+  /** A deck of two workspaces: `a` in `front`, `b` in `parked`; `show` moves the shown one. */
+  function deckOf(spaces: Record<string, string>): { show(spaceId: string): void } {
+    let activeSpaceId = "front";
+    const listeners = new Set<() => void>();
+    registerShellDeck({
+      spaceOf: (cardId: string) => spaces[cardId] ?? null,
+      getSpacesSnapshot: () => ({ activeSpaceId }),
+      subscribeSpaces: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    } as unknown as IDeckManagerStore);
+    return {
+      show(spaceId) {
+        activeSpaceId = spaceId;
+        for (const listener of [...listeners]) listener();
+      },
+    };
+  }
+
+  test("a card in a parked workspace does not hold; shown, it does", async () => {
+    const deck = deckOf({ a: "front", b: "parked" });
+    const { b } = await pages("a", "b");
+    bodyCardsStore.mark("a");
+    bodyCardsStore.mark("b");
+    // A page made ahead, inside its resume replay.
+    cardRestoreHold.on(b.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+
+    deck.show("parked");
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 0, sessionsTotal: 1 });
+    deck.show("front");
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+  });
+
+  test("a body that goes dormant on its hold lets go, and holds again awake", async () => {
+    const { a } = await pages("a");
+    bodyCardsStore.mark("a");
+    cardFacts.on(a.bus).set(FACTS);
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+
+    cardFacts.on(a.bus).set({ ...FACTS, dormant: true });
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+
+    cardFacts.on(a.bus).set(FACTS);
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+  });
+
+  test("an evicted card's last word does not hold", async () => {
+    const { a } = await pages("a");
+    bodyCardsStore.mark("a");
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+    bodyCardsStore.setState("a", "evicted");
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+  });
+
+  test("the watch ends a hold that has stood past the horizon, and the card's neighbour's stands", async () => {
+    const { a, b } = await pages("a", "b");
+    bodyCardsStore.mark("a");
+    bodyCardsStore.mark("b");
+    restoreGateStore._watchForTest(0);
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 0, sessionsTotal: 1 });
+
+    // `b` begins holding late; `a` never lets go.
+    restoreGateStore._watchForTest(HOLD_HORIZON_MS - 2_000);
+    cardRestoreHold.on(b.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+
+    restoreGateStore._watchForTest(HOLD_HORIZON_MS);
+    // `a` is past its horizon and counts as done; `b` holds on, in a round of its own.
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 0, sessionsTotal: 1 });
+
+    restoreGateStore._watchForTest(2 * HOLD_HORIZON_MS);
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+
+    // Still saying it, `a` does not take the gate back; a new hold after a break does.
+    cardRestoreHold.on(b.bus).set(null);
+    cardRestoreHold.on(a.bus).set(null);
+    await bus.flush();
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
   });
 });
 

@@ -35,6 +35,28 @@
  * come and `"holding"` while it holds the gate, which is how the fold tells
  * a session still to come from one that ended without ever holding.
  *
+ * ## Who may hold, and for how long
+ *
+ * A report of `"holding"` is what a body last said, and a body that is not
+ * listening says nothing more. A parked workspace's page is made ahead
+ * hidden and declared dormant as it paints (`body-make-ahead.ts`), and a
+ * dormant body's replay deadlines stop until it is shown
+ * (`CodeSessionStore.noteDormant`), so a Session card made ahead inside its
+ * resume replay says `"holding"` and then sleeps on it. On 2026-11-09 three
+ * such cards in a workspace nobody was looking at raised the modal over the
+ * user's work and held it with no end. So a card holds only while it could
+ * be the thing the user is waiting on: it is in the shown workspace, its
+ * body has a live page, and that body is not dormant.
+ *
+ * And the gate does not take the reports' word that it should still be up.
+ * While it is open it reads every card again each {@link GATE_WATCH_MS} —
+ * a poll, by decision, because a modal with no dismiss cannot rest on a
+ * notice that may never come — and a card that has said `"holding"` without
+ * a break for {@link HOLD_HORIZON_MS} stops counting, whatever it says.
+ * That is the shell's own horizon over the card's ([L33]): the replay's
+ * silence deadline and the reveal's settle bound end a hold from inside the
+ * page, and this ends it when the page cannot.
+ *
  * Tuglaws: [L02] — external state with `subscribe`/`getSnapshot`, read
  * through `useSyncExternalStore`; the snapshot is reference-stable
  * across unchanged reads. [L10] — one responsibility (derive the gate);
@@ -50,9 +72,11 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createSubscribable } from "@/lib/subscribable";
 
 import { cardServicesStore } from "./card-services-store";
-import { bodyCardsStore } from "./body-cards-store";
+import { bodyCardsStore, pageless } from "./body-cards-store";
 import { bodyFactsStore } from "./body-facts-store";
 import type { CodeSessionStore } from "./code-session-store";
+import { getShellDeck } from "./deck-store-registry";
+import type { IDeckManagerStore } from "../deck-manager-store";
 import { deriveRestoreGateHold } from "@/lib/session-card-restore-gate";
 import { restoreGateRoster } from "./restore-gate-roster";
 import {
@@ -80,6 +104,17 @@ const CLOSED: RestoreGateSnapshot = {
 
 type Listener = () => void;
 
+/** How often an open gate reads every card again, ms. */
+export const GATE_WATCH_MS = 2_000;
+
+/**
+ * How long one card may say it holds, without a break, before the gate stops
+ * counting it. Measured restores settle in a few seconds, so a hold this old
+ * has kept the user out long enough: the card finishes, or fails on its own
+ * deadlines, behind an app that answers again.
+ */
+export const HOLD_HORIZON_MS = 20_000;
+
 class RestoreGateStore {
   private readonly _listeners = createSubscribable();
   private _snapshot: RestoreGateSnapshot = CLOSED;
@@ -87,6 +122,14 @@ class RestoreGateStore {
   private _initialized = false;
   /** Per-store unsubscribes for the session stores observed right now. */
   private _storeUnsubs = new Map<CodeSessionStore, () => void>();
+  /** When each card now saying it holds began to, on this page's clock. */
+  private _heldSince = new Map<string, number>();
+  /** The open gate's watch, or null while it is closed. */
+  private _watch: ReturnType<typeof setInterval> | null = null;
+  /** The deck whose workspace changes are followed, once one is registered. */
+  private _deck: IDeckManagerStore | null = null;
+  private _releaseDeck: (() => void) | null = null;
+  private _now: () => number = () => performance.now();
 
   subscribe = (listener: Listener): (() => void) => {
     this._ensureInitialized();
@@ -159,26 +202,45 @@ class RestoreGateStore {
    * is `foldRestoreGate`'s.
    */
   private _recompute(): void {
+    this._followDeck();
+    const now = this._now();
+    const saying = new Set<string>();
     const holding = new Set<string>();
     const shellHeld = new Map<string, boolean>();
     cardServicesStore.forEachCodeSessionStore((store, cardId) => {
-      const held = deriveRestoreGateHold(store.getSnapshot());
+      const says = deriveRestoreGateHold(store.getSnapshot());
+      if (says) saying.add(cardId);
+      const held = says && this._mayHold(cardId, now);
       shellHeld.set(cardId, held);
       if (held) holding.add(cardId);
     });
     // Each body card whose body says it is restoring, held as a
     // shell-hosted card is held ([B29] of the bodies migration): the body
     // derives the same `deriveRestoreGateHold`, its own silence deadline
-    // errors it there, and the hold goes with the page.
+    // errors it there, and the hold goes with the page. A body that is not
+    // listening — no page, or dormant — holds nothing, whatever it last said.
+    const bodyHeld = new Map<string, boolean>();
     for (const cardId of bodyCardsStore.cardIds()) {
-      if (bodyFactsStore.restoreHoldOf(cardId) === "holding") holding.add(cardId);
+      const says = bodyFactsStore.restoreHoldOf(cardId) === "holding";
+      if (says) saying.add(cardId);
+      const held =
+        says &&
+        !pageless(bodyCardsStore.stateOf(cardId)) &&
+        bodyFactsStore.factsOf(cardId)?.dormant !== true &&
+        this._mayHold(cardId, now);
+      bodyHeld.set(cardId, held);
+      if (held) holding.add(cardId);
+    }
+    // A hold's clock runs for as long as the card goes on saying it.
+    for (const cardId of this._heldSince.keys()) {
+      if (!saying.has(cardId)) this._heldSince.delete(cardId);
     }
     const facts = (cardId: string): RestoreCardFacts => {
       if (bodyCardsStore.has(cardId)) {
         const report = bodyFactsStore.restoreHoldOf(cardId);
         const state = bodyCardsStore.stateOf(cardId);
         return {
-          holding: report === "holding",
+          holding: bodyHeld.get(cardId) === true,
           waiting: report === "waiting",
           live: state !== "failed" && state !== "evicted" && state !== "unmade",
           painted: state === "painted",
@@ -197,6 +259,49 @@ class RestoreGateStore {
     });
     this._fold = state;
     this._publish(reading.open ? reading : CLOSED);
+    this._watchWhileOpen(reading.open);
+  }
+
+  /**
+   * Whether a card saying it holds may: it is in the shown workspace — a
+   * restore nobody is looking at keeps nobody waiting — and it has not said
+   * so past the horizon. Starts the card's clock on its first call.
+   */
+  private _mayHold(cardId: string, now: number): boolean {
+    let since = this._heldSince.get(cardId);
+    if (since === undefined) {
+      since = now;
+      this._heldSince.set(cardId, since);
+    }
+    if (now - since >= HOLD_HORIZON_MS) return false;
+    const deck = this._deck;
+    if (deck === null) return true;
+    const spaceId = deck.spaceOf(cardId);
+    return spaceId === null || spaceId === deck.getSpacesSnapshot().activeSpaceId;
+  }
+
+  /** Follow the shell deck's workspaces, from the first fold that finds one registered. */
+  private _followDeck(): void {
+    if (this._deck !== null) return;
+    const deck = getShellDeck();
+    if (deck === null) return;
+    this._deck = deck;
+    this._releaseDeck = deck.subscribeSpaces(() => this._recompute());
+  }
+
+  /**
+   * Read every card again each {@link GATE_WATCH_MS} for as long as the gate
+   * is open, and not at all while it is closed. The fold is otherwise moved
+   * by notices, and the one that would close the gate is exactly the one a
+   * sleeping or stuck page never sends.
+   */
+  private _watchWhileOpen(open: boolean): void {
+    if (open && this._watch === null) {
+      this._watch = setInterval(() => this._recompute(), GATE_WATCH_MS);
+    } else if (!open && this._watch !== null) {
+      clearInterval(this._watch);
+      this._watch = null;
+    }
   }
 
   /**
@@ -225,6 +330,18 @@ class RestoreGateStore {
   _resetForTest(): void {
     this._fold = INITIAL_FOLD;
     this._snapshot = CLOSED;
+    this._heldSince.clear();
+    this._watchWhileOpen(false);
+    this._releaseDeck?.();
+    this._releaseDeck = null;
+    this._deck = null;
+    this._now = () => performance.now();
+  }
+
+  /** Read every card again as the open gate's watch does, at `now` on a clock the test owns. */
+  _watchForTest(now: number): void {
+    this._now = () => now;
+    this._recompute();
   }
 }
 
