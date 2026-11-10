@@ -54,6 +54,11 @@
  * @module components/tugways/tug-arc-gauge
  */
 
+// The shared gauge colour slots (value/percent/label text, track, fills)
+// live in tug-linear-gauge.css's body{}; this primitive reads them, so it
+// imports them — a surface that loads only the arc gauge (the overlay's
+// Z2 placard) otherwise draws its readout in the SVG default black.
+import "./tug-linear-gauge.css";
 import "./tug-arc-gauge.css";
 
 import React from "react";

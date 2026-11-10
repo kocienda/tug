@@ -20,6 +20,7 @@
  */
 
 import "../components/tugways/cards/session-card-telemetry-renderers.css";
+import "../components/tugways/tug-linear-gauge.css";
 import "../components/tugways/tug-arc-gauge.css";
 import "../components/tugways/tug-pane.css";
 import "../components/tugways/tug-tab-bar.css";
