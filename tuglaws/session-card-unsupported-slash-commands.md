@@ -44,7 +44,7 @@ is [slash-commands.md](slash-commands.md).
 `/vim`, `/theme`, `/color`, `/tui`, `/keybindings`, `/terminal-setup`,
 `/chrome`, `/focus`, `/fast`, `/status`, `/statusline`, `/scroll-speed`,
 `/voice`, `/artifacts`, `/pause-memory` (aliases `/memory-pause`,
-`/toggle-memory`) — these render Ink components or set terminal-local UI state; nothing
+`/toggle-memory`), `/use-case` — these render Ink components or set terminal-local UI state; nothing
 happens over a headless bridge. (`/status` is a no-op specifically because the
 Z4B chrome already shows session status; `/statusline` is the same, the Z4B
 chrome owns ours.)
@@ -99,14 +99,14 @@ pass-throughs: both reload in place over the bridge on claude 2.1.311. See
 `/powerup`, `/radio`, `/stickers`, `/sandbox`, `/cost` and `/stats` (aliases of
 `/usage`, which opens the card's usage sheet and is reached by that name),
 `/usage-credits`, `/extra-usage`, `/team-onboarding`, `/design-login`,
-`/rate-limit-options` — account, auth,
+`/rate-limit-options`, `/project` — account, auth,
 settings, provider/host setup, and subscription surfaces that belong to the
 Tug.app host, not the session card. (`/logout` is the card's own: it logs out of
 Claude and returns to setup.)
 
 ### Device / cross-app / teleport
 `/ide`, `/desktop` (alias `/app`), `/mobile` (aliases `/ios`, `/android`),
-`/remote-control` (alias `/rc`), `/remote-env`, `/background` (alias `/bg`),
+`/remote-control` (alias `/rc`), `/remote-env`, `/send-to-project`, `/background` (alias `/bg`),
 `/stop`, `/teleport` (alias `/tp`), `/daemon`, `/session` (alias `/remote`) —
 cross-app, device, terminal-freeing, background-service and cloud-session
 commands that aren't the session card's concern. (`/cd` is

@@ -681,10 +681,16 @@ pub static PROBES: &[ProbeRecord] = &[
         skip_reason: Some("blocked on dev.md §T0.5 P16 — session_command routing bug"),
     },
     // --- Test 21: Glob tool (auto-approved) ---
+    // Claude Code offers no Glob tool any more (neither 2.1.311 nor 2.1.322
+    // lists one), so a file search is a Bash call, and the agent left to
+    // choose its own search sometimes writes a `find` the default permission
+    // mode asks about. Nothing here answers that prompt: at 2.1.322 the probe
+    // stalled to its timeout and left an empty golden. So the probe names a
+    // read-only search outright. The name stays for the catalog's history.
     ProbeRecord {
         name: "test-21-glob-tool",
         input_script: &[ProbeMsg::UserMessage {
-            text: "Use the Glob tool to find all .md files in the arc/ directory.",
+            text: "Run this bash command to list the Markdown files in tuglaws/: ls tuglaws/*.md",
         }],
         required_events: &[
             "system_metadata",

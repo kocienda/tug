@@ -41,37 +41,39 @@ describe("createFixtureSessionMetadataStore", () => {
     const store = createFixtureSessionMetadataStore(rawJsonl);
     const snapshot = store.getSnapshot();
 
-    // Payload counts for the shipped v2.1.311 capture. The tugplug skills
-    // are the prefixed set the capture recorded — seven of them, under the
-    // arc door and stage names; the capturing account's `anthropic-skills:*`
+    // Payload counts for the shipped v2.1.322 capture. The tugplug skills
+    // are the prefixed set the capture recorded — eight of them, under the
+    // arc door and stage names plus `brief`, `draft` and `viz` (the plugin's
+    // own, which replaced the unprefixed `dataviz`); the capturing account's `anthropic-skills:*`
     // and `design` skills ride along too; the agent list is the built-in
     // Claude Code set. v2.1.285 added the local `/focus` command, and
-    // v2.1.311 the `plugin-authoring` skill:
-    //   slash_commands: 76  (40 upgrade to "skill", 36 stay "local")
-    //   agents: 5
-    //   total after dedup: 81
-    expect(snapshot.slashCommands.length).toBe(81);
+    // v2.1.311 the `plugin-authoring` skill; v2.1.322 added the
+    // `send-to-project` skill and the `web-fetch` agent:
+    //   slash_commands: 77  (41 upgrade to "skill", 36 stay "local")
+    //   agents: 6
+    //   total after dedup: 83
+    expect(snapshot.slashCommands.length).toBe(83);
 
     const byCategory = new Map<string, number>();
     for (const cmd of snapshot.slashCommands) {
       byCategory.set(cmd.category, (byCategory.get(cmd.category) ?? 0) + 1);
     }
     expect(byCategory.get("local")).toBe(36);
-    expect(byCategory.get("skill")).toBe(40);
-    expect(byCategory.get("agent")).toBe(5);
+    expect(byCategory.get("skill")).toBe(41);
+    expect(byCategory.get("agent")).toBe(6);
   });
 
   it("ranks the `tugplug:` prefix matches for `tug` ahead of fuzzy hits", () => {
     const store = createFixtureSessionMetadataStore(rawJsonl);
     const provider = store.getCommandCompletionProvider();
     const hits = provider("tug");
-    // Seven commands start with `tug` (the `tugplug:` family) — those are the
+    // Eight commands start with `tug` (the `tugplug:` family) — those are the
     // strong prefix matches and must lead. Fuzzy/subsequence hits (e.g.
     // `extra-usage`, where t…u…g appears in order) are still offered — that's
     // the @-file popup's behavior — but rank strictly below the prefix matches.
     const prefixed = hits.filter((h) => h.label.startsWith("tugplug:"));
-    expect(prefixed.length).toBe(7);
-    expect(hits.slice(0, 7).every((h) => h.label.startsWith("tugplug:"))).toBe(true);
+    expect(prefixed.length).toBe(8);
+    expect(hits.slice(0, 8).every((h) => h.label.startsWith("tugplug:"))).toBe(true);
     for (const h of hits) {
       expect(h.atom.type).toBe("command");
     }

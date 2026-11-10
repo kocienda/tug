@@ -186,6 +186,20 @@ export const TOOL_VISIBILITY_POLICY: ReadonlyArray<ToolVisibilityEntry> = [
     reviewedAt: "2026-05-24",
   },
   {
+    name: "sendtoproject",
+    visibility: "hidden",
+    rationale:
+      "Last step of `/send-to-project` (claude 2.1.322), which posts to a claude.ai Project and refuses without Remote Control — which the bridge never has, and `/send-to-project` is hidden in slash-supported beside `/remote-control`. Its own confirmation pane is the user-visible surface.",
+    reviewedAt: "2026-11-10",
+  },
+  {
+    name: "sendtoprojectcontext",
+    visibility: "hidden",
+    rationale:
+      "Input-free context read that precedes `sendtoproject` (claude 2.1.322); machinery like `toolsearch`, and unreachable over the bridge for the same Remote Control reason.",
+    reviewedAt: "2026-11-10",
+  },
+  {
     name: "subagenthandback",
     visibility: "hidden",
     rationale:

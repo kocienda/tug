@@ -101,6 +101,7 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "pause-memory", // pauses auto-memory for the session from the TUI.
   "memory-pause", // alias of /pause-memory.
   "toggle-memory", // alias of /pause-memory.
+  "use-case", // picks a Life Sciences use case in an Ink picker (claude 2.1.322).
 
   // Conversation-structure / automation deferred to a future plan — no
   // surface this pass. Kept here (rather than dropped) as a marker for
@@ -166,6 +167,7 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "team-onboarding",
   "design-login", // authorizes design-system access for /design-sync.
   "rate-limit-options", // usage-limit and upgrade options.
+  "project", // sets the claude.ai Project usage is reported against (claude 2.1.322).
 
   // Device / cross-app / teleport — not the session card's concern.
   "ide",
@@ -177,6 +179,7 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "remote-control",
   "rc", // alias of /remote-control.
   "remote-env",
+  "send-to-project", // posts to a claude.ai Project; needs Remote Control (claude 2.1.322).
   "background",
   "bg", // alias of /background.
   "stop", // stops a background session — none exist over the bridge.
