@@ -40,6 +40,7 @@ import {
   setBodyDeferral,
 } from "@/lib/body-handoff";
 import { registerShellDeck } from "@/lib/deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import { restoreGateRoster } from "@/lib/restore-gate-roster";
 import { restoreGateStore } from "@/lib/restore-gate-store";
 
@@ -99,7 +100,7 @@ beforeEach(() => {
   priorWebkit = g.webkit;
   g.webkit = { messageHandlers: { bodyCreate: { postMessage: () => {} } } };
   _setHostCapabilitiesForTest({ bodyViews: true });
-  registerShellDeck(deck);
+  registerStubShellDeck(deck);
   _resetHandOffForTest();
   bodyCardsStore._reset();
   for (const id of CARDS) {

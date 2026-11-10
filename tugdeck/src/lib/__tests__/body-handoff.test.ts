@@ -43,6 +43,7 @@ import {
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import { sessionIntent } from "../../bus/declarations/verbs";
 import { registerShellDeck } from "../deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import { registerCard } from "../../card-registry";
 import {
   drainOpeningCommand,
@@ -138,7 +139,7 @@ beforeEach(() => {
     postMessage: (body: unknown) => posted.push({ name, body: JSON.parse(body as string) }),
   });
   g.webkit = { messageHandlers: { bodyCreate: handler("bodyCreate") } };
-  registerShellDeck(deck);
+  registerStubShellDeck(deck);
   _resetHandOffForTest();
 });
 

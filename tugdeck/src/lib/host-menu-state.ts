@@ -474,7 +474,7 @@ export interface MenuStateSessionBlock {
    * chips gate on it, so a mode change never races a running turn.
    */
   canChangeSettings: boolean;
-  /** Effective mode: live metadata ?? persisted ?? "default". */
+  /** Effective mode: live metadata ?? persisted ?? `DEFAULT_PERMISSION_MODE`. */
   permissionMode: string;
   /**
    * The composite `model · effort · mode` line the AI chip shows — the same

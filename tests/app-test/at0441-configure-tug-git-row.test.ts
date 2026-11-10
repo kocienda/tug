@@ -152,12 +152,17 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the git row offers the tools it needs", ()
         expect(offer, "the offer says what it costs").toContain("3 GB");
         // The offer is the longest prose the row carries, and it has to fit
         // the plinth ConfigureTug allocates: a detail that wraps past the
-        // row's floor grows the row and pushes every step below it down.
+        // row's floor grows the row and pushes every step below it down. What
+        // the plinth allocates is the floor plus the row's own padding: the
+        // floor is a `min-height` on a content-box row, and the 4px of edge
+        // room under it is padding (`tug-step-row.css`).
         const fit = await overlay.evalJS<{ row: number; floor: number }>(`(function () {
           var row = document.querySelector(${JSON.stringify(GIT_ROW)});
+          var cs = getComputedStyle(row);
+          var h = parseFloat(cs.getPropertyValue("--tugx-step-row-h"));
           return {
             row: row.offsetHeight,
-            floor: parseFloat(getComputedStyle(row).getPropertyValue("--tugx-step-row-h")),
+            floor: cs.boxSizing === "border-box" ? h : h + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom),
           };
         })()`);
         note(`at0441 offer fit: ${JSON.stringify(fit)}`);

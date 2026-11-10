@@ -17,6 +17,7 @@ import { _resetForTest, registerAction } from "@/action-dispatch";
 import type { DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { registerShellDeck } from "@/lib/deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import { cardMayFold, registerCardFoldGuard, toggleCardFold } from "@/lib/card-fold";
 import { cardModalHoldStore } from "@/lib/card-modal-hold-store";
 
@@ -36,7 +37,7 @@ function installDeck(cardId: string, folded: boolean): void {
       },
     ],
   } as unknown as DeckState;
-  registerShellDeck({
+  registerStubShellDeck({
     getSnapshot: () => deck,
     subscribe: () => () => {},
   } as unknown as IDeckManagerStore);

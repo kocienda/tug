@@ -132,13 +132,14 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
         await app.awaitEngineReady("A");
 
         // ── 1. The AI item's live title ──
-        // Fresh session: the chip reads Default, and the menu item says so too
-        // rather than carrying only the static "AI Settings…" door label.
+        // Fresh session: the chip reads Auto, the built-in mode a new card
+        // spawns with (`DEFAULT_PERMISSION_MODE`), and the menu item says so
+        // too rather than carrying only the static "AI Settings…" door label.
         await app.body("A").waitForCondition<boolean>(
-          `${chipModeExpr()} === "Default"`,
+          `${chipModeExpr()} === "Auto"`,
           { timeoutMs: 8000 },
         );
-        await waitMenuTitleEndsWith(app, "session.ai", "Default…");
+        await waitMenuTitleEndsWith(app, "session.ai", "Auto…");
 
         // Focus the card so the key-card-scoped dispatch resolves it,
         // then fire the exact control action the menu item posts.
@@ -146,13 +147,13 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("cycle-permission-mode"), null)`,
         );
-        // default → acceptEdits is the cycle's first step.
+        // auto → default is the cycle's wrap.
         await app.body("A").waitForCondition<boolean>(
-          `${chipModeExpr()} === "Accept Edits"`,
+          `${chipModeExpr()} === "Default"`,
           { timeoutMs: 8000 },
         );
         // The menu title followed the chip — one published summary, two faces.
-        await waitMenuTitleEndsWith(app, "session.ai", "Accept Edits…");
+        await waitMenuTitleEndsWith(app, "session.ai", "Default…");
 
         // ── 2 + 3. Stop across a turn; copy/rewind on commit ──
         await expectEnabled(app, "session.stop", false);

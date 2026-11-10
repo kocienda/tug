@@ -23,6 +23,7 @@ import {
   type DeckTraceEvent,
 } from "../deck-trace";
 import { registerShellDeck } from "../lib/deck-store-registry";
+import { registerStubShellDeck } from "./shell-deck-stub";
 
 /**
  * Record `n` `commit-tick` events with increasing `count`, returning
@@ -337,7 +338,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerShellDeck>[0]>["getSnapshot"]>,
       getVersion: () => 0,
     } as unknown as Parameters<typeof registerShellDeck>[0];
-    registerShellDeck(fakeStore);
+    registerStubShellDeck(fakeStore!);
     try {
       deckTrace.record({
         kind: "fr-flip",
@@ -370,7 +371,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       getSnapshot: () => fakeState as unknown as ReturnType<NonNullable<Parameters<typeof registerShellDeck>[0]>["getSnapshot"]>,
       getVersion: () => 0,
     } as unknown as Parameters<typeof registerShellDeck>[0];
-    registerShellDeck(fakeStore);
+    registerStubShellDeck(fakeStore!);
     try {
       deckTrace.record({ kind: "commit-tick", count: 0 });
       const events = deckTrace.dump();
@@ -393,7 +394,7 @@ describe("deckTrace.record stamps store snapshot", () => {
       },
       getVersion: () => 0,
     } as unknown as Parameters<typeof registerShellDeck>[0];
-    registerShellDeck(fakeStore);
+    registerStubShellDeck(fakeStore!);
     try {
       deckTrace.record({ kind: "commit-tick", count: 0 });
       const events = deckTrace.dump();

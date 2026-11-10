@@ -56,6 +56,7 @@ import { registerFixtureCards } from "@/fixtures/fixture-registrations";
 import type { CardState, DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { registerShellDeck } from "@/lib/deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import { publishListCardBindingsOk } from "@/lib/session-ledger-events";
 import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import { cardIdentity, type ResolvedCardIdentity } from "@/lib/card-identity";
@@ -212,7 +213,7 @@ function parkOneCard(
     closable: true,
   };
   const deck = { cards: [card] } as unknown as DeckState;
-  registerShellDeck({
+  registerStubShellDeck({
     spaceOf: (cardId: string) => (cardId === CARD_ID ? "space-1" : null),
     getSpaceDeck: (spaceId: string) => (spaceId === "space-1" ? deck : null),
     getSpacesSnapshot: () => ({ activeSpaceId: "space-1" }),

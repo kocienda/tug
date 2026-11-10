@@ -280,13 +280,19 @@ class RestoreGateStore {
     return spaceId === null || spaceId === deck.getSpacesSnapshot().activeSpaceId;
   }
 
-  /** Follow the shell deck's workspaces, from the first fold that finds one registered. */
+  /**
+   * Follow the registered shell deck's workspaces. The registry is last-wins
+   * (`registerShellDeck`), so each fold reads it again: a deck that has been
+   * replaced or withdrawn is let go, and its successor followed, rather than
+   * the first one found being held for the life of the page.
+   */
   private _followDeck(): void {
-    if (this._deck !== null) return;
     const deck = getShellDeck();
-    if (deck === null) return;
+    if (deck === this._deck) return;
+    this._releaseDeck?.();
+    this._releaseDeck = null;
     this._deck = deck;
-    this._releaseDeck = deck.subscribeSpaces(() => this._recompute());
+    if (deck !== null) this._releaseDeck = deck.subscribeSpaces(() => this._recompute());
   }
 
   /**

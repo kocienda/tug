@@ -19,6 +19,7 @@ import {
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
 import { registerShellDeck } from "../deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 
@@ -58,7 +59,7 @@ registerCard({
  */
 function installDeckStore(cards: readonly CardState[]): void {
   const deck = { cards } as unknown as DeckState;
-  registerShellDeck({
+  registerStubShellDeck({
     spaceOf: (cardId: string) =>
       cards.some((c) => c.id === cardId) ? "space-1" : null,
     getSpaceDeck: (spaceId: string) => (spaceId === "space-1" ? deck : null),

@@ -28,6 +28,7 @@ import { restoreGateRoster } from "../restore-gate-roster";
 import { bodyCardsStore } from "../body-cards-store";
 import { bodyFactsStore } from "../body-facts-store";
 import { registerShellDeck } from "../deck-store-registry";
+import { registerStubShellDeck } from "../../__tests__/shell-deck-stub";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import { readRestoreHold } from "../../body/body-publisher";
 import type { CodeSessionSnapshot } from "../code-session-store";
@@ -158,10 +159,10 @@ describe("the shell's gate over body cards", () => {
 
 describe("who may hold the gate, and for how long", () => {
   /** A deck of two workspaces: `a` in `front`, `b` in `parked`; `show` moves the shown one. */
-  function deckOf(spaces: Record<string, string>): { show(spaceId: string): void } {
+  function deckOf(spaces: Record<string, string>): { show(spaceId: string): void; followers(): number } {
     let activeSpaceId = "front";
     const listeners = new Set<() => void>();
-    registerShellDeck({
+    registerStubShellDeck({
       spaceOf: (cardId: string) => spaces[cardId] ?? null,
       getSpacesSnapshot: () => ({ activeSpaceId }),
       subscribeSpaces: (listener: () => void) => {
@@ -174,6 +175,7 @@ describe("who may hold the gate, and for how long", () => {
         activeSpaceId = spaceId;
         for (const listener of [...listeners]) listener();
       },
+      followers: () => listeners.size,
     };
   }
 
@@ -191,6 +193,34 @@ describe("who may hold the gate, and for how long", () => {
     expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 0, sessionsTotal: 1 });
     deck.show("front");
     expect(restoreGateStore.getSnapshot().open).toBe(false);
+  });
+
+  test("a deck registered over another is the one followed, and the first is let go", async () => {
+    const first = deckOf({ a: "front" });
+    const { a } = await pages("a");
+    bodyCardsStore.mark("a");
+    restoreGateStore._watchForTest(0);
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+    expect(first.followers()).toBe(1);
+
+    // The registry is last-wins: the next fold reads the deck that stands now.
+    const second = deckOf({ a: "parked" });
+    restoreGateStore._watchForTest(1);
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    expect(first.followers()).toBe(0);
+    expect(second.followers()).toBe(1);
+    second.show("parked");
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+
+    // With no deck registered there is no workspace to be parked in.
+    second.show("front");
+    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    registerShellDeck(null);
+    restoreGateStore._watchForTest(2);
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+    expect(second.followers()).toBe(0);
   });
 
   test("a body that goes dormant on its hold lets go, and holds again awake", async () => {

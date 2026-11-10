@@ -19,6 +19,7 @@ import { afterEach, describe, test, expect } from "bun:test";
 
 import type { IDeckManagerStore } from "../deck-manager-store";
 import { registerShellDeck } from "./deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import { driveGesture, resolveGesture, SETTLE_GESTURES } from "./gesture-drivers";
 
 describe("resolveGesture", () => {
@@ -209,7 +210,7 @@ describe("driveGesture", () => {
 
   /** A deck whose snapshot is whatever `snapshot` returns at each read. */
   function deckOf(snapshot: () => Record<string, unknown>, log: string[]): void {
-    registerShellDeck({
+    registerStubShellDeck({
       getSnapshot: snapshot,
       handlePaneClosed: (paneId: string) => log.push(`close ${paneId}`),
     } as unknown as IDeckManagerStore);

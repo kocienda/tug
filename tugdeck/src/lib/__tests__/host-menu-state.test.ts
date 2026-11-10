@@ -20,6 +20,7 @@ import { menuStateToHost } from "@/host/declarations/services";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
 import { registerShellDeck } from "../deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 import type { SpacesSnapshot } from "../../spaces";
@@ -178,7 +179,7 @@ describe("projectDeckState", () => {
     // bare "Commit", which every Commit card would wear identically.
     const cards = [card("a", { componentId: "menu-state-parked" })];
     const state = deck(cards, [pane("p1", ["a"])]);
-    registerShellDeck({
+    registerStubShellDeck({
       spaceOf: () => "space-1",
       getSpaceDeck: (spaceId: string) =>
         spaceId === "space-1" ? state : null,

@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
-            return el !== null && el.textContent.trim() === "Opus 5 · High · Default";
+            return el !== null && el.textContent.trim() === "Opus 5 · High · Auto";
           })()`,
           { timeoutMs: 6000 },
         );
@@ -223,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         expect(
           await readout(app),
           "a stranded level clamps DOWN, never up",
-        ).toBe("Sonnet 4.6 · High · Default");
+        ).toBe("Sonnet 4.6 · High · Auto");
 
         // ---- 3. OK lands the whole diff at once -------------------------
         await app.body("A").click(SEGMENT(MODE_ROW, "plan"));
@@ -333,7 +333,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
-            return el !== null && el.textContent.trim() === "Opus 5 · High · Default";
+            return el !== null && el.textContent.trim() === "Opus 5 · High · Auto";
           })()`,
           { timeoutMs: 8000 },
         );
@@ -361,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         expect(
           await readout(app),
           "the re-opened sheet reads the session, not the dismissed transaction",
-        ).toBe("Opus 5 · High · Default");
+        ).toBe("Opus 5 · High · Auto");
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") {

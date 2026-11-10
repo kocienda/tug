@@ -47,6 +47,7 @@ const SHELL_DECK_READERS: Record<string, string> = {
   "lib/card-gesture-commit.ts": "lands a dropped pane on the shell's arrangement",
   "lib/card-close-commands.ts": "closes cards and workspaces on the shell's arrangement",
   "lib/pane-verbs.ts": "answers the `pane.*` verbs on the shell's arrangement",
+  "lib/restore-gate-store.ts": "holds the shell's restore gate only for cards in the shell's shown workspace",
   "lib/host-menu-state.ts": "projects the shell's arrangement into the host's menus",
 };
 

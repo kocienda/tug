@@ -268,8 +268,15 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         );
 
         const height = `document.querySelector(${JSON.stringify(INSTALL_ROW)}).offsetHeight`;
+        // What the plinth allocates is the floor plus the row's own padding:
+        // the floor is a `min-height` on a content-box row, and the 4px of
+        // edge room under it is padding (`tug-step-row.css`).
         const floor = await overlay.evalJS<number>(
-          `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(INSTALL_ROW)})).getPropertyValue("--tugx-step-row-h"))`,
+          `(function () {
+            var cs = getComputedStyle(document.querySelector(${JSON.stringify(INSTALL_ROW)}));
+            var h = parseFloat(cs.getPropertyValue("--tugx-step-row-h"));
+            return cs.boxSizing === "border-box" ? h : h + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+          })()`,
         );
         const settled = await overlay.evalJS<number>(height);
 

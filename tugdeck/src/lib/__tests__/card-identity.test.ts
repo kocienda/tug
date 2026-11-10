@@ -23,6 +23,7 @@ import {
 import type { CardState, DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { registerShellDeck } from "@/lib/deck-store-registry";
+import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import { cardIdentity, cardIdentityElsewhere, ownLiveCardIdentity, parkedBagPath, parkedCardBag } from "@/lib/card-identity";
 import { registerCommitCard } from "@/components/tugways/cards/commit-card";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
@@ -50,7 +51,7 @@ function installDeckStore(
     getCardState: (cardId: string) =>
       cardId in bags ? { content: bags[cardId] } : undefined,
   } as unknown as IDeckManagerStore;
-  registerShellDeck(store);
+  registerStubShellDeck(store);
 }
 
 beforeEach(() => {

@@ -131,7 +131,9 @@ final class BodyHandOverTests: XCTestCase {
         check("one icon at its rect", draw.images.count == 1 && draw.images[0].rect.cgRect == CGRect(x: 14, y: 11, width: 16, height: 16))
         // AppKit's SVG reader paints nothing for an `rgba()` paint, which is why the shell writes `rgb()` and an opacity.
         let drawn = NSImage(data: Data(draw.images[0].svg.utf8))?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        let inked = drawn.flatMap { BodyHandOver.rgbaBytes(of: $0) }.map { bytes in stride(from: 3, to: bytes.count, by: 4).filter { bytes[$0] > 80 }.count } ?? 0
+        // Typed step by step: as one chain ending in `?? 0` the checker resolves it two ways, and one is `Int??`.
+        let pixels: [UInt8] = drawn.flatMap { BodyHandOver.rgbaBytes(of: $0) } ?? []
+        let inked: Int = stride(from: 3, to: pixels.count, by: 4).filter { pixels[$0] > 80 }.count
         check("whose markup AppKit draws", inked > 0, "\(inked) inked pixels")
     }
 
