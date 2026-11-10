@@ -41,6 +41,8 @@ audit() {
     check audit-motion "cd tugdeck && bun run audit:motion"
     check audit-type-alignment "cd tugdeck && bun run audit:type-alignment"
     check audit-tokens "cd tugdeck && bun run audit:tokens lint"
+    check theme-token-refs "cd tugdeck && bun run audit:theme-token-refs && bun test $guard ./scripts/__tests__/theme-token-refs.test.ts"
+    check verify-pairings "cd tugdeck && bun run verify:pairings"
     check third-party-notices "bun scripts/third-party-notices.ts --check"
 }
 
