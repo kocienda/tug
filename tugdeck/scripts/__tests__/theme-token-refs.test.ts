@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { findThemeTokenProblems, themeDefinitions } from "../theme-token-refs";
+import { findBaseTokenProblems, findThemeTokenProblems, themeDefinitions } from "../theme-token-refs";
 
 const DARK = themeDefinitions(`
   --tug7-element-global-text-normal-default-rest: --tug-color(white);
@@ -73,5 +73,44 @@ describe("findThemeTokenProblems", () => {
     const [problem] = check("a { border-color: var(--tug7-element-card-border-normal-frame-rest); }");
     expect(problem.kind).toBe("partial-without-fallback");
     expect(problem.missingFrom).toEqual(["ironclad"]);
+  });
+});
+
+describe("findBaseTokenProblems", () => {
+  const SCALE = { path: "styles/tug.css", text: "body { --tug-space-xl: 16px; }" };
+  const tokens = (files: { path: string; text: string }[], knobs = new Map<string, string>()) =>
+    findBaseTokenProblems(files, knobs).map((p) => [p.file, p.line, p.token]);
+
+  test("a read of a declared property passes", () => {
+    expect(tokens([SCALE, { path: "a.css", text: "a { padding: var(--tug-space-xl); }" }])).toEqual([]);
+  });
+
+  test("a fallback does not excuse a read nothing declares", () => {
+    expect(
+      tokens([SCALE, { path: "a.css", text: "a {\n  padding: var(--tug-space-4, 16px);\n}" }]),
+    ).toEqual([["a.css", 2, "--tug-space-4"]]);
+  });
+
+  test("a TypeScript writer defines the property; a CSS comment does not", () => {
+    const read = { path: "a.css", text: "/* `--tug-row-height` */ a { height: var(--tug-row-height); }" };
+    expect(tokens([read])).toEqual([["a.css", 1, "--tug-row-height"]]);
+    expect(
+      tokens([read, { path: "w.ts", text: 'el.style.setProperty("--tug-row-height", px);' }]),
+    ).toEqual([]);
+  });
+
+  test("a template writes a family", () => {
+    expect(
+      tokens([
+        { path: "a.css", text: "a { left: var(--tug-inset-left); }" },
+        { path: "w.ts", text: "el.style.setProperty(`--tug-inset-${side}`, px);" },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("a declared knob passes, and a family prefix is not a token", () => {
+    const read = { path: "a.css", text: "a { translate: var(--tug-slide-x, 0); }\n/* var(--tug-space-*) */" };
+    expect(tokens([read])).toEqual([["a.css", 1, "--tug-slide-x"]]);
+    expect(tokens([read], new Map([["--tug-slide-x", "a knob"]]))).toEqual([]);
   });
 });

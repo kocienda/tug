@@ -1,12 +1,12 @@
 /* @tug-pairings {
-  --tugx-progress-indicator-fill | --tug7-surface-progress-primary-normal-default-rest | control
+  --tugx-progress-indicator-fill | --tug7-surface-slider-primary-normal-track-rest | control
 } */
 
 /**
  * @tug-pairings
  * | Element                          | Surface                                                | Role    | Context                                       |
  * |----------------------------------|--------------------------------------------------------|---------|-----------------------------------------------|
- * | --tugx-progress-indicator-fill   | --tug7-surface-progress-primary-normal-default-rest    | control | .tug-progress-ring-arc (stroke)                |
+ * | --tugx-progress-indicator-fill   | --tug7-surface-slider-primary-normal-track-rest    | control | .tug-progress-ring-arc (stroke)                |
  *
  * Internal glyph for TugProgressIndicator's `ring` variant.
  *
@@ -35,7 +35,7 @@
 
 /* @tug-renders-on: (component background — rendered in parent context) */
 .tug-progress-ring-track {
-  stroke: var(--tug7-surface-progress-primary-normal-default-rest, rgba(255, 255, 255, 0.1));
+  stroke: var(--tug7-surface-slider-primary-normal-track-rest, rgba(255, 255, 255, 0.1));
 }
 
 .tug-progress-ring-arc {

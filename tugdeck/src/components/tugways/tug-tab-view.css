@@ -81,7 +81,7 @@
 }
 
 .tug-tab-view-tab:disabled {
-  opacity: var(--tug-opacity-disabled, 0.4);
+  opacity: 0.4;
 }
 
 .tug-tab-view-tab-icon {

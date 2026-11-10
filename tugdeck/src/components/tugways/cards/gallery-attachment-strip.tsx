@@ -115,7 +115,7 @@ export function GalleryAttachmentStrip(): React.ReactElement {
         </p>
         <div style={{
           padding: "12px",
-          background: "var(--tug7-element-field-fill-rest)",
+          background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
         }}>
           <TugAtomTextBody text={FIXTURE_TEXT} atoms={FIXTURE_ATOMS} />
@@ -138,7 +138,7 @@ export function GalleryAttachmentStrip(): React.ReactElement {
         </p>
         <div style={{
           padding: "12px",
-          background: "var(--tug7-element-field-fill-rest)",
+          background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
         }}>
           <TugAtomTextBody text={FIXTURE_TEXT} atoms={FIXTURE_ATOMS} />
@@ -163,7 +163,7 @@ export function GalleryAttachmentStrip(): React.ReactElement {
         </p>
         <div style={{
           padding: "12px",
-          background: "var(--tug7-element-field-fill-rest)",
+          background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
           display: "flex",
           flexDirection: "column",
@@ -193,7 +193,7 @@ export function GalleryAttachmentStrip(): React.ReactElement {
         </p>
         <div style={{
           padding: "12px",
-          background: "var(--tug7-element-field-fill-rest)",
+          background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
         }}>
           <TugAtomTextBody text="plain prose, no atoms here" atoms={[]} />

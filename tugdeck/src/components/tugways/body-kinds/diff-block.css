@@ -309,7 +309,7 @@ body {
  * belongs where the overlap is. */
 .tugx-diff-hunk[data-contested="true"] > .tugx-diff-hunk-lead,
 .tugx-diff-hunk[data-contested="true"] > .tugx-diff-hunk-header {
-  border-left: 2px solid var(--tug7-element-global-border-accent-bold-rest);
+  border-left: 2px solid var(--tug7-element-global-border-normal-accent-rest);
 }
 
 .tugx-diff-hunk-rows {

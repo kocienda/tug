@@ -24,7 +24,12 @@
  *     ships do not need), but then every `var()` of it must carry a fallback,
  *     or the themes without it paint nothing.
  *
- * The checker is pure ({@link findThemeTokenProblems}) so its test drives it
+ * The base family (`--tug-*`, the scales and the runtime-written geometry) has
+ * no theme to check against, so its rule is narrower: every `var()` read names a
+ * property something declares, writes from TypeScript, or offers as a knob
+ * ({@link findBaseTokenProblems}).
+ *
+ * The checkers are pure ({@link findThemeTokenProblems}) so their test drives them
  * over fixtures; the CLI below walks the tree and prints `file:line`.
  *
  * Usage: bun run scripts/theme-token-refs.ts
@@ -37,7 +42,7 @@ export interface ThemeTokenProblem {
   file: string;
   line: number;
   token: string;
-  kind: "undefined" | "partial-without-fallback";
+  kind: "undefined" | "partial-without-fallback" | "base-undefined";
   /** For a partial token: the themes that lack it. */
   missingFrom?: string[];
 }
@@ -108,6 +113,64 @@ export function findThemeTokenProblems(
 }
 
 // ---------------------------------------------------------------------------
+// The base family: `--tug-*`
+// ---------------------------------------------------------------------------
+
+/**
+ * Base `--tug-*` names read by `var()` that nothing writes on purpose: a knob a
+ * component offers with its default in the fallback, for a caller to set. Each
+ * is named here so that a fallback is never what lets a misspelling through.
+ */
+export const BASE_KNOBS: ReadonlyMap<string, string> = new Map([
+  ["--tug-slide-from-x", "tug-menu.css slide keyframes: a component sets its start"],
+  ["--tug-slide-from-y", "tug-menu.css slide keyframes: a component sets its start"],
+  ["--tug-slide-to-x", "tug-menu.css slide keyframes: a component sets its rest"],
+  ["--tug-slide-to-y", "tug-menu.css slide keyframes: a component sets its rest"],
+  ["--tug-pole-stripe", "gallery.css barber pole: one tile's width, shared by four reads"],
+]);
+
+const BASE_READ_RE = /var\(\s*(--tug-[A-Za-z0-9_-]+)/g;
+const BASE_DECL_RE = /(--tug-[A-Za-z0-9_-]+)\s*:/g;
+/** A TypeScript string naming a property is a runtime writer: `setProperty`, a style key, a constant. */
+const BASE_STRING_RE = /["'](--tug-[A-Za-z0-9_-]*[A-Za-z0-9_])["']/g;
+/** A template string's head (`` `--tug-imposer-inset-${side}` ``) writes a family. */
+const BASE_TEMPLATE_RE = /`(--tug-[A-Za-z0-9_-]*-)\$\{/g;
+
+/**
+ * Every `var(--tug-…)` read must name a property something defines: a CSS
+ * declaration anywhere in `files`, a TypeScript string naming it (the runtime
+ * writers — the imposer's insets, the zoom store's viewport, the editor's row
+ * height), a family a TypeScript template writes, or a declared knob. A
+ * fallback does not excuse a read: `var(--tug-space-4, 16px)` painted its
+ * fallback for as long as it shipped, because the scale's step is `-xl`.
+ */
+export function findBaseTokenProblems(
+  files: ReadonlyArray<{ path: string; text: string }>,
+  knobs: ReadonlyMap<string, string> = BASE_KNOBS,
+): ThemeTokenProblem[] {
+  const defined = new Set<string>(knobs.keys());
+  const prefixes: string[] = [];
+  for (const file of files) {
+    for (const m of file.text.matchAll(BASE_DECL_RE)) defined.add(m[1]);
+    if (!/\.tsx?$/.test(file.path)) continue;
+    for (const m of file.text.matchAll(BASE_STRING_RE)) defined.add(m[1]);
+    for (const m of file.text.matchAll(BASE_TEMPLATE_RE)) prefixes.push(m[1]);
+  }
+  const problems: ThemeTokenProblem[] = [];
+  for (const file of files) {
+    file.text.split("\n").forEach((lineText, index) => {
+      for (const m of lineText.matchAll(BASE_READ_RE)) {
+        const token = m[1];
+        if (token.endsWith("-")) continue; // a family prefix, not a token
+        if (defined.has(token) || prefixes.some((p) => token.startsWith(p))) continue;
+        problems.push({ file: file.path, line: index + 1, token, kind: "base-undefined" });
+      }
+    });
+  }
+  return problems;
+}
+
+// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
@@ -144,22 +207,36 @@ function main(): void {
   }));
 
   const problems = findThemeTokenProblems(themes, files);
+  // The base family's definitions also live in the theme files and the page.
+  const baseFiles = [
+    ...files,
+    ...[...fs.readdirSync(THEMES_DIR)].filter((n) => n.endsWith(".css")).sort().map((n) => ({
+      path: path.join("styles/themes", n),
+      text: fs.readFileSync(path.join(THEMES_DIR, n), "utf-8"),
+    })),
+    { path: "index.html", text: fs.readFileSync(path.join(TUGDECK, "index.html"), "utf-8") },
+  ];
+  problems.push(...findBaseTokenProblems(baseFiles));
   if (problems.length === 0) {
     console.log(
-      `✓ theme-token-refs: every --tug7-* name in ${files.length} files is defined by the ${themes.size} themes.`,
+      `✓ theme-token-refs: every --tug7-* name in ${files.length} files is defined by the ${themes.size} themes, and every var(--tug-*) read has a writer.`,
     );
     return;
   }
   for (const p of problems) {
     if (p.kind === "undefined") {
       console.log(`${p.file}:${p.line}: ${p.token} — no theme defines it`);
+    } else if (p.kind === "base-undefined") {
+      console.log(
+        `${p.file}:${p.line}: ${p.token} — read by var(), but nothing declares or writes it (a knob belongs in BASE_KNOBS)`,
+      );
     } else {
       console.log(
         `${p.file}:${p.line}: ${p.token} — read with no fallback, but ${p.missingFrom?.join(", ")} do not define it`,
       );
     }
   }
-  console.log(`\n✗ theme-token-refs: ${problems.length} reference(s) to tokens the themes do not define.`);
+  console.log(`\n✗ theme-token-refs: ${problems.length} reference(s) to tokens nothing defines.`);
   process.exit(1);
 }
 

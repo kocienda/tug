@@ -501,10 +501,10 @@ body {
    tone: the pair reads as one fact in two states, which a mark that is
    sometimes absent cannot. */
 .cards-space-header[data-cards-space-active="true"] .tug-list-row-title {
-  color: var(--tug7-element-global-text-accent-default-rest);
+  color: var(--tug7-element-tone-text-normal-accent-rest);
 }
 .cards-space-header[data-cards-space-active="true"] .cards-header-glyph {
-  color: var(--tug7-element-global-text-accent-default-rest);
+  color: var(--tug7-element-tone-text-normal-accent-rest);
 }
 .cards-space-header[data-cards-space-active="false"] .cards-header-glyph {
   color: var(--tug7-element-global-text-normal-subtle-rest);

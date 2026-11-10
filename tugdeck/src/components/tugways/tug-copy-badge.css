@@ -22,7 +22,7 @@
 
 /* The inner badge lays its text + trailing glyph out inline. */
 .tug-copy-badge-inner {
-  gap: var(--tug-space-3xs, 3px);
+  gap: 3px;
 }
 
 .tug-copy-badge-text {

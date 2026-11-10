@@ -16,7 +16,7 @@
  *               from the parent via `--tugx-progress-indicator-fill`.
  *
  * Color is inherited from the parent's `--tugx-progress-indicator-fill`.
- * Track uses `--tug7-surface-progress-primary-normal-default-rest`.
+ * Track uses `--tug7-surface-slider-primary-normal-track-rest`.
  *
  * Laws: [L06] arc offset via inline style, [L13] CSS keyframes only,
  *       [L16] pairings declared, [L19] component authoring guide

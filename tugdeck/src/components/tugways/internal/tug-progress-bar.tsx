@@ -18,7 +18,7 @@
  * the parent container.
  *
  * Color is inherited from the parent's `--tugx-progress-indicator-fill`.
- * Track uses `--tug7-surface-progress-primary-normal-default-rest`.
+ * Track uses `--tug7-surface-slider-primary-normal-track-rest`.
  *
  * # The painted seam
  *

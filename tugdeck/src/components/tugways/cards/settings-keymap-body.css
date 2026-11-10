@@ -194,7 +194,7 @@
   border-radius: 0.25rem;
   background: var(--tug7-surface-field-primary-normal-plain-rest);
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
-  color: var(--tug7-element-field-text-normal-value-rest);
+  color: var(--tug7-element-field-text-normal-plain-rest);
 }
 
 /* The chord inherits the deck's face: ⌘ / ⌥ / ⇧ / ⌃ are absent from IBM Plex,
@@ -301,7 +301,7 @@
 }
 
 .settings-keymap-capture-chord[data-pending="true"] {
-  color: var(--tug7-element-field-text-normal-value-rest);
+  color: var(--tug7-element-field-text-normal-plain-rest);
 }
 
 .settings-keymap-capture-actions {

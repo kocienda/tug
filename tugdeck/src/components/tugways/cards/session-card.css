@@ -157,8 +157,8 @@
 .session-changes-view-empty,
 .session-history-view-empty {
   margin: auto;
-  padding: var(--tug-space-4, 16px);
-  color: var(--tug-text-muted, #888);
+  padding: var(--tug-space-xl);
+  color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: 13px;
   text-align: center;
 }
@@ -1061,8 +1061,8 @@
   max-width: 420px;
   padding: var(--tug-space-lg, 16px);
   background-color: var(--tugx-alert-bg, var(--tug7-surface-control-primary-ghost-action-hover));
-  color: var(--tugx-alert-fg, var(--tug7-element-global-text-normal-strong-rest));
-  border: 1px solid var(--tugx-alert-border, var(--tug7-element-global-stroke-neutral-muted-rest));
+  color: var(--tugx-alert-fg, var(--tug7-element-global-text-normal-default-rest));
+  border: 1px solid var(--tugx-alert-border, var(--tug7-element-global-border-normal-muted-rest));
   border-radius: 0.5rem;
   box-sizing: border-box;
   animation: session-card-restoring-panel-in
@@ -1305,9 +1305,9 @@
    substring of a recent path). No horizontal padding — even 1px of inline-box
    padding shifts surrounding text when ranges appear/disappear, and the bg +
    border-radius read as a highlight on their own. */
-/* @tug-renders-on: surface.global.data.tinted */
+/* @tug-renders-on: --tug7-surface-tone-primary-normal-data-rest */
 .session-card-picker-match {
-  background: var(--tug7-surface-global-data-tinted-default-rest);
+  background: var(--tug7-surface-tone-primary-normal-data-rest);
   color: var(--tug7-element-global-text-normal-default-rest);
   border-radius: var(--tug-radius-2xs, 2px);
 }

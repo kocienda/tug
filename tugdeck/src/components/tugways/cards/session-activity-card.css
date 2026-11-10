@@ -121,7 +121,7 @@
   font-weight: var(--tug-font-weight-bold);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  color: var(--row-accent, var(--tug7-element-global-text-normal-normal-rest));
+  color: var(--row-accent, var(--tug7-element-global-text-normal-default-rest));
 }
 
 /* The resting state: a dimmed zero in the channel's unit — the hue and

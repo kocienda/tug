@@ -270,7 +270,7 @@ body {
    it needs no override here. */
 .tug-alert-body[data-icon-role="agent"]   { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-agent-rest); }
 .tug-alert-body[data-icon-role="accent"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest); }
-.tug-alert-body[data-icon-role="action"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-action-rest); }
+.tug-alert-body[data-icon-role="action"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-active-rest); }
 .tug-alert-body[data-icon-role="caution"] { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest); }
 .tug-alert-body[data-icon-role="danger"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-danger-rest); }
 

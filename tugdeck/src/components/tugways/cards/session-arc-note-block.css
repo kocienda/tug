@@ -45,7 +45,7 @@
 body {
   /* The name's own slot — a step quieter than the verb beside it. */
   --tugx-arc-note-name-color: var(--tug7-element-global-text-normal-muted-rest);
-  --tugx-arc-note-name-weight: var(--tug-font-weight-normal);
+  --tugx-arc-note-name-weight: var(--tug-font-weight-regular);
   /* The vertical rhythm both seats take: a quiet line's own gap, so a run of
      step notes reads as one list rather than as rows standing apart. */
   --tugx-arc-note-row-margin: var(--tug-space-xs);

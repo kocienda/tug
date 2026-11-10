@@ -1,6 +1,6 @@
 /* @tug-pairings {
   --tug7-element-field-text-normal-label-rest       | --tug7-surface-global-primary-normal-default-rest  | content
-  --tug7-element-field-text-normal-label-hover      | --tug7-surface-field-primary-normal-plain-hover    | content
+  --tug7-element-field-text-normal-plain-rest      | --tug7-surface-field-primary-normal-plain-hover    | content
   --tug7-element-field-text-normal-placeholder-rest | --tug7-surface-global-primary-normal-default-rest  | content
   --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-default-rest  | informational
 } */
@@ -10,7 +10,7 @@
  * | Element                                           | Surface                                            | Role          | Context                                               |
  * |---------------------------------------------------|----------------------------------------------------|---------------|-------------------------------------------------------|
  * | --tug7-element-field-text-normal-label-rest        | --tug7-surface-global-primary-normal-default-rest   | content       | .tug-accordion-trigger (color) at rest                |
- * | --tug7-element-field-text-normal-label-hover       | --tug7-surface-field-primary-normal-plain-hover     | content       | .tug-accordion-trigger:hover (color)                  |
+ * | --tug7-element-field-text-normal-plain-rest       | --tug7-surface-field-primary-normal-plain-hover     | content       | .tug-accordion-trigger:hover (color)                  |
  * | --tug7-element-field-text-normal-placeholder-rest  | --tug7-surface-global-primary-normal-default-rest   | content       | .tug-accordion-chevron (color)                        |
  * | --tug7-element-global-border-normal-default-rest   | --tug7-surface-global-primary-normal-default-rest   | informational | .tug-accordion-separator/outline/inset (border)       |
  */
@@ -179,7 +179,7 @@
 /* @tug-renders-on: --tug7-surface-field-primary-normal-plain-hover */
 .tug-accordion-trigger:hover:not(:disabled):not([data-disabled]) {
   background-color: var(--tug7-surface-field-primary-normal-plain-hover);
-  color: var(--tug7-element-field-text-normal-label-hover);
+  color: var(--tug7-element-field-text-normal-plain-rest);
 }
 
 /* ---- Focus language — item-group treatment ([P01]) ----

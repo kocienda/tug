@@ -42,7 +42,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background-color: var(--tug7-surface-global-secondary-normal-default-rest);
+  background-color: var(--tug7-surface-global-primary-normal-raised-rest);
   border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
 }
 
@@ -54,7 +54,7 @@
   opacity: 0.7;
 }
 
-/* @tug-renders-on: --tug7-surface-global-secondary-normal-default-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-raised-rest */
 .gsl-lens-title {
   font-size: 0.8125rem;
   font-weight: 700;
@@ -118,7 +118,7 @@
 .gsl-mini-rail {
   flex: 0 0 var(--gsl-rail-pct, 18%);
   border-radius: 1px;
-  background-color: var(--tug7-surface-global-secondary-normal-default-rest);
+  background-color: var(--tug7-surface-global-primary-normal-raised-rest);
   border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
 }
 

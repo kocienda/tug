@@ -26,7 +26,7 @@
 
 .session-history-empty {
   margin: auto;
-  padding: var(--tug-space-4, 16px);
+  padding: var(--tug-space-xl);
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: 13px;
   text-align: center;

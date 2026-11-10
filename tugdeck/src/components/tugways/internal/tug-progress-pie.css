@@ -1,12 +1,12 @@
 /* @tug-pairings {
-  --tugx-progress-indicator-fill | --tug7-surface-progress-primary-normal-default-rest | control
+  --tugx-progress-indicator-fill | --tug7-surface-slider-primary-normal-track-rest | control
 } */
 
 /**
  * @tug-pairings
  * | Element                          | Surface                                                | Role    | Context                                            |
  * |----------------------------------|--------------------------------------------------------|---------|----------------------------------------------------|
- * | --tugx-progress-indicator-fill   | --tug7-surface-progress-primary-normal-default-rest    | control | .tug-progress-pie (conic-gradient wedge)            |
+ * | --tugx-progress-indicator-fill   | --tug7-surface-slider-primary-normal-track-rest    | control | .tug-progress-pie (conic-gradient wedge)            |
  *
  * Internal glyph for TugProgressIndicator's `pie` variant.
  *
@@ -22,7 +22,7 @@
   background: conic-gradient(
     from 0deg,
     var(--tugx-progress-indicator-fill, currentColor) 0deg var(--tug-progress-pie-angle, 0deg),
-    var(--tug7-surface-progress-primary-normal-default-rest, rgba(255, 255, 255, 0.1)) var(--tug-progress-pie-angle, 0deg) 360deg
+    var(--tug7-surface-slider-primary-normal-track-rest, rgba(255, 255, 255, 0.1)) var(--tug-progress-pie-angle, 0deg) 360deg
   );
 }
 

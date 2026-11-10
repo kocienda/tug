@@ -116,7 +116,7 @@
   inline-size: 6px;
   block-size: 6px;
   border-radius: 50%;
-  background-color: var(--tug7-element-global-text-normal-info-rest);
+  background-color: var(--tug7-surface-toggle-primary-normal-active-rest);
   animation: sp-tp-pulse 1.6s ease-in-out var(--tug-loop-iterations, infinite);
 }
 

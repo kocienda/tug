@@ -605,7 +605,7 @@
 }
 
 .gsi-roundtrip-arrow {
-  color: var(--tug7-element-global-text-normal-muted-disabled-rest);
+  color: var(--tug7-element-global-text-normal-plain-disabled);
 }
 
 /* The composer side: the atom sits INSIDE prose, which is the whole point

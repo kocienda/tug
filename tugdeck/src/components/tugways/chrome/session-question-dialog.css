@@ -58,7 +58,7 @@ body {
 
   /* The stationary options panel — the highlight tone marks it as the active
    * surface (the rail's current row carries the same tint, [--tugx-qrow-*]). */
-  --tugx-question-current-bg:    var(--tug7-surface-highlight-primary-normal-active-rest);
+  --tugx-question-current-bg:    var(--tug7-surface-highlight-primary-normal-preview-rest);
   --tugx-question-panel-padding: var(--tug-space-md);
   --tugx-question-panel-radius:  var(--tug-radius-sm);
 

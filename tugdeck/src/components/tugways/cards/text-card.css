@@ -1,6 +1,6 @@
 /* @tug-pairings:
-   - --tug7-element-global-text-normal-default-rest / --tug7-surface-card-primary-normal-plain-rest (open/error surfaces, top/bottom bar text)
-   - --tug7-element-global-divider-normal-default-rest / --tug7-surface-card-primary-normal-plain-rest (top/bottom bar rules)
+   - --tug7-element-global-text-normal-default-rest / --tug7-surface-global-primary-normal-default-rest (open/error surfaces, top/bottom bar text)
+   - --tug7-element-global-divider-normal-default-rest / --tug7-surface-global-primary-normal-default-rest (top/bottom bar rules)
    - --tug7-element-global-text-normal-muted-rest / --tugx-popover-bg (gear popover title)
    `TextCard` composes TugTextCardEditor (its own token family), TugFileChooser,
    TugPaneBanner, and TugPushButton — each keeps its own tokens [L20].
@@ -63,8 +63,8 @@
   gap: var(--tugx-attachment-gap, 8px);
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 6px var(--tug-space-3, 12px);
-  border-top: 1px solid var(--tug7-element-global-border-normal-plain-rest,
+  padding: 6px var(--tug-space-lg);
+  border-top: 1px solid var(--tug7-element-global-divider-normal-default-rest,
     color-mix(in srgb, currentColor 15%, transparent));
 }
 
@@ -72,7 +72,7 @@
 
 /* A thin strip below the editor: line ending, file type, caret L/C, and the
  * doc counts (right-aligned). */
-/* @tug-renders-on: --tug7-surface-card-primary-normal-plain-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .text-card-status-bar {
   display: flex;
   align-items: center;

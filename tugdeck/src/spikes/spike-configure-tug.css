@@ -19,7 +19,7 @@
 /* ---- Wizard preview panel (mimics the real modal body) ------------------ */
 
 .sp-configure-tug-preview-panel {
-  border: 1px solid var(--tug7-element-global-stroke-normal-muted-rest);
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
   border-radius: 12px;
   padding: 24px;
   max-width: 600px;
@@ -36,7 +36,7 @@
 
 .sp-configure-tug-icon {
   flex: 0 0 auto;
-  color: var(--tug7-element-tone-text-normal-action-rest);
+  color: var(--tug7-element-tone-text-normal-active-rest);
 }
 
 .sp-configure-tug-preview-title {

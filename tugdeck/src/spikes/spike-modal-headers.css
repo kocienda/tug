@@ -109,7 +109,7 @@
 
 /* Per-role icon tint — same tone family the sheet header uses. */
 .sp-mh-header[data-icon-role="agent"]  .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-agent-rest); }
-.sp-mh-header[data-icon-role="action"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-action-rest); }
+.sp-mh-header[data-icon-role="action"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-active-rest); }
 .sp-mh-header[data-icon-role="danger"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-danger-rest); }
 
 /* ---- Text column ----------------------------------------------------------- */
@@ -157,7 +157,7 @@
    background they actually render on. */
 .sp-mh-panel {
   background: var(--tug7-surface-global-primary-normal-overlay-rest);
-  border: 1px solid var(--tug7-element-global-stroke-normal-muted-rest);
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
   border-radius: 12px;
   padding: 24px;
 }

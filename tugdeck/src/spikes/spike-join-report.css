@@ -35,7 +35,7 @@
      event's weight is the only thing that separates it from the rest. */
   --sp-jr-subsidiary-size: var(--tugx-toolheader-name-size);
   --sp-jr-subsidiary-line: var(--tugx-toolheader-line);
-  --sp-jr-subsidiary-weight: var(--tug-font-weight-normal);
+  --sp-jr-subsidiary-weight: var(--tug-font-weight-regular);
   --tugx-quiet-line-label-weight: var(--sp-jr-subsidiary-weight);
   display: flex;
   flex-direction: column;
@@ -78,7 +78,7 @@
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .sp-jr-arc-name {
   color: var(--tug7-element-global-text-normal-muted-rest);
-  font-weight: var(--tug-font-weight-normal);
+  font-weight: var(--tug-font-weight-regular);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */

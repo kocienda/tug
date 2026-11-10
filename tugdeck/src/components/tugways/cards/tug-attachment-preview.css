@@ -127,8 +127,7 @@
   border: 1px solid color-mix(in srgb,
     var(--tug7-element-global-text-normal-default-rest) 50%, transparent);
   background: var(--tugx-attachment-thumb-bg,
-    var(--tug7-element-field-fill-rest,
-    var(--tug-color-surface-2, #1d1d1d)));
+    var(--tug7-surface-field-primary-normal-plain-rest));
 }
 
 /* Hover wash: a light film over the whole thumbnail the instant the
@@ -189,8 +188,7 @@
   border: 1px solid color-mix(in srgb,
     var(--tug7-element-global-text-normal-default-rest) 50%, transparent);
   background: var(--tugx-attachment-thumb-bg,
-    var(--tug7-element-field-fill-rest,
-    var(--tug-color-surface-2, #1d1d1d)));
+    var(--tug7-surface-field-primary-normal-plain-rest));
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
@@ -212,8 +210,7 @@
   border: 1px solid color-mix(in srgb,
     var(--tug7-element-global-text-normal-default-rest) 50%, transparent);
   background: var(--tugx-attachment-thumb-bg,
-    var(--tug7-element-field-fill-rest,
-    var(--tug-color-surface-2, #1d1d1d)));
+    var(--tug7-surface-field-primary-normal-plain-rest));
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
@@ -226,9 +223,9 @@
   /* An attach that did not land. The same tile in the caution tone — the file
      it stands for is named on the caption right below, which is what a banner
      could never do. */
-  border-color: var(--tug7-element-global-border-caution-plain-rest,
+  border-color: var(--tug7-element-tone-border-normal-caution-rest,
     color-mix(in srgb, currentColor 60%, transparent));
-  color: var(--tug7-element-global-text-caution-default-rest, currentColor);
+  color: var(--tug7-element-global-text-normal-caution-rest, currentColor);
 }
 
 .tug-attachment-preview__caption {
@@ -502,7 +499,7 @@
   white-space: nowrap;
   font-size: var(--tug-font-size-md);
   font-weight: var(--tug-font-weight-semibold);
-  color: var(--tug7-text-primary-normal-plain-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 .tug-attachment-preview-sheet__actions {

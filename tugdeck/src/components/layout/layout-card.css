@@ -244,7 +244,7 @@
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .layouts-plan-caption-sep {
   white-space: pre;
-  font-weight: var(--tug-font-weight-normal);
+  font-weight: var(--tug-font-weight-regular);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 

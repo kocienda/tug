@@ -35,7 +35,7 @@
   padding-block-start: var(--tug-space-xl);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-notice {
   color: var(--tug7-element-global-text-normal-muted-rest);
   text-align: center;
@@ -43,13 +43,13 @@
 }
 
 /* Whose usage this is — a muted line above the gauges, the email in body ink. */
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-account {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-account-email {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-weight: var(--tug-font-weight-medium);
@@ -76,7 +76,7 @@
   width: 100%;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-section-title {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
@@ -104,7 +104,7 @@
   gap: var(--tug-space-xs);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-hero-reset {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
@@ -131,14 +131,14 @@
   gap: 3px;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-window-label {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-size: var(--tug-font-size-sm);
   font-weight: var(--tug-font-weight-medium);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-window-reset {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
@@ -163,14 +163,14 @@
   min-width: 170px;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-grid-divider {
   grid-column: 1 / -1;
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
   margin-block: 3px;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-stat-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -182,7 +182,7 @@
   margin: 0 var(--tug-space-xs);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-stat-value {
   color: var(--tug7-element-global-text-normal-default-rest);
   text-align: right;
@@ -190,7 +190,7 @@
 
 /* ---- Contributing region -------------------------------------------------- */
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-caveat {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
@@ -220,14 +220,14 @@
   padding-bottom: 3px;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-period-label {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-size: var(--tug-font-size-sm);
   font-weight: var(--tug-font-weight-medium);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-period-meta {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
@@ -248,7 +248,7 @@
   gap: 2px;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-char-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
@@ -276,14 +276,14 @@
   margin-bottom: 1px;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-table-title {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-size: var(--tug-font-size-sm);
   font-weight: var(--tug-font-weight-medium);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-table-col {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
@@ -299,7 +299,7 @@
   font-size: var(--tug-font-size-xs);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-table-name {
   color: var(--tug7-element-global-text-normal-muted-rest);
   overflow: hidden;
@@ -313,7 +313,7 @@
   margin: 0 var(--tug-space-xs);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-table-pct {
   color: var(--tug7-element-global-text-normal-default-rest);
   text-align: right;

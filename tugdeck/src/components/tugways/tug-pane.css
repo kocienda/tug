@@ -46,7 +46,6 @@
  *   --tug7-effect-card-wash-normal-dim-inactive       | wash overlay color
  *   --tug7-effect-card-wash-normal-blend-inactive     | wash blend mode
  *   --tug7-effect-card-desat-normal-amount-bullseye   | desaturation intensity while another pane stands in bullseye
- *   --tug7-effect-card-wash-normal-dim-bullseye       | wash overlay color while another pane stands in bullseye
  * } */
 
 body {
@@ -1025,7 +1024,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   mask-composite: intersect;
   pointer-events: none;
   opacity: 0;
-  transition: opacity var(--tug-duration-fast, 120ms) ease-out;
+  transition: opacity var(--tug-motion-duration-fast) ease-out;
 }
 
 /* ── The trigger ──────────────────────────────────────────────────────────

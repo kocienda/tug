@@ -53,7 +53,7 @@ body {
 
   /* Current-row tint — the soft highlight the live rail paints behind the open
    * question (the same tone the options panel uses). */
-  --tugx-qrow-current-bg: var(--tug7-surface-highlight-primary-normal-active-rest);
+  --tugx-qrow-current-bg: var(--tug7-surface-highlight-primary-normal-preview-rest);
 
   /* Number prefix ("##.") — tabular numerals at a fixed inline-block width so
    * every question's text column starts at the same x. */

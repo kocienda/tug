@@ -396,7 +396,7 @@
      taller than a line of 12px text, so rows that carry one would otherwise
      stand taller than the four that do not, and the panel's leading would go
      uneven halfway down. */
-  min-block-size: var(--tug-control-size-2xs, 20px);
+  min-block-size: 20px;
 }
 
 /* The label is a KEY — small, letter-spaced, and set in the ambient sans. The

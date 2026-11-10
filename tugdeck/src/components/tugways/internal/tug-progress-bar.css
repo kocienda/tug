@@ -1,13 +1,13 @@
 /* @tug-pairings {
-  --tugx-progress-indicator-fill | --tug7-surface-progress-primary-normal-default-rest | control
+  --tugx-progress-indicator-fill | --tug7-surface-slider-primary-normal-track-rest | control
 } */
 
 /**
  * @tug-pairings
  * | Element                          | Surface                                                | Role    | Context                                                |
  * |----------------------------------|--------------------------------------------------------|---------|--------------------------------------------------------|
- * | --tugx-progress-indicator-fill   | --tug7-surface-progress-primary-normal-default-rest    | control | .tug-progress-bar-fill (background-color)               |
- * | --tugx-progress-indicator-fill   | --tug7-surface-progress-primary-normal-default-rest    | control | .tug-progress-bar-indeterminate (stripe color)          |
+ * | --tugx-progress-indicator-fill   | --tug7-surface-slider-primary-normal-track-rest    | control | .tug-progress-bar-fill (background-color)               |
+ * | --tugx-progress-indicator-fill   | --tug7-surface-slider-primary-normal-track-rest    | control | .tug-progress-bar-indeterminate (stripe color)          |
  *
  * Internal glyph for TugProgressIndicator's `bar` variant.
  *
@@ -28,7 +28,7 @@
   width: 100%;
   overflow: hidden;
   border-radius: 999px;
-  background-color: var(--tug7-surface-progress-primary-normal-default-rest, rgba(255, 255, 255, 0.1));
+  background-color: var(--tug7-surface-slider-primary-normal-track-rest, rgba(255, 255, 255, 0.1));
 }
 
 .tug-progress-bar-fill {

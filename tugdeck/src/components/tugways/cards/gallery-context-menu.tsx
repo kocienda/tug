@@ -186,7 +186,7 @@ export function GalleryContextMenu() {
                   style={{
                     fontSize: "0.9375rem",
                     fontWeight: 600,
-                    color: "var(--tug7-element-field-text-normal-value-rest)",
+                    color: "var(--tug7-element-field-text-normal-plain-rest)",
                   }}
                 >
                   Project Alpha

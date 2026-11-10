@@ -167,11 +167,11 @@ export function GalleryTooltip() {
                 style={{
                   width: "200px",
                   padding: "6px 12px",
-                  border: "1px solid var(--tug7-element-field-border-normal-rest)",
+                  border: "1px solid var(--tug7-element-field-border-normal-plain-rest)",
                   borderRadius: "4px",
                   cursor: "default",
                   fontSize: "0.875rem",
-                  color: "var(--tug7-element-field-text-normal-value-rest)",
+                  color: "var(--tug7-element-field-text-normal-plain-rest)",
                   userSelect: "none",
                 }}
               >
@@ -186,11 +186,11 @@ export function GalleryTooltip() {
                 style={{
                   width: "200px",
                   padding: "6px 12px",
-                  border: "1px solid var(--tug7-element-field-border-normal-rest)",
+                  border: "1px solid var(--tug7-element-field-border-normal-plain-rest)",
                   borderRadius: "4px",
                   cursor: "default",
                   fontSize: "0.875rem",
-                  color: "var(--tug7-element-field-text-normal-value-rest)",
+                  color: "var(--tug7-element-field-text-normal-plain-rest)",
                   userSelect: "none",
                 }}
               >
@@ -205,11 +205,11 @@ export function GalleryTooltip() {
                 style={{
                   width: "200px",
                   padding: "6px 12px",
-                  border: "1px solid var(--tug7-element-field-border-normal-rest)",
+                  border: "1px solid var(--tug7-element-field-border-normal-plain-rest)",
                   borderRadius: "4px",
                   cursor: "default",
                   fontSize: "0.875rem",
-                  color: "var(--tug7-element-field-text-normal-value-rest)",
+                  color: "var(--tug7-element-field-text-normal-plain-rest)",
                   userSelect: "none",
                 }}
               >

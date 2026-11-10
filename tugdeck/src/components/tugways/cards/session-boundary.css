@@ -60,10 +60,10 @@
    The chrome owns its own `--tugx-block-*`; these overrides re-tone this one
    marker ([L20] stays intact — the token scope is the chrome's). */
 .session-boundary-bar {
-  --tugx-block-surface: var(--tug-surface-sunken, transparent);
+  --tugx-block-surface: var(--tug7-surface-global-primary-normal-sunken-rest);
   border: 1px solid var(--tugx-block-border);
   border-radius: var(--tug-radius-md);
-  background: var(--tug-surface-sunken, transparent);
+  background: var(--tug7-surface-global-primary-normal-sunken-rest);
   font-variant-numeric: tabular-nums;
 }
 
@@ -85,7 +85,7 @@
      carries. The event's semibold is the only weight in the bar; the detail
      matches its size and takes the normal weight. */
   font-size: var(--tugx-toolheader-name-size);
-  font-weight: var(--tug-font-weight-normal);
+  font-weight: var(--tug-font-weight-regular);
   line-height: var(--tug-line-height-normal, 1.45);
   white-space: normal;
   overflow-wrap: anywhere;

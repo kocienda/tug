@@ -16,6 +16,6 @@
   flex: 0 0 auto;
   color: var(
     --tugx-arc-phase-mark-color,
-    var(--tug7-element-global-text-normal-rest)
+    currentColor
   );
 }

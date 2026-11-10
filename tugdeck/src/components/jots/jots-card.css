@@ -116,7 +116,7 @@
   font-size: 12px;
   border-radius: var(--tug-radius-sm, 6px);
   color: var(--tug7-element-global-text-normal-muted-rest);
-  background: var(--tug7-element-global-surface-raised-rest, rgba(127, 127, 127, 0.08));
+  background: var(--tug7-surface-global-primary-normal-sunken-rest);
 }
 
 /* The reorder-drag lift on the TugListRow root while it is being dragged. The

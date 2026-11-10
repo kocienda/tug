@@ -10,8 +10,8 @@
   display: flex;
   flex-wrap: wrap;
   align-content: flex-start;
-  gap: var(--tug-space-3, 12px);
-  padding: var(--tug-space-4, 16px);
+  gap: var(--tug-space-lg);
+  padding: var(--tug-space-xl);
 }
 
 /* The list host: the same population, one glyph to a row, inside the list
@@ -36,7 +36,7 @@
   display: flex;
   align-items: center;
   height: 40px;
-  padding-inline: var(--tug-space-4, 16px);
+  padding-inline: var(--tug-space-xl);
 }
 
 /* The diagnostic layer — the same population, parented to `<body>` instead of

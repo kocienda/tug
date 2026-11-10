@@ -33,7 +33,7 @@
   width: 100%;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-notice {
   color: var(--tug7-element-global-text-normal-muted-rest);
   text-align: center;
@@ -46,7 +46,7 @@
   gap: var(--tug-space-2xl);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-section-title {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
@@ -95,7 +95,7 @@
   min-width: 0;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-icon {
   flex: none;
   color: var(--tug7-element-global-text-normal-muted-rest);
@@ -109,19 +109,19 @@
   min-width: 0;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-name {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-family: var(--tug-font-family-mono);
   font-weight: var(--tug-font-weight-medium);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-tells {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-line {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);
@@ -138,7 +138,7 @@
   min-width: 0;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-sample-mark {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
@@ -147,7 +147,7 @@
   letter-spacing: 0.05em;
 }
 
-/* @tug-renders-on var(--tug7-surface-sheet-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .data-visualization-sheet-running {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-xs);

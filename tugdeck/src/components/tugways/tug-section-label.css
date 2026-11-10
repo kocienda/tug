@@ -53,5 +53,5 @@ body {
 .tug-section-label-arc,
 .tug-section-label-qualifier {
   color: var(--tugx-section-label-qualifier);
-  font-weight: var(--tug-font-weight-normal);
+  font-weight: var(--tug-font-weight-regular);
 }

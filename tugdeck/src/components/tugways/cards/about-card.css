@@ -27,7 +27,7 @@
   margin-bottom: 8px;
   border-radius: 16px;
   background: var(--tug7-surface-atom-primary-normal-default-rest);
-  border: 1px solid var(--tug7-element-global-stroke-neutral-muted-rest);
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
 }
 
 /* The real app icon carries its own macOS squircle shape and shadow —

@@ -125,13 +125,6 @@ body {
    * bolding/obliquing — which looks crude and muddy. Inherits to every
    * descendant. */
   font-synthesis: none;
-
-  /* Chart aliases (runtime contract for stats-card.ts consumers) */
-  --chart-1: var(--tug-chart-series-verdant); /* legacy-token-allowlist */
-  --chart-2: var(--tug-chart-series-cool); /* legacy-token-allowlist */
-  --chart-3: var(--tug-chart-series-golden); /* legacy-token-allowlist */
-  --chart-4: var(--tug-chart-series-rose); /* legacy-token-allowlist */
-  --chart-5: var(--tug-chart-series-violet); /* legacy-token-allowlist */
 }
 
 /* The app has exactly one monospace face: IBM Plex Mono, bundled complete.

@@ -20,7 +20,7 @@
  * @tug-pairings
  * | Element                                        | Surface                                           | Role    | Context                            |
  * |------------------------------------------------|---------------------------------------------------|---------|------------------------------------|
- * | --tug7-element-global-text-normal-accent-rest  | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-notice-evidence summary |
+ * | --tug7-element-tone-text-normal-accent-rest  | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-notice-evidence summary |
  * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-changes-notice-evidence pre |
  */
 
@@ -42,7 +42,7 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-changes-notice-evidence summary {
-  color: var(--tug7-element-global-text-normal-accent-rest);
+  color: var(--tug7-element-tone-text-normal-accent-rest);
   cursor: pointer;
 }
 

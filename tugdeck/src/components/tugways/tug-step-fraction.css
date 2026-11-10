@@ -15,7 +15,7 @@
 }
 
 .tug-step-fraction-i {
-  color: var(--tug7-element-global-text-normal-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 .tug-step-fraction-slash,
