@@ -211,13 +211,19 @@ function narrowContentEntry(value: unknown): AgentTranscriptEntry | undefined {
  * structured result's `totalToolUseCount` lands once the run finishes.
  * Take the larger of the two so the badge is correct in both states and
  * never regresses as the structured result arrives.
+ *
+ * A `SubagentHandback` call is plumbing that draws no row, so it is
+ * not counted: it leaves the live list, and once one has been seen the
+ * reported total (which includes it) is taken down by one.
  */
 export function agentNestedCallCount(
   childToolCalls: ReadonlyArray<ToolUseMessage> | undefined,
   structured: AgentStructuredResult,
 ): number {
-  const live = childToolCalls?.length ?? 0;
-  const reported = structured.totalToolUseCount ?? 0;
+  const all = childToolCalls ?? [];
+  const live = all.filter((c) => !isSubagentHandback(c.toolName)).length;
+  const handbacks = all.length - live;
+  const reported = Math.max(0, (structured.totalToolUseCount ?? 0) - handbacks);
   return Math.max(live, reported);
 }
 
@@ -266,6 +272,17 @@ export function mergeChildToolCalls(
  * the structured result carries nothing renderable at all (drift /
  * streaming-incomplete) — an empty `content` array with any metadata
  * (or any child tool call) still composes.
+ *
+ * Hand-back (v2.1.322+): a subagent may end by calling
+ * `SubagentHandback({ message })`, and then the Agent call's own result
+ * is not its answer but a harness stub ("This agent's report was
+ * delivered to you as a message from …", plus a note about where
+ * WebFetch saves files) addressed to the model. The `message` is the
+ * answer, so it becomes the final text entry and the stub is dropped;
+ * the hand-back call itself is plumbing and draws no entry. A stub
+ * that arrives without its hand-back (a reload whose children were
+ * not spliced) is still dropped — the reader never sees the
+ * boilerplate.
  */
 export function composeAgentTranscriptData(
   input: AgentToolInput,
@@ -274,18 +291,40 @@ export function composeAgentTranscriptData(
 ): AgentTranscriptData | undefined {
   const seenIds = new Set<string>();
   const childEntries: AgentTranscriptEntry[] = [];
+  let handback: string | undefined;
   for (const toolCall of childToolCalls ?? []) {
     if (seenIds.has(toolCall.toolUseId)) continue;
     seenIds.add(toolCall.toolUseId);
+    if (isSubagentHandback(toolCall.toolName)) {
+      const message = handbackMessage(toolCall.input);
+      if (message !== undefined) handback = message;
+      continue;
+    }
     childEntries.push({ kind: "tool_use", toolCall });
   }
   const wireEntries = (structured.content ?? [])
     .map(narrowContentEntry)
     .filter((e): e is AgentTranscriptEntry => e !== undefined)
-    .filter(
-      (e) => e.kind !== "tool_use" || !seenIds.has(e.toolCall.toolUseId),
-    );
-  const entries = [...childEntries, ...wireEntries];
+    .filter((e) => {
+      if (e.kind === "tool_use") {
+        if (isSubagentHandback(e.toolCall.toolName)) {
+          const message = handbackMessage(e.toolCall.input);
+          if (message !== undefined) handback ??= message;
+          return false;
+        }
+        return !seenIds.has(e.toolCall.toolUseId);
+      }
+      return !isHandbackStub(e.text);
+    });
+  // The hand-back is the answer; any wire text beside it is the stub.
+  const entries: AgentTranscriptEntry[] =
+    handback === undefined
+      ? [...childEntries, ...wireEntries]
+      : [
+          ...childEntries,
+          ...wireEntries.filter((e) => e.kind !== "text"),
+          { kind: "text", text: handback },
+        ];
   const agentType = structured.agentType ?? input.subagentType;
   const data: AgentTranscriptData = {
     agentType,
@@ -303,6 +342,31 @@ export function composeAgentTranscriptData(
     data.totalTokens !== undefined ||
     entries.length > 0;
   return hasAnything ? data : undefined;
+}
+
+/** Whether a tool name is the subagent's `SubagentHandback` call. */
+function isSubagentHandback(toolName: string): boolean {
+  return toolName.toLowerCase() === "subagenthandback";
+}
+
+/** The report a `SubagentHandback` call carries in `input.message`. */
+function handbackMessage(input: unknown): string | undefined {
+  if (input === null || typeof input !== "object") return undefined;
+  const message = (input as Record<string, unknown>).message;
+  return typeof message === "string" && message.trim().length > 0
+    ? message
+    : undefined;
+}
+
+/**
+ * Whether a text answer is the harness stub that stands in for a
+ * handed-back report — written for the model, never for the reader.
+ * Exported for tests.
+ */
+export function isHandbackStub(text: string): boolean {
+  return /^\s*This agent.s report was delivered to you as a message from\b/.test(
+    text,
+  );
 }
 
 // ---------------------------------------------------------------------------

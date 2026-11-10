@@ -27,6 +27,7 @@ import {
   TaskToolBlock,
   agentNestedCallCount,
   composeAgentTranscriptData,
+  isHandbackStub,
   mergeChildToolCalls,
   narrowAgentInput,
   narrowAgentStructured,
@@ -397,6 +398,57 @@ describe("composeAgentTranscriptData dedup", () => {
     // One child entry + the text answer; the repeated tool_use dropped.
     expect(data?.entries.length).toBe(2);
     expect(data?.entries[1]).toEqual({ kind: "text", text: "done" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SubagentHandback (v2.1.322) — the report replaces the harness stub
+// ---------------------------------------------------------------------------
+
+/** The stub the Agent call returns when its subagent handed back. */
+const HANDBACK_STUB =
+  "  This agent's report was delivered to you as a message from \"a084e309469c67b4f\" (its SubagentHandback call). Read it there; it is not repeated here.\n  \n  [Harness note, not part of the agent's report: WebFetch saved no files during this run.]";
+
+function handbackCall(toolUseId: string, message: string): ToolUseMessage {
+  return { ...childCall(toolUseId, "SubagentHandback"), input: { message } };
+}
+
+describe("SubagentHandback", () => {
+  const stubbed = narrowAgentStructured({
+    agentType: "web-fetch",
+    status: "completed",
+    content: [{ type: "text", text: HANDBACK_STUB }],
+    totalToolUseCount: 2,
+  });
+
+  test("recognises the harness stub, and only it", () => {
+    expect(isHandbackStub(HANDBACK_STUB)).toBe(true);
+    expect(isHandbackStub("Chromostereopsis is a visual illusion.")).toBe(false);
+  });
+
+  test("the hand-back message replaces the stub as the final answer", () => {
+    const data = composeAgentTranscriptData({}, stubbed, [
+      childCall("fetch-1", "WebFetch"),
+      handbackCall("hb-1", "**What it is:** a depth illusion."),
+    ]);
+    expect(data?.entries.map((e) => (e.kind === "text" ? e.text : e.toolCall.toolName))).toEqual([
+      "WebFetch",
+      "**What it is:** a depth illusion.",
+    ]);
+  });
+
+  test("a stub with no hand-back in sight is dropped, never shown", () => {
+    const data = composeAgentTranscriptData({}, stubbed, [childCall("fetch-1", "WebFetch")]);
+    expect(data?.entries.map((e) => e.kind)).toEqual(["tool_use"]);
+  });
+
+  test("the hand-back is not counted as a call", () => {
+    expect(
+      agentNestedCallCount(
+        [childCall("fetch-1", "WebFetch"), handbackCall("hb-1", "report")],
+        stubbed,
+      ),
+    ).toBe(1);
   });
 });
 
