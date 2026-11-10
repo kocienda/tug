@@ -194,6 +194,10 @@ describe("interrupt receipts — no silent early return", () => {
     expect((manager as any).timers.has("interrupt-escalation")).toBe(true);
     expect(turn.interrupted).toBe(true);
     expect(turn.interruptCause).toBe("user");
+    // This synthetic turn never completes, so the escalation would fire two
+    // seconds on — mid-way through a later file — and its resume-respawn's
+    // `session_init` would land in that file's capture. Dispose it here.
+    (manager as any).clearInterruptEscalation();
   });
 
   test("when that escalation fires, exactly one turn_cancelled reaches the wire", async () => {

@@ -95,7 +95,10 @@ async fn attend_session_spends_a_standing_mark_and_pushes_the_row() {
     let ended = crate::session_ledger::now_millis();
     ledger.record_turn_end("sess", ended).unwrap();
     let row = ledger.get("sess").unwrap().unwrap();
-    assert!(row.last_turn_end_at > row.last_attended_at, "the mark stands");
+    assert!(
+        row.last_turn_end_at > row.last_attended_at,
+        "the mark stands"
+    );
 
     let payload = serde_json::to_vec(&serde_json::json!({
         "action": "attend_session",
@@ -145,16 +148,26 @@ async fn attend_session_names_the_attended_session_for_the_turn_end() {
     sup.handle_control("attend_session", &attend("sess".into()), 10)
         .await
         .expect_handled();
-    ledger.record_turn_end("sess", crate::session_ledger::now_millis()).unwrap();
+    ledger
+        .record_turn_end("sess", crate::session_ledger::now_millis())
+        .unwrap();
     let row = ledger.get("sess").unwrap().unwrap();
-    assert!(row.last_turn_end_at <= row.last_attended_at, "seen as it ended");
+    assert!(
+        row.last_turn_end_at <= row.last_attended_at,
+        "seen as it ended"
+    );
 
     sup.handle_control("attend_session", &attend(serde_json::Value::Null), 10)
         .await
         .expect_handled();
-    ledger.record_turn_end("sess", crate::session_ledger::now_millis() + 1).unwrap();
+    ledger
+        .record_turn_end("sess", crate::session_ledger::now_millis() + 1)
+        .unwrap();
     let row = ledger.get("sess").unwrap().unwrap();
-    assert!(row.last_turn_end_at > row.last_attended_at, "the mark stands");
+    assert!(
+        row.last_turn_end_at > row.last_attended_at,
+        "the mark stands"
+    );
 }
 
 #[tokio::test]

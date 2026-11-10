@@ -7537,7 +7537,9 @@ mod tests {
             r#"{"type":"turn_complete","msg_id":"m","seq":1,"result":"success"}"#
         ));
         // tugcode's default when the result carried no value.
-        assert!(turn_complete_succeeded(r#"{"type":"turn_complete","msg_id":"m"}"#));
+        assert!(turn_complete_succeeded(
+            r#"{"type":"turn_complete","msg_id":"m"}"#
+        ));
         assert!(!turn_complete_succeeded(
             r#"{"type":"turn_complete","msg_id":"m","result":"error"}"#
         ));

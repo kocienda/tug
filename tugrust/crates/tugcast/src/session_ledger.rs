@@ -13742,7 +13742,10 @@ mod tests {
         assert!(l.record_attended("s1", t0 + 1_500).unwrap());
         l.record_turn_end("s1", t0 + 500).unwrap();
         let r = l.get("s1").unwrap().unwrap();
-        assert_eq!((r.last_turn_end_at, r.last_attended_at), (t0 + 1_000, t0 + 2_000));
+        assert_eq!(
+            (r.last_turn_end_at, r.last_attended_at),
+            (t0 + 1_000, t0 + 2_000)
+        );
 
         // Attention stamped at the turn's own end reads as seen.
         l.record_turn_end("s1", t0 + 3_000).unwrap();
@@ -13764,7 +13767,10 @@ mod tests {
         l.set_attending(Some("s1"));
         l.record_turn_end("s1", t0 + 1_000).unwrap();
         let r = l.get("s1").unwrap().unwrap();
-        assert_eq!((r.last_turn_end_at, r.last_attended_at), (t0 + 1_000, t0 + 1_000));
+        assert_eq!(
+            (r.last_turn_end_at, r.last_attended_at),
+            (t0 + 1_000, t0 + 1_000)
+        );
 
         // Another session's turn is not the attended one's.
         l.record_turn_end("s2", t0 + 1_500).unwrap();
