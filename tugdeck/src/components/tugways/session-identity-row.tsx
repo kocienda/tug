@@ -190,7 +190,7 @@ import { formatRestingStamp } from "@/lib/session-activity-line";
 import { arcJoinReadyLine } from "@/lib/arc-join-register";
 import {
   useSessionJoinBase,
-  useSessionTurnEndUnseen,
+  useSessionPhase,
 } from "@/lib/code-session-store/use-session-phase";
 import { renderBeatLine } from "@/lib/beat-line/render-beat-line";
 import {
@@ -1154,9 +1154,10 @@ export function SessionIdentityRow({
   const joinBase = useSessionJoinBase(sessionId);
   const joinReadyLine =
     joinBase !== null && !turnInFlight ? arcJoinReadyLine(joinBase) : null;
-  // An unread turn end closes the rest sentence `Done.` — the same fact, from
-  // the same derivation, as the dot's `done` key, so the two cannot disagree.
-  const turnEndUnseen = useSessionTurnEndUnseen(sessionId);
+  // An unread turn end closes the rest sentence `Done.` — read off the dot's
+  // own `done` key, so the two cannot disagree: a session whose work is still
+  // running in the background wears neither.
+  const turnEndUnseen = useSessionPhase(sessionId) === "done";
   const restLine = sessionActivityRestLine({
     turnCount: facts?.turn_count ?? 0,
     fileSize: facts?.file_size ?? null,

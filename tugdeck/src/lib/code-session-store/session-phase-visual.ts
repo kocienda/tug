@@ -181,12 +181,14 @@ export type SessionPhaseKey =
  * dialog holding an answer blocks the turn, and a join offer blocks
  * nothing.
  *
- * `done` promotes from `idle` alone too, directly below `ready`: a
- * session wearing a join offer has finished by definition, and the
- * offer is the louder reading of the same fact. It sits above
- * `background` because what the user has not seen is the turn's answer,
- * and that is the thing waiting on them; agents still running after it
- * are context. A turn in flight keeps its own phase — the mark waits.
+ * `done` promotes from `idle` alone too, below `ready` and below
+ * `background`: a session wearing a join offer has finished by
+ * definition, and the offer is the louder reading of the same fact. It
+ * sits below `background` because a session whose work is still running
+ * is not done, whatever its last turn said — a turn that ends by sending
+ * its work to the background has handed nothing back yet. The mark is
+ * not lost: it stands on the ledger row and reads the moment the session
+ * goes quiet. A turn in flight keeps its own phase — the mark waits.
  */
 export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKey {
   if (input.transportState === "offline") return "offline";
@@ -195,10 +197,10 @@ export function sessionSessionPhaseKey(input: SessionPhaseInput): SessionPhaseKe
   if (input.stopStalled === true) return "stop_stalled";
   if (input.pendingAsk === true) return "awaiting_approval";
   if (input.phase === "idle" && input.joinReady === true) return "ready";
-  if (input.phase === "idle" && input.turnEndUnseen === true) return "done";
   if (input.phase === "idle" && (input.runningJobCount ?? 0) > 0) {
     return "background";
   }
+  if (input.phase === "idle" && input.turnEndUnseen === true) return "done";
   return input.phase;
 }
 
@@ -268,7 +270,7 @@ export const SESSION_PHASE_WIDEST_LABEL = "Disconnected";
  *  - `restoring`, `interrupting` → `{ role: caution, state: running }`
  *  - `awaiting_approval`         → `{ role: caution, state: running }`
  *  - `ready`                     → `{ role: success, state: running }`
- *  - `done`                      → `{ role: action,  state: completed }`
+ *  - `done`                      → `{ role: success, state: completed }`
  *  - active stream phases        → `{ role: action,  state: running }`
  *  - `background`                → `{ role: action,  state: running, shape: diamond }`
  *  - `idle`                      → `{ role: inherit, state: stopped }`
@@ -279,7 +281,7 @@ export const SESSION_PHASE_WIDEST_LABEL = "Disconnected";
  * key-while-running → green-when-finished story. `ready` is the one
  * place that pairing is deliberately crossed: green while running, for
  * a session whose work is finished and whose next move is a person's.
- * Nothing else on the session dot has ever worn `success`, so
+ * Nothing else on the session dot breathes in `success`, so
  * green-and-breathing means exactly one thing across the room, and the
  * pulse is truthful on Awaiting's own argument — what is depicted is a
  * live wait on the user, not a settled session.
@@ -294,10 +296,11 @@ export const SESSION_PHASE_WIDEST_LABEL = "Disconnected";
  * read as Idle-with-a-twitch, which is the one thing it is not. Idle
  * owns `inherit`; nothing that is working may borrow it.
  *
- * `done` is the working tone held still: filled where idle is a hollow
- * ring, and still where a working dot breathes. Three readings on one
- * glyph, in order of liveness — working, done, idle — and no new colour
- * spent, because `success` stays the arc's alone.
+ * `done` is the indicator's own finished pose: green, filled where idle
+ * is a hollow ring, and still where a working dot breathes. It shares
+ * `success` with `ready` and parts from it on motion — a join offer
+ * breathes because it is a live wait on a person, and a finished answer
+ * sits still because nothing is in flight.
  */
 export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicatorPhaseVisual {
   switch (phaseKey as SessionPhaseKey) {
@@ -323,7 +326,7 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
     case "ready":
       return { role: "success", state: "running" };
     case "done":
-      return { role: "action", state: "completed" };
+      return { role: "success", state: "completed" };
     case "background":
       return { role: "action", state: "running", shape: "diamond" };
     case "submitting":

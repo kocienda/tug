@@ -171,11 +171,11 @@ export function sessionTurnEndUnseenNow(sessionId: string, cardId: string | null
  * other page reported, or the doubt reading of a session with no store here.
  *
  * The same precedence {@link sessionSessionPhaseKey} keeps — `done` promotes
- * from a quiet session alone, which is `idle` or `background`, and every other
- * key (a turn in flight, a dialog, a join offer, a dead wire) outranks it.
+ * from `idle` alone, and every other key (a turn in flight, a dialog, a join
+ * offer, a dead wire, work still running in the background) outranks it.
  */
 export function withTurnEndUnseen(key: SessionPhaseKey, unseen: boolean): SessionPhaseKey {
-  return unseen && (key === "idle" || key === "background") ? "done" : key;
+  return unseen && key === "idle" ? "done" : key;
 }
 
 /** The two stores {@link sessionTurnEndUnseenNow} reads, as one subscription. */
@@ -254,8 +254,8 @@ export function sessionPhaseFromSnapshot(
     // is how a card the user isn't looking at says it needs them.
     pendingAsk: snap.pendingAsk !== null,
     // A finished arc still waiting on the user reads Ready from a list too —
-    // the one green on the dot, and the only thing that says the work is done
-    // rather than merely quiet.
+    // the breathing green on the dot, which says the arc's work is finished
+    // and a join is waiting on them.
     joinReady,
     // A turn that finished while the user looked elsewhere reads Done from a
     // list too — that row is how a card they left says its answer is in.

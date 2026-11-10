@@ -11,7 +11,7 @@
  * row's push. Three readings on the Workspaces card:
  *
  *  1. Card B's session finished a turn while card A was active: B's row wears
- *     the filled, still dot in the working tone and its line closes `Done.`;
+ *     the filled, still green dot and its line closes `Done.`;
  *     A's row, the one being attended, reads the ring and `Ready.`.
  *  2. A deck reload leaves B's mark standing — it is the ledger's fact, and
  *     nothing about the page holds it.
@@ -177,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0797: Done on the Workspaces row is spent by att
         // 1. B finished while A was attended: filled and still, `Done.`.
         const unseen = await waitForRow(app, SID_B, "completed", "Done.");
         note("at0797 B before attention", JSON.stringify(unseen));
-        expect(unseen.role, "the working tone, not a new colour").toBe("action");
+        expect(unseen.role, "green: the finished tone").toBe("success");
         expect(unseen.text).not.toContain("Ready.");
         const attended = await waitForRow(app, SID_A, "stopped", "Ready.");
         note("at0797 A, attended", JSON.stringify(attended));
@@ -188,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("AT0797: Done on the Workspaces row is spent by att
         await standUp(app);
         const reloaded = await waitForRow(app, SID_B, "completed", "Done.");
         note("at0797 B after reload", JSON.stringify(reloaded));
-        expect(reloaded.role).toBe("action");
+        expect(reloaded.role).toBe("success");
 
         // 3. Activating B is attention: tugcast stamps it and the push spends
         //    the mark on the row.

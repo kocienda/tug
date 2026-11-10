@@ -5,7 +5,7 @@
  * phaseLabels / phaseVisual API.
  *
  * Pins the precedence chain (offline > restoring > interrupt >
- * ask > ready-over-idle > done-over-idle > background-over-idle > phase),
+ * ask > ready-over-idle > background-over-idle > done-over-idle > phase),
  * every phase
  * branch, and the human-readable label resolution.
  */
@@ -354,9 +354,15 @@ describe("sessionSessionPhaseKey — an unseen turn end reads Done", () => {
     expect(sessionSessionPhaseKey(input({ phase: "idle", turnEndUnseen: true }))).toBe("done");
   });
 
-  test("Done outranks background work — the answer is what waits on the user", () => {
+  test("background work outranks Done — a session still running is not done", () => {
     expect(
       sessionSessionPhaseKey(input({ phase: "idle", runningJobCount: 2, turnEndUnseen: true })),
+    ).toBe("background");
+  });
+
+  test("the mark reads once the background work ends", () => {
+    expect(
+      sessionSessionPhaseKey(input({ phase: "idle", runningJobCount: 0, turnEndUnseen: true })),
     ).toBe("done");
   });
 
@@ -446,7 +452,9 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     });
   });
 
-  test("ready is the one key wearing success — nothing else on the dot does", () => {
+  // `success` was once ready's alone. `done` wears it too now, by the user's
+  // word (2026-11-10), so what stays ready's alone is green that breathes.
+  test("ready is the one key breathing in success — done's green is still", () => {
     const ready = sessionSessionPhaseVisual("ready");
     for (const key of [
       "idle",
@@ -460,7 +468,9 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
       "offline",
       "errored",
     ] as const) {
-      expect(sessionSessionPhaseVisual(key).role).not.toBe(ready.role);
+      const visual = sessionSessionPhaseVisual(key);
+      expect(visual.role === ready.role && visual.state === ready.state).toBe(false);
+      if (key !== "done") expect(visual.role).not.toBe(ready.role);
     }
   });
 
@@ -471,21 +481,25 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     expect(ready.state).not.toBe(idle.state);
   });
 
-  test("done → action/completed — the working tone, filled and still", () => {
+  test("done → success/completed — green, filled and still", () => {
     expect(sessionSessionPhaseVisual("done")).toEqual({
-      role: "action",
+      role: "success",
       state: "completed",
     });
   });
 
-  test("done sits between working and idle: a working dot's tone, idle's stillness", () => {
+  test("done reads apart from working, idle and ready", () => {
     const done = sessionSessionPhaseVisual("done");
     const working = sessionSessionPhaseVisual("streaming");
     const idle = sessionSessionPhaseVisual("idle");
-    expect(done.role).toBe(working.role);
+    const ready = sessionSessionPhaseVisual("ready");
+    expect(done.role).not.toBe(working.role);
     expect(done.state).not.toBe(working.state);
     expect(done.role).not.toBe(idle.role);
     expect(done.state).not.toBe(idle.state);
+    // Ready's green breathes; Done's sits still.
+    expect(done.role).toBe(ready.role);
+    expect(done.state).not.toBe(ready.state);
   });
 
   test("background → action/running as a diamond — working, turned", () => {

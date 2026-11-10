@@ -256,9 +256,12 @@ describe("the fold folds the unread mark in", () => {
 });
 
 describe("withTurnEndUnseen — the mark on a key computed without it", () => {
-  test("promotes a quiet key, idle or background", () => {
+  test("promotes idle alone", () => {
     expect(withTurnEndUnseen("idle", true)).toBe("done");
-    expect(withTurnEndUnseen("background", true)).toBe("done");
+  });
+
+  test("a session still running in the background is not done", () => {
+    expect(withTurnEndUnseen("background", true)).toBe("background");
   });
 
   test("leaves every louder key where it is", () => {
