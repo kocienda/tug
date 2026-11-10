@@ -297,7 +297,7 @@
   padding: 4px 10px;
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-radius: 6px;
-  background: var(--tug7-surface-popover-primary-normal-default-rest);
+  background: var(--tug7-surface-global-primary-normal-overlay-rest);
   color: var(--tug7-element-global-text-normal-default-rest);
   pointer-events: none;
 }

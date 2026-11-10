@@ -2657,9 +2657,12 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tugx-pane-title-bar-icon-active", surface: "--tugx-pane-title-bar-bg-active", role: "control" },
 
   // ---- session-card-telemetry-popovers.css ----
-  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "content" },
-  { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "content" },
-  { element: "--tug7-element-global-border-normal-default-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "content" },
+  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "content" },
+  { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "content" },
+  { element: "--tug7-element-global-border-normal-default-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "content" },
+
+  // ---- tug-inline-markdown.css ----
+  { element: "--tug7-element-tone-text-normal-code-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "content" },
 
   // ---- sheet-option-list.css ----
   { element: "--tug7-element-global-border-normal-muted-rest", surface: "--tugx-sheet-bg", role: "informational" },
@@ -2684,7 +2687,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tugx-pane-title-fg-active", surface: "--tugx-pane-title-bar-bg-active", role: "informational" },
 
   // ---- session-masthead.css ----
-  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "informational" },
+  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "informational" },
 
   // ---- tug-accordion.css ----
   { element: "--tug7-element-field-text-normal-label-hover", surface: "--tug7-surface-field-primary-normal-plain-hover", role: "content" },
@@ -2788,9 +2791,9 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tugx-popover-border", surface: "--tugx-popover-bg", role: "informational" },
 
   // ---- tug-popup-list.css ----
-  { element: "--tug7-element-global-text-normal-success-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "control" },
-  { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "control" },
-  { element: "--tug7-element-global-text-normal-danger-rest", surface: "--tug7-surface-popover-primary-normal-default-rest", role: "control" },
+  { element: "--tug7-element-global-text-normal-success-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "control" },
+  { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "control" },
+  { element: "--tug7-element-global-text-normal-danger-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "control" },
 
   // ---- tug-progress-indicator.css ----
   { element: "--tugx-progress-indicator-label-color", surface: "--tugx-progress-indicator-surface", role: "content" },

@@ -1,6 +1,6 @@
 /* @tug-pairings {
  * --tugx-pane-title-fg-active | --tugx-pane-title-bar-bg-active | display
- * --tug7-element-global-text-normal-muted-rest | --tug7-surface-popover-primary-normal-default-rest | informational
+ * --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-overlay-rest | informational
  * } */
 
 /**
@@ -8,7 +8,7 @@
  * | Element                                       | Surface                          | Role          | Context                                                      |
  * |-----------------------------------------------|----------------------------------|---------------|--------------------------------------------------------------|
  * | --tugx-pane-title-fg-active                   | --tugx-pane-title-bar-bg-active  | display       | .session-masthead-title; the description, activity, and tape |
- * | --tug7-element-global-text-normal-muted-rest  | --tug7-surface-popover-primary-normal-default-rest | informational | .session-beat-history-intent, inside the beat-history popover      |
+ * | --tug7-element-global-text-normal-muted-rest  | --tug7-surface-global-primary-normal-overlay-rest | informational | .session-beat-history-intent, inside the beat-history popover      |
  */
 
 /**
@@ -297,7 +297,7 @@
 /* The goal heading over a run of beats. Shown ONCE per group. Prose, so it
    drops the frame's mono body face for the ambient sans and wraps rather than
    ellipsizing; muted so the beats beneath read as the primary data. */
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-beat-history-intent {
   font-family: var(--tug-font-family-sans);
   font-size: 0.6875rem;
@@ -404,7 +404,7 @@
    logs), which turned this panel into a wall of monospace no other identity
    surface wears; the two rules below take the panel's own type back, and the
    citation opts into mono deliberately further down. */
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-masthead-telemetry-label {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-2xs, 10px);
@@ -412,7 +412,7 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-masthead-telemetry-value {
   display: inline-flex;
   align-items: center;

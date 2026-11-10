@@ -50,6 +50,7 @@ import {
   TugPopupListItemText,
 } from "@/components/tugways/tug-popup-list";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { TugInlineMarkdown } from "@/components/tugways/tug-inline-markdown";
 
 export function ArcStepItems({
   steps,
@@ -87,7 +88,7 @@ export function ArcStepItems({
             primary={
               <>
                 <span className="arc-step-list-ordinal">{index + 1}.</span>
-                {step.title}
+                <TugInlineMarkdown text={step.title} />
               </>
             }
           />

@@ -41,7 +41,7 @@
   max-inline-size: 100%;
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-radius: var(--tug-radius-md);
-  background-color: var(--tug7-surface-popover-primary-normal-default-rest);
+  background-color: var(--tug7-surface-global-primary-normal-overlay-rest);
   overflow: hidden;
 }
 

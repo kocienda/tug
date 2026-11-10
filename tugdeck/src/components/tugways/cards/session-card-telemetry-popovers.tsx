@@ -118,6 +118,8 @@ import {
   TugProgressIndicator,
 } from "@/components/tugways/tug-progress-indicator";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { TugInlineMarkdown } from "@/components/tugways/tug-inline-markdown";
+import { inlineMarkdownPlainText } from "@/lib/inline-markdown-runs";
 import {
   goalRowState,
   jobRowState,
@@ -1555,7 +1557,7 @@ export function TaskListItems({
                 <span className="session-tasks-popover-ordinal">
                   {index + 1}.
                 </span>
-                {task.subject}
+                <TugInlineMarkdown text={task.subject} />
               </>
             }
           />
@@ -1577,7 +1579,7 @@ export function TaskListItems({
             {task.description === undefined ? (
               text
             ) : (
-              <TugTooltip content={task.description} side="top" align="start">
+              <TugTooltip content={<TugInlineMarkdown text={task.description} />} side="top" align="start">
                 {text}
               </TugTooltip>
             )}
@@ -1880,6 +1882,9 @@ function JobRow({
   reports?: ReportStore;
 }): React.ReactElement {
   const description = jobDescriptionText(job.description);
+  // The row shows the description's inline marks rendered; a label reads the
+  // words the reader sees, not the backticks around them.
+  const descriptionLabel = inlineMarkdownPlainText(description);
   // The job launched from an assistant turn's `tool_use`; link its
   // `#a{turn}` address (the assistant launch-row is the scroll target).
   const turnIndex = jobTurnIndex(job, transcript);
@@ -1942,13 +1947,15 @@ function JobRow({
       ) : null}
     </>
   );
-  const textBlock = <TugPopupListItemText primary={description} meta={meta} />;
+  const textBlock = (
+    <TugPopupListItemText primary={<TugInlineMarkdown text={description} />} meta={meta} />
+  );
   const action =
     job.status === "running" && onStopJob !== undefined ? (
       <TugPushButton
         subtype="icon"
         icon={<Square size={12} strokeWidth={3} />}
-        aria-label={`Stop background job: ${description}`}
+        aria-label={`Stop background job: ${descriptionLabel}`}
         title="Stop this job"
         emphasis="filled"
         role="danger"
@@ -1962,7 +1969,7 @@ function JobRow({
       <TugPushButton
         subtype="icon"
         icon={<X size={12} strokeWidth={3} />}
-        aria-label={`Cancel scheduled cron: ${description}`}
+        aria-label={`Cancel scheduled cron: ${descriptionLabel}`}
         title="Ask the assistant to cancel this cron"
         emphasis="outlined"
         role="action"
@@ -1979,7 +1986,7 @@ function JobRow({
       <TugPushButton
         subtype="icon"
         icon={<Square size={12} strokeWidth={3} />}
-        aria-label={`Stop loop: ${description}`}
+        aria-label={`Stop loop: ${descriptionLabel}`}
         title="Ask the assistant to stop this loop"
         emphasis="outlined"
         role="danger"
@@ -2002,7 +2009,7 @@ function JobRow({
       action={action}
     >
       {job.description.trim().length > 0 ? (
-        <TugTooltip content={job.description} side="top" align="start">
+        <TugTooltip content={<TugInlineMarkdown text={job.description} />} side="top" align="start">
           {textBlock}
         </TugTooltip>
       ) : (
@@ -2149,7 +2156,7 @@ export function JobsPopoverContent({
         }
       >
         <TugPopupListItemText
-          primary={goal.condition}
+          primary={<TugInlineMarkdown text={goal.condition} />}
           meta={
             goal.latestReason !== null ? (
               <span className="session-work-popover-goal-reason">

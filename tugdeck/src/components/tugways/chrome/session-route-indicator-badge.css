@@ -58,7 +58,7 @@ body {
   font-size: var(--tugx-route-indicator-size);
 }
 
-/* @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-route-indicator-badge-report-title {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-weight: var(--tug-font-weight-semibold);
@@ -77,12 +77,12 @@ body {
   gap: var(--tugx-route-indicator-label-gap);
 }
 
-/* @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-route-indicator-badge-version-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-route-indicator-badge-version-value {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-variant-numeric: tabular-nums;
@@ -103,7 +103,7 @@ body {
   gap: var(--tug-space-xs);
 }
 
-/* @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-route-indicator-badge-report-detail {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-variant-numeric: tabular-nums;

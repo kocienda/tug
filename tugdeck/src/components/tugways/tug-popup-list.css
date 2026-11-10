@@ -14,24 +14,24 @@
  * a kind (or a composing component) retunes rhythm with one override.
  *
  * @tug-pairings {
- *   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-popover-primary-normal-default-rest | content
- *   --tug7-element-global-text-normal-default-rest  | --tug7-surface-popover-primary-normal-default-rest | content
- *   --tug7-element-global-border-normal-default-rest | --tug7-surface-popover-primary-normal-default-rest | content
- *   --tug7-element-global-text-normal-success-rest  | --tug7-surface-popover-primary-normal-default-rest | control
- *   --tug7-element-global-text-normal-caution-rest  | --tug7-surface-popover-primary-normal-default-rest | control
- *   --tug7-element-global-text-normal-danger-rest   | --tug7-surface-popover-primary-normal-default-rest | control
+ *   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-overlay-rest | content
+ *   --tug7-element-global-text-normal-default-rest  | --tug7-surface-global-primary-normal-overlay-rest | content
+ *   --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-overlay-rest | content
+ *   --tug7-element-global-text-normal-success-rest  | --tug7-surface-global-primary-normal-overlay-rest | control
+ *   --tug7-element-global-text-normal-caution-rest  | --tug7-surface-global-primary-normal-overlay-rest | control
+ *   --tug7-element-global-text-normal-danger-rest   | --tug7-surface-global-primary-normal-overlay-rest | control
  * }
  *
  * @tug-pairings
  * | Element                                           | Surface                                             | Role    | Context                                   |
  * |---------------------------------------------------|-----------------------------------------------------|---------|-------------------------------------------|
- * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-popover-primary-normal-default-rest  | content | .tug-popup-list-title etc. (color)        |
- * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-popover-primary-normal-default-rest  | content | .tug-popup-list-row-value etc. (color)    |
- * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-popover-primary-normal-default-rest  | content | .tug-popup-list-rule (border-top)         |
- * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-popover-primary-normal-default-rest  | control | .tug-popup-list-tone-dot[data-tone="default"] (background) |
- * | --tug7-element-global-text-normal-success-rest    | --tug7-surface-popover-primary-normal-default-rest  | control | .tug-popup-list-tone-dot[data-tone="success"] (background) |
- * | --tug7-element-global-text-normal-caution-rest    | --tug7-surface-popover-primary-normal-default-rest  | control | .tug-popup-list-tone-dot[data-tone="caution"] (background) |
- * | --tug7-element-global-text-normal-danger-rest     | --tug7-surface-popover-primary-normal-default-rest  | control | .tug-popup-list-tone-dot[data-tone="danger"] (background)  |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-overlay-rest  | content | .tug-popup-list-title etc. (color)        |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest  | content | .tug-popup-list-row-value etc. (color)    |
+ * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-overlay-rest  | content | .tug-popup-list-rule (border-top)         |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest  | control | .tug-popup-list-tone-dot[data-tone="default"] (background) |
+ * | --tug7-element-global-text-normal-success-rest    | --tug7-surface-global-primary-normal-overlay-rest  | control | .tug-popup-list-tone-dot[data-tone="success"] (background) |
+ * | --tug7-element-global-text-normal-caution-rest    | --tug7-surface-global-primary-normal-overlay-rest  | control | .tug-popup-list-tone-dot[data-tone="caution"] (background) |
+ * | --tug7-element-global-text-normal-danger-rest     | --tug7-surface-global-primary-normal-overlay-rest  | control | .tug-popup-list-tone-dot[data-tone="danger"] (background)  |
  */
 
 /* ============================================================================
@@ -155,7 +155,7 @@
   color: var(--tug7-element-card-text-normal-title-active);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-empty {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-style: italic;
@@ -168,7 +168,7 @@
    rail's own empty marker (`.cards-section-empty`); the two are stated
    separately because each layer owns its geometry, and what is shared
    is the reading, not a token. */
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-empty[data-form="word"] {
   display: flex;
   align-items: center;
@@ -240,7 +240,7 @@
   grid-column: 1 / -1;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-grid-divider {
   grid-column: 1 / -1;
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
@@ -258,7 +258,7 @@
   padding-block: 2px;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-row-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -270,7 +270,7 @@
   text-overflow: ellipsis;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-row-annotation {
   display: flex;
   justify-content: flex-end;
@@ -279,7 +279,7 @@
   font-weight: var(--tug-font-weight-regular);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-row-value {
   color: var(--tug7-element-global-text-normal-default-rest);
   font-weight: var(--tug-font-weight-semibold);
@@ -327,7 +327,7 @@
   min-width: 0;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-item-primary {
   color: var(--tug7-element-global-text-normal-default-rest);
   white-space: nowrap;
@@ -335,7 +335,7 @@
   text-overflow: ellipsis;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-item-meta {
   display: inline-flex;
   align-items: baseline;
@@ -357,7 +357,7 @@
   gap: 2px;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-group-label {
   /* Subordinate section marker under the titlebar header: muted so the
      title dominates, but 11px semibold (not the former 9px footnote). */
@@ -373,7 +373,7 @@
    Footer — summary + action cluster over an above-rule
    ========================================================================= */
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-footer {
   display: flex;
   flex-direction: row;
@@ -390,7 +390,7 @@
   border-block-start: 1px solid var(--tug7-element-global-border-normal-default-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-footer-summary {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -424,22 +424,22 @@
   flex: 0 0 auto;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-tone-dot[data-tone="default"] {
   background-color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-tone-dot[data-tone="success"] {
   background-color: var(--tug7-element-global-text-normal-success-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-tone-dot[data-tone="caution"] {
   background-color: var(--tug7-element-global-text-normal-caution-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .tug-popup-list-tone-dot[data-tone="danger"] {
   background-color: var(--tug7-element-global-text-normal-danger-rest);
 }

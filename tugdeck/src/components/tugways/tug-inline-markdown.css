@@ -1,0 +1,38 @@
+/**
+ * tug-inline-markdown.css — the inline marks `TugInlineMarkdown` renders.
+ *
+ * The code run takes the transcript's own inline-code tone and the mono face,
+ * at the line's own size: the rows these lines sit in are a published height,
+ * and a code run set larger or smaller than its neighbours would move the
+ * baseline. Strong and emphasis inherit the line's colour; only weight and
+ * slant change, so a muted or struck-through row stays muted or struck.
+ *
+ * @tug-pairings {
+ *   --tug7-element-tone-text-normal-code-rest | --tug7-surface-global-primary-normal-overlay-rest | content
+ * }
+ *
+ * @tug-pairings
+ * | Element                                  | Surface                                           | Role    | Context                                  |
+ * |------------------------------------------|---------------------------------------------------|---------|------------------------------------------|
+ * | --tug7-element-tone-text-normal-code-rest | --tug7-surface-global-primary-normal-overlay-rest | content | .tug-inline-markdown-code in a popup row (color) |
+ *
+ * @module components/tugways/tug-inline-markdown
+ */
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+.tug-inline-markdown-code {
+  font-family: var(--tug-font-family-mono);
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--tug7-element-tone-text-normal-code-rest);
+  background: none;
+  padding: 0;
+}
+
+.tug-inline-markdown-strong {
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.tug-inline-markdown-em {
+  font-style: italic;
+}

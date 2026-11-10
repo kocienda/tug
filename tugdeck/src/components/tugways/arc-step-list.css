@@ -52,7 +52,7 @@
    Two surfaces, because this list has two: the `ARC` placard's popover and
    the Arcs card's own. A component authored to mount anywhere names every
    ground it lands on, or the contrast audit reads it against one of them.
-   @tug-renders-on: --tug7-surface-popover-primary-normal-default-rest, --tug7-surface-global-primary-normal-default-rest */
+   @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest, --tug7-surface-global-primary-normal-default-rest */
 .arc-step-list-ordinal {
   margin-inline-end: 0.4em;
   color: var(--tug7-element-global-text-normal-muted-rest);

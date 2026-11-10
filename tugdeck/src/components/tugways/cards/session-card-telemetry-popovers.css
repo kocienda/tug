@@ -20,17 +20,17 @@
  *    `--tugx-arc-gauge-segment-*` slots (single-writer, many-reader).
  *
  * @tug-pairings {
- *   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-popover-primary-normal-default-rest | content
- *   --tug7-element-global-text-normal-default-rest  | --tug7-surface-popover-primary-normal-default-rest | content
- *   --tug7-element-global-border-normal-default-rest | --tug7-surface-popover-primary-normal-default-rest | content
+ *   --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-overlay-rest | content
+ *   --tug7-element-global-text-normal-default-rest  | --tug7-surface-global-primary-normal-overlay-rest | content
+ *   --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-overlay-rest | content
  * }
  *
  * @tug-pairings
  * | Element                                           | Surface                                            | Role    | Context                                 |
  * |---------------------------------------------------|----------------------------------------------------|---------|-----------------------------------------|
- * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-popover-primary-normal-default-rest | content | .session-state-log-time etc. (color)        |
- * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-popover-primary-normal-default-rest | content | .session-state-log-phase etc. (color)       |
- * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-popover-primary-normal-default-rest | content | .session-context-popover-grid-divider (border) |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-overlay-rest | content | .session-state-log-time etc. (color)        |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest | content | .session-state-log-phase etc. (color)       |
+ * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-overlay-rest | content | .session-context-popover-grid-divider (border) |
  *
  * @module components/tugways/cards/session-card-telemetry-popovers
  */
@@ -50,7 +50,7 @@
   white-space: nowrap;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-popover-turn-pair-sep {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -60,7 +60,7 @@
    muted mono treatment, but carry a faint underline AT REST so every
    number reads as clickable (not just the hovered one); hover / focus
    brightens both the text and the underline. */
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-popover-row-turn {
   appearance: none;
   margin: 0;
@@ -121,7 +121,7 @@
   border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-popover-strip {
   display: flex;
   gap: 2px;
@@ -167,7 +167,7 @@
   align-items: baseline;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-popover-legend-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
   display: flex;
@@ -183,19 +183,19 @@
   flex: 0 0 auto;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-popover-legend-percent {
   color: var(--tug7-element-global-text-normal-muted-rest);
   text-align: right;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-popover-legend-value {
   color: var(--tug7-element-global-text-normal-default-rest);
   text-align: right;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-popover-legend-divider {
   grid-column: 1 / -1;
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
@@ -204,7 +204,7 @@
 
 /* The in-flight row's annotation: a pulsing dot and "in flight" in the
    column a committed row spends on its end-state badge. */
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-popover-inflight {
   display: inline-flex;
   align-items: center;
@@ -218,7 +218,7 @@
   inline-size: 6px;
   block-size: 6px;
   border-radius: 50%;
-  background-color: var(--tug7-element-global-text-normal-info-rest);
+  background-color: var(--tug7-surface-toggle-primary-normal-active-rest);
   animation: session-time-popover-pulse 1.6s ease-in-out
     var(--tug-loop-iterations, infinite);
 }
@@ -273,7 +273,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-arc-stage {
   font-weight: var(--tug-font-weight-semibold);
   letter-spacing: 0.06em;
@@ -291,7 +291,7 @@
   padding-inline-start: 28px;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-arc-disclose {
   appearance: none;
   inline-size: 12px;
@@ -333,13 +333,13 @@
   min-inline-size: 0;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-arc-stack[data-pending] .session-time-arc-title,
 .session-time-arc-step-n[data-pending] {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-arc-meta,
 .session-time-arc-mark {
   font-size: 0.6875rem;
@@ -354,7 +354,7 @@
   font-style: italic;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-time-arc-commit {
   font-family: var(--tug-font-family-mono);
   font-size: 0.6875rem;
@@ -424,7 +424,7 @@
   padding-top: 18px;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-legend-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
   display: flex;
@@ -456,37 +456,37 @@
 .session-context-popover-swatch[data-arc-tone="messages"] { background-color: var(--tugx-arc-gauge-segment-messages-color); }
 .session-context-popover-swatch[data-arc-tone="autocompact_buffer"] { background-color: var(--tugx-arc-gauge-segment-autocompact_buffer-color); }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-legend-percent {
   color: var(--tug7-element-global-text-normal-muted-rest);
   text-align: right;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-legend-value {
   color: var(--tug7-element-global-text-normal-default-rest);
   text-align: right;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-grid-divider {
   grid-column: 1 / -1;
   border-top: 1px solid var(--tug7-element-global-border-normal-default-rest);
   margin-block: 4px;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-summary-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-summary-percent {
   color: var(--tug7-element-global-text-normal-muted-rest);
   text-align: right;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-context-popover-summary-value {
   color: var(--tug7-element-global-text-normal-default-rest);
   text-align: right;
@@ -524,22 +524,22 @@
   align-items: center;
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-state-log-time {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-state-log-phase {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-state-log-transport {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-state-log-interrupt {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -550,7 +550,7 @@
 
 /* The `N.` that leads each row's primary line. Muted and tabular so a
    two-digit ordinal aligns under a one-digit one down the column.
-   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+   @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-tasks-popover-ordinal {
   margin-inline-end: 0.4em;
   color: var(--tug7-element-global-text-normal-muted-rest);
@@ -577,7 +577,7 @@
    Jobs — meta-line accents
    ========================================================================= */
 
-/* @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-jobs-popover-meta-sep {
   color: var(--tug7-element-global-text-normal-muted-rest);
   opacity: 0.6;
@@ -586,7 +586,7 @@
 /* The running agent's most recent tool (from `task_progress`). Tinted
    to read as live activity against the muted meta line, and clipped so
    a long tool name never widens the row.
-   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+   @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-jobs-popover-progress {
   color: var(--tug7-element-global-text-normal-default-rest);
   overflow: hidden;
@@ -596,7 +596,7 @@
 
 /* A running job's latest progress report (`tugtool report`, `tugtool test
    run`) — live activity, so it reads like the agent's last tool beside it.
-   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+   @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-jobs-popover-report {
   color: var(--tug7-element-global-text-normal-default-rest);
   overflow: hidden;
@@ -606,7 +606,7 @@
 
 /* The card's latest report no call claimed: one clipped line above the
    groups.
-   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+   @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-jobs-popover-live-run {
   padding: var(--tug-space-xs) var(--tug-space-sm);
   color: var(--tug7-element-global-text-normal-default-rest);
@@ -617,7 +617,7 @@
 
 /* The faint tag before a report no call claimed: it says the report missed
    its block, so a mis-attached run is not read as a missing one.
-   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+   @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-jobs-popover-unattached {
   margin-right: var(--tug-space-xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
