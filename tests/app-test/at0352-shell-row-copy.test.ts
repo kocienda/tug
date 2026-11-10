@@ -130,9 +130,13 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 30_000 },
         );
+        // Bound as a new session: a harness bind in resume mode gets no
+        // replay, so nothing ends the card's cold restore, and the transcript
+        // waits out its 10 s reveal bound before the receipt mounts — which
+        // put the row's click against the end of the file's 20 s budget.
+        // Nothing here is about a restore.
         await app.bindSession("A", {
           tugSessionId: SID,
-          sessionMode: "resume",
           projectDir,
           workspaceKey: projectDir,
         });

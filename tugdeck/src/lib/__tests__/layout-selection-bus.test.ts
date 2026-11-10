@@ -17,7 +17,7 @@ import { CardsSelectionStore, shareLayoutSelection, type LayoutCursor } from "..
 import { resolveLayoutSelection } from "../layout-selection";
 import { createSubscribable } from "../subscribable";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
-import { layoutSelection } from "../../bus/declarations/arrangement";
+import { layoutSelection, layoutSelectionStands } from "../../bus/declarations/arrangement";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { DeckState } from "../../layout-tree";
 
@@ -207,5 +207,26 @@ describe("the shell's cursor", () => {
     share(bus.body("cards-1", "cards"));
     await bus.flush();
     expect([...shell.selection.getSnapshot().ids]).toEqual(["A"]);
+  });
+
+  test("every body hears whether a selection stands, and that it stands no longer", async () => {
+    // What a body's unanswered Escape is routed by (`forwardToShell`): claimed
+    // by the shell while a selection stands, unclaimed otherwise. A body that
+    // is not the Cards card never holds the set, so this one word is all it
+    // has to go on.
+    const { body } = await makePages();
+    const session = bus.body("session-1", "session");
+    await bus.flush();
+    const stands = layoutSelectionStands.on(session.bus);
+    expect(stands.getSnapshot()).toBe(false);
+
+    body.selection.pickOnly("A");
+    body.selection.toggle("C");
+    await bus.flush();
+    expect(stands.getSnapshot()).toBe(true);
+
+    body.selection.clear();
+    await bus.flush();
+    expect(stands.getSnapshot()).toBe(false);
   });
 });

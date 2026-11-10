@@ -27,6 +27,7 @@ import { bodyUnhandledRoute } from "../lib/body-command-route";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { commandForCard, commandForShell } from "./declarations/verbs";
 import { layoutSelectionStands } from "./declarations/arrangement";
+import { TAB_CONSUME_ATTRIBUTE } from "../lib/tab-consume-attribute";
 import { page } from "./page";
 
 /** Who runs a command: the shell, the key card (in its body when it is one), or AppKit. */
@@ -93,6 +94,17 @@ export function keyCardWalkEdge(direction: 1 | -1): boolean {
 }
 
 /**
+ * Whether the focused element is inside an editor that owns Escape: the
+ * marker an editor sets for as long as it holds focus, which the key
+ * funnel's own Escape branch reads the same way.
+ */
+function focusedEditorOwnsEscape(): boolean {
+  if (typeof document === "undefined") return false;
+  const active = document.activeElement;
+  return active instanceof Element && active.closest(`[${TAB_CONSUME_ATTRIBUTE}="true"]`) !== null;
+}
+
+/**
  * In a bound body, hand the shell a command this page's chain did not
  * answer, and say whether this page should count it handled.
  *
@@ -101,15 +113,17 @@ export function keyCardWalkEdge(direction: 1 | -1): boolean {
  * a native control's; Cancel is sent and not claimed, so the key goes on to
  * the surface in this page that owns it while the shell's chain may still
  * take Escape's last rung — unless a layout selection stands, when that rung
- * is certain to spend it and the key is claimed. Anything else is sent and
- * claimed. In the shell, or in a body with no card yet, nothing is sent.
+ * is certain to spend it and the key is claimed — except from a focused
+ * editor that owns Escape, whose keymap must still see it. Anything else is
+ * sent and claimed. In the shell, or in a body with no card yet, nothing is
+ * sent.
  */
 export function forwardToShell(
   entry: Pick<CommandEntry, "id">,
   payload: Record<string, unknown> | undefined,
 ): boolean {
   if (!page.isBody || page.cardId === null) return false;
-  const route = bodyUnhandledRoute(entry.id, layoutSelectionStands.getSnapshot());
+  const route = bodyUnhandledRoute(entry.id, layoutSelectionStands.getSnapshot(), focusedEditorOwnsEscape());
   if (route === "decline") return false;
   commandForShell.dispatch({ id: entry.id, ...(payload !== undefined ? { payload } : {}) });
   return route === "forward";

@@ -68,6 +68,21 @@ describe.skipIf(!SHOULD_RUN)("at0789 — the set holds until its last content pa
         if (times.length > 1 && Math.max(...times) - Math.min(...times) > SET_FRAME_MS) {
           bad.push(`the set's pages first showed across ${Math.round(Math.max(...times) - Math.min(...times))} ms, not one frame`);
         }
+        if (bad.length > 0 && times.length > 0) {
+          // What each card's layer said around the landing, so a split set
+          // names the flag that lagged: p painted, f faced, h held, x hidden,
+          // then the presented opacity.
+          const from = cut + Math.min(...times) - 60;
+          const to = cut + Math.max(...times) + 40;
+          for (const id of CARDS) {
+            const line = (rows ?? [])
+              .filter((r) => r.cardId === id && r.wall >= from && r.wall <= to)
+              .sort((a, b) => a.wall - b.wall)
+              .map((r) => `${Math.round(r.wall - cut)}:${r.painted ? "p" : "-"}${r.faced ? "f" : "-"}${r.held === true ? "h" : "-"}${r.hidden ? "x" : "-"}${r.opacity.toFixed(2)}`)
+              .join(" ");
+            note(`layers ${id}: ${line}`);
+          }
+        }
         expect(bad, "the set lands as one picture, on its last content paint").toEqual([]);
       } finally {
         await deck.close();

@@ -298,6 +298,14 @@ describe("bodyUnhandledRoute", () => {
     expect(bodyUnhandledRoute(TUG_ACTIONS.UNDO, true)).toBe("decline");
   });
 
+  test("Cancel is never claimed from a focused editor that owns Escape, selection or not", () => {
+    // Claimed, the key never reached the editor's keymap, and Escape closed
+    // no completion or slash popup in a card the selection named (body
+    // grounding rows 12 and 25).
+    expect(bodyUnhandledRoute(TUG_ACTIONS.CANCEL_DIALOG, true, true)).toBe("forward-unclaimed");
+    expect(bodyUnhandledRoute(TUG_ACTIONS.CANCEL_DIALOG, false, true)).toBe("forward-unclaimed");
+  });
+
   test("Undo and Redo stay in the page; anything else is the shell's", () => {
     expect(bodyUnhandledRoute(TUG_ACTIONS.UNDO)).toBe("decline");
     expect(bodyUnhandledRoute(TUG_ACTIONS.REDO)).toBe("decline");

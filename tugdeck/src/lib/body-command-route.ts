@@ -100,6 +100,11 @@ export function bodyCommandRoute(facts: BodyCommandFacts): string | null {
  *   Escape's last rung while a layout selection stands.
  *   While one does stand, Cancel is `forward`: the shell's root spends it,
  *   and a key left to run on here would reach AppKit unhandled, which beeps.
+ *   Unless a focused editor owns Escape (`editorOwnsEscape`): the key is its
+ *   keymap's first — closing a completion or the slash popup — and claimed
+ *   here it never arrived, so Escape closed no popup in any card the
+ *   selection named, which fronting a card makes nearly every card (row 12
+ *   and row 25 of the body grounding, 2026-11-10).
  * - `decline`: keep it. Undo and Redo are the focused surface's edit
  *   history; unanswered here, they are a native control's, reached when the
  *   funnel lets the key go on. The page-zoom commands are AppKit's: the View
@@ -111,9 +116,12 @@ export function bodyCommandRoute(facts: BodyCommandFacts): string | null {
 export function bodyUnhandledRoute(
   id: string,
   layoutSelectionStands = false,
+  editorOwnsEscape = false,
 ): "forward" | "forward-unclaimed" | "decline" {
   if (id === TUG_ACTIONS.UNDO || id === TUG_ACTIONS.REDO || HOST_ZOOM.has(id)) return "decline";
-  if (id === TUG_ACTIONS.CANCEL_DIALOG) return layoutSelectionStands ? "forward" : "forward-unclaimed";
+  if (id === TUG_ACTIONS.CANCEL_DIALOG) {
+    return layoutSelectionStands && !editorOwnsEscape ? "forward" : "forward-unclaimed";
+  }
   return "forward";
 }
 

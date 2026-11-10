@@ -279,7 +279,8 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         );
         await app.bindSession("A", {
           tugSessionId: SID,
-          sessionMode: "resume",
+          // Bound as a new session: a harness bind in resume mode gets no replay, so
+          // the card waits out its 10 s cold-reveal bound before any row mounts.
           projectDir,
           workspaceKey: projectDir,
         });

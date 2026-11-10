@@ -387,7 +387,7 @@ export const KEY_VIEW_ATTRIBUTE = "data-key-view";
  * flag resolution): when present on the active element's subtree, Tab is left
  * to the surface's own keymap; otherwise the focus walk advances.
  */
-export const TAB_CONSUME_ATTRIBUTE = "data-tug-tab-consume";
+export { TAB_CONSUME_ATTRIBUTE } from "@/lib/tab-consume-attribute";
 
 /**
  * The opposite declaration: a multi-line text surface stating "Tab is **not**

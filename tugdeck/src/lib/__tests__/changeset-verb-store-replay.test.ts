@@ -15,7 +15,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 
 import { ChangesetVerbStore } from "../changeset-verb-store";
-import { arcReplayOutcomeStore } from "../arc-replay-outcome-store";
+import { ANOTHER_PAGE_ENTRY_KEY, arcReplayOutcomeStore } from "../arc-replay-outcome-store";
 
 const ENTRY = "session:s1";
 const PROJECT = "/proj";
@@ -234,5 +234,37 @@ describe("the outcome notice store", () => {
       detail: "arc 'replay-lane' has uncommitted changes",
     });
     expect(arcReplayOutcomeStore.outcomeFor(SESSION)).toBeNull();
+  });
+
+  test("another page's press is heard here, under no shade's key", () => {
+    // Every card is its own page: the Arcs card presses Replay for a session
+    // whose card is this page. Nothing here is in flight, so no row's phase
+    // moves, and the outcome is stamped with the key no shade holds, which is
+    // what hands it to the card's bulletin.
+    h.reply({
+      action: "changeset_replay_ok",
+      project_dir: PROJECT,
+      arc: ARC,
+      session_id: SESSION,
+      outcome: "replayed",
+    });
+    expect(h.store.replayState(ENTRY).phase).toBe("idle");
+    const posted = arcReplayOutcomeStore.outcomeFor(SESSION);
+    expect(posted?.outcome).toBe("replayed");
+    expect(posted?.entryKey).toBe(ANOTHER_PAGE_ENTRY_KEY);
+  });
+
+  test("another page's refused press is heard here too", () => {
+    h.reply({
+      action: "changeset_replay_err",
+      project_dir: PROJECT,
+      arc: ARC,
+      session_id: SESSION,
+      detail: "not a git repository",
+    });
+    expect(h.store.replayState(ENTRY).phase).toBe("idle");
+    const posted = arcReplayOutcomeStore.outcomeFor(SESSION);
+    expect(posted?.outcome).toBe("error");
+    expect(posted?.entryKey).toBe(ANOTHER_PAGE_ENTRY_KEY);
   });
 });

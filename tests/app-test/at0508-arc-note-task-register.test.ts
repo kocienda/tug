@@ -127,7 +127,8 @@ describe.skipIf(!SHOULD_RUN)("AT0508: an arc quiet line reads as a Task step", (
         );
         await app.bindSession("A", {
           tugSessionId: SID,
-          sessionMode: "resume",
+          // Bound as a new session: a harness bind in resume mode gets no replay, so
+          // the card waits out its 10 s cold-reveal bound before any row mounts.
           projectDir,
           workspaceKey: projectDir,
         });

@@ -104,7 +104,15 @@ export const COLUMN_JS = `(function () {
       if (cells[i].r.top - cells[i - 1].r.bottom > gap + 1) covered = false;
     }
     var last = cells[cells.length - 1].r.bottom;
-    var atEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+    // At the end there is nothing left to mount below: the scroller rests on
+    // its edge, or the last cell showing is the newest post. The second
+    // matters a few pixels short of the edge, where what stands under the
+    // newest post is the column's end padding, not a hole — a sweep step
+    // that landed there (19px short, 2026-11-10) waited for a cell that does
+    // not exist unless the card happened to close the slack first.
+    var atEnd =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= 2 ||
+      cells[cells.length - 1].n === ${POST_COUNT - 1};
     if (!atEnd && last < port.bottom - gap - 1) covered = false;
   }
   return {
