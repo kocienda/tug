@@ -26,6 +26,11 @@
  * exactly like an image over the composer. All DOM writes, no React state
  * ([L06]).
  *
+ * A jot that lands also runs `onJotDrop`, the same callback the composer
+ * hands its editor substrate for a jot dropped over the text itself: the
+ * composer takes the keyboard so the prompt can be sent at once
+ * (focus-language.md § Drag and the keyboard).
+ *
  * @module components/tugways/use-composer-drop
  */
 
@@ -53,6 +58,11 @@ export interface ComposerDropOptions {
    * accepted and dropped on the floor.
    */
   onFiles?: (view: EditorView, files: File[], pos: number) => void;
+  /**
+   * Runs after a jot has been handed to {@link insertTarget}: the composer
+   * raises its card and makes its editor first responder.
+   */
+  onJotDrop?: () => void;
 }
 
 /** The handlers to spread on the composer's root element. */
@@ -67,6 +77,7 @@ export function useComposerDrop({
   view,
   insertTarget,
   onFiles,
+  onJotDrop,
 }: ComposerDropOptions): ComposerDropHandlers {
   const acceptsFiles = onFiles !== undefined;
 
@@ -125,6 +136,7 @@ export function useComposerDrop({
           x: event.clientX,
           y: event.clientY,
         });
+        onJotDrop?.();
         return;
       }
       // Resolve the drop against the editor's measured layout, same as a drop
@@ -137,7 +149,7 @@ export function useComposerDrop({
       clearDropState();
       onFiles?.(editorView, files, pos);
     },
-    [acceptsFiles, clearDropState, insertTarget, onFiles, view],
+    [acceptsFiles, clearDropState, insertTarget, onFiles, onJotDrop, view],
   );
 
   return { onDragOver, onDragLeave, onDragEnd: clearDropState, onDrop };

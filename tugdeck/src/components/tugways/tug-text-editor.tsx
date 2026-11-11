@@ -794,6 +794,13 @@ export interface TugTextEditorProps
    */
   onAttachmentError?: (message: string) => void;
   /**
+   * Called after a jot dragged from the Jots card has landed in the
+   * document. A composer host makes the editor first responder here, so the
+   * dropped prompt is ready to submit. Read at fire time through a ref
+   * ([L07]); omitted, the drop inserts and claims nothing.
+   */
+  onJotDrop?: () => void;
+  /**
    * Called when a paste carried its source project's roots — the sidecar's
    * `origins`, written by whichever Tug surface the text was copied from.
    *
@@ -1151,6 +1158,7 @@ function buildExtensions(
   getPastedCommandResolver: () => PastedCommandResolver | null,
   onAttachmentError: (message: string) => void,
   onPastedOrigins: (origins: readonly string[]) => void,
+  onJotDrop: () => void,
   initial: {
     placeholder: string;
     lineWrap: boolean;
@@ -1371,7 +1379,13 @@ function buildExtensions(
       getPastedCommandResolver,
       onPastedOrigins,
     ),
-    tugDropExtension(host, getDropHandler, getBytesStore, onAttachmentError),
+    tugDropExtension(
+      host,
+      getDropHandler,
+      getBytesStore,
+      onAttachmentError,
+      onJotDrop,
+    ),
     keepCaretVisible,
     scrollbarAtCap,
     rowHeightVar,
@@ -1445,6 +1459,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       attachmentBytesStore,
       onAttachmentError,
       onPastedOrigins,
+      onJotDrop,
       preserveState = true,
       placeholder = "",
       maxRows = DEFAULT_MAX_ROWS,
@@ -1793,6 +1808,11 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     useLayoutEffect(() => {
       onAttachmentErrorRef.current = onAttachmentError ?? (() => undefined);
     }, [onAttachmentError]);
+
+    const onJotDropRef = useRef<(() => void) | undefined>(onJotDrop);
+    useLayoutEffect(() => {
+      onJotDropRef.current = onJotDrop;
+    }, [onJotDrop]);
 
     // Snapshot of host-supplied extensions captured at mount only;
     // reactivity inside the host extension itself must come through
@@ -2910,6 +2930,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           () => pastedCommandResolverRef.current,
           (message) => onAttachmentErrorRef.current(message),
           (origins) => onPastedOriginsRef.current?.(origins),
+          () => onJotDropRef.current?.(),
           {
             placeholder: initialPlaceholder,
             lineWrap: initialLineWrap,

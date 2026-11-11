@@ -1461,10 +1461,20 @@ export const TugPromptEntry = React.forwardRef<
     },
     [attachmentBytesStore, publishAttachmentError],
   );
+  // A jot dropped on this entry — over the text or over its chrome — is a
+  // prompt about to be sent, so the drop brings the card forward and makes
+  // the editor first responder, ready for Shift-Return
+  // (focus-language.md § Drag and the keyboard). The same pair the Insert
+  // into Prompt menu item runs: raise, then focus through the chain.
+  const landJotDrop = useCallback((): void => {
+    insertTarget.raise();
+    textEditorRef.current?.focus();
+  }, [insertTarget]);
   const entryDrop = useComposerDrop({
     view: dropView,
     insertTarget,
     onFiles: onDropFiles,
+    onJotDrop: landJotDrop,
   });
 
   // Session ▸ Insert File… (⌘I). The host picked the paths; what each becomes
@@ -2007,10 +2017,10 @@ export const TugPromptEntry = React.forwardRef<
   // slot survives until an editor exists (no consume on a missing view) so a
   // drop is never silently dropped.
   //
-  // No focus claim: a drop inserts content and leaves activation and focus
-  // where the user left them (focus-language.md § Drag and the keyboard).
-  // The dispatched `selection` records the insertion point; it becomes the
-  // visible caret when the editor is next granted focus legitimately.
+  // Focus is not this effect's: a drop's `landJotDrop` has already raised
+  // the card and focused the editor, and a double-click from the Jots card
+  // leaves focus where it was. The dispatched `selection` records the
+  // insertion point, so the caret sits after the inserted text.
   const pendingJotInsert = snap.pendingJotInsert;
   useLayoutEffect(() => {
     if (pendingJotInsert === null) return;
@@ -2069,9 +2079,9 @@ export const TugPromptEntry = React.forwardRef<
   // an editor exists (no consume on a missing view) so a drop that lands
   // mid-mount is never silently dropped.
   //
-  // No focus claim, the drop rule the jot path above keeps: a drop inserts
-  // content and leaves focus where the user left it
-  // (focus-language.md § Drag and the keyboard).
+  // No focus claim: a file dropped on the card's content area inserts and
+  // leaves focus where the user left it (focus-language.md § Drag and the
+  // keyboard). Only a jot drop lands the keyboard in the entry.
   const pendingFileInsert = snap.pendingFileInsert;
   useLayoutEffect(() => {
     if (pendingFileInsert === null) return;
@@ -4457,6 +4467,7 @@ export const TugPromptEntry = React.forwardRef<
               dropHandler={dropHandler}
               attachmentBytesStore={attachmentBytesStore}
               onAttachmentError={publishAttachmentError}
+              onJotDrop={landJotDrop}
               historyProvider={currentHistoryProvider}
               focusGroup={editorFocusGroup}
               focusOrder={editorFocusOrder}

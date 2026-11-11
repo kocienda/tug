@@ -1141,6 +1141,12 @@ function setDropActive(host: HTMLElement | null, state: DropActiveState): void {
  * to the host, which surfaces it as a calm card-scoped notice (the
  * Session card raises a pane bulletin); tests can pass a spy.
  *
+ * `onJotDrop()` runs after a jot dragged from the Jots card has landed in
+ * the document. The composer hosts use it to make the editor the first
+ * responder, so the dropped prompt can be submitted at once
+ * (focus-language.md § Drag and the keyboard). Defaults to a no-op: a
+ * substrate with no composer behind it inserts and claims nothing.
+ *
  * A host-supplied `getDropHandler()` still wins over the default —
  * the gallery card uses that escape hatch to inject deterministic
  * test atoms. When both `getBytesStore()` and `getDropHandler()` are
@@ -1167,6 +1173,7 @@ export function tugDropExtension(
   getDropHandler: () => DropHandler | null,
   getBytesStore: () => AtomBytesStore | null = () => null,
   onAttachmentError: (message: string) => void = () => undefined,
+  onJotDrop: () => void = () => undefined,
 ): Extension {
   return [
     tugDropCaretField,
@@ -1224,12 +1231,12 @@ export function tugDropExtension(
        * promised the text would land. Claiming first (and stopping the
        * event) makes the painted caret and the insertion the same position.
        *
-       * The handler inserts and stops. It claims no focus and does not
-       * activate the card: a drop is a content gesture on both ends
-       * (focus-language.md § Drag and the keyboard). `insertMixedAt`
-       * records the insertion point in `view.state.selection`, which
-       * becomes the visible caret if and when the editor is next
-       * granted focus legitimately.
+       * The handler inserts, stops, and hands the landing to the host's
+       * `onJotDrop`: a jot dropped on a composer is a prompt about to be
+       * sent, so the composer takes the keyboard and the card comes
+       * forward (focus-language.md § Drag and the keyboard). The insertion
+       * point is recorded in `view.state.selection`, so the caret the
+       * focus reveals sits just after the dropped text.
        */
       const onDropCapture = (event: DragEvent): void => {
         const jot = readJotDrag(event.dataTransfer);
@@ -1240,6 +1247,7 @@ export function tugDropExtension(
         const at = dropOffsetAtCoords(view, event.clientX, event.clientY);
         // The substrate verbatim: the chips a jot holds arrive as chips.
         insertSubstrateAt(view, at ?? view.state.doc.length, jot.text, jot.atoms);
+        onJotDrop();
       };
       const onDrop = (event: DragEvent): void => {
         const files = event.dataTransfer?.files;

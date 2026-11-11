@@ -2124,6 +2124,14 @@ function OverviewComposer({
     },
   });
 
+  // A jot dropped on the composer — over the field or its chrome — makes the
+  // field first responder, ready for Shift-Return
+  // (focus-language.md § Drag and the keyboard).
+  const landJotDrop = useCallback((): void => {
+    overviewInsertTarget().raise();
+    editorRef.current?.focus();
+  }, []);
+
   // The composer's drop surface, the Session entry's own — so a jot dragged
   // out of the Jots card lands here at the drop point, with the same accept
   // ring and drop caret an image gets ([B08]). No `onFiles`: an image over
@@ -2136,6 +2144,7 @@ function OverviewComposer({
   const composerDrop = useComposerDrop({
     view: composerDropView,
     insertTarget: overviewInsertTarget(),
+    onJotDrop: landJotDrop,
   });
 
   // ── Prompt history ───────────────────────────────────────────────────────
@@ -2602,6 +2611,7 @@ function OverviewComposer({
         // bytes here, and lands the chip.
         attachmentBytesStore={bytesStore}
         onAttachmentError={onAttachmentError}
+        onJotDrop={landJotDrop}
       />
     </TugEntryShell>
     {findOpen ? (
