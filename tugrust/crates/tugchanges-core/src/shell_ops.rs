@@ -439,7 +439,11 @@ fn tokenize(command: &str) -> Vec<Tok> {
                             }
                             let and = chars.get(i.wrapping_sub(2)) == Some(&'&')
                                 && chars.get(i.wrapping_sub(1)) == Some(&'&');
-                            toks.push(Tok::Sep(if and { SepKind::And } else { SepKind::Background }));
+                            toks.push(Tok::Sep(if and {
+                                SepKind::And
+                            } else {
+                                SepKind::Background
+                            }));
                         }
                     }
                     _ => {
@@ -561,8 +565,24 @@ fn split_sequenced(tokens: &[Tok]) -> Vec<Sequenced> {
 /// Heads that bind a name the text does not show the value of, or run code
 /// that might — after one of them, nothing this line assigned is trusted.
 const REBINDING_HEADS: [&str; 18] = [
-    "read", "mapfile", "readarray", "getopts", "eval", "source", ".", "declare", "typeset",
-    "local", "let", "unset", "set", "shift", "function", "for", "select", "{",
+    "read",
+    "mapfile",
+    "readarray",
+    "getopts",
+    "eval",
+    "source",
+    ".",
+    "declare",
+    "typeset",
+    "local",
+    "let",
+    "unset",
+    "set",
+    "shift",
+    "function",
+    "for",
+    "select",
+    "{",
 ];
 
 /// Literal assignments a line made, carried forward so `d=/tmp/x && rm -rf $d`
