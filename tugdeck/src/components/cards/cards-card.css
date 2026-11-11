@@ -492,17 +492,11 @@ body {
   color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* The mark, in two channels that say the same thing ([B03], [L06]): the
-   workspace on screen wears an open eye in the glyph column, and its NAME
-   takes the accent. The name is what carries the reading at a glance — the
-   glyph is small, and the row it sits on is already quiet — so the accent is
-   not decoration on top of the eye but the half of the mark a reader actually
-   scans. A parked workspace wears the closed eye at the label's own muted
-   tone: the pair reads as one fact in two states, which a mark that is
-   sometimes absent cannot. */
-.cards-space-header[data-cards-space-active="true"] .tug-list-row-title {
-  color: var(--tug7-element-tone-text-normal-accent-rest);
-}
+/* The mark ([B03], [L06]): the workspace on screen wears an open eye in the
+   glyph column, and its name keeps the ordinary text colour — the eye alone
+   carries the mark. A parked workspace wears the closed eye at the label's
+   own muted tone: the pair reads as one fact in two states, which a mark that
+   is sometimes absent cannot. */
 .cards-space-header[data-cards-space-active="true"] .cards-header-glyph {
   color: var(--tug7-element-tone-text-normal-accent-rest);
 }
