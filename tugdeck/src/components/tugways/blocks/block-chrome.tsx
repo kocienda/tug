@@ -556,7 +556,14 @@ export const BlockChrome: React.FC<BlockChromeProps> = ({
       {/* The notice band sits OUTSIDE the collapse guard — between the header
           and the body — so a short explanation stays readable while
           collapsed. The full detail lives in the body below. */}
-      {notice !== undefined ? <BlockNoticeBand {...notice} /> : null}
+      {notice !== undefined ? (
+        <BlockNoticeBand
+          {...notice}
+          // A call a hook declined never ran, so the error notice every
+          // wrapper builds from its result reads as a note, not a failure.
+          tone={phase === "steered" && notice.tone === "error" ? "info" : notice.tone}
+        />
+      ) : null}
       {notice === undefined ? liveBand : null}
       {blockCollapsed ? null : (
         <BlockFoldSuppressedContext.Provider value={blockCollapse !== null}>

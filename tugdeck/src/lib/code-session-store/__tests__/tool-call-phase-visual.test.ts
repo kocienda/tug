@@ -16,6 +16,8 @@ import type {
 import {
   TOOL_CALL_PHASE_LABELS,
   deriveToolCallPhase,
+  hookRefusalReason,
+  hookRefusalText,
   toolCallPhaseVisual,
   type ToolCallPhase,
   type ToolCallPhaseInput,
@@ -110,8 +112,37 @@ describe("TOOL_CALL_PHASE_LABELS", () => {
       "success",
       "error",
       "interrupted",
+      "steered",
     ] as const) {
       expect(TOOL_CALL_PHASE_LABELS[phase].length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("hook refusals", () => {
+  const denial =
+    "PreToolUse:Bash hook error: operand `$d` is not a literal path. Use `tugtool file rm|mv|cp` instead.";
+
+  test("a PreToolUse denial yields the hook's own reason", () => {
+    expect(hookRefusalReason(denial)).toBe(
+      "operand `$d` is not a literal path. Use `tugtool file rm|mv|cp` instead.",
+    );
+    expect(hookRefusalReason("PreToolUse:mcp__x-y__z hook error: no")).toBe("no");
+  });
+
+  test("anything else is not a refusal", () => {
+    expect(hookRefusalReason(undefined)).toBeNull();
+    expect(hookRefusalReason("Exit code 1\nmake: *** No rule")).toBeNull();
+    expect(hookRefusalReason("note: PreToolUse:Bash hook error: x")).toBeNull();
+  });
+
+  test("a refused error reads steered, muted rather than danger", () => {
+    expect(deriveToolCallPhase(input({ status: "error", refused: true }))).toBe("steered");
+    expect(deriveToolCallPhase(input({ status: "done", refused: true }))).toBe("success");
+    expect(toolCallPhaseVisual("steered")).toEqual({ role: "inherit", state: "stopped" });
+  });
+
+  test("the transcript text leads with what happened", () => {
+    expect(hookRefusalText("why")).toBe("Not run — why");
   });
 });

@@ -26,6 +26,7 @@
  *   - `success`     → `{ state: completed, role: success }` (green — finished)
  *   - `error`       → `{ state: aborted,   role: danger }`  (red — failed)
  *   - `interrupted` → `{ state: aborted,   role: danger }`  (red — canceled)
+ *   - `steered`     → `{ state: stopped,   role: inherit }` (muted — a hook declined it; it never ran)
  *   - `idle`        → `{ state: stopped,   role: inherit }` (muted — quiescent)
  *
  * `error` and `interrupted` share the danger/aborted visual; they are
@@ -53,7 +54,8 @@ export type ToolCallPhase =
   | "awaiting"
   | "success"
   | "error"
-  | "interrupted";
+  | "interrupted"
+  | "steered";
 
 // ---------------------------------------------------------------------------
 // Derivation
@@ -80,6 +82,12 @@ export interface ToolCallPhaseInput {
    * or the tool's structured result carries an `interrupted` flag).
    */
   readonly interrupted?: boolean;
+  /**
+   * True when the call's error result is a PreToolUse hook declining it
+   * ({@link hookRefusalReason}): the call never ran, so it neither
+   * failed nor succeeded.
+   */
+  readonly refused?: boolean;
 }
 
 /**
@@ -88,16 +96,20 @@ export interface ToolCallPhaseInput {
  * header dot's lifecycle reading.
  *
  * Precedence (highest first):
- *  1. `error`       — the result is an error; nothing overrides a failure.
- *  2. `interrupted` — the call was canceled (even a `done` call can carry
+ *  1. `steered`     — the error is a hook declining the call before it ran.
+ *     It is not a failure, and painting it as one teaches the reader to
+ *     skim past red.
+ *  2. `error`       — the result is an error; nothing else overrides a failure.
+ *  3. `interrupted` — the call was canceled (even a `done` call can carry
  *     an `interrupted` flag, e.g. a bash command killed mid-run; the
  *     canceled reading wins over a nominal "done").
- *  3. `awaiting`    — a `pending` call blocked on a permission/question
+ *  4. `awaiting`    — a `pending` call blocked on a permission/question
  *     dialog. Held, not actively working.
- *  4. `in_flight`   — a `pending` call doing work.
- *  5. `success`     — a `done` call that neither errored nor was canceled.
+ *  5. `in_flight`   — a `pending` call doing work.
+ *  6. `success`     — a `done` call that neither errored nor was canceled.
  */
 export function deriveToolCallPhase(input: ToolCallPhaseInput): ToolCallPhase {
+  if (input.status === "error" && input.refused === true) return "steered";
   if (input.status === "error") return "error";
   if (input.interrupted === true) return "interrupted";
   if (input.awaiting === true) return "awaiting";
@@ -122,6 +134,7 @@ export const TOOL_CALL_PHASE_LABELS: Record<ToolCallPhase, string> = {
   success: "Done",
   error: "Error",
   interrupted: "Interrupted",
+  steered: "Not run — a hook declined it",
 };
 
 // ---------------------------------------------------------------------------
@@ -156,8 +169,37 @@ export function toolCallPhaseVisual(
     case "error":
     case "interrupted":
       return { role: "danger", state: "aborted" };
+    case "steered":
     case "idle":
     default:
       return { role: "inherit", state: "stopped" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Hook refusals
+// ---------------------------------------------------------------------------
+
+/**
+ * The prefix Claude Code puts on a tool result when a PreToolUse hook
+ * denies the call: `PreToolUse:Bash hook error: <the hook's reason>`.
+ * It is Claude Code's output convention, not a published contract, so it
+ * is read here and nowhere else.
+ */
+const HOOK_REFUSAL_PREFIX = /^PreToolUse:[\w-]+ hook error:\s*/;
+
+/**
+ * The hook's own reason when `text` is a PreToolUse hook's denial of the
+ * call — which means the call never ran — or `null` for any other result.
+ * Expects the `<tool_use_error>` wrapper already stripped.
+ */
+export function hookRefusalReason(text: string | undefined): string | null {
+  if (text === undefined) return null;
+  const match = HOOK_REFUSAL_PREFIX.exec(text);
+  return match === null ? null : text.slice(match[0].length);
+}
+
+/** A hook refusal as the transcript says it: what happened, then why. */
+export function hookRefusalText(reason: string): string {
+  return `Not run — ${reason}`;
 }

@@ -90,7 +90,11 @@ import type {
   CostSnapshot,
   ToolUseMessage,
 } from "@/lib/code-session-store";
-import { deriveToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
+import {
+  deriveToolCallPhase,
+  hookRefusalReason,
+  hookRefusalText,
+} from "@/lib/code-session-store/tool-call-phase-visual";
 
 import { DefaultToolBlock } from "./blocks/default-tool-block";
 import {
@@ -829,12 +833,20 @@ export function dispatchToolCallState(
   // non-`complete` leaves its still-running tools without a result, so
   // their dot must read `interrupted`, not stay stuck `in_flight`. A
   // call that already reached `done` / `error` keeps its own terminal.
+  //
+  // A hook's denial is an error result too, but the call never ran: it
+  // reads `steered`, and its text leads with what happened rather than
+  // Claude Code's "PreToolUse:Bash hook error:" label.
+  const rawText = extractTextOutput(toolCall.result);
+  const refusal = toolCall.status === "error" ? hookRefusalReason(rawText) : null;
+  const textOutput = refusal === null ? rawText : hookRefusalText(refusal);
   const phase = deriveToolCallPhase({
     status: toolCall.status,
     interrupted:
       extractInterrupted(toolCall.structuredResult) ||
       (turnInterrupted && toolCall.status === "pending"),
     awaiting,
+    refused: refusal !== null,
   });
 
   const baseProps = {
@@ -843,7 +855,7 @@ export function dispatchToolCallState(
     seq: 0, // populated by the transcript view from event ordering
     input: toolCall.input,
     structuredResult: toolCall.structuredResult,
-    textOutput: extractTextOutput(toolCall.result),
+    textOutput,
     isError: toolCall.status === "error",
     status,
     phase,

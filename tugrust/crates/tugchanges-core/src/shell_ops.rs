@@ -24,6 +24,7 @@
 //! Two consumers share it so the grammar cannot fork: tugcast's relay (live and
 //! replay minting) and `tugtool file gate` (the PreToolUse hook's decision).
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 /// What a declared operation does to its path.
@@ -111,8 +112,13 @@ pub fn parse_shell_ops(command: &str, base_dir: &Path) -> ParseOutcome {
     let tokens = tokenize(&stripped);
     let mut cwd: Option<PathBuf> = Some(base_dir.to_path_buf());
     let mut ops: Vec<DeclaredOp> = Vec::new();
+    let mut vars = ShellVars::default();
 
-    for segment in split_segments(&tokens) {
+    for segment in split_sequenced(&tokens) {
+        if vars.observe(&segment) {
+            continue;
+        }
+        let segment = vars.expand(&segment.toks);
         match parse_segment(&segment, &mut cwd) {
             SegmentOutcome::Ops(mut segment_ops) => ops.append(&mut segment_ops),
             SegmentOutcome::Nothing => {}
@@ -277,6 +283,10 @@ struct Word {
     /// False when the shell would expand the word: an unquoted `$`, backtick,
     /// glob metacharacter, brace expansion, or leading `~`.
     literal: bool,
+    /// True when a `$` in `text` is one the shell would *not* expand — single
+    /// quoted or backslash-escaped. Such a word is never substituted, since
+    /// the text alone no longer says which `$` is which.
+    quoted_dollar: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,7 +300,24 @@ enum Tok {
     In,
     /// A redirect that duplicates a descriptor (`>&2`, `2>&1`).
     DupOut,
-    Sep,
+    Sep(SepKind),
+}
+
+/// Which separator ended a segment. Only the variable tracker reads the
+/// kind — whether a `name=value` before it is certain to have run in the
+/// shell that runs what comes after; everything else treats them alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SepKind {
+    /// `;` or a newline.
+    Seq,
+    And,
+    Or,
+    Pipe,
+    Background,
+    /// `(` — a subshell or a command substitution opens.
+    Open,
+    /// `)`.
+    Close,
 }
 
 fn tokenize(command: &str) -> Vec<Tok> {
@@ -298,6 +325,7 @@ fn tokenize(command: &str) -> Vec<Tok> {
     let mut toks: Vec<Tok> = Vec::new();
     let mut buf = String::new();
     let mut literal = true;
+    let mut quoted_dollar = false;
     let mut started = false;
     let mut i = 0;
 
@@ -307,8 +335,10 @@ fn tokenize(command: &str) -> Vec<Tok> {
                 toks.push(Tok::Word(Word {
                     text: std::mem::take(&mut buf),
                     literal,
+                    quoted_dollar,
                 }));
                 literal = true;
+                quoted_dollar = false;
                 started = false;
             }
         };
@@ -321,6 +351,9 @@ fn tokenize(command: &str) -> Vec<Tok> {
                 i += 1;
                 if i < chars.len() {
                     if chars[i] != '\n' {
+                        if chars[i] == '$' {
+                            quoted_dollar = true;
+                        }
                         buf.push(chars[i]);
                         started = true;
                     }
@@ -331,6 +364,9 @@ fn tokenize(command: &str) -> Vec<Tok> {
                 started = true;
                 i += 1;
                 while i < chars.len() && chars[i] != '\'' {
+                    if chars[i] == '$' {
+                        quoted_dollar = true;
+                    }
                     buf.push(chars[i]);
                     i += 1;
                 }
@@ -341,6 +377,9 @@ fn tokenize(command: &str) -> Vec<Tok> {
                 i += 1;
                 while i < chars.len() && chars[i] != '"' {
                     if chars[i] == '\\' && i + 1 < chars.len() {
+                        if chars[i + 1] == '$' {
+                            quoted_dollar = true;
+                        }
                         buf.push(chars[i + 1]);
                         i += 2;
                         continue;
@@ -398,17 +437,28 @@ fn tokenize(command: &str) -> Vec<Tok> {
                             while chars.get(i) == Some(&'&') {
                                 i += 1;
                             }
-                            toks.push(Tok::Sep);
+                            let and = chars.get(i.wrapping_sub(2)) == Some(&'&')
+                                && chars.get(i.wrapping_sub(1)) == Some(&'&');
+                            toks.push(Tok::Sep(if and { SepKind::And } else { SepKind::Background }));
                         }
                     }
                     _ => {
+                        let start = i;
                         while matches!(chars.get(i), Some(';') | Some('|') | Some('\n')) {
                             i += 1;
                         }
+                        let run = &chars[start..i];
+                        let kind = match c {
+                            '(' => SepKind::Open,
+                            ')' => SepKind::Close,
+                            _ if run.starts_with(&['|', '|']) => SepKind::Or,
+                            _ if run.contains(&'|') => SepKind::Pipe,
+                            _ => SepKind::Seq,
+                        };
                         if c == '(' || c == ')' {
                             i += 1;
                         }
-                        toks.push(Tok::Sep);
+                        toks.push(Tok::Sep(kind));
                     }
                 }
             }
@@ -433,7 +483,11 @@ fn tokenize(command: &str) -> Vec<Tok> {
         }
     }
     if started {
-        toks.push(Tok::Word(Word { text: buf, literal }));
+        toks.push(Tok::Word(Word {
+            text: buf,
+            literal,
+            quoted_dollar,
+        }));
     }
     toks
 }
@@ -442,7 +496,7 @@ fn split_segments(tokens: &[Tok]) -> Vec<Vec<Tok>> {
     let mut out = Vec::new();
     let mut current = Vec::new();
     for tok in tokens {
-        if matches!(tok, Tok::Sep) {
+        if matches!(tok, Tok::Sep(_)) {
             if !current.is_empty() {
                 out.push(std::mem::take(&mut current));
             }
@@ -454,6 +508,256 @@ fn split_segments(tokens: &[Tok]) -> Vec<Vec<Tok>> {
         out.push(current);
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Shell variables
+// ---------------------------------------------------------------------------
+
+/// A segment with the separators on either side of it — every one, since an
+/// empty segment between two of them (`a ;; b`, `$( )`) still says something.
+struct Sequenced {
+    toks: Vec<Tok>,
+    before: Vec<SepKind>,
+    after: Vec<SepKind>,
+}
+
+fn split_sequenced(tokens: &[Tok]) -> Vec<Sequenced> {
+    let mut out: Vec<Sequenced> = Vec::new();
+    let mut current: Vec<Tok> = Vec::new();
+    let mut seps: Vec<SepKind> = Vec::new();
+    for tok in tokens {
+        match tok {
+            Tok::Sep(kind) => {
+                if !current.is_empty() {
+                    out.push(Sequenced {
+                        toks: std::mem::take(&mut current),
+                        before: std::mem::take(&mut seps),
+                        after: Vec::new(),
+                    });
+                }
+                seps.push(*kind);
+            }
+            other => current.push(other.clone()),
+        }
+    }
+    if !current.is_empty() {
+        out.push(Sequenced {
+            toks: current,
+            before: std::mem::take(&mut seps),
+            after: Vec::new(),
+        });
+    }
+    for i in 1..out.len() {
+        let next = out[i].before.clone();
+        out[i - 1].after = next;
+    }
+    if let Some(last) = out.last_mut() {
+        last.after = seps;
+    }
+    out
+}
+
+/// Heads that bind a name the text does not show the value of, or run code
+/// that might — after one of them, nothing this line assigned is trusted.
+const REBINDING_HEADS: [&str; 18] = [
+    "read", "mapfile", "readarray", "getopts", "eval", "source", ".", "declare", "typeset",
+    "local", "let", "unset", "set", "shift", "function", "for", "select", "{",
+];
+
+/// Literal assignments a line made, carried forward so `d=/tmp/x && rm -rf $d`
+/// reads as `rm -rf /tmp/x`.
+///
+/// The tracker is deliberately small, and every shape it cannot vouch for
+/// *poisons* it: nothing more is bound or substituted on the line, so the
+/// command falls back to exactly the refusal it would have earned before.
+/// A binding is kept only when it is certain to have run in the shell that
+/// runs the use — at the head of a statement, or reached through nothing but
+/// `&&` — and never inside a subshell, a pipeline, a background job, a loop or
+/// conditional body, or a `{ }` group. A word is substituted only when every
+/// `$` in it names a binding and nothing else in it would expand.
+#[derive(Default)]
+struct ShellVars {
+    /// name → (value, bound inside the current `&&` chain only).
+    known: HashMap<String, (String, bool)>,
+    poisoned: bool,
+    parens: usize,
+    blocks: usize,
+}
+
+impl ShellVars {
+    fn poison(&mut self) {
+        self.poisoned = true;
+        self.known.clear();
+    }
+
+    /// Account for `segment`, binding what it assigns. True when the segment
+    /// is assignments alone, which declare no file operation.
+    fn observe(&mut self, segment: &Sequenced) -> bool {
+        if self.poisoned {
+            return false;
+        }
+        for sep in &segment.before {
+            match sep {
+                SepKind::Open => self.parens += 1,
+                SepKind::Close => self.parens = self.parens.saturating_sub(1),
+                SepKind::And => {}
+                SepKind::Seq | SepKind::Or | SepKind::Pipe | SepKind::Background => {
+                    self.known.retain(|_, (_, chain_only)| !*chain_only);
+                }
+            }
+        }
+
+        let words: Vec<&Word> = segment
+            .toks
+            .iter()
+            .filter_map(|t| match t {
+                Tok::Word(w) => Some(w),
+                _ => None,
+            })
+            .collect();
+        let mut rest: &[&Word] = &words;
+        while let Some(w) = rest.first() {
+            match w.text.as_str() {
+                "!" | "then" | "do" | "else" | "elif" => {}
+                "if" | "while" | "until" | "case" => self.blocks += 1,
+                "fi" | "done" | "esac" => self.blocks = self.blocks.saturating_sub(1),
+                _ => break,
+            }
+            rest = &rest[1..];
+        }
+        let Some(head) = rest.first() else {
+            return false;
+        };
+        if REBINDING_HEADS.contains(&head.text.as_str())
+            || (head.text == "printf" && rest.iter().any(|w| w.text == "-v"))
+        {
+            self.poison();
+            return false;
+        }
+
+        let assigns = match head.text.as_str() {
+            "export" | "readonly" => &rest[1..],
+            _ => rest,
+        };
+        let all_assignments = !assigns.is_empty()
+            && segment.toks.iter().all(|t| matches!(t, Tok::Word(_)))
+            && assigns.iter().all(|w| assignment_name(&w.text).is_some());
+        if !all_assignments {
+            return false;
+        }
+        let subshell = segment
+            .before
+            .last()
+            .is_some_and(|s| matches!(s, SepKind::Pipe | SepKind::Background))
+            || segment
+                .after
+                .first()
+                .is_some_and(|s| matches!(s, SepKind::Pipe | SepKind::Background));
+        if self.parens > 0 || self.blocks > 0 || subshell {
+            self.poison();
+            return true;
+        }
+        let entered = segment.before.last().copied();
+        for w in assigns {
+            let Some(name) = assignment_name(&w.text) else {
+                continue;
+            };
+            let raw = &w.text[name.len() + 1..];
+            let value = if w.literal {
+                Some(raw.to_string())
+            } else if w.quoted_dollar {
+                None
+            } else {
+                self.substitute(raw)
+            };
+            match value.filter(|v| is_plain_value(v)) {
+                Some(v) if entered != Some(SepKind::Or) => {
+                    let chain_only = entered == Some(SepKind::And);
+                    self.known.insert(name.to_string(), (v, chain_only));
+                }
+                _ => {
+                    self.known.remove(name);
+                }
+            }
+        }
+        true
+    }
+
+    /// The segment with every word this tracker can vouch for made literal.
+    fn expand(&self, toks: &[Tok]) -> Vec<Tok> {
+        toks.iter()
+            .map(|t| match t {
+                Tok::Word(w) if !self.poisoned && !w.literal && !w.quoted_dollar => {
+                    match self.substitute(&w.text) {
+                        Some(text) => Tok::Word(Word {
+                            text,
+                            literal: true,
+                            quoted_dollar: false,
+                        }),
+                        None => t.clone(),
+                    }
+                }
+                other => other.clone(),
+            })
+            .collect()
+    }
+
+    /// `text` with each `$name` / `${name}` replaced by its binding, or `None`
+    /// when any reference is unbound or anything else in it would expand.
+    fn substitute(&self, text: &str) -> Option<String> {
+        if !text.contains('$') {
+            return None;
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            if c == '$' {
+                let braced = chars.get(i + 1) == Some(&'{');
+                let start = if braced { i + 2 } else { i + 1 };
+                let mut end = start;
+                while end < chars.len() && is_name_char(chars[end]) {
+                    end += 1;
+                }
+                let name: String = chars[start..end].iter().collect();
+                if name.is_empty() || name.starts_with(|c: char| c.is_ascii_digit()) {
+                    return None;
+                }
+                if braced {
+                    if chars.get(end) != Some(&'}') {
+                        return None;
+                    }
+                    end += 1;
+                }
+                out.push_str(&self.known.get(&name)?.0);
+                i = end;
+                continue;
+            }
+            if matches!(c, '`' | '*' | '?' | '[' | '{' | '}' | '~') {
+                return None;
+            }
+            out.push(c);
+            i += 1;
+        }
+        Some(out)
+    }
+}
+
+/// The name a `name=value` word assigns.
+fn assignment_name(text: &str) -> Option<&str> {
+    let (name, _) = text.split_once('=')?;
+    let valid = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(is_name_char);
+    valid.then_some(name)
+}
+
+/// A value an unquoted `$name` would hand over as exactly one word, unchanged.
+fn is_plain_value(value: &str) -> bool {
+    !value
+        .chars()
+        .any(|c| c.is_whitespace() || matches!(c, '$' | '`' | '*' | '?' | '[' | '{' | '~'))
 }
 
 // ---------------------------------------------------------------------------
@@ -500,7 +804,7 @@ fn parse_segment(tokens: &[Tok], cwd: &mut Option<PathBuf>) -> SegmentOutcome {
             Tok::In => {
                 i += 1;
             }
-            Tok::DupOut | Tok::Sep => {}
+            Tok::DupOut | Tok::Sep(_) => {}
         }
         i += 1;
     }
@@ -1588,6 +1892,87 @@ mod tests {
     #[test]
     fn a_refusal_suppresses_its_siblings_ops() {
         assert_refused("rm a.ts && rm $B");
+    }
+
+    #[test]
+    fn a_variable_the_line_bound_reads_as_its_value() {
+        let got = ops(
+            "d=/tmp/calc-check && rm -rf $d && mkdir $d && cp /u/calc/Makefile $d/ \
+             && printf 'int main(void){}' > $d/calc.c",
+        );
+        assert_eq!(
+            got[0],
+            DeclaredOp {
+                kind: DeclaredKind::Remove,
+                path: PathBuf::from("/tmp/calc-check")
+            }
+        );
+        assert!(
+            got.contains(&DeclaredOp {
+                kind: DeclaredKind::WriteTarget,
+                path: PathBuf::from("/tmp/calc-check/calc.c")
+            }),
+            "{got:?}"
+        );
+        assert_eq!(
+            ops("D=build/out; rm -rf \"$D\""),
+            vec![DeclaredOp {
+                kind: DeclaredKind::Remove,
+                path: PathBuf::from("/repo/build/out")
+            }]
+        );
+        assert_eq!(
+            ops("export D=build; E=${D}/out\nrm -rf \"$E/x.o\""),
+            vec![DeclaredOp {
+                kind: DeclaredKind::Remove,
+                path: PathBuf::from("/repo/build/out/x.o")
+            }]
+        );
+        assert_eq!(
+            ops("d=src && cd $d && rm a.ts"),
+            vec![DeclaredOp {
+                kind: DeclaredKind::Remove,
+                path: PathBuf::from("/repo/src/a.ts")
+            }]
+        );
+        // A use guarded by a test still sees the binding.
+        assert_eq!(
+            ops("d=/tmp/x; if [ -d $d ]; then rm -rf $d; fi"),
+            vec![DeclaredOp {
+                kind: DeclaredKind::Remove,
+                path: PathBuf::from("/tmp/x")
+            }]
+        );
+    }
+
+    #[test]
+    fn a_binding_that_might_not_have_run_is_not_trusted() {
+        // Conditional on something before it, then used unconditionally.
+        assert_refused("test -e x || d=/tmp/x; rm -rf $d");
+        assert_refused("test -e x && d=/tmp/x; rm -rf $d");
+        // Rebound where the text cannot see it.
+        assert_refused("d=/tmp/x; (d=src); rm -rf $d");
+        assert_refused("d=/tmp/x; d=src | true; rm -rf $d");
+        assert_refused("d=/tmp/x; d=src & rm -rf $d");
+        assert_refused("d=/tmp/x; if true; then d=src; fi; rm -rf $d");
+        assert_refused("d=/tmp/x; while c; do\n d=src\ndone; rm -rf $d");
+        assert_refused("d=/tmp/x; for d in src; do :; done; rm -rf $d");
+        assert_refused("d=/tmp/x; read d; rm -rf $d");
+        assert_refused("d=/tmp/x; f() { d=src; }; f; rm -rf $d");
+        assert_refused("d=/tmp/x; source ./env.sh; rm -rf $d");
+        assert_refused("d=/tmp/x; printf -v d src; rm -rf $d");
+        // A value the shell would not hand over unchanged.
+        assert_refused("d=$(mktemp -d); rm -rf $d");
+        assert_refused("d=\"/tmp/a b\"; rm -rf $d");
+        assert_refused("d='src/*'; rm -rf $d");
+        assert_refused("d='$HOME'; rm -rf $d");
+        assert_refused("d=~/scratch; rm -rf $d");
+        // A word with anything else to expand.
+        assert_refused("d=/tmp/x; rm -rf $d/*");
+        assert_refused("d=/tmp/x; rm -rf ${d:-src}");
+        assert_refused("d=/tmp/x; rm -rf $d$e");
+        // A prefix assignment binds the command, not the line.
+        assert_refused("d=/tmp/x true; rm -rf $d");
     }
 
     #[test]
