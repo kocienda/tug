@@ -1,9 +1,9 @@
 //! The app's help documents and `GET /api/help/{name}`, which serves them to
 //! the help card.
 //!
-//! There are exactly four documents, the guide, the recipes, the glossary and
-//! the release notes, and they are named, never addressed by path: a request
-//! names one of the four and anything else is refused before the filesystem is touched, so the
+//! There are exactly five documents, the guide, the getting-started walk, the
+//! recipes, the glossary and the release notes, and they are named, never
+//! addressed by path: a request names one of the five and anything else is refused before the filesystem is touched, so the
 //! route cannot be walked out of the docs directory. The directory itself is
 //! `resources::docs_dir()`, the one resolver the Operator reads through too.
 //!
@@ -37,6 +37,9 @@ use tracing::warn;
 pub(crate) enum HelpDoc {
     /// `features.md` — each part of the app in turn, section by section.
     Features,
+    /// `getting-started.md` — the first walk through the loop, shown once
+    /// after setup and kept on the Help menu.
+    GettingStarted,
     /// `recipes.md` — one recipe per thing a person does, headed as they say it.
     Recipes,
     /// `glossary.md` — every word Tug uses, one paragraph per term.
@@ -48,8 +51,9 @@ pub(crate) enum HelpDoc {
 
 impl HelpDoc {
     /// Every help document, in the order the Help menu lists them.
-    pub(crate) const ALL: [HelpDoc; 4] = [
+    pub(crate) const ALL: [HelpDoc; 5] = [
         HelpDoc::Features,
+        HelpDoc::GettingStarted,
         HelpDoc::Recipes,
         HelpDoc::Glossary,
         HelpDoc::ReleaseNotes,
@@ -67,6 +71,7 @@ impl HelpDoc {
     pub(crate) fn name(self) -> &'static str {
         match self {
             HelpDoc::Features => "features",
+            HelpDoc::GettingStarted => "getting-started",
             HelpDoc::Recipes => "recipes",
             HelpDoc::Glossary => "glossary",
             HelpDoc::ReleaseNotes => "release-notes",
@@ -78,6 +83,7 @@ impl HelpDoc {
     pub(crate) fn file_name(self) -> &'static str {
         match self {
             HelpDoc::Features => "features.md",
+            HelpDoc::GettingStarted => "getting-started.md",
             HelpDoc::Recipes => "recipes.md",
             HelpDoc::Glossary => "glossary.md",
             HelpDoc::ReleaseNotes => "release-notes.md",
@@ -281,7 +287,9 @@ impl HelpDoc {
     /// The document's retrieval units, in document order.
     pub(crate) fn units(self, markdown: &str) -> Vec<HelpUnit> {
         match self {
-            HelpDoc::Features | HelpDoc::Recipes => heading_sections(markdown),
+            HelpDoc::Features | HelpDoc::GettingStarted | HelpDoc::Recipes => {
+                heading_sections(markdown)
+            }
             HelpDoc::Glossary => glossary_entries(markdown),
             HelpDoc::ReleaseNotes => version_sections(markdown),
         }
@@ -291,6 +299,7 @@ impl HelpDoc {
     pub(crate) fn unit_kind(self) -> &'static str {
         match self {
             HelpDoc::Features => "section",
+            HelpDoc::GettingStarted => "section",
             HelpDoc::Recipes => "recipe",
             HelpDoc::Glossary => "entry",
             HelpDoc::ReleaseNotes => "version",
@@ -557,6 +566,10 @@ mod tests {
     fn names_resolve_bare_or_as_file_names() {
         assert_eq!(HelpDoc::from_name("features"), Some(HelpDoc::Features));
         assert_eq!(HelpDoc::from_name("recipes"), Some(HelpDoc::Recipes));
+        assert_eq!(
+            HelpDoc::from_name("getting-started"),
+            Some(HelpDoc::GettingStarted)
+        );
         assert_eq!(HelpDoc::from_name("glossary.md"), Some(HelpDoc::Glossary));
         assert_eq!(
             HelpDoc::from_name("release-notes"),

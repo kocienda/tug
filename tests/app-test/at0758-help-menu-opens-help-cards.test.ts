@@ -1,8 +1,9 @@
 /**
- * at0758-help-menu-opens-help-cards.test.ts — Help ▸ Tug Help, How Do I…,
- * Glossary and Release Notes open the bundled documents as rendered help cards.
+ * at0758-help-menu-opens-help-cards.test.ts — Help ▸ Tug Help, Getting Started,
+ * How Do I…, Glossary and Release Notes open the bundled documents as rendered
+ * help cards.
  *
- * The four items are the app's door to its own documentation, and the whole
+ * The five items are the app's door to its own documentation, and the whole
  * path is real: the `NSMenuItem` is performed (validation, the action, the
  * `show-card` control), the deck opens a help card keyed by the document,
  * the card's body fetches it from tugcast's `/api/help/{name}` — the bundled
@@ -21,7 +22,9 @@
  *   3. Perform Help ▸ Glossary. A third card, holding `glossary`, renders its heading.
  *   4. Perform Help ▸ Release Notes. A fourth card, holding `release-notes`,
  *      renders the title tugcast assembles and the newest version under it.
- *   5. Perform Help ▸ Tug Help again. The card that comes forward is the
+ *   5. Perform Help ▸ Getting Started. A fifth card, holding
+ *      `getting-started`, renders its heading.
+ *   6. Perform Help ▸ Tug Help again. The card that comes forward is the
  *      first one.
  *
  * Throughout, the document's prose is selectable: the pane content sets
@@ -93,7 +96,7 @@ async function headingOf(app: App, cardId: string): Promise<string> {
 
 describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents", () => {
   test(
-    "Tug Help, How Do I…, Glossary and Release Notes each open a rendered help card, keyed by document",
+    "Tug Help, Getting Started, How Do I…, Glossary and Release Notes each open a rendered help card, keyed by document",
     async () => {
       const app = await launchTugApp({ testName: "at0758-help-menu" });
       try {
@@ -132,6 +135,12 @@ describe.skipIf(!SHOULD_RUN)("at0758 — the Help menu opens the help documents"
           versions.indexOf("Tug 0.8.9"),
         );
         expect(versions[versions.length - 1]).toBe("Tug 0.8.0");
+
+        const started = await pick(app, "help.gettingStarted", "getting-started");
+        expect(started, "the getting-started walk is its own card").not.toBe(features);
+        const startedHeading = await headingOf(app, started);
+        note(`Getting Started heading: ${JSON.stringify(startedHeading)}`);
+        expect(startedHeading).toBe("Getting started with Tug");
 
         const again = await pick(app, "help.tugHelp", "features");
         expect(again, "a second Tug Help brings the open card forward").toBe(features);

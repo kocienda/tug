@@ -2408,14 +2408,15 @@ fn help_dir(ctx: &OperatorContext) -> Result<&Path, String> {
         .ok_or_else(|| "the help documents are not available in this build".to_string())
 }
 
-/// The `doc` argument: `features`, `recipes`, `glossary` or `release-notes`, or `None` for all.
+/// The `doc` argument: `features`, `getting-started`, `recipes`, `glossary` or
+/// `release-notes`, or `None` for all.
 fn help_doc_arg(args: &Value) -> Result<Option<HelpDoc>, String> {
     let Some(name) = opt_str(args, "doc")? else {
         return Ok(None);
     };
     HelpDoc::from_name(name).map(Some).ok_or_else(|| {
         format!(
-            "doc {name:?} is not a help document; the documents are features, recipes, glossary and release-notes"
+            "doc {name:?} is not a help document; the documents are features, getting-started, recipes, glossary and release-notes"
         )
     })
 }
@@ -2460,7 +2461,10 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
         let (_, units) = help_units(dir, doc)?;
         count += units.len();
         out[doc.name()] = match doc {
-            HelpDoc::Features | HelpDoc::Recipes | HelpDoc::ReleaseNotes => json!(
+            HelpDoc::Features
+            | HelpDoc::GettingStarted
+            | HelpDoc::Recipes
+            | HelpDoc::ReleaseNotes => json!(
                 units
                     .iter()
                     .map(|u| json!({ "level": u.level, "heading": u.title, "anchor": u.anchor }))
@@ -2488,7 +2492,7 @@ fn help_outline(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
 fn help_read(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let dir = help_dir(ctx)?;
     let doc = help_doc_arg(args)?.ok_or_else(|| {
-        "argument \"doc\" is required: features, recipes, glossary or release-notes".to_string()
+        "argument \"doc\" is required: features, getting-started, recipes, glossary or release-notes".to_string()
     })?;
     let name = match opt_str(args, "entry")? {
         Some(name) => Some(name),
@@ -7762,7 +7766,7 @@ mod tests {
             .await
             .expect_err("only the four documents");
         assert!(
-            err.contains("features, recipes, glossary and release-notes"),
+            err.contains("features, getting-started, recipes, glossary and release-notes"),
             "{err}"
         );
         let err = run_verb(&f.ctx, "help.read", &json!({}))

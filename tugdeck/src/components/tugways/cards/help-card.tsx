@@ -1,7 +1,7 @@
 /**
  * help-card.tsx — one of the app's help documents, rendered and read-only.
  *
- * Tug ships four help documents, the feature guide, the recipes, the glossary and the release notes, and the
+ * Tug ships five help documents, the feature guide, the getting-started walk, the recipes, the glossary and the release notes, and the
  * Help menu opens each as a card ([B03], [B04]). The card fetches its document
  * from tugcast (`GET /api/help/{name}`, the resolver the Operator reads
  * through too) and renders it in the house markdown style with

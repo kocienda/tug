@@ -84,10 +84,6 @@ function isPunct(ch: string | undefined): boolean {
   return ch !== undefined && /[\p{P}\p{S}]/u.test(ch);
 }
 
-function isAlnum(ch: string | undefined): boolean {
-  return ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
-}
-
 /** A delimiter run can open when it is left-flanking (CommonMark 6.2). */
 function leftFlanking(before: string | undefined, after: string | undefined): boolean {
   if (isWhitespace(after)) return false;

@@ -1373,7 +1373,7 @@ function wireActionDispatch(
     if (component === "help") {
       const doc = payload.document;
       if (!isHelpDocName(doc)) {
-        console.warn("show-card: help needs a document of features, recipes, glossary or release-notes", payload);
+        console.warn("show-card: help needs a document of features, getting-started, recipes, glossary or release-notes", payload);
         return;
       }
       openHelpInCard(deckManager, { doc }, originOf(payload));

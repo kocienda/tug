@@ -1,12 +1,14 @@
 /**
- * The gesture check: every chord and slash command the guide, the recipes and
- * the glossary name has to exist in the code. The release notes stay out, since
+ * The gesture check: every chord and slash command the guide, the
+ * getting-started walk, the recipes and the glossary name has to exist in the
+ * code. The release notes stay out, since
  * they describe each version as it was. A document is written from its sources once
  * and read for years, so a rebound chord or a retired command fails here
  * rather than in front of someone following a recipe.
  *
  * @covers docs/recipes.md
  * @covers docs/features.md
+ * @covers docs/getting-started.md
  * @covers docs/glossary.md
  * @covers tugdeck/src/components/tugways/command-registry.ts
  * @covers tugdeck/src/lib/slash-commands.ts
@@ -24,7 +26,7 @@ import {
 
 const REPO = join(import.meta.dir, "../../../..");
 const DECK_SRC = join(REPO, "tugdeck/src");
-const DOCUMENTS = ["recipes", "features", "glossary"] as const;
+const DOCUMENTS = ["recipes", "features", "getting-started", "glossary"] as const;
 
 function readRepo(path: string): string {
   return readFileSync(join(REPO, path), "utf8");

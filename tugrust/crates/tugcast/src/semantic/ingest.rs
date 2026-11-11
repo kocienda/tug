@@ -413,6 +413,7 @@ fn content_hash(context: &str, text: &str, meta: Option<&str>, lexical: Option<&
 fn help_title(doc: HelpDoc) -> &'static str {
     match doc {
         HelpDoc::Features => "Tug feature guide",
+        HelpDoc::GettingStarted => "Getting started with Tug",
         HelpDoc::Recipes => "Tug recipes",
         HelpDoc::Glossary => "Tug glossary",
         HelpDoc::ReleaseNotes => "Tug release notes",
@@ -703,6 +704,9 @@ mod tests {
         let docs = dir.path().join("docs");
         std::fs::create_dir(&docs).unwrap();
         std::fs::write(docs.join("features.md"), FEATURES).unwrap();
+        // Present, so the set reads whole, and empty, so the counts below are
+        // the three documents' own.
+        std::fs::write(docs.join("getting-started.md"), "").unwrap();
         std::fs::write(docs.join("recipes.md"), RECIPES).unwrap();
         std::fs::write(docs.join("glossary.md"), GLOSSARY).unwrap();
         let index = Arc::new(open(dir.path().join("semantic.db")));

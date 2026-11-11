@@ -851,6 +851,9 @@ struct MenuBarBuilder {
         let tugHelpItem = NSMenuItem(title: "Tug Help", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.tugHelp")
         tugHelpItem.representedObject = "features"
         helpMenu.addItem(tugHelpItem)
+        let gettingStartedItem = NSMenuItem(title: "Getting Started", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.gettingStarted")
+        gettingStartedItem.representedObject = "getting-started"
+        helpMenu.addItem(gettingStartedItem)
         let recipesItem = NSMenuItem(title: "How Do I…", action: #selector(MenuBarActions.showHelpDocument(_:)), keyEquivalent: "").identified("help.recipes")
         recipesItem.representedObject = "recipes"
         helpMenu.addItem(recipesItem)

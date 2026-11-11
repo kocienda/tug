@@ -2,7 +2,7 @@
  * help-docs.ts — the app's help documents, as the deck names, fetches and
  * links them.
  *
- * The feature guide, the recipes, the glossary and the release notes ship inside the app bundle and tugcast
+ * The feature guide, the getting-started walk, the recipes, the glossary and the release notes ship inside the app bundle and tugcast
  * serves them at `GET /api/help/{name}` ([B01], [B02]). A help card is keyed
  * by the document it shows, and a link inside one is either a jump within it
  * (`#getting-help`) or a jump to another (`glossary.md`, `glossary.md#fold`).
@@ -14,11 +14,17 @@
  */
 
 /** A help document's name — the route's key and the help card's. */
-export type HelpDocName = "features" | "recipes" | "glossary" | "release-notes";
+export type HelpDocName =
+  | "features"
+  | "getting-started"
+  | "recipes"
+  | "glossary"
+  | "release-notes";
 
 /** Every help document, in the order the Help menu lists them. */
 export const HELP_DOC_NAMES: readonly HelpDocName[] = [
   "features",
+  "getting-started",
   "recipes",
   "glossary",
   "release-notes",
@@ -27,6 +33,7 @@ export const HELP_DOC_NAMES: readonly HelpDocName[] = [
 /** What a help card is called before its document has loaded. */
 const FALLBACK_TITLES: Record<HelpDocName, string> = {
   features: "Tug Help",
+  "getting-started": "Getting Started",
   recipes: "How Do I…",
   glossary: "Glossary",
   "release-notes": "Release Notes",
@@ -34,9 +41,7 @@ const FALLBACK_TITLES: Record<HelpDocName, string> = {
 
 /** Narrow an unknown value to a help document name. */
 export function isHelpDocName(value: unknown): value is HelpDocName {
-  return (
-    value === "features" || value === "recipes" || value === "glossary" || value === "release-notes"
-  );
+  return (HELP_DOC_NAMES as readonly unknown[]).includes(value);
 }
 
 /**
@@ -107,7 +112,7 @@ export function readHelpLink(href: string): HelpLink | null {
     const anchor = decodeAnchor(href.slice(1));
     return anchor.length > 0 ? { kind: "anchor", anchor } : null;
   }
-  const match = /^(?:\.\/)?(features|recipes|glossary|release-notes)\.md(?:#(.*))?$/.exec(href);
+  const match = /^(?:\.\/)?(features|getting-started|recipes|glossary|release-notes)\.md(?:#(.*))?$/.exec(href);
   if (match === null) return null;
   const doc = match[1] as HelpDocName;
   const anchor = match[2] === undefined ? "" : decodeAnchor(match[2]);

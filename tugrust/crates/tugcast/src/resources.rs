@@ -57,7 +57,7 @@ pub(crate) fn source_tree() -> PathBuf {
     );
 }
 
-/// The directory holding the app's help documents (`features.md`, `recipes.md`,
+/// The directory holding the app's help documents (`features.md`, `getting-started.md`, `recipes.md`,
 /// `glossary.md` and `release-notes/`), which the app bundle ships at
 /// `Contents/Resources/docs/`. A checkout keeps `release-notes/` beside `docs/`,
 /// and `HelpDoc::read` looks in both.

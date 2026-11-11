@@ -24,8 +24,9 @@ const DOCS = join(import.meta.dir, "..", "..", "..", "..", "docs");
 const shipped = (name: string) => readFileSync(join(DOCS, name), "utf8");
 
 describe("help document names", () => {
-  test("only the four documents are names", () => {
+  test("only the five documents are names", () => {
     expect(isHelpDocName("features")).toBe(true);
+    expect(isHelpDocName("getting-started")).toBe(true);
     expect(isHelpDocName("recipes")).toBe(true);
     expect(isHelpDocName("glossary")).toBe(true);
     expect(isHelpDocName("release-notes")).toBe(true);
@@ -49,6 +50,9 @@ describe("help card titles", () => {
   test("the title is the shipped document's own heading", () => {
     expect(helpDocTitle("glossary", shipped("glossary.md"))).toBe("Tug glossary");
     expect(helpDocTitle("recipes", shipped("recipes.md"))).toBe("How do I…");
+    expect(helpDocTitle("getting-started", shipped("getting-started.md"))).toBe(
+      "Getting started with Tug",
+    );
     expect(helpDocTitle("features", shipped("features.md"))).toBe(
       "Tug: what it does and how to use it",
     );
@@ -57,6 +61,7 @@ describe("help card titles", () => {
   test("before the document loads, the title is the menu item's", () => {
     expect(helpDocTitle("features", null)).toBe("Tug Help");
     expect(helpDocTitle("glossary", null)).toBe("Glossary");
+    expect(helpDocTitle("getting-started", null)).toBe("Getting Started");
     expect(helpDocTitle("release-notes", null)).toBe("Release Notes");
     expect(helpDocTitle("recipes", null)).toBe("How Do I…");
   });

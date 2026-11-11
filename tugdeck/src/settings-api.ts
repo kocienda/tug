@@ -390,6 +390,33 @@ export function putSetupSeen(seen: boolean): void {
   });
 }
 
+/**
+ * Read whether the Getting Started card has been shown, from the TugbankClient
+ * cache. `true` once the setup wizard's first session has opened with the card
+ * beside it, which happens once per instance; after that the card's door is
+ * Help ▸ Getting Started. Stored under `dev.tugapp.app` /
+ * `getting-started-seen` (Value::Bool).
+ */
+export function readGettingStartedSeen(client: TugbankClient): boolean {
+  const entry = client.get("dev.tugapp.app", "getting-started-seen");
+  return entry?.kind === "bool" && entry.value === true;
+}
+
+/**
+ * Persist that the Getting Started card has been shown, under
+ * `dev.tugapp.app` / `getting-started-seen`. Fire-and-forget, mirroring
+ * `putSetupSeen`.
+ */
+export function putGettingStartedSeen(seen: boolean): void {
+  fetch("/api/defaults/dev.tugapp.app/getting-started-seen", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "bool", value: seen }),
+  }).catch((err) => {
+    console.warn("[settings] PUT getting-started-seen failed:", err);
+  });
+}
+
 /** tugbank domain/key holding the deferred git-install offer. */
 export const HOST_TOOLS_SKIP_DOMAIN = "dev.tugapp.app";
 export const HOST_TOOLS_SKIP_KEY = "host-tools-skipped";
