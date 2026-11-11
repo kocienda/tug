@@ -493,12 +493,11 @@ body {
 }
 
 /* The mark ([B03], [L06]): the workspace on screen wears an open eye in the
-   glyph column, and its name keeps the ordinary text colour — the eye alone
-   carries the mark. A parked workspace wears the closed eye at the label's
-   own muted tone: the pair reads as one fact in two states, which a mark that
-   is sometimes absent cannot. */
+   glyph column, in the name's own text colour — no accent on either. A parked
+   workspace wears the closed eye at the label's own muted tone: the pair reads
+   as one fact in two states, which a mark that is sometimes absent cannot. */
 .cards-space-header[data-cards-space-active="true"] .cards-header-glyph {
-  color: var(--tug7-element-tone-text-normal-accent-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 .cards-space-header[data-cards-space-active="false"] .cards-header-glyph {
   color: var(--tug7-element-global-text-normal-subtle-rest);
