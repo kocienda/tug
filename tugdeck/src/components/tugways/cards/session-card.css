@@ -1132,11 +1132,18 @@
   min-height: 0;
 }
 
-/* "Directory doesn't exist" warning in the picker action row. Sits
-   left of Cancel: `margin-right: auto` claims the row's free space so
-   the buttons stay pinned to the right edge. */
-.session-card-picker-dir-warning {
+/* The picker action row's leading group: the Create button, always present
+   (dimmed while the folder exists), then the "Directory doesn't exist"
+   warning. `margin-right: auto` claims the row's free space so Cancel and
+   Open stay pinned to the right edge. */
+.session-card-picker-dir-create {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-md);
   margin-right: auto;
+}
+
+.session-card-picker-dir-warning {
   align-self: center;
 }
 

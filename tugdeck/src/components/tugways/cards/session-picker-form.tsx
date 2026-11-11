@@ -66,6 +66,7 @@ import type { ResumeDisplayMetadata } from "@/lib/session-restore";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 import { putSessionRecentProjects } from "@/settings-api";
 import { getSessionLedgerStore } from "@/lib/session-ledger-store";
+import { makeDirectory } from "@/lib/fs-mkdir";
 import { useCanonicalDirs } from "@/lib/canonical-dir-store";
 import {
   GROUPED_CELL_RENDERERS,
@@ -165,6 +166,7 @@ const PICKER_ORDER_BROWSE = 2.25;
 const PICKER_ORDER_PATH = 2.5;
 const PICKER_ORDER_CHEVRON = 2.75;
 const PICKER_ORDER_TRASH_ALL = 3;
+const PICKER_ORDER_CREATE = 3.5;
 const PICKER_ORDER_CANCEL = 4;
 const PICKER_ORDER_OPEN = 5;
 /** Stable focus-key (`group:order`) of a picker stop. */
@@ -187,7 +189,11 @@ const PICKER_SPATIAL_ORDER: SpatialOrder = rowGridOrder([
     pickerFocusKey(PICKER_ORDER_CHEVRON),
   ],
   [pickerFocusKey(PICKER_ORDER_TRASH_ALL)],
-  [pickerFocusKey(PICKER_ORDER_CANCEL), pickerFocusKey(PICKER_ORDER_OPEN)],
+  [
+    pickerFocusKey(PICKER_ORDER_CREATE),
+    pickerFocusKey(PICKER_ORDER_CANCEL),
+    pickerFocusKey(PICKER_ORDER_OPEN),
+  ],
 ]);
 
 export function SessionProjectPickerForm({
@@ -491,6 +497,25 @@ export function SessionProjectPickerForm({
   const openGroup = selection?.kind === "other" ? typedGroup : selectedGroup;
   const dirMissing = openGroup?.status === "missing";
   const openDisabled = openDir === "" || dirMissing;
+
+  // ---- Create: make the missing folder, then re-list it ----
+  // The button is always in the row and enabled only while the folder Open
+  // would go to is missing. A success re-asks the folder's listing, whose
+  // `dir_exists` flips the group out of `missing` and so dims the button and
+  // enables Open; a failure says so where the missing-folder label sits.
+  const [creating, setCreating] = useState(false);
+  const [createFailedDir, setCreateFailedDir] = useState<string | null>(null);
+  const createDisabled = !dirMissing || openDir === "" || creating;
+  const handleCreate = useCallback(async (): Promise<void> => {
+    if (!dirMissing || openDir === "") return;
+    const dir = openDir;
+    setCreating(true);
+    const ok = await makeDirectory(dir);
+    setCreating(false);
+    setCreateFailedDir(ok ? null : dir);
+    if (ok) getSessionLedgerStore()?.refresh(dir);
+  }, [dirMissing, openDir]);
+  const createFailed = dirMissing && createFailedDir === openDir;
 
   const submit = useCallback((): void => {
     if (selection === null || openDisabled) return;
@@ -823,15 +848,31 @@ export function SessionProjectPickerForm({
           </div>
         </GroupedPickerCellProvider>
         <div className="tug-sheet-actions">
-          {dirMissing && (
-            <TugLabel
-              className="session-card-picker-dir-warning"
-              emphasis="calm"
-              data-testid="session-card-picker-dir-warning"
+          <div className="session-card-picker-dir-create">
+            <TugPushButton
+              size="sm"
+              emphasis="outlined"
+              role="action"
+              onClick={() => void handleCreate()}
+              disabled={createDisabled}
+              focusGroup={PICKER_CYCLE_GROUP}
+              focusOrder={PICKER_ORDER_CREATE}
+              data-testid="session-card-picker-create"
             >
-              {"Directory doesn't exist"}
-            </TugLabel>
-          )}
+              Create
+            </TugPushButton>
+            {dirMissing && (
+              <TugLabel
+                className="session-card-picker-dir-warning"
+                emphasis="calm"
+                data-testid="session-card-picker-dir-warning"
+              >
+                {createFailed
+                  ? "Couldn't create directory"
+                  : "Directory doesn't exist"}
+              </TugLabel>
+            )}
+          </div>
           <TugPushButton
             size="sm"
             emphasis="outlined"
