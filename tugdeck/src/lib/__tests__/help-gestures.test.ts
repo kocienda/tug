@@ -42,22 +42,34 @@ function readDocument(name: string): string {
  * ------------------------------------------------------------------------- */
 
 const KEY_CODES: Readonly<Record<string, string>> = {
-  "←": "ArrowLeft",
-  "→": "ArrowRight",
-  "↑": "ArrowUp",
-  "↓": "ArrowDown",
-  "'": "Quote",
+  "Left Arrow": "ArrowLeft",
+  "Right Arrow": "ArrowRight",
+  "Up Arrow": "ArrowUp",
+  "Down Arrow": "ArrowDown",
+  Apostrophe: "Quote",
+  Comma: "Comma",
+  Period: "Period",
+  Slash: "Slash",
+  "Left Bracket": "BracketLeft",
+  "Right Bracket": "BracketRight",
+  "Equal Sign": "Equal",
+  "Plus Sign": "Equal",
+  "Minus Sign": "Minus",
+  Return: "Enter",
+  Tab: "Tab",
+};
+
+/** The key names a document may write: the menu bar's own (`+`, `[`) and the spelled ones. */
+const MENU_KEY_NAMES: Readonly<Record<string, string>> = {
+  "'": "Apostrophe",
   ",": "Comma",
   ".": "Period",
   "/": "Slash",
-  "[": "BracketLeft",
-  "]": "BracketRight",
-  "=": "Equal",
-  "+": "Equal",
-  "-": "Minus",
-  "−": "Minus",
-  Return: "Enter",
-  Tab: "Tab",
+  "[": "Left Bracket",
+  "]": "Right Bracket",
+  "=": "Equal Sign",
+  "+": "Plus Sign",
+  "-": "Minus Sign",
 };
 
 function keyCode(written: string): string | null {
@@ -81,42 +93,52 @@ function canonical(
 
 /**
  * The canonical form of a chord as a document writes it, or null when it is
- * not one this check can read. `+` is the shifted `=`, which is what the
- * keyboard makes of ⌘+.
+ * not one this check can read. A document spells a chord the way the Apple
+ * Style Guide does, its keys joined by hyphens with the modifiers in the order
+ * Control, Option, Shift, Command: `Control-Command-Left Arrow`. Any other
+ * order is refused, so the documents stay in the one spelling.
  */
 function readWrittenChord(written: string): string | null {
-  const parts = /^([⌃⌥⇧⌘]+)(.+)$/u.exec(written);
-  if (parts === null) return null;
+  const parts = /^((?:Control-)?(?:Option-)?(?:Shift-)?(?:Command-)?)(.+)$/u.exec(written);
+  if (parts === null || parts[1] === "") return null;
   const code = keyCode(parts[2]);
   if (code === null) return null;
   return canonical(code, {
-    ctrl: parts[1].includes("⌃"),
-    alt: parts[1].includes("⌥"),
-    shift: parts[1].includes("⇧") || parts[2] === "+",
-    meta: parts[1].includes("⌘"),
+    ctrl: parts[1].includes("Control-"),
+    alt: parts[1].includes("Option-"),
+    shift: parts[1].includes("Shift-"),
+    meta: parts[1].includes("Command-"),
   });
 }
 
 const FAMILIES: Readonly<Record<string, readonly string[]>> = {
   digit: ["1", "2", "3", "4", "5", "6"],
-  arrow: ["←", "→", "↑", "↓"],
+  arrow: ["Left Arrow", "Right Arrow", "Up Arrow", "Down Arrow"],
 };
 
 /**
- * Every chord a text names, as written. "⌥⌘ with an arrow key" and "⌘ with a
- * digit" name the whole family. Anything else after a run of modifiers is
- * kept as written, so a chord this reader cannot parse is refused rather than
- * skipped.
+ * Every chord a text names, as written. "Option-Command with an arrow key" and
+ * "Command with a digit" name the whole family. Anything else hyphenated onto
+ * a run of modifiers is kept as written, so a chord this reader cannot parse
+ * is refused rather than skipped. A modifier's symbol in running text is kept
+ * too, and so refused: the documents spell their keys out.
  */
 function chordsIn(text: string): string[] {
   const found: string[] = [];
-  const run = /([⌃⌥⇧⌘]+)( with (?:an?|the same) (digit|arrow))?([A-Za-z]\w*|[^\sA-Za-z][A-Za-z]*)?/gu;
+  const mods = "(?:Control|Option|Shift|Command)";
+  const run = new RegExp(
+    `\\b(${mods}(?:-${mods})*) with (?:an?|the same) (digit|arrow)` +
+      `|\\b((?:${mods}-)+)((?:Left|Right|Up|Down) Arrow|(?:Plus|Minus|Equal) Sign|(?:Left|Right) Bracket|\\w+)` +
+      `|[⌃⌥⇧⌘]+\\S*`,
+    "gu",
+  );
   for (const match of text.matchAll(run)) {
-    const family = match[3];
-    if (family !== undefined) {
-      for (const key of FAMILIES[family]) found.push(`${match[1]}${key}`);
+    if (match[2] !== undefined) {
+      for (const key of FAMILIES[match[2]]) found.push(`${match[1]}-${key}`);
+    } else if (match[3] !== undefined) {
+      found.push(`${match[3]}${match[4]}`);
     } else {
-      found.push(`${match[1]}${match[4] ?? ""}`);
+      found.push(match[0]);
     }
   }
   return found;
@@ -170,7 +192,8 @@ function menuChords(): Set<string> {
   const source = readRepo("tugapp/Sources/MenuBarBuilder.swift");
   const item = /keyEquivalent: "([^"]+)"(?:, modifierMask: \[([^\]]*)\])?/g;
   for (const match of source.matchAll(item)) {
-    const code = keyCode(match[1].toUpperCase());
+    const key = match[1].toUpperCase();
+    const code = keyCode(MENU_KEY_NAMES[key] ?? key);
     if (code === null) continue;
     const mask = match[2] ?? ".command";
     chords.add(
@@ -197,17 +220,17 @@ const COMPONENT_CHORDS: readonly {
   reads: string;
 }[] = [
   {
-    chords: ["⌥↑", "⌥↓", "⌘↑", "⌘↓"],
+    chords: ["Option-Up Arrow", "Option-Down Arrow", "Command-Up Arrow", "Command-Down Arrow"],
     file: COMPOSER_KEYMAP,
     reads: "(event.altKey || event.metaKey)",
   },
   {
-    chords: ["⇧Return"],
+    chords: ["Shift-Return"],
     file: COMPOSER_KEYMAP,
     reads: "resolveEnterAction(config, isNumpad, event.shiftKey)",
   },
   {
-    chords: ["⇧Tab"],
+    chords: ["Shift-Tab"],
     file: "tugdeck/src/components/tugways/responder-chain-provider.tsx",
     reads: 'event.key !== "Tab" || event.metaKey || event.ctrlKey || event.altKey',
   },
@@ -263,27 +286,45 @@ describe("the help documents name real gestures", () => {
   const documents = DOCUMENTS.map((name) => ({ name, text: readDocument(name) }));
 
   test("the readers find the gestures the documents are known to name", () => {
-    expect(chordsIn("Press ⌃⌘/, or ⌘, and then ⇧Return.")).toEqual(["⌃⌘/", "⌘,", "⇧Return"]);
-    expect(chordsIn("⌥⌘ with an arrow key")).toEqual(["⌥⌘←", "⌥⌘→", "⌥⌘↑", "⌥⌘↓"]);
-    expect(chordsIn("⌘-click")).toEqual(["⌘-click"]);
+    expect(
+      chordsIn("Press Control-Command-Slash, or Command-Comma and then Shift-Return."),
+    ).toEqual(["Control-Command-Slash", "Command-Comma", "Shift-Return"]);
+    expect(chordsIn("Option-Command with an arrow key")).toEqual([
+      "Option-Command-Left Arrow",
+      "Option-Command-Right Arrow",
+      "Option-Command-Up Arrow",
+      "Option-Command-Down Arrow",
+    ]);
+    expect(chordsIn("Command-click, then ⌘N")).toEqual(["Command-click", "⌘N"]);
     expect(slashCommandsIn("`/` then `/cd <path>` or `/tugplug:brief`, not `/usr/bin`.")).toEqual([
       "cd",
       "tugplug:brief",
     ]);
 
     const chords = documents.flatMap(({ text }) => chordsIn(text));
-    expect(chords).toEqual(expect.arrayContaining(["⌘N", "⌃⌘L", "⌥⌘[", "⌘+", "⌘−"]));
+    expect(chords).toEqual(
+      expect.arrayContaining([
+        "Command-N",
+        "Control-Command-L",
+        "Option-Command-Left Bracket",
+        "Shift-Command-Plus Sign",
+        "Command-Minus Sign",
+      ]),
+    );
     const commands = documents.flatMap(({ text }) => slashCommandsIn(text));
     expect(commands).toEqual(expect.arrayContaining(["arc", "commit", "tugplug:brief", "cd"]));
   });
 
   test("the sources are read, so an unbound chord is refused", () => {
     const known = knownChords();
-    expect(known.has(readWrittenChord("⌘N") ?? "")).toBe(true);
-    expect(known.has(readWrittenChord("⌃⌘L") ?? "")).toBe(true);
-    expect(known.has(readWrittenChord("⌘S") ?? "")).toBe(true);
-    expect(known.has(readWrittenChord("⌃⌥⇧⌘Z") ?? "")).toBe(false);
-    expect(readWrittenChord("⌘-click")).toBeNull();
+    expect(known.has(readWrittenChord("Command-N") ?? "")).toBe(true);
+    expect(known.has(readWrittenChord("Control-Command-L") ?? "")).toBe(true);
+    expect(known.has(readWrittenChord("Command-S") ?? "")).toBe(true);
+    expect(known.has(readWrittenChord("Control-Option-Shift-Command-Z") ?? "")).toBe(false);
+    expect(readWrittenChord("Command-click")).toBeNull();
+    // The Apple Style Guide's order, and no symbols.
+    expect(readWrittenChord("Command-Shift-N")).toBeNull();
+    expect(readWrittenChord("⌘N")).toBeNull();
   });
 
   test("every chord a document names exists in the code", () => {

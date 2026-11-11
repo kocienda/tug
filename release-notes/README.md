@@ -27,7 +27,7 @@ new release. `scripts/backfill-release-notes.py` runs it over the releases
 already out, printing a dry run unless given `--apply`, which is how a rewritten
 old file reaches its page.
 
-**The Help ▸ Release Notes card.** The app bundle carries every file here, and
+**The Help > Release Notes card.** The app bundle carries every file here, and
 tugcast assembles them newest first into one document. The Overview answers from
 that document too.
 

@@ -2,7 +2,7 @@
 
 The words Tug uses, each with one meaning. Entries are alphabetical. A word in *italics* inside a definition has its own entry.
 
-**Address.** Where a *card* sits on the *deck*, shown as a badge in its *masthead*. The first part is the *slot* number. The second depends on how the slot is arranged: in a *stack* it is a count of the cards in the slot, in a *split* it is a letter, A for the top *band* and B, C for the rest. An address like 2B reads the same in a masthead, a sidebar row or the *Overview*'s narration. The badge is also a control: press it to send the card somewhere else.
+**Address.** Where a *card* sits on the *deck*, shown as a badge in its *masthead*. The first part is the *slot* number. The second depends on how the slot is arranged: in a *stack* it is a count of the cards in the slot, in a *split* it is a letter, A for the top *band* and B, C for the rest. An address like 2B reads the same in a masthead, a sidebar row or the *Overview*'s narration. The badge is also a control: click it to send the card somewhere else.
 
 **Arc.** A substantial change that leaves your main branch on its own git *worktree* and branch, is driven through *stages* by the *wheel*, and comes back through a *join*. The name is the metaphor: a curve that departs a line and returns to it. An arc is four things in git, a branch named `tugarc/<name>`, a worktree, a little branch config, and an *arc log*, plus a directory of documents under `.tug/arcs/<name>/`. There are two *kinds*, *plain* and *planned*. Wherever an arc is named to a person it wears the caret *sigil*.
 
@@ -26,7 +26,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Brief.** The first document in the *artifact ladder*: a formal statement of what was found and what was decided, written against the skeleton the plugin ships. It carries findings and decisions, and no execution steps. Every arc opens on a brief. Written by `/tugplug:brief`, or by the *door* from the conversation.
 
-**Bullseye.** A posture that takes the focused *card* to the center of the window at a comfortable reading width and slides every other card off to the side it was on. It writes nothing to the layout: click another card, move keyboard focus, or press ⌃⌘B again and everything returns. See *Fold* for the other way to concentrate.
+**Bullseye.** A posture that takes the focused *card* to the center of the window at a comfortable reading width and slides every other card off to the side it was on. It writes nothing to the layout: click another card, move keyboard focus, or press Control-Command-B again and everything returns. See *Fold* for the other way to concentrate.
 
 **Callsign.** A session's generated name, two words like `curly-apple`, unique within one Tug instance. It is a name, not an address: a *session reference* carries it along with the project.
 
@@ -36,15 +36,15 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Carry.** An option when creating an arc: move the uncommitted work already on the *base* into the new *worktree* and leave the base clean. For the case where you were halfway through a change before deciding it should be an arc.
 
-**Changes (tab, shade).** The panel on each *session card* that sorts the checkout into this session's changes, unattributed changes, orphaned changes and the arcs in flight, with a status mark, a line count, a diff and a checkbox on every file and hunk. Commits happen here. On a card bound to a finished arc it is also where the *join* is offered. ⌃⌘C shows it.
+**Changes (tab, shade).** The panel on each *session card* that sorts the checkout into this session's changes, unattributed changes, orphaned changes and the arcs in flight, with a status mark, a line count, a diff and a checkbox on every file and hunk. Commits happen here. On a card bound to a finished arc it is also where the *join* is offered. Control-Command-C shows it.
 
-**Chord.** A keyboard shortcut. Tug's chords follow one pattern: ⌘ with a digit moves a card to that slot, ⌃⌘ with the same digit moves you there; `[` is always back and `]` always forward; ⌥⌘ with an arrow focuses the card in that direction. The Keyboard Shortcuts card (⌃⌘K) lists them all.
+**Chord.** A keyboard shortcut, written as its keys joined by hyphens: Control-Command-K means hold down Control and Command and press K. Tug's chords follow one pattern: Command with a digit moves a card to that slot, Control-Command with the same digit moves you there; `[` is always back and `]` always forward; Option-Command with an arrow focuses the card in that direction. The Keyboard Shortcuts card (Control-Command-K) lists them all.
 
 **Claim.** A session's link to an edit in the *ledger*. Most claims are written for you as the work happens: a file edit claims its file, a shell command that names its files claims those. In the *Changes* tab, Claim brings a file or hunk into this session and *Disclaim* lets it go. See also *hint*.
 
 **Cold.** Read by a session that did not write it. The *review* stage reads the plan cold, the *audit* reads the diff cold. Cold eyes are why the *wheel* rotates sessions between stages.
 
-**Command picker.** The list of the commands a *session card* understands, opened with ⌘/. Type to filter it and pick one to run. The same commands can be typed into the *composer* with a leading slash.
+**Command picker.** The list of the commands a *session card* understands, opened with Command-Slash. Type to filter it and pick one to run. The same commands can be typed into the *composer* with a leading slash.
 
 **Commit card.** A card that opens one commit's full record.
 
@@ -58,27 +58,27 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Devise.** The first stage of a *planned arc*: a fresh session writes the *plan* from the *brief*.
 
-**Dictation.** Speaking a prompt into a *composer* instead of typing it. ⌘D starts dictation; ⇧⌘D stops it and sends the prompt.
+**Dictation.** Speaking a prompt into a *composer* instead of typing it. Command-D starts dictation; Shift-Command-D stops it and sends the prompt.
 
 **Diff card.** A card that shows the project diff, inline or side by side, whole or scoped to a path, a range or a commit.
 
-**Disclaim.** Let a file or hunk go from this session's *claims*, so it shows as unattributed. ⌃⇧⌘A disclaims everything in the Changes tab; ⌃⌘A claims everything.
+**Disclaim.** Let a file or hunk go from this session's *claims*, so it shows as unattributed. Control-Shift-Command-A disclaims everything in the Changes tab; Control-Command-A claims everything.
 
-**Discard.** End an arc without landing it. The worktree's uncommitted work is returned to the base first, the branch and worktree are removed, and the arc's documents are kept so you can come back to the decisions. Press **Discard** on the arc's row in the Arcs sidebar, or in the Changes tab of the card that holds it. A discard can be undone.
+**Discard.** End an arc without landing it. The worktree's uncommitted work is returned to the base first, the branch and worktree are removed, and the arc's documents are kept so you can come back to the decisions. Click **Discard** on the arc's row in the Arcs sidebar, or in the Changes tab of the card that holds it. A discard can be undone.
 
 **Door.** The one skill that opens the arc lane, `/arc`. It sharpens the conversation into a *brief* (or takes one you hand it), decides the arc's *kind* from the work, says which shape it chose and why, hands the brief to the *wheel*, and ends the turn. The door creates no worktree, commits nothing and joins nothing.
 
 **Dot.** See *pulsing dot*.
 
-**Find.** Search the document in front of you: a session's transcript, a *Text card*'s file, or a help card. ⌘F opens the find bar at the bottom of the card, and the matches highlight as you type, with the count beside the field and Case, Word and Grep toggles that are one setting across the deck. ⌘G and ⇧⌘G step to the next and previous match, ⌘E searches for the selected text, and Escape closes the bar.
+**Find.** Search the document in front of you: a session's transcript, a *Text card*'s file, or a help card. Command-F opens the find bar at the bottom of the card, and the matches highlight as you type, with the count beside the field and Case, Word and Grep toggles that are one setting across the deck. Command-G and Shift-Command-G step to the next and previous match, Command-E searches for the selected text, and Escape closes the bar.
 
 **Fit.** One of the two ways *slots* resolve across the window. Fit spreads the slots so every card is inside the window at once; when cards are wider than the window, neighbors overlap and the front one wins. Fit is for monitoring. See *Flow*.
 
 **Flow.** The other way slots resolve. Flow stands the cards side by side at their full widths and lets the row run past the window's edge. Activating a card slides the row just far enough to bring it into view, with a strip along the bottom drawing the whole arrangement. Flow is for reading.
 
-**Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (⌃⌘Y). In a *split* slot, folding makes a *wall*.
+**Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (Control-Command-Y). In a *split* slot, folding makes a *wall*.
 
-**Help.** Tug's help is four documents, the feature guide, the recipes, this glossary and the release notes, each opened as a read-only card from the Help menu: Help ▸ Tug Help, Help ▸ How Do I…, Help ▸ Glossary and Help ▸ Release Notes. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help ▸ Keyboard Shortcuts & Commands opens a session's `/help` sheet, and ⌃⌘K opens the Keyboard Shortcuts card.
+**Help.** Tug's help is five documents, the feature guide, the getting-started walk, the recipes, this glossary and the release notes, each opened as a read-only card from the Help menu: Tug Help, Getting Started, How Do I, Glossary and Release Notes. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help > Keyboard Shortcuts & Commands opens a session's `/help` sheet, and Control-Command-K opens the Keyboard Shortcuts card.
 
 **Hint.** What a shell command earns in the *ledger* when it names no files: a note of what git saw change while it ran. A hint never makes a session an owner of a change.
 
@@ -94,13 +94,13 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Join draft.** The squash message the join will land, written by the *audit* stage with `tugtool draft set`. The only durable prose the base carries about an arc, so it describes the change, never the arc's history.
 
-**Jot.** A saved prompt fragment, something you found yourself typing again, kept in the *Jots* sidebar and ready to drag into any *composer*. ⌘J makes a new one.
+**Jot.** A saved prompt fragment, something you found yourself typing again, kept in the *Jots* sidebar and ready to drag into any *composer*. Command-J makes a new one.
 
 **Kind (of arc).** *Plain* or *planned*. The axis between them is settling time, whether the work earns a written, cold-reviewed plan before a step is walked. The *door* decides from the work. A plain arc runs implement then audit from a *task list*; a planned arc runs devise, review, implement, audit from a *plan*.
 
 **Landing.** Any act that changes the tree from the session card without the model: a commit, a push, a *join*, a *discard*. A landing leaves a receipt in the transcript, and the model is told of it on its next turn.
 
-**Layout (card).** The sidebar card that is a to-scale miniature of the deck you can press and hover, with rows for slot count, *Fit* or *Flow*, card width, gap, zoom and sidebar placement. ⌃⌘L shows it.
+**Layout (card).** The sidebar card that is a to-scale miniature of the deck you can press and hover, with rows for slot count, *Fit* or *Flow*, card width, gap, zoom and sidebar placement. Control-Command-L shows it.
 
 **Ledger.** Tug's record of which session changed which files, and which hunks within them, so several sessions can share one checkout. It holds *claims* and *hints*. Git status, not the ledger, decides what exists; the ledger says who did it.
 
@@ -118,7 +118,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **PDF card.** A card that reads a document page by page, continuous, single or two-up, at any zoom, with the arrow and page keys turning its pages.
 
-**Permission mode.** How much a session's model may do without asking you. Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe to take on its own. ⌃⌥⌘P cycles those four. Bypass, which asks for nothing, is never in the cycle and is chosen only from the mode chip's sheet.
+**Permission mode.** How much a session's model may do without asking you. Default asks before it edits or runs anything consequential, Accept Edits lets file edits through, Plan has it plan without changing anything, and Auto lets it decide which actions are safe to take on its own. Control-Option-Command-P cycles those four. Bypass, which asks for nothing, is never in the cycle and is chosen only from the mode chip's sheet.
 
 **Plain arc.** See *kind*.
 
@@ -128,7 +128,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Pulsing dot.** The small circle every session carries. It pulses while the session is working, turns yellow when the session is *awaiting* you, settles green when a turn has finished and the next move is yours, and holds still when the session is idle.
 
-**Rail.** The strip down the left or right edge of the window where *sidebar cards* pin. ⌃⌘← and ⌃⌘→ show a rail or hand it the keyboard; ⌃⌘S hides and shows both.
+**Rail.** The strip down the left or right edge of the window where *sidebar cards* pin. Control-Command-Left Arrow and Control-Command-Right Arrow show a rail or hand it the keyboard; Control-Command-S hides and shows both.
 
 **Receipt.** The block a transcript keeps for an act with a durable result: a commit, with its hash, message and files; a join; a discard; a file edit. A commit receipt names the session, and the arc if any, that made it.
 
@@ -148,7 +148,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Session reference.** A way to hand one session to another: the marker `@session:<project>/<callsign>`, placed by dropping a session *atom* into a prompt. The receiving session can read the referenced transcript with `tugtool session show`, and only read it.
 
-**Settings.** The card for app-wide preferences (⌘,). Card Settings, from a card's menu, hold the per-kind preferences for text, image and PDF cards.
+**Settings.** The card for app-wide preferences (Command-Comma). Card Settings, from a card's menu, hold the per-kind preferences for text, image and PDF cards.
 
 **Sidebar card.** A card that pins to a *rail* instead of living in a slot: *Overview*, *Arcs*, *Jots*, *Workspaces* and *Layout*.
 
@@ -160,9 +160,9 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Sparkline.** The small live chart of activity in a session's *masthead*.
 
-**Split.** A slot arrangement in which the slot's height is divided among its cards, each a lettered *band* with a seam to drag between them. ⌃⌘/ toggles a slot between split and *stack*.
+**Split.** A slot arrangement in which the slot's height is divided among its cards, each a lettered *band* with a seam to drag between them. Control-Command-Slash toggles a slot between split and *stack*.
 
-**Stack.** The default arrangement of a slot with several cards: they share one place, the front card is the one you see, and a layers badge counts the ones behind it. Click the badge or press ⌘R for a picker. ⌥⌘[ and ⌥⌘] step through the stack.
+**Stack.** The default arrangement of a slot with several cards: they share one place, the front card is the one you see, and a layers badge counts the ones behind it. Click the badge or press Command-R for a picker. Option-Command-Left Bracket and Option-Command-Right Bracket step through the stack.
 
 **Stage.** One rotation of the *wheel* on an arc: *devise*, *review*, *implement* or *audit*, each a fresh session that reads the arc's documents cold. Not to be confused with the arc's derived *state* words.
 
@@ -180,7 +180,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Text card.** A CodeMirror editor over a file, with autosave or manual save, a find bar and conflict handling.
 
-**Theme.** One of ten colorings, five dark (Ironclad, Caravel, Barque, Galleon, Collier) and five light (Sloop, Ketch, Skiff, Kayak, Pinnace), each a single tint hue laid over a shared tone skeleton. A *workspace* wears its own theme. ⇧⌘T steps to the next.
+**Theme.** One of ten colorings, five dark (Ironclad, Caravel, Barque, Galleon, Collier) and five light (Sloop, Ketch, Skiff, Kayak, Pinnace), each a single tint hue laid over a shared tone skeleton. A *workspace* wears its own theme. Shift-Command-T steps to the next.
 
 **Thinking wave.** Three bars that appear beside a session while the model is mid-turn and disappear when the turn ends.
 
@@ -188,7 +188,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **tugtool.** The command-line program the model and you use to drive Tug's machinery: arcs, briefs, drafts, file edits with receipts, session reads, test reporting. `tugtool arc`, `tugtool file edit`, `tugtool session show` and so on.
 
-**Turn.** One exchange: a prompt in, the model's work, and the reply. The *wheel* acts only between turns. ⌃⌘[ and ⌃⌘] move through a transcript's turns; ⌃⇧⌘[ and ⌃⇧⌘] go to the first and last.
+**Turn.** One exchange: a prompt in, the model's work, and the reply. The *wheel* acts only between turns. Control-Command-Left Bracket and Control-Command-Right Bracket move through a transcript's turns; Control-Shift-Command-Left Bracket and Control-Shift-Command-Right Bracket go to the first and last.
 
 **Unattributed.** Changes no session has *claimed*: your own hand edits, in your editor or in the card's shell. They stay in plain view and start unchecked at commit time.
 
@@ -202,4 +202,4 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Worktree.** Git's second checkout of a repository on another branch. An *arc* takes one so the model's work leaves your main checkout untouched, and the join cleans it up.
 
-**Zoom.** ⌘+ and ⌘− scale the whole app from 50 to 200 percent, layout, type and spacing together; ⌘0 returns to actual size. Transcripts have a magnification of their own.
+**Zoom.** Shift-Command-Plus Sign and Command-Minus Sign scale the whole app from 50 to 200 percent, layout, type and spacing together; Command-0 returns to actual size. Transcripts have a magnification of their own.
