@@ -494,6 +494,17 @@ export interface TugTextEditorDelegate {
    */
   focus(): void;
   /**
+   * {@link focus}, keeping the selection the editor holds now through every
+   * caret placement the focus brings with it — WebKit's collapse to 0 on a
+   * freshly focused contenteditable, and, when this page's window is not
+   * focused yet (a drop from another card's web view, before the host moves
+   * first responder here), the window-focus bridge's restore, which would
+   * otherwise put back the selection saved when the window blurred. A host
+   * calls it after a programmatic insert that the caret must follow: a jot
+   * dropped on a composer lands with the caret after the dropped text.
+   */
+  focusKeepingSelection(): void;
+  /**
    * Bring the caret into view in every scroller that encloses it, including
    * scrollers OUTSIDE the editor. An editor that grows uncapped inside an
    * outer list (the Jots card jot editor) makes that LIST scroll, and nothing
@@ -1651,9 +1662,12 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // never `view.hasFocus`: that also asks `document.hasFocus()`, which
     // is already false while `blur` is dispatched, so a blur read through
     // it saved nothing and the bridge never restored.
+    // The selection the window-focus bridge below re-asserts when this page's
+    // window regains focus: the one the editor held as the window blurred,
+    // or the one `focusKeepingSelection` wrote while it was blurred.
+    const windowBlurSelectionRef = useRef<{ from: number; to: number } | null>(null);
     useLayoutEffect(() => {
       if (typeof window === "undefined") return;
-      let saved: { from: number; to: number } | null = null;
       const holdsFocus = (view: EditorView): boolean => view.root.activeElement === view.contentDOM;
       const restore = (target: { from: number; to: number }): void => {
         const view = viewRef.current;
@@ -1672,15 +1686,15 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         const view = viewRef.current;
         // Only the focused editor owns a selection worth preserving.
         if (view === null || !holdsFocus(view)) {
-          saved = null;
+          windowBlurSelectionRef.current = null;
           return;
         }
         const sel = view.state.selection.main;
-        saved = { from: sel.from, to: sel.to };
+        windowBlurSelectionRef.current = { from: sel.from, to: sel.to };
       };
       const onWindowFocus = (): void => {
-        const target = saved;
-        saved = null;
+        const target = windowBlurSelectionRef.current;
+        windowBlurSelectionRef.current = null;
         if (target === null) return;
         // Synchronous pass (the framework's window-`focus` listener is
         // registered first, so its `view.focus()` has already run by
@@ -2163,6 +2177,29 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         const view = viewRef.current;
         if (view === null) return;
         view.focus();
+      },
+      focusKeepingSelection() {
+        const view = viewRef.current;
+        if (view === null) return;
+        const main = view.state.selection.main;
+        const held = { start: main.anchor, end: main.head };
+        // The same grant `focus()` makes, through the chain when there is one.
+        if (responderChainManager !== null) {
+          responderChainManager.focusResponder(responderId);
+        } else {
+          view.focus();
+        }
+        const live = view.state.selection.main;
+        if (live.anchor !== held.start || live.head !== held.end) {
+          view.dispatch({ selection: EditorSelection.range(held.start, held.end) });
+        }
+        holdSelectionThroughFocus(view, held);
+        // A window that is not focused yet will be, when the host moves
+        // first responder to this page; the bridge restores this range then,
+        // never the stale one it saved when the window blurred.
+        if (!view.contentDOM.ownerDocument.hasFocus()) {
+          windowBlurSelectionRef.current = { from: main.from, to: main.to };
+        }
       },
       revealCaret() {
         const view = viewRef.current;

@@ -2129,7 +2129,7 @@ function OverviewComposer({
   // (focus-language.md § Drag and the keyboard).
   const landJotDrop = useCallback((): void => {
     overviewInsertTarget().raise();
-    editorRef.current?.focus();
+    editorRef.current?.focusKeepingSelection();
   }, []);
 
   // The composer's drop surface, the Session entry's own — so a jot dragged

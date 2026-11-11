@@ -1465,16 +1465,26 @@ export const TugPromptEntry = React.forwardRef<
   // prompt about to be sent, so the drop brings the card forward and makes
   // the editor first responder, ready for Shift-Return
   // (focus-language.md § Drag and the keyboard). The same pair the Insert
-  // into Prompt menu item runs: raise, then focus through the chain.
+  // into Prompt menu item runs: raise, then focus through the chain — with
+  // the caret kept after the dropped text through the refocus.
+  //
+  // A drop over the text has inserted by the time `onJotDrop` runs. A drop
+  // over the chrome parks the jot in the store and the insert lands in the
+  // `pendingJotInsert` effect below, so that landing waits for it: the flag
+  // says the next jot insert is a drop's, and the effect lands it.
+  const jotDropLandingRef = useRef(false);
   const landJotDrop = useCallback((): void => {
     insertTarget.raise();
-    textEditorRef.current?.focus();
+    textEditorRef.current?.focusKeepingSelection();
   }, [insertTarget]);
+  const landJotDropAfterInsert = useCallback((): void => {
+    jotDropLandingRef.current = true;
+  }, []);
   const entryDrop = useComposerDrop({
     view: dropView,
     insertTarget,
     onFiles: onDropFiles,
-    onJotDrop: landJotDrop,
+    onJotDrop: landJotDropAfterInsert,
   });
 
   // Session ▸ Insert File… (⌘I). The host picked the paths; what each becomes
@@ -2017,9 +2027,9 @@ export const TugPromptEntry = React.forwardRef<
   // slot survives until an editor exists (no consume on a missing view) so a
   // drop is never silently dropped.
   //
-  // Focus is not this effect's: a drop's `landJotDrop` has already raised
-  // the card and focused the editor, and a double-click from the Jots card
-  // leaves focus where it was. The dispatched `selection` records the
+  // A drop over the entry's chrome is landed here, after the insert, by
+  // `landJotDrop` (see `jotDropLandingRef`); a double-click from the Jots
+  // card leaves focus where it was. The dispatched `selection` records the
   // insertion point, so the caret sits after the inserted text.
   const pendingJotInsert = snap.pendingJotInsert;
   useLayoutEffect(() => {
@@ -2048,7 +2058,11 @@ export const TugPromptEntry = React.forwardRef<
     insertSubstrateAt(view, from, insert, atoms);
     view.dispatch({ scrollIntoView: true });
     codeSessionStore.consumePendingJotInsert();
-  }, [pendingJotInsert, codeSessionStore]);
+    if (jotDropLandingRef.current) {
+      jotDropLandingRef.current = false;
+      landJotDrop();
+    }
+  }, [pendingJotInsert, codeSessionStore, landJotDrop]);
 
   // Atom insert. A transcript annotation inserted as an atom parks its
   // segment here; this effect drops the atom at the caret and consumes.
