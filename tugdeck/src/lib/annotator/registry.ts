@@ -93,8 +93,16 @@ export type AnnotationMenuFacts =
       kind: "session";
       /** The card already showing this session, when one is. */
       openCardId: string | null;
-      /** This menu is mounted in the session's own card — nothing to raise. */
+      /**
+       * This menu is mounted in the session's own card — nothing to raise, so
+       * the go-to row says so: a dimmed `Current Session`.
+       */
       isOwnCard: boolean;
+      /**
+       * A citation the ledger cannot resolve: it names no session to go to,
+       * so the go-to row is absent altogether.
+       */
+      unresolved?: boolean;
       /**
        * Whether a resume can actually be performed — `isSessionResumable`'s
        * answer, computed by the surface that holds the facts.
@@ -675,8 +683,11 @@ registerAnnotationKind("commit-sha", {
  * wants to reach it; whether that costs a raise or a resume is the app's
  * problem. So the row says which of the two it will be — Show Session when a
  * card already holds it, Resume Session when none does — and is absent only
- * where it could say nothing useful: on the session's own card, and on a
- * citation the ledger cannot resolve. Held by another process is DISABLED
+ * where it could say nothing useful: on a citation the ledger cannot resolve.
+ * On the session's own card — the masthead, or an atom in the session's own
+ * transcript — it is a dimmed `Current Session`, which tells the reader why
+ * there is nowhere to go rather than leaving them to wonder at a missing or
+ * greyed-out Resume. Held by another process is DISABLED
  * rather than dropped: it is a real session, unresumable for a reason a
  * reader can act on.
  *
@@ -705,15 +716,21 @@ function sessionMenuEntries(
       ? { surfaceAtom: TUG_ACTIONS.COPY_SESSION_ATOM }
       : {}),
     goTo: [
-      known !== null && !known.isOwnCard
-        ? known.openCardId !== null
-          ? { action: TUG_ACTIONS.SHOW_SESSION, label: "Show Session" }
-          : {
-              action: TUG_ACTIONS.RESUME_SESSION,
-              label: "Resume Session",
-              disabled: !known.resumable,
+      known === null || known.unresolved === true
+        ? null
+        : known.isOwnCard
+          ? {
+              action: TUG_ACTIONS.SHOW_SESSION,
+              label: "Current Session",
+              disabled: true,
             }
-        : null,
+          : known.openCardId !== null
+            ? { action: TUG_ACTIONS.SHOW_SESSION, label: "Show Session" }
+            : {
+                action: TUG_ACTIONS.RESUME_SESSION,
+                label: "Resume Session",
+                disabled: !known.resumable,
+              },
     ],
     copy: [
       known !== null && {

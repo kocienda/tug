@@ -586,11 +586,39 @@ describe("a session is offered only the copies its surface can perform", () => {
       })
       .map((e) => e.label);
     expect(labels).toEqual([
+      "Current Session",
       "Copy as Atom",
       "Copy as Citation",
       "Copy Session ID",
       "Insert into Prompt",
     ]);
+  });
+
+  test("the session's own card names it, dimmed", () => {
+    const own = annotationEntryFor("session")?.menuEntries(
+      SAMPLE.session as SamplePayload,
+      {
+        kind: "session",
+        openCardId: "card-3",
+        isOwnCard: true,
+        resumable: false,
+        projectDir: "/repo",
+      },
+    );
+    expect(own?.[0]?.label).toBe("Current Session");
+    expect(own?.[0]?.disabled).toBe(true);
+    const unresolved = annotationEntryFor("session")?.menuEntries(
+      SAMPLE.session as SamplePayload,
+      {
+        kind: "session",
+        openCardId: null,
+        isOwnCard: false,
+        unresolved: true,
+        resumable: false,
+        projectDir: "",
+      },
+    );
+    expect(unresolved?.[0]?.label).toBe("Copy as Atom");
   });
 
   test("the go-to row states which of the two it will be", () => {

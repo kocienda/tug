@@ -17,6 +17,7 @@
  * whether the two run-specific items at the bottom have anything to give.
  *
  *   Show Session / Resume Session   go to the session, however it must be reached
+ *   (Current Session, dimmed, on the session's own card)
  *   ─────
  *   Copy as Atom                the citation + the atom sidecar — pastes as the chip
  *   Copy as Citation            the flat string, for outside Tug
@@ -37,9 +38,10 @@
  * wants to GET to it; whether that costs a raise or a resume is the app's
  * problem, not theirs. So the item says which of the two it will be and does
  * it — `Show Session` when a card already holds the session, `Resume Session`
- * when none does. It is absent only where it could say nothing useful: on the
- * session's own card (the masthead), where the card to raise is the one the
- * pointer is in, and on a citation the ledger cannot resolve, which names no
+ * when none does. On the session's own card (the masthead, or an atom in the
+ * session's own transcript), where the card to raise is the one the pointer is
+ * in, it is a dimmed `Current Session`, which says why there is nowhere to go.
+ * It is absent only on a citation the ledger cannot resolve, which names no
  * session to go to. A session another process holds is shown DISABLED rather
  * than dropped — it is a real session, and it is unresumable for a reason a
  * reader can act on.
@@ -320,15 +322,16 @@ export function useSessionIdentityMenu({
     // carry — which card holds it, whether another process does, and which
     // of the two runs this surface has behind it at all.
     //
-    // A citation the ledger cannot resolve names no session to go to, so it
-    // is given the facts of a session that is already here: no go-to row.
+    // A citation the ledger cannot resolve names no session to go to: no
+    // go-to row. The session's own card gets a dimmed Current Session.
     const entries =
       annotationEntryFor("session")?.menuEntries(
         { kind: "session", target: identity.id },
         {
           kind: "session",
           openCardId,
-          isOwnCard: isOwnCard || !identity.resolved,
+          isOwnCard,
+          unresolved: !identity.resolved,
           resumable,
           projectDir,
           ...(description !== undefined ? { description } : {}),
