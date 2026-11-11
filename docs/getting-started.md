@@ -12,9 +12,9 @@ A session card gathers your prompts, Claude Code's responses, your git interacti
 
 ## Send a prompt
 
-Type a request into the prompt editor at the bottom of the card. Something small is fine for a first try: ask for a calculator program in C.
+Type a request into the prompt editor at the bottom of the card. Something small is fine for a first try: ask for a calculator program in C (or your favorite language).
 
-Return starts a new line, and ⇧Return sends the prompt. That makes a prompt of several lines easy to compose. If you would rather have Return send, Settings (⌘,) swaps the two.
+Return starts a new line, and ⇧Return (Shift-Return) sends the prompt. That makes a prompt of several lines easy to compose. If you would rather have Return send, Settings (⌘,) swaps the two.
 
 Text you find yourself typing again can live in the **Jots** sidebar, which ⌃⌘J shows. ⌘J saves a new jot, and dragging one into the prompt editor puts its text in your prompt.
 
