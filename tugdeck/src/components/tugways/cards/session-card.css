@@ -1139,7 +1139,7 @@
 .session-card-picker-dir-create {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-md);
+  gap: var(--tug-space-xl);
   margin-right: auto;
 }
 
