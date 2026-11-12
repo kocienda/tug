@@ -1,5 +1,5 @@
 /**
- * TugWorkspaceNameDialog — the app-modal that asks for a workspace's name
+ * WorkspaceNameDialog — the app-modal that asks for a workspace's name
  * before New Workspace or Duplicate Workspace makes anything.
  *
  * One component with two callers. The shell asks the question
@@ -46,7 +46,7 @@
  * [L06] the panel's look is the alert's CSS, keyed on Radix's `data-state`;
  * [L19] `data-slot` names the parts; [L25] mounted into the canvas overlay.
  *
- * @module components/tugways/tug-workspace-name-dialog
+ * @module components/chrome/workspace-name-dialog
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -60,17 +60,17 @@ import {
   subscribeWorkspaceNameRequest,
   type WorkspaceNameRequest,
 } from "@/lib/workspace-name-request";
-import { TUG_ACTIONS } from "./action-vocabulary";
-import { suppressButtonFocusShift } from "./internal/safari-focus-shift";
-import { isCancelChordEvent } from "./keymap-registry";
-import { TugInput } from "./tug-input";
-import { TugProgressIndicator } from "./tug-progress-indicator";
-import { TugPushButton } from "./tug-push-button";
-import { useFocusTrap } from "./use-focus-trap";
-import { useSeedKeyView } from "./use-focusable";
-import { useOptionalResponder } from "./use-responder";
-import "./tug-alert.css";
-import "./tug-workspace-name-dialog.css";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { suppressButtonFocusShift } from "@/components/tugways/tug-alert";
+import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
+import { TugInput } from "@/components/tugways/tug-input";
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { useFocusTrap } from "@/components/tugways/use-focus-trap";
+import { useSeedKeyView } from "@/components/tugways/use-focusable";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
+import "@/components/tugways/tug-alert.css";
+import "./workspace-name-dialog.css";
 
 /** The focus group the dialog's stops are authored into. */
 const FOCUS_GROUP = "tug-workspace-name-dialog";
@@ -87,7 +87,7 @@ const COMMIT_LABELS: Record<WorkspaceNameRequest["verb"], string> = {
   duplicate: "Duplicate",
 };
 
-export function TugWorkspaceNameDialog(): React.ReactElement {
+export function WorkspaceNameDialog(): React.ReactElement {
   const request = useSyncExternalStore(subscribeWorkspaceNameRequest, getWorkspaceNameRequest);
   const deck = useGateDeck();
   const overlayRoot = useCanvasOverlay();

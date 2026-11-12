@@ -55,7 +55,7 @@ export interface TugJumpToBottomButtonProps
 export const TugJumpToBottomButton = React.forwardRef<
   HTMLButtonElement,
   TugJumpToBottomButtonProps
->(function TugJumpToBottomButton({ className, ...rest }, ref) {
+>(function TugJumpToBottomButton({ className, "aria-label": ariaLabel = "Scroll to latest", ...rest }, ref) {
   return (
     <TugPushButton
       {...rest}
@@ -73,7 +73,7 @@ export const TugJumpToBottomButton = React.forwardRef<
       // up (visibility is CSS), so registering it would make it the card's
       // standing Return's-home and swallow every editor submit chord.
       neverDefaultButton
-      aria-label="Scroll to latest"
+      aria-label={ariaLabel}
       action={TUG_ACTIONS.LAST_TURN}
     />
   );

@@ -200,11 +200,17 @@ paths = ["tugdeck/"]
 # run held both the mocking suite and its victim — and runs it under the bun
 # hang guard. About two minutes — the audit's one-process leak check, never a
 # step's checkpoint; a step runs the files it touched.
+#
+# `just lint-audit` is the conformance lane (the component tiers, tokens,
+# contrast, notices) — about seven seconds. It sits in the fit so an arc that
+# adds or moves a `tug-*` file under another arc's feet is refused at the
+# re-audit rather than landing a red `main`.
 check = [
   "cd tugdeck && bunx tsc --noEmit",
   "cd tugdeck && bunx vite build",
   "just test-ts",
   "just app-test-changed {paths}",
+  "just lint-audit",
 ]
 commit_check = [
   "cd tugdeck && bunx tsc --noEmit",

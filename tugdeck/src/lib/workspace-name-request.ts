@@ -4,7 +4,7 @@
  *
  * One module-singleton store ([L02]). The shell asks ({@link askWorkspaceName})
  * and gets back the name the user committed, or `null` for a cancel. The
- * naming modal (`tug-workspace-name-dialog.tsx`) reads the open question
+ * naming modal (`components/chrome/workspace-name-dialog.tsx`) reads the open question
  * through `useSyncExternalStore` and answers it through its page's gate deck
  * (`gate-deck.ts`). Where the host keeps an overlay the modal is drawn there:
  * the shell's snapshot is the truth, relayed as `overlay.workspaceName`, the

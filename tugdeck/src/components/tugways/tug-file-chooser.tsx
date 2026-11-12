@@ -38,14 +38,18 @@
 
 import "./tug-file-chooser.css";
 
-import React, { useCallback, useId, useMemo, useRef } from "react";
+import React, { useCallback, useContext, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { TugComboBox, type TugComboBoxItem, type TugComboFieldProps } from "./tug-combo-box";
 import { TugPushButton } from "./tug-push-button";
 import { TUG_ACTIONS } from "./action-vocabulary";
-import type { ActionEvent } from "./responder-chain";
-import { useControlDispatch } from "./use-control-dispatch";
+import {
+  ResponderChainContext,
+  ResponderParentContext,
+  type ActionEvent,
+} from "./responder-chain";
+import { settlePickedPath, type PickedPathTarget } from "./internal/file-chooser-browse";
 import { useOptionalResponder } from "./use-responder";
 import {
   fetchPathCompletions,
@@ -156,21 +160,27 @@ export const TugFileChooser = React.forwardRef<HTMLDivElement, TugFileChooserPro
       return v;
     }, []);
 
-    const { dispatch } = useControlDispatch();
+    // The picker is the system's panel and can outlive the field that opened
+    // it, so its choice reads where to go when it arrives, not when it was
+    // asked for (`settlePickedPath`).
+    const manager = useContext(ResponderChainContext);
+    const parentId = useContext(ResponderParentContext);
+    const targetRef = useRef<PickedPathTarget>({ mounted: false, manager: null, parentId: null });
+    useLayoutEffect(() => {
+      const target = targetRef.current;
+      target.mounted = true;
+      target.manager = manager;
+      target.parentId = parentId;
+      return () => {
+        target.mounted = false;
+      };
+    }, [manager, parentId]);
     const fallbackSenderId = useId();
     const sender = senderId ?? fallbackSenderId;
     const browse = useCallback(() => {
       const hint = value.trim() !== "" ? value.trim() : base;
-      void pickPath(kind, hint).then((path) => {
-        if (path === null) return;
-        // Choosing in the native panel is a finished act, not a keystroke: the
-        // panel closes on a path the user picked deliberately, and focus comes
-        // back to a field that is already done. It settles on the spot — there
-        // is no later gesture that would.
-        dispatch({ action: TUG_ACTIONS.SET_VALUE, value: path, sender, phase: "change" });
-        dispatch({ action: TUG_ACTIONS.SET_VALUE, value: path, sender, phase: "commit" });
-      });
-    }, [value, base, kind, dispatch, sender]);
+      void settlePickedPath(pickPath(kind, hint), sender, () => targetRef.current);
+    }, [value, base, kind, sender]);
 
     const browseButton = showPicker ? (
       <TugPushButton

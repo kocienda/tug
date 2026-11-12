@@ -27,7 +27,7 @@
  * Rename Workspace keeps the inline field; at0582's rename leg pins it.
  *
  * @covers tugdeck/src/lib/new-workspace.ts
- * @covers tugdeck/src/components/tugways/tug-workspace-name-dialog.tsx
+ * @covers tugdeck/src/components/chrome/workspace-name-dialog.tsx
  */
 
 import { describe, expect, test } from "bun:test";

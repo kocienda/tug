@@ -743,7 +743,7 @@ const SpaceEmptyCell: TugListViewCellRenderer<CardsDataSource> = ({
       data-testid="cards-space-empty"
       {...spaceRowAttrs(row.spaceId, row.spaceId === dataSource.activeSpaceId())}
     >
-      <span className="rail-card-empty cards-empty">{row.filtered ? "No matches" : "None"}</span>
+      <TugEmptyLine className="cards-empty">{row.filtered ? "No matches" : "None"}</TugEmptyLine>
     </div>
   );
 };

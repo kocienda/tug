@@ -47,7 +47,7 @@
  * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
- * @covers tugdeck/src/components/tugways/tug-workspace-name-dialog.tsx
+ * @covers tugdeck/src/components/chrome/workspace-name-dialog.tsx
  * @covers tugdeck/src/lib/workspace-name-request.ts
  */
 

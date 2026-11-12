@@ -1,5 +1,5 @@
 /*
- * TugWorkspaceNameDialog. The modal chrome (scrim, panel, shadow, z-index,
+ * WorkspaceNameDialog. The modal chrome (scrim, panel, shadow, z-index,
  * open and close animation) comes from the inherited `tug-alert-overlay` /
  * `tug-alert-content` classes and the title and button row from the shared
  * `.tug-alert-*` classes; this file styles only the field between them. No

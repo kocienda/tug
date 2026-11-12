@@ -92,6 +92,14 @@ import { useSpatialOrder } from "./use-spatial-order";
 import type { SpatialOrder, SpatialSeam } from "./spatial-order";
 import { cn } from "@/lib/utils";
 
+/**
+ * The alert's `onMouseDown` focus-shift guard, public for a feature that
+ * draws its own alert-shaped app-modal on the alert's classes (the workspace
+ * name dialog) and so needs the same Safari button-focus suppression. The
+ * helper itself is a building block and stays in `internal/`.
+ */
+export { suppressButtonFocusShift };
+
 /* ---------------------------------------------------------------------------
  * Helpers
  * ---------------------------------------------------------------------------*/
