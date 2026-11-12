@@ -17,7 +17,12 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { CardSessionBindingStore, shareCardBinding, type CardSessionBinding } from "../card-session-binding-store";
+import {
+  CardSessionBindingStore,
+  followShellArcBinding,
+  shareCardBinding,
+  type CardSessionBinding,
+} from "../card-session-binding-store";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { cardBinding } from "../../bus/declarations/relays";
 import { deckCards, type DeckCardFacts } from "../../bus/declarations/deck";
@@ -163,5 +168,27 @@ describe("a body card's binding", () => {
     a.store.clearBinding("B");
     await bus.flush();
     expect(proposals()).toBe(0);
+  });
+
+  test("a shell and a body that disagree about the arc settle on one answer", async () => {
+    bus = createTestBus();
+    const shell = shellPage();
+    const a = share(bus.body("A", "session"));
+    followShellArcBinding("A", deckCards.on(a.page.bus), a.store);
+    await bus.flush();
+    a.store.setBinding("A", X);
+    await bus.flush();
+
+    // The two pages move the arc in the same beat: the shell hears a bind that
+    // names no card while the body's own word, with no arc, is still in flight.
+    const ARC = { id: "arc-1", name: "one" };
+    shell.store.setArcBinding("A", ARC);
+    a.store.setBinding("A", { ...X });
+
+    // Two values chasing each other round the two pages never let the bus go
+    // quiet, and a flush that cannot finish rejects.
+    await bus.flush();
+    expect(a.store.getBinding("A")?.arc).toEqual(shell.store.getBinding("A")?.arc);
+    expect(cardBinding.on(shell.page.bus).getFor("A")?.arc).toEqual(a.store.getBinding("A")?.arc);
   });
 });

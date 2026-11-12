@@ -64,7 +64,7 @@ import { requestQuit } from "../lib/quit-guard-store";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { sessionCitationStore } from "../lib/session-citation-store";
-import { cardSessionBindingStore, seedBindingLines, shareCardBinding } from "../lib/card-session-binding-store";
+import { cardSessionBindingStore, followShellArcBinding, seedBindingLines, shareCardBinding } from "../lib/card-session-binding-store";
 import { shareArcPresses } from "../lib/arc-press-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import { attachSessionLedgerStore } from "../lib/session-ledger-store";
@@ -331,16 +331,7 @@ function followDeckCards(cardId: string): void {
  * heard first standing until the shell agrees.
  */
 function followOwnArcBinding(cardId: string): void {
-  let arcBefore: string | undefined;
-  const apply = (): void => {
-    const binding = deckCards.getSnapshot()[cardId]?.binding ?? null;
-    if (binding === null) return;
-    const arc = JSON.stringify(binding.arc ?? null);
-    if (arc !== arcBefore) cardSessionBindingStore.setArcBinding(cardId, binding.arc ?? null);
-    arcBefore = arc;
-  };
-  deckCards.subscribe(apply);
-  apply();
+  followShellArcBinding(cardId, deckCards);
 }
 
 /**

@@ -94,6 +94,9 @@ export class CardSessionBindingStore extends Subscribable {
   private _merged: { local: Map<string, CardSessionBinding>; others: string; map: Map<string, CardSessionBinding> } | null =
     null;
 
+  /** The records {@link CardSessionBindingStore.adoptArcBinding} wrote. */
+  private readonly _fromShell = new WeakSet<CardSessionBinding>();
+
   /**
    * Every binding this page reads: its own, and in a body every other
    * card's from `deck.cards` ({@link otherDeckCard}), merged into one map
@@ -150,6 +153,31 @@ export class CardSessionBindingStore extends Subscribable {
     this._bindings = next;
     this.notify();
   };
+
+  /**
+   * Take the arc half of a card's binding **from the shell**: the same merge
+   * as {@link CardSessionBindingStore.setArcBinding}, with the record marked
+   * as the shell's word ({@link CardSessionBindingStore.cameFromShell}).
+   *
+   * The mark is what stops a body answering the shell with what the shell
+   * just said. Without it the arc the shell published came back as a
+   * proposal, and when the two pages each held a different arc in the same
+   * beat the two values followed each other round the pages for good: the
+   * card read bound and unbound about eleven times a second.
+   */
+  adoptArcBinding = (cardId: string, arc: CardArcBinding | null): void => {
+    const existing = this._bindings.get(cardId);
+    if (!existing) return;
+    const adopted = { ...existing, arc: arc ?? undefined };
+    this._fromShell.add(adopted);
+    const next = new Map(this._bindings);
+    next.set(cardId, adopted);
+    this._bindings = next;
+    this.notify();
+  };
+
+  /** Whether `binding` is a record this page took from the shell. */
+  cameFromShell = (binding: CardSessionBinding): boolean => this._fromShell.has(binding);
 
   /**
    * Re-seat a card's binding on a **new line** ([P03]) — the `/clear` case,
@@ -276,6 +304,8 @@ export function shareCardBinding(
       const binding = store.getBinding(cardId);
       if (binding === said) return;
       said = binding;
+      // The shell's own word is not said back to it.
+      if (binding !== undefined && store.cameFromShell(binding)) return;
       shared.propose(binding ?? null);
     };
     releases.push(store.subscribe(tell));
@@ -298,6 +328,38 @@ export function shareCardBinding(
   return () => {
     for (const release of releases.splice(0)) release();
   };
+}
+
+/**
+ * Keep a body card's own arc binding in step with the shell's, read from the
+ * shell's `deck.cards`.
+ *
+ * A bind is one fact whichever door it came through, and the doors that name
+ * no card (`tugtool arc bind`, `arc create`'s auto-bind) are answered by the
+ * shell, which maps a session to its card across every card it holds. So the
+ * own card's arc is applied when the shell's moves, which leaves a bind this
+ * page heard first standing until the shell agrees. What is applied is the
+ * shell's word, so it is adopted and never proposed back. Returns the release.
+ */
+export function followShellArcBinding(
+  cardId: string,
+  cards: {
+    subscribe(listener: () => void): () => void;
+    getSnapshot(): Record<string, { binding: CardSessionBinding | null } | undefined>;
+  },
+  store: CardSessionBindingStore = cardSessionBindingStore,
+): () => void {
+  let arcBefore: string | undefined;
+  const apply = (): void => {
+    const binding = cards.getSnapshot()[cardId]?.binding ?? null;
+    if (binding === null) return;
+    const arc = JSON.stringify(binding.arc ?? null);
+    if (arc !== arcBefore) store.adoptArcBinding(cardId, binding.arc ?? null);
+    arcBefore = arc;
+  };
+  const release = cards.subscribe(apply);
+  apply();
+  return release;
 }
 
 /**

@@ -75,7 +75,10 @@ export interface TestBus {
   undeliverable(on: TestPage): BusTarget[];
   /** Every frame the router has carried, in order. */
   frames(): readonly DeliveredFrame[];
-  /** Deliver everything queued, and whatever that delivery sends, until the queue is empty. */
+  /**
+   * Deliver everything queued, and whatever that delivery sends, until the
+   * queue is empty. Rejects when the pages never go quiet.
+   */
   flush(): Promise<void>;
   /**
    * Make `page`'s bus the installed page bus (`installPageBus`), as `main.tsx`
@@ -85,6 +88,9 @@ export interface TestBus {
   install(page: TestPage): void;
   dispose(): void;
 }
+
+/** More frames than any settling exchange carries in one flush. */
+const FLUSH_FRAME_LIMIT = 5000;
 
 interface PageRecord {
   pageId: string;
@@ -275,8 +281,18 @@ export function createTestBus(): TestBus {
     undeliverable: (v) => [...recordOf(v).undeliverable],
     frames: () => carried,
     async flush() {
+      let delivered = 0;
       for (;;) {
-        while (queue.length > 0) deliverOne(queue.shift() as Queued);
+        while (queue.length > 0) {
+          deliverOne(queue.shift() as Queued);
+          delivered += 1;
+          // Pages that answer each other forever would hang the test here; a
+          // ring is a defect, so it is reported as one.
+          if (delivered > FLUSH_FRAME_LIMIT) {
+            queue.length = 0;
+            throw new Error(`test bus: still carrying frames after ${FLUSH_FRAME_LIMIT}; pages are answering each other in a ring`);
+          }
+        }
         await Promise.resolve();
         if (queue.length === 0) return;
       }
