@@ -69,6 +69,27 @@ final class OpenableFilesTests: XCTestCase {
         XCTAssertTrue(OpenableFiles.isOpenable(try text("Page.astro", "---\nconst a = 1;\n---\n<p>{a}</p>\n")))
     }
 
+    /// An extension another app saves its documents under is never claimed:
+    /// declaring `pxd` as Cython stopped Pixelmator Pro opening its own files.
+    func testPlistDeclaresNoContestedExtension() {
+        let declared = OpenableFiles.declaredTextExtensions(in: Self.appInfo)
+        for ext in OpenableFiles.contestedTextExtensions {
+            XCTAssertFalse(declared.contains(ext), ext)
+        }
+        XCTAssertTrue(declared.contains("pyx"))
+    }
+
+    /// A contested extension opens by its bytes, whatever the system types it
+    /// as: a Cython `.pxd` is text, a flat Pixelmator document is not.
+    func testContestedExtensionIsSniffed() throws {
+        let cython = try text("defs.pxd", "cdef extern from \"math.h\":\n    double sqrt(double x)\n")
+        XCTAssertTrue(editable(cython))
+        XCTAssertTrue(OpenableFiles.isOpenable(cython))
+        let document = try file("picture.pxd", [0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x00, 0x01])
+        XCTAssertFalse(editable(document))
+        XCTAssertFalse(OpenableFiles.isOpenable(document))
+    }
+
     func testExtensionlessTextIsEditable() throws {
         for name in ["Dockerfile", "Justfile", "Procfile", ".gitignore", ".env", "CODEOWNERS"] {
             XCTAssertTrue(editable(try text(name)), name)

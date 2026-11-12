@@ -56,9 +56,12 @@ ELAPSED=$((SECONDS - START))
 # AppIntents.framework dependency. Tug has no App Intents and is not
 # getting any, so that line is a fact about the target's design rather
 # than a defect — and it prints on every build, which is exactly how a
-# diagnostics section trains people to stop reading it.
+# diagnostics section trains people to stop reading it. Xcode has worded it
+# both "No AppIntents.framework dependency found" and "Metadata extraction
+# skipped, no AppIntents.framework dependency found", so the match is on the
+# part the two share, in either case.
 DIAGS="$(grep -E 'warning:|error:|^ld: |^clang: |^Undefined' "$LOG" \
-    | grep -v 'appintentsmetadataprocessor.*No AppIntents.framework dependency found' \
+    | grep -v 'appintentsmetadataprocessor.*[Nn]o AppIntents.framework dependency found' \
     || true)"
 # A `test` action ends its log with XCTest's own tally; carry the last one
 # (the all-tests suite) into the summary so a green run still says how much ran.

@@ -38,6 +38,12 @@ enum OpenableFiles {
     /// TypeScript module extensions travel together.
     static let undeclarableTextExtensions: Set<String> = ["ts", "mts", "cts"]
 
+    /// Extensions that are source text to one tool and another app's document
+    /// format to the system, which Tug therefore never declares: `pxd` is a
+    /// Cython declaration file and Pixelmator Pro's document. A file with one
+    /// is text only if its bytes say so, whatever type the system gives it.
+    static let contestedTextExtensions: Set<String> = ["pxd"]
+
     /// Filename extensions a Text card edits whatever UTI the system resolves
     /// them to: the bundle's declared ones and the undeclarable ones.
     static let textExtensions: Set<String> =
@@ -84,7 +90,9 @@ enum OpenableFiles {
     /// system can call it nothing better than data — no extension
     /// (`Dockerfile`, `.gitignore`, `Justfile`) or one nobody declared — and
     /// its first bytes read as UTF-8 text. A file the system has a non-text
-    /// type for (an executable, an archive) is never read.
+    /// type for (an executable, an archive) is never read, unless its
+    /// extension is one of {@link contestedTextExtensions}, where the type is
+    /// another app's claim on the extension and the bytes decide.
     static func isEditable(_ url: URL, extensions: Set<String> = textExtensions) -> Bool {
         guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentTypeKey]),
               values.isRegularFile == true else { return false }
@@ -93,7 +101,8 @@ enum OpenableFiles {
             return true
         }
         if extensions.contains(url.pathExtension.lowercased()) { return true }
-        if let type = values.contentType, type != .data, !type.isDynamic { return false }
+        if let type = values.contentType, type != .data, !type.isDynamic,
+           !contestedTextExtensions.contains(url.pathExtension.lowercased()) { return false }
         return looksLikeText(url)
     }
 

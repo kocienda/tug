@@ -96,7 +96,11 @@
 	     makes them text everywhere those gates look. OpenableFiles reads the
 	     extensions back out of this list, so it is the one place to add a
 	     format. `ts`/`mts`/`cts` are absent: macOS owns them as MPEG-2
-	     transport stream, so OpenableFiles names them by hand. -->
+	     transport stream, so OpenableFiles names them by hand. `pxd` (Cython)
+	     is absent too: it is Pixelmator Pro's document extension, and a claim
+	     on it here stopped Pixelmator opening its own files, so OpenableFiles
+	     admits a `pxd` by its bytes instead. Never declare an extension
+	     another app saves its documents under. -->
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -1528,7 +1532,6 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>pyx</string>
-					<string>pxd</string>
 				</array>
 			</dict>
 		</dict>
