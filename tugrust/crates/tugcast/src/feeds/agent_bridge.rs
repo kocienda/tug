@@ -7079,7 +7079,10 @@ mod tests {
             ),
             None
         );
-        assert_eq!(parse_granted_dirs(br#"{"type":"add_directory_result"}"#), None);
+        assert_eq!(
+            parse_granted_dirs(br#"{"type":"add_directory_result"}"#),
+            None
+        );
         assert_eq!(parse_granted_dirs(b"not json"), None);
     }
 

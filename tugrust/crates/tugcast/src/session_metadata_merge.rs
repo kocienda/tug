@@ -377,7 +377,10 @@ mod tests {
         });
         let merged = merge_session_metadata(Some(&current), &grant);
         assert_eq!(merged["additional_directories"], json!(["/a", "/b", "/c"]));
-        assert_eq!(merged["model"], current["model"], "a sparse frame keeps the model");
+        assert_eq!(
+            merged["model"], current["model"],
+            "a sparse frame keeps the model"
+        );
 
         // A new session's spawn frame carries an empty list: none, not a gap.
         let fresh = json!({

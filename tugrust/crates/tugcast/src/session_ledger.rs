@@ -11429,21 +11429,32 @@ mod tests {
                 .expect("record_spawn");
         }
         let dirs = vec!["/Users/me/notes".to_string(), "/Users/me/specs".to_string()];
-        l.set_granted_dirs("granted", &dirs).expect("set_granted_dirs");
+        l.set_granted_dirs("granted", &dirs)
+            .expect("set_granted_dirs");
         assert_eq!(l.granted_dirs("granted"), dirs);
-        assert!(l.granted_dirs("plain").is_empty(), "a row never granted any holds none");
-        assert!(l.granted_dirs("no-such-session").is_empty(), "an unknown session is not an error");
+        assert!(
+            l.granted_dirs("plain").is_empty(),
+            "a row never granted any holds none"
+        );
+        assert!(
+            l.granted_dirs("no-such-session").is_empty(),
+            "an unknown session is not an error"
+        );
 
         l.set_granted_dirs("granted", &[]).expect("clear");
         assert!(l.granted_dirs("granted").is_empty());
-        let stored: Option<String> = l
-            .db
-            .lock()
-            .query_row("SELECT granted_dirs FROM sessions WHERE session_id = 'granted'", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(stored, None, "an empty list is stored as no record, not as `[]`");
+        let stored: Option<String> =
+            l.db.lock()
+                .query_row(
+                    "SELECT granted_dirs FROM sessions WHERE session_id = 'granted'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+        assert_eq!(
+            stored, None,
+            "an empty list is stored as no record, not as `[]`"
+        );
 
         assert!(matches!(
             l.set_granted_dirs("no-such-session", &dirs),
@@ -11469,7 +11480,8 @@ mod tests {
         let l = SessionLedger::open(&path, 0).expect("reopen");
         assert!(l.granted_dirs("older").is_empty());
         let dirs = vec!["/Users/me/notes".to_string()];
-        l.set_granted_dirs("older", &dirs).expect("the reopened ledger accepts the write");
+        l.set_granted_dirs("older", &dirs)
+            .expect("the reopened ledger accepts the write");
         assert_eq!(l.granted_dirs("older"), dirs);
     }
 

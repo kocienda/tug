@@ -1367,7 +1367,9 @@ async fn a_resumed_session_is_spawned_with_the_folders_its_row_holds() {
         Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger)));
     let (tx, mut granted_rx) = mpsc::unbounded_channel::<Vec<String>>();
     let factory: SpawnerFactory = Arc::new(move || {
-        Arc::new(GrantRecordingSpawner { granted: tx.clone() }) as Arc<dyn ChildSpawner>
+        Arc::new(GrantRecordingSpawner {
+            granted: tx.clone(),
+        }) as Arc<dyn ChildSpawner>
     });
     let (sup, mut register_rx) = AgentSupervisor::new_with_ledger(
         SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
@@ -1398,15 +1400,24 @@ async fn a_resumed_session_is_spawned_with_the_folders_its_row_holds() {
         )
         .expect("record_spawn");
     let dirs = vec!["/Users/me/notes".to_string(), "/Users/me/specs".to_string()];
-    ledger.set_granted_dirs("sess-granted", &dirs).expect("set_granted_dirs");
+    ledger
+        .set_granted_dirs("sess-granted", &dirs)
+        .expect("set_granted_dirs");
 
-    sup.handle_control("spawn_session", &resume_payload("card-1", "sess-granted"), 10)
-        .await
-        .expect_handled();
+    sup.handle_control(
+        "spawn_session",
+        &resume_payload("card-1", "sess-granted"),
+        10,
+    )
+    .await
+    .expect_handled();
 
     let spawned = tokio::time::timeout(Duration::from_secs(5), granted_rx.recv())
         .await
         .expect("a spawn reached the spawner within 5s")
         .expect("the spawner channel is open");
-    assert_eq!(spawned, dirs, "the resume spawn carries the folders the row holds, in order");
+    assert_eq!(
+        spawned, dirs,
+        "the resume spawn carries the folders the row holds, in order"
+    );
 }
