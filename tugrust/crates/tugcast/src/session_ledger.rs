@@ -5785,6 +5785,31 @@ impl SessionLedger {
     /// the *unbound* state — an arc with rounds and no live session — could
     /// never be reached.
     pub fn mark_closed(&self, session_id: &str) -> Result<bool, LedgerError> {
+        self.close_row(session_id, true)
+    }
+
+    /// Transition a row to `closed` **and keep its arc binding**: the close a
+    /// reaped orphan bridge gets.
+    ///
+    /// A reap stops the process under a session nobody is holding, and the
+    /// card that session belongs to still exists: a parked workspace's cards
+    /// are reaped as orphans and resumed when the workspace comes back. The
+    /// release [`Self::mark_closed`] makes is the card's, and no card closed
+    /// here. A row that lost its binding this way came back unmated, so a
+    /// stale audit waited on a card the arc no longer had.
+    ///
+    /// Bound-ness is defined over live rows
+    /// ([`Self::bound_session_by_arc`]), so the arc reads unbound for as long
+    /// as the row is closed, and bound again when [`Self::record_spawn`]
+    /// brings it back. A bind made elsewhere in between takes the binding
+    /// off this row ([`Self::set_arc_binding`]). `demoted = 0` as in a
+    /// deliberate close: the process was stopped on purpose, and nothing
+    /// trailing in behind it may revive the row.
+    pub fn mark_reaped(&self, session_id: &str) -> Result<bool, LedgerError> {
+        self.close_row(session_id, false)
+    }
+
+    fn close_row(&self, session_id: &str, release_binding: bool) -> Result<bool, LedgerError> {
         let conn = self.db.lock();
         let affected = conn.execute(
             // `demoted = 0`: a deliberate close outranks a prior demote —
@@ -5793,10 +5818,12 @@ impl SessionLedger {
             // closing a card the startup demote beat to `closed` must still
             // strip its revivability.
             "UPDATE sessions
-             SET state = 'closed', demoted = 0, arc_id = NULL, arc_name = NULL
+             SET state = 'closed', demoted = 0,
+                 arc_id = CASE WHEN ?2 THEN NULL ELSE arc_id END,
+                 arc_name = CASE WHEN ?2 THEN NULL ELSE arc_name END
              WHERE session_id = ?1
                AND (state != 'closed' OR demoted != 0)",
-            params![session_id],
+            params![session_id, release_binding],
         )?;
         drop(conn);
         self.notify_sessions_changed();
@@ -5895,6 +5922,16 @@ impl SessionLedger {
                AND (?2 IS NULL OR (state = 'live' AND demoted = 0))",
             params![session_id, arc_id, arc_name],
         )?;
+        // One holder per arc. A reaped row keeps its binding while it is
+        // closed ([`Self::mark_reaped`]); a bind that lands on another
+        // session takes it, so the row does not come back as a second holder.
+        if affected > 0 && arc_id.is_some() {
+            conn.execute(
+                "UPDATE sessions SET arc_id = NULL, arc_name = NULL
+                 WHERE arc_id = ?2 AND session_id != ?1 AND state != 'live'",
+                params![session_id, arc_id],
+            )?;
+        }
         drop(conn);
         self.notify_sessions_changed();
         Ok(affected > 0)
@@ -14915,6 +14952,72 @@ mod tests {
             l.bound_session_by_arc().unwrap().get("tugarc/demo#1"),
             Some(&"newer".to_string()),
             "the second holder is warned about, never carried",
+        );
+    }
+
+    /// A reaped orphan keeps its binding: the arc reads unbound while the row
+    /// is closed and bound again when the card resumes the session, where a
+    /// closed card releases it for good.
+    #[test]
+    fn a_reaped_session_comes_back_bound_and_a_closed_one_does_not() {
+        let l = fresh();
+        let arc = ("tugarc/demo#1", "demo");
+        l.record_spawn("reaped", WS_A, "/proj", "card-1", millis(1), "line-1", None)
+            .unwrap();
+        l.set_arc_binding("reaped", Some(arc)).unwrap();
+
+        assert!(l.mark_reaped("reaped").unwrap());
+        assert!(
+            l.bound_session_by_arc().unwrap().is_empty(),
+            "no live session holds the arc while the row is closed",
+        );
+        l.record_spawn("reaped", WS_A, "/proj", "card-1", millis(2), "line-1", None)
+            .unwrap();
+        assert_eq!(
+            l.bound_session_by_arc().unwrap().get(arc.0),
+            Some(&"reaped".to_string()),
+            "the resumed card is mated to its arc again",
+        );
+
+        assert!(l.mark_closed("reaped").unwrap());
+        l.record_spawn("reaped", WS_A, "/proj", "card-1", millis(3), "line-1", None)
+            .unwrap();
+        assert!(
+            l.bound_session_by_arc().unwrap().is_empty(),
+            "a closed card released the binding",
+        );
+    }
+
+    /// A bind made while a reaped row is closed takes the arc, so the row
+    /// resumes as no second holder.
+    #[test]
+    fn a_bind_elsewhere_takes_the_arc_off_a_reaped_row() {
+        let l = fresh();
+        let arc = ("tugarc/demo#1", "demo");
+        l.record_spawn("reaped", WS_A, "/proj", "card-1", millis(1), "line-1", None)
+            .unwrap();
+        l.set_arc_binding("reaped", Some(arc)).unwrap();
+        l.mark_reaped("reaped").unwrap();
+
+        l.record_spawn("other", WS_A, "/proj", "card-2", millis(2), "line-2", None)
+            .unwrap();
+        l.set_arc_binding("other", Some(arc)).unwrap();
+        l.record_spawn("reaped", WS_A, "/proj", "card-1", millis(3), "line-1", None)
+            .unwrap();
+
+        // Bound again and found unbound: the resumed row is live, and the
+        // only live row the arc names is the one that bound it since.
+        assert_eq!(
+            l.bound_session_by_arc().unwrap().get(arc.0),
+            Some(&"other".to_string()),
+        );
+        assert!(
+            l.set_arc_binding("other", None).unwrap(),
+            "the holder lets the arc go",
+        );
+        assert!(
+            l.bound_session_by_arc().unwrap().is_empty(),
+            "the resumed row carries no binding of its own",
         );
     }
 

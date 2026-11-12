@@ -209,6 +209,22 @@ impl AgentSupervisor {
         card_id: &str,
         tug_session_id: &TugSessionId,
     ) {
+        self.close_session_as(card_id, tug_session_id, false).await;
+    }
+
+    /// Stop a bridge the orphan sweep found nobody holding
+    /// (`reap_orphan_bridges`). Everything [`Self::do_close_session`] does,
+    /// except that the ledger row keeps its arc binding: the card is not
+    /// closing, and it resumes the session mated to the arc it was working.
+    pub(in crate::feeds::agent_supervisor) async fn do_reap_session(
+        &self,
+        card_id: &str,
+        tug_session_id: &TugSessionId,
+    ) {
+        self.close_session_as(card_id, tug_session_id, true).await;
+    }
+
+    async fn close_session_as(&self, card_id: &str, tug_session_id: &TugSessionId, reaped: bool) {
         // Phase 1: remove the ledger entry AND drop the id from every client's
         // affinity set, atomically under ledger_lock + client_sessions_lock.
         // Cleaning across all clients (not just `_client_id`) guarantees the
@@ -313,7 +329,11 @@ impl AgentSupervisor {
             if let Some(ledger) = self.session_ledger.as_ref() {
                 crate::arc_api::stop_an_on_arc_cards_arc_as_closed(ledger, &claude_id);
             }
-            self.sessions_recorder.mark_closed(&claude_id);
+            if reaped {
+                self.sessions_recorder.mark_reaped(&claude_id);
+            } else {
+                self.sessions_recorder.mark_closed(&claude_id);
+            }
         }
     }
 

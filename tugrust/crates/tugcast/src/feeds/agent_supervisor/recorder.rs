@@ -86,6 +86,14 @@ pub trait SessionsRecorder: Send + Sync {
     /// `result` event.
     fn mark_closed(&self, session_id: &str);
 
+    /// Transition the row to `closed` and keep its arc binding: the close of
+    /// a reaped orphan bridge, whose card still exists and will resume it
+    /// (`SessionLedger::mark_reaped`). A recorder with no arc bindings to
+    /// keep closes it as any other.
+    fn mark_reaped(&self, session_id: &str) {
+        self.mark_closed(session_id);
+    }
+
     /// Transition the row to `failed` and clear the live-card binding.
     /// Called on `resume_failed` and crash-budget exhaustion. Replaces the
     /// pre-ledger semantic of removing the row entirely; the row survives
@@ -219,6 +227,46 @@ pub struct LedgerSessionsRecorder {
 }
 
 impl LedgerSessionsRecorder {
+    /// Close a session's row, releasing its arc binding (a card close) or
+    /// keeping it (`keep_binding`, a reaped orphan whose card will resume it).
+    fn close_row(&self, session_id: &str, keep_binding: bool) {
+        let handle = self.session_handle(session_id);
+        let closed = if keep_binding {
+            self.ledger.mark_reaped(session_id)
+        } else {
+            self.ledger.mark_closed(session_id)
+        };
+        let transitioned = match closed {
+            Ok(transitioned) => transitioned,
+            Err(err) => {
+                warn!(error = %err, session_id, "ledger mark_closed failed");
+                return;
+            }
+        };
+        tracing::info!(
+            target: "dev::session-lifecycle",
+            event = "ledger.mark_closed",
+            session_id,
+            keep_binding,
+        );
+        // A closed session has no turn open, whatever the latch last said.
+        self.ledger.set_turn_active(session_id, false);
+        // The fact rides the durable transition rather than any one of the
+        // several `closed` publish sites, and only when a row really moved —
+        // so a session that ended once has one ending in the fact base however
+        // many paths call this for it.
+        if transitioned {
+            self.record_lifecycle_fact(&crate::feeds::facts_library::session_end_fact(
+                crate::session_ledger::now_millis(),
+                session_id,
+                false,
+                &handle,
+                None,
+            ));
+        }
+        self.broadcast_row(session_id);
+    }
+
     #[cfg(test)]
     pub fn new(ledger: Arc<crate::session_ledger::SessionLedger>) -> Self {
         Self {
@@ -499,35 +547,11 @@ impl SessionsRecorder for LedgerSessionsRecorder {
     }
 
     fn mark_closed(&self, session_id: &str) {
-        let handle = self.session_handle(session_id);
-        let transitioned = match self.ledger.mark_closed(session_id) {
-            Ok(transitioned) => transitioned,
-            Err(err) => {
-                warn!(error = %err, session_id, "ledger mark_closed failed");
-                return;
-            }
-        };
-        tracing::info!(
-            target: "dev::session-lifecycle",
-            event = "ledger.mark_closed",
-            session_id,
-        );
-        // A closed session has no turn open, whatever the latch last said.
-        self.ledger.set_turn_active(session_id, false);
-        // The fact rides the durable transition rather than any one of the
-        // several `closed` publish sites, and only when a row really moved —
-        // so a session that ended once has one ending in the fact base however
-        // many paths call this for it.
-        if transitioned {
-            self.record_lifecycle_fact(&crate::feeds::facts_library::session_end_fact(
-                crate::session_ledger::now_millis(),
-                session_id,
-                false,
-                &handle,
-                None,
-            ));
-        }
-        self.broadcast_row(session_id);
+        self.close_row(session_id, false);
+    }
+
+    fn mark_reaped(&self, session_id: &str) {
+        self.close_row(session_id, true);
     }
 
     fn mark_failed(&self, session_id: &str) {

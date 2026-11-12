@@ -5288,7 +5288,7 @@ impl AgentSupervisor {
                 "no client holds this bridge and no card named it after the \
                  settle window — closed rather than left to a restart",
             );
-            self.do_close_session(card_id.as_deref().unwrap_or(""), &id)
+            self.do_reap_session(card_id.as_deref().unwrap_or(""), &id)
                 .await;
         }
     }
