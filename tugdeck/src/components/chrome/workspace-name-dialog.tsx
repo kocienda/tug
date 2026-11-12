@@ -74,6 +74,18 @@
  * closed snapshot returns, so the run is taken in the cancel with the panel
  * still standing. A question with no `from` cancels with the fade alone.
  *
+ * ## The scrim comes last both ways
+ *
+ * The scrim arrives late and leaves late, so the order reads as one gesture:
+ * in, the rectangles run, the panel fades in where they landed, and only then
+ * does the scrim dim the deck; out, the panel goes, the rectangles run, and
+ * the scrim lifts after they have. In, the scrim wears the panel's marks —
+ * `hold`, then `run` — with a delay one panel fade longer. Out, the alert's
+ * scrim still unmounts at once (`tug-alert.css` says why its exit must name
+ * no animation), so a stand-in that is no Radix node — dead to the pointer,
+ * holding no lock — is planted in its place as it goes, held through the
+ * run, and faded. A close with no run plants no stand-in.
+ *
  * Laws: [L02] the question enters React through `useSyncExternalStore`;
  * [L06] the panel's look is the alert's CSS, keyed on Radix's `data-state`,
  * and the zoom's hold is CSS keyed on a `data-zoom` the ref callback sets on
@@ -86,7 +98,9 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import React, { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 
-import { runZoomRects } from "@/components/chrome/zoom-rects";
+import { runZoomRects, zoomRunDurationMs } from "@/components/chrome/zoom-rects";
+import { animate } from "@/components/tugways/tug-animator";
+import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
 import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useGateDeck } from "@/lib/gate-deck";
@@ -123,6 +137,41 @@ const COMMIT_LABELS: Record<WorkspaceNameRequest["verb"], string> = {
   duplicate: "Duplicate",
 };
 
+/** The scrim's fade, in and out, unscaled — the alert's own 150ms. */
+const SCRIM_FADE_MS = 150;
+
+/** The stand-in scrim lingering after a close, if one is up. */
+let scrimStandIn: HTMLDivElement | null = null;
+
+function dropScrimStandIn(): void {
+  if (scrimStandIn !== null) scrimStandIn.remove();
+  scrimStandIn = null;
+}
+
+/**
+ * Plant a stand-in for the scrim the closing panel takes with it, hold it
+ * through the zoom run, then fade it. Called only when a run planted, so
+ * reduced motion never reaches it.
+ */
+function lingerScrim(): void {
+  dropScrimStandIn();
+  const root = canvasOverlayRegistry.getRoot();
+  if (root === null) return;
+  const el = document.createElement("div");
+  el.className = "tug-workspace-name-scrim-stand-in";
+  el.dataset.slot = "tug-workspace-name-scrim-stand-in";
+  root.appendChild(el);
+  scrimStandIn = el;
+  void animate(el, [{ opacity: 1 }, { opacity: 0 }], {
+    duration: SCRIM_FADE_MS,
+    delay: zoomRunDurationMs("sheet"),
+    easing: "ease-in",
+  }).finished.finally(() => {
+    if (scrimStandIn === el) dropScrimStandIn();
+    else el.remove();
+  });
+}
+
 export function WorkspaceNameDialog(): React.ReactElement {
   const request = useSyncExternalStore(subscribeWorkspaceNameRequest, getWorkspaceNameRequest);
   const deck = useGateDeck();
@@ -154,7 +203,9 @@ export function WorkspaceNameDialog(): React.ReactElement {
         const node = contentRef.current;
         if (from !== null && node !== null) {
           const box = node.getBoundingClientRect();
-          runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, from, "sheet");
+          if (runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, from, "sheet")) {
+            lingerScrim();
+          }
         }
         setAnswered(request.seq);
       }
@@ -186,6 +237,8 @@ export function WorkspaceNameDialog(): React.ReactElement {
   // the node on the closing commit too, which the open guard turns away, and
   // a question already zoomed for is not zoomed for again.
   const zoomedSeqRef = useRef(0);
+  // The scrim, which wears the panel's zoom marks on the way in.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   // The panel as it stands: what the zoom out measures.
   const contentRef = useRef<HTMLDivElement | null>(null);
   const attachContent = useCallback(
@@ -198,6 +251,8 @@ export function WorkspaceNameDialog(): React.ReactElement {
       zoomedSeqRef.current = question.seq;
       const from = question.from;
       if (from === null) return;
+      // A fresh question takes down any stand-in a last close left lifting.
+      dropScrimStandIn();
       // A run that would plant nothing — reduced motion, a zero timing
       // scale — marks nothing, so the panel is up on its first frame.
       if (!isTugMotionEnabled() || getTugTiming() === 0) return;
@@ -205,6 +260,12 @@ export function WorkspaceNameDialog(): React.ReactElement {
       // `scale(0.96)`, and the hold replaces it with no animation at all, so
       // the box read is the panel at its real size.
       node.dataset.zoom = "hold";
+      const scrim = overlayRef.current;
+      if (scrim !== null) scrim.dataset.zoom = "hold";
+      const unmark = () => {
+        delete node.dataset.zoom;
+        if (scrim !== null) delete scrim.dataset.zoom;
+      };
       const box = node.getBoundingClientRect();
       const to = { top: box.top, left: box.left, width: box.width, height: box.height };
       // The run waits out the panel's first frame. That frame lays out and
@@ -216,11 +277,12 @@ export function WorkspaceNameDialog(): React.ReactElement {
         requestAnimationFrame(() => {
           if (node.dataset.zoom !== "hold") return;
           if (!node.isConnected || !openRef.current || shownRef.current.seq !== question.seq) {
-            delete node.dataset.zoom;
+            unmark();
             return;
           }
           node.dataset.zoom = "run";
-          if (!runZoomRects(from, to, "sheet")) delete node.dataset.zoom;
+          if (scrim !== null) scrim.dataset.zoom = "run";
+          if (!runZoomRects(from, to, "sheet")) unmark();
         }),
       );
     },
@@ -241,7 +303,9 @@ export function WorkspaceNameDialog(): React.ReactElement {
       const node = contentRef.current;
       if (node === null) return;
       const box = node.getBoundingClientRect();
-      runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, next.to, "sheet");
+      if (runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, next.to, "sheet")) {
+        lingerScrim();
+      }
     });
   }, []);
 
@@ -253,7 +317,11 @@ export function WorkspaceNameDialog(): React.ReactElement {
       }}
     >
       <Dialog.Portal container={overlayRoot}>
-        <Dialog.Overlay className="tug-alert-overlay" data-slot="tug-workspace-name-scrim" />
+        <Dialog.Overlay
+          ref={overlayRef}
+          className="tug-alert-overlay tug-workspace-name-scrim"
+          data-slot="tug-workspace-name-scrim"
+        />
         <Dialog.Content
           ref={attachContent}
           className="tug-alert-content tug-workspace-name-dialog"

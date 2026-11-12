@@ -18,6 +18,11 @@
  * 4. **No source, no run.** New raised from the Window menu's row — a door
  *    with no place on screen — plants no rectangle and marks no `data-zoom`,
  *    on the way in or out.
+ * 5. **The scrim comes last both ways.** In, the scrim stays clear while any
+ *    rectangle is lit and dims the deck only once the panel has faded in. Out
+ *    and on a cancel, a stand-in scrim stays up, undimmed, through every lit
+ *    frame, lifts only after the last, and is gone when the census ends. The
+ *    menu's door, with no run, plants no stand-in.
  *
  * Motion is sampled, not inferred from end states: each census starts a
  * `requestAnimationFrame` sampler in the overlay page before the gesture and
@@ -62,6 +67,8 @@ const NEW_BUTTON = `[data-testid="cards-new-space"]`;
 const NAME_DIALOG = `[data-slot="tug-workspace-name-dialog"]`;
 const NAME_FIELD = `[data-slot="tug-workspace-name-field"]`;
 const LAYER = `[data-slot="zoom-rects"]`;
+const SCRIM = `[data-slot="tug-workspace-name-scrim"]`;
+const STAND_IN = `[data-slot="tug-workspace-name-scrim-stand-in"]`;
 
 /** A couple of pixels of rounding: the last rectangle is planted on the destination's measured rect. */
 const ARRIVAL_PX = 2;
@@ -82,6 +89,12 @@ interface Sample {
   lit: Box[];
   /** Whether the panel is in the DOM. */
   panel: boolean;
+  /** The panel's opacity, `null` when it is not in the DOM. */
+  panelOpacity: number | null;
+  /** The alert's scrim's opacity, `null` when it is not in the DOM. */
+  scrim: number | null;
+  /** The stand-in scrim's opacity, `null` when none is up. */
+  standIn: number | null;
 }
 
 function textDeck(cardId: string, paneId: string): Record<string, unknown> {
@@ -143,7 +156,8 @@ function blob(): Record<string, unknown> {
 
 /**
  * Start the overlay's per-frame sampler. The gesture follows it. It ends four
- * frames after a run's layer has emptied, at `ms` with no run, or when
+ * frames after a run's layer has emptied and its scrim has settled, at `ms`
+ * with no run, or when
  * {@link stopCensus} is called.
  */
 async function armCensus(overlay: BodyApp, ms: number): Promise<void> {
@@ -151,6 +165,10 @@ async function armCensus(overlay: BodyApp, ms: number): Promise<void> {
     `(function () {
        document.documentElement.style.setProperty("--tug-timing", "1");
        window.__at0805 = { samples: [], done: false, stop: false, seen: false, empty: 0 };
+       var opacityOf = function (sel) {
+         var el = document.querySelector(sel);
+         return el === null ? null : parseFloat(getComputedStyle(el).opacity);
+       };
        var t0 = performance.now();
        var tick = function () {
          var layer = document.querySelector(${JSON.stringify(LAYER)});
@@ -166,10 +184,18 @@ async function armCensus(overlay: BodyApp, ms: number): Promise<void> {
            planted: rects.length,
            lit: lit,
            panel: document.querySelector(${JSON.stringify(NAME_DIALOG)}) !== null,
+           panelOpacity: opacityOf(${JSON.stringify(NAME_DIALOG)}),
+           scrim: opacityOf(${JSON.stringify(SCRIM)}),
+           standIn: opacityOf(${JSON.stringify(STAND_IN)}),
          });
          var c = window.__at0805;
          if (rects.length > 0) c.seen = true;
-         c.empty = c.seen && rects.length === 0 ? c.empty + 1 : 0;
+         // Settled means the rectangles and the stand-in scrim are both gone,
+         // and a standing scrim has finished dimming: the order-in's scrim
+         // starts only after its run has ended.
+         var s = window.__at0805.samples[window.__at0805.samples.length - 1];
+         var settled = rects.length === 0 && s.standIn === null && (s.scrim === null || s.scrim >= 0.99);
+         c.empty = c.seen && settled ? c.empty + 1 : 0;
          if (c.stop || c.empty >= 4 || performance.now() - t0 >= ${ms}) c.done = true;
          else requestAnimationFrame(tick);
        };
@@ -249,6 +275,43 @@ function checkRun(label: string, samples: Sample[], from: Box, to: Box): string[
   return wrong;
 }
 
+/**
+ * Check the order-in's scrim: clear through every lit frame, and first
+ * visible no earlier than the frame the panel has all but faded in.
+ */
+function checkScrimIn(samples: Sample[]): string[] {
+  const wrong: string[] = [];
+  const dimmedWhileLit = samples.filter((s) => s.lit.length > 0 && s.scrim !== null && s.scrim > 0.01);
+  if (dimmedWhileLit.length > 0) {
+    wrong.push(`in: the scrim dims while rectangles are lit, from t=${dimmedWhileLit[0].t.toFixed(0)}`);
+  }
+  const panelUp = samples.findIndex((s) => s.panelOpacity !== null && s.panelOpacity >= 0.9);
+  const scrimUp = samples.findIndex((s) => s.scrim !== null && s.scrim > 0.01);
+  note("at0805 in scrim", `panel ≥0.9 at frame ${panelUp}, scrim >0.01 at frame ${scrimUp}`);
+  if (scrimUp < 0) wrong.push("in: the scrim never dims within the census");
+  else if (panelUp < 0 || scrimUp < panelUp) wrong.push(`in: the scrim dims (frame ${scrimUp}) before the panel is in (frame ${panelUp})`);
+  return wrong;
+}
+
+/**
+ * Check a close's scrim: a stand-in up at full strength through every lit
+ * frame, lifting only after the last, and gone when the census ends.
+ */
+function checkScrimOut(label: string, samples: Sample[]): string[] {
+  const wrong: string[] = [];
+  const lastLit = samples.reduce((at, s, i) => (s.lit.length > 0 ? i : at), -1);
+  const firstLit = samples.findIndex((s) => s.lit.length > 0);
+  const bare = samples.slice(firstLit, lastLit + 1).filter((s) => s.standIn === null || s.standIn < 0.99);
+  if (firstLit >= 0 && bare.length > 0) {
+    wrong.push(`${label}: the scrim is lifting or gone while rectangles are lit, at t=${bare[0].t.toFixed(0)} (${bare[0].standIn})`);
+  }
+  const lifting = samples.findIndex((s) => s.standIn !== null && s.standIn < 0.99);
+  note(`at0805 ${label} scrim`, `last lit frame ${lastLit}, stand-in lifting from frame ${lifting}`);
+  if (lifting < 0) wrong.push(`${label}: no stand-in scrim was seen lifting`);
+  if (samples[samples.length - 1].standIn !== null) wrong.push(`${label}: the stand-in scrim outlives its fade`);
+  return wrong;
+}
+
 /** `selector`'s box in window points: its box in card `body`'s page, offset by the card's placeholder. */
 async function windowBoxOf(app: App, body: BodyApp, selector: string): Promise<Box> {
   const local = await body.evalJS<Box | null>(
@@ -319,7 +382,9 @@ describe.skipIf(!SHOULD_RUN)("AT0805: zoom rectangles around the workspace namin
         await armCensus(overlay, IN_MS);
         await home.nativeClickAtElement(NEW_BUTTON);
         const panel = await panelBox(overlay);
-        const wrong = checkRun("in", await readCensus(overlay), plus, panel);
+        const inSamples = await readCensus(overlay);
+        const wrong = checkRun("in", inSamples, plus, panel);
+        wrong.push(...checkScrimIn(inSamples));
 
         // ---- 2. Order-out: panel → the new workspace's top row --------------
         await app.nativeType("Studio");
@@ -337,6 +402,7 @@ describe.skipIf(!SHOULD_RUN)("AT0805: zoom rectangles around the workspace namin
         const card = app.body(shown.cardId);
         const row = await windowBoxOf(app, card, `${HEADER}[data-cards-space-id=${JSON.stringify(created)}]`);
         wrong.push(...checkRun("out", out, panel, row));
+        wrong.push(...checkScrimOut("out", out));
 
         // ---- 3. Cancel: panel → the + that raised it ------------------------
         const plus2 = await windowBoxOf(app, card, NEW_BUTTON);
@@ -355,7 +421,9 @@ describe.skipIf(!SHOULD_RUN)("AT0805: zoom rectangles around the workspace namin
         await armCensus(overlay, CANCEL_MS);
         await app.nativeKey("Escape");
         await modalGone(overlay);
-        wrong.push(...checkRun("cancel", await readCensus(overlay), panel2, plus2));
+        const cancelSamples = await readCensus(overlay);
+        wrong.push(...checkRun("cancel", cancelSamples, panel2, plus2));
+        wrong.push(...checkScrimOut("cancel", cancelSamples));
 
         // ---- 4. The menu's New: no source, no run, either way ---------------
         const MENU_MS = 4000;
@@ -370,6 +438,7 @@ describe.skipIf(!SHOULD_RUN)("AT0805: zoom rectangles around the workspace namin
         note("at0805 menu", `${menu.length} frames, max planted ${Math.max(...menu.map((s) => s.planted))}`);
         expect(menu.some((s) => s.panel), "the census saw the menu's modal").toBe(true);
         expect(menu.every((s) => s.planted === 0), "no rectangle is planted for a door with no place on screen").toBe(true);
+        expect(menu.every((s) => s.standIn === null), "a close with no run plants no stand-in scrim").toBe(true);
         expect(wrong, "every sampled run starts on its source and lands on its destination").toEqual([]);
       } finally {
         await app.close().catch(() => undefined);

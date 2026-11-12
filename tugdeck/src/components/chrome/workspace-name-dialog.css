@@ -2,8 +2,9 @@
  * WorkspaceNameDialog. The modal chrome (scrim, panel, shadow, z-index,
  * open and close animation) comes from the inherited `tug-alert-overlay` /
  * `tug-alert-content` classes and the title and button row from the shared
- * `.tug-alert-*` classes; this file styles only the field between them. No
- * color-setting rules: the field is a TugInput and wears its own tokens.
+ * `.tug-alert-*` classes; this file styles the field between them and the
+ * zoom's sequencing. Its one color-setting rule is the scrim stand-in, which
+ * wears the alert's own scrim alias.
  */
 
 .tug-workspace-name-dialog {
@@ -62,4 +63,40 @@
   animation:
     tug-workspace-name-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
     var(--tugx-zoom-sheet-run-duration, 400ms) backwards;
+}
+
+/*
+ * The scrim comes last both ways. In, it wears the panel's marks and waits
+ * one panel fade longer than the panel, so the deck dims only once the panel
+ * has arrived where the rectangles landed.
+ */
+@keyframes tug-workspace-name-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.tug-alert-overlay.tug-workspace-name-scrim[data-zoom="hold"][data-state="open"] {
+  animation: none;
+  opacity: 0;
+}
+
+.tug-alert-overlay.tug-workspace-name-scrim[data-zoom="run"][data-state="open"] {
+  animation:
+    tug-workspace-name-scrim-in calc(150ms * var(--tug-timing, 1)) ease-out
+    calc(var(--tugx-zoom-sheet-run-duration, 400ms) + 150ms * var(--tug-timing, 1)) backwards;
+}
+
+/*
+ * Out, the alert's scrim unmounts at once (`tug-alert.css` says why its exit
+ * names no animation), so `workspace-name-dialog.tsx` plants this stand-in as
+ * it goes: the scrim's look and place, no Radix node, dead to the pointer.
+ * TugAnimator holds it through the zoom run and then fades it.
+ */
+.tug-workspace-name-scrim-stand-in {
+  position: fixed;
+  inset: 0;
+  z-index: 99990;
+  pointer-events: none;
+  /* @tug-renders-on: --tugx-alert-overlay-bg */
+  background-color: var(--tugx-alert-overlay-bg);
 }

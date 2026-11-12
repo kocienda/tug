@@ -162,6 +162,15 @@ const ZOOM_RUN_FIGURES: Record<ZoomRunKind, ZoomRunFigures> = {
   sheet: { count: 20, durationMs: 400 },
 };
 
+/**
+ * A run's unscaled length, in ms — for a caller that sequences its own motion
+ * after the run's last rectangle goes out. TugAnimator scales a delay by the
+ * timing setting, so the figure is passed to it bare.
+ */
+export function zoomRunDurationMs(kind: ZoomRunKind): number {
+  return ZOOM_RUN_FIGURES[kind].durationMs;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
