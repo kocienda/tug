@@ -25,11 +25,18 @@
  * loading, so they have painted, or nearly, by the time the name is
  * committed and the deck cuts to it.
  *
- * A bound Session card is not made ahead. Its page is made by the session
- * restore pass when its workspace is first shown, which decides whether it
- * resumes or spawns, and a page made ahead of that pass would be handed the
- * pass's decision afterwards and spawn a second session. It shows its
- * skeleton on its workspace's first visit, as before.
+ * A Session card the ledger binds is not handed off by this pass. Its page
+ * is made by the session restore pass when its workspace is first shown,
+ * which decides whether it resumes or spawns, and a page made ahead of that
+ * pass would be handed the pass's decision afterwards and spawn a second
+ * session. It shows its skeleton on its workspace's first visit, as before.
+ *
+ * The one bound Session card this pass does make is one already handed off:
+ * a card some other page spawned for, which the shell made a body card at
+ * the unasked ack (`handOffUnaskedAck`, `session-restore.ts`) and which
+ * stands `unmade` with a `restore`. The shell holds its binding, so the
+ * restore pass passes over it and hands it no second decision; its page
+ * reads the ledger and resumes the session tugcast already holds.
  *
  * Laws: [L02] the stores are read by subscription; [L33] nothing waits on
  * a page made ahead, and a pass that finds nothing to do does nothing.
