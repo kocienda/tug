@@ -143,9 +143,14 @@ const ZOOM_RUN_DURATION_MS = 200;
  *
  * - `pill` — the update pill and wizard: one `moderate`, the pill's accent
  *   stroke, the figures above.
- * - `sheet` — the workspace naming sheet: a run twice as long with twice the
- *   rectangles, so the trip from a sidebar control to a centred panel is
- *   drawn in enough frames to be seen travelling, stroked in the text colour.
+ * - `sheet` — the workspace naming sheet. Its trip, from a sidebar control
+ *   to a centred panel, is long and crosses a busy deck with no scrim behind
+ *   it yet (the scrim arrives after the run), and the pill's figures read
+ *   there as a box that barely appears, vanishes, and shows only in its
+ *   last bunched frames. So everything is turned up: 600ms with a rectangle
+ *   per frame, even spacing so the middle of the trip is as dense as its
+ *   end, a six-deep trail whose members hold full strength for the first
+ *   half of their life before fading, and a 2px stroke in the text colour.
  *   Cross-reference: `--tugx-zoom-sheet-run-duration` in `zoom-rects.css`
  *   carries its duration, the way `--tugx-zoom-run-duration` carries the
  *   pill's.
@@ -155,11 +160,18 @@ export type ZoomRunKind = "pill" | "sheet";
 interface ZoomRunFigures {
   readonly count: number;
   readonly durationMs: number;
+  /** How many slots each rectangle is up for. */
+  readonly trail: number;
+  /** The spacing's bunching exponent; `1` is even. */
+  readonly ease: number;
+  /** The fraction of a rectangle's life it holds full strength before fading. */
+  readonly hold: number;
 }
 
 const ZOOM_RUN_FIGURES: Record<ZoomRunKind, ZoomRunFigures> = {
-  pill: { count: ZOOM_RECT_COUNT, durationMs: ZOOM_RUN_DURATION_MS },
-  sheet: { count: 20, durationMs: 400 },
+  pill: { count: ZOOM_RECT_COUNT, durationMs: ZOOM_RUN_DURATION_MS, trail: ZOOM_TRAIL_DEPTH, ease: ZOOM_EASE_POWER, hold: 0 },
+  // 31 stations + 6 trail = 36 slots over 600ms: a slot is one 60Hz frame.
+  sheet: { count: 31, durationMs: 600, trail: 6, ease: 1, hold: 0.5 },
 };
 
 /**
@@ -302,9 +314,9 @@ function lerp(a: number, b: number, t: number): number {
  * The eased parameter for the rectangle at `index` of `count`. Runs 0 → 1, with
  * its rate falling to zero at 1 so the frames bunch at the destination.
  */
-function bunchedParameter(index: number, count: number): number {
+function bunchedParameter(index: number, count: number, power: number): number {
   const u = count <= 1 ? 1 : index / (count - 1);
-  return 1 - Math.pow(1 - u, ZOOM_EASE_POWER);
+  return 1 - Math.pow(1 - u, power);
 }
 
 /**
@@ -329,18 +341,18 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "
   if (host === null) return false;
   const token = runToken;
   host.dataset.kind = kind;
-  const { count, durationMs } = ZOOM_RUN_FIGURES[kind];
+  const { count, durationMs, trail, ease, hold } = ZOOM_RUN_FIGURES[kind];
 
   // The run's unscaled clock, in slots. A rectangle lights at its own slot and
-  // is gone `ZOOM_TRAIL_DEPTH` slots later, so the last one goes out at slot
+  // is gone `trail` slots later, so the last one goes out at slot
   // `count - 1 + trail` and the whole run is that many slots long.
-  const slotCount = count - 1 + ZOOM_TRAIL_DEPTH;
+  const slotCount = count - 1 + trail;
   const slotMs = durationMs / slotCount;
-  const lifeMs = slotMs * ZOOM_TRAIL_DEPTH;
+  const lifeMs = slotMs * trail;
 
   const rects: HTMLDivElement[] = [];
   for (let i = 0; i < count; i += 1) {
-    const t = bunchedParameter(i, count);
+    const t = bunchedParameter(i, count, ease);
     const el = document.createElement("div");
     el.className = "tugx-zoom-rect";
     el.dataset.slot = "zoom-rect";
@@ -358,8 +370,12 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "
   // while it waits — the animation fills forwards only, so nothing paints
   // before its slot arrives, and the frame's arrival is the discrete pop the
   // original had rather than a fade-in.
+  const keyframes: Keyframe[] =
+    hold > 0
+      ? [{ opacity: 1 }, { opacity: 1, offset: hold }, { opacity: 0 }]
+      : [{ opacity: 1 }, { opacity: 0 }];
   const finishes = rects.map((el, i) =>
-    animate(el, [{ opacity: 1 }, { opacity: 0 }], {
+    animate(el, keyframes, {
       duration: lifeMs,
       delay: i * slotMs,
       easing: "linear",

@@ -18,6 +18,10 @@
  * 4. **No source, no run.** New raised from the Window menu's row — a door
  *    with no place on screen — plants no rectangle and marks no `data-zoom`,
  *    on the way in or out.
+ * 4a. **Seen all the way.** Every frame from the run's first lit frame to its
+ *    arrival has a rectangle at full strength: a run that pops each box and
+ *    fades it at once reads, on a busy deck, as one that barely appears and
+ *    shows only where it bunches at the end.
  * 5. **The scrim comes last both ways.** In, the scrim stays clear while any
  *    rectangle is lit and dims the deck only once the panel has faded in. Out
  *    and on a cancel, a stand-in scrim stays up, undimmed, through every lit
@@ -87,6 +91,8 @@ interface Sample {
   planted: number;
   /** The boxes of the rectangles painting anything. */
   lit: Box[];
+  /** The strongest opacity among the standing rectangles, 0 when none. */
+  peak: number;
   /** Whether the panel is in the DOM. */
   panel: boolean;
   /** The panel's opacity, `null` when it is not in the DOM. */
@@ -174,8 +180,11 @@ async function armCensus(overlay: BodyApp, ms: number): Promise<void> {
          var layer = document.querySelector(${JSON.stringify(LAYER)});
          var rects = layer === null ? [] : Array.prototype.slice.call(layer.children);
          var lit = [];
+         var peak = 0;
          for (var i = 0; i < rects.length; i += 1) {
-           if (!(parseFloat(getComputedStyle(rects[i]).opacity) > 0.01)) continue;
+           var o = parseFloat(getComputedStyle(rects[i]).opacity);
+           if (o > peak) peak = o;
+           if (!(o > 0.01)) continue;
            var r = rects[i].getBoundingClientRect();
            lit.push({ left: r.left, top: r.top, width: r.width, height: r.height });
          }
@@ -183,6 +192,7 @@ async function armCensus(overlay: BodyApp, ms: number): Promise<void> {
            t: performance.now() - t0,
            planted: rects.length,
            lit: lit,
+           peak: peak,
            panel: document.querySelector(${JSON.stringify(NAME_DIALOG)}) !== null,
            panelOpacity: opacityOf(${JSON.stringify(NAME_DIALOG)}),
            scrim: opacityOf(${JSON.stringify(SCRIM)}),
@@ -270,6 +280,15 @@ function checkRun(label: string, samples: Sample[], from: Box, to: Box): string[
     wrong.push(`${label}: the leading rectangle never arrives on the destination's box ${JSON.stringify(to)}; last ${JSON.stringify(lead[lead.length - 1])}`);
   } else if (worstRegression(lead.slice(0, arrived + 1).map((b) => b.width), growing) >= 1) {
     wrong.push(`${label}: the leading rectangle travels back`);
+  }
+  // Seen all the way: lit frames up to the arrival each carry a box at full strength.
+  if (arrived >= 0) {
+    const travelling = samples.filter((s) => s.lit.length > 0).slice(0, arrived + 1);
+    const weak = travelling.filter((s) => s.peak < 0.99);
+    note(`at0805 ${label} peaks`, travelling.map((s) => s.peak.toFixed(2)).join(" "));
+    if (weak.length > 0) {
+      wrong.push(`${label}: ${weak.length} of ${travelling.length} travelling frames have no rectangle at full strength (first at t=${weak[0].t.toFixed(0)}, peak ${weak[0].peak.toFixed(2)})`);
+    }
   }
   if (samples[samples.length - 1].planted !== 0) wrong.push(`${label}: rectangles outlive the run`);
   return wrong;
