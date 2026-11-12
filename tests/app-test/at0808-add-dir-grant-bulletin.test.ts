@@ -1,14 +1,15 @@
 /**
- * at0808-add-dir-grant-bulletin.test.ts — `/add-dir <path>` asks the
- * terminal's question, says "added" only once the session holds the folder,
- * and the Session Summary lists what it holds.
+ * at0808-add-dir-grant-bulletin.test.ts — `/add-dir <path>` asks whether to
+ * add the folder, says "added" only once the session holds it, and the
+ * Session Summary lists what it holds.
  *
  * ## What this gates
  *
- * `/add-dir` names its folder the way `/cd` does, then asks, pane-modal, the
- * terminal's two-scope question: "Yes, for this session" or "Yes, and remember
- * this directory". The answer it bulletins is read off two stores the frames
- * reach separately, which only the running card puts together:
+ * `/add-dir` names its folder the way `/cd` does, then asks, pane-modal, "Add
+ * this directory?" with two plain buttons, Cancel and Add, and an unchecked
+ * checkbox to include the folder in the project's future sessions. The answer
+ * it bulletins is read off two stores the frames reach separately, which only
+ * the running card puts together:
  *
  *   A. **A grant is said once the session holds the folder.** tugcode sends
  *      the session's list on `system_metadata` (the metadata store's) and its
@@ -122,18 +123,29 @@ async function readDirectoriesRow(app: App): Promise<string[] | null> {
   return read;
 }
 
-/** Run `/add-dir <dir>` and take "Yes, for this session" in its dialog. */
-async function grantForThisSession(app: App, dir: string): Promise<string[]> {
+/** What the dialog showed: its buttons, its checkbox's label and whether it opened checked. */
+interface DialogReading {
+  buttons: string[];
+  checkbox: string;
+  checked: boolean;
+}
+
+/** Run `/add-dir <dir>` and press Add in its dialog, leaving the checkbox alone. */
+async function grantForThisSession(app: App, dir: string): Promise<DialogReading> {
   // card-dom: shell — `run-card-command` is the shell's action (the menu's
   // door); the shell routes it to the key card's body.
   await app.dispatchControlAction("run-card-command", { name: "add-dir", args: dir });
   await app.body("S").waitForCondition<boolean>(
-    `document.querySelector('[data-testid="alert-alternate"]') !== null`,
+    `document.querySelector('[data-testid="alert-checkbox"]') !== null`,
     { timeoutMs: 8_000 },
   );
-  const labels = await app.body("S").evalJS<string[]>(
-    `Array.from(document.querySelectorAll('.tug-alert-actions button')).map(function (b) {
-      return (b.textContent || "").trim();
+  const reading = await app.body("S").evalJS<DialogReading>(
+    `({
+      buttons: Array.from(document.querySelectorAll('.tug-alert-actions button')).map(function (b) {
+        return (b.textContent || "").trim();
+      }),
+      checkbox: (document.querySelector('.tug-alert-checkbox').textContent || "").trim(),
+      checked: document.querySelector('[data-testid="alert-checkbox"]').getAttribute("data-state") === "checked",
     })`,
   );
   await app.body("S").click('[data-testid="alert-confirm"]');
@@ -141,12 +153,12 @@ async function grantForThisSession(app: App, dir: string): Promise<string[]> {
     `document.querySelector(${JSON.stringify(ALERT_TITLE)}) === null`,
     { timeoutMs: 8_000 },
   );
-  return labels;
+  return reading;
 }
 
 describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
   test(
-    "the dialog asks the terminal's question; a grant is said once held and listed, a refusal with its reason",
+    "the dialog asks with Cancel and Add and an unchecked project checkbox; a grant is said once held and listed, a refusal with its reason",
     async () => {
       const app = await launchTugApp({ testName: "at0808-add-dir-grant-bulletin" });
       try {
@@ -157,8 +169,12 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
         expect(await readDirectoriesRow(app), "no Directories row before a grant").toBeNull();
 
         // ---- A. Granted: the answer alone is not enough to say "added". ----
-        const labels = await grantForThisSession(app, GRANTED);
-        expect(labels).toEqual(["Cancel", "Yes, and remember this directory", "Yes, for this session"]);
+        const dialog = await grantForThisSession(app, GRANTED);
+        expect(dialog).toEqual({
+          buttons: ["Cancel", "Add"],
+          checkbox: `Include this directory in all ${PROJECT_DIR} sessions in the future`,
+          checked: false,
+        });
 
         await app.body("S").driveSession({
           op: "ingestFrame",

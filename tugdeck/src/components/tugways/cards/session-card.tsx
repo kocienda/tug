@@ -159,7 +159,7 @@ import {
   useTugSheet,
   type TugSheetHandle,
 } from "../tug-sheet";
-import { presentAlertSheet, presentAlertSheetChoice } from "../tug-alert-sheet";
+import { presentAlertSheet, presentAlertSheetWithCheckbox } from "../tug-alert-sheet";
 import { awaitDirectoryGrant, rememberDirectory } from "@/lib/directory-grant";
 import { displayPath } from "@/lib/memory-destinations";
 import { useResponderChain } from "../responder-chain-provider";
@@ -3854,29 +3854,32 @@ export function SessionCardBody({
     if (invoked === undefined || getConnection() === null) return;
     if (!guardTurnIdleForSetting("the directories")) return;
     const grant = (dir: string) => {
-      void presentAlertSheetChoice(cardPickerSheet.showSheet, {
+      const home = hostFactsStore.getSnapshot()?.home ?? "";
+      void presentAlertSheetWithCheckbox(cardPickerSheet.showSheet, {
         title: "Add this directory?",
-        message: `${displayPath(dir, hostFactsStore.getSnapshot()?.home ?? "")} becomes readable and writable by this session.`,
+        message: `${displayPath(dir, home)} becomes readable and writable by this session.`,
         icon: <FolderPlus aria-hidden="true" />,
-        confirmLabel: "Yes, for this session",
-        alternateLabel: "Yes, and remember this directory",
+        // Checked, the folder is also written to the project's local
+        // settings, so every later session in the project starts with it.
+        checkboxLabel: `Include this directory in all ${displayPath(invoked.projectDir, home)} sessions in the future`,
+        confirmLabel: "Add",
         cancelLabel: "Cancel",
-      }).then(async (choice) => {
-        if (choice === null) return;
+      }).then(async (answer) => {
+        if (answer === null) return;
         // The dialog is asynchronous: read the binding and the turn again.
         const binding = cardSessionBindingStore.getBinding(cardId);
         if (binding === undefined || getConnection() === null) return;
         if (!guardTurnIdleForSetting("the directories")) return;
-        if (choice === "alternate" && !(await rememberDirectory(binding.projectDir, dir))) {
+        if (answer.checked && !(await rememberDirectory(binding.projectDir, dir))) {
           paneBulletinRef.current?.caution("Couldn't save the directory to the project's settings");
         }
-        const answer = awaitDirectoryGrant({
+        const granted = awaitDirectoryGrant({
           grants: codeSessionStore,
           directories: sessionMetadataStore,
           directory: dir,
         });
         codeSessionStore.addDirectory(dir);
-        const outcome = await answer;
+        const outcome = await granted;
         const shown = displayPath(outcome.directory, hostFactsStore.getSnapshot()?.home ?? "");
         if (outcome.ok) paneBulletinRef.current?.success(`Directory added: ${shown}`);
         else paneBulletinRef.current?.caution(`Couldn't add the directory: ${outcome.reason}`);

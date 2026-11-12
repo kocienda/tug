@@ -302,6 +302,12 @@ body {
   opacity: 0.8;
 }
 
+/* ---- Checkbox (an alert sheet's qualifier under the message) ---- */
+
+.tug-alert-checkbox {
+  margin-top: var(--tugx-header-desc-gap);
+}
+
 /* ---- Rich chooser rows (choose() with per-choice icon + description) ----
    The chooser is a selectable LIST, not a stack of buttons: one bordered, rounded
    frame hosts `flush` `TugListRow`s that carry the list idiom (neutral rest, the

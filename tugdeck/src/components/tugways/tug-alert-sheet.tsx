@@ -30,6 +30,8 @@ import type { TugButtonRole } from "@/components/tugways/tug-push-button";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 import { MODAL_REST_LINE } from "@/components/tugways/cards/modal-rest-line";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
+import { TugCheckbox } from "@/components/tugways/tug-checkbox";
+import { useResponderForm } from "@/components/tugways/use-responder-form";
 
 export interface AlertSheetOptions {
   /** Alert title (required). */
@@ -45,19 +47,18 @@ export interface AlertSheetOptions {
   /** Cancel button label, or `null` for a single-button alert. @default null */
   cancelLabel?: string | null;
   /**
-   * A second affirmative choice, shown outlined between Cancel and the
-   * confirm button, or `null` for none. Read through
-   * {@link presentAlertSheetChoice}, which says which of the two was taken.
+   * A checkbox under the message, unchecked at open, or `null` for none. It
+   * qualifies the confirm rather than adding a choice, so the buttons stay
+   * simple actions. Read through {@link presentAlertSheetWithCheckbox}.
    * @default null
    */
-  alternateLabel?: string | null;
+  checkboxLabel?: string | null;
 }
 
 interface TugAlertSheetViewProps extends AlertSheetOptions {
-  onConfirm: () => void;
+  /** Called with the checkbox's state; `false` when there is none. */
+  onConfirm: (checked: boolean) => void;
   onCancel: () => void;
-  /** Required when `alternateLabel` is set. */
-  onAlternate?: () => void;
 }
 
 /**
@@ -71,10 +72,9 @@ export function TugAlertSheetView({
   confirmLabel = "OK",
   confirm,
   cancelLabel = null,
-  alternateLabel = null,
+  checkboxLabel = null,
   onConfirm,
   onCancel,
-  onAlternate,
 }: TugAlertSheetViewProps): React.ReactElement {
   const confirmButtonRole = confirm?.role ?? "action";
   const iconNode =
@@ -87,14 +87,24 @@ export function TugAlertSheetView({
   // danger fill stays on the confirm as role signaling. Single-button
   // alerts seed the lone confirm.
   const focusGroup = React.useId();
-  const CANCEL_ORDER = 0;
-  const ALTERNATE_ORDER = 1;
+  // The checkbox, when there is one, is the first Tab stop: it sits above
+  // the actions, in the text column.
+  const CHECKBOX_ORDER = 0;
+  const CANCEL_ORDER = 1;
   const CONFIRM_ORDER = 2;
   const seedOrder =
     confirmButtonRole === "danger" && cancelLabel !== null ? CANCEL_ORDER : CONFIRM_ORDER;
   useSeedKeyView(`${focusGroup}:${seedOrder}`);
+  // The checkbox reports through the chain ([L11]); the form scope catches
+  // its toggle and keeps the state the confirm reads.
+  const [checked, setChecked] = React.useState(false);
+  const checkboxId = React.useId();
+  const { ResponderScope, responderRef } = useResponderForm({
+    toggle: { [checkboxId]: setChecked },
+  });
   return (
-    <div className="tug-alert-sheet">
+    <ResponderScope>
+    <div className="tug-alert-sheet" ref={responderRef as React.Ref<HTMLDivElement>}>
       <div
         className="tug-alert-body"
         data-scale="alert"
@@ -112,6 +122,19 @@ export function TugAlertSheetView({
           {message !== undefined && message !== null ? (
             <p className="tug-alert-message">{message}</p>
           ) : null}
+          {checkboxLabel !== null ? (
+            <div className="tug-alert-checkbox">
+              <TugCheckbox
+                size="sm"
+                checked={checked}
+                senderId={checkboxId}
+                label={checkboxLabel}
+                data-testid="alert-checkbox"
+                focusGroup={focusGroup}
+                focusOrder={CHECKBOX_ORDER}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="tug-alert-actions">
@@ -128,24 +151,11 @@ export function TugAlertSheetView({
             {cancelLabel}
           </TugPushButton>
         ) : null}
-        {alternateLabel !== null ? (
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            onClick={onAlternate}
-            data-testid="alert-alternate"
-            focusGroup={focusGroup}
-            focusOrder={ALTERNATE_ORDER}
-          >
-            {alternateLabel}
-          </TugPushButton>
-        ) : null}
         <TugPushButton
           size="sm"
           emphasis={confirmButtonRole === "action" ? "primary" : "filled"}
           role={confirmButtonRole}
-          onClick={onConfirm}
+          onClick={() => onConfirm(checked)}
           data-testid="alert-confirm"
           focusGroup={focusGroup}
           focusOrder={CONFIRM_ORDER}
@@ -154,6 +164,7 @@ export function TugAlertSheetView({
         </TugPushButton>
       </div>
     </div>
+    </ResponderScope>
   );
 }
 
@@ -191,20 +202,16 @@ export function presentAlertSheet(
   }).then((result) => result === "ok");
 }
 
-/** Which affirmative choice a {@link presentAlertSheetChoice} alert took. */
-export type AlertSheetChoice = "confirm" | "alternate";
-
 /**
- * Present a pane-modal alert with two affirmative choices — the confirm
- * button (the default, on Enter) and `alternateLabel` beside it — and resolve
- * which was taken, or `null` when cancelled or dismissed. Presented as
- * {@link presentAlertSheet} is, at `md` width so three buttons sit on one
- * row.
+ * Present a pane-modal alert with a checkbox under its message, and resolve
+ * `{ checked }` when confirmed, or `null` when cancelled or dismissed.
+ * Presented as {@link presentAlertSheet} is, at `md` width so a long
+ * checkbox label sits on one line.
  */
-export function presentAlertSheetChoice(
+export function presentAlertSheetWithCheckbox(
   showSheet: (options: ShowSheetOptions) => Promise<string | undefined>,
-  options: AlertSheetOptions & { alternateLabel: string },
-): Promise<AlertSheetChoice | null> {
+  options: AlertSheetOptions & { checkboxLabel: string },
+): Promise<{ checked: boolean } | null> {
   return showSheet({
     title: options.title,
     displayWidth: "md",
@@ -214,10 +221,11 @@ export function presentAlertSheetChoice(
     content: (close) => (
       <TugAlertSheetView
         {...options}
-        onConfirm={() => close("confirm")}
-        onAlternate={() => close("alternate")}
+        onConfirm={(checked) => close(checked ? "checked" : "unchecked")}
         onCancel={() => close()}
       />
     ),
-  }).then((result) => (result === "confirm" || result === "alternate" ? result : null));
+  }).then((result) =>
+    result === "checked" || result === "unchecked" ? { checked: result === "checked" } : null,
+  );
 }
