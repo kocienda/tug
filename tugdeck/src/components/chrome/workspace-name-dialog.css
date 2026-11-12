@@ -44,7 +44,8 @@
  * marks, because the run waits out the panel's own first frame: `hold` from
  * the mount, hidden with no animation at all, so the box measured for the run
  * is the panel at its real size; then `run` when the rectangles plant, a fade
- * with no scale term delayed by the run's length. `backwards` holds it at
+ * with no scale term delayed until the last rectangle lands, so the stack of
+ * them fades out as the panel fades in beneath it. `backwards` holds it at
  * `opacity: 0` through the delay; the shorthand resets what the alert's own
  * entrance wrote. The close is untouched. Neither mark is set when no run
  * would plant.
@@ -62,13 +63,13 @@
 .tug-alert-content.tug-workspace-name-dialog[data-zoom="run"][data-state="open"] {
   animation:
     tug-workspace-name-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
-    var(--tugx-zoom-sheet-run-duration, 450ms) backwards;
+    var(--tugx-zoom-sheet-landing, 450ms) backwards;
 }
 
 /*
  * The scrim comes last both ways. In, it wears the panel's marks and waits
  * one panel fade longer than the panel, so the deck dims only once the panel
- * has arrived where the rectangles landed.
+ * has arrived where the rectangles landed and the last of them is gone.
  */
 @keyframes tug-workspace-name-scrim-in {
   from { opacity: 0; }
@@ -83,7 +84,7 @@
 .tug-alert-overlay.tug-workspace-name-scrim[data-zoom="run"][data-state="open"] {
   animation:
     tug-workspace-name-scrim-in calc(150ms * var(--tug-timing, 1)) ease-out
-    calc(var(--tugx-zoom-sheet-run-duration, 450ms) + 150ms * var(--tug-timing, 1)) backwards;
+    calc(var(--tugx-zoom-sheet-landing, 450ms) + 150ms * var(--tug-timing, 1)) backwards;
 }
 
 /*

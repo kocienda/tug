@@ -22,7 +22,8 @@
  *
  * A run of rectangles — {@link ZOOM_RECT_COUNT} of them — planted once each at
  * their own interpolated geometry, and turned on and off on a schedule.
- * **Nothing interpolates position or size**
+ * That is the `pill` run; the `sheet` run travels instead, and `ZoomRunKind`
+ * says why. In the pill's, **nothing interpolates position or size**
  * ([B01]): a discrete frame sequence is what the original Finder drew ([F08]),
  * and it sidesteps the trap a scale transform on a 1px border springs, where the
  * stroke thickens with the box. The only animated property is opacity.
@@ -137,53 +138,98 @@ const ZOOM_EASE_POWER = 1.25;
 const ZOOM_RUN_DURATION_MS = 200;
 
 /**
- * The two kinds of run. A run's figures are tied together: a rectangle per
- * display frame is what the original drew, so a longer run plants more
- * rectangles rather than holding each one up longer.
+ * The two kinds of run, which are two different constructions.
  *
- * - `pill` — the update pill and wizard: one `moderate`, the pill's accent
- *   stroke, the figures above.
- * - `sheet` — the workspace naming sheet. Its trip, from a sidebar control
- *   to a centred panel, is long and crosses a busy deck with no scrim behind
- *   it yet (the scrim arrives after the run), and the pill's figures read
- *   there as a box that barely appears, vanishes, and shows only in its
- *   last bunched frames. So it is turned up: 450ms with a rectangle per
- *   frame, even spacing so the middle of the trip is as dense as its end, a
- *   four-deep trail whose members hold full strength for the first half of
- *   their life before fading, and a 1.5px stroke in the text colour. A
- *   600ms run with a six-deep trail and a 2px stroke was tried on the user's
- *   deck (2026-11-12): every frame drawn, and far too much — a thicket of up
- *   to seventeen boxes.
- *   Cross-reference: `--tugx-zoom-sheet-run-duration` in `zoom-rects.css`
- *   carries its duration, the way `--tugx-zoom-run-duration` carries the
- *   pill's.
+ * - `pill` — the update pill and wizard, drawn in **stations**: the figures
+ *   above, a rectangle planted per display frame and turned on and off in
+ *   turn, in the pill's accent stroke.
+ * - `sheet` — the workspace naming sheet, drawn in **travel**: a lead
+ *   rectangle and its echoes, each one element that really moves from the
+ *   source's box to the destination's. This reverses [B01] for the sheet, on
+ *   purpose. Its trip, from a sidebar control to a centred panel, is long and
+ *   crosses a busy deck with no scrim behind it, and stations fail there in
+ *   three ways no figure tunes out (tried on the user's deck at 400ms, 600ms
+ *   and 450ms, 2026-11-12): position advances in jumps of tens of pixels; the
+ *   station clock and the display's refresh are two unsynchronised 16.7ms
+ *   ticks, so some frames light two boxes and some none, and a late frame
+ *   swallows a station whole; and a lit box fades where it was planted, so
+ *   the trail is residue behind the lead rather than something following it.
+ *
+ *   In travel, position is a function of time: every frame draws where each
+ *   box is at that instant, at any refresh rate, and a late frame costs one
+ *   longer step and leaves nothing stale. The echoes run the lead's own
+ *   animation, each starting `lagMs` after the one ahead at a lower
+ *   strength, so they start stacked on the source, spread at speed, close up
+ *   as the lead slows, and land stacked on the destination — where the stack
+ *   is the arriving panel's outline, and fades out as the panel fades in.
+ *
+ *   The box's `left`/`top`/`width`/`height` are what animate, not a scale
+ *   transform, which would thicken and thin the stroke with the box. That is
+ *   layout on every frame, for a handful of absolutely positioned boxes in
+ *   the overlay page, which has nothing else to lay out.
+ *
+ *   Cross-reference: `--tugx-zoom-sheet-landing` in `zoom-rects.css` must
+ *   equal the landing, `travelMs + lagMs * (strengths.length - 1)`.
  */
 export type ZoomRunKind = "pill" | "sheet";
 
-interface ZoomRunFigures {
+interface StationFigures {
+  readonly style: "stations";
   readonly count: number;
   readonly durationMs: number;
   /** How many slots each rectangle is up for. */
   readonly trail: number;
   /** The spacing's bunching exponent; `1` is even. */
   readonly ease: number;
-  /** The fraction of a rectangle's life it holds full strength before fading. */
-  readonly hold: number;
 }
 
-const ZOOM_RUN_FIGURES: Record<ZoomRunKind, ZoomRunFigures> = {
-  pill: { count: ZOOM_RECT_COUNT, durationMs: ZOOM_RUN_DURATION_MS, trail: ZOOM_TRAIL_DEPTH, ease: ZOOM_EASE_POWER, hold: 0 },
-  // 24 stations + 4 trail = 27 slots over 450ms: a slot is one 60Hz frame.
-  sheet: { count: 24, durationMs: 450, trail: 4, ease: 1, hold: 0.5 },
+interface TravelFigures {
+  readonly style: "travel";
+  /** How long one rectangle takes from source to destination. */
+  readonly travelMs: number;
+  /** How far behind the one ahead each echo starts. */
+  readonly lagMs: number;
+  /** The lead's strength, then each echo's. Its length is how many travel. */
+  readonly strengths: readonly number[];
+  /** The stack's fade once the last echo has landed. */
+  readonly fadeMs: number;
+  /** The trip's pacing: off the source gently, onto the destination gently. */
+  readonly easing: string;
+}
+
+const ZOOM_RUN_FIGURES: { readonly pill: StationFigures; readonly sheet: TravelFigures } = {
+  pill: {
+    style: "stations",
+    count: ZOOM_RECT_COUNT,
+    durationMs: ZOOM_RUN_DURATION_MS,
+    trail: ZOOM_TRAIL_DEPTH,
+    ease: ZOOM_EASE_POWER,
+  },
+  // Lands at 360 + 3 × 30 = 450ms; the fade is shorter than the panel's 150ms
+  // fade-in so the stack is gone before the scrim, which waits on the panel.
+  sheet: {
+    style: "travel",
+    travelMs: 360,
+    lagMs: 30,
+    strengths: [1, 0.6, 0.35, 0.15],
+    fadeMs: 100,
+    easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+  },
 };
 
+/** When a travelling run's last echo lands, unscaled. */
+function landingMs(figures: TravelFigures): number {
+  return figures.travelMs + figures.lagMs * (figures.strengths.length - 1);
+}
+
 /**
- * A run's unscaled length, in ms — for a caller that sequences its own motion
- * after the run's last rectangle goes out. TugAnimator scales a delay by the
- * timing setting, so the figure is passed to it bare.
+ * A run's whole unscaled length, in ms, to its last rectangle going out — for
+ * a caller that sequences its own motion after the run. TugAnimator scales a
+ * delay by the timing setting, so the figure is passed to it bare.
  */
 export function zoomRunDurationMs(kind: ZoomRunKind): number {
-  return ZOOM_RUN_FIGURES[kind].durationMs;
+  const figures = ZOOM_RUN_FIGURES[kind];
+  return figures.style === "stations" ? figures.durationMs : landingMs(figures) + figures.fadeMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +390,40 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "
   if (host === null) return false;
   const token = runToken;
   host.dataset.kind = kind;
-  const { count, durationMs, trail, ease, hold } = ZOOM_RUN_FIGURES[kind];
+  const figures = ZOOM_RUN_FIGURES[kind];
+
+  const finishes =
+    figures.style === "stations" ? plantStations(host, from, to, figures) : plantTravel(host, from, to, figures);
+
+  void Promise.allSettled(finishes).then(() => {
+    if (runToken === token) clearZoomRects();
+  });
+
+  return true;
+}
+
+/** A rectangle element for the layer, not yet placed. */
+function makeRect(index: number): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "tugx-zoom-rect";
+  el.dataset.slot = "zoom-rect";
+  el.dataset.index = String(index);
+  return el;
+}
+
+/** `rect` as the four inline lengths a rectangle is placed with, in layout px. */
+function placement(rect: ZoomRect): { left: string; top: string; width: string; height: string } {
+  return {
+    left: `${layoutPxOf(rect.left)}px`,
+    top: `${layoutPxOf(rect.top)}px`,
+    width: `${layoutPxOf(rect.width)}px`,
+    height: `${layoutPxOf(rect.height)}px`,
+  };
+}
+
+/** The `pill` construction: a rectangle per station, lit in turn. */
+function plantStations(host: HTMLElement, from: ZoomRect, to: ZoomRect, figures: StationFigures): Promise<void>[] {
+  const { count, durationMs, trail, ease } = figures;
 
   // The run's unscaled clock, in slots. A rectangle lights at its own slot and
   // is gone `trail` slots later, so the last one goes out at slot
@@ -356,14 +435,16 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "
   const rects: HTMLDivElement[] = [];
   for (let i = 0; i < count; i += 1) {
     const t = bunchedParameter(i, count, ease);
-    const el = document.createElement("div");
-    el.className = "tugx-zoom-rect";
-    el.dataset.slot = "zoom-rect";
-    el.dataset.index = String(i);
-    el.style.left = `${layoutPxOf(lerp(from.left, to.left, t))}px`;
-    el.style.top = `${layoutPxOf(lerp(from.top, to.top, t))}px`;
-    el.style.width = `${layoutPxOf(lerp(from.width, to.width, t))}px`;
-    el.style.height = `${layoutPxOf(lerp(from.height, to.height, t))}px`;
+    const el = makeRect(i);
+    Object.assign(
+      el.style,
+      placement({
+        left: lerp(from.left, to.left, t),
+        top: lerp(from.top, to.top, t),
+        width: lerp(from.width, to.width, t),
+        height: lerp(from.height, to.height, t),
+      }),
+    );
     host.appendChild(el);
     rects.push(el);
   }
@@ -373,21 +454,47 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "
   // while it waits — the animation fills forwards only, so nothing paints
   // before its slot arrives, and the frame's arrival is the discrete pop the
   // original had rather than a fade-in.
-  const keyframes: Keyframe[] =
-    hold > 0
-      ? [{ opacity: 1 }, { opacity: 1, offset: hold }, { opacity: 0 }]
-      : [{ opacity: 1 }, { opacity: 0 }];
-  const finishes = rects.map((el, i) =>
-    animate(el, keyframes, {
-      duration: lifeMs,
-      delay: i * slotMs,
-      easing: "linear",
-    }).finished,
+  return rects.map(
+    (el, i) =>
+      animate(el, [{ opacity: 1 }, { opacity: 0 }], {
+        duration: lifeMs,
+        delay: i * slotMs,
+        easing: "linear",
+      }).finished,
   );
+}
 
-  void Promise.allSettled(finishes).then(() => {
-    if (runToken === token) clearZoomRects();
-  });
+/** The `sheet` construction: a lead and its echoes, each travelling the whole trip. */
+function plantTravel(host: HTMLElement, from: ZoomRect, to: ZoomRect, figures: TravelFigures): Promise<void>[] {
+  const { travelMs, lagMs, strengths, fadeMs, easing } = figures;
+  const start = placement(from);
+  const end = placement(to);
+  const landing = landingMs(figures);
 
-  return true;
+  // Faintest first, so the lead paints over its echoes where they stack.
+  const finishes: Promise<void>[] = [];
+  for (let i = strengths.length - 1; i >= 0; i -= 1) {
+    const el = makeRect(i);
+    Object.assign(el.style, start);
+    host.appendChild(el);
+
+    // The trip. `both`: on the source through its own lag, on the destination
+    // from its landing until the layer is retired.
+    animate(el, [start, end], { duration: travelMs, delay: i * lagMs, easing, fill: "both" }).finished.catch(() => {
+      /* a run dropped mid-trip is nothing to report */
+    });
+
+    // The strength. `both` again: its own strength from the first frame, over
+    // the stylesheet's resting `opacity: 0`, until the whole stack has landed;
+    // then every member fades together.
+    finishes.push(
+      animate(el, [{ opacity: strengths[i] }, { opacity: 0 }], {
+        duration: fadeMs,
+        delay: landing,
+        easing: "linear",
+        fill: "both",
+      }).finished,
+    );
+  }
+  return finishes;
 }

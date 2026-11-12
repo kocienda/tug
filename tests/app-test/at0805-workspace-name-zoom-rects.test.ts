@@ -22,6 +22,11 @@
  *    arrival has a rectangle at full strength: a run that pops each box and
  *    fades it at once reads, on a busy deck, as one that barely appears and
  *    shows only where it bunches at the end.
+ * 4b. **Nothing is left behind.** A rectangle lit anywhere between the
+ *    source's box and the destination's is moving: across any two frames in
+ *    a row it has changed place. A box that lights at a station and fades
+ *    there is residue behind the lead, and the run judders from one such box
+ *    to the next.
  * 5. **The scrim comes last both ways.** In, the scrim stays clear while any
  *    rectangle is lit and dims the deck only once the panel has faded in. Out
  *    and on a cancel, a stand-in scrim stays up, undimmed, through every lit
@@ -35,10 +40,11 @@
  * and its early frames are simply empty. The timing scale is set to 1 by
  * this file rather than inherited.
  *
- * The look — trail depth, the ease's bunching — is taste and is not pinned.
- * What is pinned is the shape a tuning pass must not break: travel that is
- * monotonic, starts on the source's box and ends on the destination's, a run
- * that cleans up after itself, and no run where there is no source.
+ * The look — how many echoes, their lag, the pacing — is taste and is not
+ * pinned. What is pinned is the shape a tuning pass must not break: travel
+ * that is monotonic and continuous, starts on the source's box and ends on
+ * the destination's, a run that cleans up after itself, and no run where
+ * there is no source.
  *
  * @covers tugdeck/src/components/chrome/zoom-rects.ts
  * @covers tugdeck/src/components/chrome/workspace-name-dialog.tsx
@@ -84,13 +90,18 @@ interface Box {
   height: number;
 }
 
+/** A lit rectangle's box, and which rectangle of the run it is. */
+interface LitBox extends Box {
+  index: string;
+}
+
 /** One frame of a census. */
 interface Sample {
   t: number;
   /** Rectangles standing in the layer, lit or not. */
   planted: number;
   /** The boxes of the rectangles painting anything. */
-  lit: Box[];
+  lit: LitBox[];
   /** The strongest opacity among the standing rectangles, 0 when none. */
   peak: number;
   /** Whether the panel is in the DOM. */
@@ -186,7 +197,7 @@ async function armCensus(overlay: BodyApp, ms: number): Promise<void> {
            if (o > peak) peak = o;
            if (!(o > 0.01)) continue;
            var r = rects[i].getBoundingClientRect();
-           lit.push({ left: r.left, top: r.top, width: r.width, height: r.height });
+           lit.push({ left: r.left, top: r.top, width: r.width, height: r.height, index: rects[i].dataset.index });
          }
          window.__at0805.samples.push({
            t: performance.now() - t0,
@@ -252,6 +263,26 @@ function worstRegression(widths: number[], growing: boolean): number {
 }
 
 /**
+ * The rectangles caught standing still between the source's box and the
+ * destination's: lit in two frames in a row, on neither end, and in the same
+ * place in both.
+ */
+function stalls(samples: Sample[], from: Box, to: Box): string[] {
+  const found: string[] = [];
+  for (let i = 1; i < samples.length; i += 1) {
+    for (const now of samples[i].lit) {
+      if (near(now, from) || near(now, to)) continue;
+      const before = samples[i - 1].lit.find((b) => b.index === now.index);
+      if (before === undefined) continue;
+      const moved =
+        Math.abs(now.left - before.left) + Math.abs(now.top - before.top) + Math.abs(now.width - before.width) + Math.abs(now.height - before.height);
+      if (moved < 0.01) found.push(`#${now.index} at t=${samples[i].t.toFixed(0)}`);
+    }
+  }
+  return found;
+}
+
+/**
  * Check one run: it starts on `from`, arrives on `to`, travels one way only up
  * to its arrival (the trail drains behind it afterwards), and leaves nothing
  * standing once the census ends. Answers what went wrong, empty for nothing,
@@ -289,6 +320,11 @@ function checkRun(label: string, samples: Sample[], from: Box, to: Box): string[
     if (weak.length > 0) {
       wrong.push(`${label}: ${weak.length} of ${travelling.length} travelling frames have no rectangle at full strength (first at t=${weak[0].t.toFixed(0)}, peak ${weak[0].peak.toFixed(2)})`);
     }
+  }
+  // Nothing is left behind: a box lit mid-trip is a box on the move.
+  const still = stalls(samples, from, to);
+  if (still.length > 0) {
+    wrong.push(`${label}: ${still.length} sightings of a rectangle standing still mid-trip (${still.slice(0, 4).join(", ")})`);
   }
   if (samples[samples.length - 1].planted !== 0) wrong.push(`${label}: rectangles outlive the run`);
   return wrong;

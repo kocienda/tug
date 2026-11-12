@@ -24,8 +24,10 @@
  * one place the scale is applied. */
 :root {
   --tugx-zoom-run-duration: calc(200ms * var(--tug-timing, 1));
-  /* The `sheet` run's length: must equal its `durationMs` in `zoom-rects.ts`. */
-  --tugx-zoom-sheet-run-duration: calc(450ms * var(--tug-timing, 1));
+  /* When the `sheet` run's last rectangle lands, which is when the panel
+   * starts its reveal: must equal the landing its figures in `zoom-rects.ts`
+   * add up to. The stack fades after it, under the arriving panel. */
+  --tugx-zoom-sheet-landing: calc(450ms * var(--tug-timing, 1));
 }
 
 /* ---- The layer ----
@@ -86,7 +88,9 @@
 /* A `sheet` run — the workspace naming sheet — is stroked in the text colour:
  * it travels from a sidebar control rather than from an accent pill, so there
  * is no accent edge for it to be. 1.5px, because it crosses a busy deck with
- * no scrim behind it, where a 1px line is lost and 2px is heavy. */
+ * no scrim behind it, where a 1px line is lost and 2px is heavy. Its
+ * rectangles travel, each at a strength its own animation holds from the
+ * first frame, so the resting `opacity: 0` above never shows on one. */
 .tugx-zoom-rects-layer[data-kind="sheet"] > .tugx-zoom-rect {
   /* @tug-renders-on: --tug7-surface-overlay-primary-normal-dim-rest */
   border-color: var(--tug7-element-global-text-normal-default-rest);
