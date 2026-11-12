@@ -3055,7 +3055,7 @@ func captureOwnWindowImage(_ windowID: CGWindowID) -> CGImage? {
     )?.takeRetainedValue()
 }
 
-// MARK: - Tooltip speed
+// MARK: - Tooltip delay
 
 extension TooltipDelay {
     /// The `NSUserDefaults` key AppKit's tooltip manager reads its initial

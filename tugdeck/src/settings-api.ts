@@ -515,41 +515,41 @@ export function putMastheadPathStyle(style: MastheadPathStyle): void {
   });
 }
 
-/** tugbank domain/key holding how quickly a tooltip answers a hover. */
-export const TOOLTIP_SPEED_DOMAIN = "dev.tugapp.app";
-export const TOOLTIP_SPEED_KEY = "tooltip-speed";
+/** tugbank domain/key holding how long a tooltip waits before it appears, in ms. */
+export const TOOLTIP_DELAY_DOMAIN = "dev.tugapp.app";
+export const TOOLTIP_DELAY_KEY = "tooltip-delay-ms";
+
+/** The delay a label tooltip has always had, and the setting's default. */
+export const DEFAULT_TOOLTIP_DELAY_MS = 900;
+
+/** The longest delay the setting will hold; anything past it is unreadable. */
+export const MAX_TOOLTIP_DELAY_MS = 10_000;
 
 /**
- * How quickly every tooltip in the app appears. A speed rather than a number
- * of milliseconds: each kind of tip keeps its own base delay and the speed
- * scales it (`lib/tooltip-speed.ts`), so a chart mark still answers sooner
- * than a toolbar label at every speed.
+ * How long every tooltip waits before it appears, in whole milliseconds
+ * (`lib/tooltip-delay.ts` says which tips wait less). An absent, mistyped or
+ * out-of-range value reads as {@link DEFAULT_TOOLTIP_DELAY_MS}.
  */
-export type TooltipSpeed = "slow" | "standard" | "fast" | "instant";
-
-/** An absent or unreadable key means `"standard"`, the delays tips have always had. */
-export function parseTooltipSpeed(entry: TaggedValue | undefined): TooltipSpeed {
-  if (entry?.kind !== "string") return "standard";
-  const v = entry.value;
-  return v === "slow" || v === "fast" || v === "instant" ? v : "standard";
+export function parseTooltipDelay(entry: TaggedValue | undefined): number {
+  if (entry?.kind !== "i64" || typeof entry.value !== "number") return DEFAULT_TOOLTIP_DELAY_MS;
+  const ms = entry.value;
+  return Number.isInteger(ms) && ms >= 0 && ms <= MAX_TOOLTIP_DELAY_MS ? ms : DEFAULT_TOOLTIP_DELAY_MS;
 }
 
 /**
- * Persist the tooltip speed. App-wide, and fire-and-forget like
+ * Persist the tooltip delay. App-wide, and fire-and-forget like
  * `putMastheadPathStyle`, with the local cache written first so the next hover
- * answers the choice rather than the round trip. Stored as `Value::String`.
+ * answers the choice rather than the round trip. Stored as `Value::I64`.
  */
-export function putTooltipSpeed(speed: TooltipSpeed): void {
-  getTugbankClient()?.setLocalValue(TOOLTIP_SPEED_DOMAIN, TOOLTIP_SPEED_KEY, {
-    kind: "string",
-    value: speed,
-  });
-  fetch(`/api/defaults/${TOOLTIP_SPEED_DOMAIN}/${TOOLTIP_SPEED_KEY}`, {
+export function putTooltipDelay(ms: number): void {
+  const value = Math.round(Math.min(Math.max(ms, 0), MAX_TOOLTIP_DELAY_MS));
+  getTugbankClient()?.setLocalValue(TOOLTIP_DELAY_DOMAIN, TOOLTIP_DELAY_KEY, { kind: "i64", value });
+  fetch(`/api/defaults/${TOOLTIP_DELAY_DOMAIN}/${TOOLTIP_DELAY_KEY}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "string", value: speed }),
+    body: JSON.stringify({ kind: "i64", value }),
   }).catch((err) => {
-    console.warn("[settings] PUT tooltip-speed failed:", err);
+    console.warn("[settings] PUT tooltip-delay-ms failed:", err);
   });
 }
 

@@ -61,8 +61,8 @@ export const setThemeToHost = defineToHost({
 
 /**
  * How long an OS tooltip waits before it appears, in milliseconds — the
- * Tooltip Speed setting applied to the `title` tooltips WebKit hands AppKit
- * (`lib/tooltip-speed.ts`). Posted by the shell's tooltip provider.
+ * Tooltip Delay setting applied to the `title` tooltips WebKit hands AppKit
+ * (`lib/tooltip-delay.ts`). Posted by the shell's tooltip provider.
  */
 export const tooltipDelayToHost = defineToHost({
   name: "tooltipDelay",

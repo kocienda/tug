@@ -623,7 +623,7 @@ struct SetTheme: Decodable, Equatable {
 }
 
 /// `tooltipDelay`: how long an OS tooltip waits before it appears, in
-/// milliseconds — the Tooltip Speed setting, applied to AppKit's tooltip
+/// milliseconds — the Tooltip Delay setting, applied to AppKit's tooltip
 /// manager for the `title` tooltips WebKit draws.
 struct TooltipDelay: Decodable, Equatable {
     var delayMs: Double

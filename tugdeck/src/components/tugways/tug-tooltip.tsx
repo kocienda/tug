@@ -86,7 +86,7 @@ import {
 } from "@/lib/open-tooltip-registry";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { composeRefs, refOfElement } from "@/components/tugways/compose-refs";
-import { nativeTooltipDelayMs, scaleTooltipDelay, useTooltipSpeed } from "@/lib/tooltip-speed";
+import { useTooltipDelay } from "@/lib/tooltip-delay";
 import { postToHost } from "@/host/channel";
 import { tooltipDelayToHost } from "@/host/declarations/services";
 
@@ -97,11 +97,9 @@ import { tooltipDelayToHost } from "@/host/declarations/services";
 /** TugTooltipProvider props. */
 export interface TugTooltipProviderProps {
   /**
-   * Base delay in ms before a tooltip appears on hover, at the Standard
-   * tooltip speed. Long enough that a pointer crossing a control on its way
-   * somewhere else never raises a bubble. The user's Tooltip Speed setting
-   * scales it (`lib/tooltip-speed.ts`).
-   * @default 900
+   * A fixed delay in ms before a tooltip appears on hover, in place of the
+   * user's Tooltip Delay setting (`lib/tooltip-delay.ts`). Absent, which is
+   * every app root, the setting decides.
    */
   delayDuration?: number;
   /**
@@ -111,7 +109,7 @@ export interface TugTooltipProviderProps {
    */
   skipDelayDuration?: number;
   /**
-   * Whether this provider also carries the speed to the host, for the OS
+   * Whether this provider also carries the delay to the host, for the OS
    * tooltips WebKit draws for a `title` attribute. Only the shell's does: the
    * host takes the message from the shell alone, and once is enough.
    * @default false
@@ -124,23 +122,23 @@ export interface TugTooltipProviderProps {
 /**
  * Thin wrapper around Radix Tooltip.Provider. Place once at the app root
  * near other top-level providers (TugThemeProvider, ResponderChainProvider).
- * The delay it hands Radix is the base scaled by the user's tooltip speed,
- * read through `useSyncExternalStore` ([L02]); Radix reads it from context at
- * each open, so a changed setting reaches the next hover with no remount.
+ * The delay it hands Radix is the user's Tooltip Delay, read through
+ * `useSyncExternalStore` ([L02]); Radix reads it from context at each open,
+ * so a changed setting reaches the next hover with no remount.
  */
 export function TugTooltipProvider({
-  delayDuration = 900,
+  delayDuration,
   skipDelayDuration = 0,
   syncHost = false,
   children,
 }: TugTooltipProviderProps) {
-  const speed = useTooltipSpeed();
+  const setting = useTooltipDelay();
   React.useEffect(() => {
-    if (syncHost) postToHost(tooltipDelayToHost, { delayMs: nativeTooltipDelayMs(speed) });
-  }, [syncHost, speed]);
+    if (syncHost) postToHost(tooltipDelayToHost, { delayMs: setting });
+  }, [syncHost, setting]);
   return (
     <Tooltip.Provider
-      delayDuration={scaleTooltipDelay(delayDuration, speed)}
+      delayDuration={delayDuration ?? setting}
       skipDelayDuration={skipDelayDuration}
     >
       {children}
@@ -208,8 +206,9 @@ export interface TugTooltipProps
    */
   arrow?: boolean;
   /**
-   * Override the base delay for this specific tooltip. Pass it through
-   * `useTooltipDelay` so the user's tooltip speed scales it too.
+   * Override the delay for this specific tooltip. A tip tuned to answer
+   * sooner than a label passes `useTooltipDelayAtMost(itsOwn)`, so it never
+   * waits longer than the user's Tooltip Delay either.
    */
   delayDuration?: number;
   /**
@@ -319,7 +318,7 @@ export function TugTooltip({
   }
   const claim = claimRef.current;
   claim.trigger = triggerElRef.current;
-  claim.close = () => handleOpenChange(false);
+  claim.close = () => dismissBubble();
 
   // A tooltip unmounted while its bubble stands — a row scrolled out from
   // under the pointer, a shade dismissed — never sees a close, so the claim
@@ -337,6 +336,10 @@ export function TugTooltip({
   // suppression is applied inside handleOpenChange at the open
   // transition, not here.
   const effectiveOpen = isControlled ? controlledOpen : openMirror;
+
+  // How many closes `handleOpenChange` has heard — read by `dismissBubble`
+  // to learn, synchronously, whether Radix's own close path ran.
+  const closesHeardRef = React.useRef(0);
 
   function handleOpenChange(nextOpen: boolean) {
     // Never block close — only suppress open when a gate says so. [L06]
@@ -364,7 +367,29 @@ export function TugTooltip({
     if (!isControlled) {
       setOpenMirror(nextOpen);
     }
+    if (!nextOpen) closesHeardRef.current += 1;
     controlledOnOpenChange?.(nextOpen);
+  }
+
+  /**
+   * Close the bubble from outside Radix — a click, a dispatch, a menu, another
+   * bubble displacing this one.
+   *
+   * Radix re-arms its provider's delay only when it closes a bubble itself.
+   * Turning the `open` prop off from outside skips that, and the provider
+   * then opens the next bubble in this page at once — every tooltip after a
+   * click ignored the Tooltip Delay setting. So the close goes through Radix
+   * first: `tooltip.open` is the document event Radix fires when one bubble
+   * replaces another, and every standing bubble answers it with its own
+   * close, which runs the provider's. One bubble stands at a time ([L22]),
+   * so it reaches only this one. The direct close after it is the fallback
+   * for a bubble whose content never mounted, and runs only when Radix's
+   * path closed nothing, so a controlled consumer hears one close, not two.
+   */
+  function dismissBubble(): void {
+    const heard = closesHeardRef.current;
+    document.dispatchEvent(new CustomEvent("tooltip.open"));
+    if (closesHeardRef.current === heard) handleOpenChange(false);
   }
 
   // Chain-reactive dismissal via observeDispatch. [L11]
@@ -381,7 +406,7 @@ export function TugTooltip({
   React.useLayoutEffect(() => {
     if (!effectiveOpen || !manager) return;
     return manager.observeDispatch(() => {
-      handleOpenChange(false);
+      dismissBubble();
     });
     // handleOpenChange is a fresh closure each render but its behavior
     // is stable for a given (isControlled, controlledOnOpenChange, truncated)
@@ -416,7 +441,7 @@ export function TugTooltip({
         const scroller = ev.target;
         if (trigger !== null && scroller instanceof Node && !scroller.contains(trigger)) return;
       }
-      handleOpenChange(false);
+      dismissBubble();
     });
     // Same narrowing as above: handleOpenChange is a fresh closure per
     // render but stable in behavior, and re-subscribing every render would churn.
@@ -434,7 +459,7 @@ export function TugTooltip({
   React.useLayoutEffect(() => {
     if (!effectiveOpen) return;
     return observeOpenMenus(() => {
-      if (anyMenuOpen()) handleOpenChange(false);
+      if (anyMenuOpen()) dismissBubble();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the same narrowing as above
   }, [effectiveOpen]);

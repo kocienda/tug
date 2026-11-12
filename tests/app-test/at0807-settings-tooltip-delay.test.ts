@@ -1,25 +1,23 @@
 /**
- * at0807-settings-tooltip-speed.test.ts — Settings ▸ General ▸ Tooltip Speed
- * reaches every kind of tooltip ([AT0807]).
+ * at0807-settings-tooltip-delay.test.ts — Settings ▸ General ▸ Tooltip Delay
+ * is a time, and every kind of tooltip waits it ([AT0807]).
  *
  * Scenario:
  *
- *   Open the Settings card the way ⌘, does. Time a house tooltip — the
- *   bullseye button in the Settings card's own title bar, drawn in the card's
- *   own page — at the Standard speed: it waits its full base delay (900 ms).
- *   Press Instant in the Tooltip Speed row. Then:
+ *   Open the Settings card the way ⌘, does. Unset, the row reads 0.9 s, and a
+ *   house tooltip — the bullseye button in the Settings card's own title bar,
+ *   drawn in the card's own page — waits 900 ms. Press 0.3 s. Then:
  *
- *   - the choice reached tugbank, read back over `GET /api/defaults/…`;
- *   - the same bubble opens at once, in the same page, with no reload — the
- *     card page's provider read the new speed, which is the proof that a body
- *     page, not only the shell, answers the setting;
+ *   - 300 reached tugbank as milliseconds, read back over `GET /api/defaults/…`;
+ *   - the same bubble opens in about 300 ms — not at once, not at 900 — in
+ *     the same page with no reload: the card page's provider read the new
+ *     time, which is the proof that a body page, not only the shell, answers
+ *     the setting, and that the time shown is the time waited;
  *   - the host put the OS tooltips (the `title` tooltips WebKit hands AppKit)
- *     at 0 ms, read off the app's `NSInitialToolTipDelay` default, which the
+ *     at 300 ms, read off the app's `NSInitialToolTipDelay` default, which the
  *     host writes beside telling the live tooltip manager.
  *
- *   Standard again puts the OS default back at AppKit's own 1500 ms, which is
- *   also what leaves the app-test bundle's shared defaults domain as it found
- *   it.
+ *   0.9 s again puts the OS default back at the default every launch posts.
  *
  * Timing is read in the page: a `MutationObserver` on the trigger's
  * `aria-describedby` — Radix's statement that its bubble stands — clocks the
@@ -27,7 +25,7 @@
  * reading. Radix's delay is a `setTimeout`, not a frame, so a background
  * app-test window running no rAF does not stall it. The hover is the
  * `pointerenter` + `pointermove` at0404 synthesizes. Between timings the
- * bubble is closed by the trusted click that picks the next speed, because a
+ * bubble is closed by the trusted click that picks the next time, because a
  * synthesized leave never closes a hoverable Radix bubble.
  *
  * Gating
@@ -36,7 +34,7 @@
  * `TUGAPP_APP_TEST=1` skip every test.
  *
  * @covers tugdeck/src/components/tugways/cards/settings-general-body.tsx
- * @covers tugdeck/src/lib/tooltip-speed.ts
+ * @covers tugdeck/src/lib/tooltip-delay.ts
  * @covers tugdeck/src/components/tugways/tug-tooltip.tsx
  * @covers tugdeck/src/settings-api.ts
  */
@@ -52,10 +50,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const NO_AX = { skipAccessibilityPreflight: true } as const;
 
 const TRIGGER = '[data-testid="tug-pane-title-bar-bullseye-button"]';
-const FIELD = '[data-testid="settings-tooltip-speed-field"]';
-
-/** The house label tooltip's base delay, which Standard leaves alone. */
-const LABEL_BASE_MS = 900;
+const FIELD = '[data-testid="settings-tooltip-delay-field"]';
 
 /**
  * Hover the trigger and return how long its bubble took to stand, in ms,
@@ -122,16 +117,16 @@ async function choose(page: BodyApp, value: string): Promise<void> {
   );
 }
 
-/** Poll the stored speed over the defaults surface until it reads `want`. */
-async function storedSpeed(app: App, want: string): Promise<unknown> {
+/** Poll the stored delay over the defaults surface until it reads `want`. */
+async function storedDelay(app: App, want: number): Promise<unknown> {
   await app.evalJS(`(() => {
     window.__at0807_stored = undefined;
     const deadline = Date.now() + 5000;
     const poll = () => {
-      fetch("/api/defaults/dev.tugapp.app/tooltip-speed")
+      fetch("/api/defaults/dev.tugapp.app/tooltip-delay-ms")
         .then((r) => (r.ok ? r.json() : { kind: "missing", value: r.status }))
         .then((j) => {
-          if ((j.kind === "string" && j.value === ${JSON.stringify(want)}) || Date.now() > deadline) {
+          if ((j.kind === "i64" && j.value === ${JSON.stringify(want)}) || Date.now() > deadline) {
             window.__at0807_stored = j.value;
             return;
           }
@@ -168,10 +163,10 @@ async function nativeDelay(bundleId: string, want: number): Promise<number | nul
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0807: Settings ▸ General ▸ Tooltip Speed reaches every tooltip",
+  "at0807: Settings ▸ General ▸ Tooltip Delay is a time every tooltip waits",
   () => {
-    test("Instant opens a card page's tooltip at once and puts the OS tooltips at 0 ms", async () => {
-      const app = await launchTugApp({ ...NO_AX, testName: "at0807-settings-tooltip-speed" });
+    test("0.3 s makes a card page's tooltip and the OS tooltips wait 300 ms", async () => {
+      const app = await launchTugApp({ ...NO_AX, testName: "at0807-settings-tooltip-delay" });
       try {
         const { bundleId } = await app.checkAccessibilityPermission({ prompt: false });
         await app.evalJS(`window.__tug.dispatchControlAction("show-card", { component: "settings" })`);
@@ -182,31 +177,31 @@ describe.skipIf(!SHOULD_RUN)(
           { timeoutMs: 10000 },
         );
 
-        // Standard: the bubble waits its whole base delay, and the shell has
-        // told the host AppKit's own default.
-        expect(
-          await page.evalJS<string | null>(
-            `document.querySelector('${FIELD} [data-state="active"]')?.getAttribute("data-choice-value") ?? null`,
-          ),
-          "an unset speed reads as Standard",
-        ).toBe("standard");
-        const standardMs = await timeOpen(page);
-        expect(standardMs, "at Standard a label tip waits its full base delay").toBeGreaterThanOrEqual(
-          LABEL_BASE_MS - 50,
+        // Unset: the row says 0.9 s, the bubble waits 900 ms, and the shell
+        // has told the host the same.
+        const active = await page.evalJS<{ value: string | null; label: string | null }>(
+          `(function () {
+             var seg = document.querySelector('${FIELD} [data-state="active"]');
+             return { value: seg && seg.getAttribute("data-choice-value"), label: seg && seg.textContent.trim() };
+           })()`,
         );
-        expect(await nativeDelay(bundleId, 1500), "at Standard the OS tooltips keep AppKit's 1500 ms").toBe(1500);
+        expect(active, "an unset delay reads as 0.9 s").toEqual({ value: "900", label: "0.9 s" });
+        const defaultMs = await timeOpen(page);
+        expect(defaultMs, "at 0.9 s a label tip waits 900 ms").toBeGreaterThanOrEqual(850);
+        expect(await nativeDelay(bundleId, 900), "at 0.9 s the OS tooltips wait 900 ms").toBe(900);
 
-        // Instant.
-        await choose(page, "instant");
-        expect(await storedSpeed(app, "instant"), "the choice reached tugbank").toBe("instant");
-        const instantMs = await timeOpen(page);
-        expect(instantMs, "at Instant the same tip opens at once, with no reload").toBeLessThan(400);
-        expect(await nativeDelay(bundleId, 0), "at Instant the host puts the OS tooltips at 0 ms").toBe(0);
+        // 0.3 s.
+        await choose(page, "300");
+        expect(await storedDelay(app, 300), "300 ms reached tugbank").toBe(300);
+        const shortMs = await timeOpen(page);
+        expect(shortMs, "at 0.3 s the same tip waits about 300 ms, with no reload").toBeGreaterThanOrEqual(250);
+        expect(shortMs, "and no longer than it was told to").toBeLessThan(700);
+        expect(await nativeDelay(bundleId, 300), "at 0.3 s the host puts the OS tooltips at 300 ms").toBe(300);
 
-        // Back to Standard, which is also the shared defaults domain as found.
-        await choose(page, "standard");
-        expect(await storedSpeed(app, "standard")).toBe("standard");
-        expect(await nativeDelay(bundleId, 1500), "Standard puts the OS tooltips back").toBe(1500);
+        // Back to 0.9 s, the value every launch posts.
+        await choose(page, "900");
+        expect(await storedDelay(app, 900)).toBe(900);
+        expect(await nativeDelay(bundleId, 900), "0.9 s puts the OS tooltips back").toBe(900);
       } finally {
         await app.close();
       }

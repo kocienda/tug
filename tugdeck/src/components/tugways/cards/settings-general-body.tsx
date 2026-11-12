@@ -19,10 +19,10 @@
  * no one card type: the text card, the file view and the diff pop-out all
  * draw their path through the one masthead (`lib/masthead-path.ts`).
  *
- * The second choice is how quickly **every tooltip** appears — the house
- * tooltips, the chart bubble and the OS tooltips of a `title` attribute alike.
- * It stores a speed that scales each kind's own base delay
- * (`lib/tooltip-speed.ts`).
+ * The second choice is how long **every tooltip** waits before it appears —
+ * the house tooltips, the chart bubble and the OS tooltips of a `title`
+ * attribute alike — offered as times and stored in milliseconds
+ * (`lib/tooltip-delay.ts`).
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
  * shown in a settled field is a claim about what Tug will do — Open Quickly
@@ -73,11 +73,13 @@ import {
   MASTHEAD_PATHS_KEY,
   parseMastheadPathStyle,
   putMastheadPathStyle,
-  TOOLTIP_SPEED_DOMAIN,
-  TOOLTIP_SPEED_KEY,
-  parseTooltipSpeed,
-  putTooltipSpeed,
+  DEFAULT_TOOLTIP_DELAY_MS,
+  TOOLTIP_DELAY_DOMAIN,
+  TOOLTIP_DELAY_KEY,
+  parseTooltipDelay,
+  putTooltipDelay,
 } from "@/settings-api";
+import { TOOLTIP_DELAY_CHOICES_MS, formatTooltipDelay } from "@/lib/tooltip-delay";
 import type { TaggedValue } from "@/lib/tugbank-client";
 import "./settings-general-body.css";
 
@@ -191,20 +193,19 @@ export function SettingsGeneralBody() {
   );
   const mastheadPathsId = useId();
 
-  const tooltipSpeed = useTugbankValue(
-    TOOLTIP_SPEED_DOMAIN,
-    TOOLTIP_SPEED_KEY,
-    parseTooltipSpeed,
-    "standard",
+  const tooltipDelay = useTugbankValue(
+    TOOLTIP_DELAY_DOMAIN,
+    TOOLTIP_DELAY_KEY,
+    parseTooltipDelay,
+    DEFAULT_TOOLTIP_DELAY_MS,
   );
-  const tooltipSpeedId = useId();
+  const tooltipDelayId = useId();
 
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
       [mastheadPathsId]: (v: string) =>
         putMastheadPathStyle(v === "project" ? "project" : "full"),
-      [tooltipSpeedId]: (v: string) =>
-        putTooltipSpeed(parseTooltipSpeed({ kind: "string", value: v })),
+      [tooltipDelayId]: (v: string) => putTooltipDelay(Number(v)),
     },
   });
 
@@ -291,29 +292,28 @@ export function SettingsGeneralBody() {
         </TugSettingsGroup>
 
         <TugSettingsGroup
-          label="Tooltip Speed"
+          label="Tooltip Delay"
           className="settings-general-group"
         >
           <div
             className="settings-general-field"
-            data-testid="settings-tooltip-speed-field"
+            data-testid="settings-tooltip-delay-field"
           >
             <TugChoiceGroup
               size="sm"
-              senderId={tooltipSpeedId}
-              value={tooltipSpeed}
-              aria-label="Tooltip speed"
-              items={[
-                { value: "slow", label: "Slow" },
-                { value: "standard", label: "Standard" },
-                { value: "fast", label: "Fast" },
-                { value: "instant", label: "Instant" },
-              ]}
+              senderId={tooltipDelayId}
+              value={String(tooltipDelay)}
+              aria-label="Tooltip delay"
+              items={TOOLTIP_DELAY_CHOICES_MS.map((ms) => ({
+                value: String(ms),
+                label: formatTooltipDelay(ms),
+              }))}
             />
           </div>
           <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
             How long the pointer rests on something before its tooltip
-            appears. Instant shows tips as you sweep across controls.
+            appears. Chart marks and Layout places answer sooner when this is
+            longer than they wait on their own.
           </TugLabel>
         </TugSettingsGroup>
 
