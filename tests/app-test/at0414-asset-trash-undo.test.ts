@@ -22,7 +22,7 @@
  * @covers tugdeck/src/components/tugways/tug-text-card-editor/asset-trash.ts
  * @covers tugdeck/src/lib/os-trash.ts
  * @covers tugdeck/src/components/tugways/cards/text-card.tsx
- * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.tsx
+ * @covers tugdeck/src/components/tugways/cards/attachment-preview.tsx
  * @covers tugapp/Sources/MainWindow.swift
  */
 

@@ -254,7 +254,7 @@ describe("parseMarkdownToSanitizedBlocks — block-transformer pass", () => {
 // ---------------------------------------------------------------------------
 // `applyBlockTransformers` direct unit — the helper is also exported
 // for callers that want to apply transformers to a hand-built block
-// list (e.g., incremental update paths in `TugMarkdownView`).
+// list.
 // ---------------------------------------------------------------------------
 
 describe("applyBlockTransformers", () => {

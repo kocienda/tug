@@ -26,7 +26,7 @@
  * @covers tugdeck/src/components/tugways/cards/arc-picker-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/lib/card-session-binding-store.ts
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-atom.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/tug-meta-run.tsx

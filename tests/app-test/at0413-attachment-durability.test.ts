@@ -62,7 +62,7 @@
  * @covers tugdeck/src/lib/prompt-history-store.ts
  * @covers tugdeck/src/lib/atom-bytes-store.ts
  * @covers tugdeck/src/settings-api.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/drop-extension.ts
  * @covers tugrust/crates/tugcast/src/attachments.rs
  */

@@ -16,7 +16,7 @@ import type React from "react";
 import { createFixtureSessionMetadataStore } from "../components/tugways/cards/completion-fixtures/system-metadata-fixture";
 import { wrapPositionZero } from "../components/tugways/cards/completion-providers/position-zero";
 import type { CompletionProvider } from "../lib/tug-text-types";
-import type { TugPromptEntryDelegate } from "../components/tugways/tug-prompt-entry";
+import type { PromptEntryDelegate } from "../components/tugways/cards/prompt-entry";
 
 // ---------------------------------------------------------------------------
 // Load the shipped capture.
@@ -110,11 +110,11 @@ describe("createFixtureSessionMetadataStore", () => {
 // wrapPositionZero
 // ---------------------------------------------------------------------------
 
-function makeEntryRef(text: string): React.RefObject<TugPromptEntryDelegate | null> {
+function makeEntryRef(text: string): React.RefObject<PromptEntryDelegate | null> {
   const editor = { textContent: text } as unknown as HTMLElement;
   const delegate = {
     getEditorElement: () => editor,
-  } as unknown as TugPromptEntryDelegate;
+  } as unknown as PromptEntryDelegate;
   return { current: delegate };
 }
 
@@ -153,7 +153,7 @@ describe("wrapPositionZero", () => {
   });
 
   it("returns [] when the ref is null (pre-mount)", () => {
-    const ref: React.RefObject<TugPromptEntryDelegate | null> = { current: null };
+    const ref: React.RefObject<PromptEntryDelegate | null> = { current: null };
     const gated = wrapPositionZero(ref, "/", inner);
     expect(gated("x")).toEqual([]);
   });

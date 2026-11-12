@@ -83,6 +83,7 @@
  * @module components/chrome/card-host
  */
 
+import { CircleAlert } from "lucide-react";
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -488,8 +489,8 @@ export function applyFormControlSnapshot(
  * light.
  *
  * `bag.scroll` covers the outer `hostContentEl` scroll; this helper
- * handles the inner virtualized scrollers that the user scrolled
- * independently (e.g. `tug-markdown-view`).
+ * handles the inner scrollers that the user scrolled independently
+ * (a list view, a body kind's own scroller).
  */
 export function captureRegionScrolls(
   root: HTMLElement,
@@ -546,7 +547,7 @@ export function applyRegionScrolls(
     if (!el) continue;
     // Dispatch a cancelable `tug-region-scroll-set` event before
     // touching `scrollLeft` / `scrollTop` directly. Components like
-    // `tug-markdown-view` that wrap their scroll container in a
+    // `TugListView` that wrap their scroll container in a
     // SmartScroll instance listen for this event so they can
     // simultaneously (a) apply the requested scroll position and
     // (b) disengage SmartScroll's follow-bottom flag — without (b)
@@ -741,10 +742,10 @@ function BodyPlaceholder({ cardId, hostStackId, componentId, isActive = true }: 
           <TugPanePortalContext value={hostCardRootEl}>
             <CardIdContext value={cardId}>
               <TugPaneBanner
-                visible={closeRefused !== null && isActive}
-                variant="status"
+                open={closeRefused !== null && isActive}
+                kind="status"
                 tone="caution"
-                icon="CircleAlert"
+                icon={<CircleAlert />}
                 label={CLOSE_REFUSAL_LABEL}
                 message={CLOSE_REFUSAL_MESSAGES[closeRefused ?? "silent"]}
                 footer={
@@ -989,8 +990,8 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
     // whichever comes first. The commit is not guaranteed: `onContentReady`
     // fires from a no-deps `useLayoutEffect` in `useCardStatePreservation`
     // on the CONTENT component's next commit, and a content component whose
-    // `onRestore` causes no render of its own — `tug-markdown-view.tsx`
-    // registers the literal `() => {}` — is waiting on a commit something
+    // `onRestore` causes no render of its own — one that registers the
+    // literal `() => {}` only to keep `bag.content` absent — is waiting on a commit something
     // else has to cause. A card rebuilt inside a hidden workspace layer has
     // nothing to cause one. So the mask is a deferred reveal and carries a
     // deadline ([L31], [L32]): when it expires the card is shown with its
@@ -1017,7 +1018,7 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
         typeof content.route === "string" &&
         "draft" in content
       ) {
-        // Current TugPromptEntry shape: `{ route, draft }`.
+        // Current PromptEntry shape: `{ route, draft }`.
         if (typeof content.draft === "object" && content.draft !== null) {
           engineState = content.draft as Record<string, unknown>;
         }
@@ -1026,7 +1027,7 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
         typeof content.perRoute === "object" &&
         content.perRoute !== null
       ) {
-        // Legacy TugPromptEntry shape: `{ currentRoute, perRoute }`.
+        // Legacy PromptEntry shape: `{ currentRoute, perRoute }`.
         const perRoute = content.perRoute as Record<string, unknown>;
         const inner = perRoute[content.currentRoute as string];
         if (typeof inner === "object" && inner !== null) {
@@ -1254,8 +1255,7 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
     // is pending:
     //   - regionSnapshot (virtualized scroller `scrollHeight`
     //     catch-up).
-    //   - unapplied `bag.domSelection` (target nodes mount later;
-    //     tug-markdown-view).
+    //   - unapplied `bag.domSelection` (target nodes mount later).
     // Focus is NOT retried here — the cold-boot focus claim above
     // is one-shot. The only late-mount FOCUS path is `deferred-engine`,
     // which settles via the `engineHooksVersion`-keyed effect re-run,
@@ -1272,12 +1272,12 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
     }
 
     // For region scrolls we can't mark "applied after one shot" — a
-    // virtualized scroller (most notably `tug-markdown-view`) renders
-    // estimated-height blocks first, so its `scrollHeight` is below
-    // the saved `scrollTop` on the initial apply. The browser
-    // clamps the assignment, then ResizeObserver-driven height
-    // refinement grows the spacer divs (which mutates their `style`
-    // attribute) and `scrollHeight` catches up. Track the settled
+    // scroller whose content arrives after mount (a virtualized list
+    // rendering estimated heights first, a document still laying out)
+    // has a `scrollHeight` below the saved `scrollTop` on the initial
+    // apply. The browser clamps the assignment, then the content grows
+    // (a spacer's `style`, a block's children) and `scrollHeight`
+    // catches up. Track the settled
     // state instead: re-apply on every observed mutation until
     // `el.scrollTop` lands within tolerance of the saved value,
     // then mark settled and stop fighting any subsequent scroll.
@@ -1374,10 +1374,10 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
           // Dispatch once to hand the anchor to SmartScroll, then settle
           // and let it own convergence and the supersede rules.
           //
-          // Raw-pixel regions (`tug-markdown-view`, generic scrollers)
+          // Raw-pixel regions (generic scrollers)
           // keep the retry loop below: they have no resolver of their
           // own, and their `scrollHeight` genuinely does grow past the
-          // saved `scrollTop` as estimated blocks bake in.
+          // saved `scrollTop` as late content lays out.
           const metaAnchor =
             typeof pos.meta === "object" &&
             pos.meta !== null &&

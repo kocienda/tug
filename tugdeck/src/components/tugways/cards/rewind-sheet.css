@@ -70,16 +70,9 @@
 }
 
 /* Discarded messages stay legible but visibly spent — they are what the cut
-   throws away. Kept messages, and the rewind point itself, render at full
-   strength (the point additionally carries the row's selected fill). */
-.tug-list-row[data-rewind-state="discarded"] {
-  opacity: 0.5;
-}
-
-.tug-list-row[data-rewind-state="discarded"] .tug-list-row-title {
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
-}
+   throws away — so their rows wear `state="struck"`. Kept messages, and the
+   rewind point itself, render at full strength (the point additionally
+   carries the row's selected fill). */
 
 .rewind-busy,
 .rewind-error {

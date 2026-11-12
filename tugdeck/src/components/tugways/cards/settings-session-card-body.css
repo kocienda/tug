@@ -4,8 +4,8 @@
    Three stacked groups: Response (transcript magnification plus the
    inter-entry margin slider), Prompt Editor (typography, view toggles, and
    submit-key policy), and AI Model (deck-default chips). Hosted by the
-   Settings card's Session Card section. Each group is a bordered TugBox with
-   a legend painted on the border, its controls left-aligned inside.
+   Settings card's Session Card section. Each group is a `TugSettingsGroup`,
+   its controls left-aligned inside.
    ----------------------------------------------------------------------------- */
 
 .settings-session-card {
@@ -14,44 +14,6 @@
   gap: var(--tug-space-2xl);
   /* Room for the first box's legend, which overhangs above its border. */
   padding-top: var(--tug-space-md);
-}
-
-/* `box-sizing: border-box` and `width: 100%` override `.tug-box`'s default
-   `width: fit-content` so each box fills the panel's content area. */
-.settings-session-card-group {
-  width: 100%;
-  box-sizing: border-box;
-  /* The legend is absolutely positioned (below), so its line is reserved by
-     the box's own padding — the box height is padding + content, always.
-     WebKit's built-in fieldset/legend layout is pass-dependent. */
-  position: relative;
-}
-
-/* Generous inset — same compound-selector note as .settings-general-group. */
-.settings-session-card .settings-session-card-group.tug-box-bordered {
-  padding: var(--tug-space-2xl) var(--tug-space-2xl) var(--tug-space-xl);
-}
-
-/* The legend sits ON the border line, painted over it, out of flow. */
-.settings-session-card-group > .tug-box-legend {
-  position: absolute;
-  top: 0;
-  left: var(--tug-space-lg);
-  transform: translateY(-50%);
-  background: var(--tugx-pane-bg);
-  /* WebKit gives `<legend>` an intrinsic inline-size past its visible text,
-     truncating the fieldset's top border to its right. */
-  inline-size: max-content;
-}
-
-/* Layout lives on the body div, never the fieldset — a flexed fieldset's
-   height hops by one gap on style recalc (WebKit legend layout; see
-   tug-box.css). Left-packed. */
-.settings-session-card-group > .tug-box-body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--tug-space-lg);
 }
 
 /* Label + track on one row, the track claiming the rest of the box. The

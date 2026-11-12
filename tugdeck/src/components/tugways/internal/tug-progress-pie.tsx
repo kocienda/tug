@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import "./tug-progress-pie.css";
 import type { TugProgressIndicatorState } from "../tug-progress-indicator";
 
-export interface TugProgressPieProps {
+export interface TugProgressPieProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** Determinate progress value, 0 to max. Undefined = indeterminate. */
   value?: number;
   /** Maximum value. @default 1 */
@@ -38,13 +38,11 @@ export interface TugProgressPieProps {
   state?: TugProgressIndicatorState;
   /** When true, opacity dims and animation freezes. */
   disabled?: boolean;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 export const TugProgressPie = React.forwardRef<HTMLSpanElement, TugProgressPieProps>(
   function TugProgressPie(
-    { value, max = 1, size = 16, state = "running", disabled = false, className },
+    { value, max = 1, size = 16, state = "running", disabled = false, className, style, ...rest },
     ref,
   ) {
     const isDeterminate = value !== undefined;
@@ -106,6 +104,7 @@ export const TugProgressPie = React.forwardRef<HTMLSpanElement, TugProgressPiePr
         data-slot="tug-progress-pie"
         data-state={state}
         aria-hidden="true"
+        {...rest}
         className={cn(
           "tug-progress-pie",
           isIndeterminate && state === "running" && "tug-progress-pie-indeterminate",
@@ -113,7 +112,7 @@ export const TugProgressPie = React.forwardRef<HTMLSpanElement, TugProgressPiePr
           disabled && "tug-progress-pie-disabled",
           className,
         )}
-        style={styleObj}
+        style={{ ...styleObj, ...style }}
       />
     );
   },

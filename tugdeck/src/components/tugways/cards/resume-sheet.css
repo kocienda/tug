@@ -10,9 +10,8 @@
   min-width: 24rem;
 }
 
-/* Size the reused sessions list to its rows with a scroll cap, instead of the
-   list view's default `height: 100%` (a cascade-scoped override, [L20]). */
+/* The reused sessions list stands at its rows (`sizing="content"`) up to a
+   scroll cap (a cascade-scoped override, [L20]). */
 .resume-sheet-list .tug-list-view {
-  height: auto;
   max-height: 22rem;
 }

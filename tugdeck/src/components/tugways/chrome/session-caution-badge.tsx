@@ -34,6 +34,9 @@
 import "./session-caution-badge.css";
 
 import React from "react";
+import { AlertTriangle } from "lucide-react";
+
+import { TugBadge } from "@/components/tugways/tug-badge";
 
 import type { CautionFlag } from "@/components/tugways/blocks/types";
 
@@ -63,7 +66,11 @@ export function SessionCautionBadge({
   const title =
     caution.detail !== undefined ? `${label}: ${caution.detail}` : label;
   return (
-    <span
+    <TugBadge
+      emphasis="tinted"
+      role="caution"
+      size="2xs"
+      icon={<AlertTriangle aria-hidden="true" />}
       data-slot="session-caution-badge"
       data-caution-reason={caution.reason}
       className={
@@ -73,7 +80,7 @@ export function SessionCautionBadge({
       }
       title={title}
     >
-      ⚠ {label}
-    </span>
+      {label}
+    </TugBadge>
   );
 }

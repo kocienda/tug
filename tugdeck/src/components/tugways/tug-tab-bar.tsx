@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { layoutRectOf } from "@/lib/page-zoom-store";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { cardTitleTextFor } from "@/lib/pane-title";
-import { icons } from "lucide-react";
+import { iconNamed } from "@/components/tugways/tug-named-icon";
 import type { CardState } from "@/layout-tree";
 import { getAllRegistrations } from "@/card-registry";
 import { TugButton } from "./internal/tug-button";
@@ -128,7 +128,7 @@ const DEFAULT_TAB_ICON = "Diamond";
  *  registration icon a tab does — one resolver, so the two never disagree. */
 export function renderIcon(iconName: string | undefined): React.ReactNode {
   const name = iconName ?? DEFAULT_TAB_ICON;
-  const IconComponent = icons[name as keyof typeof icons] ?? icons[DEFAULT_TAB_ICON as keyof typeof icons];
+  const IconComponent = iconNamed(name) ?? iconNamed(DEFAULT_TAB_ICON);
   if (!IconComponent) return null;
   return React.createElement(IconComponent, { size: 12 });
 }

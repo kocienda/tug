@@ -1,6 +1,6 @@
 /**
  * at0010-cold-boot-selection.test.ts — DOM selection restore across
- * full Tug.app process restart on a `tug-markdown-view` card.
+ * full Tug.app process restart on a markdown fixture card.
  *
  * ## Two-phase contract
  *
@@ -17,15 +17,11 @@
  *
  * ## Why `fixture-markdown-1kb`, not `fixture-markdown-50kb`
  *
- * 1KB of static markdown fits in one viewport at the gallery card's
- * default size, so all blocks render fully on mount and
- * `block-container` children are stable across re-mount. The saved
- * `domSelection` paths (which are child-index sequences rooted at
- * the card boundary) reference DOM nodes that exist in both Phase
- * A and Phase B. The 50KB variant exercises the virtualization
- * path separately — content-relative selection encoding may be
- * needed there as a follow-up if
- * Phase B's 1KB variant passes after the Layer 4 fix.
+ * 1KB of static markdown fits in one viewport at the fixture card's
+ * default size, so the selection the test anchors is on screen without
+ * scrolling. The saved `domSelection` paths (which are child-index
+ * sequences rooted at the card boundary) reference DOM nodes that
+ * exist in both Phase A and Phase B.
  *
  * ## Why seedDeckState in Phase B
  *
@@ -35,15 +31,9 @@
  *
  * ## Status: PASSING (in the default Justfile sweep)
  *
- * Layer 3 commit verified this passes end-to-end on the 1KB
- * fixture: with all blocks rendered, the saved `domSelection`
- * paths resolve to the same DOM nodes on re-mount and selectionGuard
- * re-anchors the range correctly. The bug the user reported on the
- * 50KB card is virtualization-specific and out of scope for the
- * current Layer 4 fix; if a 50KB-cold-boot variant is added later,
- * it will need content-relative selection encoding (per the Step
- * 25C.2 plan's "Selection re-anchor" / "Content-relative selection
- * encoding" branches).
+ * With every block rendered, the saved `domSelection` paths resolve
+ * to the same DOM nodes on re-mount and selectionGuard re-anchors the
+ * range.
  *
  * Run individually via:
  *
@@ -58,7 +48,8 @@
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/lib/tugbank-client.ts
  * @covers tugdeck/src/components/tugways/selection-guard.ts
- * @covers tugdeck/src/components/tugways/tug-markdown-view.tsx
+ * @covers tugdeck/src/fixtures/fixture-markdown-static.tsx
+ * @covers tugdeck/src/components/tugways/tug-markdown-block.tsx
  * @covers tugapp/Sources/TugbankClient.swift
  */
 
@@ -157,23 +148,18 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
               return el !== null && el.scrollTop <= 4;
             })()`,
             { timeoutMs: 3000 },
-          );          // Wait for the bake-in to settle: the head block must be
-          // in the rendered window AND the block count must be
-          // stable across two consecutive observations. (The head is
-          // not asserted to be index 0 — the block-remap path renumbers
-          // keys when a region grows, so this fixture renders 1..10.) The
-          // `fixture-markdown-1kb` fixture passes
-          // `followBottom: false` to TugMarkdownView for the
-          // static-content path, so the bake-in renders with
-          // `scrollTop = 0` and the virtualization window covers
-          // the head of the document. That keeps the `nodeToPath`
-          // capture stable across the relaunch + restore (Phase B
-          // mounts the same fixture, hits the same render window,
-          // and resolves the saved path back to the same node).
+          );
+          // Wait for the document to render: the head block must be
+          // present AND the block count must be stable across two
+          // consecutive observations. The fixture renders the same
+          // document in full on every mount, which keeps the
+          // `nodeToPath` capture stable across the relaunch + restore
+          // (Phase B mounts the same fixture and resolves the saved
+          // path back to the same node).
           await app.body(CARD_ID).waitForCondition<boolean>(
             `(function(){
               var first = document.querySelector('[data-card-id=${JSON.stringify(CARD_ID)}] .tugx-md-block');
-              if (first === null || first.getAttribute("data-block-index") === null) return false;
+              if (first === null || first.getAttribute("data-content-hash") === null) return false;
               if (first.textContent === null || first.textContent.length <= ${SELECTION_LENGTH}) return false;
               var cardRoot = document.querySelector('[data-card-host][data-card-id=${JSON.stringify(CARD_ID)}]');
               if (cardRoot === null) return false;
@@ -199,10 +185,8 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           );
 
           // Programmatically anchor a 20-char range inside the first
-          // block's first text node. Same primitive as
-          // at0010-markdown-selection — the selectionchange listener
-          // installed by tug-markdown-view (selectionPublishKey="markdown-view")
-          // publishes the Range to selectionGuard.cardRanges["A"].
+          // block's first text node. The fixture's selectionchange
+          // listener publishes the Range to selectionGuard.cardRanges["A"].
           const seededOpt = await app.body(CARD_ID).evalJS<SeededSelection | null>(
             `(function(){
               var blockEls = document.querySelectorAll('[data-card-id=${JSON.stringify(CARD_ID)}] .tugx-md-block');
@@ -318,15 +302,15 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
                 return el !== null && el.scrollTop <= 4;
               })()`,
               { timeoutMs: 3000 },
-            );            // Wait for the bake-in to settle: the head block must be in
-            // the rendered window AND the block count must be stable.
-            // The fixture's `followBottom: false` keeps the scroll at
-            // the head, so the virtualization window matches Phase
-            // A's — same path indices, same resolved node.
+            );
+            // Wait for the document to render: the head block must be
+            // present AND the block count must be stable — the same
+            // document as Phase A, so the same path indices resolve to
+            // the same node.
             await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var first = document.querySelector('[data-card-id=${JSON.stringify(CARD_ID)}] .tugx-md-block');
-                if (first === null || first.getAttribute("data-block-index") === null) return false;
+                if (first === null || first.getAttribute("data-content-hash") === null) return false;
                 if (first.textContent === null || first.textContent.length <= ${SELECTION_LENGTH}) return false;
                 var cardRoot = document.querySelector('[data-card-host][data-card-id=${JSON.stringify(CARD_ID)}]');
                 if (cardRoot === null) return false;

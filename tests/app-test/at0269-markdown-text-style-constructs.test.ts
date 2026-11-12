@@ -19,7 +19,7 @@
  *   7. Typing `<div>` inserts no closing tag: `autoCloseTags` is off, because
  *      auto-closing is an editing behavior and this capability styles only.
  *
- * Surface: `gallery-prompt-entry` (composes the real `TugPromptEntry`), so no
+ * Surface: `gallery-prompt-entry` (composes the real `PromptEntry`), so no
  * live Claude session is needed. Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * Background: ⌘A is an Edit-menu key equivalent, and a pid-mode launch has

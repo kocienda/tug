@@ -477,12 +477,8 @@ const PlaceMark = memo(function PlaceMark({
         size="xs"
         emphasis="ghost"
         senderId={place.senderId}
-        dispatch={{
-          action: TUG_ACTIONS.SELECT_VALUE,
-          sender: place.senderId,
-          value: proposed,
-          phase: "discrete",
-        }}
+        action={TUG_ACTIONS.SELECT_VALUE}
+        value={proposed}
         data-testid={`layout-card-place-${place.key}`}
         data-choice-value={proposed}
         data-sender={place.senderId}

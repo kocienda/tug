@@ -97,24 +97,9 @@ body {
 
 /* ---------- Header ---------- */
 
-/* Pinned identity strip — stays visible while the user scrolls the
- * outer transcript. `top: var(--tugx-pin-stack-top, 0)` lets an outer
- * pin context push it down so the two telescope. Mirrors
- * `.tugx-json-header` / `.tugx-file-header`. */
-.tugx-paths-header {
-  position: sticky;
-  top: var(--tugx-pin-stack-top, 0);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--tugx-block-strip-gap);
-  padding: var(--tugx-block-strip-padding);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color: var(--tugx-block-strip-color);
-  font-family: var(--tugx-block-strip-font);
-  font-size: var(--tugx-block-strip-size);
-}
+/* The strip itself — sticky, flex, the shared padding, surface and type —
+   is `.tugx-block-strip` in `styles/tugx-block.css`, which the header wears
+   beside its own class. */
 
 /* @tug-renders-on: --tugx-block-strip-bg */
 .tugx-paths-label {
@@ -147,12 +132,11 @@ body {
 /* `inline`-mode `TugListView`. The primitive ships `height: 100%`
  * (it is normally the scroll container, sized by a bounded parent);
  * here the block grows to its natural content height instead, so
- * `height` is overridden to `auto` and the host row-gap / padding
- * tokens are zeroed so path rows stack flush. `TugListRow`'s own
+ * the list stands at its content (`sizing="content"`) and the host
+ * row-gap / padding tokens are zeroed so path rows stack flush. `TugListRow`'s own
  * `compact` padding provides the inset. [L20]
  */
 .tugx-paths .tug-list-view.tugx-paths-list {
-  height: auto;
   --tugx-list-view-row-gap: 0;
   --tugx-list-view-padding-block: 0;
   --tugx-list-view-padding-inline: 0;

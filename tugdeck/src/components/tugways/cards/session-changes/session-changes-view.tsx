@@ -7,7 +7,7 @@
  *
  * The sheet is passive ([P17]): the composer below keeps focus (⌃⌘C is the
  * toggle; landing a commit lives in the composer's commit mode) and the view
- * seeds no key view. The file rows are `TugChangesList` ([P01]); the header's
+ * seeds no key view. The file rows are `ChangesList` ([P01]); the header's
  * trailing cluster is the fold-all cue, the whole-diff pop-out, and the
  * dismiss X — three same-sized icon buttons, the card-header idiom. The
  * git-init affordance sits in the body.
@@ -24,7 +24,7 @@
  * Laws: [L02] the controller + git-init verb store enter React through
  * `useSyncExternalStore`; [L06] no appearance state in React (status tones and
  * hover affordances paint via CSS); [L26] per-file diff bodies collapse by
- * unmount inside `TugChangesList`'s rows.
+ * unmount inside `ChangesList`'s rows.
  *
  * @module components/tugways/cards/session-changes/session-changes-view
  */
@@ -35,12 +35,8 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { GitCommitHorizontal, LoaderCircle, X } from "lucide-react";
 
-import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
+import { RepoNotice, shouldShowNoGitNotice } from "@/components/tugways/cards/repo-notice";
 import { useMotionHold } from "@/lib/motion-guard";
-import {
-  TugNoGitNotice,
-  shouldShowNoGitNotice,
-} from "@/components/tugways/tug-no-git-notice";
 import { useHostTools } from "@/lib/host-tools-store";
 import {
   SESSION_LABEL,
@@ -55,12 +51,12 @@ import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import { formatCount } from "@/components/tugways/blocks/tool-result-summary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import {
-  TugChangesList,
+  ChangesList,
   PopOutDiffButton,
   diffablePathsOf,
   fileExpandKey,
-  type TugChangesListEntry,
-} from "@/components/tugways/tug-changes-list";
+  type ChangesListEntry,
+} from "@/components/tugways/cards/session-changes/changes-list";
 import {
   SessionChangesArcLane,
   canDiscardFromHere,
@@ -393,11 +389,11 @@ export function SessionChangesView({
     </>
   );
 
-  const sessionItem: TugChangesListEntry | null =
+  const sessionItem: ChangesListEntry | null =
     snap.entry !== null
       ? { kind: "session", id: changesController.entryKey, project, entry: snap.entry }
       : null;
-  const unattributedItem: TugChangesListEntry | null =
+  const unattributedItem: ChangesListEntry | null =
     snap.unattributed.length > 0
       ? {
           kind: "unattributed",
@@ -406,7 +402,7 @@ export function SessionChangesView({
           files: snap.unattributed,
         }
       : null;
-  const orphanedItem: TugChangesListEntry | null =
+  const orphanedItem: ChangesListEntry | null =
     snap.orphaned.length > 0
       ? {
           kind: "orphaned",
@@ -456,12 +452,13 @@ export function SessionChangesView({
   // init` its way out either — so this reading comes before the non-repo one,
   // which would otherwise offer an Initialize button that cannot work.
   if (shouldShowNoGitNotice(hostTools)) {
-    return shell(<TugNoGitNotice />);
+    return shell(<RepoNotice kind="no-git" />);
   }
 
   if (project.no_repo) {
     return shell(
-      <TugNonRepoNotice
+      <RepoNotice
+        kind="non-repo"
         projectDir={projectDir ?? project.project_dir}
         turnInProgress={turnInProgress}
       />,
@@ -471,7 +468,7 @@ export function SessionChangesView({
   // The head entries (session + unattributed) the banner controls act on.
   // Every diffable file across them yields one expand key; the whole-view Diff
   // pop-out is a `head` diff over their union of paths.
-  const headEntries: TugChangesListEntry[] = [
+  const headEntries: ChangesListEntry[] = [
     ...(sessionItem !== null && hasSessionFiles ? [sessionItem] : []),
     ...(unattributedItem !== null ? [unattributedItem] : []),
     ...(orphanedItem !== null ? [orphanedItem] : []),
@@ -670,7 +667,7 @@ export function SessionChangesView({
         </div>
       ) : null}
       {headEntries.length > 0 ? (
-        <TugChangesList
+        <ChangesList
           entries={headEntries}
           ownSessionId={changesController.tugSessionId}
           expandedKeys={expandedKeys}

@@ -97,7 +97,7 @@ export function GalleryConfirmPopover() {
             ref={dangerRef}
             message="Are you sure?"
             confirmLabel="Delete"
-            confirmRole="danger"
+            confirm={{ role: "danger" }}
           >
             <TugPushButton role="danger" emphasis="filled" size="sm" onClick={handleDanger}>
               Delete Item
@@ -114,13 +114,13 @@ export function GalleryConfirmPopover() {
       {/* ---- 2. Action Confirmation ---- */}
       <div className="cg-section">
         <TugLabel className="cg-section-title">Action Confirmation</TugLabel>
-        <div style={labelStyle}>confirmRole="action" — non-destructive confirmation</div>
+        <div style={labelStyle}>confirm.role="action" — non-destructive confirmation</div>
         <div style={{ display: "flex", alignItems: "flex-start" }}>
           <TugConfirmPopover
             ref={actionRef}
             message="Are you sure?"
             confirmLabel="Publish"
-            confirmRole="action"
+            confirm={{ role: "action" }}
           >
             <TugPushButton role="action" emphasis="filled" size="sm" onClick={handleAction}>
               Publish
@@ -166,7 +166,7 @@ export function GalleryConfirmPopover() {
             ref={bottomRef}
             message="Are you sure?"
             confirmLabel="Confirm"
-            confirmRole="action"
+            confirm={{ role: "action" }}
           >
             <TugPushButton emphasis="outlined" size="sm" onClick={handleBottom}>
               Bottom (default)
@@ -177,7 +177,7 @@ export function GalleryConfirmPopover() {
             ref={topRef}
             message="Are you sure?"
             confirmLabel="Confirm"
-            confirmRole="action"
+            confirm={{ role: "action" }}
             side="top"
           >
             <TugPushButton emphasis="outlined" size="sm" onClick={handleTop}>
@@ -201,7 +201,7 @@ export function GalleryConfirmPopover() {
             ref={promiseRef}
             message="Are you sure?"
             confirmLabel="Delete"
-            confirmRole="danger"
+            confirm={{ role: "danger" }}
           >
             <TugPushButton
               role="danger"

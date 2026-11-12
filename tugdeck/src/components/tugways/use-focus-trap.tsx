@@ -93,7 +93,7 @@ export interface UseFocusTrapOptions {
    * its rings paint and its arrows move the ring without the user asking.
    *
    * Pass `false` for a **typing-first** trap — one whose caret is the point and
-   * whose list is driven from a field (`TugModalInputDialog`). Without the
+   * whose list is driven from a field (`ModalInputDialog`). Without the
    * opt-out such a surface opens engaged, the engine claims its arrows, and the
    * field's own key handling never runs. The flag exists from day one precisely
    * so the next typing-first HUD does not have to rediscover that.

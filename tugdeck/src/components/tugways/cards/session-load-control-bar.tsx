@@ -41,7 +41,7 @@ import "./session-load-control-bar.css";
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { TugControlBar } from "@/components/tugways/tug-control-bar";
+import { ControlBar } from "./control-bar";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -254,9 +254,9 @@ export function SessionLoadOverlay({
 
   return (
     <div className="session-load-overlay" data-slot="session-load-overlay">
-      <TugControlBar ref={barRef} modal={loadActive} regionEl={regionEl}>
+      <ControlBar ref={barRef} modal={loadActive} regionEl={regionEl}>
         <ControlBarLoading codeSessionStore={codeSessionStore} />
-      </TugControlBar>
+      </ControlBar>
     </div>
   );
 }
@@ -351,7 +351,7 @@ function ControlBarLoading({
       <TugProgressIndicator
         variant="bar"
         size={8}
-        role="action"
+        tone="action"
         state="running"
         label={label}
         labelEmphasis="proposal"

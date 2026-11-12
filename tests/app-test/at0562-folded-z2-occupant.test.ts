@@ -179,7 +179,7 @@ const READ_ROW = `(function(){
     }).length,
     hasBar:
       occ !== null && occ.querySelector('[data-variant="bar"]') !== null,
-    barRole: bar === null ? null : bar.getAttribute("data-role"),
+    barRole: bar === null ? null : bar.getAttribute("data-tone"),
     barFill: bar === null
       ? null
       : getComputedStyle(bar)

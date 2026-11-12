@@ -1,7 +1,7 @@
 /**
- * gallery-prompt-entry.tsx — TugPromptEntry showcase card.
+ * gallery-prompt-entry.tsx — PromptEntry showcase card.
  *
- * Mounts `TugPromptEntry` in a flex column. A placeholder stands in for a
+ * Mounts `PromptEntry` in a flex column. A placeholder stands in for a
  * transcript and flexes into the remaining height; the entry below is
  * content-sized — the editor auto-heights up to `maxRows` then scrolls, so
  * the entry is as tall as the prompt. No split pane, no JS sizing, no
@@ -33,7 +33,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 
-import { TugPromptEntry, type TugPromptEntryDelegate } from "../tug-prompt-entry";
+import { PromptEntry, type PromptEntryDelegate } from "./prompt-entry";
 import { TugBox } from "../tug-box";
 import { TugBadge } from "../tug-badge";
 import { useResponderForm } from "../use-responder-form";
@@ -77,7 +77,7 @@ export interface GalleryPromptEntryProps {
    * Card instance id. Forwarded from the card registry's `contentFactory`
    * callback and used for per-card workspace binding (via
    * `useCardWorkspaceKey`) plus the responder scope id of the embedded
-   * `TugPromptEntry`.
+   * `PromptEntry`.
    */
   cardId: string;
 }
@@ -173,7 +173,7 @@ export function GalleryPromptEntry({ cardId }: GalleryPromptEntryProps) {
   // --- Entry handle (declared here so completionProviders' memo can read
   // entryDelegateRef for the position-0 gate). Stable ref identity — the
   // memo below uses [] deps correctly. ---
-  const entryDelegateRef = useRef<TugPromptEntryDelegate | null>(null);
+  const entryDelegateRef = useRef<PromptEntryDelegate | null>(null);
 
   // --- Compose completion providers. ---
   // Stable — provider identities are owned by refs and don't change for
@@ -225,7 +225,7 @@ export function GalleryPromptEntry({ cardId }: GalleryPromptEntryProps) {
             inset={false}
             className="gallery-prompt-entry-entry-pane"
           >
-            <TugPromptEntry
+            <PromptEntry
               ref={entryDelegateRef}
               id={`${cardId}-entry`}
               codeSessionStore={mockSessionRef.current!.codeSessionStore}

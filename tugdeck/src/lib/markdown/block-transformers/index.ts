@@ -21,8 +21,8 @@
  *   - return `[a, b, c]` — split it into multiple sibling blocks
  *
  * The transformer pass keeps `parseMarkdownToSanitizedBlocks` agnostic
- * to downstream rendering choices. Rendering (`MarkdownBlock`,
- * `TugMarkdownView`, etc.) keys off `block.type` to dispatch to the
+ * to downstream rendering choices. Rendering (`TugMarkdownBlock`
+ * and its enhancers) keys off `block.type` to dispatch to the
  * right component; transformers promote a generic `code` block into a
  * specialized `tug-*` type when the fence's language hint matches.
  *
@@ -119,7 +119,7 @@ import { tugchartTransformer } from "./tugchart";
 
 /**
  * The default transformer list applied by the shared markdown
- * primitives (`TugMarkdownBlock` + `TugMarkdownView`). Each entry is
+ * pipeline (`TugMarkdownBlock`). Each entry is
  * a populated transformer; pass-through stubs are left out so they
  * don't burn cycles flat-mapping over every block list.
  *

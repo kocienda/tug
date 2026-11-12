@@ -1,0 +1,53 @@
+/* ----------------------------------------------------------------------------
+   .tug-settings-group — a bordered settings group, legend on the border
+   ----------------------------------------------------------------------------
+   The box fills its column; the legend is taken out of flow and painted over
+   the top border; the box's padding reserves the legend's line and clears
+   it; the body is a left-packed column. Appearance only ([L06]); the box's
+   own tokens are `TugBox`'s ([L20]).
+   ----------------------------------------------------------------------------- */
+
+/* `box-sizing: border-box` and `width: 100%` override `.tug-box`'s default
+   `width: fit-content` so each box fills its column. The legend is absolutely
+   positioned (below), so its line is reserved by the box's own padding — the
+   box height is padding + content, always. WebKit's built-in fieldset/legend
+   layout is pass-dependent. */
+.tug-settings-group {
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+}
+
+/* Generous inset: the legend overhangs the top border, so the first control
+   needs real room beneath it rather than the one line the legend itself
+   occupies. A bordered box insets itself through
+   `.tug-box-inset.tug-box-md` at (0,2,0), so this rule is (0,3,0) to win
+   regardless of stylesheet order. */
+.tug-box.tug-settings-group.tug-box-bordered {
+  padding: var(--tug-space-2xl) var(--tug-space-2xl) var(--tug-space-xl);
+}
+
+/* The legend sits ON the border line, painted over it, out of flow. */
+.tug-settings-group > .tug-box-legend {
+  position: absolute;
+  top: 0;
+  left: var(--tug-space-lg);
+  transform: translateY(-50%);
+  background: var(--tugx-pane-bg);
+  /* WebKit gives `<legend>` an intrinsic inline-size past its visible text,
+     truncating the fieldset's top border to its right. */
+  inline-size: max-content;
+}
+
+/* Layout lives on the body div, never the fieldset — a flexed fieldset's
+   height hops by one gap on style recalc (WebKit legend layout; see
+   tug-box.css). Left-packed: the panels read top to bottom down their
+   leading edge; a block that wants the full measure declares `width: 100%`.
+   A caller that lays its body out otherwise overrides at
+   `.tug-settings-group.its-class > .tug-box-body`. */
+.tug-settings-group > .tug-box-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-lg);
+}

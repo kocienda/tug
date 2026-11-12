@@ -3,7 +3,7 @@
  * live citation chip.
  *
  * The annotator is a DOM pass: it can mark a run as a session, and it cannot
- * mount a React component into it. `TugSessionCitation` is a React component
+ * mount a React component into it. `SessionCitation` is a React component
  * with its own subscription, its own hover, its own gesture and its own
  * resolution states, and "exactly as the transcript does it" means that
  * component and not a drawing of it. Portals bridge the two, which is the
@@ -38,11 +38,10 @@
  */
 
 import React from "react";
-import { createPortal } from "react-dom";
 
-import { breadcrumb } from "@/lib/dom-forensics";
-import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
+import { SessionCitation } from "@/components/tugways/cards/session-identity";
 import { SESSION_TEXT_ATTRIBUTE } from "@/lib/annotator/annotate-content";
+import { useSpanPortals } from "@/components/tugways/use-span-portals";
 
 /** Every confirmed session span the annotator has marked in a container. */
 const SESSION_SPANS = '[data-tug-annotation="session"]';
@@ -90,60 +89,26 @@ export function useSessionCitationPortals(
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
-  const [mounts, setMounts] = React.useState<readonly CitationMount[]>([]);
-
-  const onAnnotated = React.useCallback((container: HTMLElement): void => {
-    const spans = Array.from(
-      container.querySelectorAll<HTMLElement>(SESSION_SPANS),
-    );
-    const next: CitationMount[] = [];
-    for (const host of spans) {
-      const citedId = host.getAttribute("data-target");
-      if (citedId === null || citedId === "") continue;
-      // First time this span is hosted: keep the words it shows, then empty
-      // it so the chip is the only thing in it. The saved text is what
-      // `dropStaleWraps` re-asks about and restores if the mark is dropped —
-      // without it an unwrap would fold a hole into the sentence.
-      let recordedTag = host.getAttribute(SESSION_TEXT_ATTRIBUTE);
-      if (recordedTag === null) {
-        recordedTag = host.textContent ?? "";
-        host.setAttribute(SESSION_TEXT_ATTRIBUTE, recordedTag);
-        host.textContent = "";
-      }
-      next.push({ host, citedId, recordedTag });
-    }
-    // Rebuild rather than merge, and only publish a change: a pass that finds
-    // the same spans it found last time must not re-render every chip, and a
-    // span that has left the DOM must not survive in the list.
-    breadcrumb("portal.hosts", { hook: "session-citation", hosts: next.length });
-    setMounts((prev) => (sameMounts(prev, next) ? prev : next));
-  }, []);
-
-  const portals = mounts.map(({ host, citedId, recordedTag }) =>
-    createPortal(
-      <TugSessionCitation
+  // The saved words are what `dropStaleWraps` re-asks about and restores if
+  // the mark is dropped — without them an unwrap would fold a hole into the
+  // sentence.
+  return useSpanPortals<CitationMount>({
+    name: "session-citation",
+    selector: SESSION_SPANS,
+    targetAttribute: "data-target",
+    textAttribute: SESSION_TEXT_ATTRIBUTE,
+    mountFor: (host, citedId, recordedTag) => ({ host, citedId, recordedTag }),
+    render: ({ citedId, recordedTag }) => (
+      <SessionCitation
         citedId={citedId}
         recordedTag={recordedTag}
         context={{ recordedProject: projectOf(recordedTag) }}
         tier={mark === "mention" ? "line" : "chip"}
-      />,
-      host,
-      `session-citation:${citedId}:${recordedTag}`,
+      />
     ),
-  );
-
-  return { onAnnotated, portals };
-}
-
-/** Whether two collections name the same hosts, in the same order. */
-function sameMounts(
-  a: readonly CitationMount[],
-  b: readonly CitationMount[],
-): boolean {
-  if (a.length !== b.length) return false;
-  return a.every(
-    (mount, i) => mount.host === b[i]!.host && mount.citedId === b[i]!.citedId,
-  );
+    keyFor: ({ citedId, recordedTag }) =>
+      `session-citation:${citedId}:${recordedTag}`,
+  });
 }
 
 /**

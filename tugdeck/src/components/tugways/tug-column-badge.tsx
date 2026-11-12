@@ -69,6 +69,7 @@ import "./tug-column-badge.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
+import type { TugTone } from "./tug-vocabulary";
 import { columnBadgeCharacter, type TugColumnBadgeKind } from "@/lib/column-badge";
 
 export { columnBadgeCharacter, type TugColumnBadgeKind };
@@ -76,6 +77,9 @@ export { columnBadgeCharacter, type TugColumnBadgeKind };
 /* ---------------------------------------------------------------------------
  * Types
  * ---------------------------------------------------------------------------*/
+
+/** Whose paint the badge wears — see {@link TugColumnBadgeProps.tone}. */
+export type TugColumnBadgeTone = Extract<TugTone, "default" | "action">;
 
 /** Which end of the glyph's run is lit — the region, not the ordinal. */
 export type TugColumnBadgeLit = "top" | "middle" | "bottom";
@@ -148,6 +152,16 @@ export interface TugColumnBadgeProps
    * @selector [data-lit="true"] on .tug-column-badge-slice
    */
   showLevel?: boolean;
+  /**
+   * Whose paint the badge wears. `"default"` is the monochrome badge of a
+   * pane's title bar, beside grey chrome chips. `"action"` paints it chip for
+   * chip as the slot run beside it — the tinted family at rest and the
+   * selection fill on the element the card occupies — for a run whose chips
+   * carry a selection state (a Cards card row).
+   * @selector [data-tone="action"]
+   * @default "default"
+   */
+  tone?: TugColumnBadgeTone;
 }
 
 /* ---------------------------------------------------------------------------
@@ -156,7 +170,7 @@ export interface TugColumnBadgeProps
 
 export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgeProps>(
   function TugColumnBadge(
-    { kind, count, index = 0, showLevel = true, className, ...rest },
+    { kind, count, index = 0, showLevel = true, tone = "default", className, ...rest },
     ref,
   ) {
     const lit = columnBadgeLit(count, index);
@@ -173,6 +187,7 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
            overwrite them. */
         data-kind={kind}
         data-lit={lit}
+        data-tone={tone === "default" ? undefined : tone}
       >
         {/* Both glyphs are handed the same thing: which element of the run
             the card sits at, or `null` where the surface marks none. The stack

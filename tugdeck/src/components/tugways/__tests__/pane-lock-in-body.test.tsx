@@ -33,7 +33,7 @@ async function mountBannerOver(cardEl: HTMLDivElement, visible: boolean) {
     await act(async () => {
       root.render(
         <TugPanePortalContext value={cardEl}>
-          <TugPaneBanner visible={v} variant="error" message="Session errored" />
+          <TugPaneBanner open={v} kind="error" message="Session errored" />
         </TugPanePortalContext>,
       );
     });

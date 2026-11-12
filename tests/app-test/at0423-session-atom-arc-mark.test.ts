@@ -35,7 +35,7 @@
  * because the arc's `bound_session` moved in the account-global changeset
  * aggregate and the atom reads it session-first — no card, no reload, no prop.
  *
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts
  * @covers tugdeck/src/lib/arc-sigil-text.ts
  * @covers tugdeck/src/lib/tug-atom-img.ts

@@ -5,7 +5,7 @@
  * A body's viewport is its card's content box, so the Z2 placard, built to
  * stand up off the status row over the masthead and the wall above the card,
  * had only the card to stand in there; and `/logout`'s confirm belongs to the
- * app-level `TugLogout`, which a body never mounts, so from a body it raised
+ * app-level `Logout`, which a body never mounts, so from a body it raised
  * nothing. Now the body keeps its placard rendered, hidden, and the overlay
  * draws its content above every card at the card's rest rect
  * (`overlay/overlay-surface-drawer.ts`); and a body hands its logout to the

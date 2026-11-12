@@ -41,7 +41,12 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TugTooltip, type TugTooltipProps } from "./tug-tooltip";
 import { commandShortcut, keymapRegistry } from "./keymap-registry";
 
-/** TugActionTooltip props. */
+/**
+ * TugActionTooltip props. The wrapper renders no element of its own: its
+ * element is {@link TugTooltip}'s bubble, and every other prop reaches it.
+ *
+ * @no-element
+ */
 export interface TugActionTooltipProps
   extends Omit<TugTooltipProps, "shortcut"> {
   /**
@@ -70,7 +75,7 @@ export function TugActionTooltip({
   action,
   content,
   children,
-  ...tooltipProps
+  ...rest
 }: TugActionTooltipProps) {
   // Re-render when a binding changes so a rebind reaches the tooltip
   // without a reload. The registry's version counter is the snapshot;
@@ -78,7 +83,7 @@ export function TugActionTooltip({
   useSyncKeymap();
 
   return (
-    <TugTooltip {...tooltipProps} content={content} shortcut={commandShortcut(action)}>
+    <TugTooltip {...rest} content={content} shortcut={commandShortcut(action)}>
       {children}
     </TugTooltip>
   );

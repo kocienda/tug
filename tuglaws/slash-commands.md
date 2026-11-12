@@ -26,7 +26,7 @@ Every typed `/name` is classified by `classifySlashCommand()` in
 | `pass-through` | Everything else — **the safe default** | Sent to claude verbatim as user text; claude expands it and runs a real turn. |
 
 The dispatch order lives in `performSubmit` in
-`tugdeck/src/components/tugways/tug-prompt-entry.tsx`:
+`tugdeck/src/components/tugways/cards/prompt-entry.tsx`:
 
 1. `matchLocalSlashCommand()` — local registry hit → open the surface, record
    history, clear the draft, return.
@@ -153,7 +153,7 @@ into the catalog in qualified `<plugin>:<name>` form, dropping claude's bare twi
 
 **Namespace resolution.** A user types `/arc-devise`; the catalog holds
 `tugplug:arc-devise`. `resolveRemoteCommand()` and `canonicalizeBareCommandLine()`
-(consumed in `tug-prompt-entry.tsx`) resolve bare names against namespaced catalog
+(consumed in `prompt-entry.tsx`) resolve bare names against namespaced catalog
 entries so both forms work and neither trips the unknown-command alert.
 
 The same resolver answers in **three** places, and that is deliberate: the `/`

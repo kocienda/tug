@@ -15,6 +15,8 @@
  * bottom-right — the classic HIG layout). The confirm button is the sheet's
  * default (Enter); Escape dismisses (resolves `false`).
  *
+ * Laws: [L19] component authoring guide
+ *
  * @module components/tugways/tug-alert-sheet
  */
 
@@ -38,8 +40,8 @@ export interface AlertSheetOptions {
   icon?: React.ReactNode;
   /** Confirm button label. @default "OK" */
   confirmLabel?: string;
-  /** Semantic role for the confirm button. @default "action" */
-  confirmRole?: TugButtonRole;
+  /** The confirm button: its semantic role. @default `{ role: "action" }` */
+  confirm?: { role?: TugButtonRole };
   /** Cancel button label, or `null` for a single-button alert. @default null */
   cancelLabel?: string | null;
 }
@@ -58,11 +60,12 @@ export function TugAlertSheetView({
   message,
   icon,
   confirmLabel = "OK",
-  confirmRole = "action",
+  confirm,
   cancelLabel = null,
   onConfirm,
   onCancel,
 }: TugAlertSheetViewProps): React.ReactElement {
+  const confirmButtonRole = confirm?.role ?? "action";
   const iconNode =
     icon === undefined ? <Info aria-hidden="true" /> : icon;
   // Author the actions into the sheet's trapped focus mode: Tab walks Cancel →
@@ -76,7 +79,7 @@ export function TugAlertSheetView({
   const CANCEL_ORDER = 0;
   const CONFIRM_ORDER = 1;
   const seedOrder =
-    confirmRole === "danger" && cancelLabel !== null ? CANCEL_ORDER : CONFIRM_ORDER;
+    confirmButtonRole === "danger" && cancelLabel !== null ? CANCEL_ORDER : CONFIRM_ORDER;
   useSeedKeyView(`${focusGroup}:${seedOrder}`);
   return (
     <div className="tug-alert-sheet">
@@ -115,8 +118,8 @@ export function TugAlertSheetView({
         ) : null}
         <TugPushButton
           size="sm"
-          emphasis={confirmRole === "action" ? "primary" : "filled"}
-          role={confirmRole}
+          emphasis={confirmButtonRole === "action" ? "primary" : "filled"}
+          role={confirmButtonRole}
           onClick={onConfirm}
           data-testid="alert-confirm"
           focusGroup={focusGroup}

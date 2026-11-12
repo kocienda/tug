@@ -4,7 +4,7 @@
  *
  * Fixtures: two static image atoms paired with a small in-memory
  * bytes-store carrying canned thumbnail data URLs. The body above
- * the strip mimics the transcript's `TugAtomTextBody` rendering —
+ * the strip mimics the transcript's `AtomTextBody` rendering —
  * inline chips at original positions, label `image-N` matching the
  * strip's tile captions.
  *
@@ -23,8 +23,8 @@
 
 import * as React from "react";
 
-import { TugAtomTextBody } from "@/components/tugways/cards/tug-atom-text-body";
-import { TugAttachmentPreview } from "@/components/tugways/cards/tug-attachment-preview";
+import { AtomTextBody } from "@/components/tugways/cards/atom-text-body";
+import { AttachmentPreview } from "@/components/tugways/cards/attachment-preview";
 import {
   createAtomBytesStore,
   type AtomBytesStore,
@@ -118,8 +118,8 @@ export function GalleryAttachmentStrip(): React.ReactElement {
           background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
         }}>
-          <TugAtomTextBody text={FIXTURE_TEXT} atoms={FIXTURE_ATOMS} />
-          <TugAttachmentPreview
+          <AtomTextBody text={FIXTURE_TEXT} atoms={FIXTURE_ATOMS} />
+          <AttachmentPreview
             atoms={FIXTURE_ATOMS}
             bytesStore={bytesStore}
           />
@@ -141,8 +141,8 @@ export function GalleryAttachmentStrip(): React.ReactElement {
           background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
         }}>
-          <TugAtomTextBody text={FIXTURE_TEXT} atoms={FIXTURE_ATOMS} />
-          <TugAttachmentPreview
+          <AtomTextBody text={FIXTURE_TEXT} atoms={FIXTURE_ATOMS} />
+          <AttachmentPreview
             atoms={FIXTURE_ATOMS}
             bytesStore={bytesStore}
             deletable
@@ -169,12 +169,12 @@ export function GalleryAttachmentStrip(): React.ReactElement {
           flexDirection: "column",
           gap: "12px",
         }}>
-          <TugAttachmentPreview
+          <AttachmentPreview
             atoms={FIXTURE_ATOMS}
             bytesStore={bytesStore}
             density="compact"
           />
-          <TugAttachmentPreview
+          <AttachmentPreview
             atoms={FIXTURE_ATOMS}
             bytesStore={bytesStore}
             deletable
@@ -196,8 +196,8 @@ export function GalleryAttachmentStrip(): React.ReactElement {
           background: "var(--tug7-surface-field-primary-normal-plain-rest)",
           borderRadius: "6px",
         }}>
-          <TugAtomTextBody text="plain prose, no atoms here" atoms={[]} />
-          <TugAttachmentPreview atoms={[]} bytesStore={bytesStore} />
+          <AtomTextBody text="plain prose, no atoms here" atoms={[]} />
+          <AttachmentPreview atoms={[]} bytesStore={bytesStore} />
         </div>
       </div>
     </div>

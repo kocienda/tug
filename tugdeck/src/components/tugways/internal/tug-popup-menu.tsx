@@ -171,7 +171,8 @@ export type TugPopupMenuEntry = TugPopupMenuItem | TugPopupMenuSeparator | TugPo
  * The trigger element must accept Radix-injected props (ref, data-state,
  * aria-expanded, etc.) -- any HTML element or forwardRef component does.
  */
-export interface TugPopupMenuProps {
+export interface TugPopupMenuProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "onSelect" | "defaultValue"> {
   /** Trigger element. Wrapped in Radix Trigger asChild -- must accept ref. */
   trigger: React.ReactNode;
   /** List of entries to display in the popup menu. Accepts items, separators, and labels. */
@@ -254,19 +255,24 @@ export interface TugPopupMenuProps {
  * - With `selectAtBlinkStart`, the caller's onSelect runs as the blink
  *   starts instead; the close still waits for the blink to complete.
  */
-export function TugPopupMenu({
-  trigger,
-  items,
-  onSelect,
-  selectAtBlinkStart = false,
-  align = "start",
-  side,
-  sideOffset = 3,
-  defaultOpen = false,
-  open: openProp,
-  onOpenChange,
-  "data-testid": dataTestId,
-}: TugPopupMenuProps) {
+export const TugPopupMenu = React.forwardRef<HTMLDivElement, TugPopupMenuProps>(function TugPopupMenu(
+  {
+    trigger,
+    items,
+    onSelect,
+    selectAtBlinkStart = false,
+    align = "start",
+    side,
+    sideOffset = 3,
+    defaultOpen = false,
+    open: openProp,
+    onOpenChange,
+    "data-testid": dataTestId,
+    className,
+    ...rest
+  },
+  ref,
+) {
   const overlayRoot = useCanvasOverlay();
 
   // Popup-in-sheet z-tier elevation per [D09]. When the menu's React
@@ -578,7 +584,10 @@ export function TugPopupMenu({
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal container={overlayRoot}>
         <DropdownMenuPrimitive.Content
-          className={cn("tug-menu-content", inDialog && "tug-menu-in-dialog")}
+          {...rest}
+          ref={ref}
+          data-slot="tug-popup-menu"
+          className={cn("tug-menu-content", inDialog && "tug-menu-in-dialog", className)}
           align={align}
           {...(side !== undefined ? { side } : {})}
           sideOffset={sideOffset}
@@ -594,4 +603,4 @@ export function TugPopupMenu({
     </DropdownMenuPrimitive.Root>
     </TugPopupMenuTriggerContext.Provider>
   );
-}
+});

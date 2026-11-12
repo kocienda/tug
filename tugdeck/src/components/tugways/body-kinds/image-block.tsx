@@ -76,6 +76,8 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
+
 import { cn } from "@/lib/utils";
 import { deckRootElement } from "@/lib/page-zoom-store";
 import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
@@ -264,14 +266,12 @@ export const ImageBlock: React.FC<ImageBlockProps> = ({
               aria-label={alt.length > 0 ? alt : "Image preview"}
               onClick={onOverlayBackdropClick}
             >
-              <button
-                type="button"
+              <TugIconButton
                 className="tugx-image-overlay-close"
                 onClick={onOverlayCloseClick}
                 aria-label="Close image preview"
-              >
-                <X size={20} aria-hidden="true" />
-              </button>
+                icon={<X size={20} aria-hidden="true" />}
+              />
               <img
                 src={src}
                 alt={alt}

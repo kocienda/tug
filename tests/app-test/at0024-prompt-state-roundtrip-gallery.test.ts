@@ -10,7 +10,7 @@
  * @covers tugdeck/src/engine-hooks.ts
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/card-state-orchestrator.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @family at0024-prompt-state-roundtrip

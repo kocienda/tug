@@ -301,7 +301,7 @@ function stepForward(
  * entries whose `route` field matches the configured route are
  * surfaced. Each route within a session therefore gets an independent
  * history timeline, matching the per-route-drafts semantics of
- * TugPromptEntry's TugPane state preservation payload.
+ * PromptEntry's TugPane state preservation payload.
  *
  * The route filter is why a window edge matters more here than for the session
  * provider: a route can have zero entries in the loaded window while the ledger
@@ -645,7 +645,7 @@ export class PromptHistoryStore extends Subscribable {
    * Same semantics as `createProvider`, plus a `route` filter: only
    * entries whose `route` field matches are visible via `back()` /
    * `forward()`. Intended for compound inputs that present a per-route
-   * history timeline (e.g. `TugPromptEntry`). Each provider instance
+   * history timeline (e.g. `PromptEntry`). Each provider instance
    * owns its own cursor + in-memory draft, so callers that cache one
    * provider per route keep their browsing position for that route
    * across route switches.

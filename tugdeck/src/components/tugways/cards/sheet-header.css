@@ -1,0 +1,68 @@
+/* ----------------------------------------------------------------------------
+   sheet-header.css — the read-only sheets' header and notice
+   ----------------------------------------------------------------------------
+   The listing sheets (hooks, skills, memory) head their scrolling body with
+   one strip: a text column of summary lines on the left, a cluster of
+   actions on the right. Their loading and error states, and the one-line
+   states of the usage and data-visualization sheets, are one notice in two
+   layouts. Layout and inherited foreground, plus the one muted ink of the
+   line notice ([L06]); the panel surface is the composed `TugSheet`'s.
+   ----------------------------------------------------------------------------- */
+
+/* The strip→body gap, on the scaffold header that holds one. */
+.tug-sheet-scaffold-header:has(> .sheet-header) {
+  margin-bottom: 0.5rem;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* A header that is one line of text sits that line on the actions' baseline. */
+.sheet-header[data-align="baseline"] {
+  align-items: baseline;
+}
+
+.sheet-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.sheet-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+.sheet-header-summary {
+  font-size: 0.8125rem;
+  opacity: 0.7;
+}
+
+/* The placeholder notice: the loading, empty and error states of a listing
+   sheet, centred in the body where the list would be. */
+.sheet-notice[data-layout="placeholder"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  margin: 0;
+  font-size: 0.875rem;
+  opacity: 0.7;
+  text-align: center;
+}
+
+/* The line notice: one muted, centred sentence in a sheet whose body is not a
+   list. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+.sheet-notice[data-layout="line"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  text-align: center;
+  margin: var(--tug-space-xl) 0;
+}

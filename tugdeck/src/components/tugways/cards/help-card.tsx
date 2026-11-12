@@ -44,7 +44,7 @@ import { cardTitleStore } from "@/lib/card-title-store";
 import { CONTENT_WIDTH_COMFY_PX } from "@/lib/layout-imposer";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
-import { TugFindBar, type TugFindBarHandle } from "@/components/tugways/tug-find-bar";
+import { TugFindBar, useFindBarHost, type TugFindBarHandle } from "@/components/tugways/tug-find-bar";
 import { documentFindEngine } from "@/components/tugways/document-find-engine";
 import { useResponder } from "@/components/tugways/use-responder";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -109,18 +109,21 @@ const HelpCardFindBar = React.forwardRef<
   }
 >(function HelpCardFindBar({ session, frameRef, initialQuery, onClose }, ref) {
   useEffect(() => () => session.clear(), [session]);
+  // The bar's dismissal arrives as `close-find` ([L11]).
+  const FindBarHost = useFindBarHost(onClose);
   return (
+    <FindBarHost>
     <TugFindBar
       ref={ref}
       session={session}
-      onClose={onClose}
       cardRootRef={frameRef}
       initialQuery={initialQuery}
       placeholder="Find in help"
       className="help-card-find-bar"
-      dataSlot="help-card-find-bar"
+      data-slot="help-card-find-bar"
       inputTestId="help-card-find-input"
     />
+    </FindBarHost>
   );
 });
 

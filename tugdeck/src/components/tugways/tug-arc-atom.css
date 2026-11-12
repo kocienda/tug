@@ -1,5 +1,5 @@
 /* tug-arc-atom.css — the atom's seat. The pill itself is
-   `tug-session-identity.css`'s chip skin, reached through ArcSigil. */
+   `session-identity.css`'s chip skin, reached through ArcSigil. */
 
 .tug-arc-atom {
   display: inline-flex;

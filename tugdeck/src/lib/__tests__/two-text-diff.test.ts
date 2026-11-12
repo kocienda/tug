@@ -3,7 +3,7 @@
  *
  * The assertion that matters is a round trip: the `unified` text this module
  * builds is fed back through `parseUnifiedDiffText`, the very parser
- * `TugDiffDocument` reads it with, and the hunks that come out must name the
+ * `DiffDocument` reads it with, and the hunks that come out must name the
  * known difference. A diff that only *looks* right in a string comparison
  * would still render wrong if the parser disagreed about it, and the parser
  * is the consumer that counts.

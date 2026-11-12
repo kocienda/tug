@@ -10,8 +10,8 @@
  *
  * The wizard is app-modal and its steps re-run install / log-in / model
  * acquisition, so it must not come up over live work. That makes this the same
- * shape as {@link TugLogout} — an app-level orchestrator that stops turns
- * before an app-level state change — and it shares TugLogout's interrupt loop
+ * shape as {@link Logout} — an app-level orchestrator that stops turns
+ * before an app-level state change — and it shares Logout's interrupt loop
  * and the TugAlert singleton ([L02]/[L06]).
  *
  * @module components/tugways/configure-tug-request
@@ -67,7 +67,7 @@ export function ConfigureTugRequest(): null {
         message: `${running.length} ${plural} still working. Setup takes over the whole app, so those turns will stop.`,
         confirmLabel: "Stop and Open Setup",
         cancelLabel: "Cancel",
-        confirmRole: "danger",
+        confirm: { role: "danger" },
       });
       if (cancelled || !confirmed) return;
       // Stop the turns before the wizard covers them, so nothing is left

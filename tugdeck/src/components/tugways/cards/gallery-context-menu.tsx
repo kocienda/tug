@@ -1,7 +1,7 @@
 /**
- * gallery-context-menu.tsx -- TugContextMenu demo tab for the Component Gallery.
+ * gallery-context-menu.tsx -- PdfContextMenu demo tab for the Component Gallery.
  *
- * Shows TugContextMenu in all configurations: basic usage, items with icons,
+ * Shows PdfContextMenu in all configurations: basic usage, items with icons,
  * items with keyboard shortcuts, separators and labels, disabled items, and
  * wrapping a card-like UI element.
  *
@@ -11,7 +11,7 @@
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Scissors, Copy, Clipboard } from "lucide-react";
-import { TugContextMenu } from "@/components/tugways/tug-context-menu";
+import { PdfContextMenu } from "./pdf-context-menu";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { commandShortcut, keymapRegistry } from "@/components/tugways/keymap-registry";
 import { TugBadge } from "@/components/tugways/tug-badge";
@@ -52,7 +52,7 @@ export function GalleryContextMenu() {
       <div className="cg-section">
         <TugLabel className="cg-section-title">Basic</TugLabel>
         <div style={{ maxWidth: "480px" }}>
-          <TugContextMenu
+          <PdfContextMenu
             items={[
               { action: TUG_ACTIONS.CUT,   label: "Cut" },
               { action: TUG_ACTIONS.COPY,  label: "Copy" },
@@ -60,7 +60,7 @@ export function GalleryContextMenu() {
             ]}
           >
             <div style={regionStyle} data-testid="ctx-region">Right-click here</div>
-          </TugContextMenu>
+          </PdfContextMenu>
         </div>
       </div>
 
@@ -71,7 +71,7 @@ export function GalleryContextMenu() {
         <TugLabel className="cg-section-title">With Icons</TugLabel>
         <div style={labelStyle}>icon prop — lucide-react icons rendered before the label</div>
         <div style={{ maxWidth: "480px" }}>
-          <TugContextMenu
+          <PdfContextMenu
             items={[
               { action: TUG_ACTIONS.CUT,   label: "Cut",   icon: <Scissors size={14} aria-hidden="true" /> },
               { action: TUG_ACTIONS.COPY,  label: "Copy",  icon: <Copy     size={14} aria-hidden="true" /> },
@@ -79,7 +79,7 @@ export function GalleryContextMenu() {
             ]}
           >
             <div style={regionStyle}>Right-click here</div>
-          </TugContextMenu>
+          </PdfContextMenu>
         </div>
       </div>
 
@@ -90,7 +90,7 @@ export function GalleryContextMenu() {
         <TugLabel className="cg-section-title">With Shortcuts</TugLabel>
         <div style={labelStyle}>shortcut prop — keyboard hint rendered after the label</div>
         <div style={{ maxWidth: "480px" }}>
-          <TugContextMenu
+          <PdfContextMenu
             items={[
               { action: TUG_ACTIONS.CUT, label: "Cut", shortcut: commandShortcut(TUG_ACTIONS.CUT) },
               { action: TUG_ACTIONS.COPY, label: "Copy", shortcut: commandShortcut(TUG_ACTIONS.COPY) },
@@ -98,7 +98,7 @@ export function GalleryContextMenu() {
             ]}
           >
             <div style={regionStyle}>Right-click here</div>
-          </TugContextMenu>
+          </PdfContextMenu>
         </div>
       </div>
 
@@ -109,7 +109,7 @@ export function GalleryContextMenu() {
         <TugLabel className="cg-section-title">Separators and Labels</TugLabel>
         <div style={labelStyle}>type="label" for section headers, type="separator" for dividers</div>
         <div style={{ maxWidth: "480px" }}>
-          <TugContextMenu
+          <PdfContextMenu
             items={[
               { type: "label",                    label: "Edit" },
               { action: TUG_ACTIONS.UNDO,         label: "Undo" },
@@ -124,7 +124,7 @@ export function GalleryContextMenu() {
             ]}
           >
             <div style={regionStyle}>Right-click here</div>
-          </TugContextMenu>
+          </PdfContextMenu>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ export function GalleryContextMenu() {
         <TugLabel className="cg-section-title">Disabled Items</TugLabel>
         <div style={labelStyle}>disabled={"{true}"} — non-interactive items rendered with reduced opacity</div>
         <div style={{ maxWidth: "480px" }}>
-          <TugContextMenu
+          <PdfContextMenu
             items={[
               { action: TUG_ACTIONS.CUT,   label: "Cut",   disabled: true },
               { action: TUG_ACTIONS.COPY,  label: "Copy" },
@@ -143,7 +143,7 @@ export function GalleryContextMenu() {
             ]}
           >
             <div style={regionStyle}>Right-click here</div>
-          </TugContextMenu>
+          </PdfContextMenu>
         </div>
       </div>
 
@@ -154,7 +154,7 @@ export function GalleryContextMenu() {
         <TugLabel className="cg-section-title">On a Card</TugLabel>
         <div style={labelStyle}>primary use case — right-clicking a card-like UI element</div>
         <div style={{ maxWidth: "480px" }}>
-          <TugContextMenu
+          <PdfContextMenu
             items={[
               { action: TUG_ACTIONS.CUT,       label: "Cut" },
               { action: TUG_ACTIONS.COPY,      label: "Copy" },
@@ -204,7 +204,7 @@ export function GalleryContextMenu() {
                 Right-click this card to open the context menu with card-level actions.
               </p>
             </div>
-          </TugContextMenu>
+          </PdfContextMenu>
         </div>
       </div>
 

@@ -131,13 +131,13 @@ describe("QuitGuard.ask", () => {
     const alert = fakeAlert();
     guard.request();
     const asked = guard.ask(alert.show);
-    const { title, message, confirmLabel, cancelLabel, confirmRole } = alert.shown[0]!;
-    expect({ title, message, confirmLabel, cancelLabel, confirmRole }).toEqual({
+    const { title, message, confirmLabel, cancelLabel, confirm } = alert.shown[0]!;
+    expect({ title, message, confirmLabel, cancelLabel, confirm }).toEqual({
       title: "Quit Tug?",
       message: "'a' is still working. Quitting will stop it.",
       confirmLabel: "Quit",
       cancelLabel: "Cancel",
-      confirmRole: "danger",
+      confirm: { role: "danger" },
     });
     alert.answer(false);
     await asked;

@@ -1,0 +1,52 @@
+/* RepoNotice — the shades' no-git and non-repo block, both kinds on one
+   plinth. It mirrors ConfigureTug's step row ([D106]): a rounded block on the
+   transcript block surface, the title + detail stacked on the left, the
+   button hung on the right, and, for a failed git init, the error beneath.
+   Appearance only ([L06]). */
+
+.tug-repo-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.tug-repo-notice-block {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+  padding: 0 var(--tug-space-xl);
+  background: var(--tugx-block-surface);
+  border-radius: var(--tugx-block-chrome-radius);
+}
+
+.tug-repo-notice-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tug-repo-notice-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.tug-repo-notice-detail {
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.8;
+}
+
+.tug-repo-notice-action {
+  flex: 0 0 auto;
+}
+
+.tug-repo-notice-error {
+  padding: 0 var(--tug-space-xl);
+  font-size: 0.75rem;
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}

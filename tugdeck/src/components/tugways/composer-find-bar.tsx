@@ -33,6 +33,7 @@ import type { EditorView } from "@codemirror/view";
 
 import {
   TugFindBar,
+  useFindBarHost,
   type TugFindBarHandle,
 } from "@/components/tugways/tug-find-bar";
 import {
@@ -101,20 +102,25 @@ export const ComposerFindBar = React.forwardRef<
     [session, engine],
   );
 
+  // The bar's dismissal arrives as `close-find` ([L11]); this wrapper hands
+  // it to its host's `onClose`.
+  const FindBarHost = useFindBarHost(onClose);
+
   return (
+    <FindBarHost>
     <TugFindBar
       ref={ref}
       session={session}
-      onClose={onClose}
       cardRootRef={cardRootRef}
       placeholder="Find in message"
       className="composer-find-bar"
-      dataSlot={dataSlot}
+      data-slot={dataSlot}
       inputTestId={inputTestId}
       focusGroup={focusGroup}
       focusOrderBase={focusOrderBase}
       replace
       replacementTestId={replacementTestId}
     />
+    </FindBarHost>
   );
 });

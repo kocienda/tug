@@ -60,7 +60,7 @@
  * writes, off the same {@link atomSegmentFor} rule, so a commit copied from a
  * receipt header and a commit copied from a prose mention are the same bytes.
  *
- * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
+ * `TugEditorContextMenu` rather than the Radix-backed `PdfContextMenu`, for the
  * reason {@link useSessionIdentityMenu} uses it: its items write to the
  * clipboard inside the mousedown, and it moves no focus — a History row is
  * chrome, and a copy from it must not take the key view away from the shade's
@@ -83,10 +83,8 @@ import {
 } from "@/components/tugways/commit-presentation";
 import { SHA_DISPLAY_LEN } from "@/components/tugways/commit-sha-text";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import {
-  TugEditorContextMenu,
-  type TugEditorContextMenuEntry,
-} from "@/components/tugways/tug-editor-context-menu";
+import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { usePointMenu } from "@/components/tugways/use-point-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
@@ -172,10 +170,7 @@ export function useCommitIdentityMenu({
   // commit's or a diff's card opens beside rather than beside whichever card
   // holds first responder.
   const hostCardId = useCardId();
-  const [menuState, setMenuState] = React.useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const closeMenu = React.useCallback(() => setMenuState(null), []);
+  const { openAtEvent, renderMenu } = usePointMenu();
 
   const paths = commit.paths ?? NO_PATHS;
   // The reference the whole app writes a commit as, and the header line built
@@ -297,16 +292,13 @@ export function useCommitIdentityMenu({
 
   const onContextMenu = React.useCallback(
     (e: React.MouseEvent): void => {
-      if (manager === null) return;
-      e.preventDefault();
       // Claimed, not merely handled — the same rule `useCopyableText` follows.
       // The runs inside the row are copyables of their own and every one of
       // them is on this row's path, so a press that only suppressed the native
       // menu would open a stack of them over one point.
-      e.stopPropagation();
-      setMenuState({ x: e.clientX, y: e.clientY });
+      openAtEvent(e, null);
     },
-    [manager],
+    [openAtEvent],
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
@@ -332,13 +324,7 @@ export function useCommitIdentityMenu({
   const contextMenu =
     manager !== null ? (
       <ResponderScope>
-        <TugEditorContextMenu
-          open={menuState !== null}
-          x={menuState?.x ?? 0}
-          y={menuState?.y ?? 0}
-          items={items}
-          onClose={closeMenu}
-        />
+        {renderMenu(items)}
       </ResponderScope>
     ) : null;
 

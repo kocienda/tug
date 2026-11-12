@@ -74,7 +74,9 @@ import "./json-tree-block.css";
 
 import React from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, Copy, FoldVertical, UnfoldVertical } from "lucide-react";
+import { Copy, FoldVertical, UnfoldVertical } from "lucide-react";
+
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
 
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
@@ -392,13 +394,7 @@ const JsonNode: React.FC<JsonNodeProps> = ({
         onClick={handleLineClick}
       >
         {container ? (
-          <span className="tugx-json-twist" aria-hidden="true">
-            {expanded ? (
-              <ChevronDown size={12} />
-            ) : (
-              <ChevronRight size={12} />
-            )}
-          </span>
+          <TugDisclosure className="tugx-json-twist" expanded={expanded} size={12} />
         ) : (
           <span className="tugx-json-twist-spacer" aria-hidden="true" />
         )}
@@ -437,7 +433,7 @@ const JsonNode: React.FC<JsonNodeProps> = ({
         )}
 
         {showCopyPath ? (
-          <TugIconButton
+          <TugIconButton size="sm"
             className="tugx-json-copy-path"
             icon={<Copy />}
             aria-label={`Copy path ${path}`}
@@ -593,14 +589,14 @@ export const JsonTreeBlock: React.FC<JsonTreeBlockProps> = ({
   // renders only in the standalone header.
   const treeControls = (
     <>
-      <TugIconButton
+      <TugIconButton size="sm"
         className="tugx-json-expand-all"
         icon={<UnfoldVertical />}
         aria-label="Expand all"
         title="Expand all"
         onClick={handleExpandAll}
       />
-      <TugIconButton
+      <TugIconButton size="sm"
         className="tugx-json-collapse-all"
         icon={<FoldVertical />}
         aria-label="Collapse all"
@@ -639,7 +635,7 @@ export const JsonTreeBlock: React.FC<JsonTreeBlockProps> = ({
       className={rootClass}
     >
       {embedded ? null : (
-        <div className="tugx-json-header" data-slot={DATA_SLOT_HEADER}>
+        <div className="tugx-json-header tugx-block-strip" data-slot={DATA_SLOT_HEADER}>
           {label !== undefined ? (
             <span className="tugx-json-label" data-slot="json-label">
               {label}

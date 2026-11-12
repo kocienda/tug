@@ -28,9 +28,8 @@
  * Colour and type never appear here: the SVG carries role classes and
  * `chart-block.css` maps them to tokens, which is what lets a theme switch
  * restyle a chart already on screen with no re-render. That stylesheet is
- * the body kind's; the markdown doors (`tug-markdown-block.tsx`,
- * `tug-markdown-view.tsx`) import it beside their own, since a lib module
- * imports nothing from components.
+ * the body kind's; the markdown door (`tug-markdown-block.tsx`) imports it
+ * beside its own, since a lib module imports nothing from components.
  *
  * There is no recompile on resize. The SVG carries `max-width: 100%` and
  * `height: auto`, so a narrower card scales the figure down.

@@ -39,7 +39,7 @@ import "./tug-stable-overlay.css";
 import React from "react";
 import { cn } from "@/lib/utils";
 
-export interface TugStableOverlayProps {
+export interface TugStableOverlayProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** The visible variant — the one that paints and receives interaction. */
   active: React.ReactNode;
   /**
@@ -48,9 +48,7 @@ export interface TugStableOverlayProps {
    * `aria-hidden` + `pointer-events: none`.
    */
   alternates: React.ReactNode[];
-  /** Extra class on the overlay root. */
-  className?: string;
-  /** Forwarded `data-slot` for the overlay root. */
+  /** The overlay root's `data-slot`. @default "tug-stable-overlay" */
   "data-slot"?: string;
 }
 
@@ -58,12 +56,10 @@ export interface TugStableOverlayProps {
  * Overlays `active` over `alternates` in one grid cell, sizing to the widest.
  * See the module docstring for the mechanism and the contract.
  */
-export function TugStableOverlay({
-  active,
-  alternates,
-  className,
-  ...rest
-}: TugStableOverlayProps): React.ReactElement {
+export const TugStableOverlay = React.forwardRef<HTMLSpanElement, TugStableOverlayProps>(function TugStableOverlay(
+  { active, alternates, className, "data-slot": dataSlot = "tug-stable-overlay", ...rest },
+  ref,
+) {
   // Width/height stabilization is pure CSS: the active variant and the
   // hidden alternates share one grid cell (`grid-area: stable`), so the
   // box intrinsically sizes to the widest/tallest variant before paint —
@@ -76,10 +72,7 @@ export function TugStableOverlay({
   // DOM, dominated load time (O(N²) layout thrash) — hence its removal.
 
   return (
-    <span
-      className={cn("tug-stable-overlay", className)}
-      {...rest}
-    >
+    <span {...rest} ref={ref} className={cn("tug-stable-overlay", className)} data-slot={dataSlot}>
       <span className="tug-stable-overlay-variant" data-tug-stable="active">
         {active}
       </span>
@@ -97,4 +90,4 @@ export function TugStableOverlay({
       ))}
     </span>
   );
-}
+});

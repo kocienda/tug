@@ -13,7 +13,7 @@
  * **The enclosure is borrowed, not authored.** This component sets no box, no
  * corner, no border, no padding and no state colour of its own: it wears
  * `tug-session-identity` at `data-tier="chip"`, exactly as `ArcSigil atom`
- * does, so the pill's numbers arrive from `tug-session-identity.css`'s settled
+ * does, so the pill's numbers arrive from `session-identity.css`'s settled
  * skin through the same selectors a session citation is reached by. That is
  * what makes the three pills siblings by construction rather than by three sets
  * of numbers kept equal by hand — `data-interactive`'s hover and
@@ -64,8 +64,12 @@ import React from "react";
 import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import { COMMIT_ATOM_TYPE } from "@/lib/command-atom";
 import { COMMIT_LABEL_LENGTH, commitAtomLabel } from "@/lib/commit-format";
+import { cn } from "@/lib/utils";
 
-/** The `data-slot` every surface's copy answers to. One selector, everywhere. */
+/**
+ * The `data-slot` every surface's copy answers to. One selector, everywhere;
+ * the root writes it as a literal so the attribute reads where it lands.
+ */
 export const COMMIT_ATOM_SLOT = "tug-commit-atom";
 
 /** The word the label leads with — scaffolding for the hash, not part of it. */
@@ -155,12 +159,8 @@ export const TugCommitAtom = React.forwardRef<
     <span
       {...rest}
       ref={ref}
-      className={
-        className === undefined
-          ? "tug-session-identity tug-commit-atom"
-          : `tug-session-identity tug-commit-atom ${className}`
-      }
-      data-slot={COMMIT_ATOM_SLOT}
+      className={cn("tug-session-identity", "tug-commit-atom", className)}
+      data-slot="tug-commit-atom"
       data-tier="chip"
       data-interactive={interactive ? "true" : undefined}
       data-missing={missing ? "true" : undefined}

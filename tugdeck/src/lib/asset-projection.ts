@@ -25,7 +25,7 @@
  * nothing — no store write, no React render.
  *
  * The projection performs **no byte I/O at all**. Tiles carry the resolved
- * path, and `TugAttachmentPreview` paints them through `/api/fs/blob`, which
+ * path, and `AttachmentPreview` paints them through `/api/fs/blob`, which
  * streams and revalidates by `ETag`. Filling a bytes store with base64 would
  * park a whole document's assets in memory to draw thumbnails.
  *
@@ -134,7 +134,7 @@ export class AssetProjection extends Subscribable {
   getSnapshot = (): readonly AssetTile[] => this.tiles;
 
   /**
-   * The atoms `TugAttachmentPreview` renders — one synthetic segment per tile.
+   * The atoms `AttachmentPreview` renders — one synthetic segment per tile.
    * Reference-stable alongside {@link getSnapshot}, which the component's own
    * snapshot cache depends on.
    */

@@ -73,7 +73,7 @@
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
  * @covers tugdeck/src/components/tugways/cards/blocks/task-tool-block.css
  * @covers tugdeck/src/components/tugways/tug-quiet-line.css
- * @covers tugdeck/src/components/tugways/tug-status-cell.css
+ * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.css
  * @covers tugdeck/src/components/tugways/tug-atom-ref.css
  * @covers tugdeck/src/components/tugways/tug-separator.css
  */

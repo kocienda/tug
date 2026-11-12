@@ -28,21 +28,21 @@
  *    primitives read as one family when stacked.
  *
  * Content:
- *  - `title` plus optional `subtitle` render the common two-line
+ *  - `title` plus optional `description` render the common two-line
  *    column — the `UITableViewCellStyle.subtitle` shape. Both render
  *    through `TugLabel` (title at `titleSize`, default `md`; the
- *    subtitle muted via `emphasis="calm"`, wrapping to
- *    `subtitleMaxLines`) so row text matches the rest of the app.
+ *    description muted via `emphasis="calm"`, wrapping to
+ *    `descriptionMaxLines`) so row text matches the rest of the app.
  *    Either slot accepts a `ReactNode` — a highlighted title or
- *    subtitle (`renderFilterHighlight`) composes into the same
+ *    description (`renderFilterHighlight`) composes into the same
  *    `TugLabel` as a plain string, so a filtered list keeps the row's
  *    typography and truncation instead of reaching for `children`.
  *  - `children`, when provided, owns the content column outright and
- *    `title` / `subtitle` are ignored — the escape hatch for rows
- *    whose content is not a plain title / subtitle stack.
+ *    `title` / `description` are ignored — the escape hatch for rows
+ *    whose content is not a plain title / description stack.
  *  - `mono` switches the content column to the monospace family at a
  *    compact, dense line — the standard row type for paths, ids, and
- *    code-ish text — applying to a title / subtitle stack or `children`.
+ *    code-ish text — applying to a title / description stack or `children`.
  *
  * Accessories:
  *  - `leading` / `trailing` are arbitrary nodes (UIKit's leading
@@ -75,12 +75,13 @@
  */
 
 import "./tug-list-row.css";
+import type { TugDensity, TugRowState } from "./tug-vocabulary";
 
 import React from "react";
 import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { TugLabel, type TugLabelSize } from "./tug-label";
+import { TugLabel, type TugLabelProps, type TugLabelSize } from "./tug-label";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,10 +103,13 @@ export type TugListRowVariant = "flush" | "pill";
  *    the pointer or the keyboard cursor arrives. */
 export type TugListRowTrailingReveal = "always" | "engaged" | "claim";
 
-/** Row density. `cozy` is the comfortable default; `compact` collapses the
+/** Row density. `regular` is the comfortable default; `compact` collapses the
  *  block padding to a hairline — the treatment for long enumerations (a
  *  commit's file list) where vertical economy is the point. */
-export type TugListRowDensity = "cozy" | "compact";
+export type TugListRowDensity = TugDensity;
+
+/** A row's standing among its neighbours — see `TugRowState`. */
+export type TugListRowState = TugRowState;
 
 /** Leading selection-indicator column mode.
  *  - `"check"` — a bare checkmark (shown when selected, blank otherwise);
@@ -129,7 +133,7 @@ export interface TugListRowProps
   /**
    * Row density. When omitted, falls back to the enclosing
    * `TugListView`'s `rowDensity` (via `TugListRowLayoutContext`), then
-   * to `cozy`. `compact` collapses the block padding to a hairline for
+   * to `regular`. `compact` collapses the block padding to a hairline for
    * long enumerations.
    * @selector [data-density="compact"]
    */
@@ -183,19 +187,19 @@ export interface TugListRowProps
    * the same `TugLabel` whether it is a string or a node. Ignored when
    * `children` is provided.
    */
-  subtitle?: React.ReactNode;
+  description?: React.ReactNode;
 
   /**
-   * Maximum lines for the `subtitle` before truncation. `1`
+   * Maximum lines for the `description` before truncation. `1`
    * (default) keeps today's single-line ellipsis; a larger value lets
-   * the subtitle wrap to a multi-line description. Forwarded to the
-   * subtitle `TugLabel`'s `maxLines`.
+   * the description wrap to a multi-line description. Forwarded to the
+   * description `TugLabel`'s `maxLines`.
    */
-  subtitleMaxLines?: number;
+  descriptionMaxLines?: number;
 
   /**
    * Free-form content column. When provided it owns the content
-   * column and `title` / `subtitle` are ignored.
+   * column and `title` / `description` are ignored.
    */
   children?: React.ReactNode;
 
@@ -226,12 +230,20 @@ export interface TugListRowProps
   /**
    * Render the content column in the monospace family at a compact,
    * dense line (the standard row type for paths, ids, and code-ish
-   * text). Applies to a `title` / `subtitle` stack or free-form
+   * text). Applies to a `title` / `description` stack or free-form
    * `children` alike. `false` (default) keeps the comfortable sans row.
    * @selector [data-mono="true"]
    * @default false
    */
   mono?: boolean;
+
+  /**
+   * The row's standing among its neighbours. `struck` fades the row and
+   * crosses out its title (spent, but still legible); `dimmed` quiets the
+   * content column a step. Omitted ⇒ full strength.
+   * @selector [data-row-state="struck"] | [data-row-state="dimmed"]
+   */
+  state?: TugListRowState;
 
   /**
    * Leading selection-indicator column. Reserves a fixed-width column on every
@@ -331,13 +343,13 @@ export function resolveListRowVariant(
 /**
  * Resolve the effective row density. An explicit `density` prop wins;
  * otherwise the enclosing `TugListView`'s `rowDensity` (via context);
- * otherwise `cozy`. Pure; exported for tests.
+ * otherwise `regular`. Pure; exported for tests.
  */
 export function resolveListRowDensity(
   propDensity: TugListRowDensity | undefined,
   contextDensity: TugListRowDensity | null | undefined,
 ): TugListRowDensity {
-  return propDensity ?? contextDensity ?? "cozy";
+  return propDensity ?? contextDensity ?? "regular";
 }
 
 /**
@@ -365,9 +377,9 @@ export function resolveListRowSelectedGlyph(
 /**
  * Which content path the row renders.
  *  - `"children"` — `children` is non-empty; it owns the content
- *    column and `title` / `subtitle` are ignored.
- *  - `"structured"` — no `children`, but a `title` or `subtitle` is
- *    present; the title / subtitle stack renders.
+ *    column and `title` / `description` are ignored.
+ *  - `"structured"` — no `children`, but a `title` or `description` is
+ *    present; the title / description stack renders.
  *  - `"empty"` — no content at all (a degenerate but non-crashing
  *    case; the content column renders empty).
  */
@@ -379,7 +391,7 @@ function isRenderable(node: React.ReactNode): boolean {
 }
 
 /**
- * True when a `title` / `subtitle` slot carries text worth a `TugLabel`.
+ * True when a `title` / `description` slot carries text worth a `TugLabel`.
  * The empty string is renderable-but-blank: it must NOT promote a row out
  * of `"empty"` mode, or a caller passing `title=""` would gain a stray
  * label line.
@@ -390,16 +402,16 @@ function hasRowText(node: React.ReactNode): boolean {
 
 /**
  * Resolve the content-rendering mode. `children` takes precedence
- * over `title` / `subtitle` per the escape-hatch contract. Pure;
+ * over `title` / `description` per the escape-hatch contract. Pure;
  * exported for tests.
  */
 export function resolveListRowContentMode(
   children: React.ReactNode,
   title: React.ReactNode,
-  subtitle: React.ReactNode,
+  description: React.ReactNode,
 ): TugListRowContentMode {
   if (isRenderable(children)) return "children";
-  if (hasRowText(title) || hasRowText(subtitle)) return "structured";
+  if (hasRowText(title) || hasRowText(description)) return "structured";
   return "empty";
 }
 
@@ -422,14 +434,15 @@ export const TugListRow = React.forwardRef<HTMLDivElement, TugListRowProps>(
       title,
       titleSize,
       titleMaxLines,
-      subtitle,
-      subtitleMaxLines,
+      description,
+      descriptionMaxLines,
       selected,
       disabled,
       selectedAccent,
       selectedGlyph,
       selectionSurface,
       mono,
+      state,
       children,
       className,
       ...rest
@@ -439,7 +452,7 @@ export const TugListRow = React.forwardRef<HTMLDivElement, TugListRowProps>(
     const layout = React.useContext(TugListRowLayoutContext);
     const resolvedVariant = resolveListRowVariant(variant, layout?.variant ?? null);
     const resolvedDensity = resolveListRowDensity(density, layout?.density);
-    const contentMode = resolveListRowContentMode(children, title, subtitle);
+    const contentMode = resolveListRowContentMode(children, title, description);
     // Accent border: explicit prop wins; otherwise inherit the
     // enclosing list view's `selectedAccent`; otherwise off.
     const resolvedAccent = selectedAccent ?? layout?.selectedAccent ?? false;
@@ -466,6 +479,7 @@ export const TugListRow = React.forwardRef<HTMLDivElement, TugListRowProps>(
           resolvedSelectionSurface === "control" ? "control" : undefined
         }
         data-mono={mono ? "true" : undefined}
+        data-row-state={state}
         className={cn("tug-list-row", className)}
         {...rest}
       >
@@ -512,14 +526,14 @@ export const TugListRow = React.forwardRef<HTMLDivElement, TugListRowProps>(
                   {title}
                 </TugLabel>
               ) : null}
-              {hasRowText(subtitle) ? (
+              {hasRowText(description) ? (
                 <TugLabel
                   className="tug-list-row-subtitle"
                   size="sm"
                   emphasis="calm"
-                  maxLines={subtitleMaxLines ?? 1}
+                  maxLines={descriptionMaxLines ?? 1}
                 >
-                  {subtitle}
+                  {description}
                 </TugLabel>
               ) : null}
             </>
@@ -538,3 +552,41 @@ export const TugListRow = React.forwardRef<HTMLDivElement, TugListRowProps>(
     );
   },
 );
+
+// ---------------------------------------------------------------------------
+// TugListRowTitle — the title slot
+// ---------------------------------------------------------------------------
+
+/** Props for {@link TugListRowTitle}. */
+export interface TugListRowTitleProps extends Omit<TugLabelProps, "size" | "maxLines"> {
+  /** Title size. Defaults to `"sm"`, the rail rows' measure. */
+  size?: TugLabelSize;
+  /** Maximum lines before truncation. Defaults to `1`. */
+  maxLines?: number;
+}
+
+/**
+ * The row's title, for a row whose content column is free-form `children`.
+ *
+ * A row that composes its own content — a glyph beside the title, a count
+ * inside it — still wants the title to read as the row's title: the row's
+ * type, its ellipsis, and the list's `rowTextSize`. This is that title, so a
+ * feature renders the slot rather than borrowing the row's class onto a label
+ * of its own. A `className` is the feature's handle on its own title, styled
+ * in its own CSS under its own name.
+ */
+export function TugListRowTitle({
+  size = "sm",
+  maxLines = 1,
+  className,
+  ...rest
+}: TugListRowTitleProps): React.ReactElement {
+  return (
+    <TugLabel
+      {...rest}
+      className={cn("tug-list-row-title", className)}
+      size={size}
+      maxLines={maxLines}
+    />
+  );
+}

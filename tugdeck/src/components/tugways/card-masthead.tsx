@@ -31,7 +31,7 @@
  */
 
 import React from "react";
-import { icons } from "lucide-react";
+import { iconNamed } from "@/components/tugways/tug-named-icon";
 
 import type { DocumentMastheadPayload } from "@/lib/card-title-store";
 import { TugSessionRow } from "@/components/tugways/tug-session-row";
@@ -58,10 +58,7 @@ export function CardMasthead({
   payload,
   onActivateDescription,
 }: CardMastheadProps): React.ReactElement {
-  const IconComponent =
-    payload.icon && icons[payload.icon as keyof typeof icons]
-      ? icons[payload.icon as keyof typeof icons]
-      : null;
+  const IconComponent = iconNamed(payload.icon);
 
   const isPath = payload.descriptionKind === "path";
   const actionable = onActivateDescription !== undefined;

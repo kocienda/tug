@@ -175,7 +175,7 @@ export async function pagesOf(app: App): Promise<PageRow[]> {
 export const mastheadDot = (): string =>
   `(function () {
     var dot = document.querySelector('.body-chrome-frame [data-slot="session-masthead"] [data-slot="tug-progress-indicator"]');
-    return dot === null ? null : { role: dot.getAttribute("data-role"), state: dot.getAttribute("data-state") };
+    return dot === null ? null : { role: dot.getAttribute("data-tone"), state: dot.getAttribute("data-state") };
   })()`;
 
 /** The body's prompt entry's phase. */

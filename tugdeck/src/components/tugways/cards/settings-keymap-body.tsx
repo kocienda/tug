@@ -969,7 +969,7 @@ export function SettingsKeymapBody(): React.ReactElement {
         message:
           "Every command goes back to the chord it ships with. Shortcuts you have not changed are unaffected.",
         confirmLabel: "Reset All",
-        confirmRole: "danger",
+        confirm: { role: "danger" },
         cancelLabel: "Cancel",
       })
       .then((confirmed) => {
@@ -980,7 +980,7 @@ export function SettingsKeymapBody(): React.ReactElement {
   return (
     <div className="settings-keymap" data-testid="settings-keymap">
       <div className="settings-keymap-toolbar">
-        <TugFilterField
+        <TugFilterField size="sm"
           key={`filter-${filterEpoch}`}
           delegate={filterDelegate}
           attachment={attachment}

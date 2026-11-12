@@ -19,7 +19,7 @@
  *   validity, no chord. They keep the raw `registerAction` handler path
  *   ([P03]).
  * - **Form-control currency** (`set-value`, `toggle`, `select-value`,
- *   `set-color`, `activate-color-well`, `set-property`). These travel
+ *   `set-property`). These travel
  *   between a control and its responder; they are not user intents.
  * - **Substrate text-editing bindings** (⌃U / ⌃W / ⌥F / ⌥B, the CM6
  *   keymaps). Movement and deletion only ever target the focused text
@@ -275,7 +275,7 @@ export interface CommandMenuFacts {
    */
   readonly spaceThemesDiffer: boolean;
   /**
-   * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `TugVersionGate` —
+   * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `VersionGate` —
    * is on screen. Radix traps the web view's focus and pointer while one is;
    * AppKit's menu bar is not trapped, so every command that would change the
    * number of cards on the deck has to read this and go dark ([B01], [B02]).
@@ -3654,8 +3654,7 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.SELECT_VALUE,
   TUG_ACTIONS.INCREMENT_VALUE,
   TUG_ACTIONS.DECREMENT_VALUE,
-  TUG_ACTIONS.SET_COLOR,
-  TUG_ACTIONS.ACTIVATE_COLOR_WELL,
+  TUG_ACTIONS.SELECT_SLOT,
   TUG_ACTIONS.SET_PROPERTY,
   TUG_ACTIONS.SELECT_TAB,
   TUG_ACTIONS.CLOSE_TAB,
@@ -3663,9 +3662,11 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.TOGGLE_SECTION,
   TUG_ACTIONS.SUBMIT,
   TUG_ACTIONS.REMOVE_ATTACHMENT,
+  TUG_ACTIONS.UNSTAGE_CONTEXT,
   TUG_ACTIONS.REQUEST_TRASH_SESSION,
   TUG_ACTIONS.CONFIRM_DIALOG,
   TUG_ACTIONS.DISMISS_POPOVER,
+  TUG_ACTIONS.CLOSE_FIND,
   TUG_ACTIONS.SHOW_SLASH_COMMAND_NOTICE,
   TUG_ACTIONS.SCROLL_DOCUMENT,
 

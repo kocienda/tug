@@ -8,7 +8,7 @@
  *     the metadata laid out flush-left / flush-right.
  *   - `.session-load-overlay` — the load progress band + modal scrim, an
  *     ABSOLUTE overlay over the transcript area. The band itself is owned by
- *     tug-control-bar.css (surface, scrim, `data-visible` show/hide); this
+ *     control-bar.css (surface, scrim, `data-visible` show/hide); this
  *     file only positions the overlay and lays out the progress row.
  *
  * Two tunable knobs live here:
@@ -114,7 +114,7 @@
 /* The overlay layers the load band + its region scrim over the transcript
    without taking layout space, so locking-while-loading never shifts the
    content. The wrapper is inert to pointers (the band re-enables its own;
-   the region scrim, owned by tug-control-bar.css, handles the lock below). */
+   the region scrim, owned by control-bar.css, handles the lock below). */
 .session-load-overlay {
   position: absolute;
   top: 0;

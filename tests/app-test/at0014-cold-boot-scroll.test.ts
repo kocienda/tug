@@ -1,6 +1,6 @@
 /**
  * at0014-cold-boot-scroll.test.ts — region-scroll restore across full
- * Tug.app process restart on a `tug-markdown-view` card.
+ * Tug.app process restart on a markdown fixture card's scroll region.
  *
  * ## Two-phase contract
  *
@@ -13,8 +13,8 @@
  * | A     | empty (fresh temp DB)   | seed deck → scroll → | tugbank disk has regionScroll.markdown-view.y        |
  * |       |                         | quitGracefully       | matching the scrolled offset                         |
  * | B     | populated (from A)      | re-seed deck with    | live `el.scrollTop` matches the saved offset within  |
- * |       |                         | bag from disk →      | tolerance after the bake-in/virtualization race      |
- * |       |                         | wait for ready       | settles                                              |
+ * |       |                         | bag from disk →      | tolerance once the document has laid out             |
+ * |       |                         | wait for ready       |                                                      |
  *
  * Phase A failure ⇒ save path didn't reach disk (or quitGracefully
  * skipped the save trigger). Phase B failure ⇒ load + apply at
@@ -38,10 +38,10 @@
  *
  * ## Status: PASSING (in the default Justfile sweep)
  *
- * Layer 4 (the `tug-region-scroll-set` event + SmartScroll
- * disengage-follow-bottom + MutationObserver `attributeFilter`
- * retry) flipped this from failing to passing. See
- * [AT0014] gating and scroll persistence contract.
+ * `CardHost` assigns the saved offset to the scroll region at mount
+ * and re-applies it on content mutation until it holds, so a
+ * document still laying out cannot clamp the restore. See [AT0014]
+ * gating and scroll persistence contract.
  *
  * ## Closes
  *
@@ -50,10 +50,10 @@
  * `simulateAppResign` round-trips inside one Tug.app process; this
  * file adds the cross-process variant they cannot exercise.
  *
- * @covers tugdeck/src/lib/region-map.ts
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/lib/tugbank-client.ts
- * @covers tugdeck/src/components/tugways/tug-markdown-view.tsx
+ * @covers tugdeck/src/fixtures/fixture-markdown-static.tsx
+ * @covers tugdeck/src/components/tugways/tug-markdown-block.tsx
  * @covers tugapp/Sources/TugbankClient.swift
  */
 
@@ -71,10 +71,9 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
 const TEST_TIMEOUT_MS = 60_000;
 
-/** The known scroll offset Phase A pins. Picked well above viewport
- * so the bake-in's estimated heights almost certainly clamp the
- * first-pass apply, exposing the virtualization race the fix has
- * to handle. */
+/** The known scroll offset Phase A pins. Picked well past one
+ * viewport, so a restore that lands before the document has laid out
+ * would be clamped short of it. */
 const REGION_SCROLL_TARGET = 600;
 
 const CARD_ID = "A";
@@ -141,22 +140,13 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
             { timeoutMs: 4000 },
           );
 
-          // Dispatch the `tug-region-scroll-set` event tug-markdown-view
-          // listens for (the same event CardHost's applyRegionScrolls
-          // uses during cold-boot restore). Setting scrollTop directly
-          // would race SmartScroll's follow-bottom mode — by the time
-          // the bag is captured at quitGracefully, ResizeObserver-driven
-          // bake-in would have re-slammed scrollTop to the bottom.
-          // Routing through the event tells SmartScroll to disengage
-          // follow-bottom AND apply the requested position.
+          // The fixture's scroll region is a plain scroller with no
+          // follow-bottom of its own, so the user's scroll is a direct
+          // `scrollTop` write.
           await app.body(CARD_ID).evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
-              el.dispatchEvent(new CustomEvent('tug-region-scroll-set', {
-                detail: { top: ${REGION_SCROLL_TARGET}, left: 0 },
-                cancelable: true,
-                bubbles: false,
-              }));
+              el.scrollTop = ${REGION_SCROLL_TARGET};
             })()`,
           );
           await app.body(CARD_ID).waitForCondition<boolean>(
@@ -223,10 +213,10 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
             );
 
             // Wait for el.scrollTop to land at the saved offset AND
-            // hold there across multiple polls — the bake-in race
-            // can momentarily place it near the target before
-            // ResizeObserver-driven height refinement nudges it
-            // again. 3 stable polls @ ~16ms = ~48ms of stability.
+            // hold there across multiple polls, so a restore that
+            // passed through the target while the document was still
+            // laying out does not read as settled. 3 stable polls
+            // @ ~16ms = ~48ms of stability.
             const settled = await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});

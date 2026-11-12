@@ -621,7 +621,7 @@
 /* The action-role in-progress fill is the same fixed cobalt the small
    pulsing dot uses, so "in progress" never collides with a theme whose Key is
    itself a green. Scoped to the action role; other roles keep their tone. */
-.tug-progress-indicator[data-role="action"]
+.tug-progress-indicator[data-tone="action"]
   .tug-progress-pulsing-dot[data-state="running"] {
   --tugx-progress-indicator-fill: --tug-color(cobalt, l: 635, c: 320);
 }

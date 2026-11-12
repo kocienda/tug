@@ -11,8 +11,10 @@
  * standing between the rule and that hook.
  *
  * The contract is crude on purpose. A module that RENDERS
- * `<TugEditorContextMenu` and mentions `contextmenu` (a React `onContextMenu`
- * or the native event name) opens a menu on a press, and must import the
+ * `<TugEditorContextMenu` — itself, or through `usePointMenu`'s `renderMenu`,
+ * the shared open-flag-and-anchor skeleton — and mentions `contextmenu` (a
+ * React `onContextMenu` or the native event name) opens a menu on a press,
+ * and must import the
  * press primitive — or compose a hook that does, which is how the surfaces
  * that mount `useTextSurfaceContextMenu` inherit it. Menus opened from a
  * BUTTON are not presses on an entity, and each is listed here with the
@@ -31,6 +33,9 @@ const PRESS_MODULE = "whole-entity-press";
 
 /** The component whose rendering marks a module as one that opens a menu. */
 const MENU_COMPONENT = "tug-editor-context-menu";
+
+/** The hook a module renders the menu through, in place of the component. */
+const MENU_HOOK = "use-point-menu";
 
 /**
  * Hooks that compose the press and hand their handlers to a surface. A
@@ -67,6 +72,14 @@ const EXEMPT: ReadonlyMap<string, string> = new Map([
     "components/tugways/tug-editor-context-menu.tsx",
     "is the menu component itself, and opens nothing",
   ],
+  [
+    "components/tugways/cards/gallery-tug-editor-context-menu.tsx",
+    "is the menu's gallery demo, opened from a right-click on an empty dashed target — there is no entity and no run of text under the press to select whole",
+  ],
+  [
+    "components/tugways/use-point-menu.tsx",
+    "is the open-flag-and-anchor skeleton the menus render through; the press belongs to each menu that composes it, and is checked there",
+  ],
 ]);
 
 interface Module {
@@ -88,9 +101,14 @@ function importsModule(source: string, moduleName: string): boolean {
   return re.test(source);
 }
 
+/** Renders the menu, itself or through the point-menu hook. */
+function rendersMenu(source: string): boolean {
+  return /<TugEditorContextMenu\b/.test(source) || importsModule(source, MENU_HOOK);
+}
+
 /** Renders the menu, and says so on a press. */
 function opensMenuOnPress(source: string): boolean {
-  return /<TugEditorContextMenu\b/.test(source) && /contextmenu/i.test(source);
+  return rendersMenu(source) && /contextmenu/i.test(source);
 }
 
 describe("whole-entity-press shape guard", () => {
@@ -98,7 +116,11 @@ describe("whole-entity-press shape guard", () => {
     const offenders: string[] = [];
     const seen: string[] = [];
     for (const { relPath, source } of productionModules()) {
-      if (!importsModule(source, MENU_COMPONENT) && !relPath.endsWith(`${MENU_COMPONENT}.tsx`)) {
+      if (
+        !importsModule(source, MENU_COMPONENT) &&
+        !importsModule(source, MENU_HOOK) &&
+        !relPath.endsWith(`${MENU_COMPONENT}.tsx`)
+      ) {
         continue;
       }
       if (!opensMenuOnPress(source)) continue;
@@ -134,7 +156,7 @@ describe("whole-entity-press shape guard", () => {
     for (const [relPath, why] of EXEMPT) {
       expect(present.has(relPath), `${relPath} (${why}) exists`).toBe(true);
       expect(
-        /<TugEditorContextMenu\b/.test(present.get(relPath) ?? ""),
+        rendersMenu(present.get(relPath) ?? ""),
         `${relPath} still renders the menu; drop the exemption otherwise`,
       ).toBe(true);
     }

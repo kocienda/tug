@@ -36,7 +36,7 @@
  * and whole-file landing are covered against a temp repo in
  * `feeds/changeset.rs`'s `m02a_verification`.
  *
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
  * @covers tugdeck/src/lib/hunk-election.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs

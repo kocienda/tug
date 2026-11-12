@@ -86,7 +86,7 @@
  * the three clipboard flavors (`text/html` stays struck).
  *
  * **What is real here and what is a drawing.** The shipped-component frame mounts
- * the real `TugSessionIdentity` at every state it renders — the line tier, the
+ * the real `SessionIdentityView` at every state it renders — the line tier, the
  * chip tier, a named chip, a narrow named chip, and the missing chip — and it is
  * load-bearing beyond illustration: `at0376` drives exactly those
  * mounts, so a claim proved there is a claim about what ships. The dot and the
@@ -117,7 +117,7 @@ import { Waves, X } from "lucide-react";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { useCopyableButton } from "@/components/tugways/use-copyable-text";
 import { TugSeparator } from "@/components/tugways/tug-separator";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import {
   TUG_SESSION_ROW_INDICATOR_SIZE,
   TUG_SESSION_ROW_SPARK_HEIGHT,
@@ -946,12 +946,12 @@ export function SpikeSessionIdentity(): React.ReactElement {
               app-tests (at0376) drive, so the line tier, the chip
               tier, the named chip, the narrow named chip, and the missing
               chip must all stay mounted here. */}
-          <Frame label="the shipped TugSessionIdentity — line, chip, named, narrow, missing">
+          <Frame label="the shipped SessionIdentityView — line, chip, named, narrow, missing">
             <div className="gsi-chip-row">
-              <TugSessionIdentity identity={fixtureIdentity(LIVE)} tier="line" />
-              <TugSessionIdentity identity={fixtureIdentity(LIVE)} tier="chip" />
-              <TugSessionIdentity identity={fixtureIdentity(LIVE)} tier="chip" />
-              <TugSessionIdentity
+              <SessionIdentityView identity={fixtureIdentity(LIVE)} tier="line" />
+              <SessionIdentityView identity={fixtureIdentity(LIVE)} tier="chip" />
+              <SessionIdentityView identity={fixtureIdentity(LIVE)} tier="chip" />
+              <SessionIdentityView
                 identity={fixtureIdentity(NAMED_LIVE)}
                 tier="chip"
                 data-gsi-shipped="named"
@@ -959,12 +959,12 @@ export function SpikeSessionIdentity(): React.ReactElement {
               {/* The truncation rule, on the real component: the name survives
                   and the callsign gives way. Only a live browser can show it. */}
               <span className="gsi-chip-narrow" data-gsi-shipped="narrow">
-                <TugSessionIdentity
+                <SessionIdentityView
                   identity={fixtureIdentity(NAMED_LIVE)}
                   tier="chip"
                 />
               </span>
-              <TugSessionIdentity
+              <SessionIdentityView
                 identity={fixtureIdentity(EXTERNAL)}
                 tier="chip"
                 missing

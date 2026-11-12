@@ -608,7 +608,7 @@ function wireActionDispatch(
 
   // logout: app-level "Log out…" trigger from the File menu (like show-card,
   // not the per-card run-card-command — logout must work with no card open).
-  // Bumps the logout-request nonce; TugLogout runs the confirm → logout flow.
+  // Bumps the logout-request nonce; Logout runs the confirm → logout flow.
   registerAction("logout", () => {
     requestLogout();
   });
@@ -1840,7 +1840,7 @@ export function registerSetupActions(): void {
 
   // claude_logout_result: outcome of `claude_logout` (the re-probe arrives
   // separately as claude_auth_result). On failure this carries the error the
-  // TugLogout orchestrator surfaces.
+  // Logout orchestrator surfaces.
   registerAction("claude_logout_result", (payload) => {
     applyLogoutResultPayload(payload);
   });

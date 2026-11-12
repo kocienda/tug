@@ -1,7 +1,7 @@
 /**
  * settings-card.tsx — Settings card (app-level singleton).
  *
- * A single card hosting the app's preference groups in a `TugTabView`: a
+ * A single card hosting the app's preference groups in a `SettingsTabView`: a
  * sidebar of sections on the left, the selected section's panel on the right
  * — the macOS System Settings shape. Shown via the app menu's Settings… item
  * (⌘,), which routes through `DeckManager.showSingletonCard("settings")` — at
@@ -16,7 +16,7 @@
  * the **selected section** (see `lib/settings-sections-pref.ts`), so a
  * reopened Settings lands where the reader last was.
  *
- * **An unselected section's body does not exist.** `TugTabViewItem` renders
+ * **An unselected section's body does not exist.** `SettingsTabViewItem` renders
  * nothing while unselected, so a body's stores are constructed when its
  * section is chosen and torn down when the selection leaves — live
  * propagation holds only while that section is showing.
@@ -41,7 +41,7 @@ import React, { useCallback, useId, useLayoutEffect, useState } from "react";
 import { FileText, Image, MessageSquareText, Settings2 } from "lucide-react";
 import { registerCard } from "@/card-registry";
 import { CONTENT_WIDTH_SLIM_PX } from "@/lib/layout-imposer";
-import { TugTabView, TugTabViewItem } from "@/components/tugways/tug-tab-view";
+import { SettingsTabView, SettingsTabViewItem } from "./settings-tab-view";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import {
@@ -143,7 +143,7 @@ export function SettingsCardContent() {
         data-testid="settings-card"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <TugTabView
+        <SettingsTabView
           value={active}
           senderId={tabViewSenderId}
           focusGroup={focusGroup}
@@ -151,7 +151,7 @@ export function SettingsCardContent() {
           className="settings-card-sections"
         >
           {SECTIONS.map((spec) => (
-            <TugTabViewItem
+            <SettingsTabViewItem
               key={spec.id}
               value={spec.id}
               label={spec.label}
@@ -159,9 +159,9 @@ export function SettingsCardContent() {
               data-testid={`settings-section-${spec.id}`}
             >
               <spec.Body />
-            </TugTabViewItem>
+            </SettingsTabViewItem>
           ))}
-        </TugTabView>
+        </SettingsTabView>
       </div>
     </ResponderScope>
   );

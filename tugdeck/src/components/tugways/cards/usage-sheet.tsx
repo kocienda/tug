@@ -29,12 +29,16 @@
  * @module components/tugways/cards/usage-sheet
  */
 
+import { Gauge } from "lucide-react";
+import { SheetNotice } from "./sheet-header";
 import "./usage-sheet.css";
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
 import { TugArcGauge } from "@/components/tugways/tug-arc-gauge";
 import { TugLinearGauge } from "@/components/tugways/tug-linear-gauge";
 import type { GaugeThresholds } from "@/components/tugways/gauge-math";
@@ -106,7 +110,7 @@ export function useUsageSheet({
     shownRef.current = true;
     void showSheet({
       title: "Usage",
-      icon: "Gauge",
+      icon: <Gauge />,
       // Two fixed columns (a 200px meter column and a 170px-min label column)
       // plus their values, so the table needs more than a single-column form.
       displayWidth: "lg",
@@ -269,13 +273,13 @@ function UsageSheetBody({
       <div className="usage-sheet-body">
         <UsageAccountLine account={usage.account} />
         {loading ? (
-          <p className="usage-sheet-notice" role="status">
+          <SheetNotice layout="line" className="usage-sheet-notice" role="status">
             Loading usage…
-          </p>
+          </SheetNotice>
         ) : usage.phase === "error" && data === null ? (
-          <p className="usage-sheet-notice" role="alert">
+          <SheetNotice layout="line" className="usage-sheet-notice" role="alert">
             {usage.error ?? "Couldn't load usage."}
-          </p>
+          </SheetNotice>
         ) : (
           <>
             <UsageLimits data={data} totals={totals} />
@@ -344,7 +348,7 @@ function UsageLimits({
               min={0}
               max={100}
               value={hero.percent}
-              density="detailed"
+              density="regular"
               thresholds={USAGE_THRESHOLDS}
               formatValue={(v) => `${Math.round(v)}%`}
               label={hero.label}
@@ -352,9 +356,9 @@ function UsageLimits({
             <div className="usage-sheet-hero-reset">{formatReset(hero.resetText)}</div>
           </>
         ) : (
-          <p className="usage-sheet-notice" role="status">
+          <SheetNotice layout="line" className="usage-sheet-notice" role="status">
             No limit data reported.
-          </p>
+          </SheetNotice>
         )}
       </div>
 
@@ -378,7 +382,7 @@ function UsageLimits({
           </div>
         ) : null}
 
-        <div className="usage-sheet-section-title">Session</div>
+        <TugSectionLabel className="usage-sheet-section-title" label={{ name: "Session" }} />
         <div className="usage-sheet-grid">
           <div className="usage-sheet-grid-col">
             <UsageStat label="Cost" value={formatUsd(totals.totalCostUsd)} />
@@ -403,11 +407,15 @@ function UsageLimits({
 /** One label → value pair (with a dotted leader between) in the Session grid. */
 function UsageStat({ label, value }: { label: string; value: string }): React.ReactElement {
   return (
-    <>
-      <span className="usage-sheet-stat-label">{label}</span>
-      <span className="usage-sheet-leader" aria-hidden />
-      <span className="usage-sheet-num usage-sheet-stat-value">{value}</span>
-    </>
+    <TugKeyValueRow
+      label={label}
+      labelClassName="usage-sheet-stat-label"
+      detail={null}
+      detailClassName="usage-sheet-leader"
+      valueClassName="usage-sheet-num usage-sheet-stat-value"
+    >
+      {value}
+    </TugKeyValueRow>
   );
 }
 
@@ -420,7 +428,10 @@ function UsageContributing({ data }: { data: UsageData | null }): React.ReactEle
   if (periods.length === 0) return null;
   return (
     <section className="usage-sheet-contributing" aria-label="What's contributing to your limits">
-      <div className="usage-sheet-section-title">What's contributing to your limits</div>
+      <TugSectionLabel
+        className="usage-sheet-section-title"
+        label={{ name: "What's contributing to your limits" }}
+      />
       {data?.contributingCaveat !== null && data?.contributingCaveat !== undefined ? (
         <p className="usage-sheet-caveat">{data.contributingCaveat}</p>
       ) : null}

@@ -1,0 +1,37 @@
+/* ----------------------------------------------------------------------------
+   receipt-header.css — the identity line of a landing receipt
+   ----------------------------------------------------------------------------
+   The commit, push, join and discard receipts each put one identity line in
+   their header's detail column. A receipt is prose, so the line takes the
+   proportional family the block root's scope class publishes, with the
+   header's mono command face as the fallback for a header standing outside
+   that scope; and the code run that carries the receipt's own sentence takes
+   the line's face rather than the code face its element would otherwise get.
+   Appearance only ([L06]).
+   ----------------------------------------------------------------------------- */
+
+/* The identity is PLAIN INLINE TEXT in the detail column — the same thing
+   every other block header puts there (Bash's command, Read's path). No flex
+   box of its own: a flex container establishes its own vertical alignment,
+   which floats the parts off the header's line box and drops them below the
+   lifecycle dot. As inline text it rides the header's shared line box exactly
+   like a Bash command does.
+
+   NO hanging indent. A wrapped line returns flush to the block's left edge and
+   runs the full width. A hang measured a mono column against an 8-char sha,
+   and neither half of that holds here: the column is proportional, and the sha
+   is a pill with a box, a border and a glyph. The History shade's rows keep
+   their hang, where both halves are still true. */
+.receipt-header {
+  display: block;
+  min-width: 0;
+  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
+}
+
+/* The receipt's sentence is a `<code>`, which `.tool-call-header-detail code`
+   hands the column's own family; it is the receipt's sentence rather than a
+   code run, so it takes the line's face instead. */
+.receipt-header .receipt-header-text {
+  color: var(--tugx-block-text-color);
+  font-family: inherit;
+}

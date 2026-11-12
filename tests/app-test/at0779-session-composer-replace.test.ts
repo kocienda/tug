@@ -35,7 +35,7 @@
  *
  * @covers tugdeck/src/components/tugways/composer-find-bar.tsx
  * @covers tugdeck/src/components/tugways/editor-find-engine.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/undo-menu-state-plugin.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/theme.ts

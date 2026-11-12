@@ -69,7 +69,9 @@
  */
 
 import React, { createContext, useContext } from "react";
-import { ChevronDown, ChevronRight, FolderPlus, Trash2 } from "lucide-react";
+import { FolderPlus, Trash2 } from "lucide-react";
+
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
 
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
@@ -271,36 +273,33 @@ function SessionResumeRow({
   // subtitle already says where it's in use, so a second provenance
   // badge would be noise.
   const badge = isLive ? (
-    <TugBadge emphasis="tinted" role="action">
+    <TugBadge size="sm" emphasis="tinted" role="action">
       live
     </TugBadge>
   ) : isTerminalLive ? (
-    <TugBadge emphasis="tinted" role="action">
+    <TugBadge size="sm" emphasis="tinted" role="action">
       in use
     </TugBadge>
   ) : isFailed ? (
-    <TugBadge emphasis="tinted" role="danger">
+    <TugBadge size="sm" emphasis="tinted" role="danger">
       failed
     </TugBadge>
   ) : row.origin === "external" ? (
-    <TugBadge emphasis="tinted" role="data">
+    <TugBadge size="sm" emphasis="tinted" role="data">
       terminal
     </TugBadge>
   ) : null;
   const trash = !isLive && !isTerminalLive ? (
-    <TugIconButton
+    <TugIconButton size="sm"
       icon={<Trash2 size={14} aria-hidden="true" />}
       aria-label={`Move session ${idShort} to Trash`}
       title={`Move session ${idShort} to Trash`}
-      tone="danger"
+      role="danger"
       className="session-card-picker-session-trash"
       focusGroup={PICKER_ROW_TRASH_FOCUS_GROUP}
       focusOrder={0}
-      dispatch={{
-        action: TUG_ACTIONS.REQUEST_TRASH_SESSION,
-        value: { sessionId: row.session_id },
-        phase: "discrete",
-      }}
+      action={TUG_ACTIONS.REQUEST_TRASH_SESSION}
+      value={{ sessionId: row.session_id }}
     />
   ) : null;
   const trailing =
@@ -502,9 +501,11 @@ export const PickerGroupCell: TugListViewCellRenderer<PickerRowsDataSource> = (
         ctx.onToggleGroup(group.projectDir);
       }}
       leading={
-        <span className="session-card-picker-group-chevron" aria-hidden="true">
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
+        <TugDisclosure
+          className="session-card-picker-group-chevron"
+          expanded={expanded}
+          size={14}
+        />
       }
       trailing={
         <span className="session-card-picker-group-facts">
@@ -520,11 +521,11 @@ export const PickerGroupCell: TugListViewCellRenderer<PickerRowsDataSource> = (
             {groupFacts(group)}
           </span>
           {removable ? (
-            <TugIconButton
+            <TugIconButton size="sm"
               icon={<Trash2 size={14} aria-hidden="true" />}
               aria-label={`Remove ${group.name} from recent projects`}
               title={`Remove ${group.name} from recent projects`}
-              tone="danger"
+              role="danger"
               className="session-card-picker-group-remove"
               data-reveal={missing ? "always" : "engaged"}
               focusGroup={PICKER_ROW_TRASH_FOCUS_GROUP}
@@ -599,7 +600,7 @@ export const PickerOtherCell: TugListViewCellRenderer<PickerRowsDataSource> = (
       className="session-card-picker-other"
       leading={<FolderPlus size={14} aria-hidden="true" />}
       title="New session in another folder…"
-      subtitle="Type a path, or choose one with Browse"
+      description="Type a path, or choose one with Browse"
       selected={ctx.selectedRowId === "other"}
       data-testid="session-card-picker-other"
     />

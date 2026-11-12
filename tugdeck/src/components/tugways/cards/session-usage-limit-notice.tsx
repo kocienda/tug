@@ -16,6 +16,7 @@
  * Laws: [L02] store via `useSyncExternalStore`, [L06] appearance via CSS.
  */
 
+import { Hourglass } from "lucide-react";
 import "./session-usage-limit-notice.css";
 
 import React from "react";
@@ -53,8 +54,9 @@ export const SessionUsageLimitNotice: React.FC<SessionUsageLimitNoticeProps> = (
       className="session-usage-limit-notice"
       title={usageLimitTitle(info?.rateLimitType)}
       message={resetLine ?? (claudeText.length > 0 ? claudeText : undefined)}
-      icon="Hourglass"
+      icon={<Hourglass />}
       tone="caution"
+      accent
     />
   );
 };

@@ -253,12 +253,12 @@ export function GalleryTugListRow(): React.ReactElement {
           <TugListRow
             variant="pill"
             title="Add retry logic to the API client"
-            subtitle="Last opened 2 hours ago"
+            description="Last opened 2 hours ago"
           />
           <TugListRow
             variant="pill"
             title="Repair the capture pipeline"
-            subtitle="Last opened yesterday"
+            description="Last opened yesterday"
           />
         </div>
       </div>
@@ -293,12 +293,12 @@ export function GalleryTugListRow(): React.ReactElement {
           <TugListRow
             leading={<GitBranch size={16} aria-hidden="true" />}
             title="Two line with icon"
-            subtitle="A muted secondary line below the title"
+            description="A muted secondary line below the title"
           />
           <TugListRow
             title="Multiline description"
-            subtitle="A longer subtitle that wraps across multiple lines instead of truncating, for rows that carry a real description rather than a one-line caption — useful for skills, agents, and other catalog rows."
-            subtitleMaxLines={3}
+            description="A longer subtitle that wraps across multiple lines instead of truncating, for rows that carry a real description rather than a one-line caption — useful for skills, agents, and other catalog rows."
+            descriptionMaxLines={3}
           />
         </div>
       </div>
@@ -325,9 +325,9 @@ export function GalleryTugListRow(): React.ReactElement {
             variant="pill"
             leading={<GitBranch size={16} aria-hidden="true" />}
             title="feature/list-row"
-            subtitle="3 commits ahead"
+            description="3 commits ahead"
             trailing={
-              <TugBadge emphasis="tinted" role="action">
+              <TugBadge size="sm" emphasis="tinted" role="action">
                 live
               </TugBadge>
             }
@@ -356,11 +356,11 @@ export function GalleryTugListRow(): React.ReactElement {
               title={path}
               trailingReveal="engaged"
               trailing={
-                <TugIconButton
+                <TugIconButton size="sm"
                   icon={<Trash2 size={14} aria-hidden="true" />}
                   aria-label={`Trash ${path}`}
                   title={`Trash ${path}`}
-                  tone="danger"
+                  role="danger"
                   onClick={() => setRevealResult(`Trash ${path}`)}
                 />
               }
@@ -394,11 +394,11 @@ export function GalleryTugListRow(): React.ReactElement {
               title={`${path} — a long enough title to reach the trailing edge`}
               trailingReveal="claim"
               trailing={
-                <TugIconButton
+                <TugIconButton size="sm"
                   icon={<Trash2 size={14} aria-hidden="true" />}
                   aria-label={`Trash ${path}`}
                   title={`Trash ${path}`}
-                  tone="danger"
+                  role="danger"
                   onClick={() => setRevealResult(`Trash ${path}`)}
                 />
               }
@@ -434,17 +434,17 @@ export function GalleryTugListRow(): React.ReactElement {
           <div style={labelColumnStyle}>
             <TugLabel className="cg-section-title">flush</TugLabel>
             <div style={flushPanelStyle}>
-              <TugListRow variant="flush" title="Rest" subtitle="Hover me" />
+              <TugListRow variant="flush" title="Rest" description="Hover me" />
               <TugListRow
                 variant="flush"
                 title="Selected"
-                subtitle="Hover me — stronger fill"
+                description="Hover me — stronger fill"
                 selected
               />
               <TugListRow
                 variant="flush"
                 title="Disabled"
-                subtitle="Fed disabled={true}"
+                description="Fed disabled={true}"
                 disabled
               />
             </div>
@@ -452,17 +452,17 @@ export function GalleryTugListRow(): React.ReactElement {
           <div style={labelColumnStyle}>
             <TugLabel className="cg-section-title">pill</TugLabel>
             <div style={pillStackStyle}>
-              <TugListRow variant="pill" title="Rest" subtitle="Hover me" />
+              <TugListRow variant="pill" title="Rest" description="Hover me" />
               <TugListRow
                 variant="pill"
                 title="Selected"
-                subtitle="Hover me — stronger fill"
+                description="Hover me — stronger fill"
                 selected
               />
               <TugListRow
                 variant="pill"
                 title="Disabled"
-                subtitle="Fed disabled={true}"
+                description="Fed disabled={true}"
                 disabled
               />
             </div>

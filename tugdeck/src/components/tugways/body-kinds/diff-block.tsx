@@ -77,12 +77,12 @@ import React from "react";
 import { createPortal } from "react-dom";
 import {
   AlignLeft,
-  ChevronDown,
-  ChevronRight,
   Columns2,
 } from "lucide-react";
 
-import { TugCue } from "@/components/tugways/tug-cue";
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
+
+import { Cue } from "./cue";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
@@ -1060,7 +1060,7 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
           {headerHidden ? null : (
             <div
               ref={headerRef}
-              className="tugx-diff-header"
+              className="tugx-diff-header tugx-block-strip"
               data-slot={DATA_SLOT_HEADER}
             >
               {headerBasename === "" ? null : (
@@ -1167,7 +1167,7 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
       {headerHidden ? null : (
         <div
           ref={headerRef}
-          className="tugx-diff-header"
+          className="tugx-diff-header tugx-block-strip"
           data-slot={DATA_SLOT_HEADER}
         >
           {headerBasename === "" ? null : (
@@ -1209,24 +1209,18 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
                 ? renderHunkAffordance(hunkId, index)
                 : null;
             const cue = (
-              <TugCue
+              <Cue
                 role="muted"
                 align="start"
                 mono
-                icon={
-                  isHunkCollapsed ? (
-                    <ChevronRight aria-hidden />
-                  ) : (
-                    <ChevronDown aria-hidden />
-                  )
-                }
+                icon={<TugDisclosure expanded={!isHunkCollapsed} />}
                 aria-expanded={!isHunkCollapsed}
                 aria-label={isHunkCollapsed ? "Expand hunk" : "Collapse hunk"}
                 onClick={() => toggleHunk(hunkKey(index))}
                 className="tugx-diff-hunk-header"
               >
                 {composeHunkHeader(hunkData.hunk)}
-              </TugCue>
+              </Cue>
             );
             return (
               <div

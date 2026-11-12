@@ -51,6 +51,7 @@
  * @module components/tugways/cards/ai-config-sheet
  */
 
+import { Sparkles } from "lucide-react";
 import "./ai-config-sheet.css";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -239,8 +240,8 @@ export function useAiConfigSheet({
       shownRef.current = true;
       void showSheet({
         title: "AI Model Settings",
-        icon: "Sparkles",
-        iconRole: "agent",
+        icon: <Sparkles />,
+        iconTone: "agent",
         // Accordion rows that pair a model name with its scope note and
         // controls — a single column, and a narrow one: nothing inside asks for
         // more than the decision width.

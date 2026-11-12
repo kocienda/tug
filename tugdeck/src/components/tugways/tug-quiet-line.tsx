@@ -26,11 +26,12 @@
  */
 
 import "./tug-quiet-line.css";
+import type { TugTone } from "./tug-vocabulary";
 
 import React from "react";
 import { cn } from "@/lib/utils";
 
-export type TugQuietLineTone = "primary" | "quiet" | "danger";
+export type TugQuietLineTone = Extract<TugTone, "primary" | "quiet" | "danger">;
 
 export interface TugQuietLineProps
   extends React.ComponentPropsWithoutRef<"div"> {

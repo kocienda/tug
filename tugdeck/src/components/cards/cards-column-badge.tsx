@@ -46,6 +46,7 @@ export function CardsColumnBadge({
   return (
     <TugColumnBadge
       className="cards-column-badge"
+      tone="action"
       data-testid="cards-column-badge"
       kind={facts.kind}
       count={facts.count}

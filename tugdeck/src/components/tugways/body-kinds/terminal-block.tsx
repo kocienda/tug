@@ -923,7 +923,7 @@ export const TerminalBlock: React.FC<TerminalBlockProps> = ({
       >
         {showHeader ? (
           <div
-            className="tugx-term-header"
+            className="tugx-term-header tugx-block-strip"
             data-slot={DATA_SLOT_HEADER}
           >
             {headerLabel !== undefined ? (

@@ -106,9 +106,9 @@ import { usePageZoom } from "@/lib/page-zoom-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { Check } from "lucide-react";
 import {
-  TugContextMenu,
-  type TugContextMenuEntry,
-} from "@/components/tugways/tug-context-menu";
+  PdfContextMenu,
+  type PdfContextMenuEntry,
+} from "./pdf-context-menu";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { commandShortcut, keymapRegistry } from "@/components/tugways/keymap-registry";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
@@ -699,7 +699,7 @@ export function PdfView({
   // one implementation rather than a parallel command path ([L11]). The
   // active mode and zoom are marked with the item's existing `icon` slot —
   // where a checkmark belongs, and where Preview puts it.
-  const menuItems: TugContextMenuEntry<string>[] = [
+  const menuItems: PdfContextMenuEntry<string>[] = [
     modeItem("continuous", "Continuous Scroll", pageMode),
     modeItem("single", "Single Page", pageMode),
     modeItem("two", "Two Pages", pageMode),
@@ -741,7 +741,7 @@ export function PdfView({
 
   return (
     <ResponderScope>
-      <TugContextMenu items={menuItems}>
+      <PdfContextMenu items={menuItems}>
         <div
           ref={(node) => {
             scrollerRef.current = node;
@@ -775,7 +775,7 @@ export function PdfView({
               : null}
           </div>
         </div>
-      </TugContextMenu>
+      </PdfContextMenu>
     </ResponderScope>
   );
 }
@@ -794,7 +794,7 @@ function modeItem(
   mode: PdfPageMode,
   label: string,
   active: PdfPageMode,
-): TugContextMenuEntry<string> {
+): PdfContextMenuEntry<string> {
   return {
     action: TUG_ACTIONS.SET_PAGE_MODE,
     value: mode,

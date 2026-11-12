@@ -68,12 +68,12 @@
  * @covers tugdeck/src/components/tugways/commit-tip-portals.tsx
  * @covers tugdeck/src/components/tugways/commit-presentation.tsx
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
- * @covers tugdeck/src/components/tugways/tug-history-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-history/history-list.tsx
  * @covers tugdeck/src/components/overview/overview-card.tsx
- * @covers tugdeck/src/components/tugways/cards/tug-atom-markdown-body.tsx
- * @covers tugdeck/src/components/tugways/cards/tug-atom-text-body.tsx
+ * @covers tugdeck/src/components/tugways/cards/atom-markdown-body.tsx
+ * @covers tugdeck/src/components/tugways/cards/atom-text-body.tsx
  * @covers tugdeck/src/lib/synthesize-user-message.ts
- * @covers tugdeck/src/components/tugways/tug-session-identity.css
+ * @covers tugdeck/src/components/tugways/cards/session-identity.css
  */
 
 import { describe, expect, test } from "bun:test";

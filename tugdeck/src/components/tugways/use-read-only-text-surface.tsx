@@ -109,7 +109,7 @@ export function useReadOnlyTextSurface(
   });
 
   // No adapter: right-click reflects what is already selected, with no
-  // smart-click word expansion, as in `TugMarkdownView`.
+  // smart-click word expansion.
   const { onContextMenu, menu } = useTextSurfaceContextMenu({
     adapterRef: null,
     hasSelectionOverride: () => {

@@ -422,7 +422,7 @@ export const AppTestAskDialog: React.FC<AppTestAskDialogProps> = ({
           <TugInlineDialog
             className="session-app-test-ask-dialog-frame"
             icon={<TerminalSquare />}
-            iconRole="caution"
+            iconTone="caution"
             title={ask.title}
             actions={
               <>
@@ -478,7 +478,7 @@ export const AppTestAskDialog: React.FC<AppTestAskDialogProps> = ({
         ) : (
           <TugInlineDialog
             icon={<TerminalSquare />}
-            iconRole="caution"
+            iconTone="caution"
             title={ask.title}
             description={ask.description ?? undefined}
             actions={

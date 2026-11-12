@@ -15,7 +15,13 @@
  * icon as `[[tag, attrs], …]`), so the glyph is byte-for-byte the lucide
  * shape. Stroke/fill/width are set on the instance `<svg>` exactly as
  * lucide sets them and inherit through `<use>` into the symbol.
+ *
+ * Laws: [L19] component authoring guide
  */
+
+import React from "react";
+
+import { cn } from "@/lib/utils";
 
 const SPRITE_ID = "tug-icon-sprite";
 
@@ -65,24 +71,19 @@ function ensureSymbol(name: string, node: LucideIconNode): void {
   );
 }
 
-export interface TugSpriteIconProps {
+export interface TugSpriteIconProps extends Omit<React.ComponentPropsWithoutRef<"svg">, "children" | "name"> {
   /** Stable icon name (the symbol id + `lucide-<name>` class suffix). */
   name: string;
   /** lucide icon-node data (import from `lucide`, e.g. `Copy`). */
   node: LucideIconNode;
   /** Width/height in px — matches lucide's `size` prop. Default 24. */
   size?: number;
-  className?: string;
-  "aria-hidden"?: React.AriaAttributes["aria-hidden"];
 }
 
-export function TugSpriteIcon({
-  name,
-  node,
-  size = 24,
-  className,
-  "aria-hidden": ariaHidden = true,
-}: TugSpriteIconProps): React.ReactElement {
+export const TugSpriteIcon = React.forwardRef<SVGSVGElement, TugSpriteIconProps>(function TugSpriteIcon(
+  { name, node, size = 24, className, "aria-hidden": ariaHidden = true, ...rest },
+  ref,
+) {
   ensureSymbol(name, node);
   return (
     <svg
@@ -95,10 +96,13 @@ export function TugSpriteIcon({
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`lucide lucide-${name}${className ? ` ${className}` : ""}`}
+      {...rest}
+      ref={ref}
+      data-slot="tug-sprite-icon"
+      className={cn("lucide", `lucide-${name}`, className)}
       aria-hidden={ariaHidden}
     >
       <use href={`#tug-i-${name}`} />
     </svg>
   );
-}
+});

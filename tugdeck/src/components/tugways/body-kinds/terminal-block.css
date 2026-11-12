@@ -158,27 +158,9 @@ body {
 
 /* ---- Header (pinned strip with optional label + Copy) ---- */
 
-/* The header is a sticky strip at the top of the terminal block.
- * Pinned under any outer entry header that has written its measured
- * height into `--tugx-pin-stack-top`; falls back to `top: 0` when
- * no telescoping context is present (standalone gallery use). Sits
- * above the body's scrollbars; never overlaid on them — that's the
- * whole reason the Copy overlay was retired. z-index is local to the
- * block surface (above the body's lines, below the entry header). */
-.tugx-term-header {
-  position: sticky;
-  top: var(--tugx-pin-stack-top, 0);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--tugx-block-strip-gap);
-  padding: var(--tugx-block-strip-padding);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color: var(--tugx-block-strip-color);
-  font-family: var(--tugx-block-strip-font);
-  font-size: var(--tugx-block-strip-size);
-}
+/* The strip itself — sticky, flex, the shared padding, surface and type —
+   is `.tugx-block-strip` in `styles/tugx-block.css`, which the header wears
+   beside its own class. */
 
 .tugx-term-header-label {
   /* Optional caller-supplied label (typically the command, when the

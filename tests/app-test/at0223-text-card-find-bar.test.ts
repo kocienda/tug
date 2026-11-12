@@ -34,7 +34,7 @@
  * @covers tugdeck/src/components/tugways/cards/text-card.tsx
  * @covers tugdeck/src/lib/find-surface.ts
  * @covers tugdeck/src/lib/text-match.ts
- * @covers tugdeck/src/components/tugways/tug-find-cluster.tsx
+ * @covers tugdeck/src/components/tugways/internal/tug-find-cluster.tsx
  * @covers tugdeck/src/components/tugways/tug-text-card-editor.css
  * @covers tugdeck/src/components/tugways/tug-text-card-editor.tsx
  */
@@ -200,7 +200,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
               return JSON.stringify({
                 shell: bar !== null && bar.classList.contains('tug-entry-shell'),
                 toolbar: bar?.querySelector('.tug-entry-shell-toolbar') !== null,
-                cluster: bar?.querySelector('[data-slot="find-cluster"]') !== null,
+                cluster: bar?.querySelector('[data-slot="tug-find-cluster"]') !== null,
                 prev: bar?.querySelector('button[aria-label="Find previous"]') !== null,
                 next: bar?.querySelector('button[aria-label="Find next"]') !== null,
                 route: bar?.querySelector(${JSON.stringify(ROUTE_CHOICE)}) !== null,

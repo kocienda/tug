@@ -56,7 +56,6 @@ import {
   filterEntries,
   stringifyDataForSearch,
 } from "@/lib/tug-dev-log-store/filter";
-import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import type { TugFilterFieldDelegate } from "@/components/tugways/tug-filter-field";
@@ -382,7 +381,7 @@ export const LogInspector: React.FC = () => {
             </TugLabel>
             <TugPopupMenu
               trigger={
-                <TugButton
+                <TugPushButton
                   emphasis="outlined"
                   role="option"
                   size="xs"
@@ -392,13 +391,13 @@ export const LogInspector: React.FC = () => {
                   disabled={sources.length === 0}
                 >
                   {sourceTriggerLabel}
-                </TugButton>
+                </TugPushButton>
               }
               items={sourceItems}
               onSelect={handleSelectSource}
             />
           </div>
-          <TugFilterField
+          <TugFilterField size="sm"
             delegate={filterDelegate}
             placeholder="Filter text"
             defaultValue={snapshot.filters.text}

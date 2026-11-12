@@ -19,7 +19,7 @@
 
 import { useId } from "react";
 
-import { TugBox } from "../tug-box";
+import { TugSettingsGroup } from "../tug-settings-group";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";
 import { TugSwitch } from "../tug-switch";
@@ -71,10 +71,8 @@ export function ImageCardControls({ settings, onChange }: ImageCardControlsProps
         data-testid="image-card-controls"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <TugBox
+        <TugSettingsGroup
           label="Scaling"
-          labelPosition="legend"
-          variant="bordered"
           className="card-view-controls-group"
         >
           <div className="card-view-controls-row">
@@ -90,12 +88,10 @@ export function ImageCardControls({ settings, onChange }: ImageCardControlsProps
               ]}
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Background"
-          labelPosition="legend"
-          variant="bordered"
           className="card-view-controls-group"
         >
           <div className="card-view-controls-row">
@@ -115,12 +111,10 @@ export function ImageCardControls({ settings, onChange }: ImageCardControlsProps
           <TugLabel size="sm" className="card-view-controls-note">
             What shows through a transparent image.
           </TugLabel>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Display"
-          labelPosition="legend"
-          variant="bordered"
           className="card-view-controls-group"
         >
           <div className="card-view-controls-switches">
@@ -139,7 +133,7 @@ export function ImageCardControls({ settings, onChange }: ImageCardControlsProps
               data-testid="image-option-show-info"
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
       </div>
     </ResponderScope>
   );

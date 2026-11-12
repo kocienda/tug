@@ -8,10 +8,8 @@
  * Why this lives outside `parseMarkdownToSanitizedBlocks`:
  *  - The buttons + SVG icons must be live elements with event listeners
  *    attached, not strings spliced into HTML.
- *  - Both `TugMarkdownBlock` (per-cell renderer) and `TugMarkdownView`
- *    (windowed renderer) call this from the same code path right after
- *    they assign `innerHTML`, so the enhancement is invariant across
- *    both primitives.
+ *  - `TugMarkdownBlock` calls this right after it assigns `innerHTML`,
+ *    so every rendered fence is enhanced the same way.
  *
  * The header strip + Copy + fold cue are the shared `enhance-block-
  * chrome` primitives, so a fenced code block and a markdown table wear

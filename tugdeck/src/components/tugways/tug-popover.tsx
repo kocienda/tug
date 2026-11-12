@@ -237,7 +237,11 @@ const TugPopoverInternalContext =
  * ---------------------------------------------------------------------------*/
 
 /** TugPopover props. */
-export interface TugPopoverProps {
+export interface TugPopoverProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<typeof Popover.Root>,
+    "open" | "defaultOpen" | "modal" | "onOpenChange" | "children"
+  > {
   /**
    * Controlled open state. When provided, TugPopover is controlled: the
    * caller owns the value, TugPopover simply reflects it, and dismissal
@@ -308,6 +312,7 @@ export const TugPopover = React.forwardRef<TugPopoverHandle, TugPopoverProps>(
       dismissOnChainActivity = true,
       onOpenChange: onOpenChangeProp,
       children,
+      ...rest
     },
     ref,
   ) {
@@ -462,7 +467,7 @@ export const TugPopover = React.forwardRef<TugPopoverHandle, TugPopoverProps>(
 
     return (
       <TugPopoverInternalContext.Provider value={contextValue}>
-        <Popover.Root open={effectiveOpen} onOpenChange={handleOpenChange} modal={modal}>
+        <Popover.Root {...rest} open={effectiveOpen} onOpenChange={handleOpenChange} modal={modal}>
           {children}
         </Popover.Root>
       </TugPopoverInternalContext.Provider>

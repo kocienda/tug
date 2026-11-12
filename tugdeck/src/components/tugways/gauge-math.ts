@@ -23,6 +23,8 @@
  * @module components/tugways/gauge-math
  */
 
+import type { TugTone } from "./tug-vocabulary";
+
 // ---------------------------------------------------------------------------
 // Role + threshold types
 // ---------------------------------------------------------------------------
@@ -33,12 +35,7 @@
  * threshold-derived states; consumers do not set them directly via
  * the base-role prop. The derivation lives in `effectiveFillRole`.
  */
-export type GaugeFillRole =
-  | "default"
-  | "info"
-  | "success"
-  | "caution"
-  | "danger";
+export type GaugeFillRole = Extract<TugTone, "default" | "info" | "success" | "caution" | "danger">;
 
 /**
  * Threshold fractions (0..1, relative to the `[min, max]` domain).

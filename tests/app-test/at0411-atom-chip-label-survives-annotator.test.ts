@@ -40,7 +40,7 @@
  *
  * @covers tugdeck/src/lib/annotator/wrap-matches.ts
  * @covers tugdeck/src/lib/annotator/annotate-content.ts
- * @covers tugdeck/src/components/tugways/cards/tug-atom-markdown-body.tsx
+ * @covers tugdeck/src/components/tugways/cards/atom-markdown-body.tsx
  * @covers tugdeck/src/lib/tug-atom-chip.tsx
  */
 

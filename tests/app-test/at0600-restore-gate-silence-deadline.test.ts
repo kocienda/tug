@@ -32,7 +32,7 @@
  * @covers tugdeck/src/lib/code-session-store.ts
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
  * @covers tugdeck/src/lib/restore-gate-store.ts
- * @covers tugdeck/src/components/tugways/tug-restore-gate.tsx
+ * @covers tugdeck/src/components/chrome/restore-gate.tsx
  * @covers tugdeck/src/lib/session-card-restore-gate.ts
  */
 
@@ -89,7 +89,7 @@ const GATE_OPEN_JS = `document.querySelector('[data-slot="tug-restore-gate"]') !
 // that card's.
 const BANNER_JS = `JSON.stringify((function(){
   var el = document.querySelector(
-    '[data-slot="tug-pane-banner"][data-variant="error"]');
+    '[data-slot="tug-pane-banner"][data-kind="error"]');
   return el === null ? { found: false } : { found: true, text: el.textContent || "" };
 })())`;
 

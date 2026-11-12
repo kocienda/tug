@@ -1,0 +1,9 @@
+/*
+ * TugKeyValueRow — the row draws no box: its cells sit on the parent's grid.
+ * Zero specificity, so a caller's class that makes the row a grid of its own
+ * wins without an override.
+ */
+
+:where(.tug-key-value-row) {
+  display: contents;
+}

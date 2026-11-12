@@ -83,7 +83,7 @@ import "./search-result-block.css";
 
 import React from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
 
 import { MiddleEllipsisPath } from "@/components/tugways/blocks/middle-ellipsis-path";
 import { ANNOTATION_CLASS } from "@/lib/annotator/types";
@@ -605,9 +605,7 @@ const FileHeaderCell: TugListViewCellRenderer<SearchResultDataSource> = ({
       data-collapsed={row.collapsed ? "true" : "false"}
       onClick={() => dataSource.requestToggleFile(row.path)}
     >
-      <span className="tugx-search-twist" aria-hidden="true">
-        {row.collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-      </span>
+      <TugDisclosure className="tugx-search-twist" expanded={!row.collapsed} size={12} />
       <MiddleEllipsisPath
         path={pathRelativeTo(row.path, dataSource.relativeTo)}
         fullPath={row.path}
@@ -897,7 +895,7 @@ export const SearchResultBlock: React.FC<SearchResultBlockProps> = ({
       className={rootClass}
     >
       {embedded ? null : (
-        <div className="tugx-search-header" data-slot={DATA_SLOT_HEADER}>
+        <div className="tugx-search-header tugx-block-strip" data-slot={DATA_SLOT_HEADER}>
           {label !== undefined ? (
             <span className="tugx-search-label" data-slot="search-result-label">
               {label}
@@ -928,6 +926,7 @@ export const SearchResultBlock: React.FC<SearchResultBlockProps> = ({
        * block grows to its natural height; the outer transcript owns
        * the scroll. */}
       <TugListView<SearchResultDataSource>
+        sizing="content"
         dataSource={dataSource}
         cellRenderers={CELL_RENDERERS}
         className="tugx-search-list"

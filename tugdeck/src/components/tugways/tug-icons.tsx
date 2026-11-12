@@ -20,6 +20,8 @@
  * interior from filling in at 20px. Per-element attributes in the symbol
  * override the instance `<svg>`'s inherited stroke width.
  *
+ * Laws: [L19] component authoring guide
+ *
  * @module components/tugways/tug-icons
  */
 

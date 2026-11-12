@@ -8,53 +8,15 @@
    beneath it, and the trailing verb cluster. */
 
 .arcs-section {
+  /* The root is the rail card's one scroller (`.rail-card`); a flex item that
+     may shrink below its content's width. */
   min-width: 0;
-  /* The card root is the SCROLLER, and everything the card draws stands in
-     `.arcs-card-content` inside it — the card's content element, whose
-     border-box height is its natural height ([B01]). The list no longer
-     scrolls itself. */
-  box-sizing: border-box;
-  block-size: 100%;
-  min-block-size: 0;
-  /* The bar's lane is always reserved, never `scrollbar-gutter` ([D182]). */
-  overflow-y: scroll;
 }
 
-/* The content element: everything the card draws as one in-flow column, inside
-   the scroller with nothing stretched between them ([B02]). A taller pane
-   cannot make it taller. */
+/* The content column (`.rail-card-content`), allowed to shrink with the
+   card. */
 .arcs-card-content {
-  display: flex;
-  flex-direction: column;
   min-width: 0;
-}
-
-/* Stands in for the list's first row, at that row's height: a card with nothing
-   in it shows one row's worth of nothing rather than a taller box. */
-.arcs-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-block-size: 28px;
-  padding-inline: 10px;
-  font-size: 12px;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* The list stands at the sum of its rows and hands its overflow to the card
-   root, which is the card's one scroller. `height: auto` hands the sizing to
-   flex — the primitive's own `height: 100%` resolves against an auto-height
-   parent and would give the list its full content height back. Doubled
-   selector so this beats the base `.tug-list-view` rules regardless of bundle
-   order. */
-.tug-list-view.arcs-list {
-  flex: 0 0 auto;
-  height: auto;
-  /* A scroller here would absorb the card's run and the content element's
-     height would follow the pane's. */
-  /* Both axes: `overflow-y: visible` beside a clipped x computes back to
-     `auto`, which would make this a scroll container again. */
-  overflow: visible;
 }
 
 /* The `[data-slot]` is carried for the specificity, not for the match: the

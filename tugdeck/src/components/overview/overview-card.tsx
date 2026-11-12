@@ -106,8 +106,8 @@ import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicato
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugAtomRef } from "@/components/tugways/tug-atom-ref";
 import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
-import { TugAttachmentPreview } from "@/components/tugways/cards/tug-attachment-preview";
-import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
+import { AttachmentPreview } from "@/components/tugways/cards/attachment-preview";
+import { SessionCitation } from "@/components/tugways/cards/session-identity";
 import {
   TugTextEditor,
   type TugTextEditorDelegate,
@@ -121,7 +121,7 @@ import { TugJumpToBottomButton } from "@/components/tugways/tug-jump-to-bottom-b
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
-import { TugDictationButton } from "@/components/tugways/tug-dictation-button";
+import { DictationButton } from "@/components/tugways/cards/dictation-button";
 import {
   dictationStore,
   useDictationFace,
@@ -222,6 +222,7 @@ import {
   type OverviewInputAttachment,
   type OverviewRef,
 } from "@/protocol";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import "./overview-card.css";
 
 
@@ -401,7 +402,7 @@ function refTip(
  * has.
  *
  * A session — not a file-shaped thing at all — renders as the live
- * {@link TugSessionCitation}, exactly as a session atom does in a transcript
+ * {@link SessionCitation}, exactly as a session atom does in a transcript
  * body: the dot is information no other form carries.
  */
 function RefAtom({
@@ -417,7 +418,7 @@ function RefAtom({
   if (chipRef.kind === "session") {
     // Every citation in view draws the session's live dot; one scrolled out of
     // view is stilled by the off-screen rule and resumes when it comes back.
-    return <TugSessionCitation citedId={chipRef.target} />;
+    return <SessionCitation citedId={chipRef.target} />;
   }
   // An arc ref branches BEFORE resolution, because an arc name is not a path
   // and must never be resolved as one: `resolveOverviewRef` would look it up
@@ -510,7 +511,7 @@ function RefAtom({
   //
   // The register is the default `prose`, and it is not an oversight that a
   // block-shaped row takes the running-text one: a session ref in this same
-  // row is a `TugSessionCitation` that takes the same default, and two pills
+  // row is a `SessionCitation` that takes the same default, and two pills
   // side by side at 22px and 24px is precisely the drift the register table
   // exists to prevent. The row's density is one decision for the whole row —
   // when it moves, it moves for both marks at once.
@@ -636,7 +637,7 @@ function OverviewPostBody({
  * The pictures a question was asked with, under its prose — the Session
  * transcript's own attachment strip, on this channel's posts.
  *
- * It IS that component ({@link TugAttachmentPreview}), not a second one that
+ * It IS that component ({@link AttachmentPreview}), not a second one that
  * looks like it: the same tiles, the same `image-N` captions, the same
  * click-to-enlarge sheet with ←/→ paging and Copy. Two things differ, and both
  * are declarations rather than a second implementation.
@@ -685,7 +686,7 @@ function OverviewPostAttachments({
   );
   if (atoms.length === 0) return null;
   return (
-    <TugAttachmentPreview
+    <AttachmentPreview
       atoms={atoms}
       bytesStore={bytesStore}
       density="compact"
@@ -943,6 +944,7 @@ function OverviewPostRowBody({
         <AnnotationScope value={annotation}>
           <TugTranscriptEntry
             className="overview-post"
+            density="compact"
             {...overviewAttribution(post, formats)}
             body={<OverviewPostBody post={post} bodyRef={bodyRef} />}
             controls={
@@ -1056,7 +1058,7 @@ const OverviewPinnedHeader = React.memo(React.forwardRef<
       aria-hidden="true"
     >
       {attribution !== null ? (
-        <div className="tug-transcript-entry overview-post" data-participant={attribution.participant}>
+        <div className="tug-transcript-entry overview-post" data-participant={attribution.participant} data-density="compact">
           <TugTranscriptEntryPin {...attribution} stuck />
         </div>
       ) : null}
@@ -1647,6 +1649,10 @@ export function OverviewContent({
       [TUG_ACTIONS.NEXT_TURN]: () => {
         pageByPost("down");
       },
+      // The jump-to-latest button's press, and ⌃⇧⌘] — the column's live edge.
+      [TUG_ACTIONS.LAST_TURN]: () => {
+        jumpToBottom();
+      },
       // The `⋯` menu's Clear, after its confirm popover. The title bar
       // sends it here, to this card's content, in this card's own page.
       [TUG_ACTIONS.CLEAR_OVERVIEW]: () => {
@@ -1681,9 +1687,9 @@ export function OverviewContent({
             onScroll={onScroll}
           >
             {posts.length === 0 ? (
-              <div className="overview-empty" role="status">
+              <TugEmptyLine className="overview-empty" role="status">
                 {status === "ready" ? "None" : "Loading…"}
-              </div>
+              </TugEmptyLine>
             ) : (
               renderColumn(renderPost)
             )}
@@ -1700,6 +1706,7 @@ export function OverviewContent({
               >
                 <TugTranscriptEntry
                   className="overview-post"
+                  density="compact"
                   participant="operator"
                   identifier={AUTHOR_LABEL.operator}
                   // The transcript's in-flight wave, not a sentence: "working" is
@@ -1710,7 +1717,7 @@ export function OverviewContent({
                       <TugProgressIndicator
                         variant="wave"
                         state="running"
-                        role="inherit"
+                        tone="inherit"
                         aria-label="Working…"
                         aria-live="polite"
                         data-testid="overview-pending-wave"
@@ -1732,7 +1739,7 @@ export function OverviewContent({
             on `data-visible`, which `setFollowing` writes. Mounting it behind
             the condition would make every arrival at and departure from the
             live edge a React reconciliation. */}
-          <TugJumpToBottomButton ref={jumpButtonRef} onClick={jumpToBottom} />
+          <TugJumpToBottomButton ref={jumpButtonRef} />
         </div>
         <div
           className="overview-composer-slot"
@@ -1828,7 +1835,7 @@ function overviewComposerBytesStore(): AtomBytesStore {
  * substrate's whole image pipeline — the same one the Session composer runs:
  * the file is downsampled, its bytes are staged in the composer's bytes store
  * under a freshly minted atom id, an `image-N` chip lands at the caret, and
- * the {@link TugAttachmentPreview} strip below the field shows the thumbnail
+ * the {@link AttachmentPreview} strip below the field shows the thumbnail
  * with a ✕ on it. That strip is the Session composer's Z4C zone, in this
  * shell's `accessoryRow` slot; the ✕ dispatches `REMOVE_ATTACHMENT` up the
  * chain and this component answers it ([L11]), because it owns the editor
@@ -2509,7 +2516,7 @@ function OverviewComposer({
             data-tug-focus="refuse"
           >
             {composeImageAtoms.length > 0 ? (
-              <TugAttachmentPreview
+              <AttachmentPreview
                 atoms={composeImageAtoms}
                 bytesStore={bytesStore}
                 deletable
@@ -2543,7 +2550,7 @@ function OverviewComposer({
               send, tiles (Spec S06). Renders nothing when the rail has no card
               id, which is the rail put away. */}
           {composerCardId !== null && (
-            <TugDictationButton
+            <DictationButton
               composerId={composerCardId}
               cardId={composerCardId}
               target={overviewInsertTarget()}

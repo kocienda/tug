@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { streamedDraftChange } from "@/components/tugways/tug-prompt-entry";
+import { streamedDraftChange } from "@/components/tugways/cards/prompt-entry";
 
 describe("streamedDraftChange", () => {
   test("an empty editor takes the first reading whole", () => {

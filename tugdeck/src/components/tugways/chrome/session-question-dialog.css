@@ -404,7 +404,6 @@ body {
  * shape — the cursor-row ring marks the cursor inside it). The rows keep their
  * own internal text padding ([L20] cascade-scoped instance override). */
 .session-question-dialog-options-list.tug-list-view {
-  height: auto;
   padding-inline: 0;
   /* The options are a BOX, not a run of rows bleeding into the panel: the
      list draws its own frame at rest (`TugListView`'s self-frame, the dev

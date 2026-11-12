@@ -1,0 +1,41 @@
+{
+  "T01": {
+    "tugdeck/src/components/chrome/card-title-bar.tsx": "opens internal/tug-popup-menu under its own icon triggers, which the public popup button's fixed outlined trigger cannot draw",
+    "tugdeck/src/components/devtools/log-inspector.tsx": "opens internal/tug-popup-menu with a callback onSelect, where the public popup button dispatches through the chain",
+    "tugdeck/src/components/cards/cards-space-header.tsx": "opens internal/tug-popup-menu, the menu the public popup button wraps",
+    "tugdeck/src/components/overview/overview-card.tsx": "shares the list-view window machinery (internal/list-view-page-navigation) with TugListView",
+    "tugdeck/src/components/overview/overview-window.ts": "shares the list-view window machinery (internal/list-view-window) with TugListView",
+    "tugdeck/src/components/overview/use-overview-window.ts": "shares the list-view window machinery (internal/list-view-window, list-view-keyed-ledger, list-view-height-persist) with TugListView",
+    "tugdeck/src/components/tugways/body-kinds/affordances/block-copy-button.tsx": "shares internal/outer-scrollport-context and use-position-stable-click with the primitives",
+    "tugdeck/src/components/tugways/body-kinds/affordances/block-fold-cue.tsx": "shares internal/scroller-context, outer-scrollport-context and use-position-stable-click with the primitives",
+    "tugdeck/src/components/tugways/body-kinds/diff-block.tsx": "shares internal/scroller-context, outer-scrollport-context, use-outer-scroll-on-modifier-wheel and use-position-stable-click with the primitives",
+    "tugdeck/src/components/tugways/body-kinds/file-block.tsx": "shares internal/scroller-context, outer-scrollport-context and use-outer-scroll-on-modifier-wheel with the primitives",
+    "tugdeck/src/components/tugways/chrome/session-question-dialog.tsx": "shares internal/scroller-context with the primitives",
+    "tugdeck/src/components/tugways/focus-reveal.ts": "shares internal/scroller-context with the primitives",
+    "tugdeck/src/components/tugways/use-inline-dialog-scope.ts": "shares internal/scroller-context with the primitives",
+    "tugdeck/src/components/tugways/cards/session-changes/clamp.tsx": "measures with internal/use-clamp-overflow, shared with internal/use-is-multiline",
+    "tugdeck/src/components/tugways/cards/pdf-context-menu.tsx": "marks its dismissals with internal/synthetic-escape, shared with the dismissable primitives",
+    "tugdeck/src/components/tugways/session-phase-dot.tsx": "draws internal/tug-progress-pulsing-dot, which no public primitive exposes",
+    "tugdeck/src/components/tugways/tug-text-editor/session-dot-layer.tsx": "draws internal/tug-progress-pulsing-dot, which no public primitive exposes",
+    "tugdeck/src/components/tugways/cards/session-identity.tsx": "draws internal/tug-progress-pulsing-dot, which no public primitive exposes",
+    "tugdeck/src/components/tugways/tug-text-editor/wave-caret.ts": "styles its caret with internal/tug-progress-wave.css, the wave the progress indicator draws",
+    "tugdeck/src/components/tugways/responder-chain-provider.tsx": "dispatches through internal/synthetic-escape, shared with the dismissable primitives",
+    "tugdeck/src/components/tugways/use-focus-trap.tsx": "watches internal/external-dismiss-observer, shared with the dismissable primitives",
+    "tugdeck/src/overlay/overlay-surface-styles.ts": "imports the CSS closure of the placard's surface, which includes internal/ stylesheets, so the overlay's drawn copy is styled; it imports no component"
+  },
+  "T02": {
+    "tugdeck/src/components/tugways/tug-tab-bar.tsx": "reads card-title-store for its tab titles; separating the bar from the store is a redesign not yet decided",
+    "tugdeck/src/components/tugways/tug-text-card-editor.tsx": "binds text-card-store, editor-settings-store, editor-stats-store and deck-store-registry; separating the editor from its stores is a redesign not yet decided",
+    "tugdeck/src/components/tugways/tug-text-editor.tsx": "binds session-name-store, atom-bytes-store and deck-store-registry for its atoms; separating the editor from its stores is a redesign not yet decided"
+  },
+  "L11": {
+    "tugdeck/src/components/tugways/internal/tug-button.tsx": "the internal button the public push and icon buttons wrap; the public primitives dispatch through the chain",
+    "tugdeck/src/components/tugways/internal/tug-popup-menu.tsx": "the internal menu the public popup button wraps; the public primitive dispatches through the chain",
+    "tugdeck/src/components/tugways/tug-editor-context-menu.tsx": "the editor's own context menu closes back into the editor by callback; it converts with the editors",
+    "tugdeck/src/components/tugways/tug-icon-button.tsx": "keeps a direct-action onClick for the title-bar items, which run invokeTitleBarItem rather than a chain action",
+    "tugdeck/src/components/tugways/tug-message-editor.tsx": "the editor surface reports change and submit to its host by callback; converting the editors is a redesign outside the primitive callback conversions",
+    "tugdeck/src/components/tugways/tug-text-editor.tsx": "the editor surface reports submit to its host by callback; converting the editors is a redesign outside the primitive callback conversions"
+  },
+  "G01": {
+  }
+}

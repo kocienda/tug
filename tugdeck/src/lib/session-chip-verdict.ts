@@ -2,7 +2,7 @@
  * session-chip-verdict.ts — which face a baked session chip wears.
  *
  * The composer's chip is pixels: it cannot subscribe, cannot cascade, and
- * cannot read the `data-missing` skin `tug-session-identity.css` paints over
+ * cannot read the `data-missing` skin `session-identity.css` paints over
  * the mounted pill. So the one fact the pill gets from CSS — *nothing on this
  * machine answers for this reference* — has to be decided before the bake and
  * handed to the painter.

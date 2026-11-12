@@ -8,6 +8,7 @@
  * @module components/tugways/cards/gallery-alert
  */
 
+import { Compass, FileText, MessageSquareText, Trash2, TriangleAlert } from "lucide-react";
 import React from "react";
 import { TugAlert, useTugAlert } from "@/components/tugways/tug-alert";
 import type { TugAlertHandle } from "@/components/tugways/tug-alert";
@@ -47,7 +48,7 @@ function GalleryAlertInner() {
   const chooseRef = React.useRef<TugAlertHandle>(null);
   const [refResult, setRefResult] = React.useState("none");
 
-  // App-level repro (TugLogout's exact shape): an effect-driven confirm on the
+  // App-level repro (Logout's exact shape): an effect-driven confirm on the
   // deck-root singleton, followed by the real interrupt-loop over deck cards.
   // This is the path the File-menu "Log Out…" / `/logout` take — the existing
   // demos above invoke via a card button onClick, which is subtly different.
@@ -66,7 +67,7 @@ function GalleryAlertInner() {
           "Effect-driven confirm on the deck-root singleton — the same path the File menu / /logout use.",
         confirmLabel: "Log Out",
         cancelLabel: "Cancel",
-        confirmRole: "danger",
+        confirm: { role: "danger" },
       });
       if (cancelled) {
         setReproResult("aborted — effect cleanup set cancelled=true");
@@ -77,7 +78,7 @@ function GalleryAlertInner() {
         return;
       }
       // The real interrupt-first loop shape (count only — no actual
-      // interrupt fired on this shared gallery deck): the real TugLogout
+      // interrupt fired on this shared gallery deck): the real Logout
       // path calls `interrupt("logout")` on each interruptible card BEFORE
       // sending `claude_logout`, tagging the committed turn so its Z1B reads
       // "Stopped — logged out". A throw here is what would strand the real
@@ -113,8 +114,8 @@ function GalleryAlertInner() {
       title: 'Delete \u201cDesign System v3\u201d?',
       message: "This card and all its contents will be permanently removed. You can't undo this action.",
       confirmLabel: "Delete",
-      confirmRole: "danger",
-      icon: "Trash2",
+      confirm: { role: "danger" },
+      icon: <Trash2 />,
     });
     setDangerResult(confirmed ? "confirmed" : "cancelled");
   }
@@ -124,8 +125,8 @@ function GalleryAlertInner() {
       title: "Discard Unsaved Changes?",
       message: 'You\'ve made changes to \u201cHomepage Copy\u201d that haven\'t been saved. Leaving now will discard them.',
       confirmLabel: "Discard",
-      confirmRole: "danger",
-      icon: "TriangleAlert",
+      confirm: { role: "danger" },
+      icon: <TriangleAlert />,
     });
     setCautionResult(confirmed ? "confirmed" : "cancelled");
   }
@@ -134,20 +135,20 @@ function GalleryAlertInner() {
     if (!chooseRef.current) return;
     const choice = await chooseRef.current.choose({
       title: "What's next?",
-      icon: "Compass",
+      icon: <Compass />,
       choices: [
         {
           id: "session",
           label: "Create Session Card",
           description: "Start a new development session.",
-          icon: "MessageSquareText",
+          icon: <MessageSquareText />,
           isDefault: true,
         },
         {
           id: "file",
           label: "Open Text Card",
           description: "Open an existing file to edit.",
-          icon: "FileText",
+          icon: <FileText />,
         },
       ],
     });
@@ -196,7 +197,7 @@ function GalleryAlertInner() {
       {/* ---- 2. Danger Confirmation ---- */}
       <div className="cg-section">
         <TugLabel className="cg-section-title">Danger Confirmation</TugLabel>
-        <div style={labelStyle}>confirmRole="danger", icon="Trash2" — destructive action guard</div>
+        <div style={labelStyle}>confirm.role="danger", icon="Trash2" — destructive action guard</div>
         <div style={{ display: "flex" }}>
           <TugPushButton emphasis="filled" role="danger" size="sm" onClick={handleDangerAlert}>
             Delete Card
@@ -212,7 +213,7 @@ function GalleryAlertInner() {
       {/* ---- 3. Caution Warning ---- */}
       <div className="cg-section">
         <TugLabel className="cg-section-title">Caution Warning</TugLabel>
-        <div style={labelStyle}>confirmRole="caution", icon="TriangleAlert" — potentially lossy action</div>
+        <div style={labelStyle}>confirm.role="caution", icon="TriangleAlert" — potentially lossy action</div>
         <div style={{ display: "flex" }}>
           <TugPushButton emphasis="outlined" size="sm" onClick={handleCautionAlert}>
             Discard Changes
@@ -290,7 +291,7 @@ function GalleryAlertInner() {
         <TugLabel className="cg-section-title">App-Level Confirm (Logout Repro)</TugLabel>
         <div style={labelStyle}>
           Effect-driven showAlert on the deck-root singleton + the real
-          interrupt-loop — the exact TugLogout path (File menu / /logout).
+          interrupt-loop — the exact Logout path (File menu / /logout).
         </div>
         <div style={{ display: "flex" }}>
           <TugPushButton

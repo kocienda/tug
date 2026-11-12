@@ -52,7 +52,7 @@
  * assertion that would have caught `Implementing` widening the cell.
  *
  * The authored `--tugx-session-status-cell-width` is read alongside, because
- * it is what `tug-status-cell.css` states and what the `@container` rungs are
+ * it is what `session-telemetry-cell.css` states and what the `@container` rungs are
  * measured against — but it is not what the row is asserted in. A budget is a
  * `min-width` on two stretched rows, so a cell whose reading outgrows it
  * renders wider than it declares: JOBS's `None` between two dots does exactly
@@ -61,7 +61,7 @@
  * RENDERED boxes are the reading, and the row's own content box is what they
  * are held against.
  *
- * The fit alone would be a vacuous assertion. `tug-status-cell.css` ends in
+ * The fit alone would be a vacuous assertion. `session-telemetry-cell.css` ends in
  * three `@container` rungs that hide cells with `display: none`, and a hidden
  * cell occupies nothing — so a card narrow enough to have dropped a cell would
  * fit comfortably while the row had plainly moved. The pane is therefore fixed
@@ -70,8 +70,8 @@
  * about the ROW.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
- * @covers tugdeck/src/components/tugways/tug-status-cell.tsx
- * @covers tugdeck/src/components/tugways/tug-status-cell.css
+ * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.css
  * @covers tugdeck/src/components/tugways/arc-lifecycle-mark.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
  * @covers tugdeck/src/lib/arc-meta-facts.ts
@@ -249,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
       try {
         await app.enableDeckTrace(true);
         // The pane size is load-bearing, not incidental: below the default
-        // 900×680 the `@container` rungs in `tug-status-cell.css` start hiding
+        // 900×680 the `@container` rungs in `session-telemetry-cell.css` start hiding
         // cells, and a hidden cell still computes a width.
         await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

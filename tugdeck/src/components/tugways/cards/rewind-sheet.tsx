@@ -63,6 +63,7 @@
  * @module components/tugways/cards/rewind-sheet
  */
 
+import { History } from "lucide-react";
 import "./rewind-sheet.css";
 
 import React, {
@@ -145,7 +146,7 @@ export function useRewindSheet({
     }
     void showSheet({
       title: "Rewind",
-      icon: "History",
+      icon: <History />,
       description:
         "Place the line. Messages above it are kept — the last one is where " +
         "you return to. Messages below it are discarded.",
@@ -262,10 +263,11 @@ const RewindMessageCell: TugListViewCellRenderer<RewindTurnDataSource> =
         <TugListRow
           title={title}
           titleMaxLines={3}
-          subtitle={subtitle}
+          description={subtitle}
           selected={isRewindPoint}
           disabled={blocked}
           data-testid="rewind-message-row"
+          state={state === "discarded" ? "struck" : undefined}
           data-rewind-state={state}
           data-prompt-uuid={row.promptUuid}
         />
@@ -510,6 +512,7 @@ function RewindSheetBody({
             <span className="session-card-picker-label">Messages</span>
             <div className="session-card-picker-sessions-host">
               <TugListView<RewindTurnDataSource>
+                sizing="content"
                 ref={listRef}
                 dataSource={dataSource}
                 delegate={delegate}

@@ -10,7 +10,9 @@
  * @module lib/bulletin-relay
  */
 
-export type BulletinTone = "default" | "success" | "danger" | "caution";
+import type { TugTone } from "@/components/tugways/tug-vocabulary";
+
+export type BulletinTone = Extract<TugTone, "default" | "success" | "danger" | "caution">;
 
 /** A deck bulletin as it crosses to the overlay page: text only. */
 export interface RelayedBulletin {

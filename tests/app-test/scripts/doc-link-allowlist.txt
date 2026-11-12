@@ -36,7 +36,7 @@ tugdeck/src/components/tugways/cards/session-tool-visibility-policy.ts arc/sessi
 tugdeck/src/components/tugways/chrome/session-caution-badge.tsx arc/session-assistant-rendering.md
 tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx arc/archive/dev-interactive-dialogs.md
 tugdeck/src/components/tugways/internal/use-position-stable-click.ts arc/session-assistant-turns.md
-tugdeck/src/components/tugways/tug-prompt-entry.tsx arc/dev-atoms.md
+tugdeck/src/components/tugways/cards/prompt-entry.tsx arc/dev-atoms.md
 tugdeck/src/components/tugways/tug-sheet.tsx arc/tugplan-dev-overlay-framework.md
 tugdeck/src/components/tugways/tug-text-editor.tsx arc/dev-atoms.md
 tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts arc/dev-atoms.md

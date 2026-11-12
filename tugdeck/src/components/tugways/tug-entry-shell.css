@@ -7,7 +7,7 @@
    TugTextEditor into the panel, and the toolbar row with its two centring
    spacers ([D05]).
 
-   Rules here were extracted verbatim from tug-prompt-entry.css and re-keyed
+   Rules here were extracted verbatim from prompt-entry.css and re-keyed
    to `.tug-entry-shell*` selectors / `--tugx-entry-shell-*` aliases; hosts
    keep their own legacy classes on the SAME elements, so host-specific
    rules (drop states, errored ring, route trigger, …) stay in the host's
@@ -271,7 +271,7 @@ html[data-app-active="false"]
 /* Rest — the default button of a shell that does NOT hold the keyboard. Two
    filled accent buttons on screen at once read as two live controls; exactly
    one may, so the standing fill gives way to the outlined look. Same recolor
-   the cycling stand-down uses in `tug-prompt-entry.css`. The
+   the cycling stand-down uses in `prompt-entry.css`. The
    `:not([data-key-view-kbd])` guard lets a resting default that the ring then
    lands on promote normally — it is a stop like any other. */
 [data-tug-entry-default].tug-button-filled-action:not([data-key-view-kbd]):not([data-key-cursor]) {
@@ -287,7 +287,7 @@ html[data-app-active="false"]
 /* Lit — this shell's field holds the keyboard, so its default is the button
    Return fires: the fill comes back and the ring goes on. Carries the same
    `:not()` guards as the rest rule, which also puts it above the card's
-   `[data-cycling]` fill stand-down (`tug-prompt-entry.css`): the caret in the
+   `[data-cycling]` fill stand-down (`prompt-entry.css`): the caret in the
    field is the focused stop, however it arrived, and the default that serves
    it lights the same whether the caret was clicked in or cycled in. */
 /* @tug-renders-on: --tug7-surface-control-primary-filled-action-rest */

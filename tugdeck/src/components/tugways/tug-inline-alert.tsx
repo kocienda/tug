@@ -24,31 +24,29 @@
  */
 
 import "./tug-inline-alert.css";
+import type { TugTone } from "./tug-vocabulary";
 
 import React from "react";
-import { icons } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
+import { sizedIcon } from "./internal/sized-icon";
+import { cn } from "@/lib/utils";
 
-/** Icon tint domains — mirror the sheet/alert `data-icon-role` family. */
-export type TugInlineAlertTone =
-  | "muted"
-  | "agent"
-  | "accent"
-  | "action"
-  | "caution"
-  | "danger";
+/** Icon tint domains — mirror the sheet/alert `data-icon-tone` family. */
+export type TugInlineAlertTone = Extract<TugTone, "muted" | "agent" | "accent" | "action" | "caution" | "danger">;
 
 /** TugInlineAlert props. */
-export interface TugInlineAlertProps {
+export interface TugInlineAlertProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "title" | "role"> {
   /** Bold leading line (required). */
   title: string;
   /** Explanatory body under the title. Omit for a title-only alert. */
   message?: string | React.ReactNode;
   /**
-   * Lucide icon name (PascalCase — matches `lucide-react` `icons` keys).
-   * Pass an empty string to suppress the icon.
-   * @default "TriangleAlert"
+   * Leading icon element (`<TriangleAlert />`); the alert sizes it to its
+   * slot. Pass `null` to suppress the icon.
+   * @default <TriangleAlert />
    */
-  icon?: string;
+  icon?: React.ReactNode;
   /**
    * Domain that warms the container border (caution / danger / accent). The
    * icon itself always reads muted — urgency rides the border and the action
@@ -68,42 +66,43 @@ export interface TugInlineAlertProps {
    * @default "status"
    */
   live?: "status" | "alert";
-  /** Extra class on the root, for call-site layout tweaks. */
-  className?: string;
+  /**
+   * Accent the notice: a heavy leading bar in the tone's border colour, the
+   * icon tinted in the tone and centred on the lines beside it at the
+   * one-line size, and the title and message held close as one statement.
+   * For a notice that is a stop rather than a reply — louder than the calm
+   * default. Without a `tone` the bar takes the muted border.
+   * @selector [data-accent="true"]
+   * @default false
+   */
+  accent?: boolean;
 }
 
 /**
  * TugInlineAlert — a non-modal, inline alert-styled notice. Composes the shared
  * modal-header layout; the caller supplies action buttons via `actions`.
  */
-export function TugInlineAlert({
-  title,
-  message,
-  icon = "TriangleAlert",
-  tone = "muted",
-  actions,
-  live = "status",
-  className,
-}: TugInlineAlertProps): React.ReactElement {
-  const IconComponent = icon
-    ? (icons[icon as keyof typeof icons] ?? null)
-    : null;
-
+export const TugInlineAlert = React.forwardRef<HTMLDivElement, TugInlineAlertProps>(function TugInlineAlert(
+  { title, message, icon = <TriangleAlert />, tone = "muted", actions, live = "status", accent = false, className, ...rest },
+  ref,
+) {
   return (
     <div
-      className={
-        className ? `tug-inline-alert ${className}` : "tug-inline-alert"
-      }
+      {...rest}
+      ref={ref}
+      data-slot="tug-inline-alert"
+      className={cn("tug-inline-alert", className)}
       role={live === "alert" ? "alert" : "status"}
       data-tone={tone}
+      data-accent={accent ? "true" : undefined}
     >
       <div
         className="tug-inline-alert-body"
         data-has-message={message ? "true" : undefined}
       >
-        {IconComponent && (
+        {icon && (
           <div className="tug-inline-alert-icon" aria-hidden="true">
-            {React.createElement(IconComponent, { size: "100%" })}
+            {sizedIcon(icon, "100%")}
           </div>
         )}
         <div className="tug-inline-alert-text">
@@ -116,4 +115,4 @@ export function TugInlineAlert({
       {actions && <div className="tug-inline-alert-actions">{actions}</div>}
     </div>
   );
-}
+});

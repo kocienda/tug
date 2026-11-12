@@ -1,8 +1,8 @@
 /**
  * Shared DOMPurify instance + sanitize config for the tugmark pipeline.
  *
- * Used by `parseMarkdownToSanitizedBlocks` and `TugMarkdownView` /
- * `TugMarkdownBlock` so a single set of `ALLOWED_TAGS` / `FORBID_TAGS`
+ * Used by `parseMarkdownToSanitizedBlocks` and `TugMarkdownBlock` so
+ * a single set of `ALLOWED_TAGS` / `FORBID_TAGS`
  * decisions governs every rendered markdown block in the app. In Bun/Node
  * test environments a jsdom window stands in, so DOMPurify's
  * `ALLOWED_TAGS + FORBID_TAGS` interaction runs against a

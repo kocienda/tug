@@ -22,7 +22,7 @@
  * @covers tugrust/crates/tugchanges-core/src/ledger.rs
  * @covers tugrust/crates/tugchanges-core/src/commit.rs
  * @covers tugrust/crates/tugchanges-core/src/preflight.rs
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

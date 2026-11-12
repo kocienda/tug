@@ -1,7 +1,6 @@
 /* @tug-pairings:
    - --tugx-err-caution-bg / --tugx-err-caution-color  (recoverable banner)
    - --tugx-err-danger-bg  / --tugx-err-danger-color   (non-recoverable banner)
-   - --tugx-err-button-bg / --tugx-err-button-color    (action button)
    `SessionErrorBlock` paints an inline error banner with a recoverable
    (caution-toned, with Retry) and non-recoverable (danger-toned,
    with Copy) variant.
@@ -37,12 +36,6 @@ body {
   --tugx-err-radius:        var(--tugx-block-radius);
   --tugx-err-font-size:     var(--tug-font-size-sm);
 
-  /* Action button — shared between Retry and Copy variants. */
-  --tugx-err-button-bg:          transparent;
-  --tugx-err-button-color:       inherit;
-  --tugx-err-button-border:      currentColor;
-  --tugx-err-button-padding:     var(--tug-space-2xs) var(--tug-space-sm);
-  --tugx-err-button-radius:      var(--tug-radius-sm);
 }
 
 .session-error-block {
@@ -83,21 +76,4 @@ body {
   display: inline-flex;
   align-items: center;
   gap: var(--tug-space-xs);
-}
-
-.session-error-block-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-  padding: var(--tugx-err-button-padding);
-  background: var(--tugx-err-button-bg);
-  color: var(--tugx-err-button-color);
-  border: 1px solid var(--tugx-err-button-border);
-  border-radius: var(--tugx-err-button-radius);
-  font: inherit;
-  cursor: pointer;
-}
-
-.session-error-block-button[data-copied="true"] {
-  opacity: 0.85;
 }

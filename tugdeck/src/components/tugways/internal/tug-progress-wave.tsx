@@ -23,7 +23,8 @@
  *       [L13] a continuous animation lives in CSS `@keyframes`, not
  *       TugAnimator. Motion-off zeroes it via the global
  *       `body[data-tug-motion="off"]` duration rule, resting the bars at
- *       their seeded pose.
+ *       their seeded pose;
+ *       [L19] component authoring guide.
  *
  * @module components/tugways/internal/tug-progress-wave
  */
@@ -72,22 +73,20 @@ export function staticScale(index: number, state: TugProgressIndicatorState): nu
   return barScales(index).restScale;
 }
 
-export interface TugProgressWaveProps {
+export interface TugProgressWaveProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** Bar height in CSS px. @default 16 */
   size?: number;
   /** Lifecycle state. @default "running" */
   state?: TugProgressIndicatorState;
   /** When true, opacity dims. */
   disabled?: boolean;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 export const TugProgressWave = React.forwardRef<
   HTMLSpanElement,
   TugProgressWaveProps
 >(function TugProgressWave(
-  { size = 16, state = "running", disabled = false, className },
+  { size = 16, state = "running", disabled = false, className, style, ...rest },
   forwardedRef,
 ) {
   const barWidthPx = size * BAR_WIDTH_RATIO;
@@ -104,7 +103,8 @@ export const TugProgressWave = React.forwardRef<
       data-slot="tug-progress-wave"
       data-state={state}
       aria-hidden="true"
-      style={rootStyle}
+      {...rest}
+      style={{ ...rootStyle, ...style }}
       className={cn(
         "tug-progress-wave",
         disabled && "tug-progress-wave-disabled",

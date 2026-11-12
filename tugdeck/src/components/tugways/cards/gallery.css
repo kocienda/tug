@@ -439,22 +439,6 @@
   background-color: var(--tug7-element-global-fill-normal-accentCool-rest);
 }
 
-
-
-/* ============================================================================
-   TugMarkdownView Gallery Card
-   ========================================================================= */
-
-/*
- * .gallery-md-view — applied to TugMarkdownView in the gallery card.
- * Fills the available height of the scroll wrapper so the virtualized
- * renderer can measure its viewport correctly.
- */
-.gallery-md-view {
-  height: 100%;
-  width: 100%;
-}
-
 /* ============================================================================
    TugBadge two-line demos (width-stabilized slot + toggle)
    ========================================================================= */

@@ -25,12 +25,14 @@
  * @module components/tugways/cards/agents-sheet
  */
 
+import { Bot } from "lucide-react";
 import "./agents-sheet.css";
 
 import React, { useCallback, useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import {
   TugListView,
@@ -81,7 +83,7 @@ export function useAgentsSheet({
   const openAgentsSheet = useCallback(() => {
     void showSheet({
       title: "Agents",
-      icon: "Bot",
+      icon: <Bot />,
       displayWidth: "lg",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
@@ -191,9 +193,11 @@ const SectionCell: TugListViewCellRenderer<AgentsDataSource> = function SectionC
   dataSource,
 }: TugListViewCellProps<AgentsDataSource>): React.ReactElement {
   return (
-    <div className="agents-sheet-section" data-testid="agents-section">
-      {dataSource.rowAt(index).label}
-    </div>
+    <TugSectionLabel
+      className="agents-sheet-section"
+      data-testid="agents-section"
+      label={{ name: dataSource.rowAt(index).label ?? "" }}
+    />
   );
 };
 
@@ -218,7 +222,7 @@ const RunningCell: TugListViewCellRenderer<AgentsDataSource> = function RunningC
     <TugListRow
       variant="flush"
       title={r.subagentType}
-      subtitle={r.description}
+      description={r.description}
       data-testid="agent-running-row"
     />
   );
@@ -314,6 +318,7 @@ function AgentsSheetBody({
       }
     >
       <TugListView<AgentsDataSource>
+        sizing="content"
         dataSource={dataSource}
         cellRenderers={AGENTS_CELL_RENDERERS}
         rowLayout="flush"

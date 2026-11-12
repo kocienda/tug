@@ -42,6 +42,7 @@
  */
 
 import "./tug-value-input.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, { useRef, useCallback, useId, useLayoutEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -86,7 +87,7 @@ export interface TugValueInputProps
    * @selector .tug-value-input-sm | .tug-value-input-md | .tug-value-input-lg
    * @default "md"
    */
-  size?: "sm" | "md" | "lg";
+  size?: Extract<TugSize, "sm" | "md" | "lg">;
   /**
    * What the input shows when focused for editing.
    * - "display" (default): stripped display-space number ("50%" → "50", "2.5 s" → "2.5")
@@ -352,7 +353,7 @@ function useValueInputEditing({
 // ---- Shared rendering ----
 
 function buildInputClassName(
-  size: "sm" | "md" | "lg",
+  size: Extract<TugSize, "sm" | "md" | "lg">,
   className: string | undefined,
 ): string {
   return cn("tug-value-input", `tug-value-input-${size}`, className);

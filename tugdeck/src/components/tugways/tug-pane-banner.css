@@ -69,7 +69,7 @@ body {
 }
 
 /* Error variant root: dim backdrop fills the pane body behind the detail panel */
-.tug-pane-banner[data-variant="error"] {
+.tug-pane-banner[data-kind="error"] {
   /* @tug-renders-on: --tugx-pane-banner-backdrop-bg */
   background-color: var(--tugx-pane-banner-backdrop-bg);
   display: flex;
@@ -78,13 +78,13 @@ body {
 }
 
 /* Status variant root: transparent — only the strip is visible */
-.tug-pane-banner[data-variant="status"] {
+.tug-pane-banner[data-kind="status"] {
   background-color: transparent;
   /* Strip extends full width at the top; below the strip, no backdrop covers
      the pane body, so pointer events should pass through. */
   pointer-events: none;
 }
-.tug-pane-banner[data-variant="status"] .tug-pane-banner-strip {
+.tug-pane-banner[data-kind="status"] .tug-pane-banner-strip {
   pointer-events: auto;
 }
 

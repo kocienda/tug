@@ -122,7 +122,7 @@ function SetupStepRow({
           <TugProgressIndicator
             variant="pulsing-dot"
             size={DOT_SIZE}
-            role={role}
+            tone={role}
             state={state}
             className="sp-configure-tug-step-dot"
             aria-hidden
@@ -303,7 +303,6 @@ function buildFlow(
     <>
       <TugFileChooser
         value={PROJECT_DIR}
-        onChange={() => {}}
         base={PROJECT_DIR}
         kind="directory"
         size="md"

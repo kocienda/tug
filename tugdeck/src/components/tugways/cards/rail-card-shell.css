@@ -1,0 +1,56 @@
+/* ----------------------------------------------------------------------------
+   rail-card-shell.css — the shell every rail card (Cards, Jots, Arcs) stands in
+   ----------------------------------------------------------------------------
+   One scroller per card, at the top, holding one in-flow content column; a
+   positioned wrap for the reorder caret; a toolbar for the card's filter
+   field (its `None` line is `TugEmptyLine`). Each card's own CSS keeps only what
+   is its own on top of these (the Cards root's face and its sideways clip,
+   the Jots root's editor size). Appearance only ([L06]).
+   ----------------------------------------------------------------------------- */
+
+/* The card root is the SCROLLER, and everything the card draws stands in
+   `.rail-card-content` inside it — the card's content element, whose
+   border-box height is its natural height ([B01]). The list does not scroll
+   itself: one scroller per card, at the top, is what lets a single element
+   hold the toolbar and the rows together and still be measurable. */
+.rail-card {
+  box-sizing: border-box;
+  block-size: 100%;
+  min-block-size: 0;
+  /* The bar's lane is always reserved, never `scrollbar-gutter` ([D182]). */
+  overflow-y: scroll;
+}
+
+/* The content element: everything the card draws as one in-flow column,
+   inside the scroller with nothing stretched between them ([B02]). A taller
+   pane cannot make it taller, which is what makes the card's height measured
+   instead of declared. */
+.rail-card-content {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The reorder container: the `BlockDropCaret` positions absolutely within it.
+   It stands at its content's height — growing to fill the card would put the
+   card's own run inside the measurement ([B02]). */
+.rail-card-list-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+
+/* The card's own chrome, where its old section band used to be: the filter
+   field takes the width, and anything after it sits at its trailing end. */
+.rail-card-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  flex: 0 0 auto;
+}
+
+.rail-card-toolbar > [data-slot="tug-filter-field"] {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}

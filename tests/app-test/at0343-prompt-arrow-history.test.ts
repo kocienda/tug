@@ -25,7 +25,7 @@
  *
  * @covers tugdeck/src/components/tugways/tug-text-editor/keymap.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/responder-chain-provider.tsx
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.

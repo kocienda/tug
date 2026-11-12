@@ -51,9 +51,8 @@
  * DOM event — so test 2's "growth does not pin after disengage" phase
  * gates the auto-pin funnel against a genuine user disengage.
  *
- * `SmartScroll.maybePinToBottom` / `shouldAutoPin` are SmartScroll-level
- * and shared verbatim by `TugMarkdownView`; exercising them through
- * `TugListView` gates the funnel itself.
+ * `SmartScroll.maybePinToBottom` / `shouldAutoPin` are SmartScroll-level;
+ * exercising them through `TugListView` gates the funnel itself.
  *
  * # Tuglaws referenced
  *
@@ -69,7 +68,6 @@
  *
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
  * @covers tugdeck/src/lib/smart-scroll.ts
- * @covers tugdeck/src/lib/region-map.ts
  * @covers tugdeck/src/components/chrome/card-host.tsx
  * @covers tugdeck/src/components/tugways/cards/gallery-list-view.tsx
  */

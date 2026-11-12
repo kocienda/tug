@@ -1,6 +1,6 @@
 /**
  * tug-menu-item-blink.ts — shared double-blink feedback animation for
- * menu item activation. Used by both TugContextMenu and
+ * menu item activation. Used by both PdfContextMenu and
  * TugEditorContextMenu so every menu in the suite flashes identically.
  *
  * The animation is a four-keyframe "double-blink": highlight, off,

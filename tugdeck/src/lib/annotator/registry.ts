@@ -759,7 +759,7 @@ function sessionMenuEntries(
 
 registerAnnotationKind("session", {
   // **No `primaryClick`, deliberately.** A confirmed session run is where the
-  // live `TugSessionCitation` chip is portaled, and the chip owns its whole
+  // live `SessionCitation` chip is portaled, and the chip owns its whole
   // gesture — the press, the hover, whether to offer one at all. A click
   // handler here would fire alongside it.
   //

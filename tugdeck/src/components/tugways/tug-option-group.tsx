@@ -29,6 +29,7 @@
  */
 
 import "./tug-option-group.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, { useCallback, useId } from "react";
 import { cn } from "@/lib/utils";
@@ -47,7 +48,7 @@ import type { FocusPolicy } from "./focus-manager";
 // ---- Types ----
 
 /** Option group size names. */
-export type TugOptionGroupSize = "2xs" | "xs" | "sm" | "md" | "lg";
+export type TugOptionGroupSize = Extract<TugSize, "2xs" | "xs" | "sm" | "md" | "lg">;
 
 /**
  * Visual emphasis. Selects the *paint* of the group; the *scale* is

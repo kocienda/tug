@@ -20,32 +20,28 @@ import "./tug-arc-atom.css";
 
 import React from "react";
 
+import { cn } from "@/lib/utils";
+
 import { ArcSigil } from "./arc-sigil";
 
-export interface TugArcAtomProps {
+export interface TugArcAtomProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
+  /** The arc's name. */
   name: string;
   /** The name run's content, when the surface paints those characters itself. */
   nameContent?: React.ReactNode;
-  /** The `data-slot` the surface names its copy by. */
-  slot?: string;
+  /** The `data-slot` the surface names its copy by, on the sigil inside. */
+  "data-slot"?: string;
+  /** The sigil's tooltip title. */
   title?: string;
 }
 
-export function TugArcAtom({
-  name,
-  nameContent,
-  slot = "tug-arc-atom",
-  title,
-}: TugArcAtomProps): React.ReactElement {
+export const TugArcAtom = React.forwardRef<HTMLSpanElement, TugArcAtomProps>(function TugArcAtom(
+  { name, nameContent, "data-slot": dataSlot = "tug-arc-atom", title, className, ...rest },
+  ref,
+) {
   return (
-    <span className="tug-arc-atom" data-slot="tug-arc-atom">
-      <ArcSigil
-        name={name}
-        nameContent={nameContent}
-        slot={slot}
-        atom
-        title={title}
-      />
+    <span {...rest} ref={ref} className={cn("tug-arc-atom", className)} data-slot="tug-arc-atom">
+      <ArcSigil name={name} nameContent={nameContent} slot={dataSlot} atom title={title} />
     </span>
   );
-}
+});

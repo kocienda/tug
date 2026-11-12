@@ -1,7 +1,7 @@
 /* gallery-tug-cue.css — Phase 2 production gallery card styles.
  *
  * This file held 7 prototype variants A–G during Phase 1. After variant G
- * shipped as the finished `<TugCue>`, the per-variant prototype styles were
+ * shipped as the finished `<Cue>`, the per-variant prototype styles were
  * dropped — the production component owns its own appearance now. What
  * remains here are the gallery-card-only helpers: the host-frame "fake
  * FileBlock" surface, the matrix row layout, and the debug strip.

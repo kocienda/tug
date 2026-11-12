@@ -17,8 +17,7 @@
  *  - Targeted dispatch via `useControlDispatch()` — payload-carrying
  *    `ActionEvent` reaches the parent responder, not the first responder.
  *  - Standard hover / focus / active styling via the underlying
- *    `TugButton`'s emphasis-role tokens (see [tugplan-session-picker-redesign
- *    §D16](../../arc/tugplan-session-picker-redesign.md#d16-tug-icon-button)).
+ *    `TugButton`'s emphasis-role tokens.
  *
  * Why this primitive exists. Per `tuglaws/responder-chain.md` §Focus
  * acceptance, a button that takes browser focus but not chain promotion (or
@@ -34,9 +33,9 @@
  * `TugIconButton` supports two mutually-exclusive ways of responding to a
  * click:
  *
- *  - **Chain-action mode** (`dispatch` prop): the button carries a full
- *    `ActionEvent` (with optional `value` payload). On click the event is
- *    sent to the parent responder via `useControlDispatch().dispatch`. This
+ *  - **Chain-action mode** (`action` prop, with an optional `value`
+ *    payload): on click the button sends a discrete `ActionEvent` to the
+ *    parent responder via `useControlDispatch().dispatch`. This
  *    is the canonical mode for in-list row actions where the responder
  *    (typically the form above the list) handles the resulting state
  *    change. The action vocabulary lives in `action-vocabulary.ts`.
@@ -46,32 +45,30 @@
  *
  * The two modes are mutually exclusive: passing both is a programming
  * error and produces a dev-mode console warning. The plumbed click runs
- * `dispatch` if set, falls back to `onClick` otherwise.
+ * the action if `action` is set, falls back to `onClick` otherwise.
  *
  * ## Sender id convention
  *
- * If the caller's `dispatch` event does not include a `sender`, the
- * component substitutes a stable `useId()` value so handlers that
- * disambiguate by sender always have something to look at. A caller that
- * needs deterministic sender ids in tests can pass `senderId` explicitly
- * and the hook uses that value instead of the fallback.
+ * The event's `sender` is the caller's `senderId`, or a stable `useId()`
+ * value when none is given, so handlers that disambiguate by sender always
+ * have something to look at.
  *
  * ## Visual model
  *
- * Wraps `TugButton` with `subtype="icon"` and `emphasis="ghost"`. The
- * `tone` prop maps to the underlying `role`:
+ * Wraps `TugButton` with `subtype="icon"` and `emphasis="ghost"`, and
+ * forwards `role` unchanged:
  *
- *  - `tone="default"` → `role="action"` — neutral icon affordance.
- *  - `tone="danger"`  → `role="danger"` — destructive trash / remove
+ *  - `role="action"` (default) — neutral icon affordance.
+ *  - `role="danger"` — destructive trash / remove
  *    icon, painted with the danger token family on hover/active.
  *
  * Sizing maps directly to `TugButton`'s `size`:
  *
  *  - `size="xs"`           → `tug-button-icon-xs` — the most compact,
  *    for trailing actions tucked into dense rows.
- *  - `size="sm"` (default) → `tug-button-icon-sm` — list-row trailing
+ *  - `size="sm"`           → `tug-button-icon-sm` — list-row trailing
  *    actions (~14×14 icon, 24×24 hit target).
- *  - `size="md"`           → `tug-button-icon-md` — denser toolbars.
+ *  - `size="md"` (default) → `tug-button-icon-md` — denser toolbars.
  *
  * Hover / focus / active treatment comes from the existing
  * `tug-button-ghost-{action,danger}` selectors in `tug-button.css` — no
@@ -85,8 +82,6 @@
  *  - [L19] component authoring guide.
  *  - [L20] no new tokens; styling delegates to `tug-button.css`.
  *
- * Decisions: [tugplan-session-picker-redesign D16].
- *
  * @module components/tugways/tug-icon-button
  */
 
@@ -95,9 +90,10 @@ import "./tug-icon-button.css";
 import React from "react";
 import { cn } from "@/lib/utils";
 import { TugButton } from "./internal/tug-button";
-import type { TugButtonEmphasis, TugButtonRounded } from "./internal/tug-button";
+import type { TugButtonEmphasis, TugButtonRole, TugButtonRounded } from "./internal/tug-button";
+import type { TugSize } from "./tug-vocabulary";
 import type { FocusPolicy } from "./focus-manager";
-import type { ActionEvent } from "./responder-chain";
+import type { ActionEvent, TugAction } from "./responder-chain";
 import { useControlDispatch } from "./use-control-dispatch";
 
 /* ---------------------------------------------------------------------------
@@ -118,7 +114,7 @@ import { useControlDispatch } from "./use-control-dispatch";
 export interface TugIconButtonProps
   extends Omit<
     React.ButtonHTMLAttributes<HTMLButtonElement>,
-    "onClick" | "title" | "disabled" | "aria-label"
+    "onClick" | "title" | "disabled" | "aria-label" | "role" | "value"
   > {
   /** Icon node. Typically a `lucide-react` icon. Required. */
   icon: React.ReactNode;
@@ -127,16 +123,16 @@ export interface TugIconButtonProps
   /** Optional native tooltip (mirrors `aria-label` in many cases). */
   title?: string;
   /**
-   * Chain-action mode: a full `ActionEvent` to dispatch on click via
-   * `useControlDispatch()`. Mutually exclusive with `onClick`.
-   *
-   * If the event omits `sender`, the component fills in a stable id
-   * (caller-supplied `senderId` if provided, else `useId()`).
+   * Chain-action mode: the action dispatched on click, as a discrete
+   * `ActionEvent`, via `useControlDispatch()`. Mutually exclusive with
+   * `onClick`.
    */
-  dispatch?: ActionEvent;
+  action?: TugAction;
+  /** Payload for {@link action}, shipped as the event's `value`. */
+  value?: unknown;
   /**
    * Direct-action mode: callback fired on click. Mutually exclusive
-   * with `dispatch`. Prefer `dispatch` for chain-routable actions.
+   * with `action`. Prefer `action` for chain-routable actions.
    */
   onClick?: (e?: React.MouseEvent<HTMLButtonElement>) => void;
   /**
@@ -151,17 +147,17 @@ export interface TugIconButtonProps
    *  - `"2xs"`          — the most compact chip (20×20), e.g. a per-row
    *    un-send affordance.
    *  - `"xs"`           — dense affordance.
-   *  - `"sm"` (default) — list-row trailing icon (24×24 hit target).
-   *  - `"md"`           — denser toolbar action.
+   *  - `"sm"`           — list-row trailing icon (24×24 hit target).
+   *  - `"md"` (default) — denser toolbar action.
    */
-  size?: "2xs" | "xs" | "sm" | "md";
+  size?: Extract<TugSize, "2xs" | "xs" | "sm" | "md">;
   /**
-   * Color tone — maps to TugButton's `role`:
+   * Semantic role, forwarded to the underlying `TugButton`:
    *
-   *  - `"default"` (default) → `role="action"` — neutral icon affordance.
-   *  - `"danger"`            → `role="danger"` — destructive trash icon.
+   *  - `"action"` (default) — neutral icon affordance.
+   *  - `"danger"` — destructive trash icon.
    */
-  tone?: "default" | "danger";
+  role?: Extract<TugButtonRole, "action" | "danger">;
   /**
    * Visual weight — forwarded to the underlying `TugButton`.
    *
@@ -181,9 +177,9 @@ export interface TugIconButtonProps
    */
   rounded?: TugButtonRounded;
   /**
-   * Stable sender id used when `dispatch` is provided without a
-   * `sender`. Auto-derived via `useId()` if omitted. Override in tests
-   * for deterministic chain logging.
+   * Stable sender id carried on the dispatched event. Auto-derived via
+   * `useId()` if omitted. Override in tests for deterministic chain
+   * logging.
    */
   senderId?: string;
   /**
@@ -200,6 +196,12 @@ export interface TugIconButtonProps
   focusPolicy?: FocusPolicy;
   /** Additional CSS class names. */
   className?: string;
+  /**
+   * `data-slot` for the rendered button. Defaults to `"tug-icon-button"`; a
+   * caller that scopes its own CSS or tests to the control (a masthead
+   * widget, say) names its own slot here.
+   */
+  "data-slot"?: string;
 }
 
 /* ---------------------------------------------------------------------------
@@ -219,11 +221,12 @@ export const TugIconButton = React.forwardRef<HTMLButtonElement, TugIconButtonPr
       icon,
       "aria-label": ariaLabel,
       title,
-      dispatch: dispatchProp,
+      action,
+      value,
       onClick,
       disabled = false,
-      size = "sm",
-      tone = "default",
+      size = "md",
+      role = "action",
       emphasis = "ghost",
       rounded,
       senderId: senderIdProp,
@@ -231,6 +234,7 @@ export const TugIconButton = React.forwardRef<HTMLButtonElement, TugIconButtonPr
       focusOrder,
       focusPolicy,
       className,
+      "data-slot": dataSlot,
       ...rest
     },
     ref,
@@ -243,42 +247,38 @@ export const TugIconButton = React.forwardRef<HTMLButtonElement, TugIconButtonPr
     // Dev-mode warning when both modes are set. Mutually exclusive per the
     // module-level contract: the chain-action mode is canonical, the
     // direct-action mode is a fallback for non-chain side effects. Mixing
-    // them silently picks `dispatch` and ignores `onClick`, which is
+    // them silently picks `action` and ignores `onClick`, which is
     // surprising; the warn surfaces the bug.
     React.useEffect(() => {
       if (
-        dispatchProp !== undefined &&
+        action !== undefined &&
         onClick !== undefined &&
         process.env.NODE_ENV !== "production"
       ) {
         console.warn(
-          "TugIconButton: `dispatch` and `onClick` are mutually exclusive. " +
-            "When `dispatch` is set, the chain dispatches on click; `onClick` is ignored.",
+          "TugIconButton: `action` and `onClick` are mutually exclusive. " +
+            "When `action` is set, the chain dispatches on click; `onClick` is ignored.",
         );
       }
-    }, [dispatchProp, onClick]);
+    }, [action, onClick]);
 
-    // Click handler: chain-action mode wins when `dispatch` is set.
-    // Fills in the sender if the caller's event omitted it. Direct-action
-    // mode falls through to `onClick`. A button with neither a `dispatch`
+    // Click handler: chain-action mode wins when `action` is set.
+    // Direct-action mode falls through to `onClick`. A button with
+    // neither an `action`
     // nor `onClick` is inert — useful for purely decorative-icon-but-must-
     // be-button cases (rare, but the alternative would be a crash).
     function handleClick(e?: React.MouseEvent<HTMLButtonElement>) {
-      if (dispatchProp !== undefined) {
-        const eventToSend: ActionEvent =
-          dispatchProp.sender !== undefined
-            ? dispatchProp
-            : { ...dispatchProp, sender: senderId };
-        controlDispatch(eventToSend);
+      if (action !== undefined) {
+        const event: ActionEvent = { action, value, sender: senderId, phase: "discrete" };
+        controlDispatch(event);
         return;
       }
       onClick?.(e);
     }
 
-    // Map `tone` to TugButton's role. Emphasis defaults to `ghost` —
-    // TugIconButton is intentionally narrow; `outlined` is the one earned
-    // addition for callsites that need a bordered, margin-aligned edge.
-    const role = tone === "danger" ? "danger" : "action";
+    // Emphasis defaults to `ghost` — TugIconButton is intentionally narrow;
+    // `outlined` is the one earned addition for callsites that need a
+    // bordered, margin-aligned edge.
 
     return (
       <TugButton
@@ -297,7 +297,7 @@ export const TugIconButton = React.forwardRef<HTMLButtonElement, TugIconButtonPr
         focusGroup={focusGroup}
         focusOrder={focusOrder}
         focusPolicy={focusPolicy}
-        data-slot="tug-icon-button"
+        data-slot={dataSlot ?? "tug-icon-button"}
         className={cn("tug-icon-button", className)}
       />
     );

@@ -26,7 +26,7 @@ import type { CardCloseAdvice } from "./card-close-advice";
 import { cardServicesStore } from "./card-services-store";
 import type { CodeSessionPhase } from "./code-session-store";
 import { restorePassGate, sessionRestoreRegistry } from "./session-restore";
-import type { TugPromptEntryDelegate } from "@/components/tugways/tug-prompt-entry";
+import type { PromptEntryDelegate } from "@/components/tugways/cards/prompt-entry";
 
 /** What an attached card's session is holding. */
 export interface SessionCardSessionState {
@@ -83,7 +83,7 @@ export function sessionCloseAdviceFor(
  */
 export function readSessionCardCloseAdvice(
   cardId: string,
-  entryDelegate: TugPromptEntryDelegate | null,
+  entryDelegate: PromptEntryDelegate | null,
 ): CardCloseAdvice {
   const services = cardServicesStore.getServices(cardId);
   const snap = services?.codeSessionStore.getSnapshot() ?? null;

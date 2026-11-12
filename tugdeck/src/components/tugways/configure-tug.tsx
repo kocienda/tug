@@ -80,7 +80,7 @@
  *   - transport down mid-setup → `transportStateStore` → a calm "Reconnecting…"
  *     body (only swaps an already-open wizard; never pops setup on a set-up
  *     user — the app-wide reconnect banner owns that);
- *   - version too old → `TugVersionGate`, a sibling app-modal that takes
+ *   - version too old → `VersionGate`, a sibling app-modal that takes
  *     precedence (Spec S02); logged-out mid-session → the per-card session-card
  *     auth banner safety net.
  *
@@ -158,7 +158,7 @@ import {
   CONFIGURE_TUG_PROBE_DEADLINE_MS,
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
-import { TugFileChooser } from "./tug-file-chooser";
+import { TugFileChooser, useFileChooserHost } from "./tug-file-chooser";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
 import { TugProgressIndicator } from "./tug-progress-indicator";
 import "./tug-alert.css";
@@ -431,6 +431,10 @@ export function ConfigureTug(): ReactElement {
         ? `${hostFacts.home.replace(/\/+$/, "")}/${DEFAULT_PROJECT_DIR_LEAF}`
         : "";
   const [projectPathDraft, setProjectPathDraft] = useState<string | null>(null);
+  const ProjectDirHost = useFileChooserHost({
+    onChange: setProjectPathDraft,
+    onSubmit: () => handleConfirmProjectDir(),
+  });
   const projectPathValue = projectPathDraft ?? resolvedProjectPath;
   // Confirmed during this wizard's lifetime — the same latch shape the
   // local-AI skip uses, so an on-demand revisit can change the answer and
@@ -961,7 +965,7 @@ export function ConfigureTug(): ReactElement {
             detail: subscriptionLabel(account?.subscriptionType),
             // The on-demand visit is the gesture for changing an answer, so it
             // offers the way out of a login; a first run just made this one.
-            // TugLogout owns the confirm and everything after it.
+            // Logout owns the confirm and everything after it.
             ...(showingOnDemand
               ? { secondaryCta: { label: "Log Out…", onClick: requestLogout } }
               : {}),
@@ -1008,16 +1012,16 @@ export function ConfigureTug(): ReactElement {
     // was left. On its own line it gets the whole row.
     const chooser = (label: string) => (returnHome: boolean): ReactElement => (
       <>
+        <ProjectDirHost>
         <TugFileChooser
           value={projectPathValue}
-          onChange={setProjectPathDraft}
           base={projectPathValue !== "" ? projectPathValue : (hostFacts?.home ?? "/")}
           kind="directory"
           size="md"
-          onSubmit={handleConfirmProjectDir}
           disabled={projectDirBusy}
           aria-label="Default project directory"
         />
+        </ProjectDirHost>
         <TugPushButton
           size="sm"
           emphasis={projectDirError !== null ? "outlined" : "filled"}
@@ -1176,7 +1180,7 @@ export function ConfigureTug(): ReactElement {
           />
           {/* Shared one-line modal header (tugx-header.css) — the alert
               header classes with no message: icon centered on the title. */}
-          <div className="tug-alert-body" data-icon-role="action">
+          <div className="tug-alert-body" data-icon-tone="action">
             <div className="tug-alert-icon" aria-hidden="true">
               <Rocket />
             </div>

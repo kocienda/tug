@@ -61,7 +61,7 @@ import { CommitMessage } from "@/components/tugways/commit-presentation";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { requestCommitCard } from "@/lib/open-commit-in-card";
-import { CommitChangesList } from "@/components/tugways/tug-changes-list";
+import { CommitChangesList } from "@/components/tugways/cards/session-changes/changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { SessionBoundary } from "@/components/tugways/cards/session-boundary";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
@@ -81,6 +81,7 @@ import {
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import { ShellExchangeBlock } from "./shell-exchange-block";
 import { matchesJoinReceipt } from "@/lib/landing-mode";
+import { ReceiptHeader, ReceiptHeaderText } from "./receipt-header";
 import "./session-join-receipt-block.css";
 
 import {
@@ -172,7 +173,7 @@ function JoinCommitReceipt({
     root: cwd,
   });
   const identity = (
-    <span className="commit-receipt-header">
+    <ReceiptHeader className="commit-receipt-header">
       <span
         className="commit-receipt-sha"
         ref={menu.ref}
@@ -188,14 +189,13 @@ function JoinCommitReceipt({
         {menu.contextMenu}
       </span>
       {" "}
-      <code
+      <ReceiptHeaderText
         ref={subjectRef}
         className="commit-receipt-summary"
-        data-tugx-findable=""
       >
         {headline}
-      </code>
-    </span>
+      </ReceiptHeaderText>
+    </ReceiptHeader>
   );
   return (
     <ToolBlockHistoryCollapse toolUseId={`${exchangeId}:commit`} defaultCollapsed={false}>
@@ -344,9 +344,9 @@ export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.Reac
   // No sha: a discard lands nothing. Its identity is the arc that stopped
   // existing, and its body is what went with it.
   const identity = (
-    <span className="join-receipt-header">
-      <code className="join-receipt-summary" data-tugx-findable="">{arc}</code>
-    </span>
+    <ReceiptHeader className="join-receipt-header">
+      <ReceiptHeaderText className="join-receipt-summary">{arc}</ReceiptHeaderText>
+    </ReceiptHeader>
   );
   return (
     <ToolBlockHistoryCollapse toolUseId={props.message.exchangeId} defaultCollapsed={false}>

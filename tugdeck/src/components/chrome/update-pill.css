@@ -31,7 +31,7 @@
  * reintroduce the instability this placement exists to remove.
  *
  * Centred with auto margins over a `width: fit-content` box, and never with
- * `transform: translateX(-50%)` — the rule `tug-modal-input-dialog.css` records
+ * `transform: translateX(-50%)` — the rule `modal-input-dialog.css` records
  * for the Open Quickly panel. A transform makes this element a containing block
  * for `position: fixed` descendants, so anything portaled inside would resolve
  * its coordinates against the pill and be clipped by its overflow.

@@ -22,7 +22,7 @@
  * `--tug7-surface-global-primary-normal-default-rest` is the
  * representative default surface for the declaration.
  *
- * Layout strategy (mirrors `TugMarkdownView`'s spacer model):
+ * Layout strategy (a spacer model):
  * - The scroll container (`.tug-list-view`) owns `overflow-y: auto`
  *   and the user's scroll position.
  * - `.tug-list-view-spacer--top` sits before the rendered window;
@@ -171,9 +171,7 @@ body {
      so its height needs to be bounded by something for `overflow-y:
      auto` to engage. Consumers give it space by sizing the parent
      (e.g. a flex item with `flex: 1; min-height: 0`); the list view
-     then fills that allotment, and content beyond it scrolls. This
-     matches the `.tugx-md-scroll-container` pattern in
-     `tug-markdown-view.css`. */
+     then fills that allotment, and content beyond it scrolls. */
   height: 100%;
 
   /* Inline padding is regular CSS padding — it doesn't interact with
@@ -197,6 +195,40 @@ body {
      the container's edge (e.g. against an entry pane below). */
   scroll-padding-block-end: var(--tugx-list-view-scroll-padding-end);
 
+}
+
+/* ---- Sizing (`sizing`) ----
+   `content` stands the list at the sum of its rows: the scrolling belongs to
+   an ancestor (a sheet body, a block, a picker that caps its own height), and
+   the default `height: 100%` would resolve against that ancestor and give the
+   list its whole height back. */
+.tug-list-view[data-sizing="content"] {
+  height: auto;
+}
+
+/* ---- Presentation (`presentation`) ----
+   `rail` is a sidebar card's list. It stands at the sum of its rows and hands
+   its overflow to the card root, which is the card's one scroller: a scroller
+   here would absorb the card's run and the content element's height would
+   follow the pane's. Both axes are visible, because `overflow-y: visible`
+   beside a clipped x computes back to `auto` and the list would be a scroll
+   container again — one that never scrolls, so a sticky descendant inside it
+   would never pin. The edge-to-edge insets are the card's own, through the
+   list's and the row's padding tokens. */
+.tug-list-view[data-presentation="rail"] {
+  flex: 0 0 auto;
+  height: auto;
+  overflow: visible;
+}
+
+/* A rail list's row dividers ALWAYS show — re-assert the hairline the
+   "clean selected block" rule drops around a selected / cursor row ([L06]).
+   `!important` deliberately overrides that rule's `:has()` suppression, whose
+   specificity would otherwise win. Inert while the list is striped, which
+   draws no hairlines at all. */
+.tug-list-view[data-presentation="rail"][data-row-layout="flush"]
+  .tug-list-view-cell:not(:last-child) {
+  border-bottom-color: var(--tugx-list-view-divider-color) !important;
 }
 
 /* ---- Focus language — item-group treatment ([P01]) ----

@@ -1,0 +1,125 @@
+/* HistoryList — the reusable commit-rows-with-detail surface ([P10]).
+   Rows are compact mono `TugListRow`s (the same density as ChangesList's
+   file rows) wearing the shared `.tugx-commit` scale — type, leading, hanging
+   indent, and the trailing metadata cell all live in
+   `commit-presentation.css`. This file keeps only what the list itself owns:
+   the row's top-anchoring, the trailing cluster, the detail well, and the join
+   badge. Appearance only ([L06]); interactions are wired in the component. */
+
+.tug-history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Top-anchor the row (the primitive is `align-items: center`) so a wrapped
+   subject keeps its first line — and the trailing cluster pinned beside it — on
+   row 1, the extra lines flowing below. Scoped to the history list so
+   single-line list rows elsewhere keep their centered layout. */
+.tug-history-list .tug-list-row {
+  align-items: flex-start;
+}
+
+.tug-history-list-commit-block {
+  min-width: 0;
+}
+
+/* The whole row is the fold's click target (the sha's copy menu and the
+   trailing controls stop their own gestures short of it). */
+.tug-history-list-row-hit {
+  cursor: pointer;
+}
+
+/* Trailing cluster: the metadata cell, the Copy control, then the fold cue.
+   Mirrors the row primitive's trailing gap so a bare span composes cleanly. */
+.tug-history-list-row-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tugx-list-row-trailing-gap);
+}
+
+/* The trailing slot (the flex child that HOLDS the cluster) rides the same
+   one-line box as the subject's first line and centers its contents in it. With
+   the row top-anchored above, its centre lands on row 1's centre — matching the
+   subject's first line whether the subject wraps or not. `min-height` (not
+   `height`) lets a taller portaled control grow rather than clip, exactly as the
+   block-header trailing does. */
+.tug-history-list .tug-list-row-trailing {
+  min-height: var(--tugx-commit-line);
+}
+
+/* The filter's receipt: the message lines and paths a query matched, under an
+   identity line that could not explain the row's survival. Set at the detail
+   scale in the mono face, and started under the SUBJECT — the row's compact
+   inline padding plus the identity's 9ch hanging indent — so it hangs off the
+   text it is explaining rather than off the sha. One entry per line (not a
+   wrapping row): a body excerpt is prose-length, so entries side by side would
+   read as one run-on sentence. */
+.tug-history-list-matched-context {
+  display: flex;
+  flex-direction: column;
+  padding-left: calc(
+    var(--tugx-list-row-padding-inline-compact, 8px) + var(--tugx-commit-hang)
+  );
+  padding-bottom: 2px;
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-history-list-matched-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tug-history-list-matched-overflow {
+  font-family: var(--tug-font-family-sans);
+  font-style: italic;
+}
+
+/* The expanded detail — a RECESSED WELL, the same move a tool block's expanded
+   body makes (`block-chrome.css`): the content drops off the list surface onto
+   `--tugx-block-well-bg` inside the shared block hairline, so a commit's
+   message, syntax tones, and diff rows have a grounded surface to read
+   against instead of floating on the row surface with its neighbors.
+   `--tugx-block-bg` is re-scoped as well as painted because the body kinds
+   composed inside (the diff blocks under each file row) read the token rather
+   than the background. */
+/* @tug-renders-on: --tugx-block-well-bg */
+.tug-history-list-commit-detail {
+  --tugx-block-bg: var(--tugx-block-well-bg);
+  background: var(--tugx-block-well-bg);
+  /* Publishes the well for descendants that composite against what they sit on
+     — see the contract note in `tug-list-row.css`. */
+  --tugx-ambient-surface: var(--tugx-block-well-bg);
+  border: 1px solid var(--tugx-block-hairline);
+  border-radius: var(--tugx-block-chrome-radius);
+  /* Inset from the row's edges so the well reads as a panel under the row
+     rather than a full-bleed band, and aligned to the row's own inline
+     padding so its left edge sits under the row's status column. */
+  margin: 2px var(--tugx-list-row-padding-inline-compact, 8px) 6px;
+  padding: 6px 8px;
+}
+
+/* Committer identity + complete date — the full attribution, right-aligned at
+   the bottom of the expanded area. */
+.tug-history-list-commit-meta {
+  margin-top: 2px;
+  text-align: right;
+}
+
+/* The two marks a commit's subject can carry: the arc atom naming the arc it
+   joined from ([P09]), and the citation chip naming the session that made it
+   ([P10]). Each brings its own shape, its own ink and — for the arc — its own
+   `^` sigil, the same mark the Cards card and the Session card show; nothing here may
+   restate any of them ([L20]). Both get a seat and nothing else.
+
+   Neither mark carries a left margin: the gap before it is a space in the
+   subject's own inline flow (see the note at the mount). A margin would be
+   drawn again at the head of a wrapped line, indenting the mark past the
+   column its own subject lines start at — which is the misalignment a reader
+   sees as the chip floating right of the text it belongs to. */
+.tug-history-list-session-chip,
+.tug-history-list-join-badge {
+  vertical-align: baseline;
+}

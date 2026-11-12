@@ -86,6 +86,9 @@ import { MessageCircle } from "lucide-react";
 
 import { TugDialogButton } from "@/components/tugways/tug-dialog-button";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 import {
   applyQuestionSelection,
   initialQuestionSelections,
@@ -668,6 +671,22 @@ function SalvageWizard({
     [questions],
   );
 
+  // Each question's options dispatch `select-value` with the option's label
+  // ([L11]); the sender names the question, so one responder serves them all.
+  const senderPrefix = React.useId();
+  const responderId = React.useId();
+  const { ResponderScope, responderRef } = useOptionalResponder({
+    id: responderId,
+    actions: {
+      [TUG_ACTIONS.SELECT_VALUE]: (event: ActionEvent) => {
+        if (typeof event.sender !== "string" || typeof event.value !== "string") return;
+        if (!event.sender.startsWith(senderPrefix)) return;
+        const index = Number(event.sender.slice(senderPrefix.length));
+        if (Number.isInteger(index)) handleSelect(index, event.value);
+      },
+    },
+  });
+
   const handleSubmit = React.useCallback(() => {
     const map = new Map<string, string[]>();
     questions.forEach((q, i) => {
@@ -677,7 +696,9 @@ function SalvageWizard({
   }, [questions, selections, onSubmit]);
 
   return (
+    <ResponderScope>
     <div
+      ref={responderRef}
       className="ask-user-question-tool-block-salvage"
       data-slot="ask-user-question-tool-block-salvage"
     >
@@ -716,7 +737,9 @@ function SalvageWizard({
                     description={option.description}
                     selected={selection.includes(option.label)}
                     selectionStyle={selectionStyle}
-                    onClick={() => handleSelect(index, option.label)}
+                    action={TUG_ACTIONS.SELECT_VALUE}
+                    value={option.label}
+                    senderId={`${senderPrefix}${index}`}
                   />
                 ))}
               </div>
@@ -741,6 +764,7 @@ function SalvageWizard({
         </TugPushButton>
       </div>
     </div>
+    </ResponderScope>
   );
 }
 

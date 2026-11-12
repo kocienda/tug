@@ -26,7 +26,7 @@ import "../css-imports";
 import "./overlay-page.css";
 // The shared markdown sheet (`main.tsx` says why a page takes it itself), for
 // the update wizard's release notes.
-import "../components/tugways/tug-markdown-view.css";
+import "../../styles/tugx-md.css";
 
 import { createRoot } from "react-dom/client";
 import initTugmark from "../../crates/tugmark-wasm/pkg/tugmark_wasm.js";

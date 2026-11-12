@@ -16,7 +16,7 @@
  * called directly and the element it returns is read as data — the idiom
  * `filter-highlight.test.tsx` uses. The doctrine bans a fake-DOM render, and
  * the other renderers cannot be reached this way at all — `TugAtomChip`
- * measures its label on a canvas, `TugSessionCitation`'s stores carry no server
+ * measures its label on a canvas, `SessionCitation`'s stores carry no server
  * snapshot, and the editor's chip is a baked `<img>`. So their half of the
  * contract is pinned where they all now read it from: `atomIdentityAttrs`, the
  * one pure function that authors the attributes. A renderer that spreads it
@@ -113,7 +113,7 @@ describe("TugCommitAtom carries its own identity", () => {
 });
 
 describe("atomIdentityAttrs is the contract every renderer spreads", () => {
-  // `TugAtomChip`, `TugSessionCitation` and the editor's baked `<img>` cannot
+  // `TugAtomChip`, `SessionCitation` and the editor's baked `<img>` cannot
   // be rendered without a `document`, so this is where their half of the
   // contract is pinned: they each spread exactly this record, so what it
   // produces is what they emit.

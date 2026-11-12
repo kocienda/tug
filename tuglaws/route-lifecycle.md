@@ -10,7 +10,7 @@
 
 ## Why a route pipe
 
-A Dev prompt entry has a *command route* — the *recipient* a submission is sent to: `❯` Code (Claude on the record), `$` Shell (the machine), or `?` btw (Claude off the record — a native side question, [D108]/[D110]). The route is a single scalar of state, but it is read in several places and changed from several triggers, and a slice of chrome wants to *react* when it changes. Holding it in `TugPromptEntry`'s `useState` worked while that component was its only reader; it stopped working the moment the route gained a consumer *outside* the component — the route-indicator badge, which names what the active route targets.
+A Dev prompt entry has a *command route* — the *recipient* a submission is sent to: `❯` Code (Claude on the record), `$` Shell (the machine), or `?` btw (Claude off the record — a native side question, [D108]/[D110]). The route is a single scalar of state, but it is read in several places and changed from several triggers, and a slice of chrome wants to *react* when it changes. Holding it in `PromptEntry`'s `useState` worked while that component was its only reader; it stopped working the moment the route gained a consumer *outside* the component — the route-indicator badge, which names what the active route targets.
 
 `RouteLifecycle` is the pipe that resolves this. It owns the authoritative route, exposes it as external state so any descendant can subscribe, and announces every change as a will/did pair so imperative reactors can prepare and respond. It is the route-scoped sibling of the deck's `CardLifecycle` ([lifecycle-delegates.md](lifecycle-delegates.md)) — the same observer-vs-delegate shape, a far smaller surface, a finer scope.
 
@@ -18,9 +18,9 @@ A Dev prompt entry has a *command route* — the *recipient* a submission is sen
 
 ## Scope: one pipe per prompt entry
 
-`RouteLifecycle` is **not** deck-level. One instance is constructed per `TugPromptEntry` and provided to that entry's subtree through `RouteLifecycleContext`. A route is a property of a single prompt entry; each Session card has its own, and a multi-card deck has independent routes with no cross-talk. The context naturally bounds who can observe — only descendants of the entry's provider, which is exactly where the toolbar's indicator slot renders.
+`RouteLifecycle` is **not** deck-level. One instance is constructed per `PromptEntry` and provided to that entry's subtree through `RouteLifecycleContext`. A route is a property of a single prompt entry; each Session card has its own, and a multi-card deck has independent routes with no cross-talk. The context naturally bounds who can observe — only descendants of the entry's provider, which is exactly where the toolbar's indicator slot renders.
 
-The instance is constructed once and stays stable for the component's lifetime — a `useRef` lazy-init inside `TugPromptEntry`, never a module singleton. There is, deliberately, no module-level registry the way `CardLifecycle` has one (`registerCardLifecycle` / `getCardLifecycle`): nothing outside the React tree needs to reach a `RouteLifecycle`, so the context provider is the whole story.
+The instance is constructed once and stays stable for the component's lifetime — a `useRef` lazy-init inside `PromptEntry`, never a module singleton. There is, deliberately, no module-level registry the way `CardLifecycle` has one (`registerCardLifecycle` / `getCardLifecycle`): nothing outside the React tree needs to reach a `RouteLifecycle`, so the context provider is the whole story.
 
 ---
 
@@ -89,7 +89,7 @@ Observers are error-isolated: a throwing observer is caught and logged, and the 
 
 ## Ownership, provision, and the route triggers
 
-`TugPromptEntry` is the single owner and provider:
+`PromptEntry` is the single owner and provider:
 
 - It constructs one `RouteLifecycle`, seeded with the default route (`❯`) or, on restore, the persisted route.
 - It reads the route via `useSyncExternalStore(routeLifecycle.subscribe, routeLifecycle.getRoute)` — directly off the instance it owns. There is no mirrored `useState` and no `routeRef`; the stable instance plus a live `getRoute()` replace them ([D99]).
@@ -113,7 +113,7 @@ Handlers registered once at mount — the action handlers — read the live rout
 
 ## Consumers today
 
-`TugPromptEntry` drives the route choice-group's `value`, the editor's per-route placeholder, the per-route Return-key action, and the per-route submit dispatch ([D110]: `❯` → send; `?` → `/btw` local dispatch; `$` → `shellSessionStore.exec` — the block-oriented shell backend, [D111]) off the subscribed route. On the `$` route the Z5 submit button is route-aware (`routeAwareSubmitButtonMode`): a `stop` pose while an exchange is in flight (reaping the shell process group) and a plain submit otherwise, disjoint from the Claude turn lifecycle. Descendant consumers now read the route too via `useRoute`: the route-indicator badge (`SessionRouteIndicatorBadge`) names the active route's target, and `SessionRouteChromeManifest` selects the per-route Z4B chip set (Table T01) — including the live `Cwd` chip bound to `shellSessionStore.cwd`. A shell exchange reaches Claude by staging, not by seeding the editor: the exchange row's **Add to context** toggle parks the composed text on the pending-context queue to ride the next `❯` submission ([D111] [P08]), so no route change is produced. The earlier Share affordance — which seeded the composer directly — is retired; one gesture, one glyph (`cloud-upload`). The delegate/observer surface (`useRouteDelegate`) still has no consumer; it ships for future imperative reactors, matching the observer-vs-delegate completeness of `CardLifecycle`.
+`PromptEntry` drives the route choice-group's `value`, the editor's per-route placeholder, the per-route Return-key action, and the per-route submit dispatch ([D110]: `❯` → send; `?` → `/btw` local dispatch; `$` → `shellSessionStore.exec` — the block-oriented shell backend, [D111]) off the subscribed route. On the `$` route the Z5 submit button is route-aware (`routeAwareSubmitButtonMode`): a `stop` pose while an exchange is in flight (reaping the shell process group) and a plain submit otherwise, disjoint from the Claude turn lifecycle. Descendant consumers now read the route too via `useRoute`: the route-indicator badge (`SessionRouteIndicatorBadge`) names the active route's target, and `SessionRouteChromeManifest` selects the per-route Z4B chip set (Table T01) — including the live `Cwd` chip bound to `shellSessionStore.cwd`. A shell exchange reaches Claude by staging, not by seeding the editor: the exchange row's **Add to context** toggle parks the composed text on the pending-context queue to ride the next `❯` submission ([D111] [P08]), so no route change is produced. The earlier Share affordance — which seeded the composer directly — is retired; one gesture, one glyph (`cloud-upload`). The delegate/observer surface (`useRouteDelegate`) still has no consumer; it ships for future imperative reactors, matching the observer-vs-delegate completeness of `CardLifecycle`.
 
 ---
 
@@ -137,7 +137,7 @@ Primary canonical authority — the source is the tie-breaker.
 
 Secondary implementation source — where the pipe is wired up.
 
-- [`tugdeck/src/components/tugways/tug-prompt-entry.tsx`](../tugdeck/src/components/tugways/tug-prompt-entry.tsx) — constructs the per-entry `RouteLifecycle`, provides `RouteLifecycleContext`, funnels every route trigger through `setRoute`, and reads / writes the route through the pipe on save and restore.
+- [`tugdeck/src/components/tugways/cards/prompt-entry.tsx`](../tugdeck/src/components/tugways/cards/prompt-entry.tsx) — constructs the per-entry `RouteLifecycle`, provides `RouteLifecycleContext`, funnels every route trigger through `setRoute`, and reads / writes the route through the pipe on save and restore.
 
 Planning history — kept for context, not authoritative.
 
@@ -149,6 +149,6 @@ Planning history — kept for context, not authoritative.
 - [lifecycle-delegates.md](lifecycle-delegates.md) — The deck-level `TugCardDelegate` pipe that `RouteLifecycle` is modeled on. Same observer-vs-delegate split; `CardLifecycle` is deck-scoped, surfaces six moments, carries a payload-less `cardId`, and defers delegates through a `MessageChannel` drain. `RouteLifecycle` is per-prompt-entry, surfaces one moment, carries `(prev, next)`, and dispatches synchronously.
 - [turn-lifecycle.md](turn-lifecycle.md) — The Dev-session turn state machine. `routeAwareSubmitButtonMode` (above) governs the `$` shell route's Z5 button, disjoint from the Claude turn lifecycle documented there; the two share the Z5 button by route.
 - [design-decisions.md](design-decisions.md) — [D99] (`RouteLifecycle` owns the authoritative route), [D97] (the Session card's `Z0`–`Z5` placement zones), [D98] (host facts — the route-indicator badge names a route's target from them).
-- [responder-chain.md](responder-chain.md) — the `SELECT_VALUE` and `SELECT_ROUTE` actions that reach `TugPromptEntry`'s responder and call `setRoute`.
+- [responder-chain.md](responder-chain.md) — the `SELECT_VALUE` and `SELECT_ROUTE` actions that reach `PromptEntry`'s responder and call `setRoute`.
 - [state-preservation.md](state-preservation.md) — the `onSave` / `onRestore` protocol the route rides; the persisted route is applied through `setRoute` before first paint.
 - [tuglaws.md](tuglaws.md) — [L02] (external state enters React through `useSyncExternalStore`; why the route left `useState`), [L03] (`useLayoutEffect` for registrations that events depend on; how `useRouteDelegate` installs), [L07] (handlers read live state — `getRoute()` off the stable instance).

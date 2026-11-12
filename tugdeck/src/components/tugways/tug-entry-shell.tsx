@@ -1,6 +1,6 @@
 /**
  * TugEntryShell — the shared structural shell behind bottom-docked entry
- * surfaces: the prompt entry (`TugPromptEntry`) and the find bar
+ * surfaces: the prompt entry (`PromptEntry`) and the find bar
  * (`TugFindBar`).
  *
  * The shell owns the *layout positions* and their surface treatment; every
@@ -169,7 +169,7 @@ export const TugEntryShell = React.forwardRef<HTMLDivElement, TugEntryShellProps
     );
 
     return (
-      <div ref={composedRootRef} className={cn("tug-entry-shell", className)} {...rest}>
+      <div ref={composedRootRef} data-slot="tug-entry-shell" className={cn("tug-entry-shell", className)} {...rest}>
         {statusRow}
         <div
           className={cn("tug-entry-shell-input-area", inputAreaClassName)}

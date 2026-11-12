@@ -33,7 +33,7 @@
  * @covers tugdeck/src/lib/commit-filter-scope.ts
  * @covers tugdeck/src/components/tugways/tug-option-group.css
  * @covers tugdeck/src/components/tugways/cards/session-history/session-history-view.tsx
- * @covers tugdeck/src/components/tugways/tug-history-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-history/history-list.tsx
  * @covers tugdeck/src/components/tugways/filter-highlight.tsx
  * @covers tugdeck/src/components/tugways/tug-markdown-text.tsx
  * @covers tugrust/crates/tugcast/src/feeds/git.rs

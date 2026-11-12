@@ -1,23 +1,15 @@
 /* The Cards card — a pane-first mirror of the deck canvas, rendered as
    a TugListView of shared `TugListRow`s. The row chrome (padding, hover, the
    flush divider, selection fill, and the movement-cursor caret) comes from
-   `TugListRow` + `TugListView`; this file styles only the card shell, the
-   group headers, and the subrow indent. Tokens only ([L06]/[L20]). */
+   `TugListRow` + `TugListView`, and the shell from `rail-card-shell.css`; this
+   file styles only the card's own face on that shell, the group headers, and
+   the subrow indent. Tokens only ([L06]/[L20]). */
 
 .cards-card {
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-default-rest);
-  /* The card root is the SCROLLER, and everything the card draws stands in
-     `.cards-card-content` inside it — the card's content element, whose
-     border-box height is its natural height ([B01]). The list no longer
-     scrolls itself: one scroller per card, at the top, is what lets a single
-     element hold the header and the rows together and still be measurable. */
-  box-sizing: border-box;
-  block-size: 100%;
-  min-block-size: 0;
-  /* The bar's lane is always reserved, never `scrollbar-gutter` ([D182]). */
-  overflow-y: scroll;
-  /* AND THE CARD NEVER SCROLLS SIDEWAYS. Stated rather than left to the
+  /* The root is the rail card's one scroller (`.rail-card`), and the card
+     NEVER SCROLLS SIDEWAYS. Stated rather than left to the
      initial value, because `overflow-x: visible` beside a scrolling y computes
      back to `auto` — so any row that overruns the rail by a pixel mints a
      horizontal bar across the bottom of the card, and the bar eats a row's
@@ -29,24 +21,6 @@
   overflow-x: hidden;
 }
 
-/* The content element: everything the card draws as one in-flow column, inside
-   the scroller with nothing stretched between them ([B02]). A taller pane
-   cannot make it taller. */
-.cards-card-content {
-  display: flex;
-  flex-direction: column;
-}
-
-/* The wrap is the reorder container: the `BlockDropCaret` positions absolutely
-   within it. It stands at its content's height — growing to fill the card
-   would put the card's own run inside the measurement ([B02]). */
-.cards-list-wrap {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-}
-
 /* The reorder-drag lift on whatever is being carried — a single pane row, or
    every row of a group when the group itself is the block. */
 .cards-list [data-dragging="true"] {
@@ -54,9 +28,9 @@
   z-index: 2;
 }
 
-/* Doubled selector so these overrides beat the base `.tug-list-view` rules
-   regardless of bundle order. The list stands at the sum of its rows and hands
-   its overflow to the card root, which is the card's one scroller.
+/* The list is a rail list (`presentation="rail"`): it stands at the sum of its
+   rows and hands its overflow to the card root, which is the card's one
+   scroller ([D182] — the card root reserves the bar's lane).
 
    EDGE-TO-EDGE. The list carries no margin, no frame, and no radius: its rows
    run the full width of the rail and are separated by the `flush` layout's
@@ -66,15 +40,7 @@
    job of holding the text off the edge, and it matches the header's, so a
    band's title and its rows start on ONE vertical line. Matches the other rail
    lists. */
-.tug-list-view.cards-list {
-  flex: 0 0 auto;
-  height: auto;
-  /* A scroller here would absorb the card's run and the content element's
-     height would follow the pane's. The card root reserves the bar's lane
-     instead ([D182]). */
-  /* Both axes: `overflow-y: visible` beside a clipped x computes back to
-     `auto`, which would make this a scroll container again. */
-  overflow: visible;
+.cards-list {
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-padding-block: 0;
   /* The band header's inline padding, so the row content and the section title
@@ -97,15 +63,6 @@
    an ancestor whatever the selectors weigh. */
 .cards-list .tug-list-row {
   padding-inline-end: var(--tugx-cards-row-trailing-pad);
-}
-
-/* Row dividers ALWAYS show in the rail lists — re-assert the hairline the
-   list-view's "clean selected block" rule drops around a selected / cursor row
-   ([L06]). `!important` deliberately overrides that primitive's `:has()`
-   suppression, whose specificity would otherwise win. */
-.tug-list-view.cards-list[data-row-layout="flush"]
-  .tug-list-view-cell:not(:last-child) {
-  border-bottom-color: var(--tugx-list-view-divider-color) !important;
 }
 
 /* The leading column holds the close box at the width the session rows give
@@ -147,7 +104,7 @@
 
 /* THE DENSE ROW METRIC. A one-line row bottoms out on its 24px close box, so
    the block padding is the only thing that sets its height — the same 2px the
-   Jots list sets on `.tug-list-view.jots-list` in `jots-card.css`, which is
+   Jots list sets on `.jots-list` in `jots-card.css`, which is
    what makes a file row and a jot row the same height down the rail. No
    shared class carries the number: each rail card's list states it on its own
    rule, so the two are kept equal by hand rather than by the cascade. Scoped
@@ -215,7 +172,7 @@
 /* The name yields the line's slack rather than absorbing it, so its
    disambiguating run keeps hugging it; the slack goes to the picker's leading
    margin below. */
-.cards-row-headline .tug-list-row-title {
+.cards-row-headline .cards-row-title {
   flex: 0 1 auto;
   min-inline-size: 0;
 }
@@ -366,7 +323,7 @@ body {
    out, muted, so it reads as a label over the rows rather than as one of them.
    Size is the fourth thing that voice is made of, and it is stated separately
    below, for a reason worth reading. */
-.cards-header .tug-list-row-title {
+.cards-header .cards-header-title {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -386,10 +343,10 @@ body {
    (`.cards-space-header`'s and `.cards-row-headline`'s own `font-size` lines
    below are dead for the same reason — left as they are, because both read
    correctly at the rail measure and nobody asked for them to move.) */
-.tug-list-view.cards-list[data-row-text-size]
+.cards-list
   .cards-header
-  .tug-list-row-content
-  .tug-list-row-title {
+  .cards-header-line
+  .cards-header-title[data-slot] {
   font-size: var(--tugx-group-header-font-size);
 }
 
@@ -486,7 +443,7 @@ body {
    sentence case and its weight where the group header trades both for the
    tracked-out upper of a section label. The step in wash is what separates the
    levels; making both of them shout would make neither read. */
-.cards-space-header .tug-list-row-title {
+.cards-space-header .cards-space-title {
   font-size: 0.9em;
   font-weight: 650;
   color: var(--tug7-element-global-text-normal-default-rest);
@@ -542,18 +499,15 @@ body {
   );
   padding-inline-start: var(--tugx-cards-tally-gap);
   border-inline-start: 1px solid var(--tugx-group-header-rule);
-}
-
-/* The figures hold their own width, so a count changing under the reader does
-   not shift the run behind it — the same reason the group header's summary
-   takes tabular figures. The badge's own inline padding comes off: it is a
-   ghost badge, so it draws no box for the padding to hold open, and the run
-   already has the rule's gap doing that work on both sides. */
-.cards-space-tally .tug-badge {
-  padding-inline: 0;
-  font-variant-numeric: tabular-nums;
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
+
+/* The tally's badge is a `numeric` ghost badge: its figures hold their own
+   width, so a count changing under the reader does not shift the run behind
+   it — the same reason the group header's summary takes tabular figures — and
+   a ghost draws no box, so it reserves no padding. Its ink is the tally's,
+   set on `.cards-space-tally` above: a ghost `inherit` badge takes the colour
+   it stands in. */
 
 /* The controls are the last section — `···` and the fold cue, behind the same
    rule the tallies stand behind. They keep the trailing slot's own gap between
@@ -578,17 +532,11 @@ body {
   box-shadow: 0 0 0 1px var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* The rows of a workspace that is not on screen. Quieted a step because the
-   deck does not hold those cards, not because the rows refuse anything: they
-   are picked, dragged and reordered like any other ([P09], [B01]). The tone is
-   a reading of where the user is. */
-.cards-list [data-cards-space-inactive="true"] .tug-list-row-content {
-  opacity: 0.72;
-}
-/* The header itself is the way BACK, so it keeps full strength. */
-.cards-space-header[data-cards-space-inactive="true"] .tug-list-row-content {
-  opacity: 1;
-}
+/* The rows of a workspace that is not on screen wear `state="dimmed"` —
+   quieted a step because the deck does not hold those cards, not because the
+   rows refuse anything: they are picked, dragged and reordered like any other
+   ([P09], [B01]). The tone is a reading of where the user is. The workspace
+   header is the way BACK, so it never dims. */
 
 /* The cross-workspace drop target ([P10], [B03]). A workspace's whole BLOCK is
    the target — its header and every row filed under it, all wearing the same
@@ -667,45 +615,18 @@ body {
   );
 }
 
-/* The empty label stands in for the list's first row, at that row's height —
-   the same measure every rail card's empty label uses, so an empty Cards card
-   reads exactly like an empty Jots one. */
-.cards-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-block-size: 28px;
-  padding-inline: 10px;
-  font-size: 12px;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
 
 /* The same label again, one level down: the `None` row an expanded workspace
-   with nothing in it draws ([B07]). The voice is `.cards-empty`'s and is not
+   with nothing in it draws ([B07]). The voice is `.tug-empty-line`'s and is not
    restated here — all this rule does is let it fill the row it now sits in,
    rather than the card, so the centring is the row's and a drop wash over the
    workspace's block covers the whole band. */
 .cards-space-empty > .cards-empty {
   inline-size: 100%;
-  /* With the 10px inline padding it inherits from `.cards-empty`, a
+  /* With the 10px inline padding it inherits from `.tug-empty-line`, a
      content-box 100% stands twenty pixels wider than the row it fills — which
      the card's scroller read as content to scroll to. */
   box-sizing: border-box;
-}
-
-/* The card's own chrome, where its old section band used to be: the filter field
-   takes the width. */
-.cards-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  padding: var(--tug-space-sm) var(--tug-space-md);
-  flex: 0 0 auto;
-}
-
-.cards-toolbar > [data-slot="tug-filter-field"] {
-  flex: 1 1 auto;
-  min-inline-size: 0;
 }
 
 /* How the session monitor row divides its width — which line the dot, the

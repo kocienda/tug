@@ -1,6 +1,8 @@
 /* @tug-pairings {
-  --tugx-inline-alert-fg     | --tugx-inline-alert-bg | content
-  --tugx-inline-alert-border | --tugx-inline-alert-bg | informational
+  --tugx-inline-alert-fg             | --tugx-inline-alert-bg | content
+  --tugx-inline-alert-border         | --tugx-inline-alert-bg | informational
+  --tugx-inline-alert-accent         | --tugx-inline-alert-bg | informational
+  --tugx-inline-alert-accent-icon-fg | --tugx-inline-alert-bg | decorative
 } */
 
 /**
@@ -10,6 +12,8 @@
  * | --tugx-inline-alert-fg      | --tugx-inline-alert-bg    | content       | .tug-inline-alert (color)        |
  * | --tugx-inline-alert-border  | --tugx-inline-alert-bg    | informational | .tug-inline-alert (border-color) |
  * | --tugx-inline-alert-icon-fg | --tugx-inline-alert-bg    | decorative    | .tug-inline-alert-icon (color)   |
+ * | --tugx-inline-alert-accent  | --tugx-inline-alert-bg    | informational | [data-accent] (border-left)      |
+ * | --tugx-inline-alert-accent-icon-fg | --tugx-inline-alert-bg | decorative | [data-accent] icon (color)  |
  */
 
 /* ---- Component-tier aliases — resolve to base tier in one hop [L17] ---- */
@@ -22,6 +26,10 @@ body {
   --tugx-inline-alert-fg:      var(--tug7-element-global-text-normal-default-rest);
   --tugx-inline-alert-border:  var(--tug7-element-global-border-normal-muted-rest);
   --tugx-inline-alert-icon-fg: var(--tug7-element-global-icon-normal-muted-rest);
+  /* The accented notice's leading bar and icon ink (`accent`). Per tone
+     below; untoned, the bar is the muted border and the icon stays muted. */
+  --tugx-inline-alert-accent:         var(--tugx-inline-alert-border);
+  --tugx-inline-alert-accent-icon-fg: var(--tugx-inline-alert-icon-fg);
 }
 
 /* ---- Container ---- */
@@ -116,4 +124,48 @@ body {
 
 .tug-inline-alert-actions .tug-button {
   min-width: 5rem;
+}
+
+/* ---- Accent (`accent`) ----
+   A notice that is a stop, not a reply: louder than the calm default. The
+   tone carries a heavy leading bar (the bulletin's accent edge, widened) and
+   tints the icon, which a calm inline alert keeps muted; the icon takes the
+   one-line size beside its two lines and centres on the pair, so the space
+   above and below it is even; and the title and message sit close, one
+   statement in two parts rather than a heading over a paragraph ([L06]). */
+.tug-inline-alert[data-accent="true"][data-tone="caution"] {
+  --tugx-inline-alert-accent:         var(--tug7-element-tone-border-normal-caution-rest);
+  --tugx-inline-alert-accent-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+.tug-inline-alert[data-accent="true"][data-tone="danger"] {
+  --tugx-inline-alert-accent:         var(--tug7-element-tone-border-normal-danger-rest);
+  --tugx-inline-alert-accent-icon-fg: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+.tug-inline-alert[data-accent="true"][data-tone="accent"] {
+  --tugx-inline-alert-accent:         var(--tug7-element-tone-border-normal-accent-rest);
+  --tugx-inline-alert-accent-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest);
+}
+
+.tug-inline-alert[data-accent="true"] {
+  /* @tug-renders-on: --tugx-inline-alert-bg */
+  border-left: 4px solid var(--tugx-inline-alert-accent);
+}
+
+.tug-inline-alert[data-accent="true"] .tug-inline-alert-body[data-has-message] {
+  align-items: center;
+}
+
+.tug-inline-alert[data-accent="true"] .tug-inline-alert-icon {
+  /* @tug-renders-on: --tugx-inline-alert-bg */
+  color: var(--tugx-inline-alert-accent-icon-fg);
+}
+
+.tug-inline-alert[data-accent="true"] .tug-inline-alert-body[data-has-message] .tug-inline-alert-icon {
+  width: var(--tugx-header-icon-one);
+  height: var(--tugx-header-icon-one);
+}
+
+.tug-inline-alert[data-accent="true"] .tug-inline-alert-message {
+  margin-top: 2px;
+  line-height: 1.3;
 }

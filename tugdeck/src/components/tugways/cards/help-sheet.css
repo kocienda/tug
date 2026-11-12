@@ -10,15 +10,6 @@
   margin-bottom: 0.75rem;
 }
 
-/* The in-sheet tab set is click-selected; its active state reads from the
-   bar's own active underline. Suppress WebKit's focus ring — the tab bar's
-   `overflow: hidden` crops it to a stray blue sliver at the active tab's edge
-   (same fix as the permissions sheet). Scoped so global tab styling is
-   untouched. */
-.help-sheet-tabs .tug-tab:focus {
-  outline: none;
-}
-
 /* ── General panel ──────────────────────────────────────────────────────── */
 
 .help-sheet-general {
@@ -36,13 +27,9 @@
 
 /* Quiet uppercase divider above each General-tab section (mirrors the read-only
    listing sheets' section header). */
+/* The eyebrow is `TugSectionLabel`; this keeps the sheet's own spacing. */
 .help-sheet-section-title {
   padding: 1.5rem 0 0.5rem;
-  font-size: var(--tug-font-size-xs);
-  font-weight: var(--tug-font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
 }
 
 /* Shortcuts: a two-column definition-list grid — a fixed key column and a
@@ -111,14 +98,6 @@
 .help-sheet-meta-cwd {
   font-family: var(--tug-font-family-mono);
   font-size: 0.8125rem;
-}
-
-/* The command list is `height: 100%` by default (it expects a bounded flex
-   parent). The composed TugSheetScaffold body is the single scroll region, so
-   size the inline list to its content and let the body scroll (mirrors the
-   read-only /agents + /skills listing sheets). */
-.tug-list-view.help-sheet-commands {
-  height: auto;
 }
 
 /* Empty state for a section with no commands. */

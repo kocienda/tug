@@ -131,7 +131,7 @@ const ArcPickerCell: TugListViewCellRenderer<ArcPickerDataSource> = ({
     >
       <TugMetaRun
         className="arc-picker-facts"
-        slot="arc-picker-facts"
+        data-slot="arc-picker-facts"
         parts={[
           entry.stage !== undefined ? <span key="stage">{entry.stage}</span> : null,
           <span key="rounds">{roundsLabel(entry.rounds)}</span>,

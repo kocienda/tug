@@ -3,33 +3,9 @@
    subject; the file count and diff stat ride the header's standard trailing
    summaries. Appearance only ([L06]). */
 
-/* The identity is PLAIN INLINE TEXT in the detail column — the same thing every
-   other block header puts there (Bash's command, Read's path). No flex box of
-   its own: a flex container establishes its own vertical alignment, which is
-   what floated the sha and subject off the header's own line box and dropped
-   them below the lifecycle dot. As inline text it rides the header's shared
-   line box exactly like a Bash command does, so the dot, the identity's first
-   line, and the trailing summaries all sit on one line. */
-.commit-receipt-header {
-  display: block;
-  min-width: 0;
-  /* The receipt's face, read from the scope class the block root wears: a
-     receipt is prose, so the identity line takes the proportional family and
-     the commit atom inside it inherits ([`tuglaws/entity-presentation.md`]).
-     The header's detail column publishes the mono command face, which is
-     right for a Bash command and wrong for this; the fallback keeps the old
-     face for a header standing outside the scope. */
-  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
-  /* NO hanging indent. A wrapped subject returns flush to the block's left
-     edge and the line runs the full width — the same correction the join
-     boundary's detail already argues for itself. The hang measured a mono
-     column of 9ch against an 8-char sha and its separating space, and neither
-     half of that premise holds here: the column is proportional now, where a
-     `ch` is the width of a `0` and of nothing in particular, and the sha has
-     not been bare text since it became a pill with a box, a border and a
-     glyph. The History shade's rows keep the hang, where both halves are
-     still true. */
-}
+/* The identity line and the face its subject takes are `.receipt-header` and
+   `.receipt-header-text` (`receipt-header.css`), shared with the push, join
+   and discard receipts. */
 
 /* The commit subject. It is a `<code>` inside `.tool-call-header-detail`, so it
    inherits the header's own command layout wholesale — the shared line box, the
@@ -37,18 +13,6 @@
    header baseline (the exact treatment the Bash header gives its command). */
 .commit-receipt-summary {
   min-width: 0;
-}
-
-/* Override the header's `code { color: inherit }` (which would drain the
-   message to the muted command tone) back to the normal block text — the
-   commit subject is primary content, not an incidental command. The
-   two-class selector outranks `.tool-call-header-detail code`. */
-.commit-receipt-header .commit-receipt-summary {
-  color: var(--tugx-block-text-color);
-  /* The subject is a `<code>`, and `.tool-call-header-detail code` hands it
-     the column's own family. It is the commit's own sentence rather than a
-     code run, so it takes the identity line's face instead. */
-  font-family: inherit;
 }
 
 /* The disclosed message body. The chrome's body region carries no padding of

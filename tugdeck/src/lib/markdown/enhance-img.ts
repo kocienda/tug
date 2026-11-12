@@ -16,10 +16,8 @@
  * Why this lives outside `parseMarkdownToSanitizedBlocks`:
  *  - The click handler must be a live element with an event listener,
  *    not a string spliced into HTML.
- *  - Both `TugMarkdownBlock` (per-cell renderer) and `TugMarkdownView`
- *    (windowed renderer) call this from the same code path right
- *    after they assign `innerHTML`, so the enhancement is invariant
- *    across both primitives.
+ *  - `TugMarkdownBlock` calls this right after it assigns `innerHTML`,
+ *    so every rendered image is enhanced the same way.
  *
  * Idempotent: an `<img>` already marked with
  * `data-tugx-img-enhanced="true"` is skipped on re-walks.

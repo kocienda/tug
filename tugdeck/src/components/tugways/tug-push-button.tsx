@@ -21,13 +21,13 @@ export type { TugButtonConfirmation, TugButtonEmphasis, TugButtonLayout, TugButt
 export interface TugPushButtonProps extends TugButtonProps {}
 
 export const TugPushButton = React.forwardRef<HTMLButtonElement, TugPushButtonProps>(
-  function TugPushButton({ className, ...props }: TugPushButtonProps, ref) {
+  function TugPushButton({ className, ...rest }: TugPushButtonProps, ref) {
     return (
       <TugButton
         ref={ref}
         data-slot="tug-push-button"
         className={cn("tug-push-button", className)}
-        {...props}
+        {...rest}
       />
     );
   }

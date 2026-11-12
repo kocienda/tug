@@ -26,6 +26,14 @@
  * @module components/tugways/cards/hooks-sheet
  */
 
+import { Webhook } from "lucide-react";
+import {
+  SheetHeader,
+  SheetHeaderActions,
+  SheetHeaderSummary,
+  SheetHeaderText,
+  SheetNotice,
+} from "./sheet-header";
 import "./hooks-sheet.css";
 
 import React, { useCallback, useMemo } from "react";
@@ -74,7 +82,7 @@ export function useHooksSheet({
     hooksInventoryStore.requestHooks();
     void showSheet({
       title: "Hooks",
-      icon: "Webhook",
+      icon: <Webhook />,
       displayWidth: "lg",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
@@ -183,15 +191,15 @@ function HooksSheetBody({
   let body: React.ReactElement;
   if (snapshot.phase === "error") {
     body = (
-      <p className="hooks-sheet-notice" role="alert">
+      <SheetNotice className="hooks-sheet-notice" role="alert">
         {snapshot.error ?? "Couldn't load hooks."}
-      </p>
+      </SheetNotice>
     );
   } else if (snapshot.phase === "loading" || snapshot.payload === null) {
     body = (
-      <p className="hooks-sheet-notice" role="status">
+      <SheetNotice className="hooks-sheet-notice" role="status">
         Loading hooks…
-      </p>
+      </SheetNotice>
     );
   } else {
     body = (
@@ -217,16 +225,16 @@ function HooksSheetBody({
   }
 
   const header = (
-    <div className="hooks-sheet-header">
-      <div className="hooks-sheet-header-text">
+    <SheetHeader className="hooks-sheet-header">
+      <SheetHeaderText className="hooks-sheet-header-text">
         {ready ? (
-          <span className="hooks-sheet-summary">{hooksSummaryLine(total)}</span>
+          <SheetHeaderSummary className="hooks-sheet-summary">{hooksSummaryLine(total)}</SheetHeaderSummary>
         ) : null}
         <TugLabel emphasis="calm" size="sm">
           Read-only — edit settings.json (or ask Claude) to add or change hooks.
         </TugLabel>
-      </div>
-      <div className="hooks-sheet-header-actions">
+      </SheetHeaderText>
+      <SheetHeaderActions className="hooks-sheet-header-actions">
         <TugPushButton
           size="sm"
           emphasis="ghost"
@@ -236,8 +244,8 @@ function HooksSheetBody({
         >
           Refresh
         </TugPushButton>
-      </div>
-    </div>
+      </SheetHeaderActions>
+    </SheetHeader>
   );
 
   return (

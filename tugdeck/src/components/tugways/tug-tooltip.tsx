@@ -129,8 +129,18 @@ export function TugTooltipProvider({
  * TugTooltip
  * ---------------------------------------------------------------------------*/
 
-/** TugTooltip props. */
-export interface TugTooltipProps {
+/**
+ * TugTooltip props. The tooltip renders no element of its own around its
+ * trigger — the child is the Radix trigger via `asChild` — and its bubble is
+ * portalled; the Radix root takes the rest.
+ *
+ * @no-element
+ */
+export interface TugTooltipProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<typeof Tooltip.Root>,
+    "open" | "defaultOpen" | "onOpenChange" | "delayDuration" | "children"
+  > {
   /**
    * Content rendered inside the tooltip bubble. Accepts ReactNode for rich
    * multi-line tooltips.
@@ -254,6 +264,7 @@ export function TugTooltip({
   defaultOpen,
   onOpenChange: controlledOnOpenChange,
   children,
+  ...rest
 }: TugTooltipProps) {
   const overlayRoot = useCanvasOverlay();
 
@@ -438,7 +449,7 @@ export function TugTooltip({
   } as Record<string, unknown>);
 
   return (
-    <Tooltip.Root {...rootProps}>
+    <Tooltip.Root {...rest} {...rootProps}>
       <Tooltip.Trigger asChild>{trigger}</Tooltip.Trigger>
       <Tooltip.Portal container={overlayRoot}>
         <Tooltip.Content

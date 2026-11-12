@@ -52,8 +52,8 @@
  * moves this test with it and a table that fragmented fails it.
  *
  * @covers tugdeck/src/lib/atom-register.ts
- * @covers tugdeck/src/components/tugways/tug-session-identity.css
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.css
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/arc-lifecycle-block.css
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
@@ -100,10 +100,10 @@ const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
  *
  * NOT `[data-slot="tug-session-identity"]`: no arc surface answers to it.
  * `ArcSigil`'s wrapper carries no `data-slot` at all (the caller's slot rides
- * the run inside), `TugCommitAtom` wears its own, and `TugSessionIdentity`
+ * the run inside), `TugCommitAtom` wears its own, and `SessionIdentityView`
  * spreads `{...rest}` after its slot, so a worker atom's slot overrides it.
  * The class is what every one of them shares, and it is what the pill's rule
- * in `tug-session-identity.css` selects.
+ * in `session-identity.css` selects.
  */
 const PILL = '.tug-session-identity[data-tier="chip"]';
 

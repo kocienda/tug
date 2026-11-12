@@ -232,7 +232,7 @@ body {
 
 /* A title-only ALERT (a confirm question with no message line) keeps the
    alert icon scale — it reads as an alert, not a utility-sheet header. The
-   icon stays centered on the lone title line. ConfigureTug/TugVersionGate render
+   icon stays centered on the lone title line. ConfigureTug/VersionGate render
    these classes as one-line headers and don't stamp the attribute. */
 .tug-alert-body[data-scale="alert"] {
   gap: var(--tugx-header-gap-alert);
@@ -265,14 +265,14 @@ body {
   height: 100%;
 }
 
-/* Per-role icon tint — mirrors the sheet header's data-icon-role family by
+/* Per-role icon tint — mirrors the sheet header's data-icon-tone family by
    re-pointing the icon alias. `muted` is the default (declared on body), so
    it needs no override here. */
-.tug-alert-body[data-icon-role="agent"]   { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-agent-rest); }
-.tug-alert-body[data-icon-role="accent"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest); }
-.tug-alert-body[data-icon-role="action"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-active-rest); }
-.tug-alert-body[data-icon-role="caution"] { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest); }
-.tug-alert-body[data-icon-role="danger"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-danger-rest); }
+.tug-alert-body[data-icon-tone="agent"]   { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-agent-rest); }
+.tug-alert-body[data-icon-tone="accent"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest); }
+.tug-alert-body[data-icon-tone="action"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-active-rest); }
+.tug-alert-body[data-icon-tone="caution"] { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest); }
+.tug-alert-body[data-icon-tone="danger"]  { --tugx-alert-icon-fg: var(--tug7-element-tone-icon-normal-danger-rest); }
 
 /* ---- Text column (title + message) ---- */
 

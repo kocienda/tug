@@ -225,12 +225,12 @@ const ModelListCell: TugListViewCellRenderer<ModelListDataSource> =
     return (
       <TugListRow
         title={model.displayName}
-        subtitle={
+        description={
           model.description !== undefined
             ? compressContextPhrase(model.description)
             : undefined
         }
-        subtitleMaxLines={2}
+        descriptionMaxLines={2}
         selected={model.value === current}
         selectedGlyph="check"
         data-model={model.value}
@@ -416,6 +416,7 @@ export function AiConfigEditor({
             >
               <ModelListContext.Provider value={value.modelSelector}>
                 <TugListView<ModelListDataSource>
+                  sizing="content"
                   dataSource={dataSource}
                   delegate={delegate}
                   cellRenderers={MODEL_CELL_RENDERERS}

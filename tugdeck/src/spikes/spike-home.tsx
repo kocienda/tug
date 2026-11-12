@@ -79,7 +79,7 @@ const SpikeCell: TugListViewCellRenderer<SpikeRowsDataSource> = ({
       data-slot="spike-home-row"
       data-spike={row.name}
       title={row.title}
-      subtitle={row.blurb}
+      description={row.blurb}
     />
   );
 };

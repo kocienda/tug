@@ -12,16 +12,20 @@
  * until something is staged.
  *
  * Reads the per-card {@link PendingContextStore} via `useSyncExternalStore`
- * ([L02]); appearance is CSS-only ([L06]).
+ * ([L02]); appearance is CSS-only ([L06]). Each chip's ✕ dispatches
+ * `UNSTAGE_CONTEXT` to this strip's responder ([L11]).
  *
  * @module components/tugways/cards/session-pending-context-strip
  */
 
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { MessageSquareShare, X } from "lucide-react";
+import { MessageSquareShare } from "lucide-react";
 
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TugChip } from "@/components/tugways/tug-chip";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 import type { PendingContextStore } from "@/lib/pending-context-store";
 
 import "./session-pending-context-strip.css";
@@ -42,10 +46,24 @@ export function SessionPendingContextStrip({
     pendingContextStore.getSnapshot,
   );
   const { items } = snapshot;
+  const responderId = React.useId();
+  const { responderRef, ResponderScope } = useOptionalResponder({
+    id: responderId,
+    actions: {
+      [TUG_ACTIONS.UNSTAGE_CONTEXT]: (event) => {
+        if (typeof event.value === "string") pendingContextStore.unstage(event.value);
+      },
+    },
+  });
   if (items.length === 0) return null;
 
   return (
-    <div className="session-pending-context-strip" data-slot="session-pending-context-strip">
+    <ResponderScope>
+    <div
+      ref={responderRef}
+      className="session-pending-context-strip"
+      data-slot="session-pending-context-strip"
+    >
       <span className="session-pending-context-strip-lead" aria-hidden>
         <MessageSquareShare size={13} strokeWidth={2} />
       </span>
@@ -54,21 +72,16 @@ export function SessionPendingContextStrip({
       </span>
       <div className="session-pending-context-strip-chips">
         {items.map((item) => (
-          <span key={item.id} className="session-pending-context-chip" title={item.label}>
-            <span className="session-pending-context-chip-label">{item.label}</span>
-            <button
-              type="button"
-              className="session-pending-context-chip-remove"
-              aria-label={`Remove ${item.label} from the next submission's context`}
-              title="Remove"
-              tabIndex={-1}
-              data-tug-focus="refuse"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pendingContextStore.unstage(item.id)}
-            >
-              <X size={11} strokeWidth={2} aria-hidden />
-            </button>
-          </span>
+          <TugChip
+            key={item.id}
+            className="session-pending-context-chip"
+            title={item.label}
+            removeAction={TUG_ACTIONS.UNSTAGE_CONTEXT}
+            value={item.id}
+            removeLabel={`Remove ${item.label} from the next submission's context`}
+          >
+            {item.label}
+          </TugChip>
         ))}
       </div>
       <TugPushButton
@@ -82,5 +95,6 @@ export function SessionPendingContextStrip({
         Clear
       </TugPushButton>
     </div>
+    </ResponderScope>
   );
 }

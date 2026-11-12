@@ -22,6 +22,7 @@
  * @module components/tugways/cards/data-visualization-sheet
  */
 
+import { SheetNotice } from "./sheet-header";
 import "./data-visualization-sheet.css";
 
 import {
@@ -39,6 +40,7 @@ import {
 import React, { useCallback, useEffect, useRef } from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { ChartBlock } from "@/components/tugways/body-kinds/chart-block";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -92,7 +94,7 @@ export function useDataVisualizationSheet({
     const dir = projectDir();
     void showSheet({
       title: "Data Visualization",
-      icon: "ChartColumn",
+      icon: <ChartColumn />,
       displayWidth: "xl",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
@@ -170,14 +172,17 @@ function DataVisualizationSheetBody({
     >
       <div className="data-visualization-sheet-body" data-testid="data-visualization-sheet">
         {notice !== null ? (
-          <p className="data-visualization-sheet-notice" role="status">
+          <SheetNotice layout="line" className="data-visualization-sheet-notice" role="status">
             {notice}
-          </p>
+          </SheetNotice>
         ) : null}
         {projectDir !== null && rows !== null
           ? recipeSections(rows).map((section) => (
               <section className="data-visualization-sheet-section" aria-label={section.group} key={section.group}>
-                <div className="data-visualization-sheet-section-title">{section.group}</div>
+                <TugSectionLabel
+                  className="data-visualization-sheet-section-title"
+                  label={{ name: section.group }}
+                />
                 {section.rows.map((row) => (
                   <RecipeRowView key={row.name} row={row} onDraw={onClose} />
                 ))}

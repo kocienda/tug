@@ -55,9 +55,9 @@
  * @covers tugdeck/src/lib/annotator/payloads.ts
  * @covers tugdeck/src/lib/atom-file-path.ts
  * @covers tugdeck/src/lib/command-atom.ts
- * @covers tugdeck/src/components/tugways/cards/tug-atom-markdown-body.tsx
+ * @covers tugdeck/src/components/tugways/cards/atom-markdown-body.tsx
  * @covers tugdeck/styles/tug-annotation.css
- * @covers tugdeck/src/components/tugways/tug-markdown-view.css
+ * @covers tugdeck/styles/tugx-md.css
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
  * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx
  * @covers tugdeck/src/components/tugways/entity-menu-items.ts
@@ -66,7 +66,7 @@
  * @covers tugdeck/src/lib/annotator/annotation-element.ts
  * @covers tugdeck/src/lib/entity-selection-paint.ts
  * @covers tugdeck/src/components/tugways/use-text-surface-context-menu.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/lib/code-session-store.ts
  * @family at0346-annotation
  */

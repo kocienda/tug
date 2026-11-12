@@ -52,11 +52,9 @@ const COMPONENT_CSS_FILES = [
   "tug-text-editor.css",
   "tug-input.css",
   "tug-label.css",
-  "tug-marquee.css",
   "tug-data.css",
   "tug-code.css",
   "tug-dock.css",
-  "tug-skeleton.css",
   "tug-sheet.css",
   "cards/gallery-popup-button.css",
   "cards/gallery-theme-accessibility.css",
@@ -402,47 +400,14 @@ function parseRendersOnAnnotations(css: string): Map<string, string[]> {
 }
 
 /**
- * Determine the "rendering context" surface for a given selector.
+ * Determine the "rendering context" surfaces for a given selector.
  *
- * Two-strategy approach (heuristics 2-4 replaced by @tug-renders-on annotations):
- * 1. Same-rule match: if the rule itself sets background-color, use that.
- * 2. Annotation lookup: check the @tug-renders-on annotation map for this selector.
- *    Returns the first listed surface (primary surface). Multi-surface annotations
- *    produce multiple pairings at the call sites.
+ * 1. Same-rule match: if the rule itself sets background-color, that one
+ *    surface is returned as a single-element array.
+ * 2. Annotation lookup: every surface the selector's @tug-renders-on
+ *    annotation lists, which produces one pairing per surface at the call sites.
  *
- * Returns null if neither strategy resolves the surface.
- */
-function findSurfaceForSelector(
-  selector: string,
-  rules: CssRule[],
-  annotationMap: Map<string, string[]>,
-): { surfaceToken: string; surfaceSelector: string } | null {
-  // Strategy 1: Same rule sets background-color
-  for (const rule of rules) {
-    if (rule.selector === selector) {
-      for (const prop of SURFACE_PROPERTIES) {
-        const val = rule.properties.get(prop);
-        if (val) {
-          const token = extractVarRef(val);
-          if (token) return { surfaceToken: token, surfaceSelector: selector };
-        }
-      }
-    }
-  }
-
-  // Strategy 2: @tug-renders-on annotation lookup
-  const annotatedSurfaces = annotationMap.get(selector);
-  if (annotatedSurfaces && annotatedSurfaces.length > 0) {
-    return { surfaceToken: annotatedSurfaces[0], surfaceSelector: selector };
-  }
-
-  return null;
-}
-
-/**
- * Like findSurfaceForSelector but returns ALL surfaces (for multi-surface annotations).
- * Strategy 1 (same-rule bg) returns a single-element array.
- * Strategy 2 (annotation) returns all listed surfaces.
+ * Returns an empty array if neither strategy resolves a surface.
  */
 function findAllSurfacesForSelector(
   selector: string,

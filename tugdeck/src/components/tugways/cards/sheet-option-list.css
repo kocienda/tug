@@ -26,10 +26,6 @@
  */
 
 .sheet-option-list .tug-list-view {
-  /* Content height, no scroll cap: every option row shows, so the frame hugs
-     exactly N rows (no cut row, no scrollbar). A cascade-scoped override on
-     these instances, the sanctioned customization path ([L20]). */
-  height: auto;
   /* Rows flush to the list frame: the selection fill + dividers must reach
      the frame edge. Rows keep their own internal text padding ([L20]). */
   padding-inline: 0;

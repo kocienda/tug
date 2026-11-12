@@ -1,6 +1,6 @@
 /**
  * at0213-open-quickly.test.ts — the Open Quickly dialog (File ▸ Open Quickly,
- * ⇧⌘O → `open-quickly` control → OpenQuicklyOverlay → TugModalInputDialog).
+ * ⇧⌘O → `open-quickly` control → OpenQuicklyOverlay → ModalInputDialog).
  *
  * This file covers the dialog's own behavior with no search root: the control
  * opens the deck-global dialog — drawn in the overlay page, above every card,
@@ -24,7 +24,7 @@
  *
  * @covers tugdeck/src/lib/open-quickly-store.ts
  * @covers tugdeck/src/components/chrome/open-quickly-overlay.tsx
- * @covers tugdeck/src/components/tugways/tug-modal-input-dialog.tsx
+ * @covers tugdeck/src/components/chrome/modal-input-dialog.tsx
  * @covers tugdeck/src/lib/open-file-in-card.ts
  * @covers tugdeck/src/lib/file-location-query.ts
  */

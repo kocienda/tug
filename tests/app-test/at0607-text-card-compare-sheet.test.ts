@@ -41,7 +41,7 @@
  *
  * ## Reading the diff out of the DOM
  *
- * `TugDiffDocument` renders through `DiffBlock`, which has two view modes and
+ * `DiffDocument` renders through `DiffBlock`, which has two view modes and
  * remembers the user's choice, so the row shape is not fixed: inline rows are
  * `[data-slot="diff-line"]` and side-by-side cells are
  * `[data-slot="diff-sbs-cell"]`, both carrying `data-kind`. The reader below

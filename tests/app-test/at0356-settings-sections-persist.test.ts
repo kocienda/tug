@@ -19,8 +19,8 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/cards/settings-card.tsx
- * @covers tugdeck/src/components/tugways/tug-tab-view.tsx
- * @covers tugdeck/src/components/tugways/tug-tab-view.css
+ * @covers tugdeck/src/components/tugways/cards/settings-tab-view.tsx
+ * @covers tugdeck/src/components/tugways/cards/settings-tab-view.css
  * @covers tugdeck/src/lib/settings-sections-pref.ts
  */
 

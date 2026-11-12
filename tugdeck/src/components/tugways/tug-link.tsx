@@ -6,7 +6,7 @@
  * via the local `--tugx-link-*` slot family. Replaces the browser-
  * default cobalt-blue + harsh underline that an unstyled `<a>`
  * produces — that treatment is unreadable on Dev's dark surfaces
- * and inconsistent with how links read inside `TugMarkdownView`
+ * and inconsistent with how links read inside rendered markdown
  * (which uses the same underlying `--tug7-*` tokens).
  *
  * The component is intentionally small: a `<a>` wrapper around the

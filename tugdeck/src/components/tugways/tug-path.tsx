@@ -27,6 +27,8 @@
 
 import React from "react";
 
+import { cn } from "@/lib/utils";
+
 import "./tug-path.css";
 
 /**
@@ -89,7 +91,8 @@ export const TugPath = React.forwardRef<HTMLSpanElement, TugPathProps>(
     return (
       <span
         ref={ref}
-        className={className === undefined ? "tug-path" : `tug-path ${className}`}
+        data-slot="tug-path"
+        className={cn("tug-path", className)}
         {...rest}
       >
         {/* Rendered even when empty: it is the flex child that absorbs the

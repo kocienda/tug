@@ -21,10 +21,10 @@
  *   --tug-z-overlay-base             — the root <CanvasOverlayRoot /> div
  *   --tug-z-overlay-tooltip          — TugTooltip
  *   --tug-z-overlay-popup            — TugPopover, TugCompletionMenu
- *   --tug-z-overlay-menu             — TugContextMenu, TugPopupMenu, TugMenu
+ *   --tug-z-overlay-menu             — PdfContextMenu, TugPopupMenu, TugMenu
  *   --tug-z-overlay-dialog           — TugSheet (canvas-tier sheet)
  *   --tug-z-overlay-popup-in-dialog  — TugPopover opened inside a sheet [D09]
- *   --tug-z-overlay-menu-in-dialog   — TugPopupMenu / TugContextMenu inside a sheet [D09]
+ *   --tug-z-overlay-menu-in-dialog   — TugPopupMenu / PdfContextMenu inside a sheet [D09]
  *
  * The two `*-in-dialog` tiers preserve the menu-above-popup ordering
  * inside dialogs (`menu-in-dialog` 9600 > `popup-in-dialog` 9500) and

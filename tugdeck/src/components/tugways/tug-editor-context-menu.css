@@ -5,7 +5,7 @@
    chrome (background, border, shadow, item rows, hover, disabled,
    shortcut label) is inherited from tug-menu.css via the shared
    `.tug-menu-content` / `.tug-menu-item*` classes — so this component
-   participates in the same tokens, pairings, and theme as TugContextMenu
+   participates in the same tokens, pairings, and theme as PdfContextMenu
    and TugPopupMenu. Token sovereignty is preserved [L20].
 
    Laws: [L06] appearance via CSS, never React state,
@@ -57,7 +57,7 @@
    Single-source highlight
 
    tug-menu.css paints both `:hover` and `[data-highlighted]` identically
-   so TugContextMenu and TugPopupMenu can share a rule. This component
+   so PdfContextMenu and TugPopupMenu can share a rule. This component
    drives selection through `data-highlighted` exclusively — `onPointerEnter`
    syncs mouse position into the keyboard-selected id, and typeahead
    updates the same state. We override the standalone `:hover` rule

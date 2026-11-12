@@ -38,7 +38,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/arc-join-register.tsx
  * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.css
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.css

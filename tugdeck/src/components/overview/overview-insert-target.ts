@@ -11,7 +11,7 @@
  * reaches the composer through this object.
  *
  * **Park until mounted.** The Session's store parks a pending insert in its
- * snapshot and `TugPromptEntry` drains it when it mounts, so a gesture made
+ * snapshot and `PromptEntry` drains it when it mounts, so a gesture made
  * against an unmounted composer is never silently dropped. This is that
  * semantic, spelled as a queue: an insert with no delegate is held and
  * replayed in order the moment one binds. The queue is capped — a target
@@ -30,7 +30,7 @@
  * @module components/overview/overview-insert-target
  */
 
-import { applyAppendInsertion } from "@/components/tugways/tug-prompt-entry";
+import { applyAppendInsertion } from "@/components/tugways/cards/prompt-entry";
 import { getFocusManager } from "@/components/tugways/focus-manager";
 import type { TugTextEditorDelegate } from "@/components/tugways/tug-text-editor";
 import { dictationHandleFor } from "@/components/tugways/tug-text-editor/dictation-span";

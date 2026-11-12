@@ -10,8 +10,9 @@
  */
 
 import "./tug-label.css";
+import type { TugRole, TugTone } from "./tug-vocabulary";
 
-import React, { useRef, useLayoutEffect, useState, useCallback } from "react";
+import React, { useRef, useLayoutEffect, useCallback } from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { cn } from "@/lib/utils";
 import { useCopyableText } from "./use-copyable-text";
@@ -33,14 +34,10 @@ export type TugLabelSize =
  * the same "action → active" alias TugProgressIndicator uses, so the same role name
  * lights up the same color family across both primitives.
  */
-export type TugLabelRole =
-  | "accent"
-  | "action"
-  | "agent"
-  | "caution"
-  | "danger"
-  | "data"
-  | "success";
+export type TugLabelRole = Extract<TugRole, "accent" | "action" | "agent" | "caution" | "danger" | "data" | "success">;
+
+/** Tone for {@link TugLabelProps.iconTone}. */
+export type TugLabelIconTone = Extract<TugTone, "accent" | "action" | "agent" | "caution" | "danger" | "data" | "success">;
 
 /** TugLabel text alignment. */
 export type TugLabelAlign = "start" | "center" | "end";
@@ -135,8 +132,12 @@ export interface TugLabelProps extends Omit<React.ComponentPropsWithoutRef<"labe
   disabled?: boolean;
   /** Leading icon (React node, typically a Lucide icon). */
   icon?: React.ReactNode;
-  /** Icon color (CSS color value or token). Defaults to label text color. */
-  iconColor?: string;
+  /**
+   * The leading icon's tone, painted from the `tone-icon` token family.
+   * Omit for the label's own text colour.
+   * @selector .tug-label-icon[data-tone="<tone>"]
+   */
+  iconTone?: TugLabelIconTone;
 }
 
 // ---- Truncation helpers ----
@@ -195,7 +196,7 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
       required = false,
       disabled = false,
       icon,
-      iconColor,
+      iconTone,
       className,
       ...rest
     },
@@ -216,10 +217,11 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
       disabled: false,
       forwardedRef: ref as React.Ref<HTMLElement>,
     });
-    const [truncatedText, setTruncatedText] = useState<string | null>(null);
-
     // For start/middle ellipsis, we need to measure whether the text overflows
-    // and iteratively truncate until it fits.
+    // and iteratively truncate until it fits. The truncated text is appearance:
+    // it is written into its own span (`measuredRef`), which React renders
+    // empty, and measured on the clamped text span around it ([L06]).
+    const measuredRef = useRef<HTMLSpanElement>(null);
     const needsJSTruncation =
       maxLines !== undefined &&
       maxLines > 0 &&
@@ -228,10 +230,11 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
 
     const computeTruncation = useCallback(() => {
       const el = textRef.current;
-      if (!el || !needsJSTruncation || !maxLines || text === null) return;
+      const target = measuredRef.current;
+      if (!el || !target || !needsJSTruncation || !maxLines || text === null) return;
 
       // Reset to full text to measure
-      el.textContent = text;
+      target.textContent = text;
 
       // Check if text actually overflows
       const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 16;
@@ -239,7 +242,6 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
 
       if (el.scrollHeight <= maxHeight + 1) {
         // No overflow — show full text
-        setTruncatedText(null);
         return;
       }
 
@@ -251,7 +253,7 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
 
       while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
-        el.textContent = truncator(text, mid);
+        target.textContent = truncator(text, mid);
 
         if (el.scrollHeight <= maxHeight + 1) {
           bestLen = mid;
@@ -261,9 +263,7 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
         }
       }
 
-      const result = truncator(text, bestLen);
-      el.textContent = result;
-      setTruncatedText(result);
+      target.textContent = truncator(text, bestLen);
     }, [text, maxLines, ellipsis, needsJSTruncation]);
 
     useLayoutEffect(() => {
@@ -290,9 +290,11 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
       };
     }, [needsJSTruncation, computeTruncation]);
 
-    // Determine which text to display
-    const displayText = needsJSTruncation && truncatedText !== null
-      ? truncatedText
+    // The measured modes draw their text into an empty span the truncation
+    // fills; the key gives each mode its own element, so React never
+    // reconciles children into a span the measurement wrote.
+    const displayText = needsJSTruncation
+      ? <span ref={measuredRef} key="measured" />
       : children;
 
     const hasMaxLines = maxLines !== undefined && maxLines > 0;
@@ -335,7 +337,7 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
           {icon && (
             <span
               className="tug-label-icon"
-              style={iconColor ? { color: iconColor } : undefined}
+              data-tone={iconTone}
               aria-hidden="true"
             >
               {icon}

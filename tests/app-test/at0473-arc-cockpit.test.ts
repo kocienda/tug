@@ -65,7 +65,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/overlay/overlay-surface-styles.ts
- * @covers tugdeck/src/components/tugways/tug-status-cell.css
+ * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.css
  * @covers tugdeck/src/lib/code-session-store/indicator-liveness.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast/src/feeds/changeset_all.rs

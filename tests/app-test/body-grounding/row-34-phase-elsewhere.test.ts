@@ -66,7 +66,7 @@ const READ_TIP = `(function () {
   var label = Array.prototype.filter.call(row.querySelectorAll("span"), function (s) { return s.children.length === 0; })
     .map(function (s) { return s.textContent || ""; })
     .find(function (t) { return t.length > 0; }) || "";
-  return { label: label, state: dot === null ? null : dot.getAttribute("data-state"), role: dot === null ? null : dot.getAttribute("data-role") };
+  return { label: label, state: dot === null ? null : dot.getAttribute("data-state"), role: dot === null ? null : dot.getAttribute("data-tone") };
 })()`;
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 34: a session's phase reaches the Layout body", () => {

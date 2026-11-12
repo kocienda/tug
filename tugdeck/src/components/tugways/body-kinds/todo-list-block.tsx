@@ -478,7 +478,7 @@ export const TodoListBlock: React.FC<TodoListBlockProps> = ({
       className={rootClass}
     >
       {embedded ? null : (
-        <div className="tugx-todo-header" data-slot={DATA_SLOT_HEADER}>
+        <div className="tugx-todo-header tugx-block-strip" data-slot={DATA_SLOT_HEADER}>
           {label !== undefined ? (
             <span className="tugx-todo-label" data-slot="todo-list-label">
               {label}
@@ -499,6 +499,7 @@ export const TodoListBlock: React.FC<TodoListBlockProps> = ({
        * block grows to its natural height; the outer transcript owns
        * the scroll. */}
       <TugListView<TaskListDataSource>
+        sizing="content"
         dataSource={dataSource}
         cellRenderers={CELL_RENDERERS}
         className="tugx-todo-list"

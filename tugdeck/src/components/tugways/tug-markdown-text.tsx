@@ -35,7 +35,8 @@
  *
  * Laws: [L06] every tone comes from the shared highlight classes and the
  * component's own CSS; nothing here is React state. [L03] the annotation pass
- * runs in a layout effect, before any gesture can land on it.
+ * runs in a layout effect, before any gesture can land on it. [L19] component
+ * authoring guide.
  *
  * @module components/tugways/tug-markdown-text
  */
@@ -54,8 +55,10 @@ import {
   subscribeMarkdownGrammars,
 } from "@/lib/markdown-text-style-grammar";
 import { applyMarkdownTextStyle } from "@/lib/markdown-text-styling";
+import { cn } from "@/lib/utils";
+import { composeRefs } from "./compose-refs";
 
-export interface TugMarkdownTextProps {
+export interface TugMarkdownTextProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "children"> {
   /** The markdown to style. Rendered verbatim — nothing is hidden. */
   text: string;
   /**
@@ -63,9 +66,8 @@ export interface TugMarkdownTextProps {
    * Empty / absent ⇒ no marks and DOM identical to the unfiltered render.
    */
   highlightQuery?: string;
-  className?: string;
-  /** Test hook on the block element. */
-  dataSlot?: string;
+  /** The block element's `data-slot`. @default "tug-markdown-text" */
+  "data-slot"?: string;
   /**
    * Stamps `data-tugx-findable` on the root, opting the rendered lines into
    * transcript Find. The painter walks the marked container and re-runs the
@@ -87,13 +89,10 @@ export function markdownTextParts(text: string): string[] {
   return applyMarkdownTextStyle(text).map((line) => line.text);
 }
 
-export function TugMarkdownText({
-  text,
-  highlightQuery = "",
-  className,
-  dataSlot,
-  findable = false,
-}: TugMarkdownTextProps): React.ReactElement {
+export const TugMarkdownText = React.forwardRef<HTMLDivElement, TugMarkdownTextProps>(function TugMarkdownText(
+  { text, highlightQuery = "", className, "data-slot": dataSlot = "tug-markdown-text", findable = false, ...rest },
+  ref,
+) {
   // A fenced block's grammar loads lazily, and the filter is synchronous, so
   // its first pass over a ```ts fence returns a flat body. The revision
   // changes when a grammar arrives, which re-runs the filter — by then the
@@ -121,12 +120,12 @@ export function TugMarkdownText({
     [lines, highlightQuery],
     onAnnotated,
   );
+  const setRootRef = useMemo(() => composeRefs<HTMLDivElement>(annotatedRef, ref), [annotatedRef, ref]);
   return (
     <div
-      ref={annotatedRef}
-      className={
-        className !== undefined ? `tug-markdown-text ${className}` : "tug-markdown-text"
-      }
+      {...rest}
+      ref={setRootRef}
+      className={cn("tug-markdown-text", className)}
       data-slot={dataSlot}
       data-tugx-findable={findable ? "" : undefined}
     >
@@ -156,4 +155,4 @@ export function TugMarkdownText({
       {portals}
     </div>
   );
-}
+});

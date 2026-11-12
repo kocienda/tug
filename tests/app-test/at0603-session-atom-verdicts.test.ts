@@ -39,7 +39,7 @@
  *
  * @covers tugdeck/src/lib/session-citation-store.ts
  * @covers tugdeck/src/lib/session-chip-verdict.ts
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/atom-decoration.ts
  * @covers tugdeck/src/lib/tug-atom-img.ts
  * @covers tugrust/crates/tugcast/src/feeds/session_index_watch.rs

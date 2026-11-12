@@ -250,7 +250,7 @@
      and occupies 30px per line, and `1lh` on this element is the card's
      inherited 18px. Both were tried; both showed the wrong number of lines.
    - `--tugx-landing-subject-extra` is the gap the subject's rule sits in
-     (tug-prompt-entry.css) — a subject over a body is taller than a line by
+     (prompt-entry.css) — a subject over a body is taller than a line by
      exactly that, and a count that ignores it loses a line.
    - 16px is the content's own block padding, 8px top and bottom, from the
      editor theme.
@@ -366,7 +366,7 @@
                                  panel and has no such number.
 
      Two things do NOT read from here. The `@container` rungs in
-     `tug-status-cell.css` that hide TIME, TASKS and JOBS as the card narrows
+     `session-telemetry-cell.css` that hide TIME, TASKS and JOBS as the card narrows
      are literal pixel widths, because a container query cannot read a custom
      property; retune them by hand after these. And the folded tier —
      `FOLDED_CARD_HEIGHT_PX` in `card-registry.ts` — is the
@@ -819,7 +819,7 @@
 }
 
 /* User-row body — a submitted prompt rendered through `TugMarkdownBlock`
-   with its inline atom chips grafted back in (`TugAtomMarkdownBody`).
+   with its inline atom chips grafted back in (`AtomMarkdownBody`).
    The inner markdown block carries `.session-card-transcript-code-body`, so
    its padding cancel, full width, and `1em` block typography match the
    assistant body exactly. This wrapper only fills the row column and
@@ -956,7 +956,7 @@
 /* Markdown content typography. Body text uses 1em so it anchors to
    the transcript root. Heading sizes are intentionally NOT overridden
    here: the transcript uses the one global compressed heading scale
-   ([P04], `tug-markdown-view.css`) so it stays identical to every other
+   ([P04], `styles/tugx-md.css`) so it stays identical to every other
    markdown surface (the gallery, etc.). A local override here is what
    made the transcript's headings — and their em-based margins — larger
    than the gallery's; removing it is what makes the two consistent. */
@@ -1302,7 +1302,6 @@
   --tugx-list-view-padding-block: 0;
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-row-gap: 0;
-  height: auto;
   flex: 0 1 auto;
   min-height: 0;
   max-height: 34rem;

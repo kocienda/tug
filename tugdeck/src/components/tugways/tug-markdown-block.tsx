@@ -1,19 +1,13 @@
 /**
- * `TugMarkdownBlock` — non-virtualizing markdown renderer.
+ * `TugMarkdownBlock` — the markdown renderer.
  *
- * The natural-flow sibling primitive to `TugMarkdownView`. Both share
- * the WASM lex/parse + DOMPurify sanitize pipeline via
- * `parseMarkdownToSanitizedBlocks`; only their layout surfaces
- * differ:
- *
- *   - `TugMarkdownView` owns its own scroll container + windowing
- *     engine, suitable for whole-document logs (1 MB+ content,
- *     thousands of blocks).
- *   - `TugMarkdownBlock` renders every block in document flow with
- *     no scroll container, no spacers, no virtualization — the host
- *     (a list cell, a card body, etc.) owns scroll and layout. It is
- *     designed for per-cell or per-message markdown content where
- *     the content size is bounded.
+ * Runs the WASM lex/parse + DOMPurify sanitize pipeline
+ * (`parseMarkdownToSanitizedBlocks`) and renders every block in
+ * document flow with no scroll container, no spacers and no
+ * virtualization — the host (a list cell, a card body, etc.) owns
+ * scroll and layout. A long document is made scrollable by its host;
+ * a long log of documents is a `TugListView` whose cells each render
+ * one.
  *
  * Two modes, mutually exclusive at mount:
  *
@@ -95,8 +89,6 @@
  *    anchoring depends on.
  *
  * Decisions:
- *  - [D09] `TugMarkdownBlock` is a sibling primitive, not a flow
- *    mode on `TugMarkdownView`.
  *  - [D06] streaming cells observe the streaming source directly via
  *    this primitive's `streamingStore` mode.
  */
@@ -107,6 +99,8 @@ import "./tug-markdown-block.css";
 import "./body-kinds/chart-block.css";
 
 import React from "react";
+import { cn } from "@/lib/utils";
+import { composeRefs } from "./compose-refs";
 import { flushSync } from "@/lib/gesture-scope";
 
 
@@ -181,7 +175,8 @@ const DEFAULT_STREAMING_PATH = "text";
  * streaming mode takes precedence (the `initialText` prop is
  * effectively ignored). Consumers should set one xor the other.
  */
-export interface TugMarkdownBlockProps {
+export interface TugMarkdownBlockProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "dangerouslySetInnerHTML"> {
   /**
    * Static initial text. Parsed + rendered once on mount before
    * paint; subsequent prop changes are ignored. Consumers that need
@@ -271,21 +266,28 @@ export interface TugMarkdownBlockProps {
  * The host context never changes under a mounted block, so which of the two
  * it is holds for the block's life.
  */
-export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = (props) => {
+export const TugMarkdownBlock = React.forwardRef<HTMLDivElement, TugMarkdownBlockProps>(function TugMarkdownBlock(
+  props,
+  ref,
+) {
   const hosted = React.useContext(ReadOnlyTextHostContext);
-  return hosted ? <MarkdownBlockBody {...props} /> : <DocumentMarkdownBlock {...props} />;
-};
+  return hosted ? (
+    <MarkdownBlockBody {...props} elementRef={ref} />
+  ) : (
+    <DocumentMarkdownBlock {...props} forwardedRef={ref} />
+  );
+});
 
 /** A block that is its own document: the shared read-only selection behaviour. */
-function DocumentMarkdownBlock(props: TugMarkdownBlockProps): React.ReactElement {
+function DocumentMarkdownBlock({
+  forwardedRef,
+  ...props
+}: TugMarkdownBlockProps & { forwardedRef: React.ForwardedRef<HTMLDivElement> }): React.ReactElement {
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const { ResponderScope, responderRef, menu } = useReadOnlyTextSurface(rootRef);
-  const elementRef = React.useCallback(
-    (el: HTMLDivElement | null) => {
-      rootRef.current = el;
-      responderRef(el);
-    },
-    [responderRef],
+  const elementRef = React.useMemo(
+    () => composeRefs<HTMLDivElement>(rootRef, responderRef, forwardedRef),
+    [responderRef, forwardedRef],
   );
   return (
     <ResponderScope>
@@ -296,7 +298,7 @@ function DocumentMarkdownBlock(props: TugMarkdownBlockProps): React.ReactElement
 }
 
 const MarkdownBlockBody: React.FC<
-  TugMarkdownBlockProps & { elementRef?: (el: HTMLDivElement | null) => void }
+  TugMarkdownBlockProps & { elementRef?: React.Ref<HTMLDivElement> }
 > = ({
   initialText,
   streamingStore,
@@ -306,15 +308,10 @@ const MarkdownBlockBody: React.FC<
   annotation: annotationProp,
   onAnnotated,
   elementRef,
+  ...rest
 }) => {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const setContainer = React.useCallback(
-    (el: HTMLDivElement | null) => {
-      containerRef.current = el;
-      elementRef?.(el);
-    },
-    [elementRef],
-  );
+  const setContainer = React.useMemo(() => composeRefs<HTMLDivElement>(containerRef, elementRef), [elementRef]);
   // Live-ref'd so a consumer may pass a fresh closure every render without
   // re-running the annotation effect below ([L07]).
   const onAnnotatedRef = React.useRef(onAnnotated);
@@ -543,14 +540,11 @@ const MarkdownBlockBody: React.FC<
 
   return (
     <div
+      {...rest}
       ref={setContainer}
       data-slot="tug-markdown-block"
       data-tugx-findable={findable ? "" : undefined}
-      className={
-        className === undefined
-          ? "tug-markdown-block"
-          : `tug-markdown-block ${className}`
-      }
+      className={cn("tug-markdown-block", className)}
     />
   );
 };

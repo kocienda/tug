@@ -1,7 +1,7 @@
 /**
  * side-question-overlay.css — the `/btw` placard body appearance ([L06]).
  *
- * The `/btw` surface is a body inside the shared Z2 {@link TugPlacard}: the
+ * The `/btw` surface is a body inside the shared Z2 {@link SessionPlacard}: the
  * placard owns the header, open/close, placement, and under-cell anchoring;
  * this file only supplies the mini-transcript body/footer. The body sets the
  * placard's width (unlike the log placards, which the composed `TugPopupList`
@@ -139,12 +139,6 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  cursor: pointer;
   opacity: 0;
   transition: opacity 120ms ease, color 120ms ease;
 }
@@ -154,9 +148,6 @@
   opacity: 1;
 }
 
-.side-question-dismiss:hover {
-  color: var(--tug7-element-global-text-normal-default-rest);
-}
 
 /* Footer — actions right-aligned, above a hairline. */
 .side-question-footer {

@@ -39,6 +39,7 @@ const PRESENTATION_CSS = read("src/components/tugways/commit-presentation.css");
 const COMMIT_RECEIPT_CSS = read(
   "src/components/tugways/cards/session-commit-receipt-block.css",
 );
+const RECEIPT_HEADER_CSS = read("src/components/tugways/cards/receipt-header.css");
 const JOIN_RECEIPT_CSS = read(
   "src/components/tugways/cards/session-join-receipt-block.css",
 );
@@ -150,18 +151,22 @@ describe("the message body reads its face from whichever scope is above it", () 
 
 describe("the receipt surfaces take the face from the scope", () => {
   test("each receipt subject line reads the subject token", () => {
+    // The identity line is one shared rule (`receipt-header.css`) that every
+    // landing receipt's header wears; the join's `arc → base` line is its own.
     for (const [css, selector] of [
-      [COMMIT_RECEIPT_CSS, ".commit-receipt-header"],
-      [JOIN_RECEIPT_CSS, ".join-receipt-header"],
+      [RECEIPT_HEADER_CSS, ".receipt-header"],
       [JOIN_RECEIPT_CSS, ".join-receipt-identity"],
     ] as const) {
       const family = decl(ruleBody(css, selector), "font-family");
       expect(family).toContain("var(--tugx-commit-subject-font");
     }
+    expect(COMMIT_RECEIPT_TSX).toContain('<ReceiptHeader className="commit-receipt-header">');
+    expect(JOIN_RECEIPT_TSX).toContain('<ReceiptHeader className="commit-receipt-header">');
+    expect(JOIN_RECEIPT_TSX).toContain('<ReceiptHeader className="join-receipt-header">');
   });
 
   test("no receipt sheet pins the mono family — the two old pins are gone", () => {
-    for (const css of [COMMIT_RECEIPT_CSS, JOIN_RECEIPT_CSS]) {
+    for (const css of [COMMIT_RECEIPT_CSS, JOIN_RECEIPT_CSS, RECEIPT_HEADER_CSS]) {
       expect(css.replace(/\/\*[\s\S]*?\*\//g, "")).not.toContain(
         "font-family: var(--tug-font-family-mono)",
       );

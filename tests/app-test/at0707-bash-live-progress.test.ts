@@ -29,7 +29,7 @@
  * JOBS placard lists the session's dark calls from tugcast's gaps record.
  *
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
- * @covers tugdeck/src/components/tugways/tug-report-panel.tsx
+ * @covers tugdeck/src/components/tugways/cards/blocks/report-panel.tsx
  * @covers tugdeck/src/lib/report-panel-model.ts
  * @covers tugdeck/src/lib/report-store.ts
  * @covers tugdeck/src/components/tugways/blocks/block-header.tsx

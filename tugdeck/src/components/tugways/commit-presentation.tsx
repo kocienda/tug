@@ -46,7 +46,7 @@ import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances/blo
 import {
   CommitChangesList,
   type CommitChangesFile,
-} from "@/components/tugways/tug-changes-list";
+} from "@/components/tugways/cards/session-changes/changes-list";
 import {
   DEFAULT_COMMIT_FILTER_SCOPE,
   scopedQuery,
@@ -292,7 +292,7 @@ export function CommitMessage({
       text={body}
       highlightQuery={highlightQuery}
       className="tugx-commit-message"
-      dataSlot={dataSlot}
+      data-slot={dataSlot}
       findable={findable}
     />
   );

@@ -118,11 +118,11 @@ describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
           var bag = window.__tug.getCardStateBag("A");
           if (bag === null || bag.content === undefined) return null;
           var content = bag.content;
-          // Current TugPromptEntry wrapper: { route, draft }.
+          // Current PromptEntry wrapper: { route, draft }.
           if (typeof content.route === "string" && content.draft && typeof content.draft.text === "string") {
             return content.draft.text;
           }
-          // Legacy TugPromptEntry wrapper: { currentRoute, perRoute }.
+          // Legacy PromptEntry wrapper: { currentRoute, perRoute }.
           if (typeof content.currentRoute === "string" && typeof content.perRoute === "object" && content.perRoute !== null) {
             var inner = content.perRoute[content.currentRoute];
             if (inner && typeof inner.text === "string") return inner.text;

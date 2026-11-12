@@ -276,7 +276,7 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // in view while the scribe writes) and at0496 (a join press leaves the
     // Changes shade) arrived. Both drive the shipping composer through real
     // control frames, so neither could name a narrower module honestly.
-    "tugdeck/src/components/tugways/tug-prompt-entry.tsx": 21,
+    "tugdeck/src/components/tugways/cards/prompt-entry.tsx": 21,
 
     // The deck itself. Every card the deck can stand — free, slotted, or on a
     // rail — is created, activated, closed and persisted through this one

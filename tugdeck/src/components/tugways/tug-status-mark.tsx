@@ -18,37 +18,40 @@
  * reading of a status the row already states in its provenance text and its
  * title, and a screen reader hearing "M" learns nothing it was not told.
  *
+ * Laws: [L19] component authoring guide
+ *
  * @module components/tugways/tug-status-mark
  */
 
 import "./tug-status-mark.css";
 
-import type React from "react";
+import React from "react";
 
 import { statusMark } from "@/lib/commit-format";
+import { cn } from "@/lib/utils";
 
-export function TugStatusMark({
-  status,
-  className,
-}: {
+export interface TugStatusMarkProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /**
    * The file's status in any vocabulary — a word (`modified`), a porcelain
    * code (`??`, ` M`), or a bare letter. Resolved by {@link statusMark}.
    */
   status: string;
-  className?: string;
-}): React.ReactElement {
-  const mark = statusMark(status);
-  return (
-    <span
-      className={
-        className !== undefined ? `tug-status-mark ${className}` : "tug-status-mark"
-      }
-      data-slot="status-mark"
-      data-mark={mark}
-      aria-hidden="true"
-    >
-      {mark}
-    </span>
-  );
 }
+
+export const TugStatusMark = React.forwardRef<HTMLSpanElement, TugStatusMarkProps>(
+  function TugStatusMark({ status, className, ...rest }, ref) {
+    const mark = statusMark(status);
+    return (
+      <span
+        {...rest}
+        ref={ref}
+        className={cn("tug-status-mark", className)}
+        data-slot="tug-status-mark"
+        data-mark={mark}
+        aria-hidden="true"
+      >
+        {mark}
+      </span>
+    );
+  },
+);

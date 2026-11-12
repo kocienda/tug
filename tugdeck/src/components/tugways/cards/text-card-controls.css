@@ -2,55 +2,15 @@
    .text-card-controls — shared Editing + Display view-setting groups
    ----------------------------------------------------------------------------
    Rendered in both the Settings card's Text Files tab and each File
-   card's gear popover, so the two read as one instrument. Bordered
-   TugBox groups with a legend painted on the border (the same idiom as
-   the other settings panels), switches flowing in up to three equal
-   columns across the box.
+   card's gear popover, so the two read as one instrument. Each group is
+   a `TugSettingsGroup` (the same box as the other settings panels),
+   switches flowing in up to three equal columns across the box.
    ----------------------------------------------------------------------------- */
 
 .text-card-controls {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xl);
-}
-
-/* Bordered group with the legend taken out of flow and painted on the
-   border line (see settings-session-card-body.css for the WebKit rationale).
-   Generous inset on all sides; the extra top clears the overhanging
-   legend. */
-.text-card-controls-group {
-  width: 100%;
-  box-sizing: border-box;
-  position: relative;
-}
-
-/* Generous inset. NOTE the compound selector: a bordered TugBox insets
-   itself via `.tug-box-inset.tug-box-md { padding: var(--tug-space-lg) }`
-   (12px) at specificity (0,2,0), so a single-class rule here never wins
-   — the descendant compound below is (0,3,0) and takes precedence
-   regardless of stylesheet order. This is why earlier single-class
-   padding had no visible effect. */
-.text-card-controls .text-card-controls-group.tug-box-bordered {
-  padding: var(--tug-space-2xl) var(--tug-space-2xl) var(--tug-space-xl);
-}
-
-.text-card-controls-group > .tug-box-legend {
-  position: absolute;
-  top: 0;
-  left: var(--tug-space-lg);
-  transform: translateY(-50%);
-  background: var(--tugx-pane-bg);
-  inline-size: max-content;
-}
-
-.text-card-controls-group > .tug-box-body {
-  display: flex;
-  flex-direction: column;
-  /* Left-packed: the master/detail panels read top to bottom down their
-     leading edge. Blocks that want the full measure (the switch grids)
-     declare `width: 100%` and stretch as before. */
-  align-items: flex-start;
-  gap: var(--tug-space-lg);
 }
 
 /* Switch layout depends on count:
@@ -81,8 +41,10 @@
 
 /* A group small enough to be one line stays one line: Tabs & Spaces is two
    switches and a number, which together are narrower than the box. Wrapping
-   is the escape hatch for a narrow card, not the resting layout. */
-.text-card-controls-group-inline > .tug-box-body {
+   is the escape hatch for a narrow card, not the resting layout. The
+   `.tug-settings-group` compound outranks the group's own body rule, which
+   sits at the same specificity in a stylesheet that may load later. */
+.tug-settings-group.text-card-controls-group-inline > .tug-box-body {
   flex-direction: row;
   flex-wrap: wrap;
   justify-content: flex-start;

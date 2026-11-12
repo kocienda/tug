@@ -140,7 +140,7 @@ describe("sessionSessionPhaseKey — a stop that went unanswered", () => {
 
   test("it breathes in caution — the turn is not over", () => {
     expect(sessionSessionPhaseVisual("stop_stalled")).toEqual({
-      role: "caution",
+      tone: "caution",
       state: "running",
     });
   });
@@ -153,7 +153,7 @@ describe("sessionSessionPhaseKey — a network that stopped answering", () => {
   // set is exactly the states a person can end.
   test("the caution set is the user's to end", () => {
     const caution = (Object.keys(SESSION_PHASE_LABELS) as SessionPhaseKey[])
-      .filter((key) => sessionSessionPhaseVisual(key).role === "caution")
+      .filter((key) => sessionSessionPhaseVisual(key).tone === "caution")
       .sort();
     expect(caution).toEqual([
       "awaiting_approval",
@@ -166,7 +166,7 @@ describe("sessionSessionPhaseKey — a network that stopped answering", () => {
   test("no key reads 'Waiting' in caution", () => {
     for (const [key, label] of Object.entries(SESSION_PHASE_LABELS)) {
       if (label !== "Waiting") continue;
-      expect(sessionSessionPhaseVisual(key).role).not.toBe("caution");
+      expect(sessionSessionPhaseVisual(key).tone).not.toBe("caution");
     }
   });
 });
@@ -402,14 +402,14 @@ describe("sessionSessionPhaseKey — an unseen turn end reads Done", () => {
 describe("sessionSessionPhaseVisual — role/state mapping", () => {
   test("offline → danger/aborted", () => {
     expect(sessionSessionPhaseVisual("offline")).toEqual({
-      role: "danger",
+      tone: "danger",
       state: "aborted",
     });
   });
 
   test("errored → danger/aborted", () => {
     expect(sessionSessionPhaseVisual("errored")).toEqual({
-      role: "danger",
+      tone: "danger",
       state: "aborted",
     });
   });
@@ -418,7 +418,7 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     "%s → caution/running",
     (key) => {
       expect(sessionSessionPhaseVisual(key)).toEqual({
-        role: "caution",
+        tone: "caution",
         state: "running",
       });
     },
@@ -426,7 +426,7 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
 
   test("awaiting_approval → caution/running — the turn is open, parked on the user", () => {
     expect(sessionSessionPhaseVisual("awaiting_approval")).toEqual({
-      role: "caution",
+      tone: "caution",
       state: "running",
     });
   });
@@ -440,14 +440,14 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     "waking",
   ] as const)("active phase %s → action/running", (key) => {
     expect(sessionSessionPhaseVisual(key)).toEqual({
-      role: "action",
+      tone: "action",
       state: "running",
     });
   });
 
   test("ready → success/running — the dot's only green while it breathes", () => {
     expect(sessionSessionPhaseVisual("ready")).toEqual({
-      role: "success",
+      tone: "success",
       state: "running",
     });
   });
@@ -469,8 +469,8 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
       "errored",
     ] as const) {
       const visual = sessionSessionPhaseVisual(key);
-      expect(visual.role === ready.role && visual.state === ready.state).toBe(false);
-      if (key !== "done") expect(visual.role).not.toBe(ready.role);
+      expect(visual.tone === ready.tone && visual.state === ready.state).toBe(false);
+      if (key !== "done") expect(visual.tone).not.toBe(ready.tone);
     }
   });
 
@@ -483,7 +483,7 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
 
   test("done → success/completed — green, filled and still", () => {
     expect(sessionSessionPhaseVisual("done")).toEqual({
-      role: "success",
+      tone: "success",
       state: "completed",
     });
   });
@@ -493,18 +493,18 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
     const working = sessionSessionPhaseVisual("streaming");
     const idle = sessionSessionPhaseVisual("idle");
     const ready = sessionSessionPhaseVisual("ready");
-    expect(done.role).not.toBe(working.role);
+    expect(done.tone).not.toBe(working.tone);
     expect(done.state).not.toBe(working.state);
-    expect(done.role).not.toBe(idle.role);
+    expect(done.tone).not.toBe(idle.tone);
     expect(done.state).not.toBe(idle.state);
     // Ready's green breathes; Done's sits still.
-    expect(done.role).toBe(ready.role);
+    expect(done.tone).toBe(ready.tone);
     expect(done.state).not.toBe(ready.state);
   });
 
   test("background → action/running as a diamond — working, turned", () => {
     expect(sessionSessionPhaseVisual("background")).toEqual({
-      role: "action",
+      tone: "action",
       state: "running",
       shape: "diamond",
     });
@@ -513,27 +513,27 @@ describe("sessionSessionPhaseVisual — role/state mapping", () => {
   test("background reads apart from a live turn by shape, not by tone", () => {
     const background = sessionSessionPhaseVisual("background");
     const streaming = sessionSessionPhaseVisual("streaming");
-    expect(background.role).toBe(streaming.role);
+    expect(background.tone).toBe(streaming.tone);
     expect(background.shape).not.toBe(streaming.shape ?? "dot");
   });
 
   test("idle's quiet tone is idle's alone — background never borrows it", () => {
     const background = sessionSessionPhaseVisual("background");
     const idle = sessionSessionPhaseVisual("idle");
-    expect(background.role).not.toBe(idle.role);
+    expect(background.tone).not.toBe(idle.tone);
     expect(background.state).not.toBe(idle.state);
   });
 
   test("idle → inherit/stopped", () => {
     expect(sessionSessionPhaseVisual("idle")).toEqual({
-      role: "inherit",
+      tone: "inherit",
       state: "stopped",
     });
   });
 
   test("unknown phase falls through to idle defaults", () => {
     expect(sessionSessionPhaseVisual("nonsense")).toEqual({
-      role: "inherit",
+      tone: "inherit",
       state: "stopped",
     });
   });

@@ -1754,7 +1754,7 @@ export function LayoutContent(
         <div className="layouts-mixer-header">
           <TugSectionLabel
             label={{ name: "Options" }}
-            slot="layout-card-mixer-label"
+            data-slot="layout-card-mixer-label"
             className="layouts-mixer-caption"
           />
           <BlockFoldCue

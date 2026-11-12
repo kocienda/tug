@@ -43,7 +43,7 @@ Every surface that cares about turn state subscribes to one of the two faces and
 
 | Delegate | Reads | Response |
 |----------|-------|----------|
-| Z5 submit button | `submitButtonMode` | Renders arrow / stop / inert pose (`tug-prompt-entry-submit-button.ts`) |
+| Z5 submit button | `submitButtonMode` | Renders arrow / stop / inert pose (`prompt-entry-submit-button.ts`) |
 | Z4B Mode / Model / Effort chips | `canSubmit` | `disabled={!canSubmit}` (`session-card.tsx`) |
 | `setMode` / `setModel` / `setEffort` | `canSubmit` | Decline a user change while a turn is live (the seam, below) |
 | `/mode` `/model` `/effort`, ⌃⌥⌘P cycle, `SET_PERMISSION_MODE` | `canSubmit` | Refuse with a caution instead of a silent no-op (`guardTurnIdleForSetting`) |

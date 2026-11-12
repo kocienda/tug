@@ -6,6 +6,7 @@
  * Renders TugBanner with the caution tone while disconnected, showing reconnect info.
  */
 
+import { WifiOff } from "lucide-react";
 import React, { useMemo } from "react";
 import type { TugConnection, DisconnectState } from "../../connection";
 import { TugBanner } from "@/components/tugways/tug-banner";
@@ -107,11 +108,11 @@ export function TugBannerProvider({ connection }: TugBannerProviderProps) {
 
   return (
     <TugBanner
-      visible={isVisible}
-      variant="status"
+      open={isVisible}
+      kind="status"
       tone="caution"
       message={message}
-      icon="wifi-off"
+      icon={<WifiOff />}
     />
   );
 }

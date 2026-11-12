@@ -2,8 +2,8 @@
  * tugx-block.css — shared "block surface" utility token family.
  *
  * Captures the common visual scaffold used by FileBlock, DiffBlock,
- * TerminalBlock, BlockChrome, SessionThinkingBlock, and
- * TugMarkdownView: an inset card-shaped frame with an optional raised
+ * TerminalBlock, BlockChrome, SessionThinkingBlock, and rendered
+ * markdown: an inset card-shaped frame with an optional raised
  * header strip, an optional matching footer strip, code-typography
  * defaults, and tone-tinted feedback bands.
  *
@@ -204,7 +204,7 @@ body {
    * future component that wants the same vocabulary.                   *
    *                                                                    *
    * `add` / `remove` / `caution` / `active` mirror the semantic        *
-   * vocabulary used by TugCue's role prop, so a body-kind cue and a    *
+   * vocabulary used by Cue's role prop, so a body-kind cue and a    *
    * structural feedback band stay visually paired.                     *
    * ------------------------------------------------------------------ */
   --tugx-block-tone-add-bg:        var(--tug7-surface-tone-primary-normal-success-rest);
@@ -269,4 +269,25 @@ body {
     var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
   );
   --tugx-block-receipt-inset-block:  var(--tug-space-sm);
+}
+
+/* The body kind's header strip. Every body kind standing alone (file, diff,
+   terminal, path list, JSON tree, todo list, search result, agent transcript)
+   pins one strip of its own children above its body, and this is that strip:
+   sticky under any outer pin stack, a flex row on the strip slots above. The
+   header wears the class beside its own, so the strip's per-kind slots and
+   its embedded-mode suppression stay in the body kind's CSS. */
+.tugx-block-strip {
+  position: sticky;
+  top: var(--tugx-pin-stack-top, 0);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--tugx-block-strip-gap);
+  padding: var(--tugx-block-strip-padding);
+  background: var(--tugx-block-strip-bg);
+  border-bottom: 1px solid var(--tugx-block-strip-border);
+  color: var(--tugx-block-strip-color);
+  font-family: var(--tugx-block-strip-font);
+  font-size: var(--tugx-block-strip-size);
 }

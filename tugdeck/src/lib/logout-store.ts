@@ -5,11 +5,11 @@
  * can't hang off a Session card the way per-card slash surfaces do. Both triggers —
  * the File-menu "Log out…" control action and the `/logout` slash command —
  * call {@link requestLogout}, which bumps a monotonic nonce; the app-level
- * `TugLogout` orchestrator watches it and runs the confirm → logout flow. A
+ * `Logout` orchestrator watches it and runs the confirm → logout flow. A
  * nonce (not a boolean) so repeated requests each fire and there is no state to
  * "consume"/reset.
  *
- * A card's body mounts no `TugLogout`, so a request made in a body is the
+ * A card's body mounts no `Logout`, so a request made in a body is the
  * shell's `app.logout`, whose orchestrator runs it.
  *
  * @module lib/logout-store

@@ -36,7 +36,6 @@ const BLOCK_RENDERER_CARDS: ReadonlyArray<{ componentId: string; title: string }
 /** Neighbouring cards that must stay registered alongside them. */
 const EXTENDED_CARDS: ReadonlyArray<string> = [
   "gallery-bash-tool-block",
-  "gallery-markdown-view",
 ];
 
 // ---------------------------------------------------------------------------

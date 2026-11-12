@@ -95,6 +95,7 @@ import type { TugPopupMenuItem } from "./internal/tug-popup-menu";
 import type { TugAction } from "./action-vocabulary";
 import { useControlDispatch } from "./use-control-dispatch";
 import type { FocusPolicy } from "./focus-manager";
+import { cn } from "@/lib/utils";
 
 // ---- Types ----
 
@@ -203,7 +204,11 @@ export interface TugPopupButtonItem<V extends TugPopupButtonPayload = never> {
  * Parameterized by payload type `V` — flows from `items: TugPopupButtonItem<V>[]`
  * via inference or explicit annotation at the usage site.
  */
-export interface TugPopupButtonProps<V extends TugPopupButtonPayload = never> {
+export interface TugPopupButtonProps<V extends TugPopupButtonPayload = never>
+  extends Omit<
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
+    "children" | "onClick" | "onSelect" | "onChange" | "role" | "value" | "type"
+  > {
   /** Label content rendered inside the trigger button. */
   label: React.ReactNode;
   /**
@@ -222,10 +227,6 @@ export interface TugPopupButtonProps<V extends TugPopupButtonPayload = never> {
   senderId?: string;
   /** Trigger button size. Default: "md". */
   size?: TugButtonSize;
-  /** Additional CSS class names for the trigger button. */
-  className?: string;
-  /** aria-label for the trigger button. */
-  "aria-label"?: string;
   /** data-testid forwarded to the menu content element. */
   "data-testid"?: string;
 
@@ -269,19 +270,22 @@ export interface TugPopupButtonProps<V extends TugPopupButtonPayload = never> {
  * responder returns a continuation callback, it's invoked after the
  * dispatch returns (before the popup menu closes).
  */
-export function TugPopupButton<V extends TugPopupButtonPayload = never>({
-  label,
-  topLabel,
-  items,
-  senderId,
-  size = "md",
-  className,
-  "aria-label": ariaLabel,
-  "data-testid": dataTestId,
-  focusGroup,
-  focusOrder,
-  focusPolicy,
-}: TugPopupButtonProps<V>) {
+function TugPopupButtonImpl<V extends TugPopupButtonPayload = never>(
+  {
+    label,
+    topLabel,
+    items,
+    senderId,
+    size = "md",
+    className,
+    "data-testid": dataTestId,
+    focusGroup,
+    focusOrder,
+    focusPolicy,
+    ...rest
+  }: TugPopupButtonProps<V>,
+  ref: React.ForwardedRef<HTMLButtonElement>,
+): React.ReactElement {
   // Chain dispatch [L11]: targeted dispatch to parent responder.
   // Outside a provider the dispatch is a no-op.
   const { dispatchForContinuation } = useControlDispatch();
@@ -320,6 +324,9 @@ export function TugPopupButton<V extends TugPopupButtonPayload = never>({
 
   const trigger = (
     <TugButton
+      {...rest}
+      ref={ref}
+      data-slot="tug-popup-button"
       emphasis="outlined"
       role="option"
       size={size}
@@ -327,8 +334,7 @@ export function TugPopupButton<V extends TugPopupButtonPayload = never>({
       // The macOS popup-button key contract: ↓ / ↑ and any printable character
       // open the menu, alongside Space / Return.
       menuTrigger
-      className={className}
-      aria-label={ariaLabel}
+      className={cn("tug-popup-button", className)}
       focusGroup={focusGroup}
       focusOrder={focusOrder}
       focusPolicy={focusPolicy}
@@ -355,3 +361,14 @@ export function TugPopupButton<V extends TugPopupButtonPayload = never>({
     </div>
   );
 }
+
+/**
+ * The popup button. Its element is the trigger button in both of its shapes —
+ * with a `topLabel` the trigger sits in a label stack, and the ref, the
+ * caller's `className` and every native prop still reach the trigger.
+ */
+export const TugPopupButton = React.forwardRef(TugPopupButtonImpl) as <
+  V extends TugPopupButtonPayload = never,
+>(
+  props: TugPopupButtonProps<V> & { ref?: React.Ref<HTMLButtonElement> },
+) => React.ReactElement;

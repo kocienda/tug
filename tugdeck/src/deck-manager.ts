@@ -128,8 +128,8 @@ import type { Root } from "react-dom/client";
 import { afterGesture, flushSync, gestureScope, tellReactNow } from "@/lib/gesture-scope";
 
 import { DeckCanvas } from "./components/chrome/deck-canvas";
-import { TugLogout } from "./components/tugways/tug-logout";
-import { TugQuitGuard } from "./components/tugways/tug-quit-guard";
+import { Logout } from "./components/chrome/logout";
+import { QuitGuard } from "./components/chrome/quit-guard";
 import { writeCanvasFlowOffset } from "./components/chrome/flow-offset";
 import { ConfigureTugRequest } from "./components/tugways/configure-tug-request";
 import { AppGates } from "./components/tugways/app-gates";
@@ -2611,10 +2611,10 @@ export class DeckManager implements IDeckManagerStore {
           // turn → `claude_logout`, then ConfigureTug reopens for re-login (or a
           // "couldn't log out" alert on failure). Sibling of ConfigureTug so it
           // shares the TugAlert singleton and the deck context.
-          React.createElement(TugLogout, {}),
+          React.createElement(Logout, {}),
           // App-level quit guard (renders nothing). Watches the quit-request
           // nonce and asks in the same alert before a quit stops live turns.
-          React.createElement(TugQuitGuard, {}),
+          React.createElement(QuitGuard, {}),
           // Gate in front of the Tug-menu "Configure Tug…" item (renders nothing).
           // Watches the setup-request nonce; opens the wizard outright when
           // nothing is running, otherwise confirms → interrupts every turn

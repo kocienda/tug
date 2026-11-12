@@ -1,7 +1,7 @@
 /**
  * tug-prompt-entry — pure-helper + persistence migration unit tests.
  *
- * Key helpers exposed by `tug-prompt-entry.tsx`:
+ * Key helpers exposed by `prompt-entry.tsx`:
  *
  *   - `computeSideQuestionArg(text, atoms)` — expands atoms and trims
  *     to build the `?`-route side-question argument. Submitted text is
@@ -23,7 +23,7 @@ import {
   coerceRestorePayload,
   computeCommandChipInsert,
   computeSideQuestionArg,
-} from "@/components/tugways/tug-prompt-entry";
+} from "@/components/tugways/cards/prompt-entry";
 import type { CommandLineAtom } from "@/lib/slash-commands";
 import type { TugTextEditingState } from "@/lib/tug-text-types";
 import type { AtomSegment } from "@/lib/tug-atom-img";

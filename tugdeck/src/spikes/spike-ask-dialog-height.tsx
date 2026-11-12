@@ -160,7 +160,7 @@ function AsShipped(): React.ReactElement {
   return (
     <TugInlineDialog
       icon={<TerminalSquare />}
-      iconRole="caution"
+      iconTone="caution"
       title={ASK.title}
       description={
         <>
@@ -206,7 +206,7 @@ function TimerNumeral(): React.ReactElement {
   return (
     <TugInlineDialog
       icon={<TerminalSquare />}
-      iconRole="caution"
+      iconTone="caution"
       title={ASK.title}
       actions={
         <Actions
@@ -226,7 +226,7 @@ function TimerInButton(): React.ReactElement {
     <div className="sp-adh-wide-actions">
       <TugInlineDialog
         icon={<TerminalSquare />}
-        iconRole="caution"
+        iconTone="caution"
         title={ASK.title}
         actions={
           <Actions
@@ -252,7 +252,7 @@ function TimerHairline(): React.ReactElement {
     <div className="sp-adh-hairline-host">
       <TugInlineDialog
         icon={<TerminalSquare />}
-        iconRole="caution"
+        iconTone="caution"
         title={ASK.title}
         actions={<Actions />}
       />

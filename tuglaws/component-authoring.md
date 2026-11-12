@@ -27,39 +27,38 @@ tug-{name}.css    — all styles
 
 One component per file pair. No barrel exports, no index files. The file name is the component name in kebab-case with the `tug-` prefix.
 
+A stylesheet shared by several components — typography or surface rules more than one component composes — is not a component's file. It lives in `tugdeck/styles/` as `tugx-{name}.css` (`tugx-md.css` for markdown typography, `tugx-block.css` for block surfaces, `tugx-header.css` for pinned headers) and is imported once by each page entry that needs it.
+
 ### Public vs Internal
 
-Components at the top level of `components/tugways/` are the **public API** — what app code imports directly. Components in `components/tugways/internal/` are **building blocks** — infrastructure composed by other tugways components, not intended for direct use by app code.
+Tugways has three tiers, and the directory a file sits in says which one it belongs to:
+
+- **Primitives** live at the top level of `components/tugways/` as `tug-{name}.tsx`. They are the public API — what app code imports. A primitive imports no domain store: no `@/lib/…-store…`, no `deck-store-registry`, no `connection-singleton`. The environment stores are the exception, because they describe the page rather than the app's data: `page-zoom-store`, `tug-dev-log-store`, `property-store` and `card-modal-hold-store`.
+- **Building blocks** live in `components/tugways/internal/`. They are composed by primitives and imported only by primitives — never by a card, a feature or app code.
+- **Features** — anything bound to the app's data or to one surface — live outside the top level and do not take the `tug-` prefix: under `cards/`, `chrome/`, `body-kinds/` and their neighbours.
 
 ```
 tugways/
-  tug-push-button.tsx    ← public: app code uses this for standalone action buttons
-  tug-popup-button.tsx   ← public: app code uses this for dropdown triggers
-  tug-checkbox.tsx        ← public: app code uses this
-  tug-switch.tsx          ← public: app code uses this
-  tug-input.tsx           ← public: app code uses this
+  tug-push-button.tsx    ← primitive: app code uses this for standalone action buttons
+  tug-checkbox.tsx       ← primitive
+  tug-switch.tsx         ← primitive
   ...
   internal/
-    tug-button.tsx        ← building block: composed by TugPushButton, TugPopupButton, TugTabBar
-    tug-button.css        ← building block: button styling
+    tug-button.tsx       ← building block: composed by TugPushButton, TugPopupButton, TugTabBar
+  cards/
+    session-card.tsx     ← feature: binds stores, composes primitives
 ```
 
-The directory structure is the signal. A developer scanning `tugways/` sees the components they should use. The `internal/` folder tells them "these are not for you."
+`bun run audit:components` enforces the tiers: a primitive that imports a domain store, a non-primitive that imports from `internal/`, a feature that wears the `tug-` prefix, and a primitive no gallery card imports all fail it. An exception is an allowlist entry in `tugdeck/scripts/component-conformance-allowlist.json` with a reason string; the allowlist only shrinks.
 
-**Rules for internal components:**
+**Rules for building blocks:**
 
-- Follow all the same authoring rules as public components (docstring, `data-slot`, `@tug-pairings`, `forwardRef`, etc.)
+- Follow all the same authoring rules as primitives (docstring, `data-slot`, `@tug-pairings`, `forwardRef`, etc.)
 - Module docstring opens with a clear statement: "Internal building block — app code should use [public component] instead."
-- Internal components are imported by relative path (`./internal/tug-button`), never from a barrel export
-- Public components that wrap an internal component should re-export the types app code needs (e.g., `TugButtonEmphasis`, `TugButtonRole`, `TugButtonSize`)
+- Imported by relative path (`./internal/tug-button`), never from a barrel export
+- A primitive that wraps a building block re-exports the types app code needs (e.g., `TugButtonEmphasis`, `TugButtonRole`, `TugButtonSize`)
 
-**When to make a component internal:**
-
-- It provides infrastructure that multiple public components compose (TugButton → TugPushButton, TugPopupButton, TugTabBar)
-- App code should never import it directly — there's always a more appropriate public component
-- Moving it to `internal/` reduces confusion about which component to choose
-
-Most components are public. Internal components are the exception, not the rule.
+**When to make a component a building block:** it provides infrastructure that several primitives compose (TugButton → TugPushButton, TugPopupButton, TugTabBar), and app code always has a more appropriate primitive to reach for. Most components are primitives; building blocks are the exception.
 
 ---
 
@@ -99,7 +98,7 @@ Rules:
 - First line: component name and one-sentence purpose
 - Second paragraph: implementation details (what it wraps, what it supports)
 - Laws and Decisions: cite every law and decision the component obeys
-- No history, no "Phase N", no "replaces X", no spec references from plans
+- No history, no phase or step labels, no "replaces X", no spec references from plans
 
 **Standardized citation set:** Every component docstring must cite the minimum set of governing laws:
 
@@ -139,6 +138,8 @@ export interface TugSwitchProps {
 
 Rules:
 - Extend `React.ComponentPropsWithoutRef<'element'>` for native wrappers
+- A component that renders no element of its own — a compound's root that holds state in context for its parts, or a wrapper whose element is the primitive it composes — says so with `@no-element` in its props interface's docblock; the native-props, `forwardRef`, `data-slot` and `cn()` rules then read its element-rendering parts instead, and `...rest` still reaches what it composes
+- A props union that cannot be an interface is an exported `type`, and one of the interfaces it names extends the native props
 - Omit and redefine props whose semantics change (e.g., `role`, `size`)
 - `@selector` annotations map props to CSS selectors — this is how styling agents find the right hook
 - `@default` annotations document defaults
@@ -179,6 +180,41 @@ Props that do **not** need `@selector`:
 - Callback props (`onCheckedChange`, `onClick`, `onChange`)
 - String data props (`name`, `value`, `aria-label`)
 - `className` — always passed through to `cn()`, no selector needed
+
+### Prop Vocabulary
+
+One spelling per axis, across every primitive. The shared unions live in `components/tugways/tug-vocabulary.ts`; a component that supports part of an axis declares its own type as an `Extract<>` of the shared union and keeps its exported name (`type TugDialogButtonRole = Extract<TugRole, "action" | "danger">`).
+
+| Axis | Winner | Removed spellings |
+|------|--------|-------------------|
+| Semantic colour | `role` or `tone`, by the rule below | `fillRole`, `confirmRole`, `iconRole`, `busyRole`, `onColorRole`, `iconColor`, `variant`-as-severity |
+| Size | `TugSize = "2xs" \| "xs" \| "sm" \| "md" \| "lg" \| "xl" \| "2xl"`, default `md` | local `Tug<X>Size` literal unions |
+| Density | `TugDensity = "regular" \| "compact"`, default `regular` | `cozy`, `comfortable`, `detailed` |
+| Icon | `icon?: React.ReactNode` | string icon names |
+| Presence | `open` / `onOpenChange` | `visible`, `onVisibleChange` |
+| Accessible name | `"aria-label"` | `ariaLabel` as a prop |
+| Secondary text | `description` | `subtitle` |
+| Chain dispatch | `action?: TugAction`, `value?: unknown`, `target?: string`, `senderId?: string` | `dispatch: ActionEvent`; `action` as a `ReactNode` (a trailing slot is `trailing`) |
+| `data-slot` override | `"data-slot"` through `...rest` | `slot`, `dataSlot` props |
+| Banner kind | `kind?: "status" \| "error"` on `TugBanner` / `TugPaneBanner` | `variant` on banners |
+| List sizing | `sizing?: TugSizing = "fill" \| "content"`, default `fill` | `height: auto` overrides on the list root |
+| List presentation | `presentation?: TugPresentation = "default" \| "rail"` | per-card `flex`/`height`/`overflow` overrides on rail lists |
+| Row state | `state?: TugRowState = "struck" \| "dimmed"`, as `data-row-state` | feature attributes restyling the row's content or title |
+| Transcript density | `density?: TugDensity` on `TugTranscriptEntry` (`compact` is the rail's attribution line) | per-card restyles of the entry's identifier, timestamp, glyph and gutter |
+| Notice accent | `accent?: boolean` on `TugInlineAlert` | feature rules rewriting the alert's border, icon and body |
+| Count figures | `numeric?: boolean` on `TugBadge` | `font-variant-numeric` set on a badge from outside |
+| Badge palette | `tone?: "default" \| "action"` on `TugColumnBadge` | feature overrides of the badge's `--tugx-column-badge-*` tokens |
+| Button floor | `minWidth?: "action" \| "compact-action"` on the buttons | per-surface `min-width` on a feature's buttons |
+
+`variant` stays where it names a layout — accordion, box, list row, tooltip — and nowhere else.
+
+**`role` or `tone`.** A component takes `role` when it is a control (it emits an action) or carries an `emphasis` prop; otherwise it takes `tone`. The test is mechanical so the answer never depends on taste:
+
+| Takes `role` | Takes `tone` |
+|--------------|--------------|
+| `TugAlert`, `TugCheckbox`, `TugChoiceGroup`, `TugDialogButton`, `TugInlineDialog`, `TugOptionGroup`, `TugRadioGroup`, `TugSwitch`, `TugIconButton`, `TugPushButton`, `TugBadge`, `TugLabel` | `TugProgressIndicator`, `TugStepRow`, `TugArcGauge`, `TugLinearGauge`, `TugBanner`, `TugBulletin`, `TugPaneBanner`, `TugPaneBulletin`, `TugInlineAlert`, `TugPopupList`, `TugQuietLine` |
+
+The attribute follows the word: a `role` prop writes `data-role`, a `tone` prop writes `data-tone`, and the component's CSS selects on the one it writes. A prop that colours one part of a component spells the part and the word — `iconTone` (`TugInlineDialog`, `TugSheet`, `TugLabel`), `fillTone` (the gauges), `busyTone` (`TugStepRow`) — so no prop name ends in `Role`. A dialog's confirm button takes its role through an object, `confirm={{ role: "danger" }}`, on `TugAlert`, `TugAlertSheet` and `TugConfirmPopover` (and in `showAlert` options). A categorical palette — a gauge's per-segment data colours — is not semantic colour and keeps its own type.
 
 ### Component
 
@@ -226,7 +262,7 @@ Components must be high-quality, carefully reviewed code. The following bugs hav
 
 **Inline `style` must be merged, not replaced.** If a component sets inline styles (width, height, gap), destructure `style` from rest and spread the caller's style into the component's: `style={{ width, height, ...style }}`. Without this, a caller passing `style={{ margin: '10px' }}` silently replaces the component's critical layout styles.
 
-**No dead code, no history comments.** Unused variables, pointless aliases (`const x = y;` where `y` could be used directly), and comments about what was removed ("sub-component removed", "Phase N") are noise. Delete them.
+**No dead code, no history comments.** Unused variables, pointless aliases (`const x = y;` where `y` could be used directly), and comments about what was removed ("sub-component removed", a phase or step label) are noise. Delete them.
 
 ### Input Value Management [L06]
 
@@ -384,7 +420,7 @@ Never chain aliases (`--tugx-pane-bg: var(--tugx-pane-other-alias)`) — that is
 
 #### Shared utility: `--tugx-block-*` for block-surface components
 
-For body-kinds (FileBlock, DiffBlock, TerminalBlock, SessionThinkingBlock, the TugMarkdownView code panels) and chrome wrappers (BlockChrome), the shared "block surface" pattern lives at `tugdeck/styles/tugx-block.css` as `--tugx-block-*`. It captures the canonical scaffold once: inset card frame, optional raised chrome variant, code-typography defaults (mono font + sm size + 1.55 line-height), header / footer strip chrome, body row hover overlay, and tone-tinted feedback bands (add / remove / caution / active).
+For body-kinds (FileBlock, DiffBlock, TerminalBlock, SessionThinkingBlock, the rendered-markdown code panels) and chrome wrappers (BlockChrome), the shared "block surface" pattern lives at `tugdeck/styles/tugx-block.css` as `--tugx-block-*`. It captures the canonical scaffold once: inset card frame, optional raised chrome variant, code-typography defaults (mono font + sm size + 1.55 line-height), header / footer strip chrome, body row hover overlay, and tone-tinted feedback bands (add / remove / caution / active).
 
 When authoring a body-kind or chrome wrapper, **consume `--tugx-block-*` directly in CSS rules** for the parts that match the shared pattern. Keep `--tugx-{component}-*` slots only for parts that are genuinely component-specific (gutter widths, match-highlight overlays, ANSI palettes, heading scales, etc.).
 
@@ -591,7 +627,7 @@ Rules:
 
 Both hooks have the same signature and return shape. The difference is what they do when no `ResponderChainProvider` is in scope.
 
-- **`useResponder` throws** if the manager context is null. Use it when chain participation is load-bearing — `TugCard`, `DeckCanvas`, `TugPromptInput`, anything whose actions must be routable for the app to function. A missing provider is a programming error; the throw catches it at mount instead of letting the component silently no-op.
+- **`useResponder` throws** if the manager context is null. Use it when chain participation is load-bearing — `TugCard`, `DeckCanvas`, `PromptEntry`, anything whose actions must be routable for the app to function. A missing provider is a programming error; the throw catches it at mount instead of letting the component silently no-op.
 
 - **`useOptionalResponder` silently no-ops** when the manager is null. The hook still runs (returns a stable `ResponderScope` and `responderRef`), but the layout effect skips register/unregister, the ref skips writing `data-responder-id`, and the component falls through to its standalone behavior. Use it for leaf controls that must render in both contexts: inside the app (chain-connected) and standalone in previews, unit tests, or Storybook-style mounts.
 
@@ -617,7 +653,7 @@ useLayoutEffect(() => {
 
 - **Subscribe only while open.** The effect is gated on the open flag so the observer is installed exactly when the UI is visible.
 - **Guard self-dispatches.** A menu that dispatches its own item activation triggers the chain walk, which fires every observer — including its own. Set `blinkingRef.current = true` before the activation dispatch and check it at the top of the observer callback. Without the guard, the menu dismisses itself mid-animation.
-- **Modal surfaces opt out.** `TugAlert` and `TugSheet` do NOT install `observeDispatch` observers — they are app-modal and card-modal respectively, and closing on any chain activity would surprise users. `internal/floating-surface-notes.ts` is the canonical invariants table for the four A2.8 floating surfaces; consult it before adding or removing an observer on a floating surface.
+- **Modal surfaces opt out.** `TugAlert` and `TugSheet` do NOT install `observeDispatch` observers — they are app-modal and card-modal respectively, and closing on any chain activity would surprise users. `internal/floating-surface-notes.ts` is the canonical invariants table for the four floating surfaces — `TugPopover`, `TugConfirmPopover`, `TugAlert` and `TugSheet`; consult it before adding or removing an observer on a floating surface.
 
 See [responder-chain.md § observeDispatch patterns](responder-chain.md#observedispatch-patterns) for the full precedent.
 
@@ -715,8 +751,6 @@ Three things change:
 3. The consumer stops passing a callback. It just renders the card; the card owns its close behavior.
 
 The migration is a one-way door. Once `close` is a chain action, no part of the codebase should try to route it through a callback prop again — the responder is the single owner of "what does close mean for this card."
-
-This is the pattern the A2 phases followed for every interactive control in the library (A2.1 through A2.8). Real worked examples in the commit history: see `git log --grep='A2\.' tugdeck/` for the per-control migrations and their test files.
 
 ---
 
@@ -821,7 +855,7 @@ Content blocks render no text-entry UI of their own — no per-block Find row. A
 
 **Authoring rules:**
 
-1. **Writers** — components that produce pin offsets — own a token in their slot family (`--tugx-{component}-header-height`) and write to it from `useLayoutEffect` + `ResizeObserver`. Per [L03] the registration runs before paint; per [L06] the write is to DOM via `element.style.setProperty`, never to React state. Do **not** write `--tugx-{component}-actions-height` tokens — the dedicated actions row pattern was retired in Step 10.9 Phase D in favor of a one-row trailing-cluster shape.
+1. **Writers** — components that produce pin offsets — own a token in their slot family (`--tugx-{component}-header-height`) and write to it from `useLayoutEffect` + `ResizeObserver`. Per [L03] the registration runs before paint; per [L06] the write is to DOM via `element.style.setProperty`, never to React state. Do **not** write `--tugx-{component}-actions-height` tokens — header actions sit in a one-row trailing cluster, not a dedicated actions row.
 2. **Readers** — sticky descendants — consume the chain via `calc(var(...) + var(...) + ...)`. Each reader knows which writers it composes underneath. Adding a new level means adding a writer + a token, and extending the calc on every descendant that pins under it.
 3. **Background** — every sticky element needs an opaque background or body content bleeds through. Bind to a theme-aware token (typically `--tugx-block-strip-bg` for block-level chrome or a component-local `--tugx-{component}-header-bg` for primitives) rather than transparent or near-transparent values.
 4. **Container** — sticky binds to the nearest scroll-container ancestor. `overflow: hidden` on an ancestor traps sticky inside that ancestor (which doesn't scroll); use `overflow: clip` when you only need rounded-corner clipping without forming a scroll container.
@@ -857,9 +891,9 @@ For UI feedback whose validity depends on an asynchronous outcome — Copy showi
 - A `useLayoutEffect` keyed on the controlled prop writes `data-tug-confirming` directly into the DOM ([L03] before paint; [L06] CSS-driven swap rather than React state churn).
 - The two modes are mutually exclusive: providing both `confirmation.duration` and `isConfirming` is a programming error. Dev-mode `console.warn` flags the conflict so the author catches it at mount.
 
-**Confirming is NOT a disabled state (Phase E.3).** Do not set `aria-disabled="true"` while the confirming attribute is on. Two reasons:
+**Confirming is NOT a disabled state.** Do not set `aria-disabled="true"` while the confirming attribute is on. Two reasons:
 
-1. Project rest-state hover/active CSS rules use `:not([aria-disabled="true"])` exclusions to suppress interactive styles for chain-disabled buttons. Setting `aria-disabled` during confirming would trigger those same exclusions and suppress the button's hover background while the user holds the cursor over it through the "Copied" flash — exactly the regression Phase E.3 fixed.
+1. Project rest-state hover/active CSS rules use `:not([aria-disabled="true"])` exclusions to suppress interactive styles for chain-disabled buttons. Setting `aria-disabled` during confirming would trigger those same exclusions and suppress the button's hover background while the user holds the cursor over it through the "Copied" flash.
 2. The cascade then fights itself: a sibling `[aria-disabled="true"][data-tug-confirming="true"]` override has to cancel the disabled dimming and cursor, which works for paint but leaves `:hover` matching broken because attribute-based exclusions don't re-evaluate without pointer motion.
 
 **Click suppression during confirming uses the JS `confirmingRef` guard, not DOM attributes.** The click handler returns early when `confirmingRef.current === true`. No `aria-disabled`, no `pointer-events: none` — `:hover` continues to match because the geometric hit-test is unchanged.
@@ -874,7 +908,7 @@ For UI feedback whose validity depends on an asynchronous outcome — Copy showi
 
 **Why not just rely on the uncontrolled timer:** in the uncontrolled path the flash fires on every click regardless of whether the underlying operation succeeded. For Copy this means: clipboard denied → user sees "Copied" → believes the clipboard has the new content → pastes the OLD content → confused. The controlled mode pushes the success signal into a chokepoint (the `.then()` callback) that runs only on success.
 
-### Position-preserving interactions (Phase E.3)
+### Position-preserving interactions
 
 For action-row buttons whose click triggers a state change that re-flows the layout around them (a fold cue that collapses or expands a body, a view-mode toggle that swaps grid templates). The browser preserves *scrollTop* across the layout change, NOT the *visual* position of the click target. When the target sits inside a sticky-pinned header and the body shrinks far enough to un-pin the header, the click target's screen position drops by hundreds of pixels — the user's cursor is no longer over the button they just pressed.
 
@@ -923,29 +957,13 @@ When the target sits inside a sticky ancestor and the ancestor's pin regime flip
 
 **Companion: width-stable buttons.** A button whose label *flips* between two values inside the same control causes a layout change every flip — and since the button is itself a click target, the *next* click can land on a different button than the user aimed at. The `widthStabilize` prop on `TugPushButton` renders both labels inside a single CSS Grid cell (`grid-template-areas: "label"`) with both children at `grid-area: label`. The active label paints; the alternate keeps `visibility: hidden` (NOT `position: absolute` — that would remove it from layout and defeat the entire mechanism) but contributes to layout sizing. The button's intrinsic width becomes the max-content of both labels and is stable across flips.
 
-**Scoping (Phase E.4 refinement).** `widthStabilize` is correct for controls that *flip their own label* — confirming flows where a button reads "Copy" at rest and "Copied" during the post-success flash, or any single control that signals state changes through label substitution. It is **not** the right primitive for *segment-style 2-way pickers* — when both options should be visible at all times so the user can read the alternative without toggling. For those, use `TugChoiceGroup`: both labels render as separate segments with a sliding indicator pill identifying the active selection. The DiffBlock view-toggle migrated from label-flipping `widthStabilize` to a `TugChoiceGroup` in Phase E.4 for exactly this reason — users had no visual signal that "SIDE BY SIDE" was a *toggle* until they clicked it and saw the layout change.
+**Scoping.** `widthStabilize` is correct for controls that *flip their own label* — confirming flows where a button reads "Copy" at rest and "Copied" during the post-success flash, or any single control that signals state changes through label substitution. It is **not** the right primitive for *segment-style 2-way pickers* — when both options should be visible at all times so the user can read the alternative without toggling. For those, use `TugChoiceGroup`: both labels render as separate segments with a sliding indicator pill identifying the active selection. The DiffBlock view-toggle is a `TugChoiceGroup` for exactly this reason — a label-flipping button gives no visual signal that "SIDE BY SIDE" is a *toggle* until it is clicked and the layout changes.
 
 **Reference implementations:**
 - `use-position-stable-click.ts` — the hook.
 - `outer-scrollport-context.tsx` — the context that publishes the scrollport node to descendants. `TugListView` publishes its scroll container automatically.
 - `body-kinds/affordances/` — **the block affordance library**. `BlockCopyButton` and `BlockFoldCue` encapsulate the action-row contract (position-stable click via the outer scrollport context, ghost typography, 2xs scale, focus-refuse, width-stabilize for Copy→Copied, disengage-follow-bottom event for fold) so block kinds compose them rather than re-implementing. Block-specific concerns (which clipboard text to compose, when the button is disabled, what aria-label to use) pass as props.
 - `file-block.tsx`, `diff-block.tsx`, `terminal-block.tsx` — composed from the affordance library. Copy / Fold-cue come from `body-kinds/affordances/`; the view-toggle on DiffBlock is a `TugChoiceGroup` (both segments visible via the ghost emphasis bracket frame). Adding a new body kind that needs Copy / a fold cue: import from `./affordances`, supply the block-specific bits, done.
-
-### Document-shrink-clamp — retired experiment (Phase E.3 → Step 20.3.5)
-
-There is no current fix for the document-shrink-clamp case. When a click *shrinks* the document — typically a fold cue collapsing a long body kind — the scrollport's `scrollHeight` drops; if the user's `scrollTop` was higher than the new `maxScrollTop`, the browser clamps `scrollTop` down. The click target lands at the new bottom of the document. This is the natural browser behavior and the accepted outcome. `usePositionStableClick` deliberately does NOT compensate for this case (see its docstring).
-
-**Why this is documented as a tuglaw section despite there being no current mechanism.** Phase E.3 (commit `d8da960a`, May 2026) shipped a `TugListView.tailSpacer` prop + matching `SmartScroll.trailingInertOffset` plumbing whose purpose was exactly to absorb this clamp. Step 20.3.5 (May 2026) retired it. Recording both the attempted fix and the reasoning behind the retirement is more useful than letting future readers re-derive the same path and re-make the same trade.
-
-**What the spacer was.** `TugListView.tailSpacer` accepted a CSS length and rendered an inert `aria-hidden` div at the bottom of the scrollable area with that height. The spacer extended `scrollHeight` by its own height; `maxScrollTop` rose accordingly. With the spacer set to `80cqh`, a collapse-shrink of up to 80% of the scrollport didn't force the browser to clamp `scrollTop` — the document still had scroll range left.
-
-**An earlier draft locked each body kind's outer height with `min-height` at the moment of collapse.** That approach made the cell lie about its layout — a "collapsed" block sitting above a giant empty rectangle, with no visible reason for the empty space. UX failure. The tail spacer was the second iteration: empty space at a *semantically reasonable* location (after the last cell) rather than under each collapsed cell.
-
-**Why the spacer was retired.** The spacer's cost was constant — ~80% of the viewport of always-visible empty space at the bottom of every transcript, on every interaction. The spacer's benefit was conditional — a specific shape of click (fold-cue collapse on a tall body kind while scrolled past the new `maxScrollTop`) didn't yank the user's reading position. Constant cost for a rare benefit. The natural browser clamp is honest (the document genuinely got shorter; the user can re-scroll if they care) and matches every other web app's behavior; reserving permanent empty space to hide it inverted the trade.
-
-**What still works after retirement.** `usePositionStableClick` continues to keep the click target stable for layout changes that don't shrink the document — Copy buttons, view-toggle swaps, Find row mounts, icon swaps. The hook's scope is unchanged; only the spacer-backed "even collapsing fold cues work" guarantee is gone.
-
-**Reference: the retirement.** The spike that retired it identified "document-shrink-clamp protection" as the original cause by git archaeology on `d8da960a`, re-evaluated the cost against the benefit, and retired it.
 
 ### Emphasis × Role
 
@@ -1096,7 +1114,7 @@ Cell renderers in `TugListView` are pure render functions. The contract is enfor
 | Per-row visual state derived from data | Read from the data source row |
 | Selection state | The responder above the list (`useState` + a context `Provider` or a payload on `dataSource`) |
 | Confirmation popovers / inline edits / transient floating UI | The responder, with a single instance addressed via a `data-id` anchor lookup — not per-cell |
-| Trailing icon actions (trash, more, info) | Dispatch a chain action via `TugIconButton` (`dispatch={...}`); the responder handles the action |
+| Trailing icon actions (trash, more, info) | Dispatch a chain action via `TugIconButton` (`action={...}` and `value={...}`); the responder handles the action |
 | Cell DOM ref (e.g. for `IntersectionObserver`) | The list view itself owns the ref; cells render markup only |
 
 **Anti-patterns:** raw `<button>` for trailing actions (use `TugIconButton`), per-cell `TugConfirmPopover` instances (hoist to the form, address by data id), `useState` for popover-open visual styling (drive `data-*` attributes from upstream state). The session picker's session-forget flow is the case study and reference implementation.
@@ -1113,8 +1131,8 @@ For trash / more / info / dismiss icon buttons that sit at the trailing edge of 
 
 **Two click modes:**
 
-- **Chain-action** (preferred): `dispatch={{ action, value, phase: "discrete" }}` carries a full `ActionEvent` (with payload) to the parent responder via `useControlDispatch`. The responder owns the resulting state change. This is the L11 shape.
-- **Direct-action** (fallback): `onClick={callback}` for one-off side effects that don't fit the chain vocabulary. Mutually exclusive with `dispatch`; setting both dev-warns.
+- **Chain-action** (preferred): `action={…}` with an optional `value={…}` sends a discrete `ActionEvent` (with payload) to the parent responder via `useControlDispatch`. The responder owns the resulting state change. This is the L11 shape.
+- **Direct-action** (fallback): `onClick={callback}` for one-off side effects that don't fit the chain vocabulary. Mutually exclusive with `action`; setting both dev-warns.
 
 **Sender id:** `senderId` defaults to `useId()`. Pass an explicit value only for tests that need deterministic chain logging — the payload usually carries the discriminator (e.g. a sessionId).
 
@@ -1124,7 +1142,7 @@ For trash / more / info / dismiss icon buttons that sit at the trailing edge of 
 
 A stateful component that opts into the [A9] Component State Preservation Protocol has two halves to wire up: **capture** and **restore-at-mount**. Capture lands the current value into `bag.components` at save time. Restore-at-mount reads the saved value at render time and uses it as the initial state, so the component's very first paint after a restore (cold boot, cross-pane move, tab reopen, HMR remount) already reflects what the user last saved.
 
-The contract is one sentence: **user-visible state at first paint after restore equals user-visible state at last save before destruction.** No intermediate frame painted with the `useState` default. No jump from a 0 scrollTop to the saved scrollTop. If your component ever needs a post-mount `setState` to "apply" a saved value, you are violating the contract — that mechanism produced the wild-scrolling regression Phase E.8 eliminates.
+The contract is one sentence: **user-visible state at first paint after restore equals user-visible state at last save before destruction.** No intermediate frame painted with the `useState` default. No jump from a 0 scrollTop to the saved scrollTop. If your component ever needs a post-mount `setState` to "apply" a saved value, you are violating the contract — that mechanism is what makes a restored card visibly jump.
 
 ### The canonical pattern — `useSavedComponentState` in a `useState` initializer
 
@@ -1249,7 +1267,7 @@ Determine your component's category and apply the corresponding pattern:
 - Set `user-select: text` in the component's CSS
 - Handle `selectAll` in the responder registration
 - Handle `copy` (and `cut`/`paste` if editable)
-- Examples: `TugInput`, `TugTextarea`, `TugValueInput`, `TugPromptInput`, `TugMarkdownView`
+- Examples: `TugInput`, `TugTextarea`, `TugValueInput`, `TugMessageEditor`
 
 **Copyable** (informational text the user might want to copy, but not directly select):
 - Do NOT set `user-select: text` — inherit `user-select: none`
@@ -1364,10 +1382,10 @@ Pair with the right tier token in CSS:
 |---------------------------|------------------------------------|---------------------------------------------------------|
 | Tooltip                   | `--tug-z-overlay-tooltip`          | `TugTooltip`                                            |
 | Popup                     | `--tug-z-overlay-popup`            | `TugPopover`, `tug-completion-menu`                     |
-| Menu                      | `--tug-z-overlay-menu`             | `TugContextMenu`, `TugPopupMenu`, `TugMenu`             |
+| Menu                      | `--tug-z-overlay-menu`             | `PdfContextMenu`, `TugPopupMenu`                        |
 | Dialog                    | `--tug-z-overlay-dialog`           | `TugSheet`                                              |
 | Popup-in-dialog (elevated)| `--tug-z-overlay-popup-in-dialog`  | `TugPopover` opened from a control inside a sheet       |
-| Menu-in-dialog  (elevated)| `--tug-z-overlay-menu-in-dialog`   | `TugPopupMenu` / `TugContextMenu` inside a sheet        |
+| Menu-in-dialog  (elevated)| `--tug-z-overlay-menu-in-dialog`   | `TugPopupMenu` / `PdfContextMenu` inside a sheet        |
 
 **Pane focus controller skips clicks inside the canvas overlay tier.** The pane-focus-controller's document-level pointerdown listener checks `closest('[data-slot="tug-canvas-overlay-root"]')` and short-circuits when the click target lives inside the overlay tier — preventing pane-activation gestures from firing on popup-internal clicks. The canvas overlay root itself is identified by `data-slot="tug-canvas-overlay-root"`; it does NOT carry `data-tug-focus="refuse"`. The two attributes are deliberately distinct: `data-slot="tug-canvas-overlay-root"` is a structural marker (pane-focus-controller's "am I inside the overlay tier?" check), while `data-tug-focus="refuse"` is a button-class focus discipline (chain-promotion-skip + browser-focus-prevention bundled — see "Focus refusal for controls" above). Popups' own pointer interactions are owned by the popup primitives themselves; the overlay-tier short-circuit only governs the surrounding pane-activation behavior.
 
@@ -1378,14 +1396,14 @@ Every popup-class primitive plays one of four **roles** in the user's focus rela
 | Role                | Examples                                       | Open behavior                                | Close behavior                                  | Hook                          |
 |---------------------|------------------------------------------------|----------------------------------------------|-------------------------------------------------|-------------------------------|
 | **Companion**       | `CompletionOverlay` (file completion)          | Owner keeps DOM focus; popup never steals it | Owner keeps DOM focus                           | `useCompanionPopupBinding`    |
-| **Service**         | `TugPopupMenu`, `TugPopover`, `TugContextMenu` | Popup grabs focus via Radix `FocusScope`     | Restore prior first-responder via `focusResponder` | `useServicePopupBinding`   |
+| **Service**         | `TugPopupMenu`, `TugPopover`, `PdfContextMenu` | Popup grabs focus via Radix `FocusScope`     | Restore prior first-responder via `focusResponder` | `useServicePopupBinding`   |
 | **Modal-with-trap** | `TugSheet`, `TugAlert`                         | Trap focus inside; owning card body becomes `inert` | Restore focus to trigger; chain-native `cancelDialog`   | (existing `FocusScope` + chain-native dispatch) |
 | **Hover hint**      | `TugTooltip`                                   | n/a — tooltips don't take focus              | n/a                                             | n/a                           |
 
 Author guidance: the question above narrows to a role.
 
-- "The popup itself" → **service**. The user is now choosing an item in the menu / interacting with the popover. Use `useServicePopupBinding`. `TugPopupMenu`, `TugPopover`, `TugConfirmPopover`, `TugContextMenu`, and (by composition) `TugPopupButton` all carry this internally — consumers don't pass `onCloseAutoFocus` overrides. Custom close behavior calls `manager.focusResponder(targetId)` from the menu-item handler before close (Risk R02 in `tugplan-tide-popup-bindings.md`).
-- "The same place as before" → **companion**. The user is still typing into the editor and the popup is a side-channel. Use `useCompanionPopupBinding({ ownerEl, onShouldDismiss })` at the consumer site. The hook fires `onShouldDismiss` exactly when DOM focus transitions out of the owner element's subtree (microtask-deferred to ride past in-subtree sibling transitions). See [D05] in `tugplan-tide-popup-bindings.md`.
+- "The popup itself" → **service**. The user is now choosing an item in the menu / interacting with the popover. Use `useServicePopupBinding`. `TugPopupMenu`, `TugPopover`, `TugConfirmPopover`, `PdfContextMenu`, and (by composition) `TugPopupButton` all carry this internally — consumers don't pass `onCloseAutoFocus` overrides. Custom close behavior calls `manager.focusResponder(targetId)` from the menu-item handler before close.
+- "The same place as before" → **companion**. The user is still typing into the editor and the popup is a side-channel. Use `useCompanionPopupBinding({ ownerEl, onShouldDismiss })` at the consumer site. The hook fires `onShouldDismiss` exactly when DOM focus transitions out of the owner element's subtree (microtask-deferred to ride past in-subtree sibling transitions).
 - "Nowhere — the rest of the workspace is blocked" → **modal-with-trap**. A sheet is not "a service popup with a focus trap"; it is a workspace-blocking interaction the user explicitly entered. Sheets use Radix's `FocusScope` trap and the existing chain-native `cancelDialog` close path. Do NOT consume `useServicePopupBinding` from a modal-with-trap primitive — its restore-prior semantics are wrong here (a sheet's "Cancel" button should restore focus to the trigger, not to whatever was first responder before).
 - "No input — just a hint that goes away on hover-out" → **hover hint**. Tooltips share the canvas overlay tier for tier consistency only; they do not consume any binding.
 
@@ -1393,7 +1411,7 @@ Per [L19], every popup-class component documents its role in its module docstrin
 
 ### Popup-in-sheet stacking via TugSheetStackingContext
 
-A popup opened from a control inside a sheet must visually stack ABOVE the sheet, not behind it. Both sheets (`--tug-z-overlay-dialog: 9400`) and popups (`--tug-z-overlay-popup: 9200` / `--tug-z-overlay-menu: 9300`) portal to the same canvas overlay root, so default tokens would put the popup behind. Per [D09] in `tugplan-tide-popup-bindings.md`, the elevation is signaled through React context.
+A popup opened from a control inside a sheet must visually stack ABOVE the sheet, not behind it. Both sheets (`--tug-z-overlay-dialog: 9400`) and popups (`--tug-z-overlay-popup: 9200` / `--tug-z-overlay-menu: 9300`) portal to the same canvas overlay root, so default tokens would put the popup behind. The elevation is signaled through React context.
 
 **Authoring contract.** Any popup-class primitive that portals to the canvas overlay root MUST consume `TugSheetStackingContext` and apply the corresponding `*-in-dialog` class on its portaled content element when the value is `true`:
 
@@ -1429,7 +1447,7 @@ Use `tug-popup-in-dialog` for popovers (z-tier 9500) and `tug-menu-in-dialog` fo
 
 ### Pane-scoped overlays
 
-**Pane-scoped overlays (pane banners, in-pane bulletins) use `TugPanePortalContext`.** These overlays must die with the pane — when the pane closes, the portal target unmounts, taking the overlay with it. Sheets used to live here too, but moved to the canvas overlay tier in `tugplan-tide-popup-bindings.md` Step 2 (the user-visible bug was "the sheet is clipped by the card"; the card-modal behavior — `inert` on `.tug-pane-body`, focus trap, restore-to-trigger — stays card-scoped via `cardEl`, while only the rendering target moved to the canvas tier).
+**Pane-scoped overlays (pane banners, in-pane bulletins) use `TugPanePortalContext`.** These overlays must die with the pane — when the pane closes, the portal target unmounts, taking the overlay with it. Sheets are not pane-scoped: they render in the canvas overlay tier so the card cannot clip them, while their card-modal behavior — `inert` on `.tug-pane-body`, focus trap, restore-to-trigger — stays card-scoped via `cardEl`.
 
 | Surface                                | Portal target                | Lifetime          |
 |----------------------------------------|------------------------------|-------------------|
@@ -1531,7 +1549,8 @@ Before a component is done:
 - [ ] `bun run build` exits 0
 - [ ] `bun run test` exits 0
 - [ ] `bun run audit:tokens lint` exits 0
-- [ ] Renders correctly in Component Gallery across themes
+- [ ] `bun run audit:components` passes
+- [ ] The component has a gallery card that imports it, and it renders correctly there across themes
 
 A **gallery** card is an exemplary demo of an established `Tug*` component: proper usage, the range of the API, meant to be browsed as documentation. That is the only thing the gallery holds. Exploratory work — trying a layout, comparing two treatments, designing a surface that is not yet a component — is a **spike**, and belongs in `tugdeck/src/spikes/` (see its README, or run `/tugplug:spike-card`). A card whose only consumer is the app-test harness is a **fixture**, and belongs in `tugdeck/src/fixtures/`. Registering any of the three in the wrong place fails `card-taxonomy.test.ts`.
 

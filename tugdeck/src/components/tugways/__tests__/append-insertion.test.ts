@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { applyAppendInsertion } from "@/components/tugways/tug-prompt-entry";
+import { applyAppendInsertion } from "@/components/tugways/cards/prompt-entry";
 
 const TEXT = "```\n$ ls\nout\n[exit 0]\n```\n";
 

@@ -6,7 +6,7 @@
  * an unscoped head descriptor for the card's bound project, which lands in
  * the standalone Diff card ([P20]). In that repo-wide guise the card
  * publishes "Project Diff" as its pane title via `cardTitleStore`, and the
- * body is the shared `TugDiffDocument` over a REAL tugcast git round-trip —
+ * body is the shared `DiffDocument` over a REAL tugcast git round-trip —
  * this checkout, really dirtied with a scratch file.
  *
  * What one launch drives:
@@ -28,8 +28,8 @@
  * @covers tugdeck/src/lib/diff-card-open-registry.ts
  * @covers tugdeck/src/lib/git-diff-store.ts
  * @covers tugdeck/src/lib/slash-commands.ts
- * @covers tugdeck/src/components/tugways/tug-diff-document.tsx
- * @covers tugdeck/src/components/tugways/tug-diff-document.css
+ * @covers tugdeck/src/components/tugways/cards/diff-document.tsx
+ * @covers tugdeck/src/components/tugways/cards/diff-document.css
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

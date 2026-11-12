@@ -79,8 +79,7 @@
  *   know it's filtered, and the consumer doesn't have to teach it.
  *   See `gallery-list-view-filter` for the canonical pattern (host-
  *   owned `TugInput` + `useFilteredDataSource` + `baseIndexFor`-aware
- *   cell renderer) and `tugplan-session-picker-redesign.md` [D01] /
- *   [Spec S06] for the rationale.
+ *   cell renderer).
  */
 
 import "./tug-list-view.css";
@@ -194,11 +193,13 @@ import type {
   SpatialCursorHandle,
 } from "./focus-manager";
 import type { FocusKey } from "./focus-act";
+import type { TugPresentation, TugSizing } from "./tug-vocabulary";
 import type { AttachedFilterBinding } from "./attached-filter";
 import { CardIdContext } from "@/lib/card-id-context";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { deckTrace } from "@/deck-trace";
 import { KEY_CURSOR_ATTRIBUTE } from "./use-focus-cursor";
+import { cn } from "@/lib/utils";
 
 /**
  * Attribute writes the current commit owes the DOM, drained once the whole
@@ -993,9 +994,15 @@ export interface TugListRenderedRange {
   itemCount: number;
 }
 
+/** How a list sizes itself on the block axis — see `TugSizing`. */
+export type TugListViewSizing = TugSizing;
+
+/** How a list presents itself — see `TugPresentation`. */
+export type TugListViewPresentation = TugPresentation;
+
 export interface TugListViewProps<
   DS extends TugListViewDataSource = TugListViewDataSource,
-> {
+> extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "role" | "style" | "tabIndex"> {
   /** The data source that drives the list. */
   dataSource: DS;
 
@@ -1325,11 +1332,32 @@ export interface TugListViewProps<
   rowLayout?: TugListRowVariant;
 
   /**
+   * How the list sizes itself on the block axis. `"fill"` (default) takes
+   * its bounded parent's height and scrolls inside it — the primitive is its
+   * own scroll container. `"content"` stands at the sum of its rows and
+   * leaves the scrolling to an ancestor: a sheet body, a block, a picker
+   * that caps its own height.
+   * @selector [data-sizing="content"]
+   * @default "fill"
+   */
+  sizing?: TugListViewSizing;
+
+  /**
+   * How the list presents itself. `"rail"` is a sidebar card's list: it
+   * stands at its rows' height and hands its overflow to the card root (no
+   * scroller of its own, on either axis), and under `rowLayout="flush"` its
+   * row hairlines show on every row, the selected one included.
+   * @selector [data-presentation="rail"]
+   * @default "default"
+   */
+  presentation?: TugListViewPresentation;
+
+  /**
    * Row density published to descendant `TugListRow`s through
    * `TugListRowLayoutContext` — `compact` collapses the block padding
    * to a hairline for long enumerations (a commit's file list). A row
    * may still override with its own `density` prop. Omitted ⇒ no
-   * context density; rows fall back to `cozy`.
+   * context density; rows fall back to `regular`.
    *
    * @selector .tug-list-row[data-density="compact"]
    */
@@ -2283,7 +2311,7 @@ function onCellContentVisibilityChange(event: Event): void {
  *   dispatch on click and Space/Enter keydown — see the top-of-file
  *   "Row roles" docstring for the full contract.
  * - Spacer heights write directly to the DOM via `style.height`
- *   ([L06], mirroring `TugMarkdownView`).
+ *   ([L06]).
  * - Imperative handle: `scrollToIndex` routes through SmartScroll
  *   ([D07]). Rendered target → `scrollToElement`. Unrendered
  *   target → two-pass precision protocol per [D03]: pass 1 is an
@@ -2328,6 +2356,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       evictOffscreen = false,
       interactive = true,
       rowLayout,
+      sizing,
+      presentation,
       rowDensity,
       rowSeparator,
       rowStriping,
@@ -2356,6 +2386,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       attachedFilter,
       listRole = "list",
       itemRole = "listitem",
+      ...rest
     },
     ref,
   ) {
@@ -4591,7 +4622,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       //    its own settle gate (`Math.abs(scrollTop - pos.y) <=
       //    tolerance`) once the resolved offset converges.
       //  - **Raw case** (no `meta.anchor`): write `pos.y` directly.
-      //    Mirrors `tug-markdown-view`'s listener.
       //  - **At-bottom case** (`meta.atBottom`): re-engage follow-bottom
       //    and pin — exact (`scrollHeight - clientHeight`), and it
       //    keeps follow-bottom engaged so the jump-to-bottom affordance
@@ -4923,9 +4953,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // time) only updates when something else triggers a re-render —
     // a card resize that grows the container leaves a too-tall
     // bottom spacer and an under-populated rendered window because
-    // nothing notices the new viewport. Mirrors the
-    // `TugMarkdownView` pattern that observes its own scroll
-    // container.
+    // nothing notices the new viewport, so the list observes its own
+    // scroll container.
     //
     // ResizeObserver coalesces multiple layout shifts in a frame
     // into one delivery, so calling `scrollTick` per fire is enough
@@ -8404,10 +8433,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
 
     return (
       <div
+        {...rest}
         ref={setScrollContainerRef}
         data-slot="tug-list-view"
         data-tug-scroll-key={scrollKey ?? "tug-list-view"}
         data-row-layout={rowLayout}
+        data-sizing={sizing === "content" ? "content" : undefined}
+        data-presentation={presentation === "rail" ? "rail" : undefined}
         data-row-separator={rowSeparatorMode}
         data-row-striping={resolvedStriping !== null ? "on" : undefined}
         data-row-text-size={rowTextSizeValue !== undefined ? "" : undefined}
@@ -8418,9 +8450,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         data-offscreen-skip={
           inline === true && offscreenSkip ? "" : undefined
         }
-        className={
-          className === undefined ? "tug-list-view" : `tug-list-view ${className}`
-        }
+        className={cn("tug-list-view", className)}
         style={containerStyle}
         role={listRole}
         // A subordinate list adds no Tab stop of its own (the filter input owns
@@ -8489,9 +8519,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
 
             Do not re-add a DOM-side writer alongside this one: React skips
             re-applying a `style` value it believes unchanged, so the two
-            would go stale against each other. `TugMarkdownView` reaches the
-            same atomicity imperatively — `applySpacers` runs in the same
-            synchronous task as its block add/remove loops. */}
+            would go stale against each other. */}
         <div
           ref={topSpacerRef}
           className="tug-list-view-spacer tug-list-view-spacer--top"

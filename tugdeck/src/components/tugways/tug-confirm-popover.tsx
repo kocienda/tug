@@ -13,8 +13,7 @@
  *    its own state; the popover anchors to an arbitrary external element
  *    via `<TugPopoverAnchor virtualRef>`. One instance can serve N
  *    distinct anchor targets — the canonical "in-list confirmation"
- *    shape (see [tugplan-session-picker-redesign §D15](
- *    ../../arc/tugplan-session-picker-redesign.md#d15-tug-confirm-popover-controlled)).
+ *    shape.
  *    Anchor to the ROW rather than to a row's hover-revealed button: the
  *    popover covers the row it opened from, the pointer leaves, and a button
  *    anchor unmounts under its own popover, which then re-resolves and hops.
@@ -117,6 +116,7 @@ import { useOptionalResponder } from "./use-responder";
 import { useSpatialOrder } from "./use-spatial-order";
 import type { SpatialOrder } from "./spatial-order";
 import { TUG_ACTIONS } from "./action-vocabulary";
+import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
  * TugConfirmPopoverHandle
@@ -140,7 +140,8 @@ export interface TugConfirmPopoverHandle {
  * ---------------------------------------------------------------------------*/
 
 /** TugConfirmPopover props. */
-export interface TugConfirmPopoverProps {
+export interface TugConfirmPopoverProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "onCancel"> {
   /** Confirmation message displayed in the popover body. */
   message: string;
   /**
@@ -149,10 +150,10 @@ export interface TugConfirmPopoverProps {
    */
   confirmLabel?: string;
   /**
-   * Confirm button semantic role.
-   * @default "danger"
+   * The confirm button: its semantic role.
+   * @default `{ role: "danger" }`
    */
-  confirmRole?: Extract<TugButtonRole, "danger" | "action" | "accent">;
+  confirm?: { role?: Extract<TugButtonRole, "danger" | "action" | "accent"> };
   /**
    * Cancel button label.
    * @default "Cancel"
@@ -287,7 +288,7 @@ export const TugConfirmPopover = React.forwardRef<
   {
     message,
     confirmLabel = "Confirm",
-    confirmRole = "danger",
+    confirm,
     cancelLabel = "Cancel",
     side = "bottom",
     align = "center",
@@ -302,6 +303,8 @@ export const TugConfirmPopover = React.forwardRef<
     onConfirm,
     onCancel,
     children,
+    className,
+    ...rest
   },
   ref,
 ) {
@@ -580,7 +583,8 @@ export const TugConfirmPopover = React.forwardRef<
     ? openProp === true && anchorEl != null
     : undefined;
 
-  // Explicit default-focus target on open. Driven by `confirmRole`
+  const confirmButtonRole = confirm?.role ?? "danger";
+  // Explicit default-focus target on open. Driven by the confirm role
   // intent, not DOM order:
   //   - `danger`: Enter should NOT fire a destructive action, so the
   //     default lands on Cancel (Return-safe).
@@ -597,10 +601,10 @@ export const TugConfirmPopover = React.forwardRef<
   const handleOpenAutoFocus = React.useCallback(
     (event: Event) => {
       event.preventDefault();
-      const defaultOrder = confirmRole === "danger" ? CANCEL_ORDER : CONFIRM_ORDER;
+      const defaultOrder = confirmButtonRole === "danger" ? CANCEL_ORDER : CONFIRM_ORDER;
       focusManager?.place(null, { kind: "focus-key", focusKey: `${buttonFocusGroup}:${defaultOrder}` }, { modality: "keyboard" });
     },
-    [confirmRole, focusManager, buttonFocusGroup],
+    [confirmButtonRole, focusManager, buttonFocusGroup],
   );
 
   return (
@@ -629,8 +633,9 @@ export const TugConfirmPopover = React.forwardRef<
         onOpenAutoFocus={handleOpenAutoFocus}
       >
         <div
+          {...rest}
           data-slot="tug-confirm-popover"
-          className="tug-confirm-popover"
+          className={cn("tug-confirm-popover", className)}
           // Refuse first-responder promotion on the surface itself, not just its
           // buttons. A pointerdown in the popover's empty space (or on the message
           // label) would otherwise run a pointer-driven promotion of this responder,
@@ -672,7 +677,7 @@ export const TugConfirmPopover = React.forwardRef<
             <TugPushButton
               ref={confirmButtonRef}
               emphasis="outlined"
-              role={confirmRole}
+              role={confirmButtonRole}
               size="sm"
               onClick={onConfirmClick}
               focusGroup={buttonFocusGroup}

@@ -8,21 +8,15 @@
  * back around to most of `lib`.
  */
 
+import type { TugTone } from "@/components/tugways/tug-vocabulary";
+
 /**
  * Semantic role. `inherit` resolves the indicator fill to `currentColor` so
  * the glyph picks up its host's text tone — useful in muted prose contexts
  * where the indicator should read as part of the surrounding copy rather
  * than as a separate accent.
  */
-export type TugProgressIndicatorRole =
-  | "inherit"
-  | "action"
-  | "agent"
-  | "data"
-  | "option"
-  | "success"
-  | "caution"
-  | "danger";
+export type TugProgressIndicatorRole = Extract<TugTone, "inherit" | "action" | "agent" | "data" | "option" | "success" | "caution" | "danger">;
 
 /**
  * Aliases the public role name to the suffix used in the seven-slot token

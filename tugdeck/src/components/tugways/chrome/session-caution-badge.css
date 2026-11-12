@@ -1,51 +1,17 @@
-/* @tug-pairings:
-   - --tugx-block-tone-caution-bg / --tugx-block-tone-caution-color
-     (shared caution tone; from tugx-block.css)
-   `SessionCautionBadge` is a single inline chip. Its surface rides the
-   shared `--tugx-block-tone-caution-*` tones (so the caution colour is
-   uniform wherever a caution chip appears); its bespoke geometry
-   (padding / radius / type scale) lives here under `--tugx-caut-*`.
-*/
-
 /**
  * session-caution-badge.css — `SessionCautionBadge` chip.
  *
+ * The chip is a `TugBadge` (tinted, caution role), so its surface, ink and
+ * geometry are the badge's own. What stays here is placement and the one cue
+ * the badge does not carry: the reason detail rides the native `title`
+ * tooltip, and the help cursor says "hover me" without a visible affordance.
+ *
  * Tuglaw cross-check:
- *  - [L16] the chip rule sets both `background` and `color`, so it is
- *    self-documenting — no `@tug-renders-on` annotation needed.
- *  - [L17] `--tugx-caut-*` resolves to `--tug-*` in one hop.
  *  - [L19] file pair, module docstring on the `.tsx`,
  *    `data-slot="session-caution-badge"` on the chip.
- *  - [L20] component-token sovereignty — owns `--tugx-caut-*`;
- *    consumes the shared `--tugx-block-tone-caution-*` tones.
  */
-
-/* ---- Component-tier aliases — caution-chip geometry [L17] ---- */
-
-body {
-  --tugx-caut-gap:     var(--tug-space-2xs);
-  --tugx-caut-padding: var(--tug-space-2xs) var(--tug-space-xs);
-  --tugx-caut-radius:  var(--tug-radius-xs);
-  --tugx-caut-size:    var(--tug-font-size-2xs);
-  --tugx-caut-weight:  var(--tug-font-weight-semibold);
-  /* Legibility halo — lifts the pale caution chip off light-theme
-     surfaces; resolves to `none` in dark themes. */
-  --tugx-caut-halo:    var(--tug7-element-global-shadow-normal-glyphHalo-rest);
-}
 
 .session-caution-badge {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tugx-caut-gap);
-  padding: var(--tugx-caut-padding);
-  border-radius: var(--tugx-caut-radius);
-  background: var(--tugx-block-tone-caution-bg);
-  color: var(--tugx-block-tone-caution-color);
-  filter: var(--tugx-caut-halo);
-  font-size: var(--tugx-caut-size);
-  font-weight: var(--tugx-caut-weight);
-  /* The reason detail rides the native `title` tooltip — the help
-   * cursor signals "hover me" without a visible affordance. */
   cursor: help;
 }

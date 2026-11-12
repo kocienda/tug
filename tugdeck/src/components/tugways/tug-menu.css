@@ -240,7 +240,7 @@ body {
 }
 
 /* Popup-in-sheet z-tier elevation per [D09]. When TugPopupMenu /
-   TugContextMenu are rendered inside a `<TugSheetContent>`, they read
+   PdfContextMenu are rendered inside a `<TugSheetContent>`, they read
    `TugSheetStackingContext` and add `tug-menu-in-dialog` to the
    portaled content. The class wins over the base z-index because it
    appears later in the cascade for elements with the same specificity.

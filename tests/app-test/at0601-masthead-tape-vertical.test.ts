@@ -42,7 +42,7 @@
  *
  * @covers tugdeck/src/components/tugways/session-masthead.css
  * @covers tugdeck/src/components/tugways/tug-session-row.css
- * @covers tugdeck/src/components/tugways/tug-activity-line.css
+ * @covers tugdeck/src/components/tugways/internal/tug-activity-line.css
  */
 
 import { describe, expect, test } from "bun:test";

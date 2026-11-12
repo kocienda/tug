@@ -60,7 +60,7 @@ body {
 
 /* ---- Status variant — horizontal strip at top ---- */
 
-.tug-banner[data-variant="status"] {
+.tug-banner[data-kind="status"] {
   top: 0;
   left: 0;
   right: 0;
@@ -71,23 +71,23 @@ body {
 }
 
 /* Status visible: pointer-events active; TugAnimator drives the strip slide-in */
-.tug-banner[data-variant="status"][data-visible="true"] {
+.tug-banner[data-kind="status"][data-visible="true"] {
   pointer-events: auto;
 }
 
 /* Status hidden: no pointer-events; TugAnimator drives the strip slide-out */
-.tug-banner[data-variant="status"][data-visible="false"] {
+.tug-banner[data-kind="status"][data-visible="false"] {
   pointer-events: none;
 }
 
 /* Status variant icon and message live inside .tug-banner-strip */
-.tug-banner[data-variant="status"] .tug-banner-strip {
+.tug-banner[data-kind="status"] .tug-banner-strip {
   /* Status strip is the entire banner — no additional layout changes needed */
 }
 
 /* ---- Error variant — strip at top + detail panel centered below ---- */
 
-.tug-banner[data-variant="error"] {
+.tug-banner[data-kind="error"] {
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -97,7 +97,7 @@ body {
 }
 
 /* Error strip — same visual weight as status strip, pinned to top */
-.tug-banner[data-variant="error"] .tug-banner-strip {
+.tug-banner[data-kind="error"] .tug-banner-strip {
   align-self: stretch;
 }
 
@@ -105,11 +105,11 @@ body {
    absolute so the banner fills only its nearest positioned ancestor
    (the mini-viewport) instead of the whole window. Detail panel max
    height also switches to a percentage of the container. */
-.tug-banner[data-variant="error"][data-contained="true"] {
+.tug-banner[data-kind="error"][data-contained="true"] {
   position: absolute;
 }
 
-.tug-banner[data-variant="error"][data-contained="true"] .tug-banner-detail-panel {
+.tug-banner[data-kind="error"][data-contained="true"] .tug-banner-detail-panel {
   margin-top: 16px;
   max-height: calc(100% - 80px);
 }

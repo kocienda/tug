@@ -310,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
             if (m === null) return "absent";
             return [
               m.getAttribute('data-state') || "",
-              m.getAttribute('data-role') || "",
+              m.getAttribute('data-tone') || "",
               m.hasAttribute('data-phase') ? "has-phase" : "no-phase",
             ].join("/");
           })()`;
@@ -329,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // While the card's own session is demonstrably mid-turn — which is
         // what makes the inert dot a decision rather than an absence of one.
         //
-        // Read off `data-state` / `data-role` rather than `data-phase`: the
+        // Read off `data-state` / `data-tone` rather than `data-phase`: the
         // masthead mark is a `SessionPhaseDot`, which carries the visual
         // TRIPLE and no phase identifier, so the six keys a working session
         // flips between write nothing. The old reading asked `data-phase` for
@@ -560,7 +560,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           var records = 0;
           var read = function(){
             return (el.getAttribute('data-state') || '') + '/' +
-                   (el.getAttribute('data-role') || '');
+                   (el.getAttribute('data-tone') || '');
           };
           seen.push(read());
           var obs = new MutationObserver(function(list){
@@ -622,7 +622,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         await app.driveSession("A", { op: "transportClose" });
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_DOT)})
-             .getAttribute('data-role') === 'danger'`,
+             .getAttribute('data-tone') === 'danger'`,
           { timeoutMs: 20_000 },
         );
         const after = await app.body("A").evalJS<{

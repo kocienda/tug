@@ -1039,7 +1039,7 @@ From `tugdeck/crates/Cargo.lock` — 33 packages.
 
 ### npm packages bundled into tugdeck
 
-From `tugdeck/bun.lock` — 120 packages.
+From `tugdeck/bun.lock` — 119 packages.
 
 | Package | Version | License | Repository |
 |---|---|---|---|
@@ -1154,7 +1154,6 @@ From `tugdeck/bun.lock` — 120 packages.
 | react-dom | 19.2.4 | MIT | https://github.com/facebook/react |
 | react-remove-scroll | 2.7.2 | MIT | https://github.com/theKashey/react-remove-scroll |
 | react-remove-scroll-bar | 2.3.8 | MIT | https://github.com/theKashey/react-remove-scroll-bar |
-| react-resizable-panels | 4.10.0 | MIT | https://github.com/bvaughn/react-resizable-panels |
 | react-style-singleton | 2.2.3 | MIT | https://github.com/theKashey/react-style-singleton |
 | scheduler | 0.27.0 | MIT | https://github.com/facebook/react |
 | sonner | 2.0.7 | MIT | https://github.com/emilkowalski/sonner |

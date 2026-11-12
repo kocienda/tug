@@ -40,10 +40,10 @@
  * end, the next session opens on a new line rather than running into the word
  * the user last typed.
  *
- * @covers tugdeck/src/components/tugways/tug-dictation-button.tsx
- * @covers tugdeck/src/components/tugways/tug-dictation-button.css
+ * @covers tugdeck/src/components/tugways/cards/dictation-button.tsx
+ * @covers tugdeck/src/components/tugways/cards/dictation-button.css
  * @covers tugdeck/src/components/tugways/tug-text-editor/dictation-span.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/lib/dictation-store.ts
  * @covers tugdeck/src/lib/dictation-bridge.ts
  * @covers tugdeck/src/components/tugways/prompt-insert-target.ts

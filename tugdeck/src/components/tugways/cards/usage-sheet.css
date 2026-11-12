@@ -35,13 +35,6 @@
   padding-block-start: var(--tug-space-xl);
 }
 
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
-.usage-sheet-notice {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  text-align: center;
-  margin: var(--tug-space-xl) 0;
-}
-
 /* Whose usage this is — a muted line above the gauges, the email in body ink. */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-account {
@@ -78,11 +71,6 @@
 
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .usage-sheet-section-title {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  font-size: var(--tug-font-size-2xs);
-  font-weight: var(--tug-font-weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--tug-space-xs);
 }
 

@@ -25,7 +25,7 @@
  *   so a menu opened from a non-focused surface (e.g. a transcript
  *   cell while the editor remains first responder) still routes its
  *   actions to the correct owner. This matches the pattern used by
- *   `TugContextMenu` (Radix-backed) and is the canonical "control
+ *   `PdfContextMenu` (Radix-backed) and is the canonical "control
  *   dispatches to its parent responder" shape from
  *   `tuglaws/responder-chain.md`. Handlers may return a continuation
  *   callback for two-phase execution: the sync body runs inside the
@@ -96,13 +96,13 @@
  *     • Any other non-character key (Tab, function keys) → close the
  *       menu and let the event continue.
  *
- * - Visual identity: shared with TugContextMenu via tug-menu.css
+ * - Visual identity: shared with PdfContextMenu via tug-menu.css
  *   classes and tug-menu-item-blink.ts for the activation flash.
  *   Every menu in the suite looks and reacts identically [L20].
  *
  * When to use: over contentEditables, inputs, or any focus-sensitive
  * editing surface. For menus over buttons/rows/tree nodes, use the
- * Radix-backed TugContextMenu instead.
+ * Radix-backed PdfContextMenu instead.
  *
  * Laws: [L03] register event listeners in useLayoutEffect,
  *       [L06] appearance via CSS/DOM, never React state,
@@ -132,11 +132,13 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { layoutPxOf, viewportPxOf } from "@/lib/page-zoom-store";
 import { useOpenMenuClaim } from "@/components/tugways/use-open-menu-claim";
 import type { TugAction } from "./action-vocabulary";
+import { cn } from "@/lib/utils";
+import { composeRefs } from "./compose-refs";
 
 // ---- Typed entry shapes ----
 //
 // TugEditorContextMenu has its own entry types, distinct from
-// tug-context-menu's TugContextMenuEntry, so the `action` field can
+// tug-context-menu's PdfContextMenuEntry, so the `action` field can
 // be typed as `TugAction`. Typos in an item's action are compile
 // errors at the item definition site, not runtime `handled: false`
 // dead-ends. This is the L11-correct shape: a control emitting a
@@ -301,7 +303,8 @@ function referentIsVisible(
   });
 }
 
-export interface TugEditorContextMenuProps {
+export interface TugEditorContextMenuProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "role"> {
   /** Whether the menu is open. */
   open: boolean;
   /** Viewport x coordinate of the anchor point (typically clientX of the contextmenu event). */
@@ -354,21 +357,18 @@ function isActionable(entry: TugEditorContextMenuEntry): entry is TugEditorConte
   return !entry.disabled;
 }
 
-export function TugEditorContextMenu({
-  open,
-  x,
-  y,
-  items,
-  onClose,
-  referent = null,
-}: TugEditorContextMenuProps) {
+export const TugEditorContextMenu = React.forwardRef<HTMLDivElement, TugEditorContextMenuProps>(function TugEditorContextMenu(
+  { open, x, y, items, onClose, referent = null, className, ...rest },
+  ref,
+) {
   const manager = useRequiredResponderChain();
   // Targeted dispatch to the parent responder — the consumer that
   // wrapped this menu in its `<ResponderScope>`. Mirrors
-  // `TugContextMenu`'s use of the same hook for the same reason.
+  // `PdfContextMenu`'s use of the same hook for the same reason.
   const { dispatchForContinuation } = useControlDispatch();
   const overlayRoot = useCanvasOverlay();
   const menuRef = useRef<HTMLDivElement>(null);
+  const setMenuRef = React.useMemo(() => composeRefs<HTMLDivElement>(menuRef, ref), [ref]);
 
   // Two-pass positioning: the JSX renders the menu off-screen with
   // visibility:hidden. useLayoutEffect measures the actual size and
@@ -871,9 +871,10 @@ export function TugEditorContextMenu({
 
   return createPortal(
     <div
-      ref={menuRef}
+      {...rest}
+      ref={setMenuRef}
       data-slot="tug-editor-context-menu"
-      className="tug-menu-content tug-editor-context-menu"
+      className={cn("tug-menu-content", "tug-editor-context-menu", className)}
       role="menu"
       // Mark the menu and its items as focus-refusing so a click on
       // an item does NOT promote a first responder. The menu portals
@@ -998,4 +999,4 @@ export function TugEditorContextMenu({
     </div>,
     overlayRoot,
   );
-}
+});

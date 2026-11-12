@@ -17,7 +17,7 @@
  * @covers tugdeck/src/components/tugways/tug-markdown-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
- * @covers tugdeck/src/components/tugways/cards/tug-atom-markdown-body.tsx
+ * @covers tugdeck/src/components/tugways/cards/atom-markdown-body.tsx
  * @covers tugrust/crates/tugcast/src/fs_stat.rs
  * @family at0307-transcript-file-path-links
  */

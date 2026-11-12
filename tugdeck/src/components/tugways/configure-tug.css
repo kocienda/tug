@@ -15,7 +15,7 @@
 }
 
 /* The header is the shared one-line modal header — `.tug-alert-body` with
- * `data-icon-role="action"` (see tugx-header.css). No bespoke header rules. */
+ * `data-icon-tone="action"` (see tugx-header.css). No bespoke header rules. */
 
 .configure-tug-steps {
   list-style: none;

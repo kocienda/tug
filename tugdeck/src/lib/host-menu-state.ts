@@ -740,7 +740,7 @@ export interface MenuStatePayload {
    */
   captureArmed: boolean;
   /**
-   * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `TugVersionGate` —
+   * An app-modal wizard — `ConfigureTug`, `UpdateTug` or `VersionGate` —
    * is on screen, so nothing may change the number of cards on the deck
    * ([B01]). Radix traps the web view; AppKit's menu bar is not trapped, and
    * ⌘N under an open wizard would otherwise open a Session card behind it.

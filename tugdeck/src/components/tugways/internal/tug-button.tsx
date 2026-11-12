@@ -10,6 +10,7 @@
  */
 
 import "./tug-button.css";
+import type { TugRole, TugSize } from "../tug-vocabulary";
 
 import React, { useContext, useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
@@ -75,7 +76,7 @@ const DEFAULT_CONFIRMATION_DURATION_MS = 1500;
 export type TugButtonEmphasis = "filled" | "outlined" | "ghost" | "tinted" | "primary";
 
 /** TugButton role values — controls color domain [D02] */
-export type TugButtonRole = "accent" | "action" | "agent" | "data" | "danger" | "option";
+export type TugButtonRole = Extract<TugRole, "accent" | "action" | "agent" | "data" | "danger" | "option">;
 
 /**
  * The compound emphasis × role class a button paints its look through [D02].
@@ -113,7 +114,7 @@ const SEMANTIC_ROLES: ReadonlySet<string> = new Set<TugButtonRole>([
 /** TugButton size names. `2xs` is the most compact, intended for in-header
  * affordance clusters where a button needs to sit alongside a label and
  * a few sibling controls without dominating the strip. */
-export type TugButtonSize = "2xs" | "xs" | "sm" | "md" | "lg";
+export type TugButtonSize = Extract<TugSize, "2xs" | "xs" | "sm" | "md" | "lg">;
 
 /**
  * TugButton subtype names.
@@ -192,6 +193,9 @@ export interface TugButtonConfirmation {
   /** Optional aria-label override for the confirmed state (icon-only buttons). */
   ariaLabel?: string;
 }
+
+/** A button's width floor — see {@link TugButtonProps.minWidth}. */
+export type TugButtonMinWidth = "action" | "compact-action";
 
 /**
  * TugButton props interface.
@@ -392,6 +396,15 @@ export interface TugButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButt
   /** Border radius token. Default is size-proportional (sm→"sm", md→"md", lg→"lg"). */
   rounded?: TugButtonRounded;
 
+  /**
+   * A width floor for a button in an action row, so short labels (OK, Undo)
+   * hold a target as wide as their neighbours'. `"action"` is the floor every
+   * alert, sheet and banner action row gives its buttons; `"compact-action"`
+   * is the step down a compact surface takes. Omitted ⇒ the label's own width.
+   * @selector [data-min-width="action"] | [data-min-width="compact-action"]
+   */
+  minWidth?: TugButtonMinWidth;
+
   /** Additional CSS class names */
   className?: string;
 
@@ -553,6 +566,7 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
   isConfirming,
   widthStabilize,
   rounded,
+  minWidth,
   "aria-label": ariaLabel,
   className,
   asChild = false,
@@ -1265,6 +1279,7 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
       data-slot="tug-button"
       data-tug-focus={stealsFocusOnClick ? undefined : "refuse"}
       data-tug-role={role}
+      data-min-width={minWidth}
       disabled={effectiveDisabled}
       role={htmlRole}
       aria-label={ariaLabel}

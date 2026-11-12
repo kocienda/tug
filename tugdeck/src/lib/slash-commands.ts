@@ -26,7 +26,7 @@
  * dispatched key-card-scoped as `RUN_SLASH_COMMAND` and the session card's
  * card-content responder opens the surface (see [D23] and
  * `session-card.tsx`). Keeping this module surface-agnostic is what lets the
- * matcher run inside the generic `TugPromptEntry` without coupling it to
+ * matcher run inside the generic `PromptEntry` without coupling it to
  * session-card concepts.
  *
  * @module lib/slash-commands

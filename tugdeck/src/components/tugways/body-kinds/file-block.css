@@ -16,7 +16,7 @@
  *  - Empty state (`[data-empty="true"]`) — produces no visible
  *    output beyond the slot marker.
  *  - Populated state — frame + header + body. Body is either the
- *    collapsed-hint `<TugCue>` or the embedded `<TugCodeView>`.
+ *    collapsed-hint `<Cue>` or the embedded `<TugCodeView>`.
  *
  * Token sources:
  *  - Shared block-surface scaffold (frame, code typography, header
@@ -92,28 +92,9 @@ body {
 
 /* ---------- Header ---------- */
 
-/* Pinned header strip — stays visible while the user scrolls deep
- * into the body. `top: var(--tugx-pin-stack-top, 0)` lets an outer
- * pin context (e.g. a transcript-entry header that has written its
- * measured height into the variable) push the file header down so
- * the two telescope; falls back to `top: 0` when no outer pin is
- * present. The opaque `--tugx-block-strip-bg` background hides the
- * body's lines that scroll under it (sticky elements need an opaque
- * background or content bleeds through). */
-.tugx-file-header {
-  position: sticky;
-  top: var(--tugx-pin-stack-top, 0);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--tugx-block-strip-gap);
-  padding: var(--tugx-block-strip-padding);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color: var(--tugx-block-strip-color);
-  font-family: var(--tugx-block-strip-font);
-  font-size: var(--tugx-block-strip-size);
-}
+/* The strip itself — sticky, flex, the shared padding, surface and type —
+   is `.tugx-block-strip` in `styles/tugx-block.css`, which the header wears
+   beside its own class. */
 
 .tugx-file-path {
   font-weight: var(--tugx-file-path-weight);

@@ -1,0 +1,49 @@
+/* @tug-pairings: none — Clamp composes child content + a TugPushButton
+   reveal (both carry their own tokens); the bottom fade is a CSS mask,
+   which is decorative and theme-agnostic (no foreground-on-background
+   contrast pairing of its own). */
+
+.tug-clamp {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+/* The clamped content box. `overflow: hidden` is what makes the cap
+   actually clip; `--tug-clamp-cap` is the measured pixel height written by
+   `useClampOverflow` (lines × the content's resolved line-height). */
+.tug-clamp-content {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tug-clamp[data-expanded="false"] .tug-clamp-content {
+  max-height: var(--tug-clamp-cap);
+}
+
+/* Soft bottom fade — only while clamped AND genuinely overflowing, so a
+   block that fits keeps crisp edges and an expanded one shows in full. A
+   mask (not a colored overlay) fades the content to whatever surface sits
+   behind it, so the cue is correct on any background. */
+.tug-clamp[data-expanded="false"][data-overflows="true"] .tug-clamp-content {
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0) 0,
+    rgb(0 0 0) calc(100% - 1.4em),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0) 0,
+    rgb(0 0 0) calc(100% - 1.4em),
+    transparent 100%
+  );
+}
+
+/* The reveal control sits below the content, quiet and left-aligned. */
+.tug-clamp-toggle {
+  flex: none;
+}

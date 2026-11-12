@@ -37,7 +37,7 @@ import {
 
 import { Trash2 } from "lucide-react";
 
-import { TugFileChooser } from "../tug-file-chooser";
+import { TugFileChooser, useFileChooserHost } from "../tug-file-chooser";
 import { TugPushButton } from "../tug-push-button";
 import { TugInlineAlert } from "../tug-inline-alert";
 import { TugLabel } from "../tug-label";
@@ -217,6 +217,7 @@ export function SessionProjectPickerForm({
   // a group of its own, last in the list and unfolded, so what it already
   // holds is in view before a session is started there.
   const [typedPath, setTypedPath] = useState("");
+  const FolderHost = useFileChooserHost({ onChange: setTypedPath, onSubmit: () => submit() });
   const typedDir = typedPath.trim();
 
   // External state via `useSyncExternalStore` ([L02]): the workspace's bound
@@ -728,7 +729,7 @@ export function SessionProjectPickerForm({
                     <TugProgressIndicator
                       variant="bar"
                       size={6}
-                      role="action"
+                      tone="action"
                       state="running"
                       label="Scanning…"
                       glyphPosition="right"
@@ -747,7 +748,7 @@ export function SessionProjectPickerForm({
                   )}
                 </span>
               ) : null}
-              <TugFilterField
+              <TugFilterField size="sm"
                 className="session-card-picker-filter"
                 delegate={filterDelegate}
                 attachment={pickerFilter}
@@ -763,6 +764,7 @@ export function SessionProjectPickerForm({
             >
               {hasRows ? (
                 <TugListView
+                  sizing="content"
                   ref={pickerListRef}
                   dataSource={dataSource}
                   delegate={delegate}
@@ -796,19 +798,19 @@ export function SessionProjectPickerForm({
             {selection?.kind === "other" ? (
               <label className="session-card-picker-field">
                 <span className="session-card-picker-label">Folder</span>
-                <TugFileChooser
-                  ref={inputRef}
+                <FolderHost>
+                <TugFileChooser size="sm"
+                  inputRef={inputRef}
                   value={typedPath}
-                  onChange={setTypedPath}
                   base={typedDir !== "" ? typedDir : "/"}
                   kind="directory"
-                  onSubmit={submit}
                   placeholder="/path/to/project"
                   focusGroup={PICKER_CYCLE_GROUP}
                   focusOrder={PICKER_ORDER_PATH}
                   browseFocusOrder={PICKER_ORDER_BROWSE}
                   chevronFocusOrder={PICKER_ORDER_CHEVRON}
                 />
+                </FolderHost>
               </label>
             ) : null}
             <div
@@ -828,7 +830,7 @@ export function SessionProjectPickerForm({
                   trashable > 1 ? "Move all sessions to Trash?" : "Move to Trash?"
                 }
                 confirmLabel="Trash"
-                confirmRole="danger"
+                confirm={{ role: "danger" }}
                 side="top"
               >
                 <TugPushButton
@@ -904,7 +906,7 @@ export function SessionProjectPickerForm({
           anchorEl={pendingTrashAnchorEl}
           message="Move to Trash?"
           confirmLabel="Trash"
-          confirmRole="danger"
+          confirm={{ role: "danger" }}
           side="left"
           onConfirm={handleConfirmTrash}
           onCancel={handleCancelTrash}
@@ -916,7 +918,7 @@ export function SessionProjectPickerForm({
           anchorEl={pendingRemoveAnchorEl}
           message="Remove from recent projects?"
           confirmLabel="Remove"
-          confirmRole="danger"
+          confirm={{ role: "danger" }}
           side="left"
           onConfirm={handleConfirmRemove}
           onCancel={handleCancelRemove}

@@ -186,14 +186,14 @@ describe("waiting on the user pulses, wherever it is seen from", () => {
   // a user who learns the signal in one place reads it in the other.
   it("pulses the session's awaiting-approval dot, in the caution tone", () => {
     expect(sessionSessionPhaseVisual("awaiting_approval")).toEqual({
-      role: "caution",
+      tone: "caution",
       state: "running",
     });
   });
 
   it("pulses a dialog-blocked tool call's dot, in the same tone", () => {
     expect(toolCallPhaseVisual("awaiting")).toEqual({
-      role: "caution",
+      tone: "caution",
       state: "running",
     });
   });

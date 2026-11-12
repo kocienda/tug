@@ -179,7 +179,7 @@ import {
   TUG_SESSION_ROW_STACK_DOT_SIZE,
   type TugSessionRowProps,
 } from "@/components/tugways/tug-session-row";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import { truncateForDisplay } from "@/lib/session-picker-format";
 import {
   COMPACTING_BEAT_TEXT,
@@ -1285,7 +1285,7 @@ export function SessionIdentityRow({
   // The row's own dot leads the name line, so the identity renders its runs
   // only — one mark per row, never two.
   const runs = (
-    <TugSessionIdentity
+    <SessionIdentityView
       identity={identity}
       tier="line"
       dot={false}

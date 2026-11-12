@@ -28,12 +28,14 @@
  * @module components/tugways/cards/help-sheet
  */
 
+import { CircleQuestionMark } from "lucide-react";
 import "./help-sheet.css";
 
 import React, { useId, useMemo, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import {
   TugListView,
   type TugListViewCellProps,
@@ -130,7 +132,7 @@ export function useHelpSheet({
     const docPath = resolveDocPath(projectDir);
     void showSheet({
       title: "Help",
-      icon: "CircleQuestionMark",
+      icon: <CircleQuestionMark />,
       displayWidth: "xl",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
@@ -238,7 +240,7 @@ function GeneralPanel({ docPath }: { docPath: string | null }): React.ReactEleme
     <div className="help-sheet-general" data-testid="help-general">
       <p className="help-sheet-intro">{HELP_INTRO}</p>
 
-      <div className="help-sheet-section-title">Shortcuts</div>
+      <TugSectionLabel className="help-sheet-section-title" label={{ name: "Shortcuts" }} />
       <dl className="help-sheet-shortcuts">
         {HELP_SHORTCUTS.map((shortcut) => (
           <div className="help-sheet-shortcut" key={shortcut.keys}>
@@ -358,7 +360,7 @@ const HelpCommandCell: TugListViewCellRenderer<HelpCommandsDataSource> =
       <TugListRow
         variant="flush"
         title={`/${entry.name}`}
-        subtitle={entry.description || undefined}
+        description={entry.description || undefined}
         data-testid="help-command-row"
         data-command={entry.name}
       />
@@ -387,6 +389,7 @@ function CommandListPanel({
   }
   return (
     <TugListView<HelpCommandsDataSource>
+      sizing="content"
       dataSource={dataSource}
       cellRenderers={HELP_COMMAND_CELL_RENDERERS}
       rowLayout="flush"

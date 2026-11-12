@@ -38,10 +38,10 @@
  * `window.__tugBridge.onDictation`.
  *
  * @covers tugdeck/src/lib/dictation-store.ts
- * @covers tugdeck/src/components/tugways/tug-dictation-button.tsx
+ * @covers tugdeck/src/components/tugways/cards/dictation-button.tsx
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/components/overview/overview-insert-target.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/dictation-span.ts
  * @covers tugapp/Sources/DictationEngine.swift
  *

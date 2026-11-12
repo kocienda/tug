@@ -48,8 +48,8 @@
  * @covers tugdeck/src/components/tugways/cards/text-card.tsx
  * @covers tugdeck/src/components/tugways/tug-text-card-editor.tsx
  * @covers tugdeck/src/lib/find-session.ts
- * @covers tugdeck/src/components/tugways/tug-find-cluster.tsx
- * @covers tugdeck/src/components/tugways/tug-find-cluster.css
+ * @covers tugdeck/src/components/tugways/internal/tug-find-cluster.tsx
+ * @covers tugdeck/src/components/tugways/internal/tug-find-cluster.css
  * @covers tugapp/Sources/MenuBarBuilder.swift
  */
 
@@ -486,7 +486,7 @@ describe.skipIf(!SHOULD_RUN)("AT0778: find and replace in the Text card", () => 
         // --- 7. Tab in a bar with no replace row is never dead. ---
         // It engages the focus cycle at the query's stop and steps to the
         // options group, writing nothing into the query; ⇧Tab steps back.
-        const optionsB = `${barOf("B")} [data-slot="find-cluster"]`;
+        const optionsB = `${barOf("B")} [data-slot="tug-find-cluster"]`;
         await app.nativeKey("Tab");
         await b.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${optionsB} [data-key-view]`)}) !== null ||

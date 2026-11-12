@@ -4,8 +4,8 @@
  *
  * Consolidates the menu-state, the secondary-click guard, the contextmenu
  * pipeline, and the `TugEditorContextMenu` render across four surfaces: the
- * editor host (`tug-text-editor`), the markdown view (`tug-markdown-view`), the
- * native-input responder (`use-text-input-responder`), and the transcript cells
+ * editor host (`tug-text-editor`), the read-only documents
+ * (`use-read-only-text-surface`), the native-input responder (`use-text-input-responder`), and the transcript cells
  * (`session-card-transcript`). The consumer's `TextSelectionAdapter` is query-only
  * (`hasRangedSelection` / `getSelectedText` / `selectAll`); this hook owns the
  * React-side wiring that's identical across them.
@@ -172,8 +172,8 @@ export interface UseTextSurfaceContextMenuOptions {
   /**
    * Optional override of the `hasSelection` sample. When supplied, the hook
    * calls this instead of `adapterRef.current.hasRangedSelection()` for menu
-   * enablement. Used by `tug-markdown-view` to fold its `selectAllActiveRef`
-   * (CSS-visual select-all flag) into Copy enablement.
+   * enablement. Used by `use-read-only-text-surface`, which has no adapter
+   * and judges Copy by whether the document selection touches its root.
    */
   hasSelectionOverride?: () => boolean;
 

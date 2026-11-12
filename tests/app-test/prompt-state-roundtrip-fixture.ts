@@ -23,7 +23,7 @@
  *      attempt at recovery.
  *
  *   2. **Engine-creation race in the entry's restore path.**
- *      `TugPromptEntry.onRestore` calls
+ *      `PromptEntry.onRestore` calls
  *      `promptInputRef.current?.restoreState(saved)`. The
  *      imperative handle is bound at child mount, but the
  *      underlying `TugTextEngine` is only created inside the
@@ -106,7 +106,7 @@
  * @covers tugdeck/src/engine-hooks.ts
  * @covers tugdeck/src/serialization.ts
  * @covers tugdeck/src/card-state-orchestrator.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  */
@@ -148,7 +148,7 @@ const SCROLLER_SELECTOR =
 /** TUG_ATOM_CHAR — the U+FFFC placeholder atom character (engine internal). */
 const TUG_ATOM_CHAR = "￼";
 
-/** Default route for `TugPromptEntry`. */
+/** Default route for `PromptEntry`. */
 const TUG_PROMPT_ENTRY_DEFAULT_ROUTE = "❯";
 
 /**
@@ -302,7 +302,7 @@ async function setupPhaseA(
 
   if (componentId === "session") {
     // Session-card mounts its picker by default. Bind a fake session
-    // so `SessionCardBody` (which embeds `TugPromptEntry`) renders.
+    // so `SessionCardBody` (which embeds `PromptEntry`) renders.
     await app.bindSession("A");
   }
 

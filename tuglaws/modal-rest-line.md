@@ -75,7 +75,7 @@ One coupling is easy to miss and is why this section exists. The canvas-clamp ef
 
 ## What is not on the card, and does not move
 
-`TugModalInputDialog` (Open Quickly) is canvas-level rather than card-level. `TugPaneBanner` pins under the title bar deliberately — it is a persistent error strip, not a presentation. Popovers, confirm popovers, context menus and popup lists are trigger-anchored and already flip by available space. The top-right transient-notice host is a corner toast lane, and it carries nothing a presented shade's gestures produce: such a refusal belongs to a gesture with a grain and speaks on it, in the shade's own band, which `at0628` pins. What the lane does still carry is what no shade gesture produced — transient interruptions, attachment errors, the privacy refusal, and arc transport and bind refusals, each of them pressed somewhere the scrim never covers. None of these has a card's grain to obey.
+`ModalInputDialog` (Open Quickly) is canvas-level rather than card-level. `TugPaneBanner` pins under the title bar deliberately — it is a persistent error strip, not a presentation. Popovers, confirm popovers, context menus and popup lists are trigger-anchored and already flip by available space. The top-right transient-notice host is a corner toast lane, and it carries nothing a presented shade's gestures produce: such a refusal belongs to a gesture with a grain and speaks on it, in the shade's own band, which `at0628` pins. What the lane does still carry is what no shade gesture produced — transient interruptions, attachment errors, the privacy refusal, and arc transport and bind refusals, each of them pressed somewhere the scrim never covers. None of these has a card's grain to obey.
 
 ## A note on the shared shade `persistKey`
 

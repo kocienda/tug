@@ -52,7 +52,7 @@
  *    and folds the clipboard's origins into the jot's own. A jot is a slot the
  *    user keeps something in, so a paste onto one is a re-fill.
  *
- * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
+ * `TugEditorContextMenu` rather than the Radix-backed `PdfContextMenu`, for the
  * reason every menu that writes the clipboard takes it: its items run inside
  * the mousedown and it moves no focus, so a copy from a row cannot take the key
  * view away from the list the reader is arrowing through.
@@ -72,11 +72,8 @@
 import React from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import {
-  TugEditorContextMenu,
-  type TugEditorContextMenuEntry,
-} from "@/components/tugways/tug-editor-context-menu";
+import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { usePointMenu } from "@/components/tugways/use-point-menu";
 import { parseClipboardSidecar } from "@/components/tugways/tug-text-editor/clipboard-filters";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { copyAtomTextWithOrigins, formatAtomTextForCopy } from "@/lib/atom-text";
@@ -174,30 +171,20 @@ export function useJotRowMenu({
   onReplace,
   onClose,
 }: JotRowMenuOptions): JotRowMenuResult {
-  const manager = useResponderChain();
-  const [target, setTarget] = React.useState<{
-    jot: Jot;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  // The open target, read at dispatch time rather than closed over ([L07]):
-  // the menu's items are built once and the handlers outlive the render that
+  // The open target rides the point menu, and its handlers read it from
+  // `targetRef` at dispatch time rather than closing over it ([L07]): the
+  // menu's items are built once and the handlers outlive the render that
   // opened them.
-  const targetRef = React.useRef<Jot | null>(null);
-  targetRef.current = target?.jot ?? null;
-
-  const closeMenu = React.useCallback((): void => {
-    setTarget(null);
-    onClose?.();
-  }, [onClose]);
-
+  const {
+    available,
+    anchor,
+    targetRef,
+    openAt: openMenu,
+    renderMenu,
+  } = usePointMenu<Jot>({ onClose });
   const openAt = React.useCallback(
-    (jot: Jot, x: number, y: number): void => {
-      if (manager === null) return;
-      setTarget({ jot, x, y });
-    },
-    [manager],
+    (jot: Jot, x: number, y: number): void => openMenu(x, y, jot),
+    [openMenu],
   );
 
   const responderId = React.useId();
@@ -274,7 +261,7 @@ export function useJotRowMenu({
   });
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
-    const jot = target?.jot;
+    const jot = anchor?.target;
     if (jot === undefined) return [];
     // A jot with nothing written in it has nothing to take out of it. The item
     // stays and dims rather than vanishing, so the menu is the same height over
@@ -306,23 +293,17 @@ export function useJotRowMenu({
       { action: TUG_ACTIONS.NEW_JOT_BELOW, label: "New Jot" },
       { action: TUG_ACTIONS.DELETE_JOT, label: "Delete Jot" },
     ];
-  }, [target]);
+  }, [anchor]);
 
   // Inside this hook's own scope, so the menu's targeted dispatch lands on the
   // responder above rather than on the card around it. The responder's element
   // is the menu's own host — a leaf nothing focuses, which is what keeps ⌘C in
   // the jots list from resolving to "copy whatever the pointer last touched".
   const menu =
-    manager !== null ? (
+    available ? (
       <ResponderScope>
         <span ref={responderRef} data-slot="jot-row-menu">
-          <TugEditorContextMenu
-            open={target !== null}
-            x={target?.x ?? 0}
-            y={target?.y ?? 0}
-            items={items}
-            onClose={closeMenu}
-          />
+          {renderMenu(items)}
         </span>
       </ResponderScope>
     ) : null;

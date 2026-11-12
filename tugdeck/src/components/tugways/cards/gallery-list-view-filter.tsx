@@ -329,7 +329,7 @@ export function GalleryListViewFilter(): React.ReactElement {
     >
       <div style={HEADER_BAR_STYLE}>
         <div style={INPUT_HOST_STYLE}>
-          <TugFilterField
+          <TugFilterField size="sm"
             delegate={delegate}
             placeholder="Filter paths"
             data-testid="gallery-list-view-filter-field"

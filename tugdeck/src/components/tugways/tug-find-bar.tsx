@@ -42,7 +42,7 @@
  * [L06] match painting is engine-owned (CM6 decorations / CSS Custom
  * Highlights), never React state; [L11] the cluster's toggles emit `setValue`
  * and this bar's responder applies it; [L22]-adjacent: the query lives in the
- * CM6 doc, mirrored imperatively.
+ * CM6 doc, mirrored imperatively; [L19] component authoring guide.
  *
  * @module components/tugways/tug-find-bar
  */
@@ -56,7 +56,7 @@ import { EditorView, keymap } from "@codemirror/view";
 
 import { TugEntryShell } from "@/components/tugways/tug-entry-shell";
 import { FindWrapOverlay } from "@/components/tugways/chrome/find-wrap-overlay";
-import { TugFindCluster } from "@/components/tugways/tug-find-cluster";
+import { TugFindCluster } from "@/components/tugways/internal/tug-find-cluster";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
 import {
@@ -64,6 +64,7 @@ import {
   type TugTextEditorDelegate,
 } from "@/components/tugways/tug-text-editor";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
+import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type { FindSession } from "@/lib/find-session";
@@ -74,6 +75,7 @@ import {
   getFocusManager,
 } from "@/components/tugways/focus-manager";
 import { dispatchCommand } from "@/command-dispatch";
+import { cn } from "@/lib/utils";
 
 /** The bar's Tab stops, in reading order, as offsets from the host's
  *  `focusOrderBase`. The query field leads because it is where ⌘F lands and
@@ -115,11 +117,10 @@ function stepOutOfQuery(direction: 1 | -1): void {
   advanceKeyViewFocus(getFocusManager(), direction);
 }
 
-export interface TugFindBarProps {
+export interface TugFindBarProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "onSubmit" | "onChange"> {
   /** The host's find session — the bar drives it, the host owns it. */
   session: FindSession;
-  /** Dismiss gesture (Escape). The host closes the bar. */
-  onClose: () => void;
   /**
    * The card's root element — the shared {@link FindWrapOverlay}'s
    * containment box (the wrap graphic anchors to the card).
@@ -127,10 +128,8 @@ export interface TugFindBarProps {
   cardRootRef: React.RefObject<HTMLElement | null>;
   /** Query-field placeholder, which doubles as its accessible name. */
   placeholder: string;
-  /** Host class on the bar root, alongside the shared `tug-find-bar`. */
-  className?: string;
   /** `data-slot` on the bar root (defaults to `"tug-find-bar"`). */
-  dataSlot?: string;
+  "data-slot"?: string;
   /** `data-testid` on the query field. */
   inputTestId?: string;
   /**
@@ -208,17 +207,17 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
   function TugFindBar(
     {
       session,
-      onClose,
       cardRootRef,
       placeholder,
       className,
-      dataSlot = "tug-find-bar",
+      "data-slot": dataSlot = "tug-find-bar",
       inputTestId,
       initialQuery,
       focusGroup,
       focusOrderBase = 0,
       replace = false,
       replacementTestId,
+      ...rest
     }: TugFindBarProps,
     ref,
   ): React.ReactElement {
@@ -229,8 +228,15 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
     const replacementFieldRef = useRef<TugTextEditorDelegate | null>(null);
     const barRootRef = useRef<HTMLDivElement | null>(null);
 
-    const onCloseRef = useRef(onClose);
-    onCloseRef.current = onClose;
+    // The dismiss gesture (Escape, the close button) dispatches `close-find`
+    // to the responder that hosts the bar ([L11]) — dispatched from here,
+    // outside the bar's own scope, so the host and not the bar receives it.
+    // A host answers it with {@link useFindBarHost}.
+    const { dispatch: dispatchToHost } = useControlDispatch();
+    const closeRef = useRef<() => void>(() => {});
+    closeRef.current = () => {
+      dispatchToHost({ action: TUG_ACTIONS.CLOSE_FIND, sender: barResponderId, phase: "discrete" });
+    };
 
     // Whether the row shows is structure — it mounts a field and three Tab
     // stops — so it is read from the session's store ([L02]), never derived
@@ -298,7 +304,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
             {
               key: "Escape",
               run: () => {
-                onCloseRef.current();
+                closeRef.current();
                 return true;
               },
             },
@@ -437,7 +443,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
         // the pointer path, where the chain has promoted to this bar and
         // nothing else would answer.
         [TUG_ACTIONS.CANCEL_DIALOG]: () => {
-          onCloseRef.current();
+          closeRef.current();
         },
       },
       // Replace is live only while the row shows: a bar over read-only text
@@ -466,8 +472,9 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
     return (
       <ResponderScope>
         <TugEntryShell
+          {...rest}
           ref={shellRef}
-          className={className ? `tug-find-bar ${className}` : "tug-find-bar"}
+          className={cn("tug-find-bar", className)}
           data-slot={dataSlot}
           accessoryRow={
             replaceRowShown ? (
@@ -475,7 +482,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                 fieldRef={replacementFieldRef}
                 queryRef={substrateRef}
                 session={session}
-                onCloseRef={onCloseRef}
+                closeRef={closeRef}
                 testId={replacementTestId}
                 focusGroup={focusGroup}
                 focusOrderBase={focusOrderBase}
@@ -510,7 +517,7 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
                   size="sm"
                   emphasis="ghost"
                   role="action"
-                  onClick={() => onCloseRef.current()}
+                  onClick={() => closeRef.current()}
                   aria-label="Close find bar"
                   icon={<X size={16} strokeWidth={2.5} />}
                 />
@@ -650,7 +657,7 @@ interface FindReplaceFieldProps {
   /** The query field, which this field's Tab hands the caret back to. */
   queryRef: React.RefObject<TugTextEditorDelegate | null>;
   session: FindSession;
-  onCloseRef: React.RefObject<() => void>;
+  closeRef: React.RefObject<() => void>;
   testId?: string;
   focusGroup?: string;
   focusOrderBase: number;
@@ -665,7 +672,7 @@ function FindReplaceField({
   fieldRef,
   queryRef,
   session,
-  onCloseRef,
+  closeRef,
   testId,
   focusGroup,
   focusOrderBase,
@@ -696,7 +703,7 @@ function FindReplaceField({
           {
             key: "Escape",
             run: () => {
-              onCloseRef.current();
+              closeRef.current();
               return true;
             },
           },
@@ -723,7 +730,7 @@ function FindReplaceField({
         session.setReplacement(update.state.doc.toString());
       }),
     ],
-    [session, onCloseRef, queryRef],
+    [session, closeRef, queryRef],
   );
 
   // Seed the remembered replacement, selected whole, as the query seeds. The
@@ -757,5 +764,40 @@ function FindReplaceField({
         extensions={extensions}
       />
     </div>
+  );
+}
+
+/**
+ * The host side of the bar's dismissal: returns a scope component to render
+ * the bar inside, which registers a responder that answers `close-find` by
+ * calling `hide` ([L11]). The scope registers where it is RENDERED, so its
+ * parent is the responder around the bar — a host that is itself a responder
+ * stays on the bar's chain. The component is stable for the host's lifetime,
+ * and `hide` is read through a ref, so it may change identity every render
+ * ([L07]).
+ *
+ * ```tsx
+ * const FindHost = useFindBarHost(closeFind);
+ * return <FindHost><TugFindBar session={session} … /></FindHost>;
+ * ```
+ */
+export function useFindBarHost(hide: () => void): React.FC<{ children: React.ReactNode }> {
+  const hideRef = useRef(hide);
+  hideRef.current = hide;
+  return useMemo(
+    () =>
+      function FindBarHost({ children }: { children: React.ReactNode }): React.ReactElement {
+        const id = React.useId();
+        const { ResponderScope } = useOptionalResponder({
+          id,
+          actions: {
+            [TUG_ACTIONS.CLOSE_FIND]: () => {
+              hideRef.current();
+            },
+          },
+        });
+        return <ResponderScope>{children}</ResponderScope>;
+      },
+    [],
   );
 }

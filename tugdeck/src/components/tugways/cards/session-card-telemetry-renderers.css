@@ -12,7 +12,7 @@
  * same regardless of which slot (Z1 / Z2 / Z3 / Z4) it lands in.
  *
  * The Z2 status row's per-cell styling lives in the cell's own
- * component file (`tug-status-cell.css`); this file keeps only the
+ * component file (`session-telemetry-cell.css`); this file keeps only the
  * row's flex layout (`.session-telemetry-status-row`) plus the
  * window-utilization gauge overrides.
  *
@@ -101,7 +101,7 @@
 
    Each cell's per-priority static width, value/endcap styling, and
    the container-query collapse rules live in the cell's own file
-   (`tug-status-cell.css`), which is also where the collapse order and
+   (`session-telemetry-cell.css`), which is also where the collapse order and
    the measured widths behind each rung are stated — one place, so the
    numbers cannot be described here and set there.
    ========================================================================= */
@@ -125,7 +125,7 @@
    `--tugx-placard-line` when the placard opens. In the chrome (no frame) its
    offsetParent is the (position:relative) `.session-card-status-bar`, and
    the `100%` fallback sits it right on top of the strip. `left` is written
-   imperatively by TugPlacard from the trigger cell's offset. Width follows
+   imperatively by SessionPlacard from the trigger cell's offset. Width follows
    the composed TugPopupList's own per-kind caps (the placard is a
    shrink-to-fit absolute box), bounded by the container — the card's width
    either way — so a wide log popup in a narrow card clips its preview column
@@ -552,7 +552,7 @@ body[data-tug-motion="off"]
 /* The arrival's mark — the inline dialog's own glyph and its own tone, so the
    notice and the dialog it speaks for read as one thing seen twice. The two
    tones are the two the dialogs declare: `caution` for a permission request
-   (`ShieldAlert`, matching `PermissionDialog`'s `iconRole`), `info` for a
+   (`ShieldAlert`, matching `PermissionDialog`'s `iconTone`), `info` for a
    question. Named on the mark rather than on the row because the row is the
    instruments' box and this is one occupant passing through it ([L06]).
    @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
@@ -570,11 +570,11 @@ body[data-tug-motion="off"]
   height: 20px;
 }
 
-.session-telemetry-occupant-mark[data-icon-role="caution"] {
+.session-telemetry-occupant-mark[data-icon-tone="caution"] {
   color: var(--tug7-surface-toggle-primary-normal-caution-rest);
 }
 
-.session-telemetry-occupant-mark[data-icon-role="info"] {
+.session-telemetry-occupant-mark[data-icon-tone="info"] {
   color: var(--tug7-element-global-text-normal-link-rest);
 }
 
@@ -620,7 +620,7 @@ body[data-tug-motion="off"]
      the slim card the row had ~110px it was not spending, so the cut bought
      margin nobody needed and paid for it in rhythm — five readings 16px apart
      read as a cluster, not as a panel of instruments. The cell budgets in
-     `tug-status-cell.css` are sized against this gap; the two numbers are one
+     `session-telemetry-cell.css` are sized against this gap; the two numbers are one
      decision. */
   gap: var(--tugx-z2-cell-gap, var(--tug-space-2xl));
   width: 100%;
@@ -637,13 +637,13 @@ body[data-tug-motion="off"]
   box-sizing: border-box;
 
   /* Cell-width fallback — the generous default each cell inherits
-     before its own `[data-priority]` rule (in `tug-status-cell.css`)
+     before its own `[data-priority]` rule (in `session-telemetry-cell.css`)
      overrides it to a content-sized width. */
   --tugx-session-status-cell-width: 21ch;
 
   /* The one height every cell's value row holds, whichever construction it is
      built from — see `.session-telemetry-status-value-wrap` in
-     `tug-status-cell.css`, where the two measured heights and the reason are
+     `session-telemetry-cell.css`, where the two measured heights and the reason are
      written down. The taller construction's natural box, so the declaration
      squeezes nothing. */
   --tugx-session-status-value-row-height: 18px;

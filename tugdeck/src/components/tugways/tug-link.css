@@ -17,8 +17,8 @@
  * (`ironclad.css`, `sloop.css`); changing the link color in a theme
  * flows automatically here.
  *
- * Visual treatment matches `TugMarkdownView`'s existing link
- * rendering (which also composes the same `--tug7-*` tokens) so a
+ * Visual treatment matches the markdown surface's link rendering
+ * (`styles/tugx-md.css`, which composes the same `--tug7-*` tokens) so a
  * URL rendered inline through `TugLink` reads the same as the same
  * URL inside an assistant prose paragraph.
  *

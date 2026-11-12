@@ -27,7 +27,7 @@
  */
 
 import React from "react";
-import { icons } from "lucide-react";
+import { iconNamed } from "@/components/tugways/tug-named-icon";
 
 import type { SidebarSide } from "@/lib/layout-imposer";
 
@@ -69,9 +69,8 @@ const MAX_SHEETS = 2;
 function iconFor(name: string | undefined): React.ComponentType<
   React.SVGProps<SVGSVGElement>
 > | null {
-  if (name === undefined) return null;
-  const Icon = icons[name as keyof typeof icons];
-  return Icon === undefined
+  const Icon = iconNamed(name);
+  return Icon === null
     ? null
     : (Icon as unknown as React.ComponentType<React.SVGProps<SVGSVGElement>>);
 }

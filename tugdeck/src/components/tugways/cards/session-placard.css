@@ -1,0 +1,140 @@
+/**
+ * session-placard.css — appearance of the card-scoped floating placard ([L06]).
+ *
+ * The body surface mirrors the popover bubble's tokens (overlay background,
+ * role border, overlay shadow) so placards read as the same material as the
+ * rest of the floating chrome. The placard owns its own surface here (unlike a
+ * popover, which inherits `.tug-popover-content`) because it renders in-DOM,
+ * not through the Radix portal.
+ *
+ * The header is deliberately NOT a card/pane titlebar: it drops the icon,
+ * centers the title, runs at a reduced height, and sits on a raised theme tint
+ * (`--tug7-surface-global-primary-normal-raised-rest`) rather than the
+ * card-titlebar token — theme-tinged floating chrome, not a movable pane.
+ *
+ * The caller owns `width` + vertical placement (`bottom`) and the horizontal
+ * `left` is written imperatively; nothing positional is set here. A downward
+ * placard (`data-growth="down"`) anchors its `top` instead — same contract,
+ * other edge.
+ */
+
+.tug-placard {
+  --tugx-placard-bg: var(--tug7-surface-global-primary-normal-overlay-rest);
+  --tugx-placard-fg: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-placard-border: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-placard-shadow: var(--tug7-element-global-shadow-normal-overlay-rest);
+
+  position: absolute;
+  /* left: written imperatively by the drag gesture; bottom + width: caller. */
+  display: flex;
+  flex-direction: column;
+  background-color: var(--tugx-placard-bg);
+  color: var(--tugx-placard-fg);
+  border: 1px solid var(--tugx-placard-border);
+  border-radius: 0.5rem;
+  box-shadow: var(--tugx-placard-shadow);
+  /* The guard's height caps the whole panel, header included, so the body —
+     and the composed list's scroller inside it — absorbs the squeeze rather
+     than the panel painting past the canvas or the window. */
+  max-height: var(--radix-popover-content-available-height, none);
+  /* Above the status strip's own content; the panel escapes the strip upward
+     over the transcript, which sits in a lower sibling stacking context. */
+  z-index: 20;
+  animation: tug-placard-enter 120ms ease both;
+}
+
+@keyframes tug-placard-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* A downward placard enters from the other side, so the motion still travels
+   away from the anchor it hangs off rather than toward it. */
+.tug-placard[data-growth="down"] {
+  animation-name: tug-placard-enter-down;
+}
+
+@keyframes tug-placard-enter-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* A placard a body has the overlay draw (`lib/surface-mirror.ts`): the body
+   keeps it rendered, since what the overlay draws is its content, but nothing
+   of it shows or takes the pointer here. */
+.tug-placard.tug-placard-drawn-elsewhere {
+  visibility: hidden;
+  pointer-events: none;
+  animation: none;
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-screen-rest) */
+/* Header — a centered, icon-less, reduced-height title strip on the theme's
+   floating-chrome `screen` tint (the same surface tooltips / menus / the dev
+   panel render on — more theme coloration than `raised`, and NOT the
+   card-titlebar token). Clipped to the top corners so its fill bleeds to the
+   placard's rounded top edge. `position: relative` so the close `×` can
+   absolutely pin to the right without shifting the centered title. */
+.tug-placard-header {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 4px var(--tug-space-xl);
+  background-color: var(--tug7-surface-global-primary-normal-screen-rest);
+  border-bottom: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  border-radius: 0.5rem 0.5rem 0 0;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Only a repositionable placard's header is a drag handle. */
+.tug-placard-header[data-reposition] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.tug-placard[data-dragging] .tug-placard-header[data-reposition] {
+  cursor: grabbing;
+}
+
+/* Centered title — the brightest member of the letterspaced all-caps family
+   shared with the Z2 cell legends (`.session-telemetry-endcap-label`) and the
+   popup-list group subheaders. It echoes its trigger cell's legend style (mono,
+   uppercase) so the cell and its placard read as one instrument. It leads the
+   WORK placard's muted subheaders NOT by size (it runs compact, ~10px — a hair
+   under the 11px subheaders) but by the bright default text color, the centered
+   placement alone on the tinted header strip, and the caps register. */
+.tug-placard-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.6875rem;
+  font-weight: var(--tug-font-weight-medium);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* Close (`×`) — explicit-dismiss placards only. Absolutely pinned to the right
+   so the centered title never shifts; the shared ghost/icon TugButton keeps its
+   rest/hover/active treatment from tug-button.css. */
+.tug-placard-close.tug-button {
+  position: absolute;
+  right: var(--tug-space-2xs);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Body — clipped to the bottom corners so caller content (scroller, footer)
+   respects the panel's rounded lower edge. */
+.tug-placard-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 0 0 0.5rem 0.5rem;
+  overflow: hidden;
+}
+

@@ -14,7 +14,7 @@
  *      work in flight, so its dot is `paused` — full, blue, and animating
  *      nothing.
  *   3. **Log Out… on the logged-in row.** A ghost button beside the green
- *      check raises TugLogout's "Log Out of Claude?" confirm over the still-open
+ *      check raises Logout's "Log Out of Claude?" confirm over the still-open
  *      wizard. The test presses **Cancel** — never the confirm, which would log
  *      the test machine out — and the wizard is still there, still logged in.
  *

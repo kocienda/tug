@@ -2,19 +2,8 @@
    leads, then the sha the upstream now points at; the commit count rides the
    header's standard trailing summary. Appearance only ([L06]). */
 
-/* The identity is PLAIN INLINE TEXT in the detail column, for the reason the
-   commit receipt's header spells out at length: a flex container establishes
-   its own vertical alignment, which floats the parts off the header's shared
-   line box and drops them below the lifecycle dot. */
-.push-receipt-header {
-  display: block;
-  min-width: 0;
-  /* A receipt is prose, so the identity line takes the proportional family the
-     block root's scope class publishes, with the header's mono command face as
-     the fallback for a header standing outside that scope — the same two-step
-     the commit receipt's header takes. */
-  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
-}
+/* The identity line and the face its route takes are `.receipt-header` and
+   `.receipt-header-text` (`receipt-header.css`). */
 
 /* The route — `pushed <branch> → <upstream>`. A `<code>` inside
    `.tool-call-header-detail`, so it inherits the header's own command layout
@@ -22,14 +11,6 @@
    lands the line on the header baseline. */
 .push-receipt-route {
   min-width: 0;
-}
-
-/* The route reads as the commit receipt's subject does: block text, in the
-   identity line's face rather than the header's mono command face. The
-   two-class selector outranks `.tool-call-header-detail code`. */
-.push-receipt-header .push-receipt-route {
-  color: var(--tugx-block-text-color);
-  font-family: inherit;
 }
 
 /* The sha pill sits inline after the route, on its own terms — `CommitShaText`

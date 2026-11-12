@@ -163,6 +163,15 @@ body {
   outline: none;
 }
 
+/* A tab never wears the UA focus ring either. Its keyboard mark is the cursor
+   ring below, drawn flush inside the tab; WebKit's own ring sits outside it,
+   where the bar's `overflow: hidden` crops it to a stray sliver at the active
+   tab's edge. A click-selected tab set reads its active state from the bar's
+   underline, so a focused tab with no ring loses nothing. */
+.tug-tab:focus {
+  outline: none;
+}
+
 /* Cursor tab ring — the item-group movement cursor ([P02]). The bar clips its
    content (`overflow: hidden`, required by the tab collapse/overflow mechanism)
    and the tabs fill the bar's full height, so a normal OUTLINE ring is clipped

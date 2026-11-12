@@ -105,7 +105,11 @@ export interface TugMessageEditorHandle {
   revealCaret(): void;
 }
 
-export interface TugMessageEditorProps {
+export interface TugMessageEditorProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<"div">,
+    "onChange" | "onSubmit" | "placeholder" | "defaultValue" | "children"
+  > {
   /**
    * Initial document text, seeded once at mount. Later prop changes do NOT
    * round-trip into the field (no controlled input) — a consumer pushes new
@@ -243,6 +247,7 @@ export const TugMessageEditor = React.forwardRef<
     className,
     "data-testid": dataTestid,
     "aria-label": ariaLabel,
+    ...rest
   },
   ref,
 ) {
@@ -332,6 +337,7 @@ export const TugMessageEditor = React.forwardRef<
 
   return (
     <TugTextEditor
+      {...rest}
       ref={(delegate) => {
         substrateRef.current = delegate;
       }}

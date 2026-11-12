@@ -21,6 +21,7 @@
  */
 
 import "./tug-checkbox.css";
+import type { TugRole, TugSize } from "./tug-vocabulary";
 
 import React, { useCallback, useId, useState } from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
@@ -39,7 +40,7 @@ import type { FocusPolicy } from "./focus-manager";
 // ---- Types ----
 
 /** Checkbox size names — matches TugInput/TugButton sizes */
-export type TugCheckboxSize = "sm" | "md" | "lg";
+export type TugCheckboxSize = Extract<TugSize, "sm" | "md" | "lg">;
 
 /** Re-export Radix checked state for convenience */
 export type TugCheckedState = boolean | "indeterminate";
@@ -53,14 +54,7 @@ export type TugCheckedState = boolean | "indeterminate";
  *
  * @selector [data-role="<role>"]
  */
-export type TugCheckboxRole =
-  | "option"
-  | "action"
-  | "agent"
-  | "data"
-  | "success"
-  | "caution"
-  | "danger";
+export type TugCheckboxRole = Extract<TugRole, "option" | "action" | "agent" | "data" | "success" | "caution" | "danger">;
 
 /**
  * Maps role prop values to toggle-primary token suffixes.
@@ -83,8 +77,16 @@ const ROLE_TOKEN_MAP: Record<string, string> = {
   danger:  "danger",
 };
 
-/** TugCheckbox props. */
-export interface TugCheckboxProps {
+/**
+ * TugCheckbox props. They extend the Radix root's, less the ones the checkbox
+ * redefines: its checked state, its `role` (a colour role, not an ARIA one),
+ * and the change callback, which it replaces with a `toggle` dispatch [L11].
+ */
+export interface TugCheckboxProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>,
+    "checked" | "defaultChecked" | "onCheckedChange" | "role" | "asChild" | "children"
+  > {
   /**
    * Controlled checked state. Supports true, false, or "indeterminate".
    * @selector [data-state="checked"] | [data-state="unchecked"] | [data-state="indeterminate"]
@@ -124,7 +126,10 @@ export interface TugCheckboxProps {
    * @default false
    */
   required?: boolean;
-  /** Additional CSS class names on the wrapper element. */
+  /**
+   * Additional CSS class names on the checkbox root (`data-slot="tug-checkbox"`),
+   * with or without a label.
+   */
   className?: string;
   /** Accessibility label when no visible label is provided. */
   "aria-label"?: string;
@@ -199,6 +204,7 @@ export const TugCheckbox = React.forwardRef<HTMLButtonElement, TugCheckboxProps>
       value,
       required = false,
       className,
+      style,
       "aria-label": ariaLabel,
       role,
       componentStatePreservationKey,
@@ -322,8 +328,8 @@ export const TugCheckbox = React.forwardRef<HTMLButtonElement, TugCheckboxProps>
         value={value}
         required={required}
         aria-label={!label ? ariaLabel : undefined}
-        className={cn("tug-checkbox", `tug-checkbox-size-${size}`, !label && className)}
-        style={roleStyle}
+        className={cn("tug-checkbox", `tug-checkbox-size-${size}`, className)}
+        style={{ ...roleStyle, ...style }}
         data-role={role}
         data-tug-focus="refuse"
         {...rest}
@@ -345,11 +351,7 @@ export const TugCheckbox = React.forwardRef<HTMLButtonElement, TugCheckboxProps>
 
     return (
       <label
-        className={cn(
-          "tug-checkbox-wrapper",
-          effectiveDisabled && "tug-checkbox-wrapper-disabled",
-          className,
-        )}
+        className={cn("tug-checkbox-wrapper", effectiveDisabled && "tug-checkbox-wrapper-disabled")}
       >
         {checkboxNode}
         <span className={cn("tug-checkbox-label", `tug-checkbox-label-${size}`)}>

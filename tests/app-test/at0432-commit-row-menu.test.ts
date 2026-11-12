@@ -32,8 +32,8 @@
  * app's boot). The pane is deliberately narrow so subjects wrap.
  *
  * @covers tugdeck/src/components/tugways/commit-identity-menu.tsx
- * @covers tugdeck/src/components/tugways/tug-history-list.tsx
- * @covers tugdeck/src/components/tugways/tug-history-list.css
+ * @covers tugdeck/src/components/tugways/cards/session-history/history-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-history/history-list.css
  * @covers tugdeck/src/components/tugways/commit-sha-text.tsx
  * @covers tugdeck/src/components/tugways/commit-presentation.tsx
  * @covers tugdeck/src/lib/action-vocabulary.ts

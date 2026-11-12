@@ -25,6 +25,7 @@
  */
 
 import "./tug-box.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React from "react";
 import { cn } from "@/lib/utils";
@@ -34,7 +35,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 // ---- Types ----
 
 /** TugBox size names — controls label font size and inset padding scale. */
-export type TugBoxSize = "sm" | "md" | "lg";
+export type TugBoxSize = Extract<TugSize, "sm" | "md" | "lg">;
 
 /** TugBox border-radius options. */
 export type TugBoxRounded = "none" | "sm" | "md" | "lg" | "full";

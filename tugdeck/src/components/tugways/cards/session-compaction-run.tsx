@@ -33,6 +33,7 @@
  * @module components/tugways/cards/session-compaction-run
  */
 
+import { Archive } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -299,7 +300,7 @@ export function useCompactionRun(host: CompactionRunHost): (turnKey: string) => 
     coverUpRef.current = true;
     void showSheet({
       title: "Compacting",
-      icon: "Archive",
+      icon: <Archive />,
       // The cover rests on the card's modal rest line and rises from it
       // ([B06]), which it did not before: the compaction was one of the two
       // exemptions the rest line carried, on the reasoning that a rise from Z2

@@ -37,12 +37,12 @@
  * arc's actual on-screen diameter is governed by the consumer's
  * width / height on the wrapper element. The arc strokes pick up
  * the shared `--tugx-gauge-fill-{role}-color` slot via the
- * `[data-role="..."]` attribute on the wrapper — same mechanism
+ * `[data-tone="..."]` attribute on the wrapper — same mechanism
  * `TugLinearGauge` uses, same slot family.
  *
  * Tuglaw cross-check:
  *  - [L06] appearance lives in CSS / DOM. `data-density` and
- *    `data-role` select between rules; arc path geometry is pushed
+ *    `data-tone` select between rules; arc path geometry is pushed
  *    as an inline `d` attribute on the `<path>` element (the only
  *    thing the consumer's `value` and `geometry` actually drive).
  *  - [L16] every color-setting rule below either (a) sets both
@@ -175,7 +175,7 @@ body {
   stroke-width: var(--tugx-gauge-arc-stroke-width-compact);
 }
 
-.tug-arc-gauge[data-density="detailed"] .tug-arc-gauge-track {
+.tug-arc-gauge[data-density="regular"] .tug-arc-gauge-track {
   stroke-width: var(--tugx-gauge-arc-stroke-width-detailed);
 }
 
@@ -193,24 +193,24 @@ body {
   stroke-width: var(--tugx-gauge-arc-stroke-width-compact);
 }
 
-.tug-arc-gauge[data-density="detailed"] .tug-arc-gauge-fill {
+.tug-arc-gauge[data-density="regular"] .tug-arc-gauge-fill {
   stroke-width: var(--tugx-gauge-arc-stroke-width-detailed);
 }
 
 /* @tug-renders-on var(--tugx-gauge-surface) */
-.tug-arc-gauge[data-role="info"] .tug-arc-gauge-fill {
+.tug-arc-gauge[data-tone="info"] .tug-arc-gauge-fill {
   stroke: var(--tugx-gauge-fill-info-color);
 }
 /* @tug-renders-on var(--tugx-gauge-surface) */
-.tug-arc-gauge[data-role="success"] .tug-arc-gauge-fill {
+.tug-arc-gauge[data-tone="success"] .tug-arc-gauge-fill {
   stroke: var(--tugx-gauge-fill-success-color);
 }
 /* @tug-renders-on var(--tugx-gauge-surface) */
-.tug-arc-gauge[data-role="caution"] .tug-arc-gauge-fill {
+.tug-arc-gauge[data-tone="caution"] .tug-arc-gauge-fill {
   stroke: var(--tugx-gauge-fill-caution-color);
 }
 /* @tug-renders-on var(--tugx-gauge-surface) */
-.tug-arc-gauge[data-role="danger"] .tug-arc-gauge-fill {
+.tug-arc-gauge[data-tone="danger"] .tug-arc-gauge-fill {
   stroke: var(--tugx-gauge-fill-danger-color);
 }
 
@@ -242,7 +242,7 @@ body {
   stroke-width: var(--tugx-gauge-arc-stroke-width-compact);
 }
 
-.tug-arc-gauge[data-density="detailed"] .tug-arc-gauge-segment {
+.tug-arc-gauge[data-density="regular"] .tug-arc-gauge-segment {
   stroke-width: var(--tugx-gauge-arc-stroke-width-detailed);
 }
 

@@ -912,11 +912,11 @@ export class SmartScroll {
    *
    *  The policy lives here rather than at the call sites because this
    *  method is the single home of the auto-pin gate — which means it
-   *  is wider than "growth time" suggests. All five call sites reach
+   *  is wider than "growth time" suggests. All three call sites reach
    *  it: the list view's per-cell `ResizeObserver` flush (continuous
    *  during streaming as cells re-wrap), its container `ResizeObserver`
-   *  (pane and window resize), its growth pin (the signal the field
-   *  cases need), and `TugMarkdownView`'s two. A cell or container
+   *  (pane and window resize), and its growth pin (the signal the field
+   *  cases need). A cell or container
    *  resize while the user sits idle in the band re-engages too. That
    *  is intended: the policy is about the position, not about which
    *  signal happened to ask.

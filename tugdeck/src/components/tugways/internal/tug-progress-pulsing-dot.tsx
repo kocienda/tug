@@ -159,7 +159,8 @@
  *       transitions with them — the demotion's duration fallback reads the
  *       RESOLVED duration, so motion-off collapses the settle window to ~0
  *       rather than stalling it). The script here starts and releases those
- *       loops and hands off between them; it never drives a frame.
+ *       loops and hands off between them; it never drives a frame;
+ *       [L19] component authoring guide.
  *
  * @module components/tugways/internal/tug-progress-pulsing-dot
  */
@@ -1011,7 +1012,7 @@ function resolvedSettleMs(well: HTMLElement): number {
   return first.endsWith("ms") ? value : value * 1000;
 }
 
-export interface TugProgressPulsingDotProps {
+export interface TugProgressPulsingDotProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** Glyph box diameter in CSS px. @default 32 */
   size?: number;
   /** Lifecycle state. @default "running" */
@@ -1026,8 +1027,6 @@ export interface TugProgressPulsingDotProps {
   shape?: TugProgressIndicatorShape;
   /** When true, opacity dims. */
   disabled?: boolean;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 export const TugProgressPulsingDot = React.forwardRef<
@@ -1040,6 +1039,8 @@ export const TugProgressPulsingDot = React.forwardRef<
     shape = "dot",
     disabled = false,
     className,
+    style,
+    ...rest
   },
   forwardedRef,
 ) {
@@ -1457,7 +1458,8 @@ export const TugProgressPulsingDot = React.forwardRef<
       data-shape={shape === "dot" ? undefined : shape}
       data-static={mode === "static" ? "" : undefined}
       aria-hidden="true"
-      style={rootStyle}
+      {...rest}
+      style={{ ...rootStyle, ...style }}
       className={cn(
         "tug-progress-pulsing-dot",
         disabled && "tug-progress-pulsing-dot-disabled",

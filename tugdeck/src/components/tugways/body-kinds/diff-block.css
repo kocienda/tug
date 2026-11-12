@@ -136,24 +136,9 @@ body {
 
 /* ---------- Header ---------- */
 
-/* Pinned header strip — stays visible while the user scrolls deep
- * into the diff body. `top: var(--tugx-pin-stack-top, 0)` lets an
- * outer pin context push this header down so the two telescope;
- * falls back to `top: 0` when no outer pin is present. */
-.tugx-diff-header {
-  position: sticky;
-  top: var(--tugx-pin-stack-top, 0);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--tugx-block-strip-gap);
-  padding: var(--tugx-block-strip-padding);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color: var(--tugx-block-strip-color);
-  font-family: var(--tugx-block-strip-font);
-  font-size: var(--tugx-block-strip-size);
-}
+/* The strip itself — sticky, flex, the shared padding, surface and type —
+   is `.tugx-block-strip` in `styles/tugx-block.css`, which the header wears
+   beside its own class. */
 
 .tugx-diff-path {
   font-weight: var(--tugx-diff-path-weight);
@@ -224,7 +209,7 @@ body {
   border-bottom: 0;
 }
 
-/* The hunk header is a `<TugCue role="muted" align="start" mono>` —
+/* The hunk header is a `<Cue role="muted" align="start" mono>` —
  * see diff-block.tsx. The `.tugx-diff-hunk-header` class is forwarded
  * onto that cue. The rule below makes it sticky so the `@@ -N,M +N,M @@`
  * context stays visible while the user scrolls through the hunk's
@@ -241,7 +226,7 @@ body {
  * sticky pattern. */
 .tugx-diff-hunk-header.tugx-diff-hunk-header {
   position: sticky;
-  /* The hunk header is a `<TugCue>`; its size flows through the cue's own
+  /* The hunk header is a `<Cue>`; its size flows through the cue's own
    * component-tier slots ([L17]). Match the `@@ … @@` text to the diff body
    * size and give the chevron a non-stingy size — the cue default
    * (`2xs` / `icon-xs`) reads too small against the code rows. */
@@ -271,7 +256,7 @@ body {
    The band cannot simply let the cue paint: the affordance sits beside the
    cue, not inside it, so the cue's own surface stops short of the control.
    The band therefore declares its own alias — which must track the value
-   `TugCue`'s `muted` role resolves to, or the row splits visually down the
+   `Cue`'s `muted` role resolves to, or the row splits visually down the
    middle where the cue begins. Naming a `--tugx-cue-*` slot here instead would
    reach into another component's tier ([L20]); this alias is the seam. */
 .tugx-diff-hunk-lead {
@@ -477,10 +462,10 @@ body {
 
 /* ---------- States ---------- */
 
-/* The whole-diff collapsed-hint banner is now a `<TugCue role="active">`
+/* The whole-diff collapsed-hint banner is now a `<Cue role="active">`
  * (see diff-block.tsx). The `.tugx-diff-collapsed-hint` class is
  * forwarded onto the cue as a scoping hook; the `--tugx-diff-collapsed-*`
- * slot family was retired in favor of TugCue's own `--tugx-cue-*` slots. */
+ * slot family was retired in favor of Cue's own `--tugx-cue-*` slots. */
 
 .tugx-diff-loading {
   padding: var(--tugx-diff-loading-padding);

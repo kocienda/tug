@@ -5,9 +5,12 @@
  * tug-choice-group, and tug-option-group. Extracts duplicated ROLE_TOKEN_MAP,
  * role type unions, role style injection, keyboard navigation, and icon+label
  * layout rendering so each component can focus on its own visual identity.
+ *
+ * Laws: [L19] component authoring guide
  */
 
 import "./tug-group-utils.css";
+import type { TugRole } from "../tug-vocabulary";
 
 import React from "react";
 
@@ -20,14 +23,7 @@ import React from "react";
  * chosen-item color, independent of the accent/action roles.
  * Explicit roles override with a semantic signal color.
  */
-export type TugGroupRole =
-  | "option"
-  | "action"
-  | "agent"
-  | "data"
-  | "success"
-  | "caution"
-  | "danger";
+export type TugGroupRole = Extract<TugRole, "option" | "action" | "agent" | "data" | "success" | "caution" | "danger">;
 
 /**
  * Maps role prop values to toggle-primary token suffixes.

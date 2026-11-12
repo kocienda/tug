@@ -5,7 +5,7 @@
  *
  * ## What this gates
  *
- * `TugRestoreGate` used to read "n of m turns", summed over the cards
+ * `RestoreGate` used to read "n of m turns", summed over the cards
  * holding it. Turns arrive in one or two jumps at the very end of a
  * restore, and a finished card left the sum, so the readout sat still and
  * then ran backwards. It now counts sessions: "Restoring sessions" over
@@ -46,7 +46,7 @@
  *
  * @covers tugdeck/src/lib/restore-gate-store.ts
  * @covers tugdeck/src/lib/restore-gate-round.ts
- * @covers tugdeck/src/components/tugways/tug-restore-gate.tsx
+ * @covers tugdeck/src/components/chrome/restore-gate.tsx
  * @covers tugdeck/src/lib/session-restore.ts
  */
 

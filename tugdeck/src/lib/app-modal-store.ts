@@ -1,7 +1,7 @@
 /**
  * app-modal-store.ts — whether an app-modal wizard is on screen.
  *
- * `ConfigureTug`, `UpdateTug` and `TugVersionGate` are Radix `AlertDialog`s
+ * `ConfigureTug`, `UpdateTug` and `VersionGate` are Radix `AlertDialog`s
  * portalled into the canvas overlay, so pointer input and focus are trapped
  * for the web view. AppKit is not trapped: the menu bar still validates and
  * still fires, and ⌘N under an open wizard opens a Session card behind it.

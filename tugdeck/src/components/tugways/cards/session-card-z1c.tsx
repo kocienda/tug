@@ -159,7 +159,7 @@ export const SessionZ1C: React.FC<SessionZ1CProps> = ({ codeSessionStore }) => {
       data-slot="session-z1c"
       variant="wave"
       state="running"
-      role="inherit"
+      tone="inherit"
       aria-label={content.label}
       aria-live="polite"
     />

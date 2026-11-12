@@ -5,8 +5,8 @@
  * `BashToolBlock` sense: the wrapper owns the chrome (the lifecycle dot
  * + "Git Commit" name + collapse chevron, matching every other tool block),
  * and this renders the receipt *inside* that frame — the summary set as
- * a title, a branch `TugBadge` + a click-to-copy short-hash
- * `TugCopyBadge`, three borderless stat `TugBadge`s (neutral `+N` / `−M`
+ * a title, a branch `TugBadge` + a click-to-copy short-hash `TugBadge`,
+ * three borderless stat `TugBadge`s (neutral `+N` / `−M`
  * deltas + a file-count `action` badge), the message body in the shared
  * `CommitMessage` well — the `/commit` receipt's own message layout, so the
  * two blocks that name one act lay it out alike — and a `BlockDisclosure`
@@ -53,7 +53,6 @@ import React from "react";
 import { GitBranch } from "lucide-react";
 
 import { TugBadge } from "@/components/tugways/tug-badge";
-import { TugCopyBadge } from "@/components/tugways/tug-copy-badge";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { MiddleEllipsisPath } from "@/components/tugways/blocks/middle-ellipsis-path";
 import { BlockDisclosure } from "@/components/tugways/blocks/block-bits/block-disclosure";
@@ -80,8 +79,8 @@ export interface CommitHeaderTargetProps {
 
 /**
  * The commit's header-line content — the summary message (ellipsizing to
- * one line) with the branch `TugBadge` and click-to-copy hash
- * `TugCopyBadge` pinned to the right. The wrapper hands this to
+ * one line) with the branch `TugBadge` and the click-to-copy hash
+ * `TugBadge` pinned to the right. The wrapper hands this to
  * `BlockChrome` as the header `identity`, so it sits on the tool-call
  * header row beside the "Git Commit" name, exactly where a Bash block's
  * command sits.
@@ -103,13 +102,16 @@ export function CommitHeaderTarget({
         >
           {branch}
         </TugBadge>
-        <TugCopyBadge
+        <TugBadge
           className="tugx-commit-hash-badge"
           emphasis="ghost"
           role="inherit"
           size="sm"
-          value={hash}
-        />
+          copyText={hash}
+          copyOnClick
+        >
+          {hash}
+        </TugBadge>
       </span>
     </span>
   );

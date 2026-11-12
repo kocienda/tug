@@ -218,6 +218,6 @@ export function onePaneDeck(componentId: string, cardIds: readonly string[]): De
 
 /** The text of the deck's error banner, or `null` — a red names the error. */
 export function errorBannerText(container: HTMLElement): string | null {
-  const banner = container.querySelector('[data-slot="tug-banner"][data-variant="error"]');
+  const banner = container.querySelector('[data-slot="tug-banner"][data-kind="error"]');
   return banner?.textContent?.slice(0, 600) ?? null;
 }

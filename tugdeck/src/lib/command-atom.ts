@@ -118,7 +118,7 @@ export const COMMIT_ATOM_TYPE = "commit";
  * Two types do: a session and a commit. That is not a coincidence of taste but
  * the same claim twice — each names an object somebody can hold in their head
  * and point at, where a file chip names a thing you open. Both live pills
- * borrow one CSS skin (`tug-session-identity.css`'s chip tier) and both bakes
+ * borrow one CSS skin (`session-identity.css`'s chip tier) and both bakes
  * take the geometry and ink below, so a pill cannot come out one shape in the
  * composer and another in the transcript it was sent to.
  */
@@ -180,7 +180,7 @@ export interface ChipStyle {
  * `"missing"` is the third, and it is a *pill* face rather than a token
  * swap: a session reference nothing on this machine answers for, baked
  * dashed and muted — the bake's reading of the `data-missing` skin
- * `tug-session-identity.css` paints over the mounted pill. It resolves the
+ * `session-identity.css` paints over the mounted pill. It resolves the
  * default token table, because the difference is drawn by the painter and
  * not by the tokens; see `PILL_CHIP_MISSING_INK_TOKEN`.
  */
@@ -263,7 +263,7 @@ export function chipStyle(variant: ChipVariant = "default"): ChipStyle {
  * takes the ink and is no channel at all, because a commit has no state to
  * report.
  *
- * The numbers are the ones `tug-session-identity.css` authors for the `sm`
+ * The numbers are the ones `session-identity.css` authors for the `sm`
  * chip — the same skin `TugCommitAtom` borrows — so the composer's bake and
  * the mounted component read as the same object at the same size, for either
  * kind.
@@ -286,7 +286,7 @@ export const PILL_CHIP_INK_TOKEN =
 
 /** The ink a MISSING pill chip paints in — the muted text color, mirrored
  *  from the `.tug-session-identity[data-tier="chip"][data-missing="true"]`
- *  rule in `tug-session-identity.css`, which is the mounted pill's reading
+ *  rule in `session-identity.css`, which is the mounted pill's reading
  *  of the same fact. Mirrored rather than shared because a baked `<img>`
  *  cannot reach the host cascade; the two must be edited together. */
 export const PILL_CHIP_MISSING_INK_TOKEN =

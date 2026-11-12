@@ -865,7 +865,7 @@ export function SessionChangesArcLane({
         <>
           <TugSectionLabel
             label={arcFrontedLabel(true)}
-            slot="session-changes-arc-lane-fronted-label"
+            data-slot="session-changes-arc-lane-fronted-label"
           />
           <DocumentArcRow
             key={documentArc.owner_id}
@@ -882,7 +882,7 @@ export function SessionChangesArcLane({
         <>
           <TugSectionLabel
             label={arcFrontedLabel(fronted.owner_id === boundArcId)}
-            slot="session-changes-arc-lane-fronted-label"
+            data-slot="session-changes-arc-lane-fronted-label"
           />
           <ArcRow
             // Keyed so a rebind swaps the row rather than reusing it: the
@@ -909,7 +909,7 @@ export function SessionChangesArcLane({
         <>
           <TugSectionLabel
             label={ARC_UNBOUND_LABEL}
-            slot="session-changes-arc-lane-rest-label"
+            data-slot="session-changes-arc-lane-rest-label"
           />
           {rest.map((entry) => (
             <ArcRow
@@ -932,7 +932,7 @@ export function SessionChangesArcLane({
         </>
       ) : null}
       {/* One controlled confirm for the whole lane, anchored to whichever row
-          armed it. `confirmRole="danger"` puts default focus on Cancel, so a
+          armed it. `confirm={{ role: "danger" }}` puts default focus on Cancel, so a
           reflexive Return can never destroy an arc. */}
       <TugConfirmPopover
         open={pendingDiscard !== null}
@@ -941,7 +941,7 @@ export function SessionChangesArcLane({
           pendingDiscard === null ? "" : discardConfirm(pendingDiscard.kind === "delete").message
         }
         confirmLabel={pendingDiscard?.kind === "delete" ? "Delete" : "Discard"}
-        confirmRole="danger"
+        confirm={{ role: "danger" }}
         side="top"
         onConfirm={() => {
           const armed = pendingDiscard;

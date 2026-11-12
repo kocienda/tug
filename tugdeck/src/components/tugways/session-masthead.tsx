@@ -56,7 +56,7 @@
  * The trailing widget opens the telemetry popover: branch, state, turns,
  * stamps, and the citation with a copy affordance. A popover is where the copy
  * lives rather than a hover surface, because a hover-dismissed panel puts its
- * own button out of the pointer's reach — and rather than a `TugPlacard`,
+ * own button out of the pointer's reach — and rather than a `SessionPlacard`,
  * which renders in place and needs its caller to own the vertical axis inside
  * a positioned ancestor, a contract a clipping 88px chrome tier cannot honour.
  *
@@ -73,9 +73,10 @@ import "./session-masthead.css";
 import React, { useCallback, useEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
+import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
 import { FolderOpenDot, Summary } from "lucide-react";
 
-import { TugButton } from "@/components/tugways/internal/tug-button";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   TugPopover,
@@ -113,7 +114,7 @@ import { SESSION_PHASE_LABELS } from "@/lib/code-session-store/session-phase-vis
 import { useSessionCreatedAtMs } from "@/lib/session-created-at";
 import { writeSessionAtomToClipboard } from "@/lib/session-atom";
 import { openPathInOS } from "@/lib/os-open";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 import { cardServicesStore } from "@/lib/card-services-store";
@@ -315,17 +316,20 @@ function TelemetryRow({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <div
+    // The action cell is declared on EVERY row, empty or not (`?? null`), so
+    // the value column is one width down the whole panel — a track that
+    // appeared on two rows would step those two values in from the four above.
+    <TugKeyValueRow
       className="session-masthead-telemetry-row"
       data-enclosed={enclosed ? "true" : undefined}
+      label={label}
+      labelClassName="session-masthead-telemetry-label"
+      valueClassName="session-masthead-telemetry-value"
+      trailing={action ?? null}
+      trailingClassName="session-masthead-telemetry-action"
     >
-      <span className="session-masthead-telemetry-label">{label}</span>
-      <span className="session-masthead-telemetry-value">{children}</span>
-      {/* The cell is declared on EVERY row, empty or not, so the value column
-          is one width down the whole panel — a track that appeared on two rows
-          would step those two values in from the four above them. */}
-      <span className="session-masthead-telemetry-action">{action}</span>
-    </div>
+      {children}
+    </TugKeyValueRow>
   );
 }
 
@@ -765,7 +769,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
         The React tree is unchanged by the portal — this subtree still reads the
         masthead's stores and still bubbles into it ([D132]).
 
-        A POPOVER, not a placard. `TugPlacard` renders in place and asks its
+        A POPOVER, not a placard. `SessionPlacard` renders in place and asks its
         caller to own the vertical axis inside a positioned ancestor — a
         contract an 88px chrome tier with `overflow: hidden` cannot honour, so
         the panel opened clipped by the bar it was mounted in and painted over
@@ -773,7 +777,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
         and positions itself against this button, which is what every other
         chrome affordance in the masthead already does.
 
-        The trigger is a ghost icon `TugButton`, the same control the stack
+        The trigger is a ghost `TugIconButton`, the same control the stack
         badge, the `…` menu, the width chevron, and the close box are. Standing
         in that row is not enough to look like a member of it: the cluster's
         palette is addressed at `.tug-pane-title-bar-controls .tug-button`, so
@@ -801,15 +805,12 @@ export const SessionMasthead = React.memo(function SessionMasthead({
       <span className="tug-pane-title-bar-tooltip-anchor">
       <TugPopover dismissOnChainActivity={false}>
         <TugPopoverTrigger>
-          <TugButton
-            subtype="icon"
-            emphasis="ghost"
-            role="action"
+          <TugIconButton
             size="sm"
             icon={<Summary />}
             data-slot="session-masthead-widget"
             // Chrome, like the close button — never a card-cycle focus stop.
-            // `TugButton` already refuses first responder on click; opening the
+            // `TugIconButton` already refuses first responder on click; opening the
             // panel on a background card must not raise it, hence no-activate.
             tabIndex={-1}
             data-no-activate=""
@@ -862,7 +863,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
                   />
                 }
               >
-                <TugSessionIdentity
+                <SessionIdentityView
                   identity={identity}
                   tier="chip"
                   // This panel is the card's own chrome, so the chip's menu
@@ -883,7 +884,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
               >
                 {/* The citation is the sanctioned flat-text form, and the only
                     place monospace appears in session identity. FLAT text, and
-                    nothing else: it wore a `TugCopyBadge` here, which put a
+                    nothing else: a copy badge here would put a
                     bordered, tinted, icon-bearing chip on the row directly under
                     the atom — two enclosures in a row, the quieter fact wearing
                     the louder box. The row above is the chip; this row is the
@@ -916,10 +917,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
       */}
       {projectDir.length > 0 && (
         <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
-          <TugButton
-            subtype="icon"
-            emphasis="ghost"
-            role="action"
+          <TugIconButton
             size="sm"
             icon={<FolderOpenDot />}
             data-slot="session-masthead-reveal"

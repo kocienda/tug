@@ -1,8 +1,8 @@
 /**
  * The placard's height guard: how far a placard may grow off its anchor
- * before it reaches the edge it grows toward. The component (`TugPlacard`)
+ * before it reaches the edge it grows toward. The component (`SessionPlacard`)
  * and the overlay's drawn surface (`overlay/overlay-surface-drawer.ts`) both
- * write it, so it lives in `lib`, and `components/tugways/tug-placard.tsx`
+ * write it, so it lives in `lib`, and `components/tugways/cards/session-placard.tsx`
  * re-exports it.
  *
  * @module lib/placard-available-height

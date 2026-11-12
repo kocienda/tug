@@ -49,25 +49,28 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
-import { icons } from "lucide-react";
+import { sizedIcon } from "./internal/sized-icon";
 import { cn } from "@/lib/utils";
 import { TugPanePortalContext } from "@/components/chrome/tug-pane";
 import { paneBodyOf } from "@/components/tugways/use-pane-inert";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useBannerLifecycle } from "@/lib/banner-lifecycle";
 import { group } from "@/components/tugways/tug-animator";
+import { useBannerDwell, type TugBannerBaseProps } from "./internal/banner-base";
 
 /* ---------------------------------------------------------------------------
  * Props
  * ---------------------------------------------------------------------------*/
 
-export interface TugPaneBannerProps {
-  /** Whether the banner is shown. @selector [data-visible="true"] | [data-visible="false"] */
-  visible: boolean;
-  /** Layout variant. @selector [data-variant="error"] | [data-variant="status"] @default "error" */
-  variant?: "error" | "status";
-  /** Visual severity. @selector [data-tone="danger"] | [data-tone="caution"] | [data-tone="default"] @default "danger" */
-  tone?: "danger" | "caution" | "default";
+/**
+ * Props for {@link TugPaneBanner}: the shared banner props, with `kind`
+ * defaulting to `"error"`, plus the strip label and the detail panel's
+ * TugAlert-style icon and title. In the status kind the footer sits on its
+ * own row below the strip (e.g. a Dismiss for a soft notice). The dwell
+ * floor is what keeps a transient state — a replay that resolves within
+ * ~50ms — from flashing a banner nobody can read.
+ */
+export interface TugPaneBannerProps extends TugBannerBaseProps {
   /** Short high-contrast strip label (e.g. "Connection lost"). Rendered bold, left of the message. */
   label?: string;
   /**
@@ -77,8 +80,8 @@ export interface TugPaneBannerProps {
    * through React.
    */
   message: React.ReactNode;
-  /** Optional Lucide icon name for the strip (most useful for status variant). */
-  icon?: string;
+  /** Optional icon element for the strip (most useful for status kind); sized to 16px. */
+  icon?: React.ReactNode;
   /**
    * Optional custom node rendered in place of the Lucide icon. When
    * provided, the strip uses this node and ignores `icon`. Use for
@@ -88,62 +91,15 @@ export interface TugPaneBannerProps {
    */
   iconSlot?: React.ReactNode;
   /**
-   * Optional Lucide icon name rendered in the detail panel (error variant
-   * only). Rendered large (48px) on the left of the TugAlert-style layout.
+   * Optional icon element rendered in the detail panel (error kind only).
+   * Sized large (48px) on the left of the TugAlert-style layout.
    */
-  detailIcon?: string;
+  detailIcon?: React.ReactNode;
   /**
    * Optional bold title rendered above the detail body (error variant only).
    * Matches TugAlert's title shape.
    */
   detailTitle?: string;
-  /** Detail panel body content (error variant only). */
-  children?: React.ReactNode;
-  /**
-   * Footer controls. In the `error` variant they pin to the detail
-   * panel; in the `status` variant they sit on their own row below the
-   * strip (e.g. a Dismiss button for a soft, non-blocking notice).
-   */
-  footer?: React.ReactNode;
-  /**
-   * Disables the `inert` application on `.tug-pane-body` — for gallery demos
-   * that render the banner inside a preview without blocking interaction.
-   * The visual strip and detail panel still render normally.
-   * @default false
-   */
-  contained?: boolean;
-  /**
-   * Floor on visibility duration in milliseconds. After the banner first
-   * paints with `visible: true`, subsequent `visible: false` requests are
-   * held until at least this many milliseconds have elapsed since first
-   * paint, then the existing exit animation runs.
-   *
-   * The hold prevents flash-and-vanish: a parent that mounts the banner
-   * for a transient state and tears it down within ~50ms (e.g. a JSONL
-   * replay that resolves before the soft-budget fires) would otherwise
-   * leave the user looking at sub-perceptual motion they can't read.
-   *
-   * Once an exit is committed (deferral pending or animation in flight),
-   * subsequent `visible: true` is ignored until the banner has fully
-   * unmounted — matching the rule that an ordered-out banner cannot be
-   * revived. After the unmount, a fresh `visible: true` starts a new
-   * enter cycle.
-   *
-   * Pass `0` to opt out entirely.
-   * @default 500
-   */
-  minMountedMs?: number;
-  /**
-   * Clock injection for tests. Defaults to `performance.now`. The gate
-   * compares `nowMs() - shownAt` against `minMountedMs`; tests can inject
-   * a controllable clock so the deferral computation is deterministic
-   * without racing the wall clock. Production code never needs to set
-   * this.
-   * @internal
-   */
-  nowMs?: () => number;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 /* ---------------------------------------------------------------------------
@@ -153,8 +109,8 @@ export interface TugPaneBannerProps {
 export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps>(
   function TugPaneBanner(
     {
-      visible,
-      variant = "error",
+      open,
+      kind = "error",
       tone = "danger",
       label,
       message,
@@ -168,15 +124,11 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       minMountedMs = 500,
       nowMs,
       className,
+      ...rest
     },
     ref,
   ) {
     const cardEl = useContext(TugPanePortalContext);
-    // Stable clock reference. The default (performance.now) is monotonic and
-    // unaffected by wall-clock skew. Captured in a ref so the gate's logic
-    // doesn't depend on prop identity for re-runs.
-    const nowFnRef = useRef<() => number>(nowMs ?? (() => performance.now()));
-    nowFnRef.current = nowMs ?? (() => performance.now());
     // Per-card banner-lifecycle plumbing. cardId is read from
     // `CardIdContext` (provided by `CardHost`); when this banner is
     // rendered outside a card host (gallery preview, standalone
@@ -194,42 +146,10 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
     // the exit animation's `.finished` resolves.
     const [mounted, setMounted] = useState(false);
 
-    // ---- Min-mount-time gate state ------------------------------------
-    // Recorded on the first paint of visible content (in the enter-animation
-    // effect, guarded by a null check). The exit branch reads this to
-    // compute how much longer the banner must stay before the slide-out
-    // can begin. Cleared when the gated exit completes so the next
-    // visible: true cycle starts fresh.
-    const shownAtRef = useRef<number | null>(null);
-    // Set to true the first time (!visible && mounted) fires. Once true,
-    // the parent's visible: true / visible: false toggles are ignored
-    // until the unmount completes — the user-stated rule that an
-    // ordered-out banner cannot be revived.
-    const committedToExitRef = useRef(false);
-    // Pending setTimeout handle for the deferred exit. Cleanup paths
-    // (effect re-run, component unmount) read this to clear the timer
-    // and abandon the deferral.
-    const deferredExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // Unmount-only safety net for the deferral timer. The gate's
-    // commitment is binding once `committedToExitRef` is set, which
-    // means the exit effect intentionally does NOT return a cleanup
-    // that clears the timer on re-runs (so visible: true mid-deferral
-    // doesn't unwind the gate). The trade-off: when the parent
-    // unmounts the banner mid-deferral, no effect cleanup catches the
-    // pending timer, the closure stays alive until the timer fires,
-    // and `runExit` runs on detached DOM (harmless but wasteful). This
-    // empty-deps effect closes that gap — its cleanup runs once on
-    // unmount and clears any pending timer so the closure can be
-    // collected promptly. Mirrors the same pattern in TugBanner.
-    useLayoutEffect(() => {
-      return () => {
-        if (deferredExitTimerRef.current !== null) {
-          clearTimeout(deferredExitTimerRef.current);
-          deferredExitTimerRef.current = null;
-        }
-      };
-    }, []);
+    // The shared dwell gate: a close is held until the floor has passed
+    // since the first paint, and a committed close is binding until the
+    // banner has unmounted — an ordered-out banner cannot be revived.
+    const dwell = useBannerDwell(minMountedMs, nowMs);
 
     // Stable renderable props through the exit animation. When the
     // parent flips `visible` from true → false, it commonly drops
@@ -243,7 +163,7 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
     // last visible render so the exit slide carries the content the
     // user saw a frame ago.
     const lastVisiblePropsRef = useRef({
-      variant,
+      kind,
       tone,
       label,
       message,
@@ -254,9 +174,9 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       children,
       footer,
     });
-    if (visible) {
+    if (open) {
       lastVisiblePropsRef.current = {
-        variant,
+        kind,
         tone,
         label,
         message,
@@ -268,9 +188,9 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
         footer,
       };
     }
-    const r = visible
+    const r = open
       ? {
-          variant,
+          kind,
           tone,
           label,
           message,
@@ -356,9 +276,9 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       // re-arms prev-tracking so a fresh post-unmount visible: true is
       // detected as a clean new cycle. Note: the order of effects is
       // (didHide above) then (presence) then (exit). On the FIRST
-      // visible: true → false transition, committedToExitRef is still
-      // false here, so the willHide event fires correctly; the exit
-      // effect that follows in the same render flips committedToExitRef.
+      // visible: true → false transition, the gate is not yet committed
+      // here, so the willHide event fires correctly; the exit effect
+      // that follows in the same render commits it.
       //
       // `mounted` is in the dep list so this effect re-runs when
       // finishExit calls setMounted(false). That re-run is what restarts
@@ -366,18 +286,18 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       // while the gate was committed (the presence effect ignored the
       // re-entry then; honoring it here, after the gate resets, is the
       // "fresh visible: true after the unmount" case from the spec).
-      if (committedToExitRef.current) return;
-      if (visible) setMounted(true);
+      if (dwell.committed()) return;
+      if (open) setMounted(true);
       if (cardIdForLifecycle !== null && bannerLifecycle !== null) {
         const prev = prevVisibleForLifecycleRef.current;
-        if (visible && !prev) {
+        if (open && !prev) {
           bannerLifecycle.notifyBannerWillShow(cardIdForLifecycle);
-        } else if (!visible && prev) {
+        } else if (!open && prev) {
           bannerLifecycle.notifyBannerWillHide(cardIdForLifecycle);
         }
       }
-      prevVisibleForLifecycleRef.current = visible;
-    }, [visible, mounted, cardIdForLifecycle, bannerLifecycle]);
+      prevVisibleForLifecycleRef.current = open;
+    }, [open, mounted, cardIdForLifecycle, bannerLifecycle, dwell]);
 
     // Inert management keyed on `mounted`. When the banner is in the DOM the
     // card body is inert; when the exit animation finishes and mounted goes
@@ -403,24 +323,20 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
     // visible=true pipeline is: (render null) → effect sets mounted=true →
     // re-render with DOM present → this effect runs on the DOM.
     useLayoutEffect(() => {
-      if (!visible || !mounted) return;
+      if (!open || !mounted) return;
       // If the gate has committed to exit, the parent flipping visible
       // back to true does not restart the enter animation. The dwell +
       // exit completes; only after the unmount can a fresh cycle begin.
-      if (committedToExitRef.current) return;
+      if (dwell.committed()) return;
       const strip = stripRef.current;
       const detail = detailRef.current;
       if (!strip) return;
 
-      // Record shownAt at first paint of visible content. The null
-      // guard ensures dependency-only re-runs (cardIdForLifecycle /
-      // bannerLifecycle changing under a stable visible+mounted) don't
-      // reset the timestamp. This effect runs in the post-`setMounted`
-      // commit, ~one frame closer to actual paint than the presence
-      // effect — a more honest "first visible on screen" floor.
-      if (shownAtRef.current === null) {
-        shownAtRef.current = nowFnRef.current();
-      }
+      // Record the first paint of shown content; dependency-only re-runs
+      // keep the first. This effect runs in the post-`setMounted` commit,
+      // ~one frame closer to actual paint than the presence effect — a
+      // more honest "first visible on screen" floor.
+      dwell.markShown();
 
       const g = group({ duration: "--tug-motion-duration-moderate" });
       g.animate(
@@ -444,7 +360,7 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
         // Animation interrupted — the next visible→mounted transition
         // (or unmount) will fire its own lifecycle event.
       });
-    }, [visible, mounted, cardIdForLifecycle, bannerLifecycle]);
+    }, [open, mounted, cardIdForLifecycle, bannerLifecycle, dwell]);
 
     // Exit animation: runs when (!visible && mounted). Unmounts the portal
     // content only after `.finished` resolves so the exit animation plays
@@ -457,8 +373,8 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
     // deferral fires, today's animation + .finished → setMounted(false)
     // chain runs unchanged.
     //
-    // The gate's commitment is one-shot and binding: once
-    // committedToExitRef is set, the deferral runs to completion
+    // The gate's commitment is one-shot and binding: once committed,
+    // the deferral runs to completion
     // regardless of subsequent visible toggles. The exit effect is
     // idempotent — re-runs while committed are no-ops, and the cleanup
     // does not tear down a pending timer because the gate's contract is
@@ -473,15 +389,11 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       // visible flipping back to true mid-deferral. (The auto-restart
       // logic in finishExit handles the "visible is still true after
       // the gate resets" case.)
-      if (committedToExitRef.current) return;
-      if (visible || !mounted) return;
+      if (dwell.committed()) return;
+      if (open || !mounted) return;
 
       const strip = stripRef.current;
       const detail = detailRef.current;
-
-      // Commit to exit on the first (!visible && mounted) edge. Reset
-      // happens in `runExit`'s finished/catch handlers.
-      committedToExitRef.current = true;
 
       const finishExit = () => {
         setMounted(false);
@@ -489,9 +401,7 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
         // cycle. Doing this in both .then and .catch (and the no-DOM
         // shortcut below) keeps the invariant: refs are null/false
         // exactly when `mounted` is false.
-        shownAtRef.current = null;
-        committedToExitRef.current = false;
-        deferredExitTimerRef.current = null;
+        dwell.reset();
         // Re-arm willShow for the auto-restart case: if the parent
         // re-asserted visible: true while the gate was committed, the
         // presence effect's re-run (triggered by setMounted(false)
@@ -510,7 +420,6 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       }
 
       const runExit = () => {
-        deferredExitTimerRef.current = null;
         const g = group({ duration: "--tug-motion-duration-moderate" });
         if (strip) {
           g.animate(
@@ -527,32 +436,10 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
         g.finished.then(finishExit).catch(finishExit);
       };
 
-      // shownAt is null only if the banner reached the exit branch
-      // without the enter-animation effect having run — unreachable
-      // in normal flow because (!visible && mounted) implies a prior
-      // (visible && mounted) commit, which would have recorded
-      // shownAt. Handle defensively: an unrecorded shownAt means we
-      // have no dwell history to honor, so skip the deferral and run
-      // the exit immediately. (A `?? now` fallback would compute
-      // `remaining = minMountedMs` and defer the FULL floor, which is
-      // the opposite of the intent here.)
-      if (shownAtRef.current === null) {
-        runExit();
-        return;
-      }
-
-      const remaining = Math.max(
-        0,
-        minMountedMs - (nowFnRef.current() - shownAtRef.current),
-      );
-
-      if (remaining > 0) {
-        deferredExitTimerRef.current = setTimeout(runExit, remaining);
-        return;
-      }
-
-      runExit();
-    }, [visible, mounted, minMountedMs]);
+      // Commit to exit on the first (!open && mounted) edge; the reset is
+      // in finishExit.
+      dwell.commitExit(runExit);
+    }, [open, mounted, dwell]);
 
     if (!mounted) return null;
     // Contained mode (gallery demos) renders inline inside the caller's
@@ -567,7 +454,7 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
           <span className="tug-pane-banner-icon">{r.iconSlot}</span>
         ) : r.icon ? (
           <span className="tug-pane-banner-icon" aria-hidden="true">
-            <BannerIcon name={r.icon} />
+            {sizedIcon(r.icon, 16)}
           </span>
         ) : null}
         {r.label && <span className="tug-pane-banner-label">{r.label}</span>}
@@ -577,10 +464,11 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
 
     const statusContent = (
       <div
+        {...rest}
         ref={setRef}
         data-slot="tug-pane-banner"
-        data-variant="status"
-        data-visible={String(visible)}
+        data-kind="status"
+        data-visible={String(open)}
         data-tone={r.tone}
         data-contained={contained ? "true" : undefined}
         role="status"
@@ -601,12 +489,13 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       // held value): focus must be released the moment the parent
       // dismisses, even though the rest of the banner content keeps
       // rendering for the exit animation.
-      <FocusScopeRadix.FocusScope trapped={visible} loop>
+      <FocusScopeRadix.FocusScope trapped={open} loop>
         <div
+          {...rest}
           ref={setRef}
           data-slot="tug-pane-banner"
-          data-variant="error"
-          data-visible={String(visible)}
+          data-kind="error"
+          data-visible={String(open)}
           data-tone={r.tone}
           data-contained={contained ? "true" : undefined}
           role="alert"
@@ -619,7 +508,7 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
               <div className="tug-pane-banner-detail-body">
                 {r.detailIcon && (
                   <div className="tug-pane-banner-detail-icon" aria-hidden="true">
-                    <DetailIcon name={r.detailIcon} />
+                    {sizedIcon(r.detailIcon, 48)}
                   </div>
                 )}
                 <div className="tug-pane-banner-detail-text">
@@ -643,37 +532,8 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
     // Pick the layout shape from the variant the banner had on its
     // last visible render so an exit doesn't swap from `error` (with
     // detail panel + FocusScope) to `status` (strip-only) mid-flight.
-    const content = r.variant === "status" ? statusContent : errorContent;
+    const content = r.kind === "status" ? statusContent : errorContent;
     if (contained) return content;
     return createPortal(content, cardEl!);
   },
 );
-
-/* ---------------------------------------------------------------------------
- * Icon helpers — render a Lucide icon by kebab-case name
- * ---------------------------------------------------------------------------*/
-
-function resolveLucideIcon(name: string): React.ComponentType<{ size?: number }> | null {
-  const pascalName = name
-    .split("-")
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join("") as keyof typeof icons;
-  const IconComponent = icons[pascalName] as
-    | React.ComponentType<{ size?: number }>
-    | undefined;
-  return IconComponent ?? null;
-}
-
-/** Strip-sized (16px) icon shown in the attention strip. */
-function BannerIcon({ name }: { name: string }) {
-  const IconComponent = resolveLucideIcon(name);
-  if (!IconComponent) return null;
-  return <IconComponent size={16} />;
-}
-
-/** Detail-panel-sized (48px) icon shown in the TugAlert-style layout. */
-function DetailIcon({ name }: { name: string }) {
-  const IconComponent = resolveLucideIcon(name);
-  if (!IconComponent) return null;
-  return <IconComponent size={48} />;
-}

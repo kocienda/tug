@@ -72,8 +72,8 @@
  * @covers tugdeck/src/lib/default-workspace-store.ts
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/lib/open-file-in-card.ts
- * @covers tugdeck/src/components/tugways/tug-modal-input-dialog.tsx
- * @covers tugdeck/src/components/tugways/tug-modal-input-dialog.css
+ * @covers tugdeck/src/components/chrome/modal-input-dialog.tsx
+ * @covers tugdeck/src/components/chrome/modal-input-dialog.css
  * @covers tugdeck/src/components/tugways/cards/settings-general-body.tsx
  * @covers tugdeck/src/components/tugways/tug-combo-box.tsx
  * @covers tugdeck/src/components/tugways/tug-combo-box.css

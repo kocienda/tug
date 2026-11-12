@@ -71,7 +71,7 @@
  * what the claim actually moved and runs with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/default-focus.ts
  * @covers tugdeck/src/components/tugways/tug-pane-banner.tsx

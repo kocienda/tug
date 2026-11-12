@@ -1,14 +1,9 @@
 /**
  * `parseMarkdownToSanitizedBlocks` — the shared lex/parse/sanitize
- * pipeline consumed by `TugMarkdownView` (virtualized renderer) and
- * `TugMarkdownBlock` (per-cell renderer).
- *
- * Per [D09] (md-block-sibling) in `tugplan-tug-list-view.md`, both
- * primitives share this entry point so the block parsing is
- * identical between them. Splitting them keeps each primitive small
- * and obvious at the import site (`TugMarkdownView` for streaming +
- * virtualized; `TugMarkdownBlock` for natural-flow per-cell content)
- * while the parsing pipeline stays exactly one piece of code.
+ * pipeline behind every rendered markdown block: `TugMarkdownBlock`
+ * (through `renderIncremental` and the parse cache), the beat line,
+ * and the transcript's copy-as-HTML path all read their blocks from
+ * this one entry point, so the block parsing is identical everywhere.
  *
  * Pipeline stages:
  *   1. `lex_blocks(text)` — pulldown-cmark WASM call returns a packed
@@ -31,12 +26,10 @@
  *      anything the allowlist doesn't permit.
  *
  * The result interface (`SanitizedMarkdownBlock`) carries the lex
- * metadata alongside the sanitized HTML. `TugMarkdownView` reads the
- * metadata to estimate block heights for its windowing engine;
- * `TugMarkdownBlock` reads only `html` and `type`. Carrying the rest
- * is a few extra fields per block — orders of magnitude smaller than
- * the HTML payload itself — and keeps the helper's caller from
- * re-lexing to recover them.
+ * metadata alongside the sanitized HTML. `TugMarkdownBlock` reads only
+ * `html` and `type`; the rest is a few extra fields per block — orders
+ * of magnitude smaller than the HTML payload itself — and keeps a
+ * caller that wants them from re-lexing to recover them.
  *
  * Pure module: no React, no DOM (beyond DOMPurify's tree-walk), no
  * state beyond the lazily-initialized DOMPurify singleton in
@@ -121,14 +114,10 @@ const BLOCK_TYPES = ["?", "heading", "paragraph", "code", "blockquote", "list", 
 
 /**
  * Decoded record for one entry in `lex_blocks`'s packed output.
- *
- * Exported so `TugMarkdownView`'s incremental update path can re-lex
- * a single region and consume the same metadata shape the full-pass
- * helper does. The byte offsets are kept in their pre-conversion form
- * (`startByte` / `endByte`) so the caller can apply its own
- * `buildByteToCharMap` against a substring.
+ * The byte offsets are kept in their pre-conversion form
+ * (`startByte` / `endByte`) and translated through `buildByteToCharMap`.
  */
-export interface BlockMeta {
+interface BlockMeta {
   type: string;
   startByte: number;
   endByte: number;
@@ -137,12 +126,8 @@ export interface BlockMeta {
   rowCount: number;
 }
 
-/**
- * Decode `lex_blocks`'s packed `Uint32Array` into a `BlockMeta[]`.
- * Exported so `TugMarkdownView`'s incremental path can re-lex a single
- * region and walk the metadata identically to the full-pass helper.
- */
-export function decodeBlocks(buf: Uint32Array): BlockMeta[] {
+/** Decode `lex_blocks`'s packed `Uint32Array` into a `BlockMeta[]`. */
+function decodeBlocks(buf: Uint32Array): BlockMeta[] {
   const count = buf.length / STRIDE;
   const blocks: BlockMeta[] = new Array(count);
   for (let i = 0, j = 0; i < buf.length; i += STRIDE, j += 1) {
@@ -177,11 +162,8 @@ const _encoder = new TextEncoder();
  * Build a `Uint32Array` mapping UTF-8 byte index → JS string char
  * index. Index `i` holds the JS char index that starts at UTF-8 byte
  * `i`. Length is `byteLength + 1` (last entry = `text.length`).
- *
- * Exported so the incremental update path in `TugMarkdownView` can
- * use the same translation for region-scoped re-lexing.
  */
-export function buildByteToCharMap(text: string): Uint32Array {
+function buildByteToCharMap(text: string): Uint32Array {
   const encoded = _encoder.encode(text);
   const byteLen = encoded.length;
   const map = new Uint32Array(byteLen + 1);

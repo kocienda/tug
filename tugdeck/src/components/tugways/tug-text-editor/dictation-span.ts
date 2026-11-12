@@ -222,10 +222,10 @@ export function dictationSpanTransaction(
   if (action.kind === "begin") {
     const head = state.selection.main.head;
     // [P08], restated rather than imported. The rule's home is
-    // `applyAppendInsertion` in `tug-prompt-entry.tsx`, pinned by
+    // `applyAppendInsertion` in `prompt-entry.tsx`, pinned by
     // `__tests__/append-insertion.test.ts`; importing it from here would
     // close the cycle `tug-text-editor.tsx` → `dictation-span.ts` →
-    // `tug-prompt-entry.tsx` → `tug-text-editor.tsx`, with a large React
+    // `prompt-entry.tsx` → `tug-text-editor.tsx`, with a large React
     // component module inside it, for one conditional.
     const padPending = state.doc.length > 0 && head === state.doc.length;
     return {

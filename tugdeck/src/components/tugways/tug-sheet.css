@@ -629,13 +629,13 @@ body[data-tug-motion="off"] .tug-sheet-content[data-tug-sheet-presentation] {
 
 /* Per-role icon tint — mirrors the tone-icon family. `muted` is the default
    (declared on body), so it needs no override here. */
-.tug-sheet-header[data-icon-role="agent"]   { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-agent-rest); }
-.tug-sheet-header[data-icon-role="accent"]  { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest); }
-.tug-sheet-header[data-icon-role="active"]  { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-active-rest); }
-.tug-sheet-header[data-icon-role="caution"] { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest); }
-.tug-sheet-header[data-icon-role="danger"]  { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-danger-rest); }
-.tug-sheet-header[data-icon-role="data"]    { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-data-rest); }
-.tug-sheet-header[data-icon-role="success"] { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-success-rest); }
+.tug-sheet-header[data-icon-tone="agent"]   { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-agent-rest); }
+.tug-sheet-header[data-icon-tone="accent"]  { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest); }
+.tug-sheet-header[data-icon-tone="active"]  { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-active-rest); }
+.tug-sheet-header[data-icon-tone="caution"] { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-caution-rest); }
+.tug-sheet-header[data-icon-tone="danger"]  { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-danger-rest); }
+.tug-sheet-header[data-icon-tone="data"]    { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-data-rest); }
+.tug-sheet-header[data-icon-tone="success"] { --tugx-sheet-icon-fg: var(--tug7-element-tone-icon-normal-success-rest); }
 
 /* ---- Header text column (title + description) ---- */
 

@@ -3,28 +3,7 @@
    composed TugSheet; rows from TugListView / TugListRow; buttons from
    TugPushButton. Composed children keep their own tokens [L20]. */
 
-.memory-sheet .tug-sheet-scaffold-header {
-  margin-bottom: 0.5rem;
-}
-
-.memory-sheet-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.memory-sheet-summary {
-  font-size: 0.8125rem;
-  opacity: 0.7;
-}
-
-/* The list view is `height: 100%` by default (it expects a bounded flex
-   parent). The composed TugSheetScaffold body is the single scroll region, so
-   size the inline list to its content and let the body scroll. */
-.tug-list-view.memory-sheet-list {
-  height: auto;
-}
+/* The header, its gap and its summary line come from `sheet-header.css`. */
 
 /* Trailing open-affordance glyph — quiet; the row hover carries the
    interactivity cue (these rows ARE clickable, unlike /skills /agents). */

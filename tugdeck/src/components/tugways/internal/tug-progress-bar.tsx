@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils";
 import "./tug-progress-bar.css";
 import type { TugProgressIndicatorState } from "../tug-progress-indicator";
 
-export interface TugProgressBarProps {
+export interface TugProgressBarProps extends Omit<React.ComponentPropsWithoutRef<"div">, "children"> {
   /** Determinate progress value, 0 to max. Undefined = indeterminate. */
   value?: number;
   /** Maximum value. @default 1 */
@@ -52,13 +52,11 @@ export interface TugProgressBarProps {
   state?: TugProgressIndicatorState;
   /** When true, opacity dims and animation freezes. */
   disabled?: boolean;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 export const TugProgressBar = React.forwardRef<HTMLDivElement, TugProgressBarProps>(
   function TugProgressBar(
-    { value, max = 1, size = 6, state = "running", disabled = false, className },
+    { value, max = 1, size = 6, state = "running", disabled = false, className, style, ...rest },
     ref,
   ) {
     const isDeterminate = value !== undefined;
@@ -122,7 +120,8 @@ export const TugProgressBar = React.forwardRef<HTMLDivElement, TugProgressBarPro
         data-slot="tug-progress-bar"
         data-state={state}
         aria-hidden="true"
-        style={sizeStyle}
+        {...rest}
+        style={{ ...sizeStyle, ...style }}
         className={cn(
           "tug-progress-bar-track",
           state === "paused" && "tug-progress-bar-paused",

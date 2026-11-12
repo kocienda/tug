@@ -500,7 +500,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         //
         // The composer chip is the last display surface that showed a callsign
         // under a custom name ([D141]). The transcript renders a session
-        // reference as the live `TugSessionCitation`, so this bake is the only
+        // reference as the live `SessionCitation`, so this bake is the only
         // session chip there is, and it resolves its own text.
         //
         // A bake can neither subscribe nor cascade ([P14]), so a rename has to

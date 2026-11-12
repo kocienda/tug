@@ -112,6 +112,13 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useJotRowMenu } from "./jot-row-menu";
 import { JotsDataSource, useJotsDataSource } from "./jots-data-source";
+import {
+  RAIL_CARD_CLASS,
+  RAIL_CARD_CONTENT_CLASS,
+  RAIL_CARD_LIST_WRAP_CLASS,
+  RailCardToolbar,
+} from "@/components/tugways/cards/rail-card-shell";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import "./jots-card.css";
 
 /** The card's focus group — every stop it offers lives here, so the Tab walk
@@ -261,8 +268,8 @@ function JotsToolbar({
     [onQueryChange, filter],
   );
   return (
-    <div className="jots-toolbar" data-testid="jots-toolbar">
-      <TugFilterField
+    <RailCardToolbar className="jots-toolbar" data-testid="jots-toolbar">
+      <TugFilterField size="sm"
         key={populated ? "live" : "inert"}
         delegate={delegate}
         attachment={filter}
@@ -283,7 +290,7 @@ function JotsToolbar({
         focusOrder={JOTS_ADD_FOCUS_ORDER}
         onClick={() => store.createJot(null)}
       />
-    </div>
+    </RailCardToolbar>
   );
 }
 
@@ -356,7 +363,7 @@ function JotDisplayRow({
               className="jot-row-delete"
               icon={<X size={12} />}
               size="xs"
-              tone="danger"
+              role="danger"
               aria-label="Delete jot"
               title="Delete jot"
               focusGroup={ROW_ACTION_FOCUS_GROUP}
@@ -1420,7 +1427,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
     <ResponderScope>
       <div
         ref={attachCardRoot}
-        className="jots-card"
+        className={`${RAIL_CARD_CLASS} jots-card`}
         data-testid="jots-card"
         data-jots-card-id={cardId}
         // Focusable root so `transferFocusForActivation` → `applyBagFocus` has
@@ -1432,7 +1439,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
             and nothing above it inside the scroller stretches, so the pane's
             run cannot move it ([B02]). */}
         <div
-          className="jots-card-content"
+          className={`${RAIL_CARD_CONTENT_CLASS} jots-card-content`}
           data-testid="jots-card-content"
           data-card-content=""
         >
@@ -1450,15 +1457,15 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
         {jots.length === 0 ? (
           // Empty label instead of the list — an empty `flex: 1` list would
           // grow and open a gap under the toolbar.
-          <div className="jots-empty">None</div>
+          <TugEmptyLine className="jots-empty">None</TugEmptyLine>
         ) : dataSource.numberOfItems() === 0 ? (
           // Distinct from "None": there ARE jots, the filter is hiding them.
-          <div className="jots-empty" data-testid="jots-no-matches">
+          <TugEmptyLine className="jots-empty" data-testid="jots-no-matches">
             No matches
-          </div>
+          </TugEmptyLine>
         ) : (
           <div
-            className="jots-list-wrap"
+            className={`${RAIL_CARD_LIST_WRAP_CLASS} jots-list-wrap`}
             ref={listWrapRef}
             data-filter-active={filtering ? "true" : undefined}
           >
@@ -1500,7 +1507,7 @@ export function JotsContent({ cardId }: { cardId: string }): React.ReactElement 
           anchorEl={pendingDelete?.anchor ?? null}
           message="Delete this jot?"
           confirmLabel="Delete"
-          confirmRole="danger"
+          confirm={{ role: "danger" }}
           side="top"
           align="center"
           collisionBoundary={cardRef.current}

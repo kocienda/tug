@@ -6,8 +6,12 @@
  * Supports four emphases (filled, outlined, ghost, tinted) and seven roles.
  *
  * A badge is a fancy, colourful *label* — never a button or menu. It carries
- * no interactive affordance of its own (the lone exception is the intrinsic
- * right-click → Copy, which acts on the badge's own text, not on app state).
+ * no interactive affordance of its own beyond copying its own text, which acts
+ * on the clipboard and never on app state: right-click → Copy is intrinsic,
+ * and `copyOnClick` adds a left-click copy for a short identifier a reader
+ * reaches for repeatedly — a commit hash, a diagnostic. That badge sits in a
+ * button shell and flashes a check in place of its trailing copy glyph; the
+ * flash is a `data-copied` attribute on the shell, never React state ([L06]).
  * Controls that need to act live in TugButton / TugPushButton / TugPopupButton.
  *
  * Laws: [L06] appearance via CSS, [L16] pairings declared, [L18] tokens from the
@@ -17,11 +21,16 @@
  */
 
 import "./tug-badge.css";
+import type { TugRole, TugSize } from "./tug-vocabulary";
 
 import React, { useRef } from "react";
+import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCopyableText } from "./use-copyable-text";
 import { TugStableOverlay } from "./internal/tug-stable-overlay";
+
+/** How long the check flash stays up after a click copy, in ms. */
+const COPIED_FLASH_MS = 1100;
 
 // ---- Types ----
 
@@ -48,19 +57,11 @@ export type TugBadgeEmphasis = "filled" | "outlined" | "ghost" | "tinted";
  * emphasis matrix and notes on which combinations are anti-
  * patterns.
  */
-export type TugBadgeRole =
-  | "accent"
-  | "action"
-  | "agent"
-  | "data"
-  | "danger"
-  | "success"
-  | "caution"
-  | "inherit";
+export type TugBadgeRole = Extract<TugRole, "accent" | "action" | "agent" | "data" | "danger" | "success" | "caution" | "inherit">;
 
 /** TugBadge size names. `2xs` is the most compact — for count or
  * status chips tucked into dense rows — through to the prominent `2xl`. */
-export type TugBadgeSize = "2xs" | "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
+export type TugBadgeSize = TugSize;
 
 /**
  * TugBadge layout — single-line pill vs two-line label/content chip.
@@ -98,7 +99,7 @@ export interface TugBadgeProps extends Omit<React.ComponentPropsWithoutRef<"span
   /**
    * Badge size.
    * @selector .tug-badge-size-2xs | .tug-badge-size-xs | .tug-badge-size-sm | .tug-badge-size-md | .tug-badge-size-lg | .tug-badge-size-xl | .tug-badge-size-2xl
-   * @default "sm"
+   * @default "md"
    */
   size?: TugBadgeSize;
   /**
@@ -158,6 +159,27 @@ export interface TugBadgeProps extends Omit<React.ComponentPropsWithoutRef<"span
    * active face's value so the hidden alternate face is never copied.
    */
   copyText?: string;
+  /**
+   * Left-click copies `copyText` too. The badge rides a button shell with a
+   * trailing copy glyph that flashes a check after the copy. Inert without
+   * `copyText`.
+   * @selector .tug-badge-copy | .tug-badge-copy[data-copied]
+   * @default false
+   */
+  copyOnClick?: boolean;
+  /**
+   * The verb of a click-copy badge's accessible name, which reads
+   * `${copyLabel} ${copyText}` (e.g. `Copy 450d6b28`).
+   * @default "Copy"
+   */
+  copyLabel?: string;
+  /**
+   * A count that changes under the reader: the figures take tabular widths,
+   * so a count changing in place does not shift what stands after it.
+   * @selector [data-numeric="true"]
+   * @default false
+   */
+  numeric?: boolean;
 }
 
 // ---- TugBadge ----
@@ -166,7 +188,7 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
   function TugBadge({
     emphasis = "tinted",
     role = "action",
-    size = "sm",
+    size = "md",
     layout = "single",
     label,
     children,
@@ -175,6 +197,9 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
     disabled = false,
     widthStabilize,
     copyText,
+    copyOnClick = false,
+    copyLabel = "Copy",
+    numeric = false,
     className,
     style,
     ...rest
@@ -235,7 +260,42 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
         </>
       );
 
-    const activeFace = buildFace(label, children);
+    // A click-copy badge carries its trailing glyph pair after the words; CSS
+    // shows the copy glyph at rest and the check while the shell is flashed.
+    const clickCopy = copyOnClick && copyText !== undefined;
+    const face = (content: React.ReactNode): React.ReactNode =>
+      clickCopy ? (
+        <>
+          <span className="tug-badge-copy-text">{content}</span>
+          <Copy className="tug-badge-copy-icon tug-badge-copy-icon--idle" aria-hidden="true" />
+          <Check className="tug-badge-copy-icon tug-badge-copy-icon--done" aria-hidden="true" />
+        </>
+      ) : (
+        content
+      );
+
+    const shellRef = useRef<HTMLButtonElement | null>(null);
+    const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    React.useEffect(
+      () => () => {
+        if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+      },
+      [],
+    );
+    const onClickCopy = (): void => {
+      if (copyText === undefined) return;
+      void navigator.clipboard?.writeText(copyText);
+      const shell = shellRef.current;
+      if (shell === null) return;
+      shell.dataset.copied = "true";
+      if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => {
+        if (shellRef.current !== null) delete shellRef.current.dataset.copied;
+        flashTimer.current = null;
+      }, COPIED_FLASH_MS);
+    };
+
+    const activeFace = buildFace(label, face(children));
     // Width-stabilize: overlay the active face over the alternate face in a
     // single grid cell (shared `TugStableOverlay`), so the badge reserves the
     // wider of the two and a face swap never reflows neighbors.
@@ -249,14 +309,13 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
           alternates={[
             buildFace(
               widthStabilize.alternateLabel ?? label,
-              widthStabilize.alternateContent ?? children,
+              face(widthStabilize.alternateContent ?? children),
             ),
           ]}
         />
       );
 
-    return (
-      <>
+    const badge = (
         <span
           ref={copyable.composedRef as React.Ref<HTMLSpanElement>}
           data-slot="tug-badge"
@@ -267,6 +326,7 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
           // visible chrome doesn't reserve layout space for box
           // it never paints.
           data-emphasis={emphasis}
+          data-numeric={numeric ? "true" : undefined}
           className={cn(
             "tug-badge",
             sizeClass,
@@ -282,6 +342,24 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
         >
           {inner}
         </span>
+    );
+
+    return (
+      <>
+        {clickCopy ? (
+          <button
+            ref={shellRef}
+            type="button"
+            data-slot="tug-badge-copy"
+            className="tug-badge-copy"
+            aria-label={`${copyLabel} ${copyText}`}
+            onClick={onClickCopy}
+          >
+            {badge}
+          </button>
+        ) : (
+          badge
+        )}
         {copyable.contextMenu}
       </>
     );

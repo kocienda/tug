@@ -58,7 +58,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
       await app.enableDeckTrace(true);
 
       // Seed a single EM card. `gallery-prompt-entry` is the
-      // gallery's TugPromptEntry showcase (wraps TugTextEditor); its
+      // gallery's PromptEntry showcase (wraps TugTextEditor); its
       // `useCardStatePreservation` returns engine state on save, which
       // makes it an EM card by `bag.content !== undefined`.
       await app.seedDeckState({
@@ -102,7 +102,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
       // event carries the expected fields. The editor mounts in the
       // card's body, so the event is in the body's ring. TugTextEditor
       // stamps `engine: "tug-text-editor"` regardless of which wrapper
-      // mounts it (TugPromptInput, TugPromptEntry, etc.).
+      // mounts it (TugPromptInput, PromptEntry, etc.).
       const events = await app.body("A").getDeckTrace();
       const engineReady = events.find(
         (e) => e.kind === "engine-ready" && (e as { cardId?: string }).cardId === "A",

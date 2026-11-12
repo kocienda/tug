@@ -306,38 +306,38 @@ export function sessionSessionPhaseVisual(phaseKey: string): TugProgressIndicato
   switch (phaseKey as SessionPhaseKey) {
     case "offline":
     case "errored":
-      return { role: "danger", state: "aborted" };
+      return { tone: "danger", state: "aborted" };
     case "restoring":
     case "interrupting":
-      return { role: "caution", state: "running" };
+      return { tone: "caution", state: "running" };
     case "stop_stalled":
       // Still breathing, and still caution: the turn is not over, the
       // card is not wedged, and the one thing that changed is that the
       // stop the user asked for has not been answered. A still glyph
       // here would read as a settled session, which is the lie.
-      return { role: "caution", state: "running" };
+      return { tone: "caution", state: "running" };
     case "awaiting_approval":
       // The turn is IN FLIGHT — opened, parked on the user, and resuming the
       // instant they answer — so the session's dot pulses, in caution rather
       // than the working tone. This is the state most in need of being seen
       // from across the room, and a still glyph is the one thing that cannot
       // be. See `indicator-liveness`.
-      return { role: "caution", state: "running" };
+      return { tone: "caution", state: "running" };
     case "ready":
-      return { role: "success", state: "running" };
+      return { tone: "success", state: "running" };
     case "done":
-      return { role: "success", state: "completed" };
+      return { tone: "success", state: "completed" };
     case "background":
-      return { role: "action", state: "running", shape: "diamond" };
+      return { tone: "action", state: "running", shape: "diamond" };
     case "submitting":
     case "awaiting_first_token":
     case "streaming":
     case "tool_work":
     case "replaying":
     case "waking":
-      return { role: "action", state: "running" };
+      return { tone: "action", state: "running" };
     case "idle":
     default:
-      return { role: "inherit", state: "stopped" };
+      return { tone: "inherit", state: "stopped" };
   }
 }

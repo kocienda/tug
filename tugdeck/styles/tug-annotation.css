@@ -11,7 +11,7 @@
  * being annotated, not by also remembering to style it.
  *
  * **This is the only place the rule is declared.** It used to be three:
- * here for runs the annotator split out of prose, `tug-markdown-view.css`
+ * here for runs the annotator split out of prose, the markdown sheet
  * for whole inline `<code>` spans, and `tug-atom-ref.css` for the
  * read-only atom skin — which had drifted to hover-only, so the same fact
  * ("this responds to a click") wore two costumes depending on whether the
@@ -19,7 +19,7 @@
  * the element the contract landed on is what collapses them: a split-out
  * run, a `<code>` span, a self-stamping `TugAtomRef`, and the Overview's
  * wrapper span all carry it, so all four take one declaration. Atom chips
- * (`tug-atom-markdown-body.css`) keep their own treatment — a box is a
+ * (`atom-markdown-body.css`) keep their own treatment — a box is a
  * skin with its own affordance, not a mark on running text.
  *
  * **The resting rule.** A reference a resolver confirmed carries a 1px

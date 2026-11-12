@@ -84,13 +84,13 @@ describe("toolCallPhaseVisual — every branch", () => {
 
   for (const [phase, role, state] of cases) {
     test(`${phase} → role ${role}, state ${state}`, () => {
-      expect(toolCallPhaseVisual(phase)).toEqual({ role, state });
+      expect(toolCallPhaseVisual(phase)).toEqual({ tone: role, state });
     });
   }
 
   test("unknown phase falls back to the quiet idle pose", () => {
     expect(toolCallPhaseVisual("bogus")).toEqual({
-      role: "inherit",
+      tone: "inherit",
       state: "stopped",
     });
   });
@@ -139,7 +139,7 @@ describe("hook refusals", () => {
   test("a refused error reads steered, muted rather than danger", () => {
     expect(deriveToolCallPhase(input({ status: "error", refused: true }))).toBe("steered");
     expect(deriveToolCallPhase(input({ status: "done", refused: true }))).toBe("success");
-    expect(toolCallPhaseVisual("steered")).toEqual({ role: "inherit", state: "stopped" });
+    expect(toolCallPhaseVisual("steered")).toEqual({ tone: "inherit", state: "stopped" });
   });
 
   test("the transcript text leads with what happened", () => {

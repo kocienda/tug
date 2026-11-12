@@ -14,6 +14,7 @@
  * @module components/tugways/cards/gallery-card-banner
  */
 
+import { AlertTriangle, CloudOff, RefreshCw, TriangleAlert, Unplug } from "lucide-react";
 import React from "react";
 import { TugPaneBanner } from "@/components/tugways/tug-pane-banner";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -93,12 +94,12 @@ export function GalleryCardBanner() {
           <MiniContent />
           <TugPaneBanner
             contained
-            visible={dangerVisible}
-            variant="error"
+            open={dangerVisible}
+            kind="error"
             tone="danger"
             label="Connection lost"
             message="transport closed"
-            detailIcon="unplug"
+            detailIcon={<Unplug />}
             detailTitle="Connection lost"
             footer={
               <TugPushButton
@@ -138,12 +139,12 @@ export function GalleryCardBanner() {
           <MiniContent />
           <TugPaneBanner
             contained
-            visible={cautionVisible}
-            variant="error"
+            open={cautionVisible}
+            kind="error"
             tone="caution"
             label="Stale session"
             message="resume no longer applies"
-            detailIcon="triangle-alert"
+            detailIcon={<TriangleAlert />}
             detailTitle="Session state is stale"
             footer={
               <TugPushButton
@@ -184,12 +185,12 @@ export function GalleryCardBanner() {
           <MiniContent />
           <TugPaneBanner
             contained
-            visible={defaultVisible}
-            variant="error"
+            open={defaultVisible}
+            kind="error"
             tone="default"
             label="Offline"
             message="syncing paused"
-            detailIcon="cloud-off"
+            detailIcon={<CloudOff />}
             detailTitle="Workspace is offline"
             footer={
               <TugPushButton
@@ -231,12 +232,12 @@ export function GalleryCardBanner() {
           <MiniContent />
           <TugPaneBanner
             contained
-            visible={statusVisible}
-            variant="status"
+            open={statusVisible}
+            kind="status"
             tone="caution"
             label="Reconnecting"
             message="attempting to restore the session..."
-            icon="refresh-cw"
+            icon={<RefreshCw />}
           />
         </div>
       </div>
@@ -264,10 +265,10 @@ export function GalleryCardBanner() {
           <MiniContent />
           <TugPaneBanner
             contained
-            visible={statusDismissVisible}
-            variant="status"
+            open={statusDismissVisible}
+            kind="status"
             tone="caution"
-            icon="alert-triangle"
+            icon={<AlertTriangle />}
             label="Unsupported event"
             message={'This session-card build doesn’t understand event "future_telemetry" yet. The session is unaffected.'}
             footer={

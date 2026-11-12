@@ -62,11 +62,14 @@ import { useStoreDerived } from "@/lib/use-store-derived";
 import type { DeckState } from "@/layout-tree";
 import { slotFactsIn, type SlotFacts } from "@/lib/slot-facts";
 import { dispatchCommand } from "@/command-dispatch";
-import { TugButton } from "@/components/tugways/internal/tug-button";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugSlot } from "@/components/tugways/tug-slot";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 import {
   TugPopover,
   TugPopoverContent,
@@ -165,6 +168,21 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
   // aligning the popup against. The popup portals out of here, so it cannot
   // reach the trigger by walking up from itself.
   const badgeRef = React.useRef<HTMLSpanElement | null>(null);
+  // The popup's slot presses arrive as `select-slot` ([L11]). The same action
+  // the Cards card's own picker dispatches, which already assigns AND raises
+  // — a slot is a vertical stack, and moving a card there means being able to
+  // see it.
+  const responderId = React.useId();
+  const { ResponderScope } = useOptionalResponder({
+    id: responderId,
+    actions: {
+      [TUG_ACTIONS.SELECT_SLOT]: (event: ActionEvent) => {
+        if (typeof event.value !== "number") return;
+        dispatchCommand("assign-slot", { cardId, slot: event.value });
+        setOpen(false);
+      },
+    },
+  });
 
   // The deck whose pane hosts this card: the live one, or the parked record
   // of whichever mounted workspace holds it — unless the facts were given.
@@ -173,6 +191,7 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
   const { count, held } = facts;
 
   return (
+    <ResponderScope>
     <span
       ref={badgeRef}
       className="card-slot-badge"
@@ -225,10 +244,7 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
               the composition leaves on the element, pressing it opens the
               popup. */}
           <TugPopoverTrigger>
-            <TugButton
-              subtype="icon"
-              emphasis="ghost"
-              role="action"
+            <TugIconButton
               size="sm"
               className="card-slot-badge-button"
               icon={
@@ -304,7 +320,7 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
               selection inside an open popup rather than a card's resting
               state. Everything else rests — a slot another card holds is not
               this card's business to report from here. */}
-          <TugSlotLayout
+          <TugSlotLayout size="sm"
             ref={picker}
             className="tug-slot-layout-popup"
             data-testid="card-slot-badge-picker"
@@ -314,16 +330,11 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
             )}
             focusGroup={BADGE_SLOT_FOCUS_GROUP}
             slotLabel={(slot) => `Put at position ${slot + 1}`}
-            onSelectSlot={(slot) => {
-              // The same action the Cards card's own picker dispatches, which
-              // already assigns AND raises — a slot is a vertical stack, and
-              // moving a card there means being able to see it.
-              dispatchCommand("assign-slot", { cardId, slot });
-              setOpen(false);
-            }}
+            action={TUG_ACTIONS.SELECT_SLOT}
           />
         </TugPopoverContent>
       </TugPopover>
     </span>
+    </ResponderScope>
   );
 }

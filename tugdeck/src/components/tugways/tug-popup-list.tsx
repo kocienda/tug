@@ -34,6 +34,7 @@
  */
 
 import "./tug-popup-list.css";
+import type { TugTone } from "./tug-vocabulary";
 
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 
@@ -51,7 +52,7 @@ export interface TugPopupListFrameProps
   /**
    * Optional panel title — rendered in the titlebar header (left-aligned,
    * medium weight), modeled on the pane title bar. Omit it entirely for a
-   * headerless frame: composed inside a {@link TugPlacard}, the placard's own
+   * headerless frame: composed inside a {@link SessionPlacard}, the placard's own
    * centered header carries the title, so the frame contributes no title chrome.
    */
   title?: string;
@@ -81,7 +82,7 @@ export interface TugPopupListFrameProps
  * frame owns the popup's typography (mono, tabular numerals) and its
  * per-kind width caps; it renders no background — the popover surface
  * underneath owns that. Omit `title` for a headerless frame (the
- * composing {@link TugPlacard} supplies the header instead).
+ * composing {@link SessionPlacard} supplies the header instead).
  */
 export const TugPopupListFrame = React.forwardRef<
   HTMLDivElement,
@@ -343,7 +344,7 @@ export interface TugPopupListItemProps
    * across a two-line item, never crushed by long text. Rows without
    * an action reserve no trailing space.
    */
-  action?: React.ReactNode;
+  trailing?: React.ReactNode;
   /** The item's text — one line, or a {@link TugPopupListItemText}. */
   children: React.ReactNode;
 }
@@ -358,7 +359,7 @@ export const TugPopupListItem = React.forwardRef<
   HTMLDivElement,
   TugPopupListItemProps
 >(function TugPopupListItem(
-  { indicator, action, className, children, ...rest },
+  { indicator, trailing, className, children, ...rest },
   ref,
 ) {
   return (
@@ -370,8 +371,8 @@ export const TugPopupListItem = React.forwardRef<
     >
       <span className="tug-popup-list-item-lead">{indicator ?? null}</span>
       <div className="tug-popup-list-item-body">{children}</div>
-      {action !== undefined && action !== null ? (
-        <span className="tug-popup-list-item-action">{action}</span>
+      {trailing !== undefined && trailing !== null ? (
+        <span className="tug-popup-list-item-action">{trailing}</span>
       ) : null}
     </div>
   );
@@ -512,7 +513,7 @@ export function TugPopupListEmpty({
 }
 
 /** Tone key for a {@link TugPopupListToneDot}. @selector [data-tone="<tone>"] */
-export type TugPopupListTone = "default" | "success" | "caution" | "danger";
+export type TugPopupListTone = Extract<TugTone, "default" | "success" | "caution" | "danger">;
 
 /**
  * Small status dot colored by semantic tone — the tone rides a

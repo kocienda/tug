@@ -10,7 +10,7 @@
  * composers behind each footer's COPY affordance.
  *
  * **Every frame here is headerless.** These popups open inside the
- * shared `TugPlacard`, whose header already carries the cell's legend,
+ * shared `SessionPlacard`, whose header already carries the cell's legend,
  * so a frame `title` would title the same surface twice. (The prop is
  * still right for a popup that opens on its own — the masthead's do.)
  *
@@ -176,6 +176,9 @@ import {
 import { useReportFrom } from "@/components/tugways/blocks/report-context";
 import type { SessionGap } from "@/lib/report-gaps-store";
 import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
+import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 
 // ---------------------------------------------------------------------------
 // Cross-popover callback contract
@@ -335,6 +338,7 @@ function TurnNumberButton({
       type="button"
       className="session-popover-row-turn"
       data-slot="session-popover-row-turn"
+      data-tug-focus="refuse"
       aria-label={`Scroll the transcript to entry ${addressText}`}
       onClick={() => onScrollToRow(rowIndex)}
     >
@@ -703,18 +707,21 @@ function TimeCompositionStrip({
       </div>
       <div className="session-time-popover-legend">
         {TIME_COMPOSITION_PARTS.map((p) => (
-          <React.Fragment key={p.id}>
-            <span className="session-time-popover-legend-label">
-              <span className="session-time-popover-swatch" data-part={p.id} />
-              {p.label}
-            </span>
-            <span className="session-time-popover-legend-percent">
-              {formatCompositionPercent(p.pick(composition), whole)}
-            </span>
-            <span className="session-time-popover-legend-value">
-              {formatTimeAlwaysHours(p.pick(composition))}
-            </span>
-          </React.Fragment>
+          <TugKeyValueRow
+            key={p.id}
+            label={
+              <>
+                <span className="session-time-popover-swatch" data-part={p.id} />
+                {p.label}
+              </>
+            }
+            labelClassName="session-time-popover-legend-label"
+            detail={formatCompositionPercent(p.pick(composition), whole)}
+            detailClassName="session-time-popover-legend-percent"
+            valueClassName="session-time-popover-legend-value"
+          >
+            {formatTimeAlwaysHours(p.pick(composition))}
+          </TugKeyValueRow>
         ))}
         <div className="session-time-popover-legend-divider" />
         <span className="session-time-popover-legend-label">wall clock</span>
@@ -812,16 +819,21 @@ function ArcTimeStrip({ reading }: { reading: ArcTimeReading }): React.ReactElem
       </div>
       <div className="session-time-popover-legend">
         {parts.map((p) => (
-          <React.Fragment key={p.key}>
-            <span className="session-time-popover-legend-label">
-              <span className="session-time-popover-swatch" data-part={p.part} data-projected={p.projected ? "true" : undefined} />
-              {p.label}
-            </span>
-            <span className="session-time-popover-legend-percent">{formatCompositionPercent(p.ms, whole)}</span>
-            <span className="session-time-popover-legend-value">
-              {p.projected ? approxTime(p.ms) : formatTimeAlwaysHours(p.ms)}
-            </span>
-          </React.Fragment>
+          <TugKeyValueRow
+            key={p.key}
+            label={
+              <>
+                <span className="session-time-popover-swatch" data-part={p.part} data-projected={p.projected ? "true" : undefined} />
+                {p.label}
+              </>
+            }
+            labelClassName="session-time-popover-legend-label"
+            detail={formatCompositionPercent(p.ms, whole)}
+            detailClassName="session-time-popover-legend-percent"
+            valueClassName="session-time-popover-legend-value"
+          >
+            {p.projected ? approxTime(p.ms) : formatTimeAlwaysHours(p.ms)}
+          </TugKeyValueRow>
         ))}
         <div className="session-time-popover-legend-divider" />
         <span className="session-time-popover-legend-label">{projected ? "arc, projected" : "arc, so far"}</span>
@@ -865,15 +877,14 @@ function ArcDisclose({
 }): React.ReactElement {
   if (onToggle === null) return <span className="session-time-arc-disclose-gap" aria-hidden />;
   return (
-    <button
-      type="button"
+    <TugIconButton
       className="session-time-arc-disclose"
+      size="2xs"
       aria-expanded={open}
       aria-label={label}
       onClick={onToggle}
-    >
-      {open ? "▾" : "▸"}
-    </button>
+      icon={<TugDisclosure expanded={open} size={12} />}
+    />
   );
 }
 
@@ -1310,28 +1321,31 @@ function ContextBreakdownBody({
           min={0}
           max={contextMax}
           value={0}
-          density="detailed"
+          density="regular"
           formatValue={formatTokensCaps}
           segments={segments}
         />
       </div>
       <div className="session-context-popover-grid">
         {segments.map((s) => (
-          <React.Fragment key={s.id}>
-            <span className="session-context-popover-legend-label">
-              <span
-                className="session-context-popover-swatch"
-                data-arc-tone={s.tone}
-              />
-              {s.label}
-            </span>
-            <span className="session-context-popover-legend-percent">
-              {formatContextPercent(s.value, contextMax)}
-            </span>
-            <span className="session-context-popover-legend-value">
-              {formatTokensCaps(s.value)}
-            </span>
-          </React.Fragment>
+          <TugKeyValueRow
+            key={s.id}
+            label={
+              <>
+                <span
+                  className="session-context-popover-swatch"
+                  data-arc-tone={s.tone}
+                />
+                {s.label}
+              </>
+            }
+            labelClassName="session-context-popover-legend-label"
+            detail={formatContextPercent(s.value, contextMax)}
+            detailClassName="session-context-popover-legend-percent"
+            valueClassName="session-context-popover-legend-value"
+          >
+            {formatTokensCaps(s.value)}
+          </TugKeyValueRow>
         ))}
         <div className="session-context-popover-grid-divider" />
         <span className="session-context-popover-summary-label">used</span>
@@ -1363,9 +1377,9 @@ function ContextBreakdownBody({
  */
 function stateChangeToneFor(input: SessionPhaseInput): TugPopupListTone {
   const visual = sessionSessionPhaseVisual(sessionSessionPhaseKey(input));
-  if (visual.role === "danger") return "danger";
-  if (visual.role === "caution") return "caution";
-  if (visual.role === "success") return "success";
+  if (visual.tone === "danger") return "danger";
+  if (visual.tone === "caution") return "caution";
+  if (visual.tone === "success") return "success";
   return "default";
 }
 
@@ -2006,7 +2020,7 @@ function JobRow({
           aria-label={`${job.kind} job ${job.status}`}
         />
       }
-      action={action}
+      trailing={action}
     >
       {job.description.trim().length > 0 ? (
         <TugTooltip content={<TugInlineMarkdown text={job.description} />} side="top" align="start">
@@ -2135,7 +2149,7 @@ export function JobsPopoverContent({
             aria-label={`goal ${goal.status}`}
           />
         }
-        action={
+        trailing={
           goalIsActive(goal) && onClearGoal !== undefined ? (
             <TugPushButton
               subtype="icon"
@@ -2501,7 +2515,7 @@ export function useArcPopoverVerbs({
       message={sentence.message}
       confirmLabel={sentence.confirmLabel}
       // Default focus on Cancel, so a reflexive Return destroys nothing.
-      confirmRole="danger"
+      confirm={{ role: "danger" }}
       side="top"
       onConfirm={() => {
         setArmed(false);

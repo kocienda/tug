@@ -9,8 +9,7 @@
  * `--session-entry-max-height` (a fraction of the card height), then scrolls — so
  * the Z4/Z5 toolbar is never pushed off the card. A stray submit collapses
  * the entry back toward the opening height because the cleared editor
- * shrinks. There is no split pane, no sash, and no content-sizing JS — this
- * replaced an earlier `TugSplitPane` + `useContentDrivenPanelSize` machine.
+ * shrinks. There is no split pane, no sash, and no content-sizing JS.
  * The card wires:
  *
  *   • A live `CodeSessionStore` bound to the supervisor-issued
@@ -48,9 +47,9 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
   LANDING_WORDS,
-  TugPromptEntry,
-  type TugPromptEntryDelegate,
-} from "../tug-prompt-entry";
+  PromptEntry,
+  type PromptEntryDelegate,
+} from "./prompt-entry";
 import { ShadeViewController } from "@/lib/shade-view-controller";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import {
@@ -145,14 +144,14 @@ import type { PastedCommandResolver } from "@/components/tugways/tug-text-editor
 import { usePermissionMode } from "@/lib/use-permission-mode";
 import { openPathInOS, openUrlInOS } from "@/lib/os-open";
 import { TugPaneBanner } from "../tug-pane-banner";
-import { TugCopyBadge } from "../tug-copy-badge";
+import { TugBadge } from "../tug-badge";
 import { group } from "../tug-animator";
 import { TugBox } from "../tug-box";
 import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
 import { TugInlineAlert } from "../tug-inline-alert";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, GitBranch, Unplug } from "lucide-react";
 
 import {
   TugSheet,
@@ -189,6 +188,7 @@ import {
 import {
   TugFindBar,
   findBarStopCount,
+  useFindBarHost,
   type TugFindBarHandle,
 } from "@/components/tugways/tug-find-bar";
 import type { SkillsInventoryStore } from "@/lib/skills-inventory-store";
@@ -502,7 +502,7 @@ export interface SessionCardContentProps {
    * Card instance id. Forwarded from the card registry's `contentFactory`
    * callback and used for per-card workspace binding (via
    * `useCardWorkspaceKey`) plus the responder scope id of the embedded
-   * `TugPromptEntry`.
+   * `PromptEntry`.
    */
   cardId: string;
   /**
@@ -585,18 +585,18 @@ export interface SessionCardServices {
   /**
    * Resolves an accepted command atom's value to its argument placeholder
    * (`/devise ┆ type arguments…`), reading the live command catalog + local
-   * registry. Forwarded to `TugPromptEntry`.
+   * registry. Forwarded to `PromptEntry`.
    */
   argumentHintResolver: ArgumentHintResolver;
   /**
    * Maps a mid-text `/query` to the full command name it completes to (the
-   * inline ghost suffix), or `null`. Forwarded to `TugPromptEntry`.
+   * inline ghost suffix), or `null`. Forwarded to `PromptEntry`.
    */
   inlineCommandMatcher: InlineCommandMatcher;
   /**
    * Recognizes a slash command at the start of pasted text and returns the atom
    * to chip it as (full name or unqualified leaf), or `null`. Forwarded to
-   * `TugPromptEntry`.
+   * `PromptEntry`.
    */
   pastedCommandResolver: PastedCommandResolver;
   editorStore: EditorSettingsStore;
@@ -622,12 +622,12 @@ export interface SessionCardServices {
    *  composer + rows (Add-to-context, VISIBILITY toggle). */
   pendingContextStore: PendingContextStore;
   /**
-   * Delegate handle for the embedded `TugPromptEntry`. Owned by the
+   * Delegate handle for the embedded `PromptEntry`. Owned by the
    * hook because the `/` completion provider's position-0 gate reads
    * `entryDelegateRef.current`; the component passes this same ref to
-   * `<TugPromptEntry ref={...}>` and to the atom-regenerate callback.
+   * `<PromptEntry ref={...}>` and to the atom-regenerate callback.
    */
-  entryDelegateRef: RefObject<TugPromptEntryDelegate | null>;
+  entryDelegateRef: RefObject<PromptEntryDelegate | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -742,7 +742,7 @@ export function SessionCardContent({
  * → `replay_complete` — mounts the BODY instead (progressive reveal,
  * [P03] of the resume-performance plan): under windowed mounting the
  * transcript paints progressively as fold flushes commit, anchored at
- * the live edge by follow-bottom, with the `Z0` `TugControlBar`
+ * the live edge by follow-bottom, with the `Z0` `ControlBar`
  * carrying restore progress. The previous all-or-nothing reveal
  * (body held unmounted until `replay_complete`, then one giant mount
  * commit) was the measured blank-window mechanism on every corpus
@@ -1622,8 +1622,8 @@ function renderSessionCardBanner(
       newlineAt === -1 ? "" : spec.message.slice(newlineAt + 1).trim();
     return (
       <TugPaneBanner
-        visible={true}
-        variant="error"
+        open={true}
+        kind="error"
         tone="danger"
         // Opt out of the min-mount-time gate. A user-visible failure
         // should exit on dismiss without an artificial 500ms hold;
@@ -1632,7 +1632,7 @@ function renderSessionCardBanner(
         minMountedMs={0}
         label={CAUSE_LABELS[spec.cause]}
         message={humanizeErrorSummary(summary)}
-        detailIcon="unplug"
+        detailIcon={<Unplug />}
         detailTitle={CAUSE_LABELS[spec.cause]}
         footer={
           <TugPushButton
@@ -1670,9 +1670,16 @@ function renderSessionCardBanner(
         {diagnostic ? (
           <div className="session-card-error-diagnostic-block">
             <div className="session-card-error-diagnostic-bar">
-              <TugCopyBadge value={diagnostic} copyLabel="Copy diagnostic">
+              <TugBadge
+                emphasis="tinted"
+                role="accent"
+                size="sm"
+                copyText={diagnostic}
+                copyOnClick
+                copyLabel="Copy diagnostic"
+              >
                 Copy diagnostic
-              </TugCopyBadge>
+              </TugBadge>
             </div>
             <pre className="session-card-error-diagnostic">{diagnostic}</pre>
           </div>
@@ -1682,7 +1689,7 @@ function renderSessionCardBanner(
   }
   // kind === "none" — banner runs its exit animation if it was
   // previously visible, then unmounts.
-  return <TugPaneBanner visible={false} message="" />;
+  return <TugPaneBanner open={false} message="" />;
 }
 
 /**
@@ -1994,6 +2001,8 @@ export function SessionCardBody({
     if (cyclingRef.current) exitCycleRef.current();
     else entryDelegateRef.current?.focus();
   }, [findSession, entryDelegateRef]);
+  // The bar's dismissal arrives as `close-find` ([L11]).
+  const FindBarHost = useFindBarHost(closeFindBar);
 
   // ⌘F / Edit ▸ Find… toggles. A find bar is a mode, and the chord that
   // summons a mode is the chord that dismisses it — the same shape ⌃⌘C has on
@@ -4152,7 +4161,7 @@ export function SessionCardBody({
     // `commitRename` reads as a clear, and it bulletins the outcome on the ack
     // like every other rename.
     unname: () => renameSheet.renameTo(""),
-    // `/logout` — app-level. Hands off to the deck-root TugLogout orchestrator
+    // `/logout` — app-level. Hands off to the deck-root Logout orchestrator
     // (confirm → interrupt every turn → `claude_logout` → ConfigureTug reopens);
     // the same nonce the File-menu "Log out…" bumps, so there's one flow.
     logout: () => requestLogout(),
@@ -4255,8 +4264,8 @@ export function SessionCardBody({
         }
         void cardPickerSheet.showSheet({
           title: "Work on an arc",
-          icon: "GitBranch",
-          iconRole: "agent",
+          icon: <GitBranch />,
+          iconTone: "agent",
           presentation: "rise",
           bottomAnchorSelector: MODAL_REST_LINE,
           content: (close) => (
@@ -5092,7 +5101,7 @@ export function SessionCardBody({
         // prompt entry live beneath its bottom edge — so a click into the
         // composer puts `data-entry-keyboard` back on the entry shell and lights
         // a SECOND default beside Done. The stand-down CSS in
-        // `tug-prompt-entry.css` keys on `="history"` for exactly that.
+        // `prompt-entry.css` keys on `="history"` for exactly that.
         //
         // Changes carries no Done at all: its act is the commit, and the button
         // that performs it is the composer's own Z5. Standing the composer's
@@ -5113,8 +5122,7 @@ export function SessionCardBody({
           height (floored at `--session-transcript-min`); the prompt-entry region
           below is content-sized and grows with the editor (auto-height,
           capped at `--session-entry-max-height` so the Z4/Z5 toolbar stays
-          pinned). This replaces the old `TugSplitPane` +
-          `useContentDrivenPanelSize` machine wholesale.
+          pinned).
 
           `SessionTranscriptHost` mounts a `TugListView` over a
           `SessionTranscriptDataSource` mapping `codeSessionStore.transcript`
@@ -5310,18 +5318,19 @@ export function SessionCardBody({
             // and the bar takes its seat in it, between the Z4 toolbar and
             // the Z2 cells.
             <cycle.CycleScope>
+              <FindBarHost>
               <TugFindBar
                 ref={findBarRef}
                 session={findSession}
-                onClose={closeFindBar}
                 cardRootRef={sessionCardRootRef}
                 placeholder="Find in transcript"
-                dataSlot="session-card-find-bar"
+                data-slot="session-card-find-bar"
                 inputTestId="session-card-find-input"
                 initialQuery={lastFindQueryRef.current}
                 focusGroup={SESSION_CYCLE_GROUP}
                 focusOrderBase={SESSION_CYCLE_ORDER_FIND_BASE}
               />
+              </FindBarHost>
             </cycle.CycleScope>
           ) : null}
           <div
@@ -5488,7 +5497,7 @@ export function SessionCardBody({
               additional `CycleScope`s sharing this same mode id.
             */}
             <cycle.CycleScope>
-              <TugPromptEntry
+              <PromptEntry
                 ref={entryDelegateRef}
                 id={`${cardId}-entry`}
                 // Code is the only resting mode ([P01]). Draft generation now

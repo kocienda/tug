@@ -58,7 +58,6 @@ const SELECTION_SURFACES: ReadonlySet<string> = new Set([
   "components/tugways/cards/transcript-host-helpers.ts",
   // The editors and read-only text views, each over a real selection.
   "components/tugways/tug-code-view.tsx",
-  "components/tugways/tug-markdown-view.tsx",
   "components/tugways/tug-text-card-editor.tsx",
   "components/tugways/tug-text-editor.tsx",
   "components/tugways/use-text-input-responder.tsx",

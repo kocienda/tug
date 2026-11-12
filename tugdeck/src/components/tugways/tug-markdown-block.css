@@ -5,9 +5,7 @@
    contrast that consumers should override.
 
    `--tugx-md-*` tokens (block padding, code blocks, etc.) are reused
-   directly from `tug-markdown-view.css`'s declarations — both
-   primitives style their per-block content with the same token
-   vocabulary, mirroring the [D09] sibling-primitive decomposition.
+   directly from `styles/tugx-md.css`'s declarations.
 */
 
 /**
@@ -18,10 +16,9 @@
  * markdown block, in document order, sized by their natural content
  * height. The host (e.g. a list-view cell) owns scroll and layout.
  *
- * Block-level styling (`.tugx-md-block` padding, headings, code
- * blocks, etc.) is shared with `TugMarkdownView` — the same class
- * names and tokens style the same content shapes regardless of
- * which primitive rendered them.
+ * Block-level typography (headings, code blocks, tables, etc.) lives
+ * in the shared markdown sheet, `styles/tugx-md.css`, keyed off the same
+ * `.tugx-md-block` class this file sizes.
  *
  * Tuglaw cross-check:
  *   - [L06] appearance via CSS / DOM, not React state. Rendering is
@@ -43,12 +40,9 @@
 
 /* ---- Per-block element ----
  *
- * `.tugx-md-block` is the per-block class shared by both
- * `TugMarkdownBlock` (each rendered block) and `TugMarkdownView`
- * (each block in its windowing engine). Owning the canonical rule
- * here — and importing this file from `tug-markdown-view.tsx` —
- * means a consumer that ships only `TugMarkdownBlock` still gets
- * the padding and sizing without the larger view's CSS.
+ * `.tugx-md-block` is the class on each rendered block. Owning its
+ * rule here means the block's padding and sizing ship with the
+ * component, whatever page mounts it.
  *
  * `--tugx-md-block-padding-x` keeps a soft default (1rem) so the
  * rule renders sensibly even before any theme declares the token,

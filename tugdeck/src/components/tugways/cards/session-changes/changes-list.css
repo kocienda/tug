@@ -1,0 +1,186 @@
+/* ChangesList — the reusable file-rows-with-diffs surface ([P01], S01).
+   Rows are compact mono `TugListRow`s; this file styles only what the row
+   primitive doesn't own — status tones, the path link, badges, the expanded
+   diff well. Appearance only ([L06]); interactions are wired in the
+   component. */
+
+/* The wrapper carries the component's data-slot but lays out nothing of its
+   own — its children (labels + file lists) participate directly in the host's
+   flex column so hosts keep their existing inter-block spacing. */
+.tug-changes-list {
+  display: contents;
+}
+
+.tug-changes-list-file-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.tug-changes-list-file-block {
+  min-width: 0;
+}
+
+/* The whole row is the fold's click target (the path link and trailing
+   controls stop their own gestures short of it). */
+.tug-changes-list-row-hit {
+  cursor: pointer;
+}
+
+/* Every row here is clickable (the click folds the diff open), so the hover
+   is an affordance the reader is meant to see, not a graze. Raised to the
+   item-group row-hover overlay — a clearly visible neutral wash, authored per
+   theme in both polarities. Declared on the row element itself: the primitive
+   declares the token on `.tug-list-row`, so an ancestor override would lose.
+   [L20] */
+.tug-changes-list-row-hit .tug-list-row {
+  --tugx-list-row-flush-hover-bg: var(--tugx-key-cursor-surface);
+}
+
+/* Path + badges own the content column; the row primitive supplies the mono
+   family and compact line. */
+.tug-changes-list-file-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Trailing cluster: ± badges, pop-out, fold cue. Mirrors the row
+   primitive's trailing gap so a bare span composes cleanly. */
+.tug-changes-list-row-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tugx-list-row-trailing-gap);
+}
+
+/* The expanded diff well under a row. The embedded `DiffBlock` types itself
+   with the shared block code tokens (`--tugx-block-code-*`), sized for
+   transcript tool blocks; re-declaring them here steps the whole block —
+   body rows, header strip, fold cue — down to the compact list's own `xs`
+   scale so an expanded diff matches the rows around it. */
+.tug-changes-list-file-diff {
+  min-width: 0;
+  padding: 2px 8px 6px;
+  --tugx-block-code-font-size: var(--tug-font-size-xs);
+  --tugx-block-code-line-height: 1.5;
+}
+
+.tug-changes-list-file-block-notice {
+  margin: 4px 0;
+  padding: 0 8px;
+  font-size: 0.8125rem;
+  opacity: 0.7;
+}
+
+/* The status letter is `TugStatusMark` — the shared N/M/D element, styled in
+   its own file pair. It rides the row's mono family from the primitive and
+   asks nothing of this file. */
+
+.tug-changes-list-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tug-changes-list-file-path--link:hover {
+  text-decoration: underline;
+}
+/* The context-menu anchor around a hovered path — a trigger, not a box. The
+   path span must stay the flex item, or its ellipsis stops working. */
+.tug-changes-list-file-path-menu {
+  display: contents;
+}
+
+/* The row's metadata cluster — shared badge, provenance, hint — is a
+   `TugMetaRun`, which is where the divider, the type and the baseline live
+   now. What stays here is the one thing that is about this row rather than
+   about the grammar: the cluster never shrinks, so the path beside it is what
+   gives way when the row runs out of width.
+
+   The provenance run needs no rule of its own any more. Its family, size and
+   tone were the run's all along — `0.6875rem` is `--tug-font-size-2xs` spelled
+   in rem — and it inherits all three. */
+.tug-changes-list-file-meta {
+  flex-shrink: 0;
+}
+
+/* ---- Shared badge ---- */
+
+.tug-changes-list-badge {
+  flex-shrink: 0;
+  font-size: 0.625rem;
+  font-family: var(--tug-font-family-sans);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+}
+.tug-changes-list-badge-shared {
+  color: var(--tug7-element-tone-text-normal-accent-rest);
+}
+
+/* A file whose landing takes only some of its hunks ([P09]). Caution-toned:
+   the row's ± counts describe the whole file, and this says the landing
+   won't. */
+.tug-changes-list-badge-partial {
+  color: var(--tug7-element-tone-text-normal-caution-rest);
+}
+
+/* A drifted election is a refusal waiting to happen, not a disposition —
+   louder than the partial count it stands in for. */
+.tug-changes-list-badge-stale {
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}
+
+/* ---- Section labels ---- */
+
+/* The eyebrow itself is `TugSectionLabel` — shape, tone, rule and all. This
+   list renders it and styles none of it, which is what lets the arc lane
+   below render the same header from a different component. */
+
+/* The bulk affordance closes its section: trailing-aligned under the last
+   row of the bucket it acts on, above the next section's rule. */
+.tug-changes-list-section-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--tug-space-sm);
+  padding: 0 var(--tug-space-sm) var(--tug-space-xs);
+}
+
+/* The bulk affordances sit at the section header's trailing edge: icon+text
+   buttons whose casing matches the header's uppercase. */
+.tug-changes-list-claim-all,
+.tug-changes-list-disclaim-all {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* The per-row Claim icon pins to the row's extreme right; claiming removes it
+   and the ± / pop-out / fold shift right to fill. */
+.tug-changes-list-claim,
+.tug-changes-list-disclaim {
+  flex: 0 0 auto;
+}
+
+/* Bracket-hint provenance on unattributed rows ([P13]) — the one-glance
+   disposition cue; a hint is never an attribution. */
+.tug-changes-list-file-hint {
+  font-size: 0.6875rem;
+  font-style: italic;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* An orphaned row's `from <session>` hint. The word stays hint-sized muted ink;
+   the chip beside it is a citation and keeps its own type and color ([L20]), so
+   only the alignment between them is stated here. Upright rather than italic:
+   the theme's sans has no italic face, and a slanted chip would paint nothing. */
+.tug-changes-list-file-hint-from {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-style: normal;
+}

@@ -2,7 +2,7 @@
  * `restore-gate-round` — the pure fold behind the restore gate's session
  * count.
  *
- * `TugRestoreGate` tells the user how many of the sessions being restored
+ * `RestoreGate` tells the user how many of the sessions being restored
  * have finished: "2 of 5 sessions". That sentence is only honest if its
  * total never moves and its count never falls, and neither falls out of
  * reading the cards that hold the gate right now — a finished card stops

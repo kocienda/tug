@@ -2,13 +2,13 @@
  * Token coverage for the markdown typography pass.
  *
  * `--tugx-md-*` slots are component-local per tuglaws/token-naming.md:
- * declared in `tug-markdown-view.css`'s `body {}` block (the canonical
- * home for a public component's `--tugx-*` slots). Per-theme variance
+ * declared in `styles/tugx-md.css`'s `body {}` block (the shared markdown
+ * sheet, the canonical home for the surface's `--tugx-md-*` slots). Per-theme variance
  * flows through the `--tug7-*` base tokens those aliases resolve to.
  *
  * What this test guards:
  *  - Every `--tugx-md-*` token referenced by markdown CSS is declared
- *    in `tug-markdown-view.css`.
+ *    in `styles/tugx-md.css`.
  *  - Theme files (`ironclad.css`, `sloop.css`) DO NOT declare any
  *    `--tugx-md-*` slot — that would be the original-sin pattern this
  *    migration cleaned up.
@@ -30,10 +30,7 @@ const __dir = dirname(__filename);
 const TUGDECK = join(__dir, "../../../..");
 const IRONCLAD = join(TUGDECK, "styles/themes/ironclad.css");
 const SLOOP = join(TUGDECK, "styles/themes/sloop.css");
-const MARKDOWN_VIEW_CSS = join(
-  TUGDECK,
-  "src/components/tugways/tug-markdown-view.css",
-);
+const MARKDOWN_CSS = join(TUGDECK, "styles/tugx-md.css");
 const MARKDOWN_BLOCK_CSS = join(
   TUGDECK,
   "src/components/tugways/tug-markdown-block.css",
@@ -83,12 +80,12 @@ describe("markdown token coverage", () => {
     expect(sloop.size).toBe(0);
   });
 
-  test("every --tugx-md-* token referenced by markdown CSS is declared in tug-markdown-view.css", () => {
+  test("every --tugx-md-* token referenced by markdown CSS is declared in tugx-md.css", () => {
     const referenced = new Set<string>([
-      ...extractReferenced(read(MARKDOWN_VIEW_CSS)),
+      ...extractReferenced(read(MARKDOWN_CSS)),
       ...extractReferenced(read(MARKDOWN_BLOCK_CSS)),
     ]);
-    const declared = extractDeclared(read(MARKDOWN_VIEW_CSS));
+    const declared = extractDeclared(read(MARKDOWN_CSS));
 
     const undeclared = [...referenced].filter((t) => !declared.has(t)).sort();
 
@@ -105,7 +102,7 @@ describe("markdown token coverage", () => {
     // color, table border, table header bg, footnote color — are
     // intentionally NOT in this list. They live in `--tugx-block-*` via
     // `styles/tugx-block.css`.
-    const declared = extractDeclared(read(MARKDOWN_VIEW_CSS));
+    const declared = extractDeclared(read(MARKDOWN_CSS));
     const required: ReadonlyArray<string> = [
       // Body rhythm
       "--tugx-md-body-line-height",
@@ -159,14 +156,13 @@ describe("markdown token coverage", () => {
       "--tugx-md-footnote-size",
       // Layout
       "--tugx-md-block-padding-x",
-      "--tugx-md-bottom-buffer",
     ];
     const missing = required.filter((t) => !declared.has(t));
     expect(missing).toEqual([]);
   });
 
   test("markdown CSS references no --tugx-md-* fallback literals (theme is the sole source)", () => {
-    const view = read(MARKDOWN_VIEW_CSS);
+    const view = read(MARKDOWN_CSS);
     const block = read(MARKDOWN_BLOCK_CSS);
     // After the typography pass, every var() should reference the
     // declared token without a comma-separated fallback. The

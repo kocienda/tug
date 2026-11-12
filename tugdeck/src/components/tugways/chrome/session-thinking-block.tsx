@@ -327,6 +327,7 @@ export const SessionThinkingBlock: React.FC<SessionThinkingBlockProps> = ({
         <button
           type="button"
           className="session-thinking-block-toggle"
+          data-tug-focus="refuse"
           aria-expanded={collapsed ? "false" : "true"}
           aria-controls="session-thinking-block-body"
           onClick={handleToggle}

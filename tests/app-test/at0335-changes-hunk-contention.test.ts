@@ -29,7 +29,7 @@
  * default election is covered in `changes-route-controller`'s own tests and
  * against a temp repo in `feeds/changeset.rs`.
  *
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
  * @covers tugdeck/src/components/tugways/body-kinds/diff-block.tsx
  * @covers tugdeck/src/lib/hunk-election.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts

@@ -19,7 +19,7 @@
  *     no annotation of any kind — not a citation, and NOT the path annotation
  *     it would have been given had the path scan been allowed to take it.
  *  2. **Confirmed.** Once the ledger answers with the session, the run becomes
- *     a live `TugSessionCitation`, portaled into the span the annotator marked.
+ *     a live `SessionCitation`, portaled into the span the annotator marked.
  *  3. **Refuted.** A look-alike the ledger has never heard of stays ordinary
  *     text — no chip, not even a slashed one. An unresolvable *declared* ref
  *     wears the slashed chip; a scanned token that turns out to be nothing is
@@ -64,7 +64,7 @@
  * @covers tugdeck/src/lib/annotator/wrap-matches.ts
  * @covers tugdeck/src/components/tugways/session-citation-portals.tsx
  * @covers tugdeck/src/components/tugways/tug-markdown-block.tsx
- * @covers tugdeck/src/components/tugways/tug-session-identity.css
+ * @covers tugdeck/src/components/tugways/cards/session-identity.css
  * @covers tugdeck/src/lib/session-identity.ts
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.css
  */

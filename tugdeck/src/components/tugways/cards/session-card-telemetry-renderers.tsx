@@ -66,8 +66,8 @@ import {
   type FocusPolicy,
 } from "@/components/tugways/focus-manager";
 import { CardIdContext } from "@/lib/card-id-context";
-import { TugPlacard } from "@/components/tugways/tug-placard";
-import { TugStatusCell } from "@/components/tugways/tug-status-cell";
+import { SessionPlacard } from "./session-placard";
+import { SessionTelemetryCell } from "./session-telemetry-cell";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useFocusTrap } from "@/components/tugways/use-focus-trap";
 import { SideQuestionBody } from "@/components/tugways/cards/side-question-overlay";
@@ -255,7 +255,7 @@ export interface SessionTelemetryStatusRowProps extends SessionTelemetryProps {
 }
 
 /**
- * Which Z2 detail surface the shared {@link TugPlacard} shows. Each key
+ * Which Z2 detail surface the shared {@link SessionPlacard} shows. Each key
  * matches a status cell's `data-priority`, so the host can find the cell to
  * anchor the placard under it.
  */
@@ -886,7 +886,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   { codeSessionStore, sessionMetadataStore, onScrollToRow, focusGroup, focusOrderBase, focusPolicy, sideQuestionStore, pendingContextStore },
   ref,
 ) {
-  // The Z2 detail surfaces render as ONE card-scoped TugPlacard, toggled open
+  // The Z2 detail surfaces render as ONE card-scoped SessionPlacard, toggled open
   // on the activating cell — so only one is ever open ([P05]). `placard` names
   // the open surface plus the horizontal offset it opens at (measured under the
   // triggering cell, [P06]). `rowRef` locates the cells + the placard's
@@ -1022,7 +1022,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // detail view OF that cell and centers under it. The `/btw` placard is not:
   // BTW has no cell any more, and `/btw` is a conversation the user had with
   // the session rather than a reading off the strip — so it opens from the
-  // strip's own trailing edge, right-aligned to the card. `TugPlacard` centers
+  // strip's own trailing edge, right-aligned to the card. `SessionPlacard` centers
   // on the x it is given and clamps in-card, so a right-edge anchor is stated
   // as the strip's own right edge; the clamp does the rest.
   //
@@ -1185,7 +1185,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // Cycle stops ([P10] revised): each cell is its own leaf stop (Tab
   // cell-to-cell, no arrow-roving), like the Z4B chips. The cells take
   // consecutive orders left→right from `focusOrderBase`; passing an
-  // undefined group leaves them off the walk entirely (`TugStatusCell`
+  // undefined group leaves them off the walk entirely (`SessionTelemetryCell`
   // registers only when a `focusGroup` is supplied). `cellOrder` keeps
   // the per-cell order in one place so the DOM order and the walk order
   // can't drift.
@@ -1686,7 +1686,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   );
   const placardEl =
     placard === null ? null : (
-      <TugPlacard
+      <SessionPlacard
         open
         onClose={closePlacard}
         dismiss="auto"
@@ -1702,7 +1702,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         aria-label={PLACARD_TITLES[placard.key]}
       >
         {placardBody}
-      </TugPlacard>
+      </SessionPlacard>
     );
 
   // Flat 5-cell flex row — STATE + TIME + CONTEXT + TASKS + JOBS as
@@ -1758,7 +1758,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         >
           <span
             className="session-telemetry-occupant-mark"
-            data-icon-role={occupant === "permission" ? "caution" : "info"}
+            data-icon-tone={occupant === "permission" ? "caution" : "info"}
             aria-hidden
           >
             {occupant === "permission" ? (
@@ -1795,7 +1795,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         ? createPortal(placardEl, paneFrameEl as HTMLElement)
         : placardEl}
       {arcVerbs.confirm}
-      <TugStatusCell
+      <SessionTelemetryCell
         priority="state"
         label="STATE"
         onActivate={() => togglePlacard("state")}
@@ -1820,8 +1820,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           phaseVisual={sessionSessionPhaseVisual}
           aria-hidden
         />
-      </TugStatusCell>
-      <TugStatusCell
+      </SessionTelemetryCell>
+      <SessionTelemetryCell
         priority="time"
         label="TIME"
         onActivate={() => togglePlacard("time")}
@@ -1836,8 +1836,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               : "—",
           )}
         </span>
-      </TugStatusCell>
-      <TugStatusCell
+      </SessionTelemetryCell>
+      <SessionTelemetryCell
         priority="context"
         label="CONTEXT"
         onActivate={() => togglePlacard("context")}
@@ -1856,8 +1856,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             {`/ ${formatTokenCap(contextMax)}`}
           </span>
         </span>
-      </TugStatusCell>
-      <TugStatusCell
+      </SessionTelemetryCell>
+      <SessionTelemetryCell
         priority="tasks"
         label={arcFact === null ? "TASKS" : "ARC"}
         onActivate={() => togglePlacard(arcFact === null ? "tasks" : "arc")}
@@ -1958,8 +1958,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             aria-label={tasksSummary}
           />
         )}
-      </TugStatusCell>
-      <TugStatusCell
+      </SessionTelemetryCell>
+      <SessionTelemetryCell
         priority="jobs"
         label="JOBS"
         onActivate={() => togglePlacard("jobs")}
@@ -1985,7 +1985,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             aria-label={jobsSummary}
           />
         )}
-      </TugStatusCell>
+      </SessionTelemetryCell>
     </div>
   );
 });

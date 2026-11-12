@@ -74,8 +74,9 @@ export interface RelayedAlertOptions {
   message?: string | React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string | null;
-  confirmRole?: "accent" | "action" | "agent" | "data" | "danger" | "option";
-  icon?: string;
+  confirm?: { role?: "accent" | "action" | "agent" | "data" | "danger" | "option" };
+  /** An icon element crosses as its Lucide name; `null` crosses as none. */
+  icon?: React.ReactNode;
   /** Takes the question back: the overlay's alert closes and this resolves false. */
   signal?: AbortSignal;
 }
@@ -87,6 +88,18 @@ export interface RelayedAlertOptions {
  * of it asks again (`redeliver`). A message that is not text cannot cross,
  * so it is refused, never shown half.
  */
+/**
+ * The name an alert icon crosses the page bus as: the Lucide component's
+ * display name (`TriangleAlert`), or `""` for no icon. An element that is
+ * not a named Lucide icon crosses as none, since nothing else can be drawn on
+ * the far side.
+ */
+function iconWireName(icon: React.ReactNode): string {
+  if (icon === null || typeof icon !== "object" || !("type" in icon)) return "";
+  const type = icon.type as { displayName?: string };
+  return typeof type === "object" || typeof type === "function" ? (type.displayName ?? "") : "";
+}
+
 export function overlayShowAlert(options: RelayedAlertOptions = {}): Promise<boolean> {
   const { message } = options;
   if (message !== undefined && typeof message !== "string") {
@@ -101,8 +114,8 @@ export function overlayShowAlert(options: RelayedAlertOptions = {}): Promise<boo
       message,
       confirmLabel: options.confirmLabel,
       cancelLabel: options.cancelLabel,
-      confirmRole: options.confirmRole,
-      icon: options.icon,
+      confirm: options.confirm === undefined ? undefined : { role: options.confirm.role },
+      icon: options.icon === undefined ? undefined : iconWireName(options.icon),
     },
     { card: OVERLAY_CARD_ID, horizon: { person: "the alert's buttons" } },
   );

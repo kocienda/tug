@@ -10,7 +10,7 @@
  *
  *   1. PermissionDialog — a spread of Bash commands (one-liner with a
  *      scope-picker radio stack, two-line wrap, and two long commands that
- *      trip the `TugClamp` cap) to vet the body margin model and the
+ *      trip the `Clamp` cap) to vet the body margin model and the
  *      8-line clamp. Each mock store implements `subscribe` /
  *      `getSnapshot.pendingApproval` / `respondApproval`.
  *   2. QuestionDialog — 4-question wizard (the "calculator" walkthrough),
@@ -99,7 +99,7 @@ const TOKEI_SUGGESTIONS: ControlRequestForward["permission_suggestions"] = [
   },
 ];
 
-// A spread of command lengths to vet the body margin model + the TugClamp
+// A spread of command lengths to vet the body margin model + the Clamp
 // 8-line cap: one-liner (no clamp), a two-line wrap (no clamp), a compound
 // command that just trips the cap, and a very long one well past it.
 const CMD_ONE_LINER = "tokei";
@@ -117,7 +117,7 @@ const CMD_VERY_LONG = `${CMD_LONG} && grep -rn "KIND_RENDERERS" . --include="*.t
  * Mounts the real `PermissionDialog` for a given Bash command on a fresh
  * `MockPermissionStore`, echoes the decision, and offers a Reset. Used to
  * stamp out a variety of command lengths in the gallery so the body margin
- * model and the `TugClamp` cap can be eyeballed side by side.
+ * model and the `Clamp` cap can be eyeballed side by side.
  */
 function PermissionDemo({
   requestId,
@@ -361,7 +361,7 @@ export function GalleryTugInlineDialog(): React.ReactElement {
           <code>CodeSessionStore</code>s — a spread of command lengths to vet
           two things: the body sits in a column inset under the title (the
           icon-column margin model, equal margin each side), and a long
-          command caps at 8 lines behind the <code>TugClamp</code> reveal.
+          command caps at 8 lines behind the <code>Clamp</code> reveal.
         </div>
         <PermissionDemo
           requestId="gallery-perm:tokei"
@@ -397,7 +397,7 @@ export function GalleryTugInlineDialog(): React.ReactElement {
         <TugLabel className="cg-section-title">QuestionDialog</TugLabel>
         <div style={labelStyle}>
           The real <code>QuestionDialog</code> mounted on a mock{" "}
-          <code>CodeSessionStore</code>. Info iconRole; question
+          <code>CodeSessionStore</code>. Info iconTone; question
           accordion in the body slot; wizard nav (Back / Next) above the
           accordion; <code>Cancel</code> / <code>Submit</code> in
           trailing <code>actions</code>.

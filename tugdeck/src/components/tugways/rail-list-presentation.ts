@@ -12,6 +12,7 @@
  */
 
 import type {
+  TugListViewPresentation,
   TugListViewRowSeparator,
   TugListViewRowStriping,
 } from "@/components/tugways/tug-list-view";
@@ -61,12 +62,15 @@ const ROW_TEXT_SIZE = 12;
 // Row HEIGHT is the one knob that has to be CSS — it is the row component's
 // own token and the list passes it down by cascade. No shared class carries
 // it: each rail card's own list rule states the number — `.cards-list
-// .cards-oneline` in `cards-card.css`, `.tug-list-view.jots-list` in
+// .cards-oneline` in `cards-card.css`, `.jots-list` in
 // `jots-card.css` — and they are kept equal by hand.
 // ===========================================================================
 
 /** Presentation props shared by the rail cards' one-line lists. */
 export interface RailListPresentation {
+  /** The list's rail presentation: content height, the card root scrolls,
+   *  hairlines on every row. */
+  presentation: TugListViewPresentation;
   rowStriping: TugListViewRowStriping;
   rowSeparator: TugListViewRowSeparator | undefined;
   rowTextSize: number;
@@ -86,6 +90,7 @@ function separatorFor(
 }
 
 export const RAIL_LIST_PRESENTATION: RailListPresentation = {
+  presentation: "rail",
   rowStriping: ROW_STRIPING,
   rowSeparator: separatorFor(ROW_STRIPING),
   rowTextSize: ROW_TEXT_SIZE,

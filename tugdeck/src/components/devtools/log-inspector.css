@@ -2,10 +2,6 @@
    - --tugx-devlog-fg                 | --tugx-devlog-row-bg          (row body text)
    - --tugx-devlog-source-fg          | --tugx-devlog-row-bg          (source tag)
    - --tugx-devlog-time-fg            | --tugx-devlog-row-bg          (timestamp)
-   - --tugx-devlog-level-debug-fg     | --tugx-devlog-level-chip-bg   (debug chip)
-   - --tugx-devlog-level-info-fg      | --tugx-devlog-level-chip-bg   (info chip)
-   - --tugx-devlog-level-warn-fg      | --tugx-devlog-level-chip-bg   (warn chip)
-   - --tugx-devlog-level-error-fg     | --tugx-devlog-level-chip-bg   (error chip)
    - --tugx-devlog-data-fg            | --tugx-devlog-data-bg         (expanded data block)
 */
 
@@ -37,13 +33,6 @@ body {
   /* Subordinate text */
   --tugx-devlog-source-fg:        var(--tug7-element-global-text-normal-muted-rest);
   --tugx-devlog-time-fg:          var(--tug7-element-global-text-normal-muted-rest);
-
-  /* Level chip — shared background, level-specific foreground */
-  --tugx-devlog-level-chip-bg:    var(--tug7-surface-global-primary-normal-raised-rest);
-  --tugx-devlog-level-debug-fg:   var(--tug7-element-global-text-normal-muted-rest);
-  --tugx-devlog-level-info-fg:    var(--tug7-element-global-text-normal-default-rest);
-  --tugx-devlog-level-warn-fg:    var(--tug7-element-global-text-normal-caution-rest);
-  --tugx-devlog-level-error-fg:   var(--tug7-element-global-text-normal-danger-rest);
 
   /* Expanded data block (JSON pre) */
   --tugx-devlog-data-bg:          var(--tug7-surface-global-primary-normal-sunken-rest);
@@ -105,6 +94,15 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   justify-content: space-between;
+}
+
+/* The trigger names a source as it was logged ("tugcast", "All sources"),
+ * so it keeps the source's own case rather than the push button's
+ * call-to-action capitals. Compound selector, so it outranks
+ * `.tug-push-button` whatever order the two stylesheets load in. */
+.tug-devlog-source-trigger.tug-push-button {
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* The free-text filter is the house `TugFilterField` mounted `fill` — it sits
@@ -220,45 +218,16 @@ body {
 
 /* ---- Level chip ---- */
 
+/* The chip is a `TugBadge` (its tone follows the level); this keeps the
+   column one width down the list and the log's mono, uppercase voice. */
 .tug-devlog-row-level {
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  padding: 0 var(--tug-space-xs);
-  border-radius: var(--tug-radius-xs);
+  min-width: 44px;
   font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-3xs, 10px);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  min-width: 44px;
-  /* @tug-renders-on: --tugx-devlog-level-chip-bg */
-  background-color: var(--tugx-devlog-level-chip-bg);
-  color: var(--tugx-devlog-level-info-fg);
 }
 
-.tug-devlog-row-level[data-level="debug"] {
-  /* @tug-renders-on: --tugx-devlog-level-chip-bg */
-  background-color: var(--tugx-devlog-level-chip-bg);
-  color: var(--tugx-devlog-level-debug-fg);
-}
-
-.tug-devlog-row-level[data-level="info"] {
-  /* @tug-renders-on: --tugx-devlog-level-chip-bg */
-  background-color: var(--tugx-devlog-level-chip-bg);
-  color: var(--tugx-devlog-level-info-fg);
-}
-
-.tug-devlog-row-level[data-level="warn"] {
-  /* @tug-renders-on: --tugx-devlog-level-chip-bg */
-  background-color: var(--tugx-devlog-level-chip-bg);
-  color: var(--tugx-devlog-level-warn-fg);
-}
-
-.tug-devlog-row-level[data-level="error"] {
-  /* @tug-renders-on: --tugx-devlog-level-chip-bg */
-  background-color: var(--tugx-devlog-level-chip-bg);
-  color: var(--tugx-devlog-level-error-fg);
-}
 
 /* ---- Expand toggle ---- */
 

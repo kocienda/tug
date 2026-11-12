@@ -54,7 +54,7 @@
  * this file discriminates on is the composer's: an accepted landing jumping
  * the reader to the live edge.
  *
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts

@@ -13,7 +13,7 @@
  * deny). See `#step-3-5` in `arc/archive/dev-interactive-dialogs.md`.
  *
  * The single rendered state composes the `TugInlineDialog`
- * header-bar primitive with `iconRole="caution"` and a per-tool rich
+ * header-bar primitive with `iconTone="caution"` and a per-tool rich
  * description. `Deny` and `Allow` (`TugPushButton size="xs"`) flow
  * into the primitive's trailing `actions` slot; this dialog owns the
  * focus-on-mount on `Allow`. The body picker (`DiffBlock` for Edit;
@@ -998,7 +998,7 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({
       >
         <TugInlineDialog
           icon={<ShieldAlert />}
-          iconRole="caution"
+          iconTone="caution"
           title="Permission requested"
           description={
             <PermissionDescription

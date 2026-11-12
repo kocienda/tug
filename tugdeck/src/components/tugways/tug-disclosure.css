@@ -1,0 +1,11 @@
+/*
+ * TugDisclosure — the fold chevron. Laid out like the twists it replaced:
+ * an inline box that never shrinks, centred on its line. No colour is set:
+ * ink is inherited, and a caller's class on the root tints it.
+ */
+
+.tug-disclosure {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}

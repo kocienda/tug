@@ -18,7 +18,7 @@
  * is made of before a single path is read. A cluster of one file is that file.
  *
  * **A changed file here is the commit receipt's own row** — `ArcRangeFileRow`,
- * from `tug-changes-list.tsx` — so expanding one mounts that file's
+ * from `changes-list.tsx` — so expanding one mounts that file's
  * `base…branch` diff and nothing else ([B02], [P04]). The row's pop-out and
  * every directory row's are scoped to the paths they name ([P01]); the totals
  * row's is the whole range, which is what that row is about.
@@ -34,7 +34,7 @@
  *
  * Laws: [L02] props only; [L06] folds via data attributes; [L19] composes
  * `TugSectionLabel` / `ArcFoldRow` / `ChangesFileRow` / `DiffSummaryBadges` /
- * `BlockFoldCue` / `CommitMessage` / `TugClamp`; [L26] a file row's diff body
+ * `BlockFoldCue` / `CommitMessage` / `Clamp`; [L26] a file row's diff body
  * mounts on expand and a refetch keeps it rather than remounting it.
  *
  * @module components/tugways/cards/session-changes/session-changes-arc-brief
@@ -45,7 +45,7 @@ import "./session-changes-arc-fold.css";
 import React, { useState } from "react";
 import { AlignLeft, Folder, GitCommitHorizontal } from "lucide-react";
 
-import { TugClamp } from "@/components/tugways/tug-clamp";
+import { Clamp } from "./clamp";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { DiffSummaryBadges } from "@/components/tugways/blocks/diff-summary-badges";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
@@ -53,7 +53,7 @@ import { CommitMessage } from "@/components/tugways/commit-presentation";
 import {
   ArcRangeFileRow,
   PopOutDiffButton,
-} from "@/components/tugways/tug-changes-list";
+} from "@/components/tugways/cards/session-changes/changes-list";
 import {
   ArcFoldCell,
   ArcFoldRow,
@@ -294,7 +294,7 @@ export function SessionChangesArcBrief({
 
   return (
     <div className="session-changes-arc-brief" data-slot={slot}>
-      <TugSectionLabel label={{ name: eyebrow }} slot="session-changes-arc-brief-label" />
+      <TugSectionLabel label={{ name: eyebrow }} data-slot="session-changes-arc-brief-label" />
       <div className="session-changes-arc-brief-body">
         {parts.subject !== "" ? (
           <div
@@ -510,9 +510,9 @@ export function SessionChangesArcBrief({
           ) : (
             // Unsummarized: the message was not written to be clamped, so
             // the clamp is the floor — a screenful, then a reveal.
-            <TugClamp lines={MESSAGE_CLAMP_LINES} data-slot="session-changes-arc-brief-detail">
+            <Clamp lines={MESSAGE_CLAMP_LINES} data-slot="session-changes-arc-brief-detail">
               <div className="session-changes-arc-draft-message">{parts.body}</div>
-            </TugClamp>
+            </Clamp>
           )
         ) : null}
       </div>

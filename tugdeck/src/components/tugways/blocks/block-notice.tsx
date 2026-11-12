@@ -78,7 +78,7 @@ const DEFAULT_ICON: Readonly<Record<BlockNoticeTone, React.ReactNode>> = {
     <TugProgressIndicator
       variant="spinner"
       size={NOTICE_GLYPH_SIZE}
-      role="action"
+      tone="action"
       state="running"
       aria-label="Running"
     />

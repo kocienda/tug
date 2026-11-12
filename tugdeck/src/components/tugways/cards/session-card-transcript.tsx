@@ -6,7 +6,7 @@
  * registers two cell renderers, one per row kind:
  *
  *   - `user` — `TugTranscriptEntry participant="user"` whose body is a
- *     `TugAtomMarkdownBody`. The submitted prompt renders as markdown
+ *     `AtomMarkdownBody`. The submitted prompt renders as markdown
  *     (static `TugMarkdownBlock`), so the transcript shows bold / lists
  *     / code / headings exactly as the assistant body and the Claude
  *     Code TUI do, and the prompt's inline atom chips (`@`-mentions,
@@ -122,11 +122,11 @@ import {
   codeSessionDialogPresence,
 } from "@/components/tugways/cards/session-card-transcript-foot-reservation";
 import { copyAtomTextFrom, formatAtomTextForCopy } from "@/lib/atom-text";
-import { TugAtomMarkdownBody } from "@/components/tugways/cards/tug-atom-markdown-body";
+import { AtomMarkdownBody } from "@/components/tugways/cards/atom-markdown-body";
 import { SessionContextAttachments } from "@/components/tugways/cards/session-context-attachments";
 import { splitLeadingContext } from "@/lib/pending-context-store";
 import { labFlags } from "@/lib/lab-flags";
-import { TugAttachmentPreview } from "@/components/tugways/cards/tug-attachment-preview";
+import { AttachmentPreview } from "@/components/tugways/cards/attachment-preview";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import { formatModelLabel } from "@/lib/model-label";
 import { SessionZ1C } from "@/components/tugways/cards/session-card-z1c";
@@ -587,7 +587,7 @@ const UserMessageCell = React.memo(function UserMessageCell({
   // the copied content carries an honest representation of each atom
   // (pasting into a markdown surface renders as a link; pasting into
   // plain text shows the link syntax, still legible). The body span
-  // renders the SAME atoms as `<img>` chips via `TugAtomTextBody`;
+  // renders the SAME atoms as `<img>` chips via `AtomTextBody`;
   // the two surfaces walk the same substrate via the same helper, so
   // they can't disagree on what's there.
   const copyText = formatAtomTextForCopy(text, atoms);
@@ -672,10 +672,10 @@ const UserMessageCell = React.memo(function UserMessageCell({
                   assistant body and the Claude Code TUI), with the
                   prompt's inline atom chips grafted back into the rendered
                   markdown at their original positions — see
-                  `TugAtomMarkdownBody`. The root div carries the
+                  `AtomMarkdownBody`. The root div carries the
                   menu-anchor `bodyRef`. The prompt *editor* is unaffected;
                   this is the display surface only. */}
-              <TugAtomMarkdownBody
+              <AtomMarkdownBody
                 ref={(el) => { bodyRef.current = el; }}
                 className="session-card-transcript-user-markdown"
                 data-testid="session-card-transcript-user-body"
@@ -684,7 +684,7 @@ const UserMessageCell = React.memo(function UserMessageCell({
                 address={address}
                 annotation={annotation}
               />
-              <TugAttachmentPreview
+              <AttachmentPreview
                 address={address}
                 atoms={imageAtoms}
                 bytesStore={bytesStore}
@@ -787,13 +787,13 @@ const GhostRowCell = React.memo(function GhostRowCell({
         body={
           <>
             <SessionContextAttachments blocks={contextBlocks} />
-            <TugAtomMarkdownBody
+            <AtomMarkdownBody
               className="session-card-transcript-user-markdown"
               data-testid="session-card-transcript-user-body"
               text={text}
               atoms={atoms}
             />
-            <TugAttachmentPreview
+            <AttachmentPreview
               atoms={imageAtoms}
               bytesStore={bytesStore}
             />
@@ -807,7 +807,7 @@ const GhostRowCell = React.memo(function GhostRowCell({
           <TugIconButton
             icon={<X size={11} strokeWidth={2.5} />}
             aria-label="Cancel queued message"
-            tone="danger"
+            role="danger"
             size="2xs"
             emphasis="filled"
             onClick={() => codeSessionStore.cancelQueuedSend(turnKey)}
@@ -2733,7 +2733,7 @@ export const SessionTranscriptHost = forwardRef<
     settleStartRef.current = Date.now();
   }
 
-  // The reveal's horizon ([L33]). `TugRestoreGate` holds this card from
+  // The reveal's horizon ([L33]). `RestoreGate` holds this card from
   // the list's first mount until `onFirstSettle` reports the reveal over,
   // and a list that never measures must not hold an app-wide gate: past
   // the bound the host reports the reveal settled anyway. One-shot, armed
@@ -3387,13 +3387,6 @@ export const SessionTranscriptHost = forwardRef<
     );
     return () => card?.removeAttribute(STILL_ANCHOR_ATTR);
   }, [writeStillAnchor]);
-  const handleJumpToBottom = useCallback((): void => {
-    // Non-animated clamp — the same definite jump to the true bottom
-    // the End key performs. The animated path eases toward a sentinel
-    // offset and lands short of a tall transcript's end.
-    listViewRef.current?.scrollToBottom();
-  }, []);
-
   return (
     // [DT10] paint gate: every row renders inline at its real height,
     // so the single-reveal gate applies for the whole replay window
@@ -3486,10 +3479,9 @@ export const SessionTranscriptHost = forwardRef<
             </FindTargetRegistryContext.Provider>
             </ReportContext.Provider>
           </ToolBlockExpansionContext.Provider>
-          <TugJumpToBottomButton
-            ref={jumpButtonRef}
-            onClick={handleJumpToBottom}
-          />
+          {/* Its press dispatches `last-turn`, which the session card answers
+              with this transcript's `scrollToBottom` — the same jump End makes. */}
+          <TugJumpToBottomButton ref={jumpButtonRef} />
         </div>
       ) : null}
       {/* Z0 load overlay ([D97]/[P09]): the determinate restore /

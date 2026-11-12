@@ -106,7 +106,7 @@ async function errorBannerCount(app: App): Promise<number> {
   let n = 0;
   for (const id of ALL_CARD_IDS) {
     n += await app.body(id).evalJS<number>(
-      `document.querySelectorAll('.tug-pane-banner[data-variant="error"]').length`,
+      `document.querySelectorAll('.tug-pane-banner[data-kind="error"]').length`,
     );
   }
   return n;

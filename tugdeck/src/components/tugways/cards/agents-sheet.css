@@ -3,22 +3,11 @@
    composed TugSheet; rows from TugListView / TugListRow; buttons from
    TugPushButton. Composed children keep their own tokens [L20]. */
 
-/* The list view is `height: 100%` by default (it expects a bounded flex
-   parent). The composed TugSheetScaffold body is the single scroll region, so
-   size the inline list to its content and let the body scroll. */
-.tug-list-view.agents-sheet-list {
-  height: auto;
-}
-
 /* Section header ("Running" / "Library") — a quiet uppercase divider above
    each section's rows. */
+/* The eyebrow is `TugSectionLabel`; this keeps the row's own spacing. */
 .agents-sheet-section {
   padding: 1.75rem 0 0.35rem;
-  font-size: var(--tug-font-size-xs);
-  font-weight: var(--tug-font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
 }
 /* The first section header sits flush at the top — no extra lead gap. */
 .agents-sheet-list [data-list-cell-role="header"]:first-child .agents-sheet-section {

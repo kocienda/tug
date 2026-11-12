@@ -1394,7 +1394,7 @@ export interface CodeSessionSnapshot {
    * initial resume replay? The reveal — the list's first mount and the
    * settle of its measured heights — is the stretch after
    * `replay_complete` where the restored transcript is not yet on screen
-   * and the main thread is busy drawing it; `TugRestoreGate` holds over
+   * and the main thread is busy drawing it; `RestoreGate` holds over
    * it (`deriveColdRevealPending`). Set by `notifyColdRevealSettled`,
    * which the transcript host calls from `onFirstSettle` or at its
    * settle bound. Never resets: a later reconnect replays onto a list

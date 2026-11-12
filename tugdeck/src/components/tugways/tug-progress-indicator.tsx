@@ -32,7 +32,7 @@
  * `disabled` is a state per the seven-slot convention [T-classification]:
  *  it dims and freezes any variant, independent of `state`.
  *
- * **State implies role.** When no explicit `role` is passed (and no
+ * **State implies tone.** When no explicit `tone` is passed (and no
  * `phaseVisual` returns one), the effective role defaults from the
  * effective state via {@link defaultRoleForState}:
  *
@@ -45,16 +45,16 @@
  * This is a deliberate conflation: state IS visually paired with a
  * role in nearly every callsite, and the default removes a repetitive
  * `role={statusToRole(state)}` mapping that every consumer would
- * otherwise re-derive. The explicit `role` prop still wins for the
+ * otherwise re-derive. The explicit `tone` prop still wins for the
  * cases that need to override (e.g. `restoring → caution + running`).
  *
- * Phase API (replaces TugStateIndicator's CodeSession-aware reducer):
+ * The phase props:
  *
  *   phase         — caller-defined identifier emitted as data-phase
  *   phaseLabels   — phase → human-readable label map; doubles as the
  *                   width-stabilize set for labelAlign="center"
- *   phaseVisual   — phase → partial { role, state, shape }; explicit
- *                   role/state/shape props win over phaseVisual returns
+ *   phaseVisual   — phase → partial { tone, state, shape }; explicit
+ *                   tone/state/shape props win over phaseVisual returns
  *
  * Layout:
  *   glyphPosition — left | right | both (paired mirrored glyphs)
@@ -159,11 +159,11 @@ export type TugProgressIndicatorLabelAlign = "start" | "center";
 
 /**
  * Partial visual returned by {@link TugProgressIndicatorProps.phaseVisual}.
- * Explicit `role` / `state` / `shape` props on the indicator always win over
+ * Explicit `tone` / `state` / `shape` props on the indicator always win over
  * fields returned here.
  */
 export interface TugProgressIndicatorPhaseVisual {
-  readonly role?: TugProgressIndicatorRole;
+  readonly tone?: TugProgressIndicatorRole;
   readonly state?: TugProgressIndicatorState;
   readonly shape?: TugProgressIndicatorShape;
 }
@@ -244,16 +244,16 @@ export interface TugProgressIndicatorProps
   variant?: TugProgressIndicatorVariant;
 
   /**
-   * Semantic role tone. `inherit` resolves the fill to `currentColor`.
+   * Semantic tone. `inherit` resolves the fill to `currentColor`.
    * Omit for the theme's default accent tone (per-variant).
-   * @selector [data-role="<role>"]
+   * @selector [data-tone="<tone>"]
    */
-  role?: TugProgressIndicatorRole;
+  tone?: TugProgressIndicatorRole;
 
   /**
    * Lifecycle state. `running` animates the variant's canonical
    * indeterminate motion; the other four states paint a static pose.
-   * `aborted` always renders in the danger tone regardless of `role`.
+   * `aborted` always renders in the danger tone regardless of `tone`.
    *
    * Defaults to `stopped` — motion is opt-in, because a running glyph
    * asserts that work is executing right now. Say `running` (or supply a
@@ -336,7 +336,7 @@ export interface TugProgressIndicatorProps
 
   /**
    * Phase → partial visual ({@link TugProgressIndicatorPhaseVisual}).
-   * Returned `role` / `state` fields are defaults — explicit `role` /
+   * Returned `tone` / `state` fields are defaults — explicit `tone` /
    * `state` props on the indicator override them.
    */
   phaseVisual?: (phase: string) => TugProgressIndicatorPhaseVisual;
@@ -436,7 +436,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
   function TugProgressIndicator(
     {
       variant = "ring",
-      role,
+      tone,
       state,
       shape,
       disabled = false,
@@ -463,8 +463,8 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
     const boxDisabled = useTugBoxDisabled();
     const effectiveDisabled = disabled || boxDisabled;
 
-    // Resolve state first (explicit > phaseVisual > default), then role
-    // (explicit > phaseVisual > default-from-state). State implies role
+    // Resolve state first (explicit > phaseVisual > default), then tone
+    // (explicit > phaseVisual > default-from-state). State implies tone
     // by default — see `defaultRoleForState`.
     //
     // The default is `stopped`: motion is opt-in. A breathing glyph is a
@@ -476,8 +476,8 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
       phase !== undefined && phaseVisual !== undefined ? phaseVisual(phase) : undefined;
     const effectiveState: TugProgressIndicatorState =
       state ?? phaseDerived?.state ?? "stopped";
-    const effectiveRole: TugProgressIndicatorRole =
-      role ?? phaseDerived?.role ?? defaultRoleForState(effectiveState);
+    const effectiveTone: TugProgressIndicatorRole =
+      tone ?? phaseDerived?.tone ?? defaultRoleForState(effectiveState);
     // Shape resolves on the same ladder and defaults to the circle, so every
     // caller that has never heard of the axis keeps the glyph it had.
     const effectiveShape: TugProgressIndicatorShape =
@@ -508,7 +508,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
       "aria-valuemax": isDeterminate ? 100 : undefined,
     };
 
-    const fillStyle = buildFillStyle(variant, effectiveRole);
+    const fillStyle = buildFillStyle(variant, effectiveTone);
 
     // Tell the motion registry this glyph is moving, so the render-cost probe
     // reads while it does ([D7], [P02]). The pulsing dot is excluded: it takes
@@ -643,7 +643,7 @@ export const TugProgressIndicator = React.forwardRef<HTMLSpanElement, TugProgres
         ref={rootRef}
         data-slot="tug-progress-indicator"
         data-variant={variant}
-        data-role={effectiveRole}
+        data-tone={effectiveTone}
         data-state={effectiveState}
         data-shape={effectiveShape === "dot" ? undefined : effectiveShape}
         data-disabled={effectiveDisabled || undefined}

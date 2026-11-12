@@ -299,7 +299,7 @@ function BlockerDialog({
     <TugInlineDialog
       className="session-changes-arc-join-blocker"
       icon={<TriangleAlert />}
-      iconRole="caution"
+      iconTone="caution"
       title={blocker.title}
       {...(remedy !== undefined
         ? {
@@ -399,7 +399,7 @@ export function SessionChangesArcJoin({
     >
       <TugSectionLabel
         label={{ name: "report" }}
-        slot="session-changes-arc-join-label"
+        data-slot="session-changes-arc-join-label"
       />
       <div
         className="session-changes-arc-join-note"
@@ -469,7 +469,7 @@ export function SessionChangesArcJoin({
           <TugInlineDialog
             className="session-changes-arc-join-fold-receipt"
             icon={<Check />}
-            iconRole="success"
+            iconTone="success"
             title={receipt.text.title}
             actions={
               <>

@@ -10,7 +10,7 @@
  * section renders at the rail ([D141]) — the expanded face carries the
  * worktree's dirty files and the maintained join draft as read-only ink, and
  * nowhere in the lane is there a claim, disclaim, or hunk-election affordance
- * — the whole point of not reusing `TugChangesList`'s rows.
+ * — the whole point of not reusing `ChangesList`'s rows.
  *
  * The draft has two grammars and the server decides which one stands: an arc
  * the join has armed shows what the join would land, under `lands as`
@@ -71,7 +71,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-brief.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold-row.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-fold.css
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
  * @covers tugdeck/src/lib/arc-file-clusters.ts
  * @covers tugdeck/src/lib/landing-message.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/arc-row-menu.tsx

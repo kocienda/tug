@@ -33,7 +33,7 @@ import { useChangesetAll } from "@/lib/changeset-all-store";
 import { markdownTextParts } from "@/components/tugways/tug-markdown-text";
 import { useCommitIdentityMenu } from "@/components/tugways/commit-identity-menu";
 import { requestCommitCard } from "@/lib/open-commit-in-card";
-import { CommitChangesList } from "@/components/tugways/tug-changes-list";
+import { CommitChangesList } from "@/components/tugways/cards/session-changes/changes-list";
 import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "../blocks/collapse-context";
@@ -45,6 +45,7 @@ import {
 } from "./session-command-block-registry";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import { ShellExchangeBlock } from "./shell-exchange-block";
+import { ReceiptHeader, ReceiptHeaderText } from "./receipt-header";
 import "./session-commit-receipt-block.css";
 
 import {
@@ -137,7 +138,7 @@ function CommitReceipt({
   // commit reads identically wherever it appears. The atom's glyph and word
   // are what separate the two; a heavier delimiter only spent width.
   const identity = (
-    <span className="commit-receipt-header">
+    <ReceiptHeader className="commit-receipt-header">
       <span
         className="commit-receipt-sha"
         ref={menu.ref}
@@ -153,14 +154,13 @@ function CommitReceipt({
         {menu.contextMenu}
       </span>
       {" "}
-      <code
+      <ReceiptHeaderText
         ref={subjectRef}
         className="commit-receipt-summary"
-        data-tugx-findable=""
       >
         {subject}
-      </code>
-    </span>
+      </ReceiptHeaderText>
+    </ReceiptHeader>
   );
   // The push this landing invites, in the header's actions slot beside Copy —
   // where a block's own gesture belongs — rather than loose in the message

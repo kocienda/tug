@@ -72,7 +72,8 @@ import React from "react";
 // `role="alertdialog"` on the content, and outside interactions never
 // dismiss (`onInteractOutside` prevented).
 import * as AlertDialog from "@radix-ui/react-dialog";
-import { icons } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
+import { sizedIcon } from "./internal/sized-icon";
 import { TugPushButton } from "./tug-push-button";
 import { TugListRow } from "./tug-list-row";
 import { isCancelChordEvent } from "./keymap-registry";
@@ -89,17 +90,18 @@ import { useFocusTrap } from "./use-focus-trap";
 import { useFocusManager } from "./use-focusable";
 import { useSpatialOrder } from "./use-spatial-order";
 import type { SpatialOrder, SpatialSeam } from "./spatial-order";
+import { cn } from "@/lib/utils";
 
 /* ---------------------------------------------------------------------------
  * Helpers
  * ---------------------------------------------------------------------------*/
 
-/** Map confirmRole to a default Lucide icon name (PascalCase — matches lucide-react `icons` keys). */
-function defaultIconForRole(role: TugButtonRole): string {
+/** The default icon for the confirm button's role. */
+function defaultIconForRole(role: TugButtonRole): React.ReactElement {
   if (role === "danger") {
-    return "TriangleAlert";
+    return <TriangleAlert />;
   }
-  return "Info";
+  return <Info />;
 }
 
 /* ---------------------------------------------------------------------------
@@ -130,8 +132,8 @@ export interface TugAlertChoice {
    * rows (leading icon + title + description) rather than a compact button row.
    */
   description?: string;
-  /** Lucide icon name (PascalCase) shown at the leading edge of the row. */
-  icon?: string;
+  /** Icon element shown at the leading edge of the row, sized to it. */
+  icon?: React.ReactNode;
   /**
    * Color domain for the row.
    * @default "action"
@@ -165,9 +167,9 @@ export interface TugAlertHandle {
     message?: string | React.ReactNode;
     confirmLabel?: string;
     cancelLabel?: string | null;
-    confirmRole?: TugButtonRole;
-    /** Lucide icon name override. Defaults to role-based icon. */
-    icon?: string;
+    confirm?: { role?: TugButtonRole };
+    /** Icon element override; `null` for none. Defaults to a role-based icon. */
+    icon?: React.ReactNode;
   }): Promise<boolean>;
   /**
    * Opens the alert as a multi-action chooser. Rich {@link choices} (any carrying
@@ -180,8 +182,8 @@ export interface TugAlertHandle {
   choose(options: {
     title?: string;
     message?: string | React.ReactNode;
-    /** Lucide icon name override. Defaults to role-based icon. */
-    icon?: string;
+    /** Icon element override; `null` for none. Defaults to a role-based icon. */
+    icon?: React.ReactNode;
     /**
      * Cancel button text; pass `null` to omit it.
      * @default "Cancel"
@@ -204,7 +206,8 @@ export interface TugAlertHandle {
  * ---------------------------------------------------------------------------*/
 
 /** TugAlert props. */
-export interface TugAlertProps {
+export interface TugAlertProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "title" | "role"> {
   /** Alert title (required). */
   title: string;
   /** Body content. */
@@ -223,12 +226,12 @@ export interface TugAlertProps {
    * Semantic role for confirm button.
    * @default "action"
    */
-  confirmRole?: TugButtonRole;
+  confirm?: { role?: TugButtonRole };
   /**
-   * Lucide icon name. Defaults to a role-based icon.
-   * Pass an empty string to suppress the icon.
+   * Icon element, sized to the alert's icon box. Defaults to a role-based
+   * icon; pass `null` to suppress it.
    */
-  icon?: string;
+  icon?: React.ReactNode;
   /**
    * Stable opaque sender id for chain dispatches. Auto-derived via
    * `useId()` if omitted. Disambiguates multi-alert pages when a
@@ -255,9 +258,11 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
       message: messageProp,
       confirmLabel: confirmLabelProp = "OK",
       cancelLabel: cancelLabelProp = "Cancel",
-      confirmRole: confirmRoleProp = "action",
+      confirm: confirmProp,
       icon: iconProp,
       senderId: senderIdProp,
+      className,
+      ...rest
     },
     ref,
   ) {
@@ -285,8 +290,8 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
       message?: string | React.ReactNode;
       confirmLabel?: string;
       cancelLabel?: string | null;
-      confirmRole?: TugButtonRole;
-      icon?: string;
+      confirm?: { role?: TugButtonRole };
+      icon?: React.ReactNode;
       choices?: TugAlertChoice[];
     } | null>(null);
 
@@ -489,19 +494,16 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     const cancelLabel = override !== null && override !== undefined && "cancelLabel" in override
       ? override.cancelLabel
       : cancelLabelProp;
-    const confirmRole = override?.confirmRole ?? confirmRoleProp;
-    const iconName = override !== null && override !== undefined && "icon" in override
+    const confirmButtonRole = override?.confirm?.role ?? confirmProp?.role ?? "action";
+    const iconGiven = override !== null && override !== undefined && "icon" in override
       ? override.icon
       : iconProp;
 
-    // Resolve icon component: explicit name, role-based default, or nothing if "".
-    const resolvedIconName = iconName !== undefined
-      ? iconName
-      : defaultIconForRole(confirmRole);
+    // Resolve the icon: the given element, the role's default, or none for `null`.
+    const iconNode = iconGiven !== undefined
+      ? iconGiven
+      : defaultIconForRole(confirmButtonRole);
 
-    const IconComponent = resolvedIconName
-      ? (icons[resolvedIconName as keyof typeof icons] ?? null)
-      : null;
 
     // ---- Action buttons ----
     // The generalized button model: Cancel (order 0, when present) followed by
@@ -517,7 +519,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
       label: React.ReactNode;
       /** Secondary line + leading icon, present only for rich chooser rows. */
       description?: string;
-      icon?: string;
+      icon?: React.ReactNode;
       emphasis: TugButtonEmphasis;
       role: TugButtonRole;
       /** Wrapped in AlertDialog.Close + the Return default. */
@@ -557,15 +559,15 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
           key: "__confirm__",
           order: 1,
           label: confirmLabel,
-          emphasis: confirmRole === "action" ? "primary" : "filled",
-          role: confirmRole,
+          emphasis: confirmButtonRole === "action" ? "primary" : "filled",
+          role: confirmButtonRole,
           isDefault: true,
           onClick: onConfirmClick,
         },
       ];
       // onConfirmClick is a stable closure over refs; safe to omit.
       // eslint-disable-next-line react-hooks/exhaustive-deps -- `onConfirmClick` is a stable closure over refs
-    }, [mode, override?.choices, confirmLabel, confirmRole, resolveAndClose]);
+    }, [mode, override?.choices, confirmLabel, confirmButtonRole, resolveAndClose]);
 
     // Rich rows: a chooser whose choices carry an icon or description renders as
     // a vertical stack of list rows (leading icon + title + description) with
@@ -634,7 +636,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     // Return can't destroy), otherwise the default action button.
     const defaultButtonOrder = richRows
       ? RICH_ROWS_ORDER
-      : mode === "confirm" && confirmRole === "danger" && hasCancel
+      : mode === "confirm" && confirmButtonRole === "danger" && hasCancel
         ? CANCEL_ORDER
         : (actionButtons.find((b) => b.isDefault)?.order ?? CANCEL_ORDER);
     const handleOpenAutoFocus = React.useCallback(
@@ -668,7 +670,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     // Button onClick handlers. Dispatch through the chain (for keyboard/
     // responder consistency) AND resolve directly. The direct call is what
     // makes a click reliable: when this alert is an app-level singleton (e.g.
-    // the deck-root one TugLogout opens), the chain's first responder is a
+    // the deck-root one Logout opens), the chain's first responder is a
     // card, not this alert, so `sendToFirstResponder` never reaches the
     // handler and only Radix's built-in Action/Cancel close fires — which
     // resolves `false` for *both* buttons. `resolveAndClose` is idempotent, so
@@ -696,11 +698,12 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
         <AlertDialog.Portal container={overlayRoot}>
           <AlertDialog.Overlay className="tug-alert-overlay" />
           <AlertDialog.Content
+            {...rest}
             ref={(el: HTMLDivElement | null) => {
               (responderRef as (node: HTMLDivElement | null) => void)(el);
               contentElRef.current = el;
             }}
-            className="tug-alert-content"
+            className={cn("tug-alert-content", className)}
             data-slot="tug-alert"
             // The alertdialog semantics AlertDialog used to provide, kept
             // explicit on the plain Dialog primitive ([P13]): the role, and
@@ -749,11 +752,11 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
               data-scale="alert"
               data-has-message={message ? "true" : undefined}
             >
-              {IconComponent && (
+              {iconNode && (
                 <div className="tug-alert-icon" aria-hidden="true">
                   {/* The icon box owns the size (see tugx-header.css); the
                       svg fills it. */}
-                  {React.createElement(IconComponent, { size: "100%" })}
+                  {sizedIcon(iconNode, "100%")}
                 </div>
               )}
               <div className="tug-alert-text">
@@ -959,9 +962,6 @@ function AlertChoiceList({
       onKeyDown={onKeyDown}
     >
       {choices.map((choice) => {
-        const RowIcon = choice.icon
-          ? (icons[choice.icon as keyof typeof icons] ?? null)
-          : null;
         const selected = choice.id === selectedId;
         return (
           <div
@@ -988,10 +988,10 @@ function AlertChoiceList({
               leading={
                 // The rendered size is set in CSS (the base `.tug-list-row`
                 // leading rule clamps the svg).
-                RowIcon ? React.createElement(RowIcon, { size: 30 }) : undefined
+                choice.icon !== undefined ? sizedIcon(choice.icon, 30) : undefined
               }
               title={choice.label}
-              subtitle={choice.description}
+              description={choice.description}
             />
           </div>
         );
@@ -1026,9 +1026,9 @@ export interface TugAlertOptions {
   message?: string | React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string | null;
-  confirmRole?: TugButtonRole;
-  /** Lucide icon name override. Defaults to role-based icon. */
-  icon?: string;
+  confirm?: { role?: TugButtonRole };
+  /** Icon element override; `null` for none. Defaults to a role-based icon. */
+  icon?: React.ReactNode;
   /**
    * Takes the question back: aborting closes the alert as {@link TugAlertHandle.dismiss}
    * does, and the promise resolves false. For an asker whose reason to ask has gone.
@@ -1083,7 +1083,7 @@ export function TugAlertProvider({ children }: TugAlertProviderProps) {
         title=""
         confirmLabel="OK"
         cancelLabel="Cancel"
-        confirmRole="action"
+        confirm={{ role: "action" }}
       />
     </TugAlertContext.Provider>
   );
@@ -1114,7 +1114,7 @@ export function TugAlertRelayProvider({ showAlert, children }: TugAlertRelayProv
  * @example
  * ```tsx
  * const showAlert = useTugAlert();
- * const confirmed = await showAlert({ title: "Delete Card", confirmRole: "danger" });
+ * const confirmed = await showAlert({ title: "Delete Card", confirm: { role: "danger" } });
  * ```
  */
 export function useTugAlert(): (options?: TugAlertOptions) => Promise<boolean> {

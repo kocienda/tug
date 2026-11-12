@@ -8,7 +8,7 @@
 
 Tugdeck is a JS/TypeScript app. Most parsing, formatting, and rendering work stays in JS — adding a WASM crate has real costs (build complexity, async init, an extra crate to maintain, a few hundred KB of bundle weight). A WASM crate earns its place only when **a clear speed-or-correctness win justifies those costs**:
 
-- **Markdown lexing / parsing.** `tugmark-wasm` wraps `pulldown-cmark`, the fastest correct CommonMark+GFM lexer available. A streaming assistant message no longer pays it: tugcast renders live text with the same `tugmark` core and the page draws those rows from its records. The page parse still serves every path tugcast does not render — restored (replayed) rows, static `initialText` blocks, `TugMarkdownView`, the beat line, transcript copy HTML, find's projection of user bodies and notes, and any streamed row whose record is missing or stale.
+- **Markdown lexing / parsing.** `tugmark-wasm` wraps `pulldown-cmark`, the fastest correct CommonMark+GFM lexer available. A streaming assistant message no longer pays it: tugcast renders live text with the same `tugmark` core and the page draws those rows from its records. The page parse still serves every path tugcast does not render — restored (replayed) rows, static `initialText` blocks, the beat line, transcript copy HTML, find's projection of user bodies and notes, and any streamed row whose record is missing or stale.
 - **Diff computation.** `tugdiff-wasm` wraps `imara-diff`. 10–30× faster than JS alternatives on large inputs; pathological-input safe via histogram + Myers heuristics.
 
 If a candidate workload doesn't have that profile (ANSI parsing, JSON-tree rendering, KaTeX), it stays in JS.

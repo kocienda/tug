@@ -10,7 +10,7 @@
  * the composer you are typing into. The chrome keeps painting its last
  * frame, so the app *looks* live throughout.
  *
- * This store is the reading behind `TugRestoreGate`, the app-modal that
+ * This store is the reading behind `RestoreGate`, the app-modal that
  * says the app is busy for exactly as long as it is.
  *
  * ## What it counts

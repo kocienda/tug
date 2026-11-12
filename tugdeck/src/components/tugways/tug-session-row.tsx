@@ -54,9 +54,8 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import { sizeGeometry } from "./internal/tug-progress-pulsing-dot";
 import { sparklineCurves } from "./tug-sparkline";
-import { TugLabel } from "./tug-label";
-import { TugListRow, type TugListRowProps } from "./tug-list-row";
-import { TugActivityLine } from "./tug-activity-line";
+import { TugListRow, TugListRowTitle, type TugListRowProps } from "./tug-list-row";
+import { TugActivityLine } from "./internal/tug-activity-line";
 import { TugTooltip } from "./tug-tooltip";
 
 /**
@@ -448,6 +447,9 @@ export interface TugSessionRowProps
 
   /** Disabled appearance and interaction. Forwarded whole. */
   disabled?: boolean;
+
+  /** The row's standing among its neighbours. Forwarded whole. */
+  state?: TugListRowProps["state"];
 }
 
 /**
@@ -507,6 +509,7 @@ export const TugSessionRow = React.forwardRef<
     trailing,
     trailingReveal,
     disabled,
+    state,
     className,
     style,
     ...rest
@@ -554,6 +557,7 @@ export const TugSessionRow = React.forwardRef<
       trailing={trailing}
       trailingReveal={trailingReveal}
       disabled={disabled}
+      state={state}
       {...rest}
     >
       <span className="tug-session-row-lines">
@@ -561,9 +565,7 @@ export const TugSessionRow = React.forwardRef<
           {indicator !== undefined && indicator !== null ? (
             <span className="tug-session-row-dot">{indicator}</span>
           ) : null}
-          <TugLabel className="tug-list-row-title" size="sm" maxLines={1}>
-            {name}
-          </TugLabel>
+          <TugListRowTitle>{name}</TugListRowTitle>
           {slots !== undefined && slots !== null ? (
             <span className="tug-session-row-slots">{slots}</span>
           ) : null}

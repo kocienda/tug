@@ -24,7 +24,7 @@
  * @covers tugdeck/src/lib/arc-name.ts
  * @covers tugdeck/src/lib/arc-bind-error-store.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

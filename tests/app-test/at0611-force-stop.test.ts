@@ -28,7 +28,7 @@
  *
  * @covers tugdeck/src/lib/code-session-store/lifecycle-state.ts
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry-submit-button.ts
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry-submit-button.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

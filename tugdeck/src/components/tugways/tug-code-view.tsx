@@ -346,7 +346,7 @@ export interface TugCodeViewDelegate {
  * the live `EditorView`; standard `<div>` props (`className`, `style`,
  * `data-*`) flow through to the host.
  */
-export interface TugCodeViewProps {
+export interface TugCodeViewProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "children"> {
   /**
    * Source text. Required. Changes after mount dispatch a single
    * replace transaction that swaps the document in place; selection
@@ -390,8 +390,6 @@ export interface TugCodeViewProps {
    * @default 1
    */
   startLine?: number;
-  /** Forwarded class name for cascade-scoped customization. */
-  className?: string;
   /**
    * Called when the responder chain receives `FIND` (e.g. user presses
    * Cmd-F inside the editor). Composing components wire this to their
@@ -438,6 +436,7 @@ export const TugCodeView = React.forwardRef<
     className,
     onFindRequested,
     onScrollIntoView,
+    ...rest
   },
   ref,
 ) {
@@ -832,6 +831,7 @@ export const TugCodeView = React.forwardRef<
   return (
     <ResponderScope>
       <div
+        {...rest}
         ref={composedHostRef}
         data-slot="tug-code-view"
         className={cn("tug-code-view", className)}

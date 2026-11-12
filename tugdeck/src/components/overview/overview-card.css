@@ -1,7 +1,7 @@
 /* The Overview card. Tokens only — no literal colors. */
 
 /* @tug-pairings: none — the rows are `TugTranscriptEntry` (its own pair owns
-   the attribution colors), the chips are `TugPushButton`/`TugSessionCitation`,
+   the attribution colors), the chips are `TugPushButton`/`SessionCitation`,
    and the composer is `TugEntryShell` + `TugTextEditor`; this sheet only
    arranges them and tunes the reading measure ([L20]). */
 
@@ -74,37 +74,10 @@
   font-size: 14px;
 }
 
-/* ---------------------------------------------------------------------------
-   The attribution line — the Session card's, value for value.
-   ---------------------------------------------------------------------------
-   Per [D12] a consumer's transcript tuning lives in the consumer's sheet, so
-   the approved line is spelled in `session-card.css` rather than in the
-   primitive. These rules are that block, restated for this card and read from
-   it directly: identifier 0.95em (≈13.3px — a hair under body, the weight and
-   the icon do the landmark work), timestamp 0.85em with tabular figures,
-   glyph 1.2em nudged 1px down, controls hugging the body.
-
-   The one number that is deliberately NOT the Session card's is the gutter:
-   2.2em here against 2.5em there. The glyph is centered in that track, so
-   the width is spent twice — half as the standoff from the card edge, half
-   as the gap before the identifier — and a rail this narrow cannot afford a
-   full card's gutter on both. Narrowing the track tightens both halves by
-   the same ~2px without touching the type. Everything else on this line is
-   the Session card's value; a second number here would be a second
-   attribution design, and there is one.
-   ------------------------------------------------------------------------ */
-
-:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry {
-  --tugx-transcript-controls-margin-top: var(--tug-space-2xs);
-  /* TUNE HERE — see the gutter note above. */
-  --tugx-transcript-icon-column-width: 2.2em;
-  /* The last pixel between the glyph and the text column, taken off the grid
-     gap rather than off the track: the track's width is spent on both sides
-     of the centered glyph, so narrowing it again would have pulled the icon
-     off the card edge too. The gap is the one number that moves the text
-     column alone — attribution and body share its left edge. */
-  --tugx-transcript-icon-column-gap: 2px;
-}
+/* The attribution line is `TugTranscriptEntry`'s `density="compact"`: the
+   Session card's type, value for value, on the narrower gutter a rail can
+   afford (see `tug-transcript-entry.css`). The pinned header's hand-built
+   copy of an entry wears the same `data-density`. */
 
 /* ---------------------------------------------------------------------------
    One pinned header for the column, not one per post.
@@ -163,65 +136,6 @@
   margin-block-end: var(--tugx-overview-transcript-end-space);
 }
 
-:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry__identifier {
-  font-size: 0.95em;
-}
-
-:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry__timestamp {
-  font-size: 0.85em;
-  font-variant-numeric: tabular-nums;
-}
-
-:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry__icon svg {
-  width: 1.2em;
-  height: 1.2em;
-  margin-block-start: var(--tugx-transcript-icon-nudge, 1px);
-}
-
-/* Optical corrections to that one box, per voice.
-
-   The size above is the side of the glyph's square, not how large the glyph
-   READS. `Newspaper` inks nearly the whole square, so at the shared size it
-   out-weighed the `User` above it; the `operator` sprite carries margin
-   inside its own viewBox, so at the same number it read a size below
-   everything else. Nudged until the three sit at one weight down a column of
-   posts, which is what a reader scanning the rail is actually comparing.
-
-   Here rather than on the icon registry in `tug-transcript-entry.tsx`: the
-   `size` prop that registry sets is overridden by the `em` rule above (and by
-   the Session card's matching one), so a number written there governs
-   nothing. Both em-relative, so the correction survives a change to the row's
-   type scale.
-
-   Judged by eye, because "reads the same size" is a perceptual claim and
-   nothing computes it. `at0365` measures that the pair is applied at all. */
-:is(.overview-transcript, .overview-pinned-header)
-  .tug-transcript-entry[data-participant="observer"]
-  .tug-transcript-entry__icon
-  svg {
-  width: 1.08em;
-  height: 1.08em;
-  /* Vertical offset from the header's text top; larger reads lower. */
-  --tugx-transcript-icon-nudge: 2px;
-}
-
-:is(.overview-transcript, .overview-pinned-header)
-  .tug-transcript-entry[data-participant="operator"]
-  .tug-transcript-entry__icon
-  svg {
-  width: 1.34em;
-  height: 1.34em;
-  /* Vertical offset from the header's text top; smaller reads higher. */
-  --tugx-transcript-icon-nudge: 0.25px;
-}
-
-/* Per-entry control-row icons (the copy button's glyph) scale with the row,
-   exactly as they do in the Session transcript. */
-.overview-transcript .tug-transcript-entry__controls .lucide {
-  width: 1em;
-  height: 1em;
-}
-
 .overview-post-body {
   margin: 0;
   /* TUNE HERE — the reading size. `lib/overview-measure.ts` derives the rail's
@@ -263,7 +177,7 @@
 }
 
 /* The pictures a question was asked with, under its prose — the transcript
-   face of `TugAttachmentPreview` (a wrapping grid of tiles), which brings its
+   face of `AttachmentPreview` (a wrapping grid of tiles), which brings its
    own tile size, gap and captions. What the post owns is the gap between the
    sentence and the strip: the same rhythm the body's own blocks keep, so the
    pictures read as the end of the post rather than as something parked after
@@ -367,7 +281,7 @@
    quietest thing in the post. The gap is wider than a boxed row's would be:
    with no borders to separate them, whitespace is what tells two atoms
    apart. The session atom that leads the row is unaffected — a chip carries
-   its own size (`tug-session-identity.css`'s `2xs`), so this governs the
+   its own size (`session-identity.css`'s `2xs`), so this governs the
    bare code-set refs alone.
 
    @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
@@ -389,19 +303,6 @@
 .overview-post-refs > * {
   min-width: 0;
   max-width: 100%;
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.overview-empty {
-  /* Every rail's empty state, in one voice: `None`, centred in a short row —
-     `.jots-empty` and `.cards-empty` are the same rule. */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-block-size: 28px;
-  padding-inline: 10px;
-  font-size: 12px;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 /* The composer's track: content height, below the transcript, so the field

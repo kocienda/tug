@@ -1,5 +1,5 @@
 /* SessionChangesView — the `±` route's read-only changes viewer ([P02]).
-   The file rows are TugChangesList (its own stylesheet); this file keeps only
+   The file rows are ChangesList (its own stylesheet); this file keeps only
    the shade's own chrome: body layout, empty state, git-init affordance, and
    the Done action row. Appearance only ([L06]). */
 
@@ -30,7 +30,7 @@
 /* Centered on a single line so the auto-sizing shade stands exactly as tall as
    it would over one changed file — the empty state borrows the file-list's own
    block padding (`4px 0`) and one line's min-height, never taller. The text
-   matches a `TugChangesList` file row: mono, `xs`, no icon. */
+   matches a `ChangesList` file row: mono, `xs`, no icon. */
 .session-changes-clean {
   min-height: var(--tug-line-height-md);
   display: flex;

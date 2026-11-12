@@ -8,7 +8,7 @@
  * offer comes back where the need is real, and these two shades are where it is
  * most real: without git there is nothing for either of them to show.
  *
- * The precedence is the subject. `TugNonRepoNotice` offers to initialize a
+ * The precedence is the subject. The non-repo `RepoNotice` offers to initialize a
  * repository in a directory that has none — a button that cannot possibly work
  * on a machine with no git — so the no-git reading has to win, and in both
  * views it is decided ahead of every other reading those views can take.
@@ -31,8 +31,8 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugdeck/src/components/tugways/tug-no-git-notice.tsx
- * @covers tugdeck/src/components/tugways/tug-no-git-notice-copy.ts
+ * @covers tugdeck/src/components/tugways/cards/repo-notice.tsx
+ * @covers tugdeck/src/components/tugways/cards/repo-notice-copy.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/cards/session-history/session-history-view.tsx
  * @covers tugdeck/src/lib/host-tools-store.ts

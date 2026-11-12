@@ -33,7 +33,7 @@ import "./gallery-atom.css";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
 import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { atomRegisterMetrics, atomRegisterVars } from "@/lib/atom-register";
 import { composeSessionIdentity } from "@/lib/session-identity";
@@ -133,7 +133,7 @@ function RegisterRow(): React.ReactElement {
             value={seg.value}
           />
         ))}
-        <TugSessionIdentity
+        <SessionIdentityView
           identity={GALLERY_IDENTITY}
           tier="chip"
           tooltip={false}
@@ -291,7 +291,7 @@ export function GalleryAtom() {
         />
         {pillHost
           ? createPortal(
-              <TugSessionIdentity
+              <SessionIdentityView
                 identity={GALLERY_IDENTITY}
                 tier="chip"
                 tooltip={false}

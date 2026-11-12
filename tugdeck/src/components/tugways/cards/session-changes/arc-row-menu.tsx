@@ -26,7 +26,7 @@
  * with the arc's state and the reader is told what is blocked rather than
  * left to notice an absence.
  *
- * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
+ * `TugEditorContextMenu` rather than the Radix-backed `PdfContextMenu`, for the
  * same reason {@link useSessionIdentityMenu} takes it: it moves no focus, and a
  * shade row is chrome — opening a menu on one must not take the key view away
  * from the card the reader is working in.
@@ -43,11 +43,8 @@
 import React from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import {
-  TugEditorContextMenu,
-  type TugEditorContextMenuEntry,
-} from "@/components/tugways/tug-editor-context-menu";
+import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { usePointMenu } from "@/components/tugways/use-point-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { replayDisabledReason } from "@/lib/arc-verbs";
 
@@ -118,9 +115,7 @@ export function useArcRowMenu({
   discard,
   replay,
 }: ArcRowMenuOptions): ArcRowMenuResult {
-  const manager = useResponderChain();
-  const [openAt, setOpenAt] = React.useState<{ x: number; y: number } | null>(null);
-  const closeMenu = React.useCallback(() => setOpenAt(null), []);
+  const { available, openAt, renderMenu } = usePointMenu();
 
   const bind = binding?.perform;
   const discardPerform = discard?.perform;
@@ -139,11 +134,8 @@ export function useArcRowMenu({
   });
 
   const openMenuAt = React.useCallback(
-    (x: number, y: number): void => {
-      if (manager === null) return;
-      setOpenAt({ x, y });
-    },
-    [manager],
+    (x: number, y: number): void => openAt(x, y, null),
+    [openAt],
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
@@ -179,16 +171,10 @@ export function useArcRowMenu({
   // responder above rather than on whatever surrounds the row. The responder's
   // element is the menu's own host: the row's element belongs to the row.
   const menu =
-    manager !== null && items.length > 0 ? (
+    available && items.length > 0 ? (
       <ResponderScope>
         <span ref={responderRef} data-slot="session-changes-arc-row-menu">
-          <TugEditorContextMenu
-            open={openAt !== null}
-            x={openAt?.x ?? 0}
-            y={openAt?.y ?? 0}
-            items={items}
-            onClose={closeMenu}
-          />
+          {renderMenu(items)}
         </span>
       </ResponderScope>
     ) : null;

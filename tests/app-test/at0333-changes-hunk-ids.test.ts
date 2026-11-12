@@ -46,7 +46,7 @@
  * whole+partial landing, drift refusal, dirty-index refusal;
  * `feeds/changeset.rs`: the `changeset_commit` election round trip).
  *
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
  * @covers tugdeck/src/components/tugways/body-kinds/diff-block.tsx
  * @covers tugdeck/src/lib/git-diff-store.ts
  * @covers tugrust/crates/tugcast/src/feeds/git.rs

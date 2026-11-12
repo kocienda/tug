@@ -2,45 +2,15 @@
    .card-view-controls — the shared layout for a card kind's view settings
    ----------------------------------------------------------------------------
    Rendered in both the Settings card (deck-wide defaults) and a card's own
-   gear sheet, so the two read as one instrument. Bordered TugBox groups with
-   the legend painted on the border line — the same idiom, and the same
-   metrics, as `text-card-controls.css`, which is the original of this
-   arrangement.
+   gear sheet, so the two read as one instrument. Each group is a
+   `TugSettingsGroup`, the same box the other settings panels use; this file
+   lays out what goes inside one.
    ----------------------------------------------------------------------------- */
 
 .card-view-controls {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xl);
-}
-
-.card-view-controls-group {
-  width: 100%;
-  box-sizing: border-box;
-  position: relative;
-}
-
-/* Compound selector for the same reason `text-card-controls.css` states: a
-   bordered TugBox insets itself at (0,2,0), so a single-class rule here would
-   never win. */
-.card-view-controls .card-view-controls-group.tug-box-bordered {
-  padding: var(--tug-space-2xl) var(--tug-space-2xl) var(--tug-space-xl);
-}
-
-.card-view-controls-group > .tug-box-legend {
-  position: absolute;
-  top: 0;
-  left: var(--tug-space-lg);
-  transform: translateY(-50%);
-  background: var(--tugx-pane-bg);
-  inline-size: max-content;
-}
-
-.card-view-controls-group > .tug-box-body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--tug-space-lg);
 }
 
 /* A control and its label on one line (page gap), or a choice group standing

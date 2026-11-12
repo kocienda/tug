@@ -13,7 +13,7 @@
  * `<thead>` is the SECOND sticky tier — it stacks directly under the
  * block header (`top: calc(pin-stack + header-height)`), the same
  * chrome-header → section-header telescoping the diff block uses. The
- * CSS (in `tug-markdown-view.css`) also paints zebra striping on
+ * CSS (in `styles/tugx-md.css`) also paints zebra striping on
  * `tbody tr:nth-child(even)`. The fold cue collapses the whole table to
  * its header strip, matching the fenced-code block exactly.
  *

@@ -12,6 +12,7 @@
 
 import React, { useId, useState } from "react";
 import { TugBox } from "@/components/tugways/tug-box";
+import { TugSettingsGroup } from "@/components/tugways/tug-settings-group";
 import { TugCheckbox } from "@/components/tugways/tug-checkbox";
 import { TugSwitch } from "@/components/tugways/tug-switch";
 import { TugRadioGroup, TugRadioItem } from "@/components/tugways/tug-radio-group";
@@ -277,6 +278,19 @@ export function GalleryBox() {
               </TugBox>
             </div>
           ))}
+        </div>
+      </div>
+
+      <TugSeparator />
+
+      {/* ---- Settings group ---- */}
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">TugSettingsGroup</TugLabel>
+        <div style={{ width: "420px", paddingTop: "8px" }}>
+          <TugSettingsGroup label="Editing">
+            <TugCheckbox label="Auto-save" checked={true} />
+            <TugSwitch label="Sync changes" checked={false} />
+          </TugSettingsGroup>
         </div>
       </div>
 

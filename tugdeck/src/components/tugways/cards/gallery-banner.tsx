@@ -11,6 +11,7 @@
  * @module components/tugways/cards/gallery-banner
  */
 
+import { WifiOff } from "lucide-react";
 import React from "react";
 import { TugBanner } from "@/components/tugways/tug-banner";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -151,8 +152,8 @@ export function GalleryBanner() {
           <MiniContent />
           <TugBanner
             contained
-            visible={dangerVisible}
-            variant="status"
+            open={dangerVisible}
+            kind="status"
             tone="danger"
             message="Connection lost — attempting to reconnect..."
           />
@@ -185,8 +186,8 @@ export function GalleryBanner() {
           <MiniContent />
           <TugBanner
             contained
-            visible={cautionVisible}
-            variant="status"
+            open={cautionVisible}
+            kind="status"
             tone="caution"
             message="Maintenance mode — reconnecting in 30s..."
           />
@@ -219,8 +220,8 @@ export function GalleryBanner() {
           <MiniContent />
           <TugBanner
             contained
-            visible={defaultVisible}
-            variant="status"
+            open={defaultVisible}
+            kind="status"
             tone="default"
             message="Syncing workspace..."
           />
@@ -246,11 +247,11 @@ export function GalleryBanner() {
           <MiniContent />
           <TugBanner
             contained
-            visible={iconVisible}
-            variant="status"
+            open={iconVisible}
+            kind="status"
             tone="danger"
             message="No connection — check your network"
-            icon="wifi-off"
+            icon={<WifiOff />}
           />
         </div>
       </div>
@@ -279,8 +280,8 @@ export function GalleryBanner() {
           {errorVisible && (
             <TugBanner
               contained
-              visible={true}
-              variant="error"
+              open={true}
+              kind="error"
               tone="danger"
               message="undefined is not an object (evaluating 'state.perRoute[state.currentRoute]')"
               footer={

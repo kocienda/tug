@@ -1,5 +1,5 @@
 /* The Diff card frame. The diff itself (summary header, view toggle, per-file
-   accordion, hunks) is the composed TugDiffDocument, which owns its own tokens
+   accordion, hunks) is the composed DiffDocument, which owns its own tokens
    and layout ([L20]); this file styles only the card padding and the notice
    states. */
 

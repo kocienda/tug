@@ -16,12 +16,27 @@
 import React, { useState } from "react";
 
 import { TugLabel } from "@/components/tugways/tug-label";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
+import {
+  TugBadge,
+  type TugBadgeEmphasis,
+  type TugBadgeRole,
+} from "@/components/tugways/tug-badge";
 
-import type { TugDevLogEntry } from "@/lib/tug-dev-log-store/types";
+import type { TugDevLogEntry, TugDevLogLevel } from "@/lib/tug-dev-log-store/types";
 
 export interface LogRowProps {
   entry: TugDevLogEntry;
 }
+
+/** The level chip's tone: quiet for debug, louder as the level rises. */
+const LEVEL_BADGE: Record<TugDevLogLevel, { emphasis: TugBadgeEmphasis; role: TugBadgeRole }> = {
+  debug: { emphasis: "ghost", role: "inherit" },
+  info: { emphasis: "tinted", role: "data" },
+  warn: { emphasis: "tinted", role: "caution" },
+  error: { emphasis: "tinted", role: "danger" },
+};
 
 /**
  * Format a `Date.now()` timestamp as `HH:MM:SS.mmm` in the local
@@ -68,13 +83,15 @@ export const LogRow: React.FC<LogRowProps> = ({ entry }) => {
         >
           {formatTimestamp(entry.timestamp)}
         </TugLabel>
-        <span
+        <TugBadge
           className="tug-devlog-row-level"
+          size="2xs"
+          {...LEVEL_BADGE[entry.level]}
           data-level={entry.level}
           aria-label={`level: ${entry.level}`}
         >
           {entry.level}
-        </span>
+        </TugBadge>
         <TugLabel
           size="3xs"
           mono
@@ -87,15 +104,14 @@ export const LogRow: React.FC<LogRowProps> = ({ entry }) => {
           {entry.message}
         </TugLabel>
         {hasData ? (
-          <button
-            type="button"
+          <TugIconButton
             className="tug-devlog-row-toggle"
+            size="2xs"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
             aria-label={expanded ? "Collapse data" : "Expand data"}
-          >
-            {expanded ? "−" : "+"}
-          </button>
+            icon={<TugDisclosure expanded={expanded} size={12} />}
+          />
         ) : null}
       </div>
       {expanded && hasData ? (

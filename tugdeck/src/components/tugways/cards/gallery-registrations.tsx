@@ -56,15 +56,11 @@ import { GalleryDefaultButton } from "./gallery-default-button";
 import { GalleryTitleBar } from "./gallery-title-bar";
 import { GalleryMutationTx } from "./gallery-mutation-tx";
 import { GalleryObservableProps } from "./gallery-observable-props";
-import { GalleryThemeEditor } from "./gallery-theme-editor";
-import { GalleryColorWells, GalleryColorPicker } from "./gallery-color-picker";
 import { GalleryScaleTiming } from "./gallery-scale-timing";
 import { GalleryAnimator } from "./gallery-animator";
-import { GallerySkeleton } from "./gallery-skeleton";
 import { GalleryInput } from "./gallery-input";
 import { GalleryFileChooser } from "./gallery-file-chooser";
 import { GalleryLabel } from "./gallery-label";
-import { GalleryMarquee } from "./gallery-marquee";
 import { GalleryCheckbox } from "./gallery-checkbox";
 import { GallerySwitch } from "./gallery-switch";
 import { GalleryThemeAccessibility } from "./gallery-theme-accessibility";
@@ -93,7 +89,6 @@ import { GalleryTugDialogButton } from "./gallery-tug-dialog-button";
 import { GallerySheet } from "./gallery-sheet";
 import { GalleryBulletin } from "./gallery-bulletin";
 import { GalleryPaneBulletin } from "./gallery-pane-bulletin";
-import { GalleryMarkdownView } from "./gallery-markdown-view";
 import { GalleryListView } from "./gallery-list-view";
 import { GalleryListViewFilter } from "./gallery-list-view-filter";
 import { GalleryListViewFocus } from "./gallery-list-view-focus";
@@ -104,7 +99,6 @@ import { GalleryAtom } from "./gallery-atom";
 import { GalleryAttachmentStrip } from "./gallery-attachment-strip";
 import { GalleryPromptEntry } from "./gallery-prompt-entry";
 import { GalleryTextEditor } from "./gallery-text-editor";
-import { GallerySplitPane } from "./gallery-split-pane";
 import { GalleryStatePreservation } from "./gallery-state-preservation";
 import { GalleryTugCue } from "./gallery-tug-cue";
 import { GalleryBashToolBlock } from "./gallery-bash-tool-block";
@@ -122,6 +116,35 @@ import { GalleryTugProgressIndicator } from "./gallery-tug-progress-indicator";
 import { GalleryArcLifecycle } from "./gallery-arc-lifecycle";
 import { GalleryMotionBench } from "./gallery-motion-bench";
 import { GalleryBlockHeader } from "./gallery-tool-call-header";
+import { GalleryTugActionTooltip } from "./gallery-tug-action-tooltip";
+import { GalleryTugAlertSheet } from "./gallery-tug-alert-sheet";
+import { GalleryTugAtomRef } from "./gallery-tug-atom-ref";
+import { GalleryTugCodeView } from "./gallery-tug-code-view";
+import { GalleryTugColumnBadge } from "./gallery-tug-column-badge";
+import { GalleryTugEditorContextMenu } from "./gallery-tug-editor-context-menu";
+import { GalleryTugEntryShell } from "./gallery-tug-entry-shell";
+import { GalleryTugFindBar } from "./gallery-tug-find-bar";
+import { GalleryTugIcons } from "./gallery-tug-icons";
+import { GalleryTugInlineAlert } from "./gallery-tug-inline-alert";
+import { GalleryTugInlineMarkdown } from "./gallery-tug-inline-markdown";
+import { GalleryTugJumpToBottomButton } from "./gallery-tug-jump-to-bottom-button";
+import { GalleryTugLink } from "./gallery-tug-link";
+import { GalleryTugMarkdownText } from "./gallery-tug-markdown-text";
+import { GalleryTugMessageEditor } from "./gallery-tug-message-editor";
+import { GalleryTugMetaRun } from "./gallery-tug-meta-run";
+import { GalleryTugPath } from "./gallery-tug-path";
+import { GalleryTugPopupList } from "./gallery-tug-popup-list";
+import { GalleryTugQuietLine } from "./gallery-tug-quiet-line";
+import { GalleryTugSectionLabel } from "./gallery-tug-section-label";
+import { GalleryTugSheetScaffold } from "./gallery-tug-sheet-scaffold";
+import { GalleryTugSlotLayout } from "./gallery-tug-slot-layout";
+import { GalleryTugSlot } from "./gallery-tug-slot";
+import { GalleryTugSparkline } from "./gallery-tug-sparkline";
+import { GalleryTugSpriteIcon } from "./gallery-tug-sprite-icon";
+import { GalleryTugStatusMark } from "./gallery-tug-status-mark";
+import { GalleryTugStepFraction } from "./gallery-tug-step-fraction";
+import { GalleryTugStepRow } from "./gallery-tug-step-row";
+import { GalleryTugTextCardEditor } from "./gallery-tug-text-card-editor";
 import "./gallery.css";
 import { TUG_ACTIONS } from "../action-vocabulary";
 import { TugLabel } from "@/components/tugways/tug-label";
@@ -522,10 +545,6 @@ const GALLERY_COMPLEX_SIZE: CardSizePolicy = {
   preferred: { width: 640, height: 520 },
 };
 
-/** The color picker's fixed size — wide enough for the hue grid, tall enough
- * that nothing ever scrolls. */
-const COLOR_PICKER_SIZE = { width: 452, height: 540 } as const;
-
 /**
  * Must be called before `DeckManager.addCard("gallery-buttons")` is invoked.
  * In `main.tsx`, call this before constructing the DeckManager.
@@ -566,37 +585,6 @@ export function registerGalleryCards(): void {
   // ===========================================================================
   // Animation & Theming
   // ===========================================================================
-
-  registerCard({
-    componentId: "gallery-theme-editor",
-    contentFactory: (_cardId) => <GalleryThemeEditor />,
-    defaultMeta: { title: "Theme Deriver", icon: "Palette", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.animation,
-  });
-
-  registerCard({
-    componentId: "gallery-color-wells",
-    contentFactory: (_cardId) => <GalleryColorWells />,
-    defaultMeta: { title: "Color Wells", icon: "Palette", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.animation,
-  });
-
-  registerCard({
-    componentId: "gallery-color-picker",
-    contentFactory: (_cardId) => <GalleryColorPicker />,
-    defaultMeta: { title: "Color Picker", icon: "Palette", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    // Fixed size — the picker is sized to show everything, so it never scrolls.
-    sizePolicy: { min: COLOR_PICKER_SIZE, max: COLOR_PICKER_SIZE, preferred: COLOR_PICKER_SIZE },
-    category: CATEGORIES.animation,
-  });
 
   registerCard({
     componentId: "gallery-scale-timing",
@@ -832,13 +820,13 @@ export function registerGalleryCards(): void {
   // Buttons
   // ===========================================================================
 
-  // Design exploration for `TugCue` — the upcoming public component for
+  // Design exploration for `Cue` — the upcoming public component for
   // "soft inline banner that's also a click target." Six prototype
   // variants; user vets before the production component ships.
   registerCard({
     componentId: "gallery-tug-cue",
     contentFactory: (_cardId) => <GalleryTugCue />,
-    defaultMeta: { title: "TugCue", icon: "Lightbulb", closable: true },
+    defaultMeta: { title: "Cue", icon: "Lightbulb", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -964,16 +952,6 @@ export function registerGalleryCards(): void {
     componentId: "gallery-tug-list-row",
     contentFactory: (_cardId) => <GalleryTugListRow />,
     defaultMeta: { title: "TugListRow", icon: "List", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.dataViews,
-  });
-
-  registerCard({
-    componentId: "gallery-markdown-view",
-    contentFactory: (_cardId) => <GalleryMarkdownView />,
-    defaultMeta: { title: "TugMarkdownView", icon: "FileText", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -1139,29 +1117,9 @@ export function registerGalleryCards(): void {
   });
 
   registerCard({
-    componentId: "gallery-marquee",
-    contentFactory: (_cardId) => <GalleryMarquee />,
-    defaultMeta: { title: "TugMarquee", icon: "MoveHorizontal", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.feedback,
-  });
-
-  registerCard({
     componentId: "gallery-card-banner",
     contentFactory: (_cardId) => <GalleryCardBanner />,
     defaultMeta: { title: "TugPaneBanner", icon: "CircleAlert", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.feedback,
-  });
-
-  registerCard({
-    componentId: "gallery-skeleton",
-    contentFactory: (_cardId) => <GallerySkeleton />,
-    defaultMeta: { title: "TugSkeleton", icon: "Loader", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPONENT_SIZE,
@@ -1195,7 +1153,7 @@ export function registerGalleryCards(): void {
   registerCard({
     componentId: "gallery-attachment-strip",
     contentFactory: (_cardId) => <GalleryAttachmentStrip />,
-    defaultMeta: { title: "TugAttachmentPreview", icon: "Image", closable: true },
+    defaultMeta: { title: "AttachmentPreview", icon: "Image", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -1225,20 +1183,10 @@ export function registerGalleryCards(): void {
   registerCard({
     componentId: "gallery-tug-clamp",
     contentFactory: (_cardId) => <GalleryTugClamp />,
-    defaultMeta: { title: "TugClamp", icon: "ChevronsDownUp", closable: true },
+    defaultMeta: { title: "Clamp", icon: "ChevronsDownUp", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.layout,
-  });
-
-  registerCard({
-    componentId: "gallery-split-pane",
-    contentFactory: (_cardId) => <GallerySplitPane />,
-    defaultMeta: { title: "TugSplitPane", icon: "Rows2", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
     category: CATEGORIES.layout,
   });
 
@@ -1281,7 +1229,7 @@ export function registerGalleryCards(): void {
     componentId: "gallery-modal-input-dialog",
     contentFactory: (_cardId) => <GalleryModalInputDialog />,
     defaultMeta: {
-      title: "TugModalInputDialog",
+      title: "ModalInputDialog",
       icon: "SearchCode",
       closable: true,
     },
@@ -1304,7 +1252,7 @@ export function registerGalleryCards(): void {
   registerCard({
     componentId: "gallery-context-menu",
     contentFactory: (_cardId) => <GalleryContextMenu />,
-    defaultMeta: { title: "TugContextMenu", icon: "MousePointer2", closable: true },
+    defaultMeta: { title: "PdfContextMenu", icon: "MousePointer2", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPONENT_SIZE,
@@ -1471,7 +1419,7 @@ export function registerGalleryCards(): void {
   registerCard({
     componentId: "gallery-prompt-entry",
     contentFactory: (cardId) => <GalleryPromptEntry cardId={cardId} />,
-    defaultMeta: { title: "TugPromptEntry", icon: "MessageSquareText", closable: true },
+    defaultMeta: { title: "PromptEntry", icon: "MessageSquareText", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -1520,6 +1468,60 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.textInput,
   });
 
+  // ===========================================================================
+  // One card per remaining primitive
+  // ===========================================================================
+
+  const PRIMITIVE_CARDS: {
+    componentId: string;
+    title: string;
+    icon: string;
+    category: { label: string; icon: string };
+    complex?: boolean;
+    render: () => React.ReactNode;
+  }[] = [
+    { componentId: "gallery-tug-action-tooltip", title: "TugActionTooltip", icon: "MessageSquare", category: CATEGORIES.overlays, render: () => <GalleryTugActionTooltip /> },
+    { componentId: "gallery-tug-alert-sheet", title: "TugAlertSheet", icon: "TriangleAlert", category: CATEGORIES.overlays, render: () => <GalleryTugAlertSheet /> },
+    { componentId: "gallery-tug-atom-ref", title: "TugAtomRef", icon: "AtSign", category: CATEGORIES.dataViews, render: () => <GalleryTugAtomRef /> },
+    { componentId: "gallery-tug-code-view", title: "TugCodeView", icon: "Code", category: CATEGORIES.textInput, complex: true, render: () => <GalleryTugCodeView /> },
+    { componentId: "gallery-tug-column-badge", title: "TugColumnBadge", icon: "Columns2", category: CATEGORIES.layout, render: () => <GalleryTugColumnBadge /> },
+    { componentId: "gallery-tug-editor-context-menu", title: "TugEditorContextMenu", icon: "MousePointer2", category: CATEGORIES.overlays, render: () => <GalleryTugEditorContextMenu /> },
+    { componentId: "gallery-tug-entry-shell", title: "TugEntryShell", icon: "PanelBottom", category: CATEGORIES.textInput, render: () => <GalleryTugEntryShell /> },
+    { componentId: "gallery-tug-find-bar", title: "TugFindBar", icon: "Search", category: CATEGORIES.textInput, complex: true, render: () => <GalleryTugFindBar /> },
+    { componentId: "gallery-tug-icons", title: "TugIcons", icon: "Shapes", category: CATEGORIES.layout, render: () => <GalleryTugIcons /> },
+    { componentId: "gallery-tug-inline-alert", title: "TugInlineAlert", icon: "Info", category: CATEGORIES.feedback, render: () => <GalleryTugInlineAlert /> },
+    { componentId: "gallery-tug-inline-markdown", title: "TugInlineMarkdown", icon: "Type", category: CATEGORIES.textInput, render: () => <GalleryTugInlineMarkdown /> },
+    { componentId: "gallery-tug-jump-to-bottom-button", title: "TugJumpToBottomButton", icon: "ArrowDown", category: CATEGORIES.buttons, render: () => <GalleryTugJumpToBottomButton /> },
+    { componentId: "gallery-tug-link", title: "TugLink", icon: "Link", category: CATEGORIES.buttons, render: () => <GalleryTugLink /> },
+    { componentId: "gallery-tug-markdown-text", title: "TugMarkdownText", icon: "FileText", category: CATEGORIES.textInput, render: () => <GalleryTugMarkdownText /> },
+    { componentId: "gallery-tug-message-editor", title: "TugMessageEditor", icon: "MessageSquareText", category: CATEGORIES.textInput, complex: true, render: () => <GalleryTugMessageEditor /> },
+    { componentId: "gallery-tug-meta-run", title: "TugMetaRun", icon: "Ellipsis", category: CATEGORIES.dataViews, render: () => <GalleryTugMetaRun /> },
+    { componentId: "gallery-tug-path", title: "TugPath", icon: "FolderTree", category: CATEGORIES.dataViews, render: () => <GalleryTugPath /> },
+    { componentId: "gallery-tug-popup-list", title: "TugPopupList", icon: "ListCollapse", category: CATEGORIES.overlays, render: () => <GalleryTugPopupList /> },
+    { componentId: "gallery-tug-quiet-line", title: "TugQuietLine", icon: "Minus", category: CATEGORIES.feedback, render: () => <GalleryTugQuietLine /> },
+    { componentId: "gallery-tug-section-label", title: "TugSectionLabel", icon: "Heading", category: CATEGORIES.layout, render: () => <GalleryTugSectionLabel /> },
+    { componentId: "gallery-tug-sheet-scaffold", title: "TugSheetScaffold", icon: "PanelTop", category: CATEGORIES.overlays, render: () => <GalleryTugSheetScaffold /> },
+    { componentId: "gallery-tug-slot", title: "TugSlot", icon: "Square", category: CATEGORIES.layout, render: () => <GalleryTugSlot /> },
+    { componentId: "gallery-tug-slot-layout", title: "TugSlotLayout", icon: "LayoutPanelLeft", category: CATEGORIES.layout, render: () => <GalleryTugSlotLayout /> },
+    { componentId: "gallery-tug-sparkline", title: "TugSparkline", icon: "ChartSpline", category: CATEGORIES.feedback, render: () => <GalleryTugSparkline /> },
+    { componentId: "gallery-tug-sprite-icon", title: "TugSpriteIcon", icon: "Image", category: CATEGORIES.layout, render: () => <GalleryTugSpriteIcon /> },
+    { componentId: "gallery-tug-status-mark", title: "TugStatusMark", icon: "FileDiff", category: CATEGORIES.feedback, render: () => <GalleryTugStatusMark /> },
+    { componentId: "gallery-tug-step-fraction", title: "TugStepFraction", icon: "Percent", category: CATEGORIES.feedback, render: () => <GalleryTugStepFraction /> },
+    { componentId: "gallery-tug-step-row", title: "TugStepRow", icon: "ListChecks", category: CATEGORIES.feedback, render: () => <GalleryTugStepRow /> },
+    { componentId: "gallery-tug-text-card-editor", title: "TugTextCardEditor", icon: "FileCode", category: CATEGORIES.textInput, complex: true, render: () => <GalleryTugTextCardEditor /> },
+  ];
+
+  for (const card of PRIMITIVE_CARDS) {
+    registerCard({
+      componentId: card.componentId,
+      contentFactory: (_cardId) => card.render(),
+      defaultMeta: { title: card.title, icon: card.icon, closable: true },
+      family: "maker",
+      acceptsFamilies: ["maker"],
+      sizePolicy: card.complex === true ? GALLERY_COMPLEX_SIZE : GALLERY_COMPONENT_SIZE,
+      category: card.category,
+    });
+  }
 }
 
 // Re-export GalleryMutationTx so tests can import it from either location.

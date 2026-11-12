@@ -1,5 +1,5 @@
 /**
- * gallery-modal-input-dialog.tsx — TugModalInputDialog demo tab for the
+ * gallery-modal-input-dialog.tsx — ModalInputDialog demo tab for the
  * Component Gallery.
  *
  * Opens the dialog over a static in-memory provider, with a `TugFileChooser`
@@ -15,11 +15,11 @@
 import React from "react";
 
 import {
-  TugModalInputDialog,
+  ModalInputDialog,
   MODAL_INPUT_DIALOG_FOCUS_GROUP,
   useModalInputDialogPanel,
-} from "@/components/tugways/tug-modal-input-dialog";
-import { TugFileChooser } from "@/components/tugways/tug-file-chooser";
+} from "@/components/chrome/modal-input-dialog";
+import { TugFileChooser, useFileChooserHost } from "@/components/tugways/tug-file-chooser";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
@@ -40,7 +40,7 @@ const resultStyle: React.CSSProperties = {
 
 /** A handful of plausible paths to search — this card has no file backend. */
 const FIXTURE_PATHS = [
-  "src/components/tugways/tug-modal-input-dialog.tsx",
+  "src/components/chrome/modal-input-dialog.tsx",
   "src/components/tugways/tug-file-chooser.tsx",
   "src/components/tugways/tug-combo-box.tsx",
   "src/components/chrome/open-quickly-overlay.tsx",
@@ -100,10 +100,11 @@ function ChooserHeader({
     ).map((dir) => ({ value: dir, label: dir }));
   }, []);
 
+  const ChooserHost = useFileChooserHost({ onChange });
   return (
-    <TugFileChooser
+    <ChooserHost>
+    <TugFileChooser size="sm"
       value={value}
-      onChange={onChange}
       base={value !== "" ? value : "/"}
       kind="directory"
       menuMode
@@ -116,6 +117,7 @@ function ChooserHeader({
       portalContainer={panel}
       overlaySlot="tug-modal-input-dialog-chooser-overlay"
     />
+    </ChooserHost>
   );
 }
 
@@ -164,7 +166,7 @@ export function GalleryModalInputDialog(): React.ReactElement {
       </div>
 
       {open && (
-        <TugModalInputDialog
+        <ModalInputDialog
           placeholder="Open Quickly (gallery fixture)"
           provider={fixtureProvider}
           header={<ChooserHeader value={scope} onChange={setScope} />}

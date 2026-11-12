@@ -103,14 +103,14 @@ const DEMO_PHASE_KEYS = Object.keys(DEMO_PHASES);
 function demoPhaseVisual(phase: string): TugProgressIndicatorPhaseVisual {
   switch (phase) {
     case "offline":
-      return { role: "danger", state: "aborted" };
+      return { tone: "danger", state: "aborted" };
     case "awaiting_approval":
-      return { role: "caution", state: "running" };
+      return { tone: "caution", state: "running" };
     case "streaming":
-      return { role: "success", state: "running" };
+      return { tone: "success", state: "running" };
     case "idle":
     default:
-      return { role: "inherit", state: "stopped" };
+      return { tone: "inherit", state: "stopped" };
   }
 }
 
@@ -464,7 +464,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={BENCH_SIZE}
-                role="action"
+                tone="action"
                 state="running"
               />
             </GalleryCell>
@@ -472,7 +472,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={BENCH_SIZE}
-                role="action"
+                tone="action"
                 state="running"
                 shape="diamond"
               />
@@ -481,7 +481,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={RAIL_SIZE}
-                role="action"
+                tone="action"
                 state="running"
                 shape="diamond"
               />
@@ -490,7 +490,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
               <TugProgressIndicator
                 variant="pulsing-dot"
                 size={BENCH_SIZE}
-                role="inherit"
+                tone="inherit"
                 state="stopped"
               />
             </GalleryCell>
@@ -533,7 +533,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
                 <TugProgressIndicator
                   variant="ring"
                   size={20}
-                  role={r}
+                  tone={r}
                   state="running"
                 />
               </GalleryCell>
@@ -608,7 +608,7 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
                     <TugProgressIndicator
                       variant={variant}
                       size={variant === "bar" ? 6 : 22}
-                      role="action"
+                      tone="action"
                       value={v}
                     />
                   </div>
@@ -635,14 +635,14 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
             <TugProgressIndicator
               variant="bar"
               size={8}
-              role="action"
+              tone="action"
               value={0.42}
               showValue
             />
             <TugProgressIndicator
               variant="bar"
               size={8}
-              role="action"
+              tone="action"
               value={0.42}
               showValue
               label="Summarizing…"
@@ -652,14 +652,14 @@ export function GalleryTugProgressIndicator(): React.ReactElement {
               <TugProgressIndicator
                 variant="ring"
                 size={22}
-                role="action"
+                tone="action"
                 value={0.42}
                 showValue
               />
               <TugProgressIndicator
                 variant="pie"
                 size={22}
-                role="action"
+                tone="action"
                 value={0.75}
                 showValue
               />

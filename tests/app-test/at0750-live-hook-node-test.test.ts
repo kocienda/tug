@@ -36,7 +36,7 @@
  * @covers tugrust/crates/tugtool/src/commands/hook.rs
  * @covers tugrust/crates/tugtool/src/runners.rs
  * @covers tugrust/crates/tugtool/src/test_run.rs
- * @covers tugdeck/src/components/tugways/tug-report-panel.tsx
+ * @covers tugdeck/src/components/tugways/cards/blocks/report-panel.tsx
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
  */
 

@@ -1,5 +1,5 @@
 /* SessionHistoryView — the `↺` route's shade shell ([P10]). The per-commit
-   rows are a `TugHistoryList` (styled in tug-history-list.css); this file owns
+   rows are a `HistoryList` (styled in history-list.css); this file owns
    only the view body + empty state. Appearance only ([L06]). */
 
 .session-history-view-body {

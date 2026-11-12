@@ -12,13 +12,15 @@
  */
 
 import React, { useState } from "react";
-import { TugFileChooser } from "@/components/tugways/tug-file-chooser";
+import { TugFileChooser, useFileChooserHost } from "@/components/tugways/tug-file-chooser";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
 
 export function GalleryFileChooser() {
   const [dir, setDir] = useState("");
   const [file, setFile] = useState("");
+  const DirHost = useFileChooserHost({ onChange: setDir });
+  const FileHost = useFileChooserHost({ onChange: setFile });
 
   return (
     <div className="cg-content" data-testid="gallery-file-chooser">
@@ -26,14 +28,15 @@ export function GalleryFileChooser() {
       <div className="cg-section">
         <TugLabel className="cg-section-title">Directory chooser</TugLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "420px" }}>
-          <TugFileChooser
+          <DirHost>
+          <TugFileChooser size="sm"
             value={dir}
-            onChange={setDir}
             base="/"
             kind="directory"
             placeholder="Type a path, e.g. /Users — ↑/↓ to pick, Enter/Tab to descend"
             aria-label="Directory chooser demo"
           />
+          </DirHost>
           <TugLabel size="xs" emphasis="calm">{`value: ${dir === "" ? "(empty)" : dir}`}</TugLabel>
         </div>
       </div>
@@ -44,14 +47,15 @@ export function GalleryFileChooser() {
       <div className="cg-section">
         <TugLabel className="cg-section-title">File chooser</TugLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "420px" }}>
-          <TugFileChooser
+          <FileHost>
+          <TugFileChooser size="sm"
             value={file}
-            onChange={setFile}
             base="/"
             kind="file"
             placeholder="Descend directories, pick a file"
             aria-label="File chooser demo"
           />
+          </FileHost>
           <TugLabel size="xs" emphasis="calm">{`value: ${file === "" ? "(empty)" : file}`}</TugLabel>
         </div>
       </div>

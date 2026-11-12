@@ -101,8 +101,8 @@
  *      loop that writes a bare `infinite` is invisible to the breaker.
  *
  * **What the compound means in clause 2.** The subject compound is the
- * selector's last compound INCLUDING its pseudo-element: `.tug-skeleton::after`
- * and `.tug-skeleton` name two different boxes, and a transition on the
+ * selector's last compound INCLUDING its pseudo-element: `.example::after`
+ * and `.example` name two different boxes, and a transition on the
  * element is not on the same effect stack as a loop on its `::after`. Two
  * compounds collide when they share a class and carry the same pseudo-element.
  *
@@ -647,7 +647,7 @@ function compounds(selector: string): string[] {
  * The element a selector acts on, as `class|class|…::pseudo`.
  *
  * Two rules collide when they can style the same box, and a pseudo-element is
- * a different box: `.tug-skeleton::after` carries the shimmer and `.tug-skeleton`
+ * a different box: `.example::after` carries a shimmer and `.example`
  * carries whatever the element itself transitions, and those two effects never
  * share a stack. So the pseudo-element rides along with the classes, and a
  * compound with no class at all names nothing this rule can compare.
@@ -1344,7 +1344,7 @@ export const MOTION_CARVE_OUTS: ReadonlyMap<string, string> = new Map([
     "a chart's op entrances, CSS over the engine's classes, once per source",
   ],
   [
-    "tugdeck/src/components/tugways/tug-control-bar.css",
+    "tugdeck/src/components/tugways/cards/control-bar.css",
     "the control bar's locking scrim fade-in",
   ],
   [
@@ -1352,7 +1352,7 @@ export const MOTION_CARVE_OUTS: ReadonlyMap<string, string> = new Map([
     "the editor context menu's grow from the click point (not Radix)",
   ],
   [
-    "tugdeck/src/components/tugways/tug-placard.css",
+    "tugdeck/src/components/tugways/cards/session-placard.css",
     "the placard's rise into the status strip",
   ],
 ]);
@@ -1504,14 +1504,6 @@ export const LAYOUT_MOTION_CARVE_OUTS: ReadonlyMap<string, LayoutMotionCarveOut>
         properties: ["height"],
         ending:
           "main-thread by design: a jot's well opening and closing in its list, where the rows below have to move and only layout moves them; one-shot, inside the Jots card alone",
-      },
-    ],
-    [
-      "tugdeck/src/components/tugways/tug-split-pane.tsx",
-      {
-        properties: ["flex-grow"],
-        ending:
-          "main-thread by design: a split panel's snap to a size, which the panel library lays out by flex-grow; one-shot, on the user's own gesture",
       },
     ],
     [

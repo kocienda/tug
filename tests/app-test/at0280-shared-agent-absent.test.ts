@@ -56,7 +56,7 @@
  * @covers tugdeck/src/lib/shell-line-classifier.ts
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
  * @covers tugdeck/src/components/cards/cards-card.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

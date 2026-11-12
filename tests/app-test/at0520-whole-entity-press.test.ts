@@ -56,8 +56,8 @@
  * @covers tugdeck/src/components/tugways/use-copyable-text.tsx
  * @covers tugdeck/src/components/tugways/commit-sha-text.tsx
  * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
- * @covers tugdeck/src/components/tugways/tug-history-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-history/history-list.tsx
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
  * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx

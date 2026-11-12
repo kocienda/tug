@@ -58,7 +58,7 @@ import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import type { TugInlineDialogIconRole } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { LANDING_WORDS } from "@/components/tugways/tug-prompt-entry";
+import { LANDING_WORDS } from "@/components/tugways/cards/prompt-entry";
 import type { LandingMode, LandingSnapshot } from "@/lib/landing-mode";
 import { landingNoticeFace } from "@/lib/landing-notice";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
@@ -234,7 +234,7 @@ function toneIcon(tone: ShadeNoticeTone): React.ReactElement {
 }
 
 /** Which `TugInlineDialog` icon tint a tone wears. */
-function iconRoleForTone(tone: ShadeNoticeTone): TugInlineDialogIconRole {
+function iconToneForTone(tone: ShadeNoticeTone): TugInlineDialogIconRole {
   switch (tone) {
     case "danger":
       return "danger";
@@ -592,11 +592,11 @@ export function SessionChangesNotice(
       <TugInlineDialog
         className="session-changes-notice-dialog"
         // The glyph follows the tone. [P04] holds that a shade-origin replay
-        // needs no register of its own beyond `iconRole` and `data-tone`, and
+        // needs no register of its own beyond `iconTone` and `data-tone`, and
         // this is not one — it is the same one face declining to put a warning
         // triangle on "replayed onto its base".
         icon={toneIcon(face.tone)}
-        iconRole={iconRoleForTone(face.tone)}
+        iconTone={iconToneForTone(face.tone)}
         title={face.title}
         description={
           face.description === null && face.detail === null ? undefined : (

@@ -7,7 +7,7 @@
  * paints the chip with Canvas 2D — resolved colors, the editor's own
  * document fonts — and bakes it to a `data:image/png,…` URI for the
  * editor's CM6 widget (an `<img>` can't reach the host CSS cascade).
- * This component is the React-side path — `TugAtomTextBody`
+ * This component is the React-side path — `AtomTextBody`
  * (transcript chips) and the four tool-block path renderers consume
  * it.
  *
@@ -171,7 +171,7 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
         //
         // The list is four fields and carries no `session` pair, which is
         // deliberate rather than an omission: both transcript bodies route a
-        // session atom to `TugSessionCitation` before this arm is reached, so
+        // session atom to `SessionCitation` before this arm is reached, so
         // no session atom is ever drawn here. A session atom that did arrive
         // would be a routing bug, and widening this list would hide it.
         {...atomIdentityAttrs({ type, label, value, ...(id !== undefined ? { id } : {}) })}

@@ -2623,7 +2623,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tugx-pane-bulletin-fg", surface: "--tugx-pane-bulletin-bg", role: "content" },
   { element: "--tugx-pane-bulletin-border", surface: "--tugx-pane-bulletin-bg", role: "informational" },
 
-  // ---- tug-session-identity.css — the atom slot's `session` tone ----
+  // ---- session-identity.css — the atom slot's `session` tone ----
   // The ground carries alpha, so parentSurface composites it over surface-default
   // before the ink and icon are measured against it. The label and its icon are an
   // interactive element's label ("control"); the border is structural ("decorative").
@@ -2708,9 +2708,6 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tugx-bulletin-fg", surface: "--tugx-bulletin-bg", role: "content" },
   { element: "--tugx-bulletin-border", surface: "--tugx-bulletin-bg", role: "informational" },
 
-  // ---- tug-chart-glyph.css ----
-  { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tugx-pane-bg", role: "content" },
-
   // ---- tug-choice-group.css ----
   { element: "--tug7-element-segment-text-normal-plain-rest", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "control" },
   { element: "--tug7-element-segment-text-normal-plain-hover", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "control" },
@@ -2727,8 +2724,8 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // has — and it went the same way the slot chip's accent did.
   { element: "--tug7-element-control-text-tinted-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "control" },
 
-  // ---- cards-column-badge.css ----
-  // The badge's Cards-card mount paints each element of its glyph as the slot chip
+  // ---- tug-column-badge.css — tone="action" ----
+  // The badge's action tone (its Cards-card mount) paints each element of its glyph as the slot chip
   // beside it is painted, token for token — so the chip's own pairings (its
   // number and border against its fill, in tug-slot.css) carry over unchanged
   // and are not restated here. What IS new is the glyph's fill standing on the
@@ -2749,7 +2746,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tugx-completion-border", surface: "--tugx-completion-bg", role: "informational" },
   { element: "--tugx-completion-item-hover-fg", surface: "--tugx-completion-item-hover-bg", role: "control" },
 
-  // ---- tug-cue.css ----
+  // ---- cue.css ----
   { element: "--tugx-cue-fg", surface: "--tugx-cue-bg", role: "content" },
   { element: "--tugx-cue-border", surface: "--tugx-cue-bg", role: "informational" },
   { element: "--tugx-cue-icon-fg", surface: "--tugx-cue-bg", role: "informational" },
@@ -2757,11 +2754,12 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // ---- tug-inline-alert.css ----
   { element: "--tugx-inline-alert-fg", surface: "--tugx-inline-alert-bg", role: "content" },
   { element: "--tugx-inline-alert-border", surface: "--tugx-inline-alert-bg", role: "informational" },
+  { element: "--tugx-inline-alert-accent", surface: "--tugx-inline-alert-bg", role: "informational" },
 
   // ---- tug-list-view.css ----
   { element: "--tugx-list-view-cursor-bar-color", surface: "--tug7-surface-global-primary-normal-default-rest", role: "control" },
 
-  // ---- tug-modal-input-dialog.css ----
+  // ---- modal-input-dialog.css ----
   { element: "--tugx-modal-input-fg", surface: "--tugx-modal-input-bg", role: "content" },
   { element: "--tugx-modal-input-border", surface: "--tugx-modal-input-bg", role: "informational" },
   { element: "--tugx-modal-input-border", surface: "--tugx-modal-input-header-bg", role: "informational" },
@@ -2802,7 +2800,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // ---- tug-progress-indicator.css ----
   { element: "--tugx-progress-indicator-label-color", surface: "--tugx-progress-indicator-surface", role: "content" },
 
-  // ---- tug-prompt-entry.css ----
+  // ---- prompt-entry.css ----
   { element: "--tug7-element-field-border-normal-danger-rest", surface: "--tugx-entry-shell-rest", role: "informational" },
   { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tugx-entry-shell-rest", role: "content" },
 
@@ -2833,14 +2831,10 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-global-border-normal-default-rest", surface: "--tug7-element-toggle-thumb-normal-on-rest", role: "informational" },
   { element: "--tug7-element-slider-fill-normal-range-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
 
-  // ---- tug-split-pane.css ----
-  { element: "--tug7-surface-split-primary-normal-sash-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
-  { element: "--tug7-element-split-icon-normal-grip-rest", surface: "--tug7-surface-split-primary-normal-sash-focus", role: "control" },
-
   // ---- tug-switch.css ----
   { element: "--tug7-element-toggle-thumb-normal-plain-rest", surface: "--tugx-toggle-on-color", role: "control" },
 
-  // ---- tug-tab-view.css ----
+  // ---- settings-tab-view.css ----
   { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-surface-selection-primary-normal-quiet-rest", role: "content", parentSurface: "--tug7-surface-global-primary-normal-default-rest" },
   { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-surface-tab-primary-normal-plain-hover", role: "content", parentSurface: "--tug7-surface-tab-primary-normal-plain-inactive" },
 
@@ -2890,9 +2884,6 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
 
   // ---- entity-tips.css ----
   { element: "--tugx-tip-mono-fg", surface: "--tugx-tooltip-bg", role: "informational" },
-
-  // ---- cards/session-usage-limit-notice.css ----
-  { element: "--tugx-usage-limit-accent", surface: "--tugx-inline-alert-bg", role: "informational" },
 
 ];
 

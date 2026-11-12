@@ -27,8 +27,8 @@
  * @covers tugdeck/src/components/chrome/zoom-readout.tsx
  * @covers tugdeck/src/components/chrome/zoom-readout.css
  * @covers tugdeck/src/overlay/overlay-main.ts
- * @covers tugdeck/src/components/tugways/tug-status-cell.tsx
- * @covers tugdeck/src/components/tugways/tug-status-cell.css
+ * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.css
  */
 
 import { describe, expect, test } from "bun:test";

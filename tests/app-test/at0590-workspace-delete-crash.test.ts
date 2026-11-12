@@ -311,7 +311,7 @@ async function armRecorder(app: App): Promise<void> {
            pre === null ? "" : pre.textContent,
          );
        };
-       var BANNER = '[data-slot="tug-banner"][data-variant="error"]';
+       var BANNER = '[data-slot="tug-banner"][data-kind="error"]';
        var already = document.querySelector(BANNER);
        if (already !== null) seen(already);
        new MutationObserver(function () {
@@ -342,7 +342,7 @@ async function proveRecorder(app: App): Promise<string[]> {
        var el = document.createElement("div");
        el.id = "at0590-instrument-check";
        el.setAttribute("data-slot", "tug-banner");
-       el.setAttribute("data-variant", "error");
+       el.setAttribute("data-kind", "error");
        el.innerHTML =
          '<div class="tug-banner-message">at0590 instrument check</div>' +
          '<div class="tug-banner-detail-body">no stack</div>';
@@ -506,7 +506,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             await app.evalJS<boolean>(
               `document.querySelector(
-                 '[data-slot="tug-banner"][data-variant="error"]'
+                 '[data-slot="tug-banner"][data-kind="error"]'
                ) !== null`,
             ),
             "and no error banner is standing — the user's own observable, read last",

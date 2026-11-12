@@ -23,10 +23,6 @@
  *     not a fixed point. The assertion is the page and the fraction of the way
  *     down it — the two quantities a re-scale leaves alone.
  *
- * `TugMarkdownView` is not driven: it ships in the gallery only and claims
- * nothing, and the episode's own anchor descends past its aria-hidden spacers
- * to the block under the top edge, which the plain-flow case pins.
- *
  * @covers tugdeck/src/lib/resize-episode.ts
  * @covers tugdeck/src/lib/cm6-scroll-anchor.ts
  * @covers tugdeck/src/components/tugways/tug-text-card-editor.tsx

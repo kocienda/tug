@@ -119,6 +119,9 @@ import {
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 import "./flow-strip.css";
 
 /** The property the flow offset crosses the channel on. */
@@ -385,7 +388,19 @@ export function FlowStrip({
     onGoTo(slot, centerOffsetFor(slot));
   };
 
+  // The segments' presses arrive as `select-slot` ([L11]).
+  const responderId = React.useId();
+  const { ResponderScope } = useOptionalResponder({
+    id: responderId,
+    actions: {
+      [TUG_ACTIONS.SELECT_SLOT]: (event: ActionEvent) => {
+        if (typeof event.value === "number") onSelectSlot(event.value);
+      },
+    },
+  });
+
   return (
+    <ResponderScope>
     <div
       ref={root}
       className="flow-strip"
@@ -421,7 +436,7 @@ export function FlowStrip({
           spans={spans}
           states={states}
           size="sm"
-          onSelectSlot={onSelectSlot}
+          action={TUG_ACTIONS.SELECT_SLOT}
           slotLabel={(slot) => `Go to slot ${slot + 1}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -446,5 +461,6 @@ export function FlowStrip({
         />
       ) : null}
     </div>
+    </ResponderScope>
   );
 }

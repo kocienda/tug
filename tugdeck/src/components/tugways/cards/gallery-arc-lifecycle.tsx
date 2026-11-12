@@ -88,8 +88,8 @@ import {
 } from "@/components/tugways/tug-arc-track";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
-import { TugStatusCell } from "@/components/tugways/tug-status-cell";
+import { SessionIdentityView } from "@/components/tugways/cards/session-identity";
+import { SessionTelemetryCell } from "./session-telemetry-cell";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 
 import type {
@@ -500,9 +500,9 @@ const BRIEF_FILES = (
     ["tugdeck/src/components/tugways/annotation-menu.tsx", "A", 212, 0],
     ["tugdeck/src/components/tugways/annotation-menu.css", "A", 48, 0],
     ["tugdeck/src/components/tugways/tug-transcript-cell.tsx", "M", 31, 118],
-    ["tugdeck/src/components/tugways/tug-prompt-entry.tsx", "M", 22, 64],
-    ["tugdeck/src/components/tugways/tug-history-list.tsx", "M", 14, 41],
-    ["tugdeck/src/components/tugways/tug-changes-list.tsx", "M", 12, 37],
+    ["tugdeck/src/components/tugways/cards/prompt-entry.tsx", "M", 22, 64],
+    ["tugdeck/src/components/tugways/cards/session-history/history-list.tsx", "M", 14, 41],
+    ["tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx", "M", 12, 37],
     ["tugdeck/src/components/tugways/session-identity-row.tsx", "M", 9, 22],
     ["tugdeck/src/components/tugways/commit-row-menu.tsx", "D", 0, 96],
     ["tugdeck/src/components/tugways/session-identity-menu.tsx", "D", 0, 84],
@@ -673,7 +673,7 @@ function Stage({
 function Worker({ sessionId }: { sessionId: string }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
   return (
-    <TugSessionIdentity
+    <SessionIdentityView
       identity={identity}
       tier="chip"
       arc={false}
@@ -974,7 +974,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   : arcCellWord(model);
               const state = model.stopped !== null ? "aborted" : "running";
               return (
-                <TugStatusCell key={m.key} priority="tasks" label="ARC">
+                <SessionTelemetryCell key={m.key} priority="tasks" label="ARC">
                   <TugProgressIndicator
                     variant="pulsing-dot"
                     size={12}
@@ -996,7 +996,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
                     state={state}
                     aria-hidden
                   />
-                </TugStatusCell>
+                </SessionTelemetryCell>
               );
             })}
           </div>

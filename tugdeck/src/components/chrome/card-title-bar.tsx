@@ -35,8 +35,8 @@ import {
   MoreHorizontal,
   MoveHorizontal,
   X,
-  icons,
 } from "lucide-react";
+import { iconNamed } from "@/components/tugways/tug-named-icon";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { getTugTiming } from "@/lib/scale-timing";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -50,7 +50,7 @@ import {
   type ContentWidth,
 } from "@/lib/layout-imposer";
 import { isSecondaryPress } from "@/lib/whole-entity-press";
-import { TugButton } from "@/components/tugways/internal/tug-button";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
@@ -118,18 +118,12 @@ function TitleBarItemButton({
   const label = entry?.title ?? item.commandId;
   const enabled =
     item.enabled ?? (entry !== undefined && validateCommand(entry, commandValidationSource()));
-  const ItemIcon =
-    item.icon !== undefined && icons[item.icon as keyof typeof icons] !== undefined
-      ? icons[item.icon as keyof typeof icons]
-      : null;
+  const ItemIcon = iconNamed(item.icon);
   if (ItemIcon === null) return null;
   return (
     <TugTooltip content={enabled ? label : (item.unavailableHint ?? label)}>
       <span className="tug-pane-title-bar-tooltip-anchor">
-        <TugButton
-          subtype="icon"
-          emphasis="ghost"
-          role="action"
+        <TugIconButton
           size="sm"
           icon={<ItemIcon />}
           disabled={!enabled}
@@ -210,11 +204,8 @@ function CardVerbMenu({
         <span className="tug-pane-title-bar-tooltip-anchor">
           <TugPopupMenu
             trigger={
-              <TugButton
+              <TugIconButton
                 ref={setAnchorEl}
-                subtype="icon"
-                emphasis="ghost"
-                role="action"
                 size="sm"
                 icon={<MoreHorizontal />}
                 aria-label="More"
@@ -235,7 +226,7 @@ function CardVerbMenu({
         message={armed?.confirm?.message ?? ""}
         confirmLabel={armed?.confirm?.confirmLabel ?? "OK"}
         // Default focus on Cancel, so a reflexive Return clears nothing.
-        confirmRole="danger"
+        confirm={{ role: "danger" }}
         cancelLabel="Cancel"
         side="bottom"
         align="end"
@@ -675,10 +666,7 @@ const CardWidthMenu = memo(function CardWidthMenu({
   return (
     <TugPopupMenu
       trigger={
-        <TugButton
-          subtype="icon"
-          emphasis="ghost"
-          role="action"
+        <TugIconButton
           size="sm"
           icon={<MoveHorizontal />}
           aria-label="Card width"
@@ -826,10 +814,7 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
       <span className="tug-pane-title-bar-tooltip-anchor">
         <TugPopupMenu
           trigger={
-            <TugButton
-              subtype="icon"
-              emphasis="ghost"
-              role="action"
+            <TugIconButton
               size="sm"
               /* One badge in the slot chip's footprint, rather than a
                  lucide glyph beside a numeral. A stack draws how many
@@ -879,10 +864,7 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
               // Each row is a miniature of the title bar it stands for: the
               // pane's own icon, then the pane's own title, in that order and
               // from the same `CardMeta.icon` the real title bar draws.
-              const RowIcon =
-                entry.icon !== undefined && entry.icon in icons
-                  ? icons[entry.icon as keyof typeof icons]
-                  : null;
+              const RowIcon = iconNamed(entry.icon);
               return {
                 id: entry.paneId,
                 label: entry.title,
@@ -1561,10 +1543,7 @@ function CardTitleBarBody({
     },
   }), [confirmsClose, onClose, openCloseConfirm, paneCloseIntent, withCloseDecision, slotStack.length, view, placePaneId]);
 
-  const IconComponent =
-    icon && icons[icon as keyof typeof icons]
-      ? icons[icon as keyof typeof icons]
-      : null;
+  const IconComponent = iconNamed(icon);
 
   return (
     <div
@@ -1788,10 +1767,7 @@ function CardTitleBarBody({
               copy of it behind a `⋯` would be one verb in two places. */}
           {cardFold && !folded && (
             <TugActionTooltip action={TUG_ACTIONS.TOGGLE_CARD_FOLD} content="Fold">
-              <TugButton
-                subtype="icon"
-                emphasis="ghost"
-                role="action"
+              <TugIconButton
                 size="sm"
                 icon={<ChevronsDownUp />}
                 aria-label="Fold"
@@ -1817,10 +1793,7 @@ function CardTitleBarBody({
               <span className="tug-pane-title-bar-tooltip-anchor">
                 <TugPopupMenu
                   trigger={
-                    <TugButton
-                      subtype="icon"
-                      emphasis="ghost"
-                      role="action"
+                    <TugIconButton
                       size="sm"
                       icon={<Blocks />}
                       aria-label="Move to workspace"
@@ -1848,7 +1821,7 @@ function CardTitleBarBody({
               the `…` overflow above: width is reached often and carries state,
               and a control whose current value is invisible until you open it
               is the wrong shape for both. Composed as `TugPopupMenu` + a ghost
-              `TugButton`, matching the stack badge and section menu beside it —
+              `TugIconButton`, matching the stack badge and section menu beside it —
               pane chrome is one of that component's sanctioned composers.
 
               On EVERY pane that has a width, masthead-bearing ones included. It
@@ -1924,10 +1897,7 @@ function CardTitleBarBody({
                   : "Center this card in bullseye"
               }
             >
-              <TugButton
-                subtype="icon"
-                emphasis="ghost"
-                role="action"
+              <TugIconButton
                 size="sm"
                 icon={<CircleDot />}
                 className="tug-pane-title-bar-bullseye-button"
@@ -2080,11 +2050,8 @@ function CardTitleBarBody({
               content={isMultiTab ? `Close all ${cardCount} tabs` : "Close this card"}
             >
               <span className="tug-pane-title-bar-tooltip-anchor">
-                <TugButton
+                <TugIconButton
                   ref={setCloseAnchorEl}
-                  subtype="icon"
-                  emphasis="ghost"
-                  role="action"
                   size="sm"
                   icon={<X />}
                   onPointerDown={handleClosePointerDown}
@@ -2130,7 +2097,7 @@ function CardTitleBarBody({
                 (isMultiTab ? `Close ${cardCount} Tabs?` : `Close ${cardKind}?`)
               }
               confirmLabel={closeIntent?.confirmLabel ?? (isMultiTab ? "Close All" : "Close")}
-              confirmRole="action"
+              confirm={{ role: "action" }}
               cancelLabel="Cancel"
             />
           </>

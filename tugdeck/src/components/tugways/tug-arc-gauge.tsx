@@ -4,7 +4,7 @@
  * The radial counterpart to {@link TugLinearGauge}. Maps `value` from
  * `[min, max]` into a proportional sweep along a circular arc, with
  * the same threshold-based color zones as the linear gauge and the
- * same `compact` / `detailed` density modes. Stateless presentation;
+ * same `compact` / `regular` density modes. Stateless presentation;
  * the consumer owns `value`.
  *
  * The arc's shape is configurable via `geometry.startAngleDeg` and
@@ -31,7 +31,7 @@
  * Laws:
  *  - [L06] appearance via SVG path mutation, not React state. The
  *    `value` drives one inline `d` attribute on the fill path; role
- *    color comes from `[data-role]` on the wrapper.
+ *    color comes from `[data-tone]` on the wrapper.
  *  - [L17] every `--tugx-gauge-arc-*` slot resolves to a `--tug7-*`
  *    or `--tug-*` base token in one hop. Shared color slots
  *    (`--tugx-gauge-fill-*`) are declared in `tug-linear-gauge.css`
@@ -60,15 +60,15 @@
 // Z2 placard) otherwise draws its readout in the SVG default black.
 import "./tug-linear-gauge.css";
 import "./tug-arc-gauge.css";
+import type { TugDensity } from "./tug-vocabulary";
 
 import React from "react";
 import { cn } from "@/lib/utils";
 import {
-  computeFillRatio,
-  effectiveFillRole,
   type GaugeFillRole,
   type GaugeThresholds,
 } from "./gauge-math";
+import { gaugeReading, type TugGaugeBaseProps } from "./internal/gauge-base";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,9 +178,9 @@ export interface TugArcGaugeSegmentLayout {
 /** Sentinel id used for the auto-appended remainder segment. */
 export const ARC_GAUGE_SEGMENT_REMAINDER_ID = "__remainder__";
 
-/** Density mode — `compact` for chrome / dashboard, `detailed` for
+/** Density mode — `compact` for chrome / dashboard, `regular` for
  *  the full mockup-style face with ticks. */
-export type TugArcGaugeDensity = "compact" | "detailed";
+export type TugArcGaugeDensity = TugDensity;
 
 /**
  * Arc-shape overrides. Both angles are in degrees, following the SVG
@@ -193,36 +193,12 @@ export interface TugArcGaugeGeometry {
   sweepAngleDeg: number;
 }
 
-export interface TugArcGaugeProps
-  extends Omit<
-    React.ComponentPropsWithoutRef<"div">,
-    "role" | "aria-valuemin" | "aria-valuemax" | "aria-valuenow" | "aria-valuetext"
-  > {
-  /** Current value, in domain units. Out-of-range values clamp into `[min, max]`. */
-  value: number;
-  /** Domain minimum. */
-  min: number;
-  /** Domain maximum. Must satisfy `max > min`. */
-  max: number;
-  /**
-   * Optional warning-zone fractions (0..1 relative to `[min, max]`).
-   * See {@link GaugeThresholds} for the promotion rules.
-   */
-  thresholds?: TugArcGaugeThresholds;
-  /**
-   * Optional label rendered below the readout (compact) or inside the
-   * arc beneath the percent text (detailed).
-   */
-  label?: string;
-  /**
-   * Optional formatter for the displayed value (and the hi / lo labels
-   * in `detailed` density). Defaults to `String(value)`.
-   */
-  formatValue?: (value: number) => string;
-  /** Density mode. Defaults to `compact`. */
-  density?: TugArcGaugeDensity;
-  /** Base fill role when no threshold is exceeded. Defaults to `default`. */
-  fillRole?: "default" | "info" | "success";
+/**
+ * Props for {@link TugArcGauge}: the shared gauge props, plus the sweep and
+ * the segmented mode. The label sits below the readout (compact) or inside
+ * the arc beneath the percent text (detailed).
+ */
+export interface TugArcGaugeProps extends TugGaugeBaseProps {
   /**
    * Override the default "C" sweep. See {@link TugArcGaugeGeometry}.
    * The default is intentionally an unusual angle (135° / 270°) so an
@@ -240,7 +216,7 @@ export interface TugArcGaugeProps
    * to fill the gap.
    *
    * In segmented mode the following props are documented as ignored:
-   * `value`, `formatValue`, `thresholds`, `fillRole`. The track and
+   * `value`, `formatValue`, `thresholds`, `fillTone`. The track and
    * single-fill paths are also hidden — the segments (including the
    * synthesized remainder) cover the arc entirely. The `label` prop
    * still renders in segmented mode for both density modes; the
@@ -417,7 +393,7 @@ export function layoutArcSegments(
 // ---------------------------------------------------------------------------
 
 /**
- * Default tick configuration for the `detailed` density. Held as a
+ * Default tick configuration for the `regular` density. Held as a
  * module constant rather than props — we deliberately collapsed the
  * mockup's per-instance tick knobs into sensible density-driven
  * defaults (mirrors {@link TugLinearGauge}'s approach).
@@ -493,7 +469,7 @@ export const TugArcGauge = React.forwardRef<HTMLDivElement, TugArcGaugeProps>(
       label,
       formatValue,
       density = "compact",
-      fillRole = "default",
+      fillTone = "default",
       geometry,
       segments,
       className,
@@ -503,16 +479,18 @@ export const TugArcGauge = React.forwardRef<HTMLDivElement, TugArcGaugeProps>(
   ) {
     const { startAngleDeg, sweepAngleDeg } = geometry ?? DEFAULT_ARC_GEOMETRY;
     const isSegmented = segments !== undefined;
-    const ratio = computeFillRatio(value, min, max);
-    const role = effectiveFillRole(ratio, fillRole, thresholds);
-    const display = formatValue ?? ((v: number) => String(v));
-    const valueText = display(value);
-    const ariaValueText =
-      label !== undefined ? `${valueText} ${label}` : valueText;
-    const percentText = `${(ratio * 100).toFixed(1)}%`;
+    const { ratio, role, display, valueText, ariaValueText, percentText } = gaugeReading({
+      value,
+      min,
+      max,
+      thresholds,
+      label,
+      formatValue,
+      fillTone,
+    });
 
     const radius =
-      density === "detailed" ? ARC_RADIUS_DETAILED : ARC_RADIUS_COMPACT;
+      density === "regular" ? ARC_RADIUS_DETAILED : ARC_RADIUS_COMPACT;
 
     const trackD = arcPath(
       VIEWBOX_CENTER,
@@ -569,7 +547,7 @@ export const TugArcGauge = React.forwardRef<HTMLDivElement, TugArcGaugeProps>(
         data-slot="tug-arc-gauge"
         data-density={density}
         data-mode={isSegmented ? "segments" : "value"}
-        data-role={role}
+        data-tone={role}
         className={cn("tug-arc-gauge", className)}
         role="meter"
         aria-valuemin={min}
@@ -616,14 +594,14 @@ export const TugArcGauge = React.forwardRef<HTMLDivElement, TugArcGaugeProps>(
                 );
               })
             : null}
-          {density === "detailed" ? (
+          {density === "regular" ? (
             <DetailedTicks
               startAngleDeg={startAngleDeg}
               sweepAngleDeg={sweepAngleDeg}
               radius={radius}
             />
           ) : null}
-          {density === "detailed" ? (
+          {density === "regular" ? (
             <>
               <text
                 className="tug-arc-gauge-value-svg"
@@ -659,7 +637,7 @@ export const TugArcGauge = React.forwardRef<HTMLDivElement, TugArcGaugeProps>(
             <span className="tug-arc-gauge-label">{label}</span>
           </div>
         ) : null}
-        {density === "detailed" && label !== undefined ? (
+        {density === "regular" && label !== undefined ? (
           <span className="tug-arc-gauge-label tug-arc-gauge-label-detailed">
             {label}
           </span>

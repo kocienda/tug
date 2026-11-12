@@ -16,7 +16,7 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { commitFilterFields } from "../tug-history-list";
+import { commitFilterFields } from "../cards/session-history/history-list";
 import { formatCommitStamp } from "../commit-presentation";
 import { filterAndRank, filterQueryMatch } from "@/lib/text-match";
 import type { GitLogCommit } from "@/lib/git-log-store";

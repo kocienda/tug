@@ -7,7 +7,7 @@
  * runs the reducer and its effects, and posts patches. This store applies
  * them — field-level structure patches merged into its own state and
  * transcript, so everything a patch does not name keeps its identity, and
- * stream writes into the `PropertyStore` that `TugMarkdownView` reads — and
+ * stream writes into the `PropertyStore` that `TugMarkdownBlock` reads — and
  * publishes to React once per batch the host posts: the host paces its
  * batches to the display period, so a streaming burst costs React one render
  * per frame, and a replay fold keeps the snapshot pinned until it flushes.
@@ -1162,7 +1162,7 @@ export class CodeSessionStore extends Subscribable {
    * System notification: the transcript host's list has raised its first
    * settle after the initial resume replay, or the host's settle bound
    * ran out. The reducer flips the monotonic `coldRevealSettled`, which
-   * is what releases `TugRestoreGate`'s hold on this card
+   * is what releases `RestoreGate`'s hold on this card
    * (`deriveColdRevealPending`). Idempotent; a no-op once settled.
    *
    * Public because the dispatch source is the transcript host, and
@@ -1605,7 +1605,7 @@ export class CodeSessionStore extends Subscribable {
    * ref-stable no-op and produces no listener notification.
    *
    * Public rather than internal because the dispatch source is the
-   * UI surface (`TugPromptEntry`), not the reducer; routing through a
+   * UI surface (`PromptEntry`), not the reducer; routing through a
    * named method here keeps `dispatch` private and the prompt-entry
    * free of any reducer-event-vocabulary knowledge — the same
    * precedent as `notifyTransportSettled` /

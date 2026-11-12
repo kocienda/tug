@@ -17,7 +17,7 @@
  */
 
 import React, { useId } from "react";
-import { TugBox } from "../tug-box";
+import { TugSettingsGroup } from "../tug-settings-group";
 import { TugLabel } from "../tug-label";
 import { TugPopupButton } from "../tug-popup-button";
 import { TugSwitch } from "../tug-switch";
@@ -75,10 +75,8 @@ export function TextCardControls({ settings, onChange }: TextCardControlsProps) 
         data-slot="text-card-controls"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <TugBox
+        <TugSettingsGroup
           label="Typography"
-          labelPosition="legend"
-          variant="bordered"
           className="text-card-controls-group"
         >
           <div className="text-card-controls-row">
@@ -102,12 +100,10 @@ export function TextCardControls({ settings, onChange }: TextCardControlsProps) 
               size="sm"
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Tabs & Spaces"
-          labelPosition="legend"
-          variant="bordered"
           className="text-card-controls-group text-card-controls-group-inline"
         >
           <div className="text-card-controls-switches">
@@ -137,12 +133,10 @@ export function TextCardControls({ settings, onChange }: TextCardControlsProps) 
               size="sm"
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Display"
-          labelPosition="legend"
-          variant="bordered"
           className="text-card-controls-group"
         >
           <div className="text-card-controls-switches">
@@ -182,7 +176,7 @@ export function TextCardControls({ settings, onChange }: TextCardControlsProps) 
               data-testid="text-card-option-show-tabs"
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
       </div>
     </ResponderScope>
   );

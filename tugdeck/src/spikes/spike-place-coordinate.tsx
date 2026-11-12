@@ -40,6 +40,9 @@ import type { TugPopupMenuItem } from "@/components/tugways/internal/tug-popup-m
 import { TugSlot } from "@/components/tugways/tug-slot";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 import {
   TugColumnBadge,
   columnBadgeCharacter,
@@ -170,6 +173,26 @@ function doorTip(facts: PlaceFacts): string {
 // The full-run popup — the jump-anywhere surface both badges open
 // ---------------------------------------------------------------------------
 
+/** Answers the `select-slot` the slots inside it dispatch with `onPick`. */
+function SlotPress({
+  onPick,
+  children,
+}: {
+  onPick: (slot: number) => void;
+  children: React.ReactNode;
+}): React.ReactElement {
+  const id = React.useId();
+  const { ResponderScope } = useOptionalResponder({
+    id,
+    actions: {
+      [TUG_ACTIONS.SELECT_SLOT]: (event: ActionEvent) => {
+        if (typeof event.value === "number") onPick(event.value);
+      },
+    },
+  });
+  return <ResponderScope>{children}</ResponderScope>;
+}
+
 function SlotRunPopover({
   count,
   held,
@@ -189,18 +212,22 @@ function SlotRunPopover({
     <TugPopover open={open} onOpenChange={onOpenChange}>
       <TugPopoverTrigger>{children}</TugPopoverTrigger>
       <TugPopoverContent side="bottom" align="center">
-        <TugSlotLayout
+        <SlotPress
+          onPick={(slot) => {
+            onPick(slot);
+            onOpenChange(false);
+          }}
+        >
+        <TugSlotLayout size="sm"
           className="tug-slot-layout-popup"
           count={count}
           states={Array.from({ length: count }, (_, slot) =>
             slot === held ? "filled" : "rest",
           )}
           slotLabel={(slot) => `Put at position ${slot + 1}`}
-          onSelectSlot={(slot) => {
-            onPick(slot);
-            onOpenChange(false);
-          }}
+          action={TUG_ACTIONS.SELECT_SLOT}
         />
+        </SlotPress>
       </TugPopoverContent>
     </TugPopover>
   );
@@ -265,13 +292,16 @@ function MastheadFixture({
         >
           <TugTooltip content={tip}>
             <span className="card-slot-badge-anchor">
+              <SlotPress onPick={() => setSlotOpen(true)}>
               <TugSlot
                 number={held + 1}
                 state="rest"
                 size="sm"
                 aria-label={tip}
-                onSelect={() => setSlotOpen(true)}
+                action={TUG_ACTIONS.SELECT_SLOT}
+                value={held}
               />
+              </SlotPress>
             </span>
           </TugTooltip>
         </SlotRunPopover>
@@ -423,13 +453,15 @@ function LensRowNow({ row }: { row: LensRowFixture }): React.ReactElement {
   const [facts, setFacts] = useState<PlaceFacts>(row.facts);
   return (
     <LensRow title={row.title} icon={row.icon}>
-      <TugSlotLayout
+      <SlotPress onPick={(slot) => setFacts((f) => ({ ...f, held: slot }))}>
+      <TugSlotLayout size="sm"
         className="slot-picker"
         count={6}
         states={runStates(6, facts)}
         slotLabel={(slot) => `Put at position ${slot + 1}`}
-        onSelectSlot={(slot) => setFacts((f) => ({ ...f, held: slot }))}
+        action={TUG_ACTIONS.SELECT_SLOT}
       />
+      </SlotPress>
       <TugColumnBadge
         className="lens-column-badge"
         kind={facts.kind}
@@ -465,13 +497,16 @@ function LensRowProposed({
     return (
       <TugTooltip key={key} content={tip}>
         <span className="sp-pc-chip-anchor">
+          <SlotPress onPick={() => setHeld(slot)}>
           <TugSlot
             number={slot + 1}
             state="rest"
             size="sm"
             aria-label={tip}
-            onSelect={() => setHeld(slot)}
+            action={TUG_ACTIONS.SELECT_SLOT}
+            value={slot}
           />
+          </SlotPress>
         </span>
       </TugTooltip>
     );
@@ -490,13 +525,16 @@ function LensRowProposed({
         >
           <TugTooltip content={centreTip}>
             <span className="sp-pc-chip-anchor">
+              <SlotPress onPick={() => setJumpOpen(true)}>
               <TugSlot
                 number={facts.held + 1}
                 state={centreState}
                 size="sm"
                 aria-label={centreTip}
-                onSelect={() => setJumpOpen(true)}
+                action={TUG_ACTIONS.SELECT_SLOT}
+                value={facts.held}
               />
+              </SlotPress>
             </span>
           </TugTooltip>
         </SlotRunPopover>

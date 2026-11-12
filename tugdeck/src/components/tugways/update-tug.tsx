@@ -543,7 +543,7 @@ export function UpdateTug(): ReactElement {
             className="tug-key-sink"
             aria-label="Keyboard"
           />
-          <div className="tug-alert-body" data-icon-role={state.stage === "error" ? "danger" : "action"}>
+          <div className="tug-alert-body" data-icon-tone={state.stage === "error" ? "danger" : "action"}>
             <div className="tug-alert-icon" aria-hidden="true">
               <StageIcon stage={state.stage} />
             </div>

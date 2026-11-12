@@ -2,7 +2,7 @@
  * tugx-header.css — shared modal-header utility token family.
  *
  * One scale for every modal/overlay header in the app: TugAlert,
- * TugAlertSheet, TugSheet, ConfigureTug, and TugVersionGate all draw their
+ * TugAlertSheet, TugSheet, ConfigureTug, and VersionGate all draw their
  * icon + title (+ description/message) block from these slots. The
  * convention has three cases that differ only in icon size and alignment:
  *

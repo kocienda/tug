@@ -129,7 +129,8 @@ export type TugAtomRefEntity =
    */
   | { kind: "help"; label: string };
 
-export interface TugAtomRefProps {
+export interface TugAtomRefProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
+  /** What the ref names: a file, an arc, or a document. */
   entity: TugAtomRefEntity;
   /**
    * Override the default label (the basename, or the arc's name). What is
@@ -142,8 +143,8 @@ export interface TugAtomRefProps {
    * Leading glyph. Defaults to `FileText` / `GitBranch` / `BookOpen` by kind.
    */
   icon?: React.ReactNode;
+  /** The skin's `data-slot`. @default "tug-atom-ref" */
   "data-slot"?: string;
-  className?: string;
 }
 
 /**
@@ -190,13 +191,10 @@ function fileAnnotationAttributes(
   };
 }
 
-export function TugAtomRef({
-  entity,
-  label,
-  icon,
-  "data-slot": dataSlot = "tug-atom-ref",
-  className,
-}: TugAtomRefProps): React.ReactElement {
+export const TugAtomRef = React.forwardRef<HTMLSpanElement, TugAtomRefProps>(function TugAtomRef(
+  { entity, label, icon, "data-slot": dataSlot = "tug-atom-ref", className, ...rest },
+  ref,
+) {
   const stamps = entity.kind === "file" && entity.annotate !== false;
   const marks = stamps
     ? fileAnnotationAttributes(entity as Extract<TugAtomRefEntity, { kind: "file" }>)
@@ -210,6 +208,8 @@ export function TugAtomRef({
 
   const skin = (
     <span
+      {...rest}
+      ref={ref}
       className={cn("tug-atom-ref", stamps && ANNOTATION_CLASS, className)}
       data-slot={dataSlot}
       {...marks}
@@ -243,4 +243,4 @@ export function TugAtomRef({
       {skin}
     </TugTooltip>
   );
-}
+});

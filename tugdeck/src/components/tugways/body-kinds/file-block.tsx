@@ -893,7 +893,7 @@ export const FileBlock: React.FC<FileBlockProps> = ({
     >
       {embedded ? null : (
         <div
-          className="tugx-file-header"
+          className="tugx-file-header tugx-block-strip"
           data-slot={DATA_SLOT_HEADER}
         >
           <span

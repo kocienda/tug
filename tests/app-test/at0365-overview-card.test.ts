@@ -79,8 +79,8 @@
  * @covers tugdeck/src/lib/overview-store.ts
  * @covers tugdeck/src/protocol.ts
  * @covers tugdeck/src/lib/overview-attachment-bytes.ts
- * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.tsx
- * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.css
+ * @covers tugdeck/src/components/tugways/cards/attachment-preview.tsx
+ * @covers tugdeck/src/components/tugways/cards/attachment-preview.css
  * @covers tugdeck/src/components/tugways/tug-sheet.tsx
  * @covers tugdeck/src/lib/overview-ref-resolve.ts
  * @covers tugdeck/src/lib/overview-body-segments.ts

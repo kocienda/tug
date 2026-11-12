@@ -15,7 +15,7 @@
  * load-control bar's restore strip (`session-load-control-bar.tsx`)
  * reads it as its restore arm, so while `deriveColdRestoreActive` is true
  * the card is visibly restoring. And `restore-gate-store.ts` folds it
- * across every live card for `TugRestoreGate`, the app-wide blocking
+ * across every live card for `RestoreGate`, the app-wide blocking
  * modal at the deck root.
  *
  * ## The app-modal, and why it stands
@@ -96,7 +96,7 @@ export const COLD_REVEAL_SETTLE_BOUND_MS = 10_000;
  * before the restored transcript is on screen: the list mounts on the
  * commit after `replay_complete` and its heights settle over the next
  * frames, and that stretch is where the main thread is busiest and the
- * card still shows nothing. `TugRestoreGate` holds across it.
+ * card still shows nothing. `RestoreGate` holds across it.
  *
  * Gated to `sessionMode === "resume"` for the same reason as the replay
  * predicate, and forced false by any `lastError`: an errored card mounts
@@ -109,7 +109,7 @@ export function deriveColdRevealPending(s: ColdRevealSignals): boolean {
 }
 
 /**
- * The whole window `TugRestoreGate` holds a card for: the replay window
+ * The whole window `RestoreGate` holds a card for: the replay window
  * and the reveal behind it, as one stretch.
  */
 export function deriveRestoreGateHold(s: ColdRevealSignals): boolean {

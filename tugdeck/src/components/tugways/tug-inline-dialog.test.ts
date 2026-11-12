@@ -3,7 +3,7 @@
  *
  * `TugInlineDialog` is a presentation primitive — its observable
  * behaviour is its prop-to-DOM mapping plus a small set of exported
- * helpers (`iconRoleSlot`, `shouldRenderOptions`, the
+ * helpers (`iconToneSlot`, `shouldRenderOptions`, the
  * `TUG_INLINE_DIALOG_ICON_ROLES` enumeration). Per project policy
  * (pure-logic `bun:test` + real-app tests; no fake-DOM render tests),
  * the suite pins those helpers exhaustively. The visual layout +
@@ -12,7 +12,7 @@
  * and `QuestionDialog`.
  *
  * Coverage:
- *  - `iconRoleSlot` — every declared role maps to its
+ *  - `iconToneSlot` — every declared role maps to its
  *    `--tugx-idialog-icon-{role}-color` slot.
  *  - `TUG_INLINE_DIALOG_ICON_ROLES` lists exactly the five expected
  *    roles in declaration order.
@@ -27,7 +27,7 @@ import { describe, it, expect } from "bun:test";
 
 import {
   TUG_INLINE_DIALOG_ICON_ROLES,
-  iconRoleSlot,
+  iconToneSlot,
   inlineDialogLayout,
   shouldRenderOptions,
   type TugInlineDialogIconRole,
@@ -35,10 +35,10 @@ import {
 } from "./tug-inline-dialog";
 
 // ---------------------------------------------------------------------------
-// iconRoleSlot — slot-name contract
+// iconToneSlot — slot-name contract
 // ---------------------------------------------------------------------------
 
-describe("iconRoleSlot", () => {
+describe("iconToneSlot", () => {
   it("maps every declared icon role to its --tugx-idialog-icon-{role}-color slot", () => {
     const expected: Record<TugInlineDialogIconRole, string> = {
       default: "--tugx-idialog-icon-default-color",
@@ -48,7 +48,7 @@ describe("iconRoleSlot", () => {
       info:    "--tugx-idialog-icon-info-color",
     };
     for (const role of TUG_INLINE_DIALOG_ICON_ROLES) {
-      expect(iconRoleSlot(role)).toBe(expected[role]);
+      expect(iconToneSlot(role)).toBe(expected[role]);
     }
   });
 });

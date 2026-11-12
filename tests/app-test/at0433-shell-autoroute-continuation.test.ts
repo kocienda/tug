@@ -43,7 +43,7 @@
  *
  * @covers tugdeck/src/lib/shell-line-classifier.ts
  * @covers tugdeck/src/lib/shell-session-store.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugrust/crates/tuggram/
  */
 

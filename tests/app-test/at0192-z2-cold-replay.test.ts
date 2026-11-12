@@ -188,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({ testName: "at0192-z2-cold-replay" });
 
-        // Status-row cell readers. The cells are `TugStatusCell`s keyed by
+        // Status-row cell readers. The cells are `SessionTelemetryCell`s keyed by
         // `data-priority`; the CONTEXT value splits into a numerator
         // (resident window = used) and a denominator (`/ <max>` from the
         // resolved model).

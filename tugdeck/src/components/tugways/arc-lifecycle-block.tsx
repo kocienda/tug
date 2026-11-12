@@ -69,7 +69,7 @@ import React from "react";
 
 import { ArcLifecycleLine, type ArcLifecycleLineProps } from "./arc-lifecycle-line";
 import { TugArcAtom } from "./tug-arc-atom";
-import { TugSessionIdentity } from "./tug-session-identity";
+import { SessionIdentityView } from "./cards/session-identity";
 import { useSessionIdentity } from "@/lib/session-identity";
 
 export interface ArcLifecycleBlockProps extends ArcLifecycleLineProps {
@@ -106,7 +106,7 @@ export interface ArcLifecycleBlockProps extends ArcLifecycleLineProps {
 export function ArcWorkerAtom({ sessionId }: { sessionId: string }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
   return (
-    <TugSessionIdentity
+    <SessionIdentityView
       identity={identity}
       tier="chip"
       arc={false}
@@ -143,7 +143,7 @@ export function ArcLifecycleBlock({
       data-layout={layout}
     >
       <span className="tug-arc-lifecycle-eyebrow" data-slot="tug-arc-lifecycle-eyebrow">
-        <TugArcAtom name={name} slot="tug-arc-lifecycle-name" />
+        <TugArcAtom name={name} data-slot="tug-arc-lifecycle-name" />
         {layout === "stack" ? (
           <span className="tug-arc-lifecycle-rule" aria-hidden="true" />
         ) : null}

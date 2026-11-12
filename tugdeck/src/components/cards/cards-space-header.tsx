@@ -56,24 +56,20 @@ import { Eye, EyeClosed, MoreHorizontal } from "lucide-react";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
-import {
-  TugEditorContextMenu,
-  type TugEditorContextMenuEntry,
-} from "@/components/tugways/tug-editor-context-menu";
+import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { usePointMenu } from "@/components/tugways/use-point-menu";
 import { TugInput } from "@/components/tugways/tug-input";
-import { TugLabel } from "@/components/tugways/tug-label";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import {
   TugPopupMenu,
   type TugPopupMenuEntry,
 } from "@/components/tugways/internal/tug-popup-menu";
-import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugListRow, TugListRowTitle } from "@/components/tugways/tug-list-row";
 import type { KeyViewBehavior } from "@/components/tugways/focus-manager";
 import type {
   TugListViewCellProps,
   TugListViewCellRenderer,
 } from "@/components/tugways/tug-list-view";
-import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { THEME_CATALOG, themeCatalogEntry } from "@/theme-catalog";
 
 import type { CardsDataSource } from "./cards-data-source";
@@ -102,18 +98,10 @@ export function useSpaceRowMenu(opts: {
   openMenuAt: (x: number, y: number) => void;
 } {
   const { spaceId, name, spaceCount } = opts;
-  const manager = useResponderChain();
-  const [openAt, setOpenAt] = React.useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const closeMenu = React.useCallback(() => setOpenAt(null), []);
-
+  const { available, openAt, renderMenu } = usePointMenu();
   const openMenuAt = React.useCallback(
-    (x: number, y: number): void => {
-      if (manager === null) return;
-      setOpenAt({ x, y });
-    },
-    [manager],
+    (x: number, y: number): void => openAt(x, y, null),
+    [openAt],
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
@@ -139,19 +127,13 @@ export function useSpaceRowMenu(opts: {
   }, [spaceId, spaceCount]);
 
   const menu =
-    manager === null ? null : (
+    !available ? null : (
       <span
         className="cards-space-verbs"
         data-slot="cards-space-verbs"
         aria-label={`Actions for workspace ${name}`}
       >
-        <TugEditorContextMenu
-          open={openAt !== null}
-          x={openAt?.x ?? 0}
-          y={openAt?.y ?? 0}
-          items={items}
-          onClose={closeMenu}
-        />
+        {renderMenu(items)}
       </span>
     );
 
@@ -383,7 +365,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
             data-slot="cards-space-tally"
             data-testid="cards-space-count"
           >
-            <TugBadge emphasis="ghost" role="inherit" size="sm">
+            <TugBadge emphasis="ghost" role="inherit" size="sm" numeric>
               {row.summary}
             </TugBadge>
           </span>
@@ -393,7 +375,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
               data-slot="cards-space-tally"
               data-testid="cards-space-live"
             >
-              <TugBadge emphasis="ghost" role="inherit" size="sm">
+              <TugBadge emphasis="ghost" role="inherit" size="sm" numeric>
                 {`${row.sessionsLive} live`}
               </TugBadge>
             </span>
@@ -504,9 +486,9 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
             onCancel={ctx.onCancelRename}
           />
         ) : (
-          <TugLabel className="tug-list-row-title" size="sm" maxLines={1}>
+          <TugListRowTitle className="cards-space-title">
             <span data-testid="cards-space-name">{row.name}</span>
-          </TugLabel>
+          </TugListRowTitle>
         )}
       </span>
     </TugListRow>

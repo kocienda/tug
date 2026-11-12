@@ -7,7 +7,7 @@
  * components — `BlockActionsCluster`, `BlockCopyButton`, `BlockFoldCue`
  * — are built here in the DOM instead. This module is the imperative-DOM
  * counterpart of those components: one header strip primitive, one copy
- * button, one fold cue, all styled (in `tug-markdown-view.css`) off the
+ * button, one fold cue, all styled (in `styles/tugx-md.css`) off the
  * same `--tugx-block-*` / `--tug-button-xs-*` tokens so they read as the
  * same controls, same size, same hover as the tool-block header.
  *

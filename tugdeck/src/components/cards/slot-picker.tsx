@@ -75,6 +75,9 @@ import { useSlotWindow } from "@/lib/slot-window-pref";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 import {
   TugPopover,
   TugPopoverAnchor,
@@ -115,6 +118,21 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   const [jumpOpen, setJumpOpen] = React.useState(false);
   const layout = React.useRef<TugSlotLayoutHandle | null>(null);
   const jumpLayout = React.useRef<TugSlotLayoutHandle | null>(null);
+  // Both layouts' presses arrive as `select-slot` ([L11]); the sender says
+  // which layout, and the press logic — which needs the facts computed below
+  // the early return — is read through a ref.
+  const rowSender = React.useId();
+  const jumpSender = React.useId();
+  const responderId = React.useId();
+  const pickRef = React.useRef<(slot: number, sender: unknown) => void>(() => {});
+  const { ResponderScope } = useOptionalResponder({
+    id: responderId,
+    actions: {
+      [TUG_ACTIONS.SELECT_SLOT]: (event: ActionEvent) => {
+        if (typeof event.value === "number") pickRef.current(event.value, event.sender);
+      },
+    },
+  });
 
   // The popup points at the CENTRE chip rather than at the run, and it points
   // through a measurable rather than through a trigger: composing
@@ -190,11 +208,23 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
     if (cardIds.length > 1) dispatchCommand("assign-slot", { cardIds, slot });
     else dispatchCommand("assign-slot", { cardId, slot });
   };
+  pickRef.current = (slot, sender) => {
+    if (sender === jumpSender) {
+      assign(slot);
+      setJumpOpen(false);
+    } else if (sender === rowSender) {
+      // The middle chip is the door to the whole run; every other chip in
+      // the window is the one-place move it names.
+      if (slot === doorAt) setJumpOpen(true);
+      else assign(slot);
+    }
+  };
 
   return (
+    <ResponderScope>
     <TugPopover open={jumpOpen} onOpenChange={setJumpOpen}>
       <TugPopoverAnchor virtualRef={anchor} />
-      <TugSlotLayout
+      <TugSlotLayout size="sm"
         ref={layout}
         className="slot-picker"
         data-testid="cards-slot-picker"
@@ -219,14 +249,10 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
               ? `Move ${groupSize} cards to position ${slot + 1}`
               : `Move to position ${slot + 1}`;
         }}
-        onSelectSlot={(slot, event) => {
-          // Assigning is not a row activation — stop it reaching the cell.
-          event?.stopPropagation();
-          // The middle chip is the door to the whole run; every other chip in
-          // the window is the one-place move it names.
-          if (slot === doorAt) setJumpOpen(true);
-          else assign(slot);
-        }}
+        // A slot press never reaches the cell — assigning is not a row
+        // activation — because the slot keeps its press to itself.
+        action={TUG_ACTIONS.SELECT_SLOT}
+        senderId={rowSender}
       />
       <TugPopoverContent
         side="bottom"
@@ -254,7 +280,7 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
         {/* The handle is on the RUN rather than on the content, because
             `TugPopoverContent` styles the bubble and forwards nothing else —
             an attribute set on it is dropped, silently. */}
-        <TugSlotLayout
+        <TugSlotLayout size="sm"
           ref={jumpLayout}
           data-testid="cards-slot-picker-jump"
           className="tug-slot-layout-popup"
@@ -266,13 +292,11 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
               ? `Put ${groupSize} cards at position ${slot + 1}`
               : `Put at position ${slot + 1}`
           }
-          onSelectSlot={(slot, event) => {
-            event?.stopPropagation();
-            assign(slot);
-            setJumpOpen(false);
-          }}
+          action={TUG_ACTIONS.SELECT_SLOT}
+          senderId={jumpSender}
         />
       </TugPopoverContent>
     </TugPopover>
+    </ResponderScope>
   );
 }

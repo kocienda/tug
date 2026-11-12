@@ -5,7 +5,7 @@
  *
  * ## What this gates
  *
- * `TugRestoreGate` used to close on `replay_complete`. A windowed replay
+ * `RestoreGate` used to close on `replay_complete`. A windowed replay
  * ingests in under 100 ms, and the reveal behind it — the list's first
  * mount and the settle of its heights — runs for seconds on the release
  * deck while the card still shows nothing, so the gate closed before
@@ -30,7 +30,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/restore-gate-store.ts
- * @covers tugdeck/src/components/tugways/tug-restore-gate.tsx
+ * @covers tugdeck/src/components/chrome/restore-gate.tsx
  * @covers tugdeck/src/lib/session-card-restore-gate.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  */

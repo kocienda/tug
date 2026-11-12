@@ -564,7 +564,7 @@ function sessionDotToken(value: string): string | null {
   const lineId = sessionTagStore.lineWearing(sessionAtomCallsign(value));
   const sessionId = lineId === null ? null : sessionLineStore.seatOf(lineId);
   if (sessionId === null) return null;
-  const { role } = sessionSessionPhaseVisual(sessionPhaseNow(sessionId));
+  const { tone: role } = sessionSessionPhaseVisual(sessionPhaseNow(sessionId));
   return progressRoleFillToken(role ?? "inherit");
 }
 
@@ -584,7 +584,7 @@ function sessionDotToken(value: string): string | null {
  *
  * `missing` is the third face and it is drawn rather than tokened: a dashed
  * hairline and muted ink, mirroring the `data-missing` rule in
- * `tug-session-identity.css`. The dot goes to the chip's own ink too — a
+ * `session-identity.css`. The dot goes to the chip's own ink too — a
  * phase colour on a reference nothing can find would be this client reporting
  * on a session it does not have.
  *
@@ -809,7 +809,7 @@ export function bakeAtomChipDataUri(
   // `chipDisplayLabel` so the text is identical across editor and transcript.
   //
   // The session atom is the exception, and only here: the transcript renders
-  // one as the live `TugSessionCitation` rather than as a chip, so this bake
+  // one as the live `SessionCitation` rather than as a chip, so this bake
   // is the only session chip there is and it resolves its own text. The
   // substitution happens BEFORE the geometry, because the string it returns is
   // what the chip has to be wide enough to hold.
@@ -868,7 +868,7 @@ export function bakeAtomChipDataUri(
   const surfaceColor = getTokenValue(tokens.surface);
   const keyColor = getTokenValue(tokens.key);
   const borderColor = getTokenValue(tokens.border);
-  const iconColor = getTokenValue(tokens.icon);
+  const iconInk = getTokenValue(tokens.icon);
   const textColor = getTokenValue(tokens.text);
 
   // Base surface (opaque), then the Key wash overlay — together a 9%
@@ -902,7 +902,7 @@ export function bakeAtomChipDataUri(
     ctx.save();
     ctx.translate(g.iconX, g.iconY);
     ctx.scale(g.iconScale, g.iconScale);
-    ctx.strokeStyle = iconColor;
+    ctx.strokeStyle = iconInk;
     ctx.lineWidth = 2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";

@@ -2,7 +2,7 @@
  * restore-gate-roster — the cards a restore pass is resuming, for the
  * restore gate's count.
  *
- * `TugRestoreGate` counts sessions over a total fixed when its round opens
+ * `RestoreGate` counts sessions over a total fixed when its round opens
  * (`restore-gate-round.ts`). The restore pass (`restoreSessions`,
  * `restoreSpaceSessions` in `session-restore.ts`) knows its shown resumed
  * cards before any of their pages exists, which is what keeps that total

@@ -11,7 +11,7 @@
  *  - `compact` (default): slim inline strip designed for chrome
  *    surfaces like the session-card status strip (~20 px tall row,
  *    bar + readout inline, optional inline label).
- *  - `detailed`: stacked face with major / minor ticks above the
+ *  - `regular`: stacked face with major / minor ticks above the
  *    bar, percent + value + label centered, hi / lo labels framing
  *    the bar ends. Designed for dashboard / gallery scale.
  *
@@ -20,7 +20,7 @@
  *
  *  - `value` ≥ `thresholds.danger`  → fill paints with `--tugx-gauge-fill-danger-color`
  *  - `value` ≥ `thresholds.caution` → fill paints with `--tugx-gauge-fill-caution-color`
- *  - otherwise                      → fill paints with `--tugx-gauge-fill-{fillRole}-color`
+ *  - otherwise                      → fill paints with `--tugx-gauge-fill-{fillTone}-color`
  *
  * The `danger` band is a strict superset of `caution`: when both
  * thresholds are configured and `value` exceeds both, only the
@@ -28,7 +28,7 @@
  *
  * Laws:
  *  - [L06] appearance via CSS / DOM, not React state. Role is
- *    encoded as a `data-role` attribute on the root; the matching
+ *    encoded as a `data-tone` attribute on the root; the matching
  *    CSS rule paints the fill via the role's token slot.
  *  - [L17] every `--tugx-gauge-*` slot resolves to a `--tug7-*` or
  *    `--tug-*` base token in one hop (declared in
@@ -52,6 +52,7 @@
  */
 
 import "./tug-linear-gauge.css";
+import type { TugDensity } from "./tug-vocabulary";
 
 import React from "react";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ import {
   type GaugeFillRole,
   type GaugeThresholds,
 } from "./gauge-math";
+import { gaugeReading, type TugGaugeBaseProps } from "./internal/gauge-base";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,8 +76,8 @@ import {
  */
 export type TugLinearGaugeFillRole = GaugeFillRole;
 
-/** Density mode — `compact` for chrome strips, `detailed` for full faces. */
-export type TugLinearGaugeDensity = "compact" | "detailed";
+/** Density mode — `compact` for chrome strips, `regular` for full faces. */
+export type TugLinearGaugeDensity = TugDensity;
 
 /**
  * Threshold fractions — re-export of the shared {@link GaugeThresholds}
@@ -88,52 +90,20 @@ export type TugLinearGaugeThresholds = GaugeThresholds;
 // implementations live in `gauge-math.ts`.
 export { clampToDomain, computeFillRatio, effectiveFillRole };
 
-export interface TugLinearGaugeProps
-  extends Omit<
-    React.ComponentPropsWithoutRef<"div">,
-    "role" | "aria-valuemin" | "aria-valuemax" | "aria-valuenow" | "aria-valuetext"
-  > {
-  /** Current value, in domain units. Out-of-range values clamp into [min, max]. */
-  value: number;
-  /** Domain minimum. */
-  min: number;
-  /** Domain maximum. Must satisfy `max > min`; otherwise the geometry
-   *  helpers throw a configuration error. */
-  max: number;
-  /**
-   * Optional warning-zone fractions. See module docstring for the
-   * promotion rules. Omitted thresholds disable that band.
-   */
-  thresholds?: TugLinearGaugeThresholds;
-  /**
-   * Optional label rendered alongside the readout. In `compact`
-   * density the label sits inline after the value; in `detailed`
-   * density it sits below the percent text.
-   */
-  label?: string;
-  /**
-   * Optional formatter for the displayed value (and for the hi / lo
-   * labels in `detailed` density). Defaults to `String(value)`. For
-   * a tokens / context-window display, a consumer would write:
-   * `formatValue={(v) => `${(v / 1000).toFixed(1)}k`}`.
-   */
-  formatValue?: (value: number) => string;
-  /** Density mode. Defaults to `compact`. */
-  density?: TugLinearGaugeDensity;
-  /**
-   * Base fill role when no threshold is exceeded. Defaults to
-   * `default`. Note: `caution` and `danger` are derived from
-   * thresholds — pass them via `thresholds`, not here.
-   */
-  fillRole?: "default" | "info" | "success";
-}
+/**
+ * Props for {@link TugLinearGauge}: the shared gauge props. In `compact`
+ * density the label sits inline after the value; in `regular` density it
+ * sits below the percent text. The bar adds nothing to what a gauge is.
+ */
+// oxlint-disable-next-line typescript/no-empty-interface, typescript/no-empty-object-type
+export interface TugLinearGaugeProps extends TugGaugeBaseProps {}
 
 // ---------------------------------------------------------------------------
 // Tick generation for the detailed density
 // ---------------------------------------------------------------------------
 
 /**
- * Default tick configuration for the `detailed` density. Held as a
+ * Default tick configuration for the `regular` density. Held as a
  * module constant rather than props per the [#step-20-1] scope note —
  * we deliberately collapsed the mockup's per-instance tick knobs into
  * sensible density-driven defaults.
@@ -183,18 +153,21 @@ export const TugLinearGauge = React.forwardRef<
     label,
     formatValue,
     density = "compact",
-    fillRole = "default",
+    fillTone = "default",
     className,
     ...rest
   }: TugLinearGaugeProps,
   ref,
 ) {
-  const ratio = computeFillRatio(value, min, max);
-  const role = effectiveFillRole(ratio, fillRole, thresholds);
-  const display = formatValue ?? ((v: number) => String(v));
-  const valueText = display(value);
-  const ariaValueText = label !== undefined ? `${valueText} ${label}` : valueText;
-  const percentText = `${(ratio * 100).toFixed(1)}%`;
+  const { ratio, role, display, valueText, ariaValueText, percentText } = gaugeReading({
+    value,
+    min,
+    max,
+    thresholds,
+    label,
+    formatValue,
+    fillTone,
+  });
 
   // Layout-stability contract: reserve enough horizontal space for
   // the longest formatted bound. Combined with `font-variant-numeric:
@@ -217,7 +190,7 @@ export const TugLinearGauge = React.forwardRef<
       ref={ref}
       data-slot="tug-linear-gauge"
       data-density={density}
-      data-role={role}
+      data-tone={role}
       className={cn("tug-linear-gauge", className)}
       role="meter"
       aria-valuemin={min}
@@ -226,7 +199,7 @@ export const TugLinearGauge = React.forwardRef<
       aria-valuetext={ariaValueText}
       {...rest}
     >
-      {density === "detailed" ? (
+      {density === "regular" ? (
         <DetailedTicks />
       ) : null}
       <div className="tug-linear-gauge-track">
@@ -235,7 +208,7 @@ export const TugLinearGauge = React.forwardRef<
           style={{ width: `${ratio * 100}%` }}
         />
       </div>
-      {density === "detailed" ? (
+      {density === "regular" ? (
         <div className="tug-linear-gauge-hilo">
           <span className="tug-linear-gauge-lo">{display(min)}</span>
           <span className="tug-linear-gauge-hi">{display(max)}</span>
@@ -245,7 +218,7 @@ export const TugLinearGauge = React.forwardRef<
         <span className="tug-linear-gauge-value" style={valueStyle}>
           {valueText}
         </span>
-        {density === "detailed" ? (
+        {density === "regular" ? (
           <span className="tug-linear-gauge-percent">{percentText}</span>
         ) : null}
         {label !== undefined ? (
@@ -258,7 +231,7 @@ export const TugLinearGauge = React.forwardRef<
 
 /**
  * Detailed-density tick rail. Module-private — emitted only when the
- * primitive is rendered with `density="detailed"`. Tick positions are
+ * primitive is rendered with `density="regular"`. Tick positions are
  * deterministic (no props), so the rail is memoized as a constant
  * subtree to keep re-renders trivial.
  */

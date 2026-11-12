@@ -118,8 +118,8 @@ describe("unknown liveness reads idle, never danger", () => {
     // The two halves of the decision have to be checked together: answering
     // `idle` would buy nothing if `idle` painted red, and this is the mapping
     // the retired offline fallback went through to get there.
-    expect(sessionSessionPhaseVisual("idle").role).not.toBe("danger");
-    expect(sessionSessionPhaseVisual("offline").role).toBe("danger");
+    expect(sessionSessionPhaseVisual("idle").tone).not.toBe("danger");
+    expect(sessionSessionPhaseVisual("offline").tone).toBe("danger");
   });
 
   test("a card whose transport is genuinely offline still reads danger", () => {
@@ -334,7 +334,7 @@ describe("the visual triple a working session holds still on", () => {
 
   test("all six map to the same triple by value", () => {
     const expected: TugProgressIndicatorPhaseVisual = {
-      role: "action",
+      tone: "action",
       state: "running",
     };
     for (const key of WORKING_KEYS) {
@@ -366,7 +366,7 @@ describe("the visual triple a working session holds still on", () => {
   test("every phase key yields a role and a state", () => {
     for (const key of Object.keys(SESSION_PHASE_LABELS) as SessionPhaseKey[]) {
       const visual = sessionSessionPhaseVisual(key);
-      expect(visual.role, `${key} has no role`).toBeDefined();
+      expect(visual.tone, `${key} has no tone`).toBeDefined();
       expect(visual.state, `${key} has no state`).toBeDefined();
     }
   });

@@ -25,11 +25,12 @@
  * @module components/tugways/cards/memory-sheet
  */
 
+import { SheetHeader, SheetHeaderSummary } from "./sheet-header";
 import "./memory-sheet.css";
 
 import React, { useCallback, useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { ExternalLink, FolderOpen } from "lucide-react";
+import { ExternalLink, FolderOpen, Brain } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -79,7 +80,7 @@ export function useMemorySheet({
   const openMemorySheet = useCallback(() => {
     void showSheet({
       title: "Memory",
-      icon: "Brain",
+      icon: <Brain />,
       displayWidth: "md",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
@@ -146,7 +147,7 @@ const MemoryCell: TugListViewCellRenderer<MemoryDataSource> = function MemoryCel
     <TugListRow
       variant="flush"
       title={dest.label}
-      subtitle={dest.detail}
+      description={dest.detail}
       trailing={
         <span className="memory-sheet-open" aria-hidden>
           {dest.kind === "folder" ? (
@@ -201,11 +202,11 @@ function MemorySheetBody({
   );
 
   const header = (
-    <div className="memory-sheet-header">
-      <span className="memory-sheet-summary">
+    <SheetHeader align="baseline" className="memory-sheet-header">
+      <SheetHeaderSummary className="memory-sheet-summary">
         Open a memory file in your editor, or the auto-memory folder in Finder.
-      </span>
-    </div>
+      </SheetHeaderSummary>
+    </SheetHeader>
   );
 
   // Author the controls into the sheet's trapped focus mode: Tab walks the file
@@ -235,6 +236,7 @@ function MemorySheetBody({
       }
     >
       <TugListView<MemoryDataSource>
+        sizing="content"
         dataSource={dataSource}
         delegate={delegate}
         cellRenderers={MEMORY_CELL_RENDERERS}

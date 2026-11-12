@@ -2,7 +2,7 @@
  * The resume preflight beat across the ingest Worker's hop.
  *
  * `notifyResumeBindingLanded()` opens `replayPreflightActive`, and that beat
- * is what raises `TugRestoreGate` before a resumed card's body mounts. The
+ * is what raises `RestoreGate` before a resumed card's body mounts. The
  * reducer runs in the engine, one message hop away in production, so the
  * mirror raises the beat itself the moment the binding lands and holds it
  * until the engine acknowledges the action: from then on the engine's own

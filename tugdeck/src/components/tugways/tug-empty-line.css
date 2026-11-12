@@ -1,0 +1,15 @@
+/*
+ * TugEmptyLine — a list's empty line. It stands in for the list's first row,
+ * at that row's height, in the subtle ink of text at rest on the surface.
+ */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-empty-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 28px;
+  padding-inline: 10px;
+  font-size: 12px;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

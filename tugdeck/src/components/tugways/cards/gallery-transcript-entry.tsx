@@ -9,7 +9,7 @@
  *   - shell   — mock `git status` output in a `<pre>` block.
  *
  * The data is mock. Live transcript wiring (`CodeSessionStore`, streaming,
- * a per-row `TugMarkdownView` for `code` rows, atom rendering for user
+ * a per-row `TugMarkdownBlock` for `code` rows, atom rendering for user
  * submissions) is the consumer's concern; this card validates the visual
  * primitive in isolation. The body slot accepts any `React.ReactNode`,
  * so the eventual consumer is free to compose whatever rendering shape
@@ -58,10 +58,9 @@ const HAIKU_BODY_STYLE: React.CSSProperties = {
 const PARAGRAPH_STYLE: React.CSSProperties = { margin: 0 };
 
 /**
- * Plain-JSX rendering of a markdown-shaped haiku response. Live consumers
- * (Step 11 wiring) will substitute a per-row `TugMarkdownView` here; the
- * gallery uses static JSX so the visual design is reviewable without a
- * markdown view's reserved viewport height.
+ * Plain-JSX rendering of a markdown-shaped haiku response. The live
+ * transcript renders a `TugMarkdownBlock` here; the gallery uses static JSX
+ * so the visual design is reviewable without the markdown pipeline.
  */
 function CodeBody(): React.ReactElement {
   return (

@@ -113,8 +113,8 @@ export interface FormControlSnapshot {
  *
  * Distinct from `bag.scroll`, which captures the card's *outer*
  * host-content scroll (one per card). `regionScroll` covers inner
- * scrollers — most notably `tug-markdown-view`'s virtual-list
- * container — that the user has scrolled independently.
+ * scrollers — most notably a `TugListView` — that the user has
+ * scrolled independently.
  *
  * Uniqueness of keys within a card subtree is an author contract
  * (same rule as `data-tug-state-key`): `CardHost` walks the card

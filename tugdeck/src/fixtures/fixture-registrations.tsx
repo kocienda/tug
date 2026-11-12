@@ -29,9 +29,9 @@ import React from "react";
 
 import { registerCard, type CardSizePolicy } from "@/card-registry";
 import { GalleryListView } from "@/components/tugways/cards/gallery-list-view";
-import { GalleryMarkdownView } from "@/components/tugways/cards/gallery-markdown-view";
 
 import { FixtureCycleDemo } from "./fixture-cycle-demo";
+import { FixtureMarkdownStatic } from "./fixture-markdown-static";
 import { FixtureTranscriptCopy } from "./fixture-transcript-copy";
 
 /** The card family every fixture registers under. */
@@ -118,31 +118,28 @@ export function registerFixtureCards(): void {
     category: FIXTURE_CATEGORY,
   });
 
-  // 1KB of static markdown — small enough that every block fits in one
-  // viewport, so block-container children render fully and stay stable across
-  // re-mount. The cold-boot selection tests need deterministic anchor paths;
-  // the 50KB variant exercises the virtualization-aware path instead.
+  // 1KB of static markdown in a plain scroll region — small enough that every
+  // block fits in one viewport, so the saved selection's child-index paths
+  // name the same nodes after a re-mount.
   // Seeded by: at0010-cold-boot-selection.
   registerCard({
     componentId: "fixture-markdown-1kb",
     hidden: true,
-    contentFactory: (_cardId) => <GalleryMarkdownView staticContentSize="1kb" />,
-    defaultMeta: { title: "TugMarkdownView (1KB)", icon: "FileText", closable: true },
+    contentFactory: (_cardId) => <FixtureMarkdownStatic size="1kb" />,
+    defaultMeta: { title: "Markdown fixture (1KB)", icon: "FileText", closable: true },
     family: FIXTURE_FAMILY,
     acceptsFamilies: [FIXTURE_FAMILY],
     sizePolicy: FIXTURE_SIZE,
     category: FIXTURE_CATEGORY,
   });
 
-  // 50KB of static markdown loaded immediately, for predictable scrollable
-  // content. Same component code as the 1KB variant, distinct id.
-  // Seeded by: at0010-cold-boot-selection, at0010-markdown-selection,
-  // at0014-cold-boot-scroll, at0014-scroll-persistence, at0023.
+  // 50KB of static markdown in the same scroll region, tall enough to scroll.
+  // Seeded by: at0014-cold-boot-scroll.
   registerCard({
     componentId: "fixture-markdown-50kb",
     hidden: true,
-    contentFactory: (_cardId) => <GalleryMarkdownView staticContentSize="50kb" />,
-    defaultMeta: { title: "TugMarkdownView (50KB)", icon: "FileText", closable: true },
+    contentFactory: (_cardId) => <FixtureMarkdownStatic size="50kb" />,
+    defaultMeta: { title: "Markdown fixture (50KB)", icon: "FileText", closable: true },
     family: FIXTURE_FAMILY,
     acceptsFamilies: [FIXTURE_FAMILY],
     sizePolicy: FIXTURE_SIZE,

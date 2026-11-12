@@ -60,7 +60,7 @@ export interface ArcSigilProps {
    *
    * The pill is not authored here and has no values of its own: the wrapper
    * wears `tug-session-identity` + `data-tier="chip"`, so the enclosure is the
-   * settled session-atom skin in `tug-session-identity.css`, the same rules a
+   * settled session-atom skin in `session-identity.css`, the same rules a
    * session citation gets, reached by the same selectors. An arc atom and a
    * session atom are siblings by construction rather than by two sets of
    * numbers kept equal by hand.

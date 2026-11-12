@@ -138,7 +138,7 @@ describe("the missing ink mirrors the CSS it copies", () => {
     const css = readFileSync(
       join(
         import.meta.dir,
-        "../../components/tugways/tug-session-identity.css",
+        "../../components/tugways/cards/session-identity.css",
       ),
       "utf8",
     );

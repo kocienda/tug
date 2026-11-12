@@ -444,7 +444,7 @@ export interface TugTextCardEditorDelegate {
 // Props
 // ---------------------------------------------------------------------------
 
-export interface TugTextCardEditorProps {
+export interface TugTextCardEditorProps extends Omit<React.ComponentPropsWithoutRef<"div">, "children"> {
   /**
    * The card's autosave engine. The editor seeds its document from the
    * store's snapshot at mount, reports edits via `noteEdit`, and
@@ -556,6 +556,7 @@ export const TugTextCardEditor = React.forwardRef<
     focusOrder = 0,
     assetProjection,
     onOpenPath,
+    ...rest
   },
   ref,
 ) {
@@ -2078,6 +2079,7 @@ export const TugTextCardEditor = React.forwardRef<
   return (
     <ResponderScope>
       <div
+        {...rest}
         ref={composedHostRef}
         data-slot="tug-text-card-editor"
         // What absorbs the card's height when it resizes: a crossing's

@@ -69,7 +69,7 @@ import "./tug-key-sink.css";
  * area with no component-specific context menu. Prevents the browser's
  * native context menu from appearing anywhere in the app.
  *
- * Uses tug-menu CSS classes for visual consistency with TugContextMenu and
+ * Uses tug-menu CSS classes for visual consistency with PdfContextMenu and
  * TugEditorContextMenu. Dismisses on click-away, Escape, or any keypress.
  */
 function FallbackContextMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {

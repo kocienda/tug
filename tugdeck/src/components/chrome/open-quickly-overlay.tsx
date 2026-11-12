@@ -5,7 +5,7 @@
  * ([L02] via `useSyncExternalStore`); while open it stands up a live
  * {@link FileTreeStore} against the real connection — the same file-search
  * backend the composer's `@` completion uses — and feeds its provider to a
- * {@link TugModalInputDialog}. Choosing a row opens that file through the one
+ * {@link ModalInputDialog}. Choosing a row opens that file through the one
  * {@link openFileInCard} entry point (so it also lands in Open Recent);
  * dismissing just closes the dialog.
  *
@@ -47,12 +47,12 @@ import {
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import {
-  TugModalInputDialog,
+  ModalInputDialog,
   MODAL_INPUT_DIALOG_FOCUS_GROUP,
   MODAL_INPUT_DIALOG_FIELD_ORDER,
   useModalInputDialogPanel,
-} from "@/components/tugways/tug-modal-input-dialog";
-import { TugFileChooser } from "@/components/tugways/tug-file-chooser";
+} from "@/components/chrome/modal-input-dialog";
+import { TugFileChooser, useFileChooserHost } from "@/components/tugways/tug-file-chooser";
 import type { TugComboBoxItem } from "@/components/tugways/tug-combo-box";
 import { useFocusManager } from "@/components/tugways/use-focusable";
 import { probeDirs } from "@/lib/dir-existence";
@@ -263,11 +263,11 @@ function OpenQuicklyScopeRow({
     [candidates],
   );
 
+  const ChooserHost = useFileChooserHost({ onChange, onSettle });
   return (
-    <TugFileChooser
+    <ChooserHost>
+    <TugFileChooser size="sm"
       value={value}
-      onChange={onChange}
-      onSettle={onSettle}
       base={base}
       kind="directory"
       menuMode
@@ -281,6 +281,7 @@ function OpenQuicklyScopeRow({
       portalContainer={panel}
       overlaySlot="tug-modal-input-dialog-chooser-overlay"
     />
+    </ChooserHost>
   );
 }
 
@@ -601,7 +602,7 @@ function OpenQuicklyBody(): React.ReactElement {
   }, [projectLeaf]);
 
   return (
-    <TugModalInputDialog
+    <ModalInputDialog
       placeholder={
         projectLeaf !== "" ? `Open Quickly in ${projectLeaf}` : "Open Quickly"
       }

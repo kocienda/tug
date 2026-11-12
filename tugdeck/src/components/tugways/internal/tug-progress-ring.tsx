@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import "./tug-progress-ring.css";
 import type { TugProgressIndicatorState } from "../tug-progress-indicator";
 
-export interface TugProgressRingProps {
+export interface TugProgressRingProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** Determinate progress value, 0 to max. Undefined = indeterminate. */
   value?: number;
   /** Maximum value. @default 1 */
@@ -38,8 +38,6 @@ export interface TugProgressRingProps {
   state?: TugProgressIndicatorState;
   /** When true, opacity dims and animation freezes. */
   disabled?: boolean;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 const STROKE_WIDTH = 3;
@@ -49,7 +47,7 @@ const INDETERMINATE_VISIBLE_OFFSET = CIRCUMFERENCE * 0.75;
 
 export const TugProgressRing = React.forwardRef<HTMLSpanElement, TugProgressRingProps>(
   function TugProgressRing(
-    { value, max = 1, size = 16, state = "running", disabled = false, className },
+    { value, max = 1, size = 16, state = "running", disabled = false, className, style, ...rest },
     ref,
   ) {
     const isDeterminate = value !== undefined;
@@ -105,7 +103,8 @@ export const TugProgressRing = React.forwardRef<HTMLSpanElement, TugProgressRing
         data-slot="tug-progress-ring"
         data-state={state}
         aria-hidden="true"
-        style={sizeStyle}
+        {...rest}
+        style={{ ...sizeStyle, ...style }}
         className={cn(
           "tug-progress-ring",
           isIndeterminate && state === "running" && "tug-progress-ring-indeterminate",

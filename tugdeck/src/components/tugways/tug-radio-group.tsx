@@ -33,6 +33,7 @@
  */
 
 import "./tug-radio-group.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,7 @@ import {
 // ---- Types ----
 
 /** Radio group size names — matches TugButton sizes */
-export type TugRadioGroupSize = "sm" | "md" | "lg";
+export type TugRadioGroupSize = Extract<TugSize, "sm" | "md" | "lg">;
 
 /**
  * Semantic role for the radio on-state color.

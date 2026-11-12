@@ -43,13 +43,13 @@ describe("resolveListRowVariant", () => {
 describe("resolveListRowDensity", () => {
   test("an explicit prop wins over the layout context and the default", () => {
     expect(resolveListRowDensity("compact", null)).toBe("compact");
-    expect(resolveListRowDensity("cozy", "compact")).toBe("cozy");
+    expect(resolveListRowDensity("regular", "compact")).toBe("regular");
   });
 
   test("falls back to the layout context, then cozy", () => {
     expect(resolveListRowDensity(undefined, "compact")).toBe("compact");
-    expect(resolveListRowDensity(undefined, null)).toBe("cozy");
-    expect(resolveListRowDensity(undefined, undefined)).toBe("cozy");
+    expect(resolveListRowDensity(undefined, null)).toBe("regular");
+    expect(resolveListRowDensity(undefined, undefined)).toBe("regular");
   });
 });
 

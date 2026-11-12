@@ -67,11 +67,11 @@
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/hooks/
  * @covers tugdeck/src/components/tugways/focus-manager.ts
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/cards/ai-chip.tsx
  * @covers tugdeck/src/components/tugways/cards/ai-config-sheet.tsx
  * @covers tugdeck/src/lib/model-label.ts
- * @covers tugdeck/src/components/tugways/tug-placard.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-placard.tsx
  * @covers tugdeck/src/components/tugways/tug-popover.tsx
  */
 
@@ -197,7 +197,7 @@ async function engageAndTabToRoute(app: App): Promise<void> {
 }
 
 // Whether a status-cell detail surface is currently open. The Z2 status
-// cells open the shared TugPlacard (`data-slot="tug-placard"`); a plain
+// cells open the shared SessionPlacard (`data-slot="tug-placard"`); a plain
 // TugPopover (`data-slot="tug-popover"`) counts too.
 const POPOVER_OPEN = `(document.querySelector('[data-slot="tug-popover"]') !== null || document.querySelector('[data-slot="tug-placard"]') !== null)`;
 

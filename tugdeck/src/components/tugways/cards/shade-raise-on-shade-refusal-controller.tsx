@@ -8,7 +8,7 @@
  * raises the shade, and the raise is narrower than "the chords can fire with
  * the shade down", because that is not the window the code leaves open:
  *
- * - The chords cannot fire with no landing up. `tug-prompt-entry.tsx` registers
+ * - The chords cannot fire with no landing up. `prompt-entry.tsx` registers
  *   ⌃⌘A and ⌃⇧⌘A only while a landing is active, and closing the Changes shade
  *   exits the landing, which takes them down with it.
  * - But a landing being active is not the same as Changes being the *presented*

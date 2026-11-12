@@ -346,7 +346,7 @@ export const overlayAlert = defineRequest({
     message: optional(str),
     confirmLabel: optional(str),
     cancelLabel: optional(nullable(str)),
-    confirmRole: optional(literal("accent", "action", "agent", "data", "danger", "option")),
+    confirm: optional(obj({ role: optional(literal("accent", "action", "agent", "data", "danger", "option")) })),
     icon: optional(str),
   }),
   replyCodec: obj({ confirmed: bool }),

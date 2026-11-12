@@ -25,14 +25,14 @@
  *   - Select All is always enabled.
  *
  * Consumers pass the sampled selection and
- * receive an items array shaped like both `TugContextMenu`'s and
+ * receive an items array shaped like both `PdfContextMenu`'s and
  * `TugEditorContextMenu`'s entry types. The two component types are
  * structurally identical for the fields used here, so consumers
  * pass the result through with a single TypeScript cast at the
  * call site.
  *
  * Why a shared builder rather than a shared item type:
- *   - The two menu components (`TugContextMenu`, `TugEditorContextMenu`)
+ *   - The two menu components (`PdfContextMenu`, `TugEditorContextMenu`)
  *     have slightly different generic and field expectations beyond
  *     the four-item universe, and unifying their entry types is a
  *     larger refactor than this layer needs.
@@ -104,7 +104,7 @@ export interface TextEditingMenuCapabilities {
 
 /**
  * Shape of one entry in the universal text-editing menu. Only the
- * fields shared by `TugContextMenuEntry` and `TugEditorContextMenuEntry`
+ * fields shared by `PdfContextMenuEntry` and `TugEditorContextMenuEntry`
  * are described here; consumers cast at the use site.
  */
 export interface TextEditingMenuEntry {

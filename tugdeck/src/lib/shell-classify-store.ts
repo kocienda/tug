@@ -37,7 +37,7 @@ export type ShellVerdict = "shell" | "prompt";
  * One of **three** constants that must agree: the `classify` JobSpec timeout in
  * `tugrust/crates/tugcast/src/shared_agent.rs` is tugcast's own ceiling on the
  * same call, and `VERDICT_SUBMIT_WAIT_MS` in
- * `tugdeck/src/components/tugways/tug-prompt-entry.tsx` is how long submit waits
+ * `tugdeck/src/components/tugways/cards/prompt-entry.tsx` is how long submit waits
  * for the answer. All three bound the same user-visible pause between Return and
  * the line going somewhere, so they are the same number — lowering one silently
  * makes it the real deadline and the other two unreachable.

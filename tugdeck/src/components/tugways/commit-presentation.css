@@ -168,7 +168,7 @@
   --tugx-commit-message-size: var(--tug-font-size-xs);
   --tugx-commit-message-leading: 1.45;
   /* Line up with the file list below it. Both surfaces set the message over a
-     `compact` `TugChangesList`, so the message takes the receipt inset — that
+     `compact` `ChangesList`, so the message takes the receipt inset — that
      row's own content inset, its inline padding plus the row's standing
      leading gutter. The trailing edge takes the same inset, so a wrapped
      message line stops short of the frame instead of running into it. */

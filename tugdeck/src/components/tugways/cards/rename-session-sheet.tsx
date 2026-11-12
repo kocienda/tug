@@ -25,6 +25,7 @@
  * @module components/tugways/cards/rename-session-sheet
  */
 
+import { Pencil } from "lucide-react";
 import React, { useCallback, useState } from "react";
 
 import { TugInput } from "@/components/tugways/tug-input";
@@ -131,7 +132,7 @@ export function useRenameSessionSheet({
     const current = sessionNameStore.getName(binding.lineId) ?? "";
     void showSheet({
       title: "Rename Session",
-      icon: "Pencil",
+      icon: <Pencil />,
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
       content: (close) => (

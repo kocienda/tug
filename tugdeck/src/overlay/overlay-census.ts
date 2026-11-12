@@ -40,13 +40,13 @@ export interface SurfaceCensusEntry {
 export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
   // ---- In the overlay ----
   {
-    module: "components/tugways/tug-version-gate.tsx",
+    module: "components/chrome/version-gate.tsx",
     page: "overlay",
     how: "self-hosted",
     why: "An app-modal. Reads the host's version from the tugcast handshake, which the overlay's own connection makes.",
   },
   {
-    module: "components/tugways/tug-restore-gate.tsx",
+    module: "components/chrome/restore-gate.tsx",
     page: "overlay",
     how: "relayed",
     why: "An app-modal. Reads the restore fold, which only the shell can compute over every card: `overlay.restoreGate`.",
@@ -129,7 +129,7 @@ export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
     why: "A control's tooltip, in the page that draws the control.",
   },
   {
-    module: "components/tugways/tug-context-menu.tsx",
+    module: "components/tugways/cards/pdf-context-menu.tsx",
     page: "card",
     why: "A right-click menu, in the page the press landed in.",
   },
@@ -159,7 +159,7 @@ export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
     why: "The Session card's Find wrap indicator, centred over that card's page.",
   },
   {
-    module: "components/tugways/tug-modal-input-dialog.tsx",
+    module: "components/chrome/modal-input-dialog.tsx",
     page: "card",
     why: "A dialog the page that raises it draws. The shell raises one, Open Quickly, which is listed under the shell.",
   },

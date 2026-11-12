@@ -66,6 +66,7 @@
  */
 
 import "./tug-transcript-entry.css";
+import type { TugDensity } from "./tug-vocabulary";
 
 import React from "react";
 import {
@@ -81,6 +82,7 @@ import {
 import { Operator } from "@/components/tugways/tug-icons";
 import { heldResizeObserver } from "@/lib/gesture-scope";
 import { cn } from "@/lib/utils";
+import { composeRefs } from "./compose-refs";
 
 // ---------------------------------------------------------------------------
 // Participant model
@@ -124,7 +126,7 @@ export type Participant =
 // `--tug-font-size-lg` (16px); the icon at 20px sits ~25% above
 // that, matching the icon-to-text proportion the rest of the Tug
 // component vocabulary uses (see `tug-icon-button.css`'s 2xs scale,
-// `tug-cue.css`'s icon-to-text ratios). Previously 16px (matched
+// `body-kinds/cue.css`'s icon-to-text ratios). Previously 16px (matched
 // the `sm` identifier and tracked below body text), then 18px (with
 // `md`). At 20px the icon is the dominant visual anchor of the
 // header strip, which is the contract for "the entry's identity
@@ -152,7 +154,8 @@ const PARTICIPANT_ICONS: Record<Participant, React.ReactNode> = {
 // Props
 // ---------------------------------------------------------------------------
 
-export interface TugTranscriptEntryProps {
+export interface TugTranscriptEntryProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "role"> {
   /** Which participant this row represents. Drives `data-participant` and the icon. */
   participant: Participant;
   /** Bold leading label in the header row. Plain string or styled node. */
@@ -200,6 +203,17 @@ export interface TugTranscriptEntryProps {
   controls?: React.ReactNode;
   /** Forwarded class name for consumer overrides. */
   className?: string;
+  /**
+   * The attribution line's scale. `"regular"` (default) is the primitive's
+   * own. `"compact"` is the transcript type a narrow rail reads — identifier
+   * 0.95em, timestamp 0.85em in tabular figures, glyph 1.2em with its
+   * per-voice optical corrections, controls hugging the body — on a 2.2em
+   * gutter with a 2px gap, the narrowest that still holds the glyph off the
+   * card edge.
+   * @selector [data-density="compact"]
+   * @default "regular"
+   */
+  density?: TugTranscriptEntryDensity;
 }
 
 /**
@@ -687,17 +701,25 @@ export const TugTranscriptEntryPin = React.forwardRef<
   );
 });
 
-export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
-  participant,
-  identifier,
-  timestamp,
-  address,
-  headerTrailing,
-  body,
-  inflightFooter,
-  controls,
-  className,
-}) => {
+/** The attribution line's scale — see {@link TugTranscriptEntryProps.density}. */
+export type TugTranscriptEntryDensity = TugDensity;
+
+export const TugTranscriptEntry = React.forwardRef<HTMLDivElement, TugTranscriptEntryProps>(function TugTranscriptEntry(
+  {
+    participant,
+    identifier,
+    timestamp,
+    address,
+    headerTrailing,
+    body,
+    inflightFooter,
+    controls,
+    className,
+    density = "regular",
+    ...rest
+  },
+  ref,
+) {
   // The article's accessible name is its bold identifier. We don't try to
   // serialize a `ReactNode` identifier into a string `aria-label` — using
   // `aria-labelledby` lets the rendered identifier (string or rich node)
@@ -708,6 +730,7 @@ export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
   // (so descendants inherit it via cascade); the sticky `__pin` wrapper
   // is the observed element whose height is the value.
   const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const setRootRef = React.useMemo(() => composeRefs<HTMLDivElement>(rootRef, ref), [ref]);
   const pinRef = React.useRef<HTMLDivElement | null>(null);
 
   // Join the scroller's shared pin-stack controller: one observer
@@ -730,9 +753,11 @@ export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
 
   return (
     <div
-      ref={rootRef}
+      {...rest}
+      ref={setRootRef}
       data-slot="tug-transcript-entry"
       data-participant={participant}
+      data-density={density === "compact" ? "compact" : undefined}
       role="article"
       aria-labelledby={labelledById}
       className={cn("tug-transcript-entry", className)}
@@ -765,4 +790,4 @@ export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
       </div>
     </div>
   );
-};
+});

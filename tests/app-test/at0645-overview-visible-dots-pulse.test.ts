@@ -36,7 +36,7 @@
  * `visible: true` so the observer has a viewport to measure against.
  *
  * @covers tugdeck/src/lib/motion-guard/offscreen.ts
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/components/tugways/session-phase-dot.tsx
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/components/overview/use-overview-window.ts

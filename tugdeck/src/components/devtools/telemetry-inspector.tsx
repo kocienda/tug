@@ -19,13 +19,12 @@
  * @module components/devtools/telemetry-inspector
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { Check, Copy } from "lucide-react";
 
 import { useLifecycleTick } from "@/lib/code-session-store/hooks/use-lifecycle-tick";
 import { telemetryInspectionStore } from "@/lib/telemetry-inspection-store";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances/block-copy-button";
 
 import { copyAsJson } from "./copy-as-json";
 import { FieldRow } from "./field-row";
@@ -73,24 +72,9 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
     displayLabel: snapshot?.displayLabel ?? null,
   });
 
-  // Controlled `isConfirming` lifecycle. We drive it ourselves so the
-  // "Copied" state only fires on a successful clipboard write (not on
-  // the click alone) — `TugPushButton`'s confirmation prop handles the
-  // visual swap + a11y bits, we just gate the flag. Width-stabilized
-  // grid keeps the button width invariant across the rest ↔ confirmed
-  // swap so neighbors don't jostle.
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current !== null) {
-        window.clearTimeout(copiedTimerRef.current);
-        copiedTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleCopy = useCallback(async () => {
+  // The suite's copy affordance: it owns the Copy → Copied flash, which
+  // fires only when the write succeeds (`copyAction` resolves `true`).
+  const handleCopy = useCallback(async (): Promise<boolean> => {
     const payload = {
       tugSessionId: snapshot?.tugSessionId ?? null,
       displayLabel: snapshot?.displayLabel ?? null,
@@ -115,43 +99,19 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
         : null,
       tickAt,
     };
-    const ok = await copyAsJson(payload);
-    if (!ok) return;
-    setCopied(true);
-    if (copiedTimerRef.current !== null) {
-      window.clearTimeout(copiedTimerRef.current);
-    }
-    copiedTimerRef.current = window.setTimeout(() => {
-      setCopied(false);
-      copiedTimerRef.current = null;
-    }, 1500);
+    return copyAsJson(payload);
   }, [snapshot, internalState, tickAt]);
 
   return (
     <div className="tug-devpanel-inspector tug-devpanel-inspector-telemetry">
       <div className="tug-devpanel-inspector-toolbar">
-        <TugPushButton
+        <BlockCopyButton
           size="xs"
           emphasis="outlined"
-          role="action"
-          subtype="icon-text"
-          icon={<Copy size={12} />}
-          onClick={handleCopy}
+          copyAction={handleCopy}
           disabled={selectedCardId === null}
-          confirmation={{ icon: <Check size={12} />, label: "Copied" }}
-          isConfirming={copied}
-          // `alternateLabel` is the WIDER of the two labels — the
-          // grid cell sizes to the max-content of (visible label,
-          // alternateLabel). Here the rest label "Copy JSON" is
-          // wider than the confirm label "Copied", so passing the
-          // rest label as the alternate reserves the wider width in
-          // both states; the button stays a fixed size across the
-          // swap. The block-copy-button precedent works the other
-          // way ("Copied" wider than "Copy") for the same reason.
-          widthStabilize={{ alternateLabel: "Copy JSON" }}
-        >
-          Copy JSON
-        </TugPushButton>
+          aria-label="Copy telemetry as JSON"
+        />
       </div>
       {sections.map((section) => (
         <FieldSection key={section.title} title={section.title}>

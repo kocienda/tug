@@ -877,8 +877,8 @@ const QuestionOptionCell: TugListViewCellRenderer<QuestionOptionsDataSource> =
         // option grows its row (and, through the panel sizers, the panel);
         // it is never abbreviated.
         titleMaxLines={0}
-        subtitle={option?.description}
-        subtitleMaxLines={0}
+        description={option?.description}
+        descriptionMaxLines={0}
         selected={selected}
         selectedGlyph={multi ? "checkbox" : "radio"}
         role={multi ? "checkbox" : "radio"}
@@ -990,6 +990,7 @@ const QuestionOptions: React.FC<QuestionOptionsProps> = ({
   return (
     <QuestionOptionsSelectionContext.Provider value={selection}>
       <TugListView<QuestionOptionsDataSource>
+        sizing="content"
         dataSource={dataSource}
         delegate={delegate}
         cellRenderers={QUESTION_OPTION_CELL_RENDERERS}
@@ -1035,6 +1036,7 @@ function QuestionOptionsSizer({
   );
   return (
     <TugListView<QuestionOptionsDataSource>
+      sizing="content"
       dataSource={dataSource}
       cellRenderers={QUESTION_OPTION_CELL_RENDERERS}
       rowLayout="flush"
@@ -2107,7 +2109,7 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
       message="Cancel this question?"
       confirmLabel="Yes, cancel"
       cancelLabel="Keep going"
-      confirmRole="danger"
+      confirm={{ role: "danger" }}
       side="bottom"
     >
       <TugPushButton

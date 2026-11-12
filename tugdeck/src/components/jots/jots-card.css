@@ -1,90 +1,21 @@
 /* The Jots card. Tokens only — no literal colors. */
 
 .jots-card {
-  /* The card root is the SCROLLER, and nothing else stands on it: everything
-     the card draws is inside `.jots-card-content`, whose border-box height is
-     the card's natural height ([B01]). The list below no longer scrolls itself
-     — one scroller per card, at the top, is what lets a single element hold
-     the toolbar and the rows together and still be measurable. */
-  box-sizing: border-box;
-  block-size: 100%;
-  min-block-size: 0;
-  /* The bar's lane is always reserved, never `scrollbar-gutter` ([D182]). */
-  overflow-y: scroll;
-  /* No inline padding — the list's own equal margin is the only inset, so a
-     jot's incipit starts where the toolbar's controls do. */
+  /* The root is the rail card's one scroller (`.rail-card`). No inline
+     padding — the list's own equal margin is the only inset, so a jot's
+     incipit starts where the toolbar's controls do. */
   padding: 0;
   outline: none;
   /* Jot editor font size — TUNE HERE. Passed to the open editor as
      `--tug-font-size-editor`; smaller than the substrate's 14px default so the
      in-place editor reads at the row's density. */
   --tugx-jot-editor-font-size: 12px;
-  /* The empty label stands at exactly one row's height, so a card with nothing
-     in it shows one row's worth of nothing rather than a taller box. */
-  --tugx-jots-empty-block-size: 28px;
 }
 
-/* The content element: the toolbar and the list as one in-flow column, inside
-   the scroller with nothing stretched between them ([B02]). A taller pane
-   cannot make it taller, which is what makes the card's height measurable
-   instead of declared. */
-.jots-card-content {
-  display: flex;
-  flex-direction: column;
-}
-
-/* The card's own chrome, where its old section band used to be: the filter field
-   takes the width and the `+` sits at its trailing end. */
-.jots-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  padding: var(--tug-space-sm) var(--tug-space-md);
-  flex: 0 0 auto;
-}
-
-.jots-toolbar > [data-slot="tug-filter-field"] {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-}
-
-/* Stands in for the list's first row, at that row's height. */
-.jots-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-block-size: var(--tugx-jots-empty-block-size);
-  padding-inline: 10px;
-  font-size: 12px;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* Positioning context for the reorder drop caret ([Q02]); the list view owns
-   the row hover/cursor, this wrap owns only the caret overlay. Sizes to content
-   (no internal scroll). */
-.jots-list-wrap {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  /* Stands at its content's height. Growing to fill the card would put the
-     card's own run inside the measurement ([B02]). */
-  flex: 0 0 auto;
-}
-
-/* Doubled selector so these overrides beat the base `.tug-list-view`
-   rules regardless of bundle order. The list stands at its rows' own height —
-   the card root is the scroller now. Edge-to-edge: no margin, no frame, no
-   radius — see the Cards list for the reasoning. */
-.tug-list-view.jots-list {
-  flex: 0 0 auto;
-  height: auto;
-  /* The list stands at the sum of its rows and hands its overflow to the card
-     root, which is the card's one scroller. A scroller here would absorb the
-     card's run and the content element's height would follow the pane's. */
-  /* Both axes, because `overflow-y: visible` beside a clipped x computes back
-     to `auto` and the list would be a scroll container again — one that never
-     scrolls, so a sticky descendant inside it would never pin. */
-  overflow: visible;
+/* The list is a rail list (`presentation="rail"`): it stands at its rows' own
+   height and the card root is the scroller. Edge-to-edge: no margin, no frame,
+   no radius — see the Cards list for the reasoning. */
+.jots-list {
   --tugx-list-view-padding-inline: 0;
   --tugx-list-view-padding-block: 0;
   /* Row height. The other rail cards' one-line lists carry the same number on
@@ -99,16 +30,6 @@
      edge they do. */
   --tugx-list-row-padding-inline: var(--tug-space-lg);
   --tugx-list-row-indicator-gutter: 0px;
-}
-
-/* If this list is ever tuned back to hairlines (`rowStriping: "none"` in
-   `rail-list-presentation.ts`), they show on EVERY row — re-assert the divider
-   the list-view's "clean selected block" rule drops around a selected / cursor
-   row, exactly as the Cards list does. Inert while the list is striped,
-   which draws no hairlines at all. */
-.tug-list-view.jots-list[data-row-layout="flush"]
-  .tug-list-view-cell:not(:last-child) {
-  border-bottom-color: var(--tugx-list-view-divider-color) !important;
 }
 
 .jots-error {

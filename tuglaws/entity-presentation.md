@@ -161,7 +161,7 @@ What that arrangement cost, recorded so the shape of the failure is legible: one
 
 "Make every actionable thing a chip" is the obvious proposal and it is wrong for two reasons.
 
-**Measurable.** `tug-atom-markdown-body.css` floors *every* markdown line — chip-bearing or not — to the `prose` register's own line-box floor. The floor serves a hard invariant: an atom must never change line height. Extend chips into assistant prose and the floor extends to every paragraph in the transcript, whether or not it names a file.
+**Measurable.** `atom-markdown-body.css` floors *every* markdown line — chip-bearing or not — to the `prose` register's own line-box floor. The floor serves a hard invariant: an atom must never change line height. Extend chips into assistant prose and the floor extends to every paragraph in the transcript, whether or not it names a file.
 
 **About what a transcript is.** A chip does not decorate text, it **replaces** it. `session-citation-portals.tsx` empties the span it mounts into, and the original spelling has to be preserved on `data-tugx-session-text` precisely so the words can be put back if the mark is later dropped. That is honest when an object is what was there and a lie when it is not: the model wrote the characters `session-restore.ts` into a sentence, and a box asserts it placed an object. The transcript's contract is that it shows what was written.
 

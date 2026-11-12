@@ -3,7 +3,7 @@
  *
  * `/btw <question>` asks Claude a quick side question, answered from the live
  * conversation with no tools and never entering the transcript. The answer
- * renders in the shared Z2 {@link TugPlacard} (opened on the BTW cell) — this
+ * renders in the shared Z2 {@link SessionPlacard} (opened on the BTW cell) — this
  * module contributes only the placard's **body**: the exchange list + footer.
  * The placard chrome (header, open/close, under-cell anchoring, auto-dismiss)
  * is owned by the Z2 status row like every other Z2 surface, so `/btw` is no
@@ -27,6 +27,8 @@
 import React, { useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Bot, Check, CloudUpload, User, X } from "lucide-react";
+
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
@@ -118,17 +120,15 @@ function SideQuestionExchangeRow({
       data-phase={exchange.phase}
       data-synthetic={exchange.synthetic ? "" : undefined}
     >
-      <button
-        type="button"
+      <TugIconButton
         className="side-question-dismiss"
+        size="2xs"
         aria-label="Dismiss this side question"
         title={exchange.phase === "loading" ? "Cancel this side question" : "Dismiss"}
         tabIndex={-1}
-        data-tug-focus="refuse"
         onClick={() => onDismiss(exchange.id)}
-      >
-        <X size={12} strokeWidth={2} aria-hidden />
-      </button>
+        icon={<X size={12} strokeWidth={2} aria-hidden />}
+      />
 
       <div className="side-question-line" data-role="you">
         <span className="side-question-avatar" data-role="you" aria-hidden>
@@ -156,7 +156,7 @@ function SideQuestionExchangeRow({
             <TugProgressIndicator
               variant="wave"
               state="running"
-              role="inherit"
+              tone="inherit"
               // Smaller than the transcript's 16px default — the mini-pane
               // runs at ~0.82rem text, so the thinking glyph scales down too.
               size={12}
@@ -227,7 +227,7 @@ function SideQuestionExchangeRow({
 
 /**
  * The `/btw` placard body — the exchange list + footer, rendered inside the
- * shared Z2 {@link TugPlacard} by the status row when the BTW cell is open.
+ * shared Z2 {@link SessionPlacard} by the status row when the BTW cell is open.
  * Reads the ephemeral {@link SideQuestionStore} via `useSyncExternalStore`
  * ([L02]); the placard chrome (open/close, anchoring, dismiss) lives in the
  * host, not here.

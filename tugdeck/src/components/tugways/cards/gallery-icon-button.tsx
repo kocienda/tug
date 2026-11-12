@@ -151,16 +151,13 @@ export function GalleryIconButton() {
             {MOCK_ROWS.map((row) => (
               <div key={row.id} style={rowStyle}>
                 <span style={{ flex: 1 }}>{row.title}</span>
-                <TugIconButton
+                <TugIconButton size="sm"
                   icon={<Trash2 size={14} aria-hidden="true" />}
                   aria-label={`Trash ${row.title}`}
                   title={`Trash ${row.title}`}
-                  tone="danger"
-                  dispatch={{
-                    action: TRASH_MOCK_ROW,
-                    value: { rowId: row.id },
-                    phase: "discrete",
-                  }}
+                  role="danger"
+                  action={TRASH_MOCK_ROW}
+                  value={{ rowId: row.id }}
                 />
               </div>
             ))}
@@ -187,7 +184,7 @@ export function GalleryIconButton() {
                   {row.title}{" "}
                   {starredId === row.id ? <em>★ starred</em> : null}
                 </span>
-                <TugIconButton
+                <TugIconButton size="sm"
                   icon={<Star size={14} aria-hidden="true" />}
                   aria-label={`Star ${row.title}`}
                   title={`Star ${row.title}`}
@@ -204,19 +201,19 @@ export function GalleryIconButton() {
         <div className="cg-section" style={sectionStyle}>
           <TugLabel className="cg-section-title">Tone × size matrix</TugLabel>
           <div style={labelStyle}>
-            Visual reference. <code>tone="default"</code> uses the
-            ghost-action token family; <code>tone="danger"</code> uses
+            Visual reference. <code>role="action"</code> uses the
+            ghost-action token family; <code>role="danger"</code> uses
             ghost-danger.
           </div>
 
           <div style={swatchRowStyle}>
             <span style={labelStyle}>sm / default</span>
-            <TugIconButton icon={<Edit size={14} />} aria-label="Edit" />
-            <TugIconButton icon={<Info size={14} />} aria-label="Info" />
-            <TugIconButton icon={<X size={14} />} aria-label="Dismiss" />
+            <TugIconButton size="sm" icon={<Edit size={14} />} aria-label="Edit" />
+            <TugIconButton size="sm" icon={<Info size={14} />} aria-label="Info" />
+            <TugIconButton size="sm" icon={<X size={14} />} aria-label="Dismiss" />
             <span style={labelStyle}>sm / danger</span>
-            <TugIconButton icon={<Trash2 size={14} />} aria-label="Trash" tone="danger" />
-            <TugIconButton icon={<X size={14} />} aria-label="Remove" tone="danger" />
+            <TugIconButton size="sm" icon={<Trash2 size={14} />} aria-label="Trash" role="danger" />
+            <TugIconButton size="sm" icon={<X size={14} />} aria-label="Remove" role="danger" />
           </div>
 
           <div style={swatchRowStyle}>
@@ -225,14 +222,14 @@ export function GalleryIconButton() {
             <TugIconButton icon={<Info size={16} />} aria-label="Info" size="md" />
             <TugIconButton icon={<X size={16} />} aria-label="Dismiss" size="md" />
             <span style={labelStyle}>md / danger</span>
-            <TugIconButton icon={<Trash2 size={16} />} aria-label="Trash" tone="danger" size="md" />
-            <TugIconButton icon={<X size={16} />} aria-label="Remove" tone="danger" size="md" />
+            <TugIconButton icon={<Trash2 size={16} />} aria-label="Trash" role="danger" size="md" />
+            <TugIconButton icon={<X size={16} />} aria-label="Remove" role="danger" size="md" />
           </div>
 
           <div style={swatchRowStyle}>
             <span style={labelStyle}>disabled</span>
-            <TugIconButton icon={<Edit size={14} />} aria-label="Edit" disabled />
-            <TugIconButton icon={<Trash2 size={14} />} aria-label="Trash" tone="danger" disabled />
+            <TugIconButton size="sm" icon={<Edit size={14} />} aria-label="Edit" disabled />
+            <TugIconButton size="sm" icon={<Trash2 size={14} />} aria-label="Trash" role="danger" disabled />
           </div>
         </div>
       </div>

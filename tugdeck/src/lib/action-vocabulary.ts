@@ -379,7 +379,7 @@ export const TUG_ACTIONS = {
   //     responder handler reads the live state from the store or
   //     delegate at dispatch time (per [L07]) to decide what
   //     "commit" means — send, interrupt, save, etc. For
-  //     TugPromptEntry, the single action covers both send and
+  //     PromptEntry, the single action covers both send and
   //     interrupt depending on `snap.canInterrupt` at dispatch
   //     time (see plan [D05] for the submit/interrupt unification
   //     rationale). Phase is always `discrete`.
@@ -394,6 +394,12 @@ export const TUG_ACTIONS = {
   //     the editor document + bytes store, so it handles the action by
   //     removing the atom and freeing its bytes. Phase `discrete`.
   REMOVE_ATTACHMENT: "remove-attachment",
+
+  // UNSTAGE_CONTEXT: payload — `value: string` (the staged item's id).
+  //     Dispatched by the ✕ on a pending-context chip; the composer's
+  //     staged-context strip handles it by unstaging that item, so it
+  //     no longer rides the next submission. Phase `discrete`.
+  UNSTAGE_CONTEXT: "unstage-context",
 
   // ---- Navigation ----
   //
@@ -724,9 +730,14 @@ export const TUG_ACTIONS = {
   // CANCEL_DIALOG:   payload — none. The first dialog-like responder
   //                  cancels its pending action.
   // DISMISS_POPOVER: payload — none. Close the nearest popover.
+  // CLOSE_FIND:      payload — none. A find bar's dismissal (Escape, its
+  //                  close button) reported to the responder that hosts
+  //                  it, which hides the bar. Control-to-host currency,
+  //                  never a command: the host's own Find toggles are.
   CONFIRM_DIALOG:  "confirm-dialog",
   CANCEL_DIALOG:   "cancel-dialog",
   DISMISS_POPOVER: "dismiss-popover",
+  CLOSE_FIND:      "close-find",
 
   // ---- Control value ----
   //
@@ -752,24 +763,15 @@ export const TUG_ACTIONS = {
   //                  Used by numeric scrubbers on arrow-up.
   // DECREMENT_VALUE: payload — optional `value: number` (step override).
   //                  Used by numeric scrubbers on arrow-down.
-  // SET_COLOR:       payload — `value: TugColorSpec` ({ hue, adjacent?, i, t, a }).
-  //                  Dispatched by the standalone TugColorPicker via
-  //                  sendToTarget(targetId, …) to the host responder that owns
-  //                  the active color well; sender — the well's stable sender id,
-  //                  so a multi-well host routes the edit to the right color.
-  // ACTIVATE_COLOR_WELL: payload — `value: TugColorSpec` (the well's current
-  //                  color) plus optional `label: string`. Dispatched by a
-  //                  TugColorWell to its parent responder on click; the host
-  //                  records itself as the active color target (active-color-
-  //                  target.ts) so the picker knows what to edit. sender — the
-  //                  well's stable sender id.
-  SET_COLOR:       "set-color",
-  ACTIVATE_COLOR_WELL: "activate-color-well",
+  // SELECT_SLOT:     payload — `value: number` (the 0-based slot index).
+  //                  Used by `TugSlot` / `TugSlotLayout` when a slot is
+  //                  picked. sender — the layout's sender id.
   SET_VALUE:       "set-value",
   TOGGLE:          "toggle",
   SELECT_VALUE:    "select-value",
   INCREMENT_VALUE: "increment-value",
   DECREMENT_VALUE: "decrement-value",
+  SELECT_SLOT:     "select-slot",
 
   // ---- Tab operations ----
   //

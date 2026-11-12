@@ -85,15 +85,13 @@ describe("release chunk contents", () => {
       expect(shipped).toEqual([]);
 
       // The shared markdown sheet styles every shipped `TugMarkdownBlock`
-      // (fenced-code and table chrome, image overlay, link tokens), but its
-      // only component importer is `TugMarkdownView`, which ships with the
-      // gallery alone. Dropping the gallery once dropped this sheet with it.
+      // (fenced-code and table chrome, image overlay, link tokens), and no
+      // component imports it: the page entries do. A sheet that only
+      // gallery code imported was once dropped with the gallery.
       const shippedModules = [...reachable].flatMap(
         (file) => byFile.get(file)?.modules ?? [],
       );
-      expect(shippedModules).toContain(
-        "src/components/tugways/tug-markdown-view.css",
-      );
+      expect(shippedModules).toContain("styles/tugx-md.css");
 
       // Not vacuous: the tooling is still built, and the deck still reaches
       // each of the four roots through a dynamic import.

@@ -1,7 +1,7 @@
 /**
  * `SessionHistoryView` — the History view-route's transcript-slot view
  * ([P01]/[P10]). On the `↺` route this replaces the transcript with the
- * card's own project git log rendered as a {@link TugHistoryList} — one
+ * card's own project git log rendered as a {@link HistoryList} — one
  * compact commit row per commit.
  *
  * Data rides the shared `gitLogStore()` (`GIT_LOG` feed) — the card knows
@@ -73,14 +73,10 @@ import type React from "react";
 import { History as HistoryIcon } from "lucide-react";
 
 import {
-  TugHistoryList,
+  HistoryList,
   commitFilterFields,
-} from "@/components/tugways/tug-history-list";
-import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
-import {
-  TugNoGitNotice,
-  shouldShowNoGitNotice,
-} from "@/components/tugways/tug-no-git-notice";
+} from "@/components/tugways/cards/session-history/history-list";
+import { RepoNotice, shouldShowNoGitNotice } from "@/components/tugways/cards/repo-notice";
 import { useHostTools } from "@/lib/host-tools-store";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
@@ -381,7 +377,7 @@ export function SessionHistoryView({
           actions={
             filterable ? (
               <>
-                <TugFilterField
+                <TugFilterField size="sm"
                   delegate={filterDelegate}
                   placeholder="Filter commit history"
                   aria-label="Filter commit history"
@@ -476,10 +472,10 @@ export function SessionHistoryView({
   // so this reading precedes the non-repo offer here exactly as it does in the
   // Changes shade — the two shades say the same thing on the same machine.
   if (shouldShowNoGitNotice(hostTools)) {
-    return shell(<TugNoGitNotice />);
+    return shell(<RepoNotice kind="no-git" />);
   }
   if (payload?.no_repo) {
-    return shell(<TugNonRepoNotice projectDir={projectDir} />);
+    return shell(<RepoNotice kind="non-repo" projectDir={projectDir} />);
   }
   if (snapshot.requestedRoot === projectDir && snapshot.phase === "error") {
     return shell(
@@ -515,7 +511,7 @@ export function SessionHistoryView({
 
   return shell(
     <div className="session-history-view-body">
-      <TugHistoryList
+      <HistoryList
         commits={filtered}
         projectDir={projectDir}
         metaFields={metaFields}

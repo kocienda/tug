@@ -18,14 +18,16 @@
  * control does ([L20] — this file adds no color of its own, only shape and
  * numerals).
  *
- * A slot is interactive only when it is given something to do. Pass `onSelect`
- * and it renders as a focus-refusing `TugButton`; omit it and the slot renders
- * as an inert `<span>` — the exemplar form, for showing an arrangement rather
- * than operating one.
+ * A slot is interactive only when it is given something to do. Pass `action`
+ * and it renders as a focus-refusing `TugButton` whose press dispatches that
+ * action to the parent responder; omit it and the slot renders as an inert
+ * `<span>` — the exemplar form, for showing an arrangement rather than
+ * operating one.
  *
  * Laws: [L06] appearance via CSS and DOM attributes, never React state;
- *       [L11] the interactive form is a control that emits through its
- *       `onSelect`; [L15] token-driven states; [L16] pairings declared;
+ *       [L11] the interactive form is a control that dispatches its
+ *       `action` through the chain; [L15] token-driven states; [L16]
+ *       pairings declared;
  *       [L19] component authoring guide; [L20] token sovereignty — the
  *       composed `TugButton` keeps its own tokens.
  * Decisions: [D02] emphasis × role system; [D121] layout imposition.
@@ -34,10 +36,13 @@
  */
 
 import "./tug-slot.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React from "react";
 
 import { cn } from "@/lib/utils";
+import type { TugAction } from "./action-vocabulary";
+import { useControlDispatch } from "./use-control-dispatch";
 import { TugButton, tugButtonEmphasisClass } from "./internal/tug-button";
 import type { TugButtonEmphasis, TugButtonRole } from "./internal/tug-button";
 
@@ -49,7 +54,7 @@ import type { TugButtonEmphasis, TugButtonRole } from "./internal/tug-button";
 export type TugSlotState = "rest" | "outlined" | "filled";
 
 /** Slot size. `sm` is the in-row control; `md` is the exemplar. */
-export type TugSlotSize = "sm" | "md";
+export type TugSlotSize = Extract<TugSize, "sm" | "md">;
 
 /** The `TugButton` emphasis each resting look composes. */
 const STATE_EMPHASIS: Record<TugSlotState, TugButtonEmphasis> = {
@@ -101,15 +106,21 @@ export interface TugSlotProps
   /**
    * Size.
    * @selector .tug-slot-size-sm | .tug-slot-size-md
-   * @default "sm"
+   * @default "md"
    */
   size?: TugSlotSize;
   /**
    * Makes the slot a control. With it the slot renders as a focus-refusing
-   * button; without it the slot is an inert exemplar. Receives the click so a
-   * slot inside a clickable row can keep the row from activating.
+   * button whose press dispatches this action (with {@link value} and
+   * {@link senderId}) to the parent responder ([L11]); without it the slot is
+   * an inert exemplar. The press is the slot's whole act, so it does not
+   * bubble on to activate a row the slot sits in.
    */
-  onSelect?: (event?: React.MouseEvent<HTMLButtonElement>) => void;
+  action?: TugAction;
+  /** The press's `event.value`. */
+  value?: unknown;
+  /** The press's `event.sender`. */
+  senderId?: string;
   /**
    * Non-interactive appearance for an interactive slot.
    * @selector :disabled | [aria-disabled="true"]
@@ -138,8 +149,10 @@ export const TugSlot = React.forwardRef<HTMLElement, TugSlotProps>(
     {
       number,
       state = "rest",
-      size = "sm",
-      onSelect,
+      size = "md",
+      action,
+      value,
+      senderId,
       disabled = false,
       focusGroup,
       focusOrder = 0,
@@ -149,8 +162,9 @@ export const TugSlot = React.forwardRef<HTMLElement, TugSlotProps>(
     ref,
   ) {
     const classes = cn("tug-slot", `tug-slot-size-${size}`, className);
+    const { dispatch } = useControlDispatch();
 
-    if (onSelect === undefined) {
+    if (action === undefined) {
       return (
         <span
           ref={ref as React.Ref<HTMLSpanElement>}
@@ -184,7 +198,10 @@ export const TugSlot = React.forwardRef<HTMLElement, TugSlotProps>(
         disabled={disabled}
         focusGroup={focusGroup}
         focusOrder={focusOrder}
-        onClick={(event) => onSelect(event)}
+        onClick={(event) => {
+          event?.stopPropagation();
+          dispatch({ action, value, sender: senderId, phase: "discrete" });
+        }}
         data-slot="tug-slot"
         className={classes}
         {...(rest as Record<string, unknown>)}

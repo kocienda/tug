@@ -12,7 +12,7 @@
  */
 
 import type { CompletionProvider } from "@/lib/tug-text-types";
-import type { TugPromptEntryDelegate } from "@/components/tugways/tug-prompt-entry";
+import type { PromptEntryDelegate } from "@/components/tugways/cards/prompt-entry";
 
 /**
  * Wrap a `CompletionProvider` so it only yields results when the
@@ -21,7 +21,7 @@ import type { TugPromptEntryDelegate } from "@/components/tugways/tug-prompt-ent
  * (`"/"` for slash commands).
  */
 export function wrapPositionZero(
-  entryRef: React.RefObject<TugPromptEntryDelegate | null>,
+  entryRef: React.RefObject<PromptEntryDelegate | null>,
   trigger: string,
   inner: CompletionProvider,
 ): CompletionProvider {

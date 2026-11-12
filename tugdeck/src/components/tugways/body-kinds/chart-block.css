@@ -116,7 +116,7 @@ body {
  * `.tugx-chart` is the figure on every door: the fence placeholder the
  * enhancer renders into, and `ChartBlock`'s root. Its header is the shared
  * markdown block chrome (`.tugx-md-chrome-header`, styled in
- * `tug-markdown-view.css`), so it reads as the same family as a fenced
+ * `styles/tugx-md.css`), so it reads as the same family as a fenced
  * code block and a tool block.
  *
  * States, each a `data-tugx-chart-state` the renderer stamps [L06]:

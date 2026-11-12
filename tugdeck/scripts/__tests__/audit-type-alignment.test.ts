@@ -163,7 +163,7 @@ describe("rule 1 — a micro offset on a rule that carries text", () => {
     // which is a mechanism rather than a correction layered over one.
     for (const keyword of ["top", "middle", "baseline", "text-bottom", "bottom"]) {
       expect(
-        rules(`.tug-marquee-run { vertical-align: ${keyword}; color: inherit; }`),
+        rules(`.fixture-run { vertical-align: ${keyword}; color: inherit; }`),
       ).toEqual([]);
     }
   });

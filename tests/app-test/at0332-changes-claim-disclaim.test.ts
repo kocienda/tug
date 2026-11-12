@@ -28,7 +28,7 @@
  * its Disclaim affordance, its corner-up-right icon, its single divider — can
  * seed one rather than accept the gap.
  *
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx

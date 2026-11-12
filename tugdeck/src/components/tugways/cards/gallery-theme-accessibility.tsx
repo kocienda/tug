@@ -106,7 +106,7 @@ function EmphasisRolePreview() {
               <div className="gta-erp-row-label">{emphasis}</div>
               {BADGE_ROLES.map((role) => (
                 <div key={role} className="gta-erp-cell">
-                  <TugBadge emphasis={emphasis} role={role}>{role}</TugBadge>
+                  <TugBadge size="sm" emphasis={emphasis} role={role}>{role}</TugBadge>
                 </div>
               ))}
             </React.Fragment>

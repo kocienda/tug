@@ -31,7 +31,7 @@
  */
 
 import "../css-imports";
-import "../components/tugways/tug-markdown-view.css";
+import "../../styles/tugx-md.css";
 import "./body-page.css";
 
 import { createRoot } from "react-dom/client";

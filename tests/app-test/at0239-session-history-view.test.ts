@@ -14,7 +14,7 @@
  *      labelled `commit:<8-char sha>` (the lifecycle dot is gone) — and NO row
  *      carries the old full-40-char hash.
  *   3. Expand the top commit → the committer's identity (name + email), the
- *      message body, and the commit's changed files (a `TugChangesList`, served
+ *      message body, and the commit's changed files (a `ChangesList`, served
  *      by the new GIT_COMMIT_FILES path) render, each row leading with the
  *      shared `TugStatusMark` in the house N/M/D vocabulary ([D118]).
  *
@@ -23,8 +23,8 @@
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.tsx
  * @covers tugrust/crates/tugcast/src/feeds/git.rs
  * @covers tugdeck/src/components/tugways/cards/session-history/session-history-view.tsx
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
- * @covers tugdeck/src/components/tugways/tug-history-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-history/history-list.tsx
  * @covers tugdeck/src/components/tugways/commit-presentation.tsx
  * @covers tugdeck/src/lib/commit-format.ts
  * @covers tugdeck/src/components/tugways/commit-sha-text.tsx
@@ -33,8 +33,8 @@
  * @covers tugdeck/src/components/tugways/entity-tips.css
  * @covers tugdeck/src/components/tugways/tug-status-mark.tsx
  * @covers tugdeck/src/components/tugways/tug-status-mark.css
- * @covers tugdeck/src/components/tugways/tug-changes-list.css
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.css
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.css
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.css
  * @covers tugdeck/src/components/tugways/tug-filter-field.tsx
  */
 
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)(
               { timeoutMs: 6_000 },
             );
 
-            // The commit's changed files render as a TugChangesList — wait for
+            // The commit's changed files render as a ChangesList — wait for
             // the new GIT_COMMIT_FILES response to land.
             await app.body("D").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(

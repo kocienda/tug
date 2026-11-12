@@ -33,9 +33,9 @@
  *     ({@link BashLiveBand}) — between header and body, so it reads
  *     while the block is collapsed. A report that names its unit
  *     (`file`, `test`, `phase`) is drawn there as a running
- *     {@link TugReportPanel}; one that does not is the one line.
+ *     {@link ReportPanel}; one that does not is the one line.
  *   - A run that named its unit settles when the call returns: a
- *     collapsed block shows the verdict strip ({@link TugReportStrip}) on
+ *     collapsed block shows the verdict strip ({@link ReportStrip}) on
  *     the live band, and the expanded body is the finished panel with
  *     the command's output folded at its foot. A settled run is a view
  *     the page keeps, not part of the record — a block restored without
@@ -125,7 +125,7 @@ import { useJobForToolUse } from "@/lib/code-session-store/hooks/use-job-for-too
 import { formatReportLine, type Report } from "@/lib/report-store";
 import { useLiveTick } from "@/lib/live-tick";
 import { stripCallIdPrefix } from "@/lib/call-id-prefix";
-import { TugReportPanel, TugReportStrip, isPanelReport } from "../../tug-report-panel";
+import { ReportPanel, ReportStrip, isPanelReport } from "./report-panel";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
 import type { ToolBlockProps } from "../../blocks/types";
 
@@ -318,7 +318,7 @@ function LiveReportPanel({ run }: { run: Report }): React.ReactElement {
   const now = useLiveTick();
   return (
     <div data-slot="bash-report-panel" className="bash-report-panel">
-      <TugReportPanel run={run} state="running" nowMs={now} />
+      <ReportPanel run={run} state="running" nowMs={now} />
     </div>
   );
 }
@@ -341,7 +341,7 @@ export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => 
       <TugProgressIndicator
         variant="ring"
         size={NOTICE_GLYPH_SIZE}
-        role="action"
+        tone="action"
         state="running"
         value={progress.done}
         max={progress.total}
@@ -554,7 +554,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   if (settled !== null && commit === null) {
     body = (
       <div data-slot="bash-report-panel" className="bash-report-panel">
-        <TugReportPanel
+        <ReportPanel
           run={settled}
           state="finished"
           nowMs={0}
@@ -640,7 +640,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
           <BashLiveBand toolUseId={toolUseId} />
         ) : settled !== null ? (
           <div data-slot="bash-report-strip" className="bash-report-strip">
-            <TugReportStrip
+            <ReportStrip
               run={settled}
               callFailed={callFailed}
               {...(wallSecs !== undefined ? { wallSecs } : {})}

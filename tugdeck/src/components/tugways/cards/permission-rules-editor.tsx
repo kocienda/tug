@@ -44,10 +44,10 @@ import React, {
   useState,
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { Trash2 } from "lucide-react";
+import { Trash2, ShieldCheck } from "lucide-react";
 
 import { TugInput } from "@/components/tugways/tug-input";
-import { TugFileChooser } from "@/components/tugways/tug-file-chooser";
+import { TugFileChooser, useFileChooserHost } from "@/components/tugways/tug-file-chooser";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
@@ -281,6 +281,7 @@ interface AddRuleFormProps {
  */
 function AddRuleForm({ placeholder, onAdd, kind, cwd }: AddRuleFormProps): React.ReactElement {
   const [draft, setDraft] = useState("");
+  const ChooserHost = useFileChooserHost({ onChange: setDraft, onSubmit: () => submit() });
   const [scope, setScope] = useState<RuleScope>("local");
 
   const isDir = kind === "directory";
@@ -320,17 +321,17 @@ function AddRuleForm({ placeholder, onAdd, kind, cwd }: AddRuleFormProps): React
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
         {isDir ? (
-          <TugFileChooser
+          <ChooserHost>
+          <TugFileChooser size="sm"
             value={draft}
-            onChange={setDraft}
             base={cwd ?? ""}
             kind="directory"
-            onSubmit={submit}
             placeholder={placeholder}
             aria-label="New directory path"
             focusGroup={addFocusGroup}
             focusOrder={FIELD_ORDER}
           />
+          </ChooserHost>
         ) : (
           <TugInput
             size="sm"
@@ -554,7 +555,7 @@ function RulePanel({
         anchorEl={pendingRemoval?.anchorEl ?? null}
         message={isDir ? "Delete this directory?" : "Delete this rule?"}
         confirmLabel="Delete"
-        confirmRole="danger"
+        confirm={{ role: "danger" }}
         cancelLabel="Cancel"
         side="left"
         onConfirm={() => {
@@ -832,7 +833,7 @@ export function usePermissionRulesSheet({
     if (cwd === null || cwd === "") return;
     void showSheet({
       title: "Permissions",
-      icon: "ShieldCheck",
+      icon: <ShieldCheck />,
       displayWidth: "lg",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,

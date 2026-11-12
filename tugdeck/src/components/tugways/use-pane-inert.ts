@@ -3,7 +3,7 @@
  * `active` flag, with cleanup.
  *
  * The shared modality primitive behind pane-modal surfaces. `TugSheet`
- * inerts the whole `.tug-pane-body` (centered modal); `TugControlBar`
+ * inerts the whole `.tug-pane-body` (centered modal); `ControlBar`
  * inerts just the transcript region below it (top-anchored modal — the
  * bar itself stays interactive). Both want the same one thing: while
  * `active`, the target is `inert` (a keyboard + pointer dead zone); when

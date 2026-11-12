@@ -15,7 +15,7 @@
  * with no bytes behind it.
  *
  * So the four attributes are computed here and spread by every renderer —
- * `TugCommitAtom`, `TugAtomChip`, `TugSessionCitation` and the editor's baked
+ * `TugCommitAtom`, `TugAtomChip`, `SessionCitation` and the editor's baked
  * `<img>`. A fifth renderer spreads this or emits nothing; there is no third
  * option where it emits three of the four, or spells one of them differently.
  * [L20] — one place authors the contract that one reader consumes.

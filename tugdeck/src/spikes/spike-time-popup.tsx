@@ -391,7 +391,7 @@ function TurnDial({ r }: { r: Readings }): React.ReactElement {
         min={0}
         max={max}
         value={value}
-        density="detailed"
+        density="regular"
         formatValue={formatTimeAlwaysHours}
         label={r.inflight ? "this turn" : "last turn"}
         thresholds={{ caution, danger: 0.9 }}

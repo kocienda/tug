@@ -1912,7 +1912,7 @@ body {
    Expressed as the two KNOBS the ring rules read, not as `outline-*`
    longhands. A longhand override here would out-specify the rules that
    legitimately take the ring AWAY — a shade-open composer stands its default
-   ring down (`tug-prompt-entry.css`), and a chord wearer must stand down with
+   ring down (`prompt-entry.css`), and a chord wearer must stand down with
    it rather than resurrect the outline through the back door. Setting only
    custom properties keeps every `outline: none` in the language winning on the
    cascade, exactly as it did before this variant existed.
@@ -2223,4 +2223,17 @@ html[data-mods="shift"] [data-default-chord="shift"] {
 @keyframes tug-petals-rotate {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
+}
+
+/* ---- Width floor (`minWidth`) ----
+   A button in an action row holds a target as wide as its neighbours', so a
+   short label (OK, Undo) is not a sliver beside Cancel. `action` is the floor
+   the alert, sheet and banner action rows give their buttons; `compact-action`
+   is the step down a compact surface takes. */
+.tug-button[data-min-width="action"] {
+  min-width: 5rem;
+}
+
+.tug-button[data-min-width="compact-action"] {
+  min-width: 4rem;
 }

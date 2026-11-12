@@ -16,8 +16,9 @@
  * the server said. A success speaks in the plain tone; only a refusal or a
  * stopped replay is a caution.
  *
- * The subscription registers in `useLayoutEffect` ([L03]); no notice state
- * enters React state ([L02]); appearance is the bulletin's own CSS/DOM ([L06]).
+ * The sequence gate is {@link useSequencedBulletin}'s: keyed on the sequence
+ * rather than the words, so two identical outcomes in a row both speak — the
+ * second one is a second press.
  *
  * ## It is the Arcs card's reader, not the store's only one
  *
@@ -42,14 +43,12 @@
  * the id that same card registered its workspace under.
  */
 
-import { useLayoutEffect, useRef } from "react";
-
 import {
   arcReplayOutcomeStore,
   conflictDescription,
 } from "@/lib/arc-replay-outcome-store";
 
-import { useTugPaneBulletin } from "../tug-pane-bulletin";
+import { useSequencedBulletin } from "./use-sequenced-bulletin";
 
 const NOTICE_ID = "arc-replay-outcome";
 
@@ -65,69 +64,51 @@ export function ArcReplayNoticeController({
    */
   shadeEntryKey: string;
 }): null {
-  const api = useTugPaneBulletin();
-  // The last outcome posted, by sequence. Local data ([L24]) — never React
-  // state. Keyed on the sequence rather than the words so two identical
-  // outcomes in a row both speak: the second one is a second press.
-  const postedSeqRef = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    const apply = (): void => {
-      const outcome = arcReplayOutcomeStore.outcomeFor(tugSessionId);
-      if (outcome === null) {
-        if (postedSeqRef.current !== null) {
-          postedSeqRef.current = null;
-          api.dismiss(NOTICE_ID);
-        }
-        return;
-      }
-      if (outcome.seq === postedSeqRef.current) return;
-      // A shade press is not this lane's. The skipped seq is still recorded:
-      // without it every store notification re-enters this arm and the dismiss
-      // fires again forever.
-      if (outcome.entryKey === shadeEntryKey) {
-        postedSeqRef.current = outcome.seq;
-        api.dismiss(NOTICE_ID);
-        return;
-      }
-      postedSeqRef.current = outcome.seq;
+  useSequencedBulletin(
+    {
+      read: () => arcReplayOutcomeStore.outcomeFor(tugSessionId),
+      subscribe: (listener) => arcReplayOutcomeStore.subscribe(listener),
+    },
+    (outcome, api) => {
+      // A shade press is not this lane's: passed over, which records its
+      // sequence (so the next notification does not re-enter this arm) and
+      // takes down whatever this lane had up.
+      if (outcome.entryKey === shadeEntryKey) return null;
       switch (outcome.outcome) {
         case "current":
           api(`${outcome.arc} is already current with its base`, {
             id: NOTICE_ID,
           });
-          return;
+          return NOTICE_ID;
         case "deferred":
           api.caution("Couldn't replay that arc", {
             id: NOTICE_ID,
             description: outcome.detail ?? undefined,
           });
-          return;
+          return NOTICE_ID;
         case "conflicted":
           api.caution(`${outcome.arc} can't replay cleanly`, {
             id: NOTICE_ID,
             description: conflictDescription(outcome),
           });
-          return;
+          return NOTICE_ID;
         case "error":
           api.caution("Couldn't replay that arc", {
             id: NOTICE_ID,
             description: outcome.detail ?? undefined,
           });
-          return;
+          return NOTICE_ID;
         case "replayed":
           api(`${outcome.arc} replayed onto its base`, { id: NOTICE_ID });
-          return;
+          return NOTICE_ID;
         case "recorded":
           api(`${outcome.arc}'s rebase is recorded`, { id: NOTICE_ID });
-          return;
+          return NOTICE_ID;
         default:
-          return;
+          return null;
       }
-    };
-    apply();
-    return arcReplayOutcomeStore.subscribe(apply);
-  }, [api, tugSessionId, shadeEntryKey]);
-
+    },
+    `${tugSessionId}\u0000${shadeEntryKey}`,
+  );
   return null;
 }

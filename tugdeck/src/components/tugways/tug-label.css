@@ -14,6 +14,13 @@
  *   ".tug-label-role-danger":      element=tone-text-normal-danger-rest      surface=surface-global-primary-normal-default-rest
  *   ".tug-label-role-data":        element=tone-text-normal-data-rest        surface=surface-global-primary-normal-default-rest
  *   ".tug-label-role-success":     element=tone-text-normal-success-rest     surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=accent]":  element=tone-icon-normal-accent-rest   surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=action]":  element=tone-icon-normal-active-rest   surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=agent]":   element=tone-icon-normal-agent-rest    surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=caution]": element=tone-icon-normal-caution-rest  surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=danger]":  element=tone-icon-normal-danger-rest   surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=data]":    element=tone-icon-normal-data-rest     surface=surface-global-primary-normal-default-rest
+ *   ".tug-label-icon[data-tone=success]": element=tone-icon-normal-success-rest  surface=surface-global-primary-normal-default-rest
  *   ".tug-label-emphasis-calm":     element=global-text-normal-muted-rest     surface=surface-global-primary-normal-default-rest
  *   ".tug-label-emphasis-whisper":  element=global-text-normal-muted-rest     surface=surface-global-primary-normal-default-rest
  *   ".tug-label-emphasis-proposal": element=global-text-normal-muted-rest     surface=surface-global-primary-normal-default-rest
@@ -33,6 +40,13 @@
  * | --tug7-element-tone-text-normal-danger-rest  | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-role-danger (color)       |
  * | --tug7-element-tone-text-normal-data-rest    | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-role-data (color)         |
  * | --tug7-element-tone-text-normal-success-rest | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-role-success (color)      |
+ * | --tug7-element-tone-icon-normal-accent-rest  | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=accent] (color)  |
+ * | --tug7-element-tone-icon-normal-active-rest  | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=action] (color)  |
+ * | --tug7-element-tone-icon-normal-agent-rest   | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=agent] (color)   |
+ * | --tug7-element-tone-icon-normal-caution-rest | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=caution] (color) |
+ * | --tug7-element-tone-icon-normal-danger-rest  | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=danger] (color)  |
+ * | --tug7-element-tone-icon-normal-data-rest    | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=data] (color)    |
+ * | --tug7-element-tone-icon-normal-success-rest | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-icon[data-tone=success] (color) |
  * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-emphasis-calm (color)     |
  * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-emphasis-whisper (color)  |
  * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | content      | .tug-label-emphasis-proposal (color) |
@@ -206,6 +220,21 @@
   height: 1em;
   pointer-events: none;
 }
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="accent"]  { color: var(--tug7-element-tone-icon-normal-accent-rest); }
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="action"]  { color: var(--tug7-element-tone-icon-normal-active-rest); }
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="agent"]   { color: var(--tug7-element-tone-icon-normal-agent-rest); }
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="caution"] { color: var(--tug7-element-tone-icon-normal-caution-rest); }
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="danger"]  { color: var(--tug7-element-tone-icon-normal-danger-rest); }
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="data"]    { color: var(--tug7-element-tone-icon-normal-data-rest); }
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-label-icon[data-tone="success"] { color: var(--tug7-element-tone-icon-normal-success-rest); }
 
 /* ============================================================================
    Text Container

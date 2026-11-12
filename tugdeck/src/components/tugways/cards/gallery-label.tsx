@@ -11,6 +11,12 @@ import { TugLabel } from "@/components/tugways/tug-label";
 import type { TugLabelEmphasis, TugLabelSize } from "@/components/tugways/tug-label";
 import { TugInput } from "@/components/tugways/tug-input";
 import { TugSeparator } from "@/components/tugways/tug-separator";
+import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
+import { TugNamedIcon } from "@/components/tugways/tug-named-icon";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
+import { TugChip } from "@/components/tugways/tug-chip";
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,16 +84,16 @@ export function GalleryLabel() {
         <TugLabel className="cg-section-title">TugLabel — With Icons</TugLabel>
         <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxWidth: "360px" }}>
           <TugLabel icon={<Tag />}>Default icon color</TugLabel>
-          <TugLabel icon={<Info />} iconColor="var(--tug7-element-global-fill-normal-accentCool-rest)">
+          <TugLabel icon={<Info />} iconTone="accent">
             Accent-colored icon
           </TugLabel>
-          <TugLabel icon={<AlertTriangle />} iconColor="var(--tug7-element-field-fill-normal-caution-rest)">
+          <TugLabel icon={<AlertTriangle />} iconTone="caution">
             Warning-colored icon
           </TugLabel>
-          <TugLabel icon={<Star />} iconColor="var(--tug7-element-field-fill-normal-danger-rest)">
+          <TugLabel icon={<Star />} iconTone="danger">
             Error-colored icon
           </TugLabel>
-          <TugLabel icon={<Folder />} iconColor="var(--tug7-element-field-fill-normal-success-rest)">
+          <TugLabel icon={<Folder />} iconTone="success">
             Success-colored icon
           </TugLabel>
         </div>
@@ -190,7 +196,7 @@ export function GalleryLabel() {
             <TugInput id="demo-name" placeholder="Enter your name" />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <TugLabel htmlFor="demo-email" icon={<Info />} iconColor="var(--tug7-element-global-fill-normal-accentCool-rest)">
+            <TugLabel htmlFor="demo-email" icon={<Info />} iconTone="accent">
               Email address
             </TugLabel>
             <TugInput id="demo-email" type="email" placeholder="you@example.com" />
@@ -212,6 +218,61 @@ export function GalleryLabel() {
             <TugLabel htmlFor="demo-disabled-icon" disabled icon={<Info />} required>Disabled with icon + required</TugLabel>
             <TugInput id="demo-disabled-icon" disabled defaultValue="Can't edit this" />
           </div>
+        </div>
+      </div>
+
+      {/* ---- Small display primitives ---- */}
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">TugKeyValueRow</TugLabel>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "max-content 1fr max-content",
+            columnGap: "8px",
+            maxWidth: "260px",
+          }}
+        >
+          <TugKeyValueRow label="Cost" detail="62%">$1.24</TugKeyValueRow>
+          <TugKeyValueRow label="Turns" detail={null}>18</TugKeyValueRow>
+        </div>
+      </div>
+
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">TugNamedIcon</TugLabel>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <TugNamedIcon name="FileText" size={16} aria-hidden="true" />
+          <TugNamedIcon name="GitBranch" size={16} aria-hidden="true" />
+          <TugNamedIcon name="NotAnIcon" size={16} aria-hidden="true" />
+        </div>
+      </div>
+
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">TugEmptyLine</TugLabel>
+        <div style={{ maxWidth: "260px" }}>
+          <TugEmptyLine>None</TugEmptyLine>
+          <TugEmptyLine>No matches</TugEmptyLine>
+        </div>
+      </div>
+
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">TugChip</TugLabel>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <TugChip>notes.md</TugChip>
+          <TugChip
+            removeAction={TUG_ACTIONS.UNSTAGE_CONTEXT}
+            value="demo"
+            removeLabel="Remove the demo chip"
+          >
+            staged shell output
+          </TugChip>
+        </div>
+      </div>
+
+      <div className="cg-section">
+        <TugLabel className="cg-section-title">TugDisclosure</TugLabel>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <TugDisclosure expanded={false} size={12} />
+          <TugDisclosure expanded size={12} />
         </div>
       </div>
 

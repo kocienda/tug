@@ -81,7 +81,7 @@
  * @covers tugdeck/src/components/tugways/commit-tip-portals.tsx
  * @covers tugdeck/src/components/tugways/annotation-portals.tsx
  * @covers tugdeck/src/components/tugways/session-citation-portals.tsx
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/styles/tug-annotation.css
  * @covers tugdeck/src/lib/digest-store.ts
  */

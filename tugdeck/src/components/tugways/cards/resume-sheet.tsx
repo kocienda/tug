@@ -33,6 +33,7 @@
  * @module components/tugways/cards/resume-sheet
  */
 
+import { RotateCcw } from "lucide-react";
 import "./resume-sheet.css";
 
 import React, { useCallback, useMemo, useState } from "react";
@@ -123,8 +124,8 @@ export function useResumeSheet({
     if (projectDir.length === 0) return;
     void showSheet({
       title: "Resume Session",
-      icon: "RotateCcw",
-      iconRole: "agent",
+      icon: <RotateCcw />,
+      iconTone: "agent",
       description: "Pick a session to resume in this card.",
       // The same row shape as the Choose Session picker, so the same width.
       displayWidth: "lg",
@@ -269,7 +270,7 @@ function ResumeSheetBody({
           fuzzy matcher every filtered list uses. It composes `TugInput`, so the
           editing surface keeps the substrate CUT/COPY/PASTE/SELECT_ALL/UNDO/
           REDO responders that a hand-rolled input would lose. */}
-      <TugFilterField
+      <TugFilterField size="sm"
         delegate={filterDelegate}
         attachment={filter}
         placeholder="Filter sessions"
@@ -291,6 +292,7 @@ function ResumeSheetBody({
       >
         <div className="resume-sheet-list">
           <TugListView<SessionsDataSource>
+            sizing="content"
             ref={listRef}
             dataSource={dataSource}
             delegate={delegate}

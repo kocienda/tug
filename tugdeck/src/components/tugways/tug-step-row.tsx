@@ -27,7 +27,7 @@
  * (`compact` is a one-line row with a smaller dot, for a list of many steps
  * inside a transcript block rather than a wizard), `detailPlacement`
  * (`trailing` puts the detail on the label's line, right-aligned, where a
- * time or a count reads as a column), and `busyRole` (the colour the busy dot
+ * time or a count reads as a column), and `busyTone` (the colour the busy dot
  * breathes in — `agent` by default, since a wizard's busy step is Tug's work;
  * a build's running phase is the user's, and wears `action`). Each defaults
  * to the wizard's look, so ConfigureTug and the update surface are untouched.
@@ -40,8 +40,11 @@
  */
 
 import "./tug-step-row.css";
+import type { TugDensity } from "./tug-vocabulary";
 
-import type { ReactElement, ReactNode } from "react";
+import React, { type ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
 
 import {
   TugProgressIndicator,
@@ -69,53 +72,41 @@ export const TUG_STEP_ROW_DOT_SIZE = 14;
 export const TUG_STEP_ROW_COMPACT_DOT_SIZE = 10;
 
 /** How tall a row stands: the wizard's plinth, or one line. */
-export type TugStepRowDensity = "regular" | "compact";
+export type TugStepRowDensity = TugDensity;
 
 /** Where the detail goes: under the label, or at the end of its line. */
 export type TugStepRowDetailPlacement = "below" | "trailing";
 
-/** Map a step status onto the dot's role + state ([D02]/[D106]). */
+/** Map a step status onto the dot's tone + state ([D02]/[D106]). */
 export function tugStepRowDotVisual(
   status: TugStepRowStatus,
-  busyRole: TugProgressIndicatorRole = "agent",
+  busyTone: TugProgressIndicatorRole = "agent",
 ): {
-  role: TugProgressIndicatorRole;
+  tone: TugProgressIndicatorRole;
   state: TugProgressIndicatorState;
 } {
   switch (status) {
     case "pending":
-      return { role: "inherit", state: "stopped" };
+      return { tone: "inherit", state: "stopped" };
     case "active":
       // The user's turn is not activity: a full, still blue dot. Only `busy`
       // breathes.
-      return { role: "action", state: "paused" };
+      return { tone: "action", state: "paused" };
     case "busy":
-      return { role: busyRole, state: "running" };
+      return { tone: busyTone, state: "running" };
     case "paused":
       // A held thing, and the indicator's own default for one: amber rather
       // than blue, because a step that stopped because the user said so is
       // not the step the flow is waiting on the user to start.
-      return { role: "caution", state: "paused" };
+      return { tone: "caution", state: "paused" };
     case "error":
-      return { role: "danger", state: "aborted" };
+      return { tone: "danger", state: "aborted" };
     case "done":
-      return { role: "success", state: "completed" };
+      return { tone: "success", state: "completed" };
   }
 }
 
-export function TugStepRow({
-  stepKey,
-  status,
-  label,
-  detail,
-  body,
-  action,
-  edge,
-  className,
-  density = "regular",
-  detailPlacement = "below",
-  busyRole = "agent",
-}: {
+export interface TugStepRowProps extends Omit<React.ComponentPropsWithoutRef<"li">, "children"> {
   /** Written to `data-step`, so a host or a test can address one row. */
   stepKey?: string;
   status: TugStepRowStatus;
@@ -137,18 +128,37 @@ export function TugStepRow({
    * column, so filling it never changes the row's height ([B01]/[B02]).
    */
   edge?: ReactNode;
-  className?: string;
   /** `compact` is one line with a smaller dot, for a list of many steps. */
   density?: TugStepRowDensity;
   /** `trailing` puts the detail at the end of the label's line. */
   detailPlacement?: TugStepRowDetailPlacement;
-  /** The role the `busy` dot breathes in; `agent` unless the work is the user's. */
-  busyRole?: TugProgressIndicatorRole;
-}): ReactElement {
-  const { role, state } = tugStepRowDotVisual(status, busyRole);
+  /** The tone the `busy` dot breathes in; `agent` unless the work is the user's. */
+  busyTone?: TugProgressIndicatorRole;
+}
+
+export const TugStepRow = React.forwardRef<HTMLLIElement, TugStepRowProps>(function TugStepRow(
+  {
+    stepKey,
+    status,
+    label,
+    detail,
+    body,
+    action,
+    edge,
+    className,
+    density = "regular",
+    detailPlacement = "below",
+    busyTone = "agent",
+    ...rest
+  },
+  ref,
+) {
+  const { tone, state } = tugStepRowDotVisual(status, busyTone);
   return (
     <li
-      className={className ? `tug-step-row ${className}` : "tug-step-row"}
+      {...rest}
+      ref={ref}
+      className={cn("tug-step-row", className)}
       data-slot="tug-step-row"
       data-step={stepKey}
       data-status={status}
@@ -160,7 +170,7 @@ export function TugStepRow({
           <TugProgressIndicator
             variant="pulsing-dot"
             size={density === "compact" ? TUG_STEP_ROW_COMPACT_DOT_SIZE : TUG_STEP_ROW_DOT_SIZE}
-            role={role}
+            tone={tone}
             state={state}
             className="tug-step-row-dot"
             aria-hidden
@@ -174,4 +184,4 @@ export function TugStepRow({
       {edge ? <div className="tug-step-row-edge">{edge}</div> : null}
     </li>
   );
-}
+});

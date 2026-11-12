@@ -107,7 +107,7 @@ const ARC_VALUE = `${STATUS_BAR} [data-slot="session-telemetry-arc-value"]`;
 const DOT = `.body-chrome-frame .session-masthead-row .tug-session-row-dot [data-slot="tug-progress-indicator"]`;
 const DOT_SAYS_READY = `(function () {
   var el = document.querySelector(${JSON.stringify(DOT)});
-  return el !== null && el.getAttribute("data-role") === "success" && el.getAttribute("data-state") === "running";
+  return el !== null && el.getAttribute("data-tone") === "success" && el.getAttribute("data-state") === "running";
 })()`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
@@ -370,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
           `(function () {
              var el = document.querySelector(${JSON.stringify(DOT)});
              return {
-               role: el === null ? null : el.getAttribute("data-role"),
+               role: el === null ? null : el.getAttribute("data-tone"),
                state: el === null ? null : el.getAttribute("data-state"),
              };
            })()`,

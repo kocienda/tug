@@ -1,7 +1,7 @@
 /**
  * atom-register.ts — how big an atom is, decided once, for every renderer.
  *
- * An atom is drawn four ways: the live CSS pill (`tug-session-identity.css`'s
+ * An atom is drawn four ways: the live CSS pill (`session-identity.css`'s
  * chip tier), the inline `<svg>` chip ({@link TugAtomChip}), the Canvas → PNG
  * bake the editor's CM6 widget mounts, and the read-only ref that draws no box
  * at all. The first three each used to derive their own box from whatever host
@@ -193,7 +193,7 @@ export function atomEditorLineBoxFloorPx(): number {
  * an omission: a bitmap and an `<svg>` have no baseline to offer a line of
  * text, so one is computed for them from where they are about to paint the
  * ink. The live CSS pill has the ink itself — it exposes its label's own
- * baseline (`tug-session-identity.css`'s strut) and needs no correction on top
+ * baseline (`session-identity.css`'s strut) and needs no correction on top
  * of it. What both renderings owe is the same OUTCOME, the label sitting on
  * the host's line, and `at0490` measures the two against each other in one
  * sentence rather than trusting either.

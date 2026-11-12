@@ -11,11 +11,11 @@
  *
  *   - `icon` — any React node; the consumer chooses the shape. The
  *     primitive sizes the visible icon column to 20 px and tints the
- *     glyph via `iconRole`. The icon's vertical center sits on the
+ *     glyph via `iconTone`. The icon's vertical center sits on the
  *     title's first-line center (via `height: calc(font-size ×
  *     line-height)`), so it stays correctly aligned whether or not a
  *     description follows.
- *   - `iconRole` — tone for the icon's `color` (one of five named
+ *   - `iconTone` — tone for the icon's `color` (one of five named
  *     roles).
  *   - `title` — strong CTA, plain string.
  *   - `description` — optional rich ReactNode rendered on its own
@@ -33,9 +33,11 @@
  *   - `children` — free-form body region rendered between the header
  *     row and the options block. The per-tool body (`DiffBlock`,
  *     `JsonTreeBlock`, transcript-wrapper preview) goes here.
- *   - `options` + `selectedOption` + `onSelectOption` — optional
- *     radio-group of `TugDialogButton`s. Centered, capped at 450 px
- *     wide regardless of frame width. Mandatory single-select.
+ *   - `options` + `selectedOption` + `senderId` — optional radio-group
+ *     of `TugDialogButton`s. Centered, capped at 450 px wide regardless
+ *     of frame width. Mandatory single-select. A pick dispatches
+ *     `select-value` with the option's `value` and `senderId` to the
+ *     parent responder ([L11]).
  *
  * Layout:
  *
@@ -59,8 +61,8 @@
  * stack as their own rows below.
  *
  * Laws:
- *  - [L06] appearance via DOM attributes (`data-icon-role`) + CSS,
- *    not React state. The `iconRole` flips a CSS selector; the icon's
+ *  - [L06] appearance via DOM attributes (`data-icon-tone`) + CSS,
+ *    not React state. The `iconTone` flips a CSS selector; the icon's
  *    `color` is owned by the rule, not by inline `style`. `data-layout`
  *    is the same shape: `"header"` when the dialog is a header row and
  *    nothing else — no description, no body, no options — and `"full"`
@@ -83,23 +85,20 @@
  */
 
 import "./tug-inline-dialog.css";
+import type { TugTone } from "./tug-vocabulary";
 
 import React from "react";
 
 import { cn } from "@/lib/utils";
 import { TugDialogButton } from "./tug-dialog-button";
+import { TUG_ACTIONS } from "./action-vocabulary";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 /** Tone for the icon's foreground tint. Maps to a `--tugx-idialog-icon-{role}-color` slot. */
-export type TugInlineDialogIconRole =
-  | "default"
-  | "caution"
-  | "danger"
-  | "success"
-  | "info";
+export type TugInlineDialogIconRole = Extract<TugTone, "default" | "caution" | "danger" | "success" | "info">;
 
 /**
  * Descriptor for a single option in the dialog's radio group. Options
@@ -125,14 +124,15 @@ export interface TugInlineDialogOption {
    */
   role?: "action" | "danger";
   /** Accessibility label override (defaults to {@link label}). */
-  ariaLabel?: string;
+  "aria-label"?: string;
 }
 
-export interface TugInlineDialogProps {
+export interface TugInlineDialogProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "title"> {
   /**
    * Icon node — typically a Lucide component. The primitive sizes the
    * column to 20 px and tints the rendered icon's `color` via
-   * `iconRole`. The icon's vertical center is pinned to the title's
+   * `iconTone`. The icon's vertical center is pinned to the title's
    * first-line center.
    */
   icon: React.ReactNode;
@@ -143,7 +143,7 @@ export interface TugInlineDialogProps {
    *
    * @default "default"
    */
-  iconRole?: TugInlineDialogIconRole;
+  iconTone?: TugInlineDialogIconRole;
   /** Strong call-to-action title. Plain string. */
   title: string;
   /**
@@ -180,8 +180,9 @@ export interface TugInlineDialogProps {
   /**
    * Optional radio-group of choices. Rendered below the body, one row
    * per choice, centered and capped at 450 px wide. When set,
-   * consumers MUST also provide {@link selectedOption} +
-   * {@link onSelectOption}; the group is mandatory-single-select.
+   * consumers MUST also provide {@link selectedOption} and handle
+   * `select-value` from {@link senderId}; the group is
+   * mandatory-single-select.
    */
   options?: ReadonlyArray<TugInlineDialogOption>;
   /**
@@ -191,19 +192,17 @@ export interface TugInlineDialogProps {
    */
   selectedOption?: string;
   /**
-   * Fired when the user picks a different option. Required when
-   * {@link options} is set. The handler should set the consumer's
-   * state to the new `value`; do not implement a toggle-off path here
-   * — radio semantics mean exactly one option is always chosen.
+   * The `event.sender` of the `select-value` a pick dispatches, carrying
+   * the picked option's `value`. The responder that owns the selection
+   * sets its state to that value; there is no toggle-off path — radio
+   * semantics mean exactly one option is always chosen.
    */
-  onSelectOption?: (value: string) => void;
+  senderId?: string;
   /**
    * Optional ARIA label for the radio-group container. Defaults to
    * the dialog's title when omitted.
    */
   optionsAriaLabel?: string;
-  /** Forwarded class name for cascade-scoped customization. */
-  className?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +218,7 @@ export const TUG_INLINE_DIALOG_ICON_ROLES: ReadonlyArray<TugInlineDialogIconRole
  * name. Pure; exported so tests can pin the contract that every
  * declared role has a matching token slot.
  */
-export function iconRoleSlot(role: TugInlineDialogIconRole): string {
+export function iconToneSlot(role: TugInlineDialogIconRole): string {
   return `--tugx-idialog-icon-${role}-color`;
 }
 
@@ -262,20 +261,24 @@ export function inlineDialogLayout(rows: {
  * Inline header-bar dialog primitive. See module docstring for the
  * layout, prop contract, and law cross-check.
  */
-export const TugInlineDialog: React.FC<TugInlineDialogProps> = ({
-  icon,
-  iconRole = "default",
-  title,
-  description,
-  leadingActions,
-  actions,
-  children,
-  options,
-  selectedOption,
-  onSelectOption,
-  optionsAriaLabel,
-  className,
-}) => {
+export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogProps>(function TugInlineDialog(
+  {
+    icon,
+    iconTone = "default",
+    title,
+    description,
+    leadingActions,
+    actions,
+    children,
+    options,
+    selectedOption,
+    senderId,
+    optionsAriaLabel,
+    className,
+    ...rest
+  },
+  ref,
+) {
   const hasDescription =
     description !== undefined && description !== null && description !== false;
   const hasLeadingActions =
@@ -297,8 +300,10 @@ export const TugInlineDialog: React.FC<TugInlineDialogProps> = ({
 
   return (
     <div
+      {...rest}
+      ref={ref}
       data-slot="tug-inline-dialog"
-      data-icon-role={iconRole}
+      data-icon-tone={iconTone}
       data-layout={layout}
       className={cn("tug-inline-dialog", className)}
     >
@@ -353,12 +358,14 @@ export const TugInlineDialog: React.FC<TugInlineDialogProps> = ({
               role={option.role}
               selected={selectedOption === option.value}
               selectionStyle="radio"
-              ariaLabel={option.ariaLabel}
-              onClick={() => onSelectOption?.(option.value)}
+              aria-label={option["aria-label"]}
+              action={TUG_ACTIONS.SELECT_VALUE}
+              value={option.value}
+              senderId={senderId}
             />
           ))}
         </div>
       ) : null}
     </div>
   );
-};
+});

@@ -11,9 +11,13 @@
  *   - ↑/↓ move the highlight, the mouse follows it;
  *   - Enter accepts the highlighted match; Tab accepts, and a directory then
  *     descends (the list stays open on its children);
- *   - Escape closes the list; Enter with the list closed calls `onSubmit`;
- *   - the field settles (`onSettle`) on a path the user finished choosing —
- *     a completion accepted, Enter, focus leaving, or the picker returning.
+ *   - Escape closes the list; Enter with the list closed dispatches `submit`;
+ *   - the field settles (`set-value`, phase `commit`) on a path the user
+ *     finished choosing — a completion accepted, Enter, focus leaving, or the
+ *     picker returning.
+ *
+ * Everything the field reports goes to its parent responder through the chain
+ * ([L11]); a host answers it with {@link useFileChooserHost}.
  *
  * `kind` selects what's offered + what the picker returns: `directory` (default)
  * lists only directories; `file` lists files too (directories still appear so
@@ -26,95 +30,51 @@
  *
  * Compositional component — composes {@link TugComboBox} + `TugPushButton`; its
  * mono overlay borrows `tug-completion-menu.css`. Laws: [L02] (n/a — local UI
- * state), [L06] appearance via CSS, [L20] composed children keep their own tokens.
+ * state), [L06] appearance via CSS, [L19] component authoring guide, [L20]
+ * composed children keep their own tokens.
  *
  * @module components/tugways/tug-file-chooser
  */
 
 import "./tug-file-chooser.css";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useId, useMemo, useRef } from "react";
 import { FolderOpen } from "lucide-react";
 
-import { TugComboBox, type TugComboBoxItem } from "./tug-combo-box";
+import { TugComboBox, type TugComboBoxItem, type TugComboFieldProps } from "./tug-combo-box";
 import { TugPushButton } from "./tug-push-button";
+import { TUG_ACTIONS } from "./action-vocabulary";
+import type { ActionEvent } from "./responder-chain";
+import { useControlDispatch } from "./use-control-dispatch";
+import { useOptionalResponder } from "./use-responder";
 import {
   fetchPathCompletions,
   type CompletionKind,
 } from "@/lib/fs-complete";
 import { isPathPickerAvailable, pickPath } from "@/lib/native-path-picker";
+import { cn } from "@/lib/utils";
 
-/** Props for {@link TugFileChooser}. */
-export interface TugFileChooserProps {
-  /** Controlled input value (the path text). */
-  value: string;
-  /** Called when the value changes — typing, accepting a match, or the picker. */
-  onChange: (value: string) => void;
+/**
+ * Props for {@link TugFileChooser}: the shared field props — `value` is the
+ * path text, and the native picker's choice reports through `senderId` the
+ * same way typing does (a `change`, then a `commit`) — plus what a path field
+ * adds. A `seed` here (e.g. recent project paths) merges ABOVE the
+ * filesystem completions; the overlay's `data-slot` defaults to
+ * `"tug-file-chooser-overlay"`.
+ */
+export interface TugFileChooserProps extends TugComboFieldProps {
   /** Working directory that relative completions + the picker resolve under. */
   base: string;
   /** What to choose: `directory` (default) or `file` (files + descendable dirs). */
   kind?: CompletionKind;
-  /** Fired on Enter when the completion list is closed — the consumer's commit. */
-  onSubmit?: () => void;
-  /**
-   * Fired with the resting path each time the field settles — a completion
-   * accepted, Enter, focus leaving, or the native picker returning a choice.
-   * See {@link TugComboBoxProps.onSettle}; a caller storing the path writes here.
-   */
-  onSettle?: (value: string) => void;
-  /** Fired when the completion list opens / closes (e.g. to hide a sibling list). */
-  onOpenChange?: (open: boolean) => void;
-  placeholder?: string;
-  "aria-label"?: string;
-  /** Input + button size. Defaults to `sm`. */
-  size?: "sm" | "md" | "lg";
   /** Show the native "Browse…" picker button (default true; auto-hidden off-host). */
   showBrowse?: boolean;
-  /** Focus the input on mount. */
-  autoFocus?: boolean;
-  className?: string;
-  disabled?: boolean;
-  /**
-   * A caller-owned seed source (e.g. recent project paths), rendered by the
-   * caller and merged ABOVE the filesystem completions, de-duped by value.
-   * Pair with {@link menuMode} to open it as a dropdown. Absent ⇒ the field is
-   * a plain completing path input.
-   */
-  seed?: (query: string) => TugComboBoxItem[];
-  /** Enable dropdown-menu affordances (click / chevron / ArrowDown open the seed). */
-  menuMode?: boolean;
-  /**
-   * Author the field into a focus group ([P02]) — the standard `useFocusable`
-   * opt-in. When set, the input registers as one stop in the surrounding
-   * surface's Tab walk. The field owns Tab only while its completion list is
-   * open (Tab then accepts the highlighted match); closed, Tab leaves the field.
-   */
-  focusGroup?: string;
-  /** Order within {@link focusGroup}. Defaults to 0. */
-  focusOrder?: number;
   /**
    * Author the native "Browse…" button into {@link focusGroup} as its own focus
    * stop ([P02]), at this order. Omitted ⇒ the button stays outside the walk.
    * Only honored when {@link focusGroup} is also set.
    */
   browseFocusOrder?: number;
-  /**
-   * Author the menu-mode chevron into {@link focusGroup} at this order —
-   * forwarded to {@link TugComboBoxProps.chevronFocusOrder}. Only honored when
-   * {@link focusGroup} and {@link menuMode} are also set.
-   */
-  chevronFocusOrder?: number;
-  /**
-   * `data-slot` on the completion dropdown, for a host that styles or selects
-   * it. Defaults to `"tug-file-chooser-overlay"`.
-   */
-  overlaySlot?: string;
-  /**
-   * Where the dropdown portals; forwarded to {@link TugComboBoxProps.portalContainer}.
-   * Absent ⇒ the canvas overlay root. A host inside an app-modal Radix surface
-   * names its own content element so the dropdown is not left pointer-dead.
-   */
-  portalContainer?: HTMLElement | null;
 }
 
 /** The basename prefix being completed — the text after the last `/`. */
@@ -143,19 +103,17 @@ function MatchedLabel({ label, prefixLen }: { label: string; prefixLen: number }
  * A path field with filesystem completion + a native picker. See the module doc
  * for the full interaction model.
  */
-export const TugFileChooser = React.forwardRef<HTMLInputElement, TugFileChooserProps>(
+export const TugFileChooser = React.forwardRef<HTMLDivElement, TugFileChooserProps>(
   function TugFileChooser(
     {
       value,
-      onChange,
+      senderId,
       base,
       kind = "directory",
-      onSubmit,
-      onSettle,
       onOpenChange,
       placeholder,
       "aria-label": ariaLabel,
-      size = "sm",
+      size = "md",
       showBrowse = true,
       autoFocus,
       className,
@@ -168,6 +126,8 @@ export const TugFileChooser = React.forwardRef<HTMLInputElement, TugFileChooserP
       chevronFocusOrder,
       overlaySlot = "tug-file-chooser-overlay",
       portalContainer,
+      inputRef,
+      ...rest
     },
     forwardedRef,
   ) {
@@ -196,6 +156,9 @@ export const TugFileChooser = React.forwardRef<HTMLInputElement, TugFileChooserP
       return v;
     }, []);
 
+    const { dispatch } = useControlDispatch();
+    const fallbackSenderId = useId();
+    const sender = senderId ?? fallbackSenderId;
     const browse = useCallback(() => {
       const hint = value.trim() !== "" ? value.trim() : base;
       void pickPath(kind, hint).then((path) => {
@@ -204,10 +167,10 @@ export const TugFileChooser = React.forwardRef<HTMLInputElement, TugFileChooserP
         // panel closes on a path the user picked deliberately, and focus comes
         // back to a field that is already done. It settles on the spot — there
         // is no later gesture that would.
-        onChange(path);
-        onSettle?.(path);
+        dispatch({ action: TUG_ACTIONS.SET_VALUE, value: path, sender, phase: "change" });
+        dispatch({ action: TUG_ACTIONS.SET_VALUE, value: path, sender, phase: "commit" });
       });
-    }, [value, base, kind, onChange, onSettle]);
+    }, [value, base, kind, dispatch, sender]);
 
     const browseButton = showPicker ? (
       <TugPushButton
@@ -229,33 +192,85 @@ export const TugFileChooser = React.forwardRef<HTMLInputElement, TugFileChooserP
 
     return (
       <TugComboBox
+        {...rest}
         ref={forwardedRef}
+        data-slot="tug-file-chooser"
         value={value}
-        onChange={onChange}
+        senderId={sender}
         seed={seed}
         asyncItems={asyncItems}
         menuMode={menuMode}
         leadingAccessory={browseButton}
         normalizeOnClose={normalizeOnClose}
-        onSubmit={onSubmit}
-        onSettle={onSettle}
         onOpenChange={onOpenChange}
         placeholder={placeholder}
         aria-label={ariaLabel}
         size={size}
         autoFocus={autoFocus}
         disabled={disabled}
-        // The size modifier rides the class list because TugComboBox takes a
-        // fixed prop set and forwards no arbitrary attributes; the square
-        // Browse button's box is restated per size in the CSS.
-        className={`tug-file-chooser tug-file-chooser-size-${size}${className !== undefined ? ` ${className}` : ""}`}
+        // The size modifier rides the class list; the square Browse button's
+        // box is restated per size in the CSS.
+        className={cn("tug-file-chooser", `tug-file-chooser-size-${size}`, className)}
         inputClassName="tug-file-chooser-input"
         overlaySlot={overlaySlot}
         portalContainer={portalContainer}
         focusGroup={focusGroup}
         focusOrder={focusOrder}
         chevronFocusOrder={chevronFocusOrder}
+        inputRef={inputRef}
       />
     );
   },
 );
+
+/** What a host does with a {@link TugFileChooser}'s reports. */
+export interface TugFileChooserHostHandlers {
+  /** `set-value`, phase `change`: the path text changed. Set `value` from it. */
+  onChange: (value: string) => void;
+  /** `set-value`, phase `commit`: the field came to rest on this path. */
+  onSettle?: (value: string) => void;
+  /** `submit`: Enter with the completion list closed. */
+  onSubmit?: () => void;
+}
+
+/**
+ * The host side of a {@link TugFileChooser}: returns a scope component to
+ * render the one chooser inside, which registers a responder that answers the
+ * field's `set-value` and `submit` with `handlers` ([L11]). The scope
+ * registers where it is RENDERED, so its parent is the responder around the
+ * chooser — a host that is itself a responder stays on the field's chain. The
+ * component is stable for the host's lifetime, and the handlers are read
+ * through a ref, so they may change identity every render ([L07]).
+ *
+ * ```tsx
+ * const ChooserHost = useFileChooserHost({ onChange: setPath, onSubmit: open });
+ * return <ChooserHost><TugFileChooser value={path} … /></ChooserHost>;
+ * ```
+ */
+export function useFileChooserHost(
+  handlers: TugFileChooserHostHandlers,
+): React.FC<{ children: React.ReactNode }> {
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+  return useMemo(
+    () =>
+      function FileChooserHost({ children }: { children: React.ReactNode }): React.ReactElement {
+        const id = useId();
+        const { ResponderScope } = useOptionalResponder({
+          id,
+          actions: {
+            [TUG_ACTIONS.SET_VALUE]: (event: ActionEvent) => {
+              if (typeof event.value !== "string") return;
+              if (event.phase === "commit") handlersRef.current.onSettle?.(event.value);
+              else handlersRef.current.onChange(event.value);
+            },
+            [TUG_ACTIONS.SUBMIT]: () => {
+              handlersRef.current.onSubmit?.();
+            },
+          },
+        });
+        return <ResponderScope>{children}</ResponderScope>;
+      },
+    [],
+  );
+}

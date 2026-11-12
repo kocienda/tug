@@ -69,7 +69,7 @@ export function SessionPhaseDot({
       // The triple, spread as three props. `shape` is returned only for
       // `background`, so `undefined` here correctly leaves the indicator at
       // its `dot` default rather than naming one.
-      role={visual.role}
+      tone={visual.tone}
       state={visual.state}
       shape={visual.shape}
       // Keyed on the session so it keeps its rate across a filter, a reorder, a

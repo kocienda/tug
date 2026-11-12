@@ -131,7 +131,7 @@ export function deriveConfigureTugOpen(
 
 /**
  * Whether the version gate should be open (blocking). The single derivation
- * both `TugVersionGate` and `ConfigureTug` read, so the gate's precedence over
+ * both `VersionGate` and `ConfigureTug` read, so the gate's precedence over
  * setup (Spec S02) stays consistent. A dev override wins in dev builds.
  *
  * Reads the host via `useHostInfo` — external state enters React only through

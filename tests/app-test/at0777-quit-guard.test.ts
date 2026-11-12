@@ -23,7 +23,7 @@
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugapp/Sources/BridgeHandler.swift
  * @covers tugdeck/src/lib/quit-guard-store.ts
- * @covers tugdeck/src/components/tugways/tug-quit-guard.tsx
+ * @covers tugdeck/src/components/chrome/quit-guard.tsx
  * @covers tugdeck/src/host/declarations/lifecycle.ts
  */
 

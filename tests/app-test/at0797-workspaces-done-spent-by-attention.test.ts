@@ -113,7 +113,7 @@ const readRow = (app: App, sid: string): Promise<RowReading> =>
        if (el === null) return ${JSON.stringify(NO_ROW)};
        var dot = el.querySelector('[data-slot="tug-progress-indicator"]');
        return {
-         role: dot === null ? "" : (dot.getAttribute("data-role") || ""),
+         role: dot === null ? "" : (dot.getAttribute("data-tone") || ""),
          state: dot === null ? "" : (dot.getAttribute("data-state") || ""),
          text: (el.textContent || "").replace(/\\s+/g, " ").trim(),
        };

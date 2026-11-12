@@ -92,7 +92,7 @@ function deck(): Record<string, unknown> {
       {
         id: `${A}-pane`,
         position: { x: 40, y: 40 },
-        // Wide enough that no `@container` rung in `tug-status-cell.css` hides
+        // Wide enough that no `@container` rung in `session-telemetry-cell.css` hides
         // the TASKS cell the ARC reading rides.
         size: { width: 900, height: 720 },
         cardIds: [A],

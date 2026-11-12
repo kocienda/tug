@@ -25,15 +25,14 @@
  * card that reloads or wakes would speak a refusal already read, and a newer
  * refusal that arrived meanwhile is not taken down with the old.
  *
- * The subscription registers in `useLayoutEffect` ([L03]); no notice state
- * enters React state ([L02]); appearance is the bulletin's own CSS/DOM ([L06]).
+ * The sequence gate is {@link useSequencedBulletin}'s: keyed on the sequence
+ * rather than the reason, so two identical refusals in a row still notify —
+ * the second one is a second press.
  */
-
-import { useLayoutEffect, useRef } from "react";
 
 import { arcPressStore, type ArcRefusedVerb } from "@/lib/arc-press-store";
 
-import { useTugPaneBulletin } from "../tug-pane-bulletin";
+import { useSequencedBulletin } from "./use-sequenced-bulletin";
 
 /** What the notice's title says could not be done, by the verb refused. */
 const REFUSED_PHRASE: Record<ArcRefusedVerb, string> = {
@@ -55,40 +54,23 @@ export function ArcPressNoticeController({
   /** The session whose transport refusals this notice reports on. */
   tugSessionId: string;
 }): null {
-  const api = useTugPaneBulletin();
-  // The last refusal posted, by sequence. Local data ([L24]) — never React
-  // state. Keyed on the sequence rather than the reason so two identical
-  // refusals in a row still notify: the second one is a second press.
-  const postedSeqRef = useRef<number | null>(null);
-  // The id of the notice actually posted, which carries the refused verb —
-  // so a dismissal takes down the notice that is up rather than a sibling's.
-  const postedIdRef = useRef<string | null>(null);
-
-  useLayoutEffect(() => {
-    const apply = (): void => {
-      const refusal = arcPressStore.refusalFor(tugSessionId);
-      if (refusal === null) {
-        if (postedIdRef.current !== null) {
-          const id = postedIdRef.current;
-          postedSeqRef.current = null;
-          postedIdRef.current = null;
-          api.dismiss(id);
-        }
-        return;
-      }
-      if (refusal.seq === postedSeqRef.current) return;
-      postedSeqRef.current = refusal.seq;
+  useSequencedBulletin(
+    {
+      read: () => arcPressStore.refusalFor(tugSessionId),
+      subscribe: (listener) => arcPressStore.subscribe(listener),
+    },
+    (refusal, api) => {
+      // The id carries the refused verb, so the hook's dismissal takes down
+      // the notice that is up rather than a sibling's.
       const id = `arc-press-${refusal.verb}`;
-      postedIdRef.current = id;
       api.caution(`Couldn't ${REFUSED_PHRASE[refusal.verb]} ${refusal.arc}`, {
         id,
         description: refusal.reason,
         onGone: () => arcPressStore.clearRefusal(tugSessionId, refusal.seq),
       });
-    };
-    apply();
-    return arcPressStore.subscribe(apply);
-  }, [api, tugSessionId]);
-
+      return id;
+    },
+    tugSessionId,
+  );
   return null;
 }

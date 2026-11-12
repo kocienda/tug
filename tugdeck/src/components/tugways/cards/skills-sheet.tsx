@@ -27,11 +27,18 @@
  * @module components/tugways/cards/skills-sheet
  */
 
+import {
+  SheetHeader,
+  SheetHeaderActions,
+  SheetHeaderSummary,
+  SheetHeaderText,
+  SheetNotice,
+} from "./sheet-header";
 import "./skills-sheet.css";
 
 import React, { useCallback, useMemo } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { Lock } from "lucide-react";
+import { Lock, Wrench } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugLabel } from "@/components/tugways/tug-label";
@@ -85,7 +92,7 @@ export function useSkillsSheet({
     skillsInventoryStore.requestInventory();
     void showSheet({
       title: "Skills",
-      icon: "Wrench",
+      icon: <Wrench />,
       displayWidth: "lg",
       presentation: "rise",
       bottomAnchorSelector: MODAL_REST_LINE,
@@ -158,10 +165,10 @@ const SkillsCell: TugListViewCellRenderer<SkillsDataSource> = function SkillsCel
     <TugListRow
       variant="flush"
       title={skill.name}
-      subtitle={skill.description.length > 0 ? skill.description : undefined}
+      description={skill.description.length > 0 ? skill.description : undefined}
       // The description is the full SKILL.md summary — let it wrap to as
       // many lines as it needs instead of ellipsizing at one.
-      subtitleMaxLines={0}
+      descriptionMaxLines={0}
       leading={
         <span className="skills-sheet-lock" aria-label={lockLabel ?? undefined}>
           {lockLabel !== null ? <Lock size={13} aria-hidden /> : null}
@@ -222,27 +229,28 @@ function SkillsSheetBody({
   let body: React.ReactElement;
   if (snapshot.phase === "error") {
     body = (
-      <p className="skills-sheet-notice" role="alert">
+      <SheetNotice className="skills-sheet-notice" role="alert">
         {snapshot.error ?? "Couldn't load skills."}
-      </p>
+      </SheetNotice>
     );
   } else if (snapshot.phase === "loading" || snapshot.payload === null) {
     body = (
-      <p className="skills-sheet-notice" role="status">
+      <SheetNotice className="skills-sheet-notice" role="status">
         Loading skills…
-      </p>
+      </SheetNotice>
     );
   } else if (skills.length === 0) {
     body = (
-      <div className="skills-sheet-notice" role="status">
+      <SheetNotice as="div" className="skills-sheet-notice" role="status">
         <TugLabel emphasis="proposal" size="lg" align="center">
           No plugin or user skills
         </TugLabel>
-      </div>
+      </SheetNotice>
     );
   } else {
     body = (
       <TugListView<SkillsDataSource>
+        sizing="content"
         dataSource={dataSource}
         cellRenderers={SKILLS_CELL_RENDERERS}
         rowLayout="flush"
@@ -255,16 +263,16 @@ function SkillsSheetBody({
 
   const ready = snapshot.phase === "ready" && snapshot.payload !== null;
   const header = (
-    <div className="skills-sheet-header">
-      <div className="skills-sheet-header-text">
+    <SheetHeader className="skills-sheet-header">
+      <SheetHeaderText className="skills-sheet-header-text">
         {ready ? (
-          <span className="skills-sheet-summary">
+          <SheetHeaderSummary className="skills-sheet-summary">
             {skillsSummaryLine(skills.length)}
             <span className="skills-sheet-managed"> · plugin skills are managed via /plugin</span>
-          </span>
+          </SheetHeaderSummary>
         ) : null}
-      </div>
-      <div className="skills-sheet-header-actions">
+      </SheetHeaderText>
+      <SheetHeaderActions className="skills-sheet-header-actions">
         <TugPushButton
           size="sm"
           emphasis="ghost"
@@ -274,8 +282,8 @@ function SkillsSheetBody({
         >
           Refresh
         </TugPushButton>
-      </div>
-    </div>
+      </SheetHeaderActions>
+    </SheetHeader>
   );
 
   return (

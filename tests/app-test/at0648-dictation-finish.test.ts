@@ -42,7 +42,7 @@
  * ([P01]) and every transcript below is scripted through
  * `window.__tugBridge.onDictation`.
  *
- * **Why `tug-prompt-entry.tsx` is not named below.** Both of this file's claims
+ * **Why `prompt-entry.tsx` is not named below.** Both of this file's claims
  * about that composer rest on `useDictationFocusRelease` and on the chord's one
  * handler, and the hook — where the whole of the focus-out rule lives — is in
  * `dictation-store.ts`, which is named. The composer keeps two call sites and
@@ -54,7 +54,7 @@
  * @covers tugdeck/src/lib/dictation-bridge.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
  * @covers tugdeck/src/lib/action-vocabulary.ts
- * @covers tugdeck/src/components/tugways/tug-dictation-button.tsx
+ * @covers tugdeck/src/components/tugways/cards/dictation-button.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/dictation-span.ts
  * @covers tugapp/Sources/DictationEngine.swift
  * @covers tugapp/Sources/SpeechAnalyzerRecognizer.swift

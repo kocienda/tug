@@ -165,7 +165,7 @@ export function SessionChangesArcDocuments({
             ? { name: "documents", qualifier: title }
             : { name: "documents" }
         }
-        slot="session-changes-arc-documents-label"
+        data-slot="session-changes-arc-documents-label"
       />
       {rows.map((row) => {
         const caution = arcReviewPaints(review, taskList) && row.role === "plan";

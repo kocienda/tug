@@ -1,5 +1,5 @@
 /**
- * gallery-tug-clamp.tsx -- TugClamp demo tab for the Component Gallery.
+ * gallery-tug-clamp.tsx -- Clamp demo tab for the Component Gallery.
  *
  * Shows the visual-clamp primitive across its states: a short block that
  * renders bare (no control), a long command that caps at the line limit
@@ -10,7 +10,7 @@
  */
 
 import React from "react";
-import { TugClamp } from "@/components/tugways/tug-clamp";
+import { Clamp } from "./session-changes/clamp";
 import { TugLabel } from "@/components/tugways/tug-label";
 
 const descStyle: React.CSSProperties = {
@@ -48,9 +48,9 @@ export function GalleryTugClamp() {
         <TugLabel className="cg-section-title">Short content — renders bare</TugLabel>
         <div style={{ maxWidth: "560px" }}>
           <div style={descStyle}>Under the cap, so no reveal control appears.</div>
-          <TugClamp lines={8}>
+          <Clamp lines={8}>
             <code style={codeStyle}>{SHORT_COMMAND}</code>
-          </TugClamp>
+          </Clamp>
         </div>
       </div>
 
@@ -62,9 +62,9 @@ export function GalleryTugClamp() {
             The permission-dialog case: a long command clamps with a soft fade
             and a "Show more" reveal.
           </div>
-          <TugClamp lines={8}>
+          <Clamp lines={8}>
             <code style={codeStyle}>{LONG_COMMAND}</code>
-          </TugClamp>
+          </Clamp>
         </div>
       </div>
 
@@ -73,9 +73,9 @@ export function GalleryTugClamp() {
         <TugLabel className="cg-section-title">Tighter cap — 3 lines</TugLabel>
         <div style={{ maxWidth: "560px" }}>
           <div style={descStyle}>The cap is a prop; the same content at lines=3.</div>
-          <TugClamp lines={3}>
+          <Clamp lines={3}>
             <code style={codeStyle}>{LONG_COMMAND}</code>
-          </TugClamp>
+          </Clamp>
         </div>
       </div>
 
@@ -86,11 +86,11 @@ export function GalleryTugClamp() {
           <div style={descStyle}>
             Not just code — any tall, cheap-to-render content clamps the same way.
           </div>
-          <TugClamp lines={4}>
+          <Clamp lines={4}>
             <p style={{ margin: 0, fontSize: "0.875rem", lineHeight: 1.5 }}>
               {LONG_PROSE}
             </p>
-          </TugClamp>
+          </Clamp>
         </div>
       </div>
 

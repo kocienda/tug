@@ -12,14 +12,6 @@
 
 /* ── Tab strip ─────────────────────────────────────────────────────────── */
 
-/* The in-sheet tab set is click-selected; its active state reads from the
-   bar's own active underline. Suppress WebKit's focus ring — the tab bar's
-   `overflow: hidden` crops it to a stray blue sliver at the active tab's
-   right edge. Scoped to this sheet so global tab styling is untouched. */
-.permission-rules-tabs .tug-tab:focus {
-  outline: none;
-}
-
 /* ── Description ────────────────────────────────────────────────────────── */
 
 /* Tab description (a TugLabel): block so the margins apply; size/weight come

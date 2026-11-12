@@ -74,13 +74,11 @@
  */
 
 import React from "react";
-import { createPortal } from "react-dom";
-
-import { breadcrumb } from "@/lib/dom-forensics";
 
 import { commitTip } from "@/components/tugways/entity-tips";
 import { TugCommitAtom } from "@/components/tugways/tug-commit-atom";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { useSpanPortals } from "@/components/tugways/use-span-portals";
 import type { CommitFacts } from "@/lib/annotator/commit-resolution";
 import type { AnnotationContext } from "@/lib/annotator/types";
 
@@ -101,7 +99,7 @@ export const COMMIT_TEXT_ATTRIBUTE = "data-tugx-commit-text";
 
 /**
  * Stamped on an inline `<code>` the pill has taken over completely, so
- * `tug-markdown-view.css` can retire the code tone on it.
+ * `styles/tugx-md.css` can retire the code tone on it.
  *
  * The agents are told to write a sha bare in backticks, so the ordinary
  * spelling of a commit mention puts the wrapper INSIDE a `<code>` element —
@@ -203,100 +201,68 @@ export function useCommitTipPortals(
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
-  const [mounts, setMounts] = React.useState<readonly CommitTipMount[]>([]);
-
-  const onAnnotated = React.useCallback(
-    (container: HTMLElement): void => {
-      const spans = Array.from(
-        container.querySelectorAll<HTMLElement>(COMMIT_SPANS),
-      );
-      const next: CommitTipMount[] = [];
-      for (const host of spans) {
-        const sha = host.getAttribute("data-sha");
-        if (sha === null || sha === "") continue;
-        let text = host.getAttribute(COMMIT_TEXT_ATTRIBUTE);
-        if (text === null) {
-          text = host.textContent ?? "";
-          host.setAttribute(COMMIT_TEXT_ATTRIBUTE, text);
-          host.textContent = "";
-        }
-        // After the host is emptied, so the `<code>` test below reads what is
-        // left rather than what was there. A MENTION leaves the code face
-        // alone: the run goes back as characters, and a sha in backticks is
-        // then the same kind of run as a path in backticks beside it.
-        if (mark === "atom") markAtomCode(host);
-        next.push({ host, sha, text, worded: wordedByProse(host) });
-      }
-      // Rebuild rather than merge, and only publish a change: a pass that
-      // finds the same spans it found last time must not re-render every tip,
-      // and a span that has left the DOM must not survive in the list.
-      breadcrumb("portal.hosts", { hook: "commit-tip", hosts: next.length });
-      setMounts((prev) => (sameMounts(prev, next) ? prev : next));
+  return useSpanPortals<CommitTipMount>({
+    name: "commit-tip",
+    selector: COMMIT_SPANS,
+    targetAttribute: "data-sha",
+    textAttribute: COMMIT_TEXT_ATTRIBUTE,
+    mountFor: (host, sha, text) => {
+      // After the host is emptied, so the `<code>` test reads what is left
+      // rather than what was there. A MENTION leaves the code face alone: the
+      // run goes back as characters, and a sha in backticks is then the same
+      // kind of run as a path in backticks beside it.
+      if (mark === "atom") markAtomCode(host);
+      return { host, sha, text, worded: wordedByProse(host) };
     },
-    [mark],
-  );
-
-  const portals = mounts.map(({ host, sha, text, worded }, index) => {
-    const verdict = resolveCommit?.(sha) ?? { state: "unknown" as const };
-    const facts: CommitFacts | null =
-      verdict.state === "confirmed" ? verdict.facts : null;
-    // The atom, not the prose spelling — the same pill, with the same
-    // `commit:<8ch>` label, that a History row and a receipt header draw. The
-    // as-written characters stay on the host attribute; what the reader sees
-    // is one mark wherever a commit is named — except for the word, which the
-    // sentence takes back when it has already said it.
-    //
-    // Interactive only on a CONFIRMED commit, which is also the only case the
-    // annotator stamps the payload the click reads. An unconfirmed run gets
-    // the pill with no cursor rather than a promise nothing can keep.
-    //
-    // A MENTION is the other branch: the prose spelling, in a plain span,
-    // because the tooltip's trigger has to be an element and the mark's own
-    // appearance is already on the host it portals into.
-    const run =
-      mark === "mention" ? (
-        <span>{text}</span>
-      ) : (
-        <TugCommitAtom sha={sha} interactive={facts !== null} word={!worded} />
-      );
-    return createPortal(
-      facts === null ? (
-        run
-      ) : (
-        <TugTooltip
-          variant="entity"
-          align="start"
-          content={commitTip({
-            sha,
-            subject: facts.subject,
-            author: facts.author,
-            date: facts.date,
-            files: facts.files,
-          })}
-        >
-          {run}
-        </TugTooltip>
-      ),
-      host,
-      // Indexed, because one post can cite the same sha twice — two hosts,
-      // one sha, and a sha-only key would collide.
-      `commit-tip:${index}:${sha}`,
-    );
+    render: (mount) => renderCommitTip(mount, resolveCommit, mark),
+    // Indexed, because one post can cite the same sha twice — two hosts,
+    // one sha, and a sha-only key would collide.
+    keyFor: ({ sha }, index) => `commit-tip:${index}:${sha}`,
   });
-
-  return { onAnnotated, portals };
 }
 
-/** Whether two collections name the same hosts, in the same order. */
-function sameMounts(
-  a: readonly CommitTipMount[],
-  b: readonly CommitTipMount[],
-): boolean {
-  if (a.length !== b.length) return false;
-  return a.every(
-    (mount, i) =>
-      mount.host === b[i]!.host &&
-      mount.sha === b[i]!.sha &&
-      mount.worded === b[i]!.worded,
+/** The node portalled into one commit host. */
+function renderCommitTip(
+  { sha, text, worded }: CommitTipMount,
+  resolveCommit: AnnotationContext["resolveCommit"] | undefined,
+  mark: CommitMark,
+): React.ReactNode {
+  const verdict = resolveCommit?.(sha) ?? { state: "unknown" as const };
+  const facts: CommitFacts | null =
+    verdict.state === "confirmed" ? verdict.facts : null;
+  // The atom, not the prose spelling — the same pill, with the same
+  // `commit:<8ch>` label, that a History row and a receipt header draw. The
+  // as-written characters stay on the host attribute; what the reader sees
+  // is one mark wherever a commit is named — except for the word, which the
+  // sentence takes back when it has already said it.
+  //
+  // Interactive only on a CONFIRMED commit, which is also the only case the
+  // annotator stamps the payload the click reads. An unconfirmed run gets
+  // the pill with no cursor rather than a promise nothing can keep.
+  //
+  // A MENTION is the other branch: the prose spelling, in a plain span,
+  // because the tooltip's trigger has to be an element and the mark's own
+  // appearance is already on the host it portals into.
+  const run =
+    mark === "mention" ? (
+      <span>{text}</span>
+    ) : (
+      <TugCommitAtom sha={sha} interactive={facts !== null} word={!worded} />
+    );
+  if (facts === null) return run;
+  return (
+    <TugTooltip
+      variant="entity"
+      align="start"
+      content={commitTip({
+        sha,
+        subject: facts.subject,
+        author: facts.author,
+        date: facts.date,
+        files: facts.files,
+      })}
+    >
+      {run}
+    </TugTooltip>
   );
 }

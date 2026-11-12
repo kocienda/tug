@@ -103,6 +103,11 @@
  * @module components/arcs/arcs-card
  */
 
+import {
+  RAIL_CARD_CLASS,
+  RAIL_CARD_CONTENT_CLASS,
+} from "@/components/tugways/cards/rail-card-shell";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import "./arcs-card.css";
 
 import React, {
@@ -1270,15 +1275,15 @@ function ArcsBody(): React.ReactElement {
   // way in to name — the card is a fixed address to glance at, not a door.
   if (!populated) {
     return (
-      <div className="arcs-section" data-slot="arcs-section">
+      <div className={`${RAIL_CARD_CLASS} arcs-section`} data-slot="arcs-section">
         <div
-          className="arcs-card-content"
+          className={`${RAIL_CARD_CONTENT_CLASS} arcs-card-content`}
           data-testid="arcs-card-content"
           data-card-content=""
         >
-          <div className="arcs-empty" data-slot="arcs-empty">
+          <TugEmptyLine className="arcs-empty" data-slot="arcs-empty">
             None
-          </div>
+          </TugEmptyLine>
         </div>
       </div>
     );
@@ -1286,11 +1291,11 @@ function ArcsBody(): React.ReactElement {
 
   return (
     <ArcVerbsContext value={verbs}>
-      <div className="arcs-section" data-slot="arcs-section">
+      <div className={`${RAIL_CARD_CLASS} arcs-section`} data-slot="arcs-section">
         {/* The content element ([B01]): everything the card draws, as one
             in-flow column inside the scroller ([B02]). */}
         <div
-          className="arcs-card-content"
+          className={`${RAIL_CARD_CONTENT_CLASS} arcs-card-content`}
           data-testid="arcs-card-content"
           data-card-content=""
         >
@@ -1307,14 +1312,14 @@ function ArcsBody(): React.ReactElement {
         />
         </div>
         {/* One controlled confirm for the whole card, anchored to whichever
-            row armed it. `confirmRole="danger"` puts default focus on Cancel,
+            row armed it. `confirm={{ role: "danger" }}` puts default focus on Cancel,
             so a reflexive Return can never destroy an arc or a brief. */}
         <TugConfirmPopover
           open={pendingConfirm !== null}
           anchorEl={pendingConfirm?.anchor ?? null}
           message={confirm?.message ?? ""}
           confirmLabel={confirm?.confirmLabel ?? "Discard"}
-          confirmRole="danger"
+          confirm={{ role: "danger" }}
           side="top"
           onConfirm={() => {
             const armed = pendingConfirm;

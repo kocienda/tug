@@ -1,14 +1,14 @@
 /**
- * gallery-tug-cue.tsx — `TugCue` Phase 2 production gallery card.
+ * gallery-tug-cue.tsx — `Cue` Phase 2 production gallery card.
  *
  * Phase 1 (now committed) shipped 7 prototype variants A–G inline so the
  * user could vet visually. Variant G — *roman text · ChevronsUpDown leading
  * icon · subtle accent bg · hairline borders top/bottom* — was selected. This
- * file is now Phase 2: it imports the finished `<TugCue>` and exercises every
+ * file is now Phase 2: it imports the finished `<Cue>` and exercises every
  * prop / state combination the API supports.
  *
  * Sections:
- *  - Real-host preview — `<TugCue>` mounted inside a fake-FileBlock frame,
+ *  - Real-host preview — `<Cue>` mounted inside a fake-FileBlock frame,
  *    showing the cue as it'll appear at the live FileBlock / DiffBlock call
  *    sites. A small control row drives `role`, `density`, `disabled`,
  *    `aria-expanded`, and whether the leading icon is present.
@@ -20,9 +20,11 @@
  */
 
 import React, { useId, useState } from "react";
-import { ChevronsUpDown, ChevronDown, ChevronRight, ChevronsDown, ChevronsUp, Copy } from "lucide-react";
-import { TugCue } from "@/components/tugways/tug-cue";
-import type { TugCueDensity, TugCueRole } from "@/components/tugways/tug-cue";
+import { ChevronsUpDown, ChevronsDown, ChevronsUp, Copy } from "lucide-react";
+
+import { TugDisclosure } from "@/components/tugways/tug-disclosure";
+import { Cue } from "@/components/tugways/body-kinds/cue";
+import type { CueDensity, CueRole } from "@/components/tugways/body-kinds/cue";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
@@ -33,7 +35,7 @@ import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { TUG_ACTIONS } from "../action-vocabulary";
 import "./gallery-tug-cue.css";
 
-const ALL_ROLES: readonly TugCueRole[] = [
+const ALL_ROLES: readonly CueRole[] = [
   "active",
   "accent",
   "agent",
@@ -43,7 +45,7 @@ const ALL_ROLES: readonly TugCueRole[] = [
   "success",
   "muted",
 ];
-const ALL_DENSITIES: readonly TugCueDensity[] = ["compact", "comfortable"];
+const ALL_DENSITIES: readonly CueDensity[] = ["compact", "regular"];
 
 interface DebugEntry {
   source: string;
@@ -59,7 +61,7 @@ function formatTime(t: number): string {
 // HostPreview
 // ---------------------------------------------------------------------------
 
-/** Mounts <TugCue> inside a fake-FileBlock frame. */
+/** Mounts <Cue> inside a fake-FileBlock frame. */
 function HostPreview({
   role,
   density,
@@ -68,8 +70,8 @@ function HostPreview({
   withIcon,
   onActivate,
 }: {
-  role: TugCueRole;
-  density: TugCueDensity;
+  role: CueRole;
+  density: CueDensity;
   disabled: boolean;
   expanded: boolean;
   withIcon: boolean;
@@ -97,7 +99,7 @@ function HostPreview({
  11
  12  // (… 1,230 more lines …)`}</pre>
       ) : null}
-      <TugCue
+      <Cue
         role={role}
         density={density}
         disabled={disabled}
@@ -106,7 +108,7 @@ function HostPreview({
         onClick={onActivate}
       >
         {label}
-      </TugCue>
+      </Cue>
     </div>
   );
 }
@@ -118,8 +120,8 @@ function HostPreview({
 export function GalleryTugCue() {
   const [debug, setDebug] = useState<readonly DebugEntry[]>([]);
   const [hostExpanded, setHostExpanded] = useState(false);
-  const [hostRole, setHostRole] = useState<TugCueRole>("active");
-  const [hostDensity, setHostDensity] = useState<TugCueDensity>("compact");
+  const [hostRole, setHostRole] = useState<CueRole>("active");
+  const [hostDensity, setHostDensity] = useState<CueDensity>("compact");
   const [hostDisabled, setHostDisabled] = useState(false);
   const [hostWithIcon, setHostWithIcon] = useState(true);
 
@@ -153,8 +155,8 @@ export function GalleryTugCue() {
       [withIconId]: setHostWithIcon,
     },
     setValueString: {
-      [roleId]: (v) => setHostRole(v as TugCueRole),
-      [densityId]: (v) => setHostDensity(v as TugCueDensity),
+      [roleId]: (v) => setHostRole(v as CueRole),
+      [densityId]: (v) => setHostDensity(v as CueDensity),
     },
   });
 
@@ -231,7 +233,7 @@ export function GalleryTugCue() {
                   <div className="cg-tug-cue-row-label">role={role}</div>
                   <div>
                     <div className="cg-tug-cue-frame">
-                      <TugCue
+                      <Cue
                         role={role}
                         density="compact"
                         aria-expanded={expanded}
@@ -241,7 +243,7 @@ export function GalleryTugCue() {
                         {expanded
                           ? "click to collapse"
                           : `${role} cue — click to expand`}
-                      </TugCue>
+                      </Cue>
                     </div>
                   </div>
                 </div>
@@ -267,7 +269,7 @@ export function GalleryTugCue() {
                     </div>
                     <div>
                       <div className="cg-tug-cue-frame">
-                        <TugCue
+                        <Cue
                           role="active"
                           density={density}
                           aria-expanded={expanded}
@@ -277,7 +279,7 @@ export function GalleryTugCue() {
                           {expanded
                             ? "click to collapse"
                             : "1,230 lines folded — click to expand"}
-                        </TugCue>
+                        </Cue>
                       </div>
                     </div>
                   </div>
@@ -293,7 +295,7 @@ export function GalleryTugCue() {
         <div className="cg-section">
           <TugLabel className="cg-section-title">Affordance use-cases — three shapes for collapse / expand</TugLabel>
           <TugLabel size="xs" emphasis="calm">
-            Shape A — reveal cue (TugCue role=active). Shape B — structural divider (TugCue role=muted align=start mono). Shape C — header collapse toggle (TugIconButton with ChevronsUp). All three pictured inside fake-FileBlock frames so the call-site context reads true.
+            Shape A — reveal cue (Cue role=active). Shape B — structural divider (Cue role=muted align=start mono). Shape C — header collapse toggle (TugIconButton with ChevronsUp). All three pictured inside fake-FileBlock frames so the call-site context reads true.
           </TugLabel>
 
           {/* Shape A — collapsed FileBlock with reveal cue */}
@@ -312,14 +314,14 @@ export function GalleryTugCue() {
   2    return <div>… 1,230 lines …</div>;
   3  }`}</pre>
                   ) : null}
-                  <TugCue
+                  <Cue
                     role="active"
                     icon={<ChevronsDown />}
                     aria-expanded={expanded}
                     onClick={onMatrixActivate(id)}
                   >
                     {expanded ? "click to collapse" : "1,230 lines folded — click to expand"}
-                  </TugCue>
+                  </Cue>
                 </div>
               </div>
             );
@@ -333,16 +335,16 @@ export function GalleryTugCue() {
               <div style={{ marginTop: "12px" }}>
                 <TugLabel size="2xs" emphasis="calm">Shape B — structural divider (diff hunk header)</TugLabel>
                 <div className="cg-tug-cue-frame">
-                  <TugCue
+                  <Cue
                     role="muted"
                     align="start"
                     mono
-                    icon={expanded ? <ChevronDown /> : <ChevronRight />}
+                    icon={<TugDisclosure expanded={expanded} />}
                     aria-expanded={expanded}
                     onClick={onMatrixActivate(id)}
                   >
                     @@ -217,21 +217,21 @@ Higher-level components assembled from multiple primitives.
-                  </TugCue>
+                  </Cue>
                 </div>
               </div>
             );
@@ -358,12 +360,12 @@ export function GalleryTugCue() {
                 <div className="cg-tug-cue-host">
                   <div className="cg-tug-cue-host-header">
                     <span style={{ flex: 1 }}>src/components/tugways/big-file.tsx</span>
-                    <TugIconButton
+                    <TugIconButton size="sm"
                       icon={<Copy />}
                       aria-label="Copy file"
                       onClick={() => onMatrixActivate(`${id}-copy`)()}
                     />
-                    <TugIconButton
+                    <TugIconButton size="sm"
                       icon={collapsed ? <ChevronsDown /> : <ChevronsUp />}
                       aria-label={collapsed ? "Expand file" : "Collapse file"}
                       onClick={onMatrixActivate(id)}
@@ -386,7 +388,7 @@ export function GalleryTugCue() {
         <div className="cg-section">
           <TugLabel className="cg-section-title">Disabled state</TugLabel>
           <div className="cg-tug-cue-frame">
-            <TugCue
+            <Cue
               role="active"
               density="compact"
               disabled
@@ -394,7 +396,7 @@ export function GalleryTugCue() {
               onClick={() => record("should-not-fire")}
             >
               disabled cue — clicks do not fire onClick
-            </TugCue>
+            </Cue>
           </div>
         </div>
 

@@ -20,7 +20,7 @@
 
 /**
  * The Z4A route control: a `TugChoiceGroup` of Prompt | Changes. Mirrors the
- * `aria-label` in `tugdeck/src/components/tugways/tug-prompt-entry.tsx` and the
+ * `aria-label` in `tugdeck/src/components/tugways/cards/prompt-entry.tsx` and the
  * root `data-slot` in `tug-choice-group.tsx`. It was a single
  * `button[aria-label="Route this input"]` until the bang layer was retired.
  */

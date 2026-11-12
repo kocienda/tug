@@ -35,6 +35,9 @@ import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { ActionEvent } from "@/components/tugways/responder-chain";
+import { useOptionalResponder } from "@/components/tugways/use-responder";
 
 const labelStyle: React.CSSProperties = {
   fontSize: "0.75rem",
@@ -180,8 +183,39 @@ export function GalleryTugDialogButton(): React.ReactElement {
     RADIO_CHOICES[0].id,
   );
 
+  // Every demo's buttons dispatch `select-value` ([L11]); the sender names
+  // the demo, and this one responder routes each press to its state.
+  const senderBase = React.useId();
+  const sender = {
+    bare: `${senderBase}bare`,
+    labelDesc: `${senderBase}label-desc`,
+    stacked: `${senderBase}stacked`,
+    check: `${senderBase}check`,
+    radio: `${senderBase}radio`,
+    danger: `${senderBase}danger`,
+    composed: `${senderBase}composed`,
+  };
+  const responderId = React.useId();
+  const { ResponderScope, responderRef } = useOptionalResponder({
+    id: responderId,
+    actions: {
+      [TUG_ACTIONS.SELECT_VALUE]: (event: ActionEvent) => {
+        const value = event.value;
+        if (typeof value !== "string") return;
+        if (event.sender === sender.bare) setBareResult(value);
+        else if (event.sender === sender.labelDesc) setLabelDescResult(value);
+        else if (event.sender === sender.stacked) setStackedResult(value);
+        else if (event.sender === sender.check) toggleCheck(value);
+        else if (event.sender === sender.radio) setRadioSelected(value);
+        else if (event.sender === sender.danger) setDangerResult(value);
+        else if (event.sender === sender.composed) setComposedScope(value);
+      },
+    },
+  });
+
   return (
-    <div className="cg-content" data-testid="gallery-tug-dialog-button">
+    <ResponderScope>
+    <div ref={responderRef} className="cg-content" data-testid="gallery-tug-dialog-button">
       {/* ---- 1. Bare label ---- */}
       <div className="cg-section">
         <TugLabel className="cg-section-title">Bare label</TugLabel>
@@ -192,7 +226,9 @@ export function GalleryTugDialogButton(): React.ReactElement {
         <div style={stackStyle}>
           <TugDialogButton
             label="Open settings"
-            onClick={() => setBareResult("Open settings clicked")}
+            action={TUG_ACTIONS.SELECT_VALUE}
+            senderId={sender.bare}
+            value="Open settings clicked"
           />
         </div>
         <div style={resultStyle}>
@@ -221,7 +257,9 @@ export function GalleryTugDialogButton(): React.ReactElement {
               </>
             }
             trailing={<ChevronRight aria-hidden="true" />}
-            onClick={() => setLabelDescResult("Configure permissions clicked")}
+            action={TUG_ACTIONS.SELECT_VALUE}
+            senderId={sender.labelDesc}
+            value="Configure permissions clicked"
           />
         </div>
         <div style={resultStyle}>
@@ -247,7 +285,9 @@ export function GalleryTugDialogButton(): React.ReactElement {
               key={entry.label}
               label={entry.label}
               description={entry.description}
-              onClick={() => setStackedResult(entry.label)}
+              action={TUG_ACTIONS.SELECT_VALUE}
+              senderId={sender.stacked}
+              value={entry.label}
             />
           ))}
         </div>
@@ -276,7 +316,9 @@ export function GalleryTugDialogButton(): React.ReactElement {
               description={choice.description}
               selected={checkSelected.has(choice.id)}
               selectionStyle="check"
-              onClick={() => toggleCheck(choice.id)}
+              action={TUG_ACTIONS.SELECT_VALUE}
+              senderId={sender.check}
+              value={choice.id}
             />
           ))}
         </div>
@@ -315,7 +357,9 @@ export function GalleryTugDialogButton(): React.ReactElement {
               description={choice.description}
               selected={radioSelected === choice.id}
               selectionStyle="radio"
-              onClick={() => setRadioSelected(choice.id)}
+              action={TUG_ACTIONS.SELECT_VALUE}
+              senderId={sender.radio}
+              value={choice.id}
             />
           ))}
         </div>
@@ -345,7 +389,9 @@ export function GalleryTugDialogButton(): React.ReactElement {
               </>
             }
             role="danger"
-            onClick={() => setDangerResult("Delete clicked")}
+            action={TUG_ACTIONS.SELECT_VALUE}
+            senderId={sender.danger}
+            value="Delete clicked"
           />
         </div>
         <div style={resultStyle}>
@@ -368,7 +414,7 @@ export function GalleryTugDialogButton(): React.ReactElement {
         </div>
         <TugInlineDialog
           icon={<ShieldAlert />}
-          iconRole="caution"
+          iconTone="caution"
           title="Permission requested"
           description={
             <>
@@ -407,7 +453,7 @@ export function GalleryTugDialogButton(): React.ReactElement {
             description: choice.description,
           }))}
           selectedOption={composedScope}
-          onSelectOption={setComposedScope}
+          senderId={sender.composed}
           optionsAriaLabel="Permission scope"
         />
         <div style={resultStyle}>
@@ -416,5 +462,6 @@ export function GalleryTugDialogButton(): React.ReactElement {
       </div>
 
     </div>
+    </ResponderScope>
   );
 }

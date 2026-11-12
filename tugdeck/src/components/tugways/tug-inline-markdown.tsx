@@ -9,12 +9,14 @@
  * spans, strong, emphasis, escapes and entities. Angle brackets, list markers
  * and headings are text, because these lines are often about code.
  *
- * The output is inline React nodes — text, `<code>`, `<strong>`, `<em>` — with
- * no wrapper of its own, so it drops into a row's text slot and the slot's own
- * clipping and ellipsis keep working. No HTML string is built, so there is
- * nothing to sanitize.
+ * The output is inline React nodes — text, `<code>`, `<strong>`, `<em>` — in
+ * one inline `<span>` root, so it drops into a row's text slot and the slot's
+ * own clipping and ellipsis keep working: an inline box is clipped and
+ * ellipsized by its block container like the text it holds. No HTML string
+ * is built, so there is nothing to sanitize.
  *
- * Laws: [L06] appearance is CSS (`tug-inline-markdown.css`); [L19] file pair.
+ * Laws: [L06] appearance is CSS (`tug-inline-markdown.css`); [L19] component
+ * authoring guide.
  *
  * @module components/tugways/tug-inline-markdown
  */
@@ -24,6 +26,7 @@ import "./tug-inline-markdown.css";
 import React from "react";
 
 import { inlineMarkdownRuns, type InlineMarkdownRun } from "@/lib/inline-markdown-runs";
+import { cn } from "@/lib/utils";
 
 function renderRuns(runs: readonly InlineMarkdownRun[]): React.ReactNode[] {
   return runs.map((run, i) => {
@@ -52,7 +55,18 @@ function renderRuns(runs: readonly InlineMarkdownRun[]): React.ReactNode[] {
   });
 }
 
-export function TugInlineMarkdown({ text }: { text: string }): React.ReactElement {
-  const nodes = React.useMemo(() => renderRuns(inlineMarkdownRuns(text)), [text]);
-  return <>{nodes}</>;
+export interface TugInlineMarkdownProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
+  /** The line, in inline markdown. */
+  text: string;
 }
+
+export const TugInlineMarkdown = React.forwardRef<HTMLSpanElement, TugInlineMarkdownProps>(
+  function TugInlineMarkdown({ text, className, ...rest }, ref) {
+    const nodes = React.useMemo(() => renderRuns(inlineMarkdownRuns(text)), [text]);
+    return (
+      <span {...rest} ref={ref} data-slot="tug-inline-markdown" className={cn("tug-inline-markdown", className)}>
+        {nodes}
+      </span>
+    );
+  },
+);

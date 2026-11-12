@@ -5,11 +5,11 @@
  * "This file changed on disk while you were editing" is a claim the user has
  * no way to check. Reload and Keep Mine each discard one side's work, and
  * nothing on the banner says which side is worth keeping. So the card offers
- * a diff — and the diff viewer the app already has (`TugDiffDocument`) reads
+ * a diff — and the diff viewer the app already has (`DiffDocument`) reads
  * a `GitDiffPayload`, whose `unified` field is plain unified-diff text.
  *
  * Nothing here talks to git. The payload is synthesized locally from the disk
- * text and the live buffer, with the fields `TugDiffDocument` reads filled in
+ * text and the live buffer, with the fields `DiffDocument` reads filled in
  * and the request/workspace correlation fields left empty — it is a view, not
  * a request's answer, and it is never persisted or sent anywhere.
  *

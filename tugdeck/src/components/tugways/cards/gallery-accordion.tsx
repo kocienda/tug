@@ -404,16 +404,16 @@ export function GalleryAccordion() {
           <TugAccordion type="multiple">
             <TugAccordionItem value="nested-status" trigger="Status Badges">
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                <TugBadge role="success" emphasis="tinted">Deployed</TugBadge>
-                <TugBadge role="caution" emphasis="tinted">Pending Review</TugBadge>
-                <TugBadge role="danger" emphasis="tinted">Build Failed</TugBadge>
-                <TugBadge role="accent" emphasis="ghost">Draft</TugBadge>
+                <TugBadge size="sm" role="success" emphasis="tinted">Deployed</TugBadge>
+                <TugBadge size="sm" role="caution" emphasis="tinted">Pending Review</TugBadge>
+                <TugBadge size="sm" role="danger" emphasis="tinted">Build Failed</TugBadge>
+                <TugBadge size="sm" role="accent" emphasis="ghost">Draft</TugBadge>
               </div>
             </TugAccordionItem>
             <TugAccordionItem value="nested-progress" trigger="Upload Progress">
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <TugProgressIndicator variant="bar" size={6} value={0.6} label="assets.zip — 60%" />
-                <TugProgressIndicator variant="bar" size={6} value={1} label="config.json — complete" role="success" />
+                <TugProgressIndicator variant="bar" size={6} value={1} label="config.json — complete" tone="success" />
               </div>
             </TugAccordionItem>
             <TugAccordionItem value="nested-input" trigger="Quick Search">

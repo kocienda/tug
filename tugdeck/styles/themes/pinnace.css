@@ -1124,7 +1124,7 @@ body {
      `scrollKey` prop. */
   /* `--tugx-list-view-*` slots live in tug-list-view.css. */
 
-  /* TugMarkdownView / TugMarkdownBlock typography (--tugx-md-*).
+  /* TugMarkdownBlock typography (--tugx-md-*).
      Light-theme values for `pinnace`. The full token vocabulary is
      the contract every Layer-1 markdown block consumes; ironclad.css
      declares the same token names with dark-theme values.
@@ -1136,7 +1136,7 @@ body {
      (darker-than-canvas vs lighter-than-canvas) rather than just
      hue. */
 
-  /* `--tugx-md-*` slots live in tug-markdown-view.css's body{} block per
+  /* `--tugx-md-*` slots live in styles/tugx-md.css's body{} block per
    * tuglaws/token-naming.md. */
 
   /* ---- Thinking block (SessionThinkingBlock per Table T07) ----

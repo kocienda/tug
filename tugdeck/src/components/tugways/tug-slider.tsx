@@ -96,8 +96,8 @@
  * After dispatching `"cancel"`, TugSlider suppresses any follow-up
  * Radix `onValueCommit` (via a `cancelledRef` flag) so the cancelled
  * drag doesn't double-fire as a `"commit"` once focus leaves the
- * thumb. The Escape key also blurs the thumb, preserving the pre-A2.6
- * keyboard behavior.
+ * thumb. The Escape key also blurs the thumb, so the keyboard leaves the
+ * slider as it does after a commit.
  *
  * Pointer-cancel (the OS aborts a pointer gesture — iOS native scroll
  * takes over, a system modal steals input, the pointer capture is
@@ -115,6 +115,7 @@
  */
 
 import "./tug-slider.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, { useCallback, useId, useLayoutEffect, useRef } from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
@@ -132,7 +133,7 @@ import type { FocusPolicy } from "./focus-manager";
 // ---- Types ----
 
 /** Slider size names. */
-export type TugSliderSize = "sm" | "md" | "lg";
+export type TugSliderSize = Extract<TugSize, "sm" | "md" | "lg">;
 
 /** Slider layout names. */
 export type TugSliderLayout = "inline" | "stacked";

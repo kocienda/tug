@@ -40,6 +40,7 @@ import {
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import { ShellExchangeBlock } from "./shell-exchange-block";
 import "@/components/tugways/commit-presentation.css";
+import { ReceiptHeader, ReceiptHeaderText } from "./receipt-header";
 import "./session-push-receipt-block.css";
 
 /** The display facts parsed from a Spec S01 push summary. */
@@ -130,10 +131,10 @@ function PushReceipt({
   // The sha the upstream now points at stands where the commit receipt's own
   // atom does — the one thing in this receipt that can be opened.
   const identity = (
-    <span className="push-receipt-header">
-      <code ref={routeRef} className="push-receipt-route" data-tugx-findable="">
+    <ReceiptHeader className="push-receipt-header">
+      <ReceiptHeaderText ref={routeRef} className="push-receipt-route">
         {`pushed ${branch} → ${upstream}`}
-      </code>
+      </ReceiptHeaderText>
       {" "}
       <span className="push-receipt-sha">
         <CommitShaText
@@ -141,7 +142,7 @@ function PushReceipt({
           onActivate={() => requestCommitCard({ root: cwd, sha: after }, {}, hostCardId)}
         />
       </span>
-    </span>
+    </ReceiptHeader>
   );
   return (
     <ToolBlockHistoryCollapse toolUseId={exchangeId} defaultCollapsed={false}>

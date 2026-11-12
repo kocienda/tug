@@ -52,6 +52,7 @@ import { TugLabel } from "@/components/tugways/tug-label";
 import { useMotionHold } from "@/lib/motion-guard";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 
 import type { SpikeDef } from "./spike-registry";
 
@@ -385,7 +386,7 @@ function Pills({
           spans={rects.map((r) => ({ left: r.left / 100, width: r.width / 100 }))}
           states={states}
           size="sm"
-          onSelectSlot={() => {}}
+          action={TUG_ACTIONS.SELECT_SLOT}
           slotLabel={(slot) => `Go to slot ${slot + 1}`}
         />
       </span>

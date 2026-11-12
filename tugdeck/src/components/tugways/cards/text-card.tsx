@@ -86,8 +86,8 @@ import { buildTwoTextDiffPayload } from "@/lib/diff/two-text-diff";
 import { TugTextCardEditor, type TugTextCardEditorDelegate } from "../tug-text-card-editor";
 import { AssetProjection } from "@/lib/asset-projection";
 import { removeAssetWithUndo } from "../tug-text-card-editor/asset-trash";
-import { TugAttachmentPreview } from "./tug-attachment-preview";
-import { TugFileChooser } from "../tug-file-chooser";
+import { AttachmentPreview } from "./attachment-preview";
+import { TugFileChooser, useFileChooserHost } from "../tug-file-chooser";
 import { TugPaneBanner } from "../tug-pane-banner";
 import { TugPushButton } from "../tug-push-button";
 import {
@@ -355,6 +355,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   // Chooser input value (empty state only). Controlled-input local
   // data; the committed value is the store's `path` binding.
   const [chooserValue, setChooserValue] = useState("");
+  const ChooserHost = useFileChooserHost({
+    onChange: setChooserValue,
+    onSubmit: () => openPath(chooserValue),
+  });
 
   // Find bar: open/closed is structural (the bar mounts/unmounts below the
   // editor); the query, options, and count live inside `TextCardFindBar`,
@@ -1257,16 +1261,16 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         <div className="text-card-open-surface">
           <TugLabel className="text-card-open-prompt">Open a file</TugLabel>
           <div className="text-card-open-row">
-            <TugFileChooser
+            <ChooserHost>
+            <TugFileChooser size="sm"
               value={chooserValue}
-              onChange={setChooserValue}
               base="/"
               kind="file"
               placeholder="/path/to/file or ~/path/to/file"
               aria-label="File path"
               autoFocus
-              onSubmit={() => openPath(chooserValue)}
             />
+            </ChooserHost>
             <TugPushButton
               onClick={() => openPath(chooserValue)}
               disabled={chooserValue.trim() === ""}
@@ -1362,7 +1366,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
          * `null` for an empty tile set, so a document with no attachments
          * contributes no height at all. */}
         {assetAtoms.length > 0 ? (
-          <TugAttachmentPreview
+          <AttachmentPreview
             atoms={assetAtoms}
             bytesStore={assetProjection.bytesStore}
             className="text-card-asset-strip"
@@ -1423,7 +1427,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
          * makes the interference impossible by construction — the same shape
          * the Session card gets by deriving a single banner. */}
         <TugPaneBanner
-          visible={
+          open={
             conflict !== null &&
             // Held while folded: the masthead says it, and the banner presents
             // on the unfold rather than over an `inert` slit ([B10]).
@@ -1435,7 +1439,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
               (conflict.reason === "missing" &&
                 conflict.raisedOverCleanBuffer === true))
           }
-          variant="error"
+          kind="error"
           tone="caution"
           label={conflict?.reason === "missing" ? "File deleted" : "File changed"}
           message={

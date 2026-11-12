@@ -7,7 +7,7 @@
  * The Overview's post attachments are files: a question's images went up once,
  * tugcast wrote them beside the ledger, and the post says only where they are
  * ({@link OverviewAttachmentWire}). The strip that draws them is the app's own
- * {@link TugAttachmentPreview} — the same tiles, the same captions, the same
+ * {@link AttachmentPreview} — the same tiles, the same captions, the same
  * click-to-enlarge sheet the Session card's transcript shows — and that
  * component's substrate is an {@link AtomBytesStore} keyed by atom id. So the
  * job here is one adapter: a path becomes an atom id, and the bytes at that

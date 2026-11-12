@@ -84,12 +84,11 @@ import {
 import { BASE_THEME_NAME } from "./theme-constants";
 // The shared markdown sheet: the `--tugx-md-*` tokens and the per-block rules
 // (fenced-code and table chrome, image overlay, links) every shipped
-// `TugMarkdownBlock` renders against. Only `TugMarkdownView` imports it, and
-// that ships with the gallery alone, so the deck takes it here — at this slot,
-// where the gallery's static import used to bring it, because the bundled
-// cascade puts it after the card stylesheets whose equal-specificity rules it
-// has always beaten.
-import "./components/tugways/tug-markdown-view.css";
+// `TugMarkdownBlock` renders against. No component imports it, so each page
+// takes it itself; here at this slot, because the bundled cascade puts it
+// after the card stylesheets whose equal-specificity rules it has always
+// beaten.
+import "../styles/tugx-md.css";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
   exposePerfMonitor,

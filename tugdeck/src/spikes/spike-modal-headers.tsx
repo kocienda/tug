@@ -3,7 +3,7 @@
  * convention.
  *
  * Every modal/overlay header (TugAlert, TugAlertSheet, TugSheet, ConfigureTug,
- * TugVersionGate) draws one scale from `styles/tugx-header.css`, in three
+ * VersionGate) draws one scale from `styles/tugx-header.css`, in three
  * cases: one-line (title only), two-line (title + description), and alert
  * (title + message). This card renders each case as a static panel so the
  * convention can be judged at a glance without summoning live overlays.
@@ -49,7 +49,7 @@ type HeaderIconRole = "muted" | "agent" | "action" | "danger";
 interface SpecHeaderProps {
   kind: HeaderKind;
   icon: React.ReactNode;
-  iconRole?: HeaderIconRole;
+  iconTone?: HeaderIconRole;
   title: string;
   description?: string;
 }
@@ -57,7 +57,7 @@ interface SpecHeaderProps {
 function SpecHeader({
   kind,
   icon,
-  iconRole = "muted",
+  iconTone = "muted",
   title,
   description,
 }: SpecHeaderProps): React.ReactElement {
@@ -65,7 +65,7 @@ function SpecHeader({
     <div
       className="sp-mh-header"
       data-kind={kind}
-      data-icon-role={iconRole}
+      data-icon-tone={iconTone}
       data-solo={description ? undefined : "true"}
     >
       <div className="sp-mh-icon" aria-hidden="true">
@@ -85,19 +85,19 @@ function SpecHeader({
 
 function ShippedSheetHeader({
   icon,
-  iconRole = "muted",
+  iconTone = "muted",
   title,
   description,
 }: {
   icon: React.ReactNode;
-  iconRole?: HeaderIconRole;
+  iconTone?: HeaderIconRole;
   title: string;
   description?: string;
 }): React.ReactElement {
   return (
     <div
       className="tug-sheet-header"
-      data-icon-role={iconRole}
+      data-icon-tone={iconTone}
       data-has-description={description ? "true" : undefined}
     >
       <div className="tug-sheet-icon" aria-hidden="true">
@@ -113,23 +113,23 @@ function ShippedSheetHeader({
 
 function ShippedAlertHeader({
   icon,
-  iconRole,
+  iconTone,
   title,
   message,
   alertScale = false,
 }: {
   icon: React.ReactNode;
-  iconRole?: HeaderIconRole;
+  iconTone?: HeaderIconRole;
   title: string;
   message?: string;
   /** Stamp `data-scale="alert"` — TugAlert / TugAlertSheet / the File save
-   *  sheets do; ConfigureTug / TugVersionGate render one-line headers and don't. */
+   *  sheets do; ConfigureTug / VersionGate render one-line headers and don't. */
   alertScale?: boolean;
 }): React.ReactElement {
   return (
     <div
       className="tug-alert-body"
-      data-icon-role={iconRole}
+      data-icon-tone={iconTone}
       data-scale={alertScale ? "alert" : undefined}
       data-has-message={message ? "true" : undefined}
     >
@@ -299,10 +299,10 @@ export function SpikeModalHeaders(): React.ReactElement {
           </MockPanel>
         </div>
         <div className="sp-mh-compare">
-          <MockPanel caption="shipped — ConfigureTug's exact markup: .tug-alert-* with data-icon-role=action, no message">
+          <MockPanel caption="shipped — ConfigureTug's exact markup: .tug-alert-* with data-icon-tone=action, no message">
             <ShippedAlertHeader
               icon={<Rocket />}
-              iconRole="action"
+              iconTone="action"
               title="Configure Tug"
             />
             {SETUP_ROWS}
@@ -325,7 +325,7 @@ export function SpikeModalHeaders(): React.ReactElement {
           <MockPanel caption="shipped — .tug-sheet-* with data-has-description (the pickers)">
             <ShippedSheetHeader
               icon={<Gauge />}
-              iconRole="agent"
+              iconTone="agent"
               title="Reasoning Effort"
               description="Choose how long Claude thinks before answering."
             />
@@ -335,7 +335,7 @@ export function SpikeModalHeaders(): React.ReactElement {
             <SpecHeader
               kind="two"
               icon={<Gauge />}
-              iconRole="agent"
+              iconTone="agent"
               title="Reasoning Effort"
               description="Choose how long Claude thinks before answering."
             />
@@ -346,7 +346,7 @@ export function SpikeModalHeaders(): React.ReactElement {
           <MockPanel caption="shipped — Resume in line with the other pickers: agent tint + Title Case">
             <ShippedSheetHeader
               icon={<RotateCcw />}
-              iconRole="agent"
+              iconTone="agent"
               title="Resume Session"
               description="Pick a session to resume in this card."
             />
@@ -428,7 +428,7 @@ export function SpikeModalHeaders(): React.ReactElement {
             <strong>Consumers:</strong> `.tug-sheet-header/icon/title/
             description` (tug-sheet.css) and `.tug-alert-body/icon/title/
             message` (tug-alert.css). TugAlertSheet, ConfigureTug, and
-            TugVersionGate all render the `.tug-alert-*` classes — no
+            VersionGate all render the `.tug-alert-*` classes — no
             component declares its own header scale.
           </span>
           <span className="sp-mh-note">

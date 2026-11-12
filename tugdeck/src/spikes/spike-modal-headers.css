@@ -14,7 +14,7 @@
  *   .sp-mh-title    → .tug-sheet-title  / .tug-alert-title
  *   .sp-mh-desc     → .tug-sheet-description / .tug-alert-message
  *
- * (ConfigureTug and TugVersionGate render the `.tug-alert-*` classes directly —
+ * (ConfigureTug and VersionGate render the `.tug-alert-*` classes directly —
  * no bespoke header classes remain.)
  *
  * No color-setting rules beyond the icon tones below; all text inherits from
@@ -108,9 +108,9 @@
 }
 
 /* Per-role icon tint — same tone family the sheet header uses. */
-.sp-mh-header[data-icon-role="agent"]  .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-agent-rest); }
-.sp-mh-header[data-icon-role="action"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-active-rest); }
-.sp-mh-header[data-icon-role="danger"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-danger-rest); }
+.sp-mh-header[data-icon-tone="agent"]  .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-agent-rest); }
+.sp-mh-header[data-icon-tone="action"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-active-rest); }
+.sp-mh-header[data-icon-tone="danger"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-danger-rest); }
 
 /* ---- Text column ----------------------------------------------------------- */
 

@@ -78,7 +78,7 @@ A control's interaction model determines which phases it dispatches. There are e
 **Discrete controls** — dispatch `discrete` only. One action event per user action. No gesture lifecycle.
 - TugButton, TugPushButton: `discrete` on click
 - TugCheckbox, TugSwitch: `discrete` on toggle
-- TugPopupButton, TugContextMenu: `discrete` on menu item selection
+- TugPopupButton, PdfContextMenu: `discrete` on menu item selection
 - TugValueInput: `discrete` on blur-commit, Enter-commit, arrow-key step
 - TugTabBar: `discrete` on tab selection
 - Keyboard shortcuts: `discrete` always
@@ -161,7 +161,7 @@ Dispatch walks from the first responder upward through `parentId` links until a 
 
 Two more points worth noticing on the diagram:
 
-- `select-all` is registered only on content components (`TugPromptInput`, `TugInput`, `TugTextarea`, `TugValueInput`, `TugMarkdownView`) — NOT on `TugCard`. When an editor is focused, ⌘A selects within that editor. When no editor is focused, the action is unhandled — it walks all the way to the root and falls off. There is no "select everything in the card" behavior.
+- `select-all` is registered only on content components (`TugPromptInput`, `TugInput`, `TugTextarea`, `TugValueInput`, and the read-only documents through `useReadOnlyTextSurface`) — NOT on `TugCard`. When an editor is focused, ⌘A selects within that editor. When no editor is focused, the action is unhandled — it walks all the way to the root and falls off. There is no "select everything in the card" behavior.
 
 - An action that no node handles walks all the way to the root and falls off. `sendToFirstResponder` returns `false`. That is the correct outcome for unhandled shortcuts: the browser's native handling (or nothing at all) runs. The chain does not need an "unhandled" sink.
 
@@ -217,7 +217,7 @@ The two debug attributes this writes to the DOM are worth knowing about:
 
 Controls and responders differ in whether they accept keyboard focus on click. This mirrors Cocoa's `acceptsFirstResponder` concept.
 
-**Focus-accepting components** need keyboard input to function. Clicking them moves both browser focus and first-responder status to them. Examples: `TugInput`, `TugTextarea`, `TugValueInput`, `TugPromptInput`, `TugMarkdownView`.
+**Focus-accepting components** need keyboard input to function. Clicking them moves both browser focus and first-responder status to them. Examples: `TugInput`, `TugTextarea`, `TugValueInput`, `TugPromptInput`.
 
 **Focus-refusing components** are controls that dispatch actions but don't need keyboard focus. Clicking them fires their action but does NOT steal focus from the active editor. The first responder stays wherever it was. Examples: `TugButton` (and `TugPushButton`, `TugPopupButton`), `TugCheckbox`, `TugSwitch`, `TugSlider`, `TugChoiceGroup`, `TugOptionGroup`, `TugTabBar`.
 
@@ -691,7 +691,7 @@ Four invariants every consumer obeys:
 
 2. **The blink guard (`blinkingRef`).** A menu that dispatches its own item activation triggers a chain walk that fires every observer — including its own. Without a guard, the menu would dismiss itself mid-animation. The solution is a ref set to `true` during the activation blink and the subsequent dispatch, and checked at the top of the observer callback. When `blinkingRef.current` is true, the observer skips its close path. The guard is specifically for self-dispatches; it does not suppress unrelated traffic.
 
-3. **The close mechanism depends on the underlying primitive.** Radix primitives that expose a controlled `open` prop (Tooltip, Popover, DropdownMenu) close by calling `setOpen(false)`. Radix ContextMenu is uncontrolled by design (no `open` prop) and closes only via a native Escape keydown, so `TugContextMenu` synthesizes `document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}))` from the observer. Same observeDispatch pattern, different close invocation.
+3. **The close mechanism depends on the underlying primitive.** Radix primitives that expose a controlled `open` prop (Tooltip, Popover, DropdownMenu) close by calling `setOpen(false)`. Radix ContextMenu is uncontrolled by design (no `open` prop) and closes only via a native Escape keydown, so `PdfContextMenu` synthesizes `document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}))` from the observer. Same observeDispatch pattern, different close invocation.
 
 4. **Modal surfaces opt out.** Alerts and sheets are app-modal or card-modal — they intentionally block interaction with surrounding content until the user explicitly confirms or cancels. "Close on any chain activity" would surprise a user whose modal disappeared because an unrelated shortcut fired somewhere else. `TugAlert` and `TugSheet` therefore do NOT install `observeDispatch` observers at all. The canonical invariants table for all four A2.8 floating surfaces is in `internal/floating-surface-notes.ts`; consult it before adding or removing an observer on a floating surface.
 

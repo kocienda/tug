@@ -36,10 +36,7 @@
  *
  * Text rendering: a `text` entry renders as pre-wrapped prose. When
  * the [#step-3] assistant-text renderer ships, text entries can route
- * through it; until then prose is honest and dependency-free — this
- * body kind deliberately does not embed the virtualized
- * `TugMarkdownView` (it owns its own scroll container and imperative
- * ref contract, wrong for short inline entries).
+ * through it; until then prose is honest and dependency-free.
  *
  * What this body kind does NOT do:
  *  - Render a text-entry surface ([#bk-conformance] item 2) — it
@@ -548,7 +545,7 @@ export const AgentTranscriptBlock: React.FC<AgentTranscriptBlockProps> = ({
       className={rootClass}
     >
       {embedded ? null : (
-        <div className="tugx-agent-header" data-slot={DATA_SLOT_HEADER}>
+        <div className="tugx-agent-header tugx-block-strip" data-slot={DATA_SLOT_HEADER}>
           {label !== undefined ? (
             <span className="tugx-agent-label" data-slot="agent-transcript-label">
               {label}

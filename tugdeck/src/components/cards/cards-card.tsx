@@ -54,6 +54,13 @@
  * @module components/cards/cards-card
  */
 
+import {
+  RAIL_CARD_CLASS,
+  RAIL_CARD_CONTENT_CLASS,
+  RAIL_CARD_LIST_WRAP_CLASS,
+  RailCardToolbar,
+} from "@/components/tugways/cards/rail-card-shell";
+import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import "./cards-card.css";
 
 import React, {
@@ -111,8 +118,7 @@ import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
-import { TugLabel } from "@/components/tugways/tug-label";
-import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugListRow, TugListRowTitle } from "@/components/tugways/tug-list-row";
 import { TugListView } from "@/components/tugways/tug-list-view";
 import type {
   TugListViewCellProps,
@@ -375,6 +381,7 @@ function OneLineRow({
       }
       data-cards-group-run={groupRunKey(spaceId, group)}
       {...spaceRowAttrs(spaceId, spaceActive)}
+      state={spaceActive ? undefined : "dimmed"}
       {...(rowId !== null
         ? { "data-cards-row-id": rowId, "data-cards-row-group": group }
         : {})}
@@ -416,7 +423,7 @@ function OneLineRow({
         <span className="cards-row-glyph" aria-hidden="true">
           {glyph}
         </span>
-        <TugLabel className="tug-list-row-title" size="sm" maxLines={1}>
+        <TugListRowTitle className="cards-row-title">
           {renderFilterHighlight(identity.title, ctx.filterQuery)}
           {identity.unsaved ? (
             <span
@@ -428,7 +435,7 @@ function OneLineRow({
               •
             </span>
           ) : null}
-        </TugLabel>
+        </TugListRowTitle>
         {disambiguator !== null ? (
           <span className="cards-row-where" data-testid="cards-card-where">
             {disambiguator}
@@ -485,6 +492,7 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
       data-group-collapsed={row.collapsed ? "true" : "false"}
       data-testid="cards-header"
       {...spaceRowAttrs(row.spaceId, row.spaceId === dataSource.activeSpaceId())}
+      state={row.spaceId === dataSource.activeSpaceId() ? undefined : "dimmed"}
       // The header IS the group's drag handle: a press arms the carry of the
       // whole run, and travel past the threshold engages it.
       onPointerDown={(e) => ctx.onGroupPointerDown(row.spaceId, row.group, e)}
@@ -527,7 +535,7 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
             set of rules that could drift from them. The colon hugs the title
             for the same reason — it is a separator within one phrase. Rendered
             always and hidden by CSS while the group is open ([L06]). */}
-        <TugLabel className="tug-list-row-title" size="sm" maxLines={1}>
+        <TugListRowTitle className="cards-header-title">
           {title}
           <span
             className="cards-header-count"
@@ -535,7 +543,7 @@ const GroupHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
           >
             {`: ${row.summary}`}
           </span>
-        </TugLabel>
+        </TugListRowTitle>
       </span>
     </TugListRow>
   );
@@ -735,7 +743,7 @@ const SpaceEmptyCell: TugListViewCellRenderer<CardsDataSource> = ({
       data-testid="cards-space-empty"
       {...spaceRowAttrs(row.spaceId, row.spaceId === dataSource.activeSpaceId())}
     >
-      <span className="cards-empty">{row.filtered ? "No matches" : "None"}</span>
+      <span className="rail-card-empty cards-empty">{row.filtered ? "No matches" : "None"}</span>
     </div>
   );
 };
@@ -1840,7 +1848,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     <ResponderScope>
     <div
       ref={attachCardRoot}
-      className="cards-card"
+      className={`${RAIL_CARD_CLASS} cards-card`}
       data-cards-card-id={cardId}
       // Focusable root so `transferFocusForActivation` → `applyBagFocus` has a
       // target to land the ring on when the card is focused.
@@ -1850,13 +1858,13 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           column. Its border-box height is what the rail measures, and nothing
           between it and the scroller stretches ([B02]). */}
       <div
-        className="cards-card-content"
+        className={`${RAIL_CARD_CONTENT_CLASS} cards-card-content`}
         ref={annotationRootRef}
         data-testid="cards-card-content"
         data-card-content=""
       >
-      <div className="cards-toolbar" data-testid="cards-toolbar">
-        <TugFilterField
+      <RailCardToolbar className="cards-toolbar" data-testid="cards-toolbar">
+        <TugFilterField size="sm"
           key={hasItems ? "live" : "inert"}
           delegate={filterDelegate}
           attachment={filter}
@@ -1878,24 +1886,21 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           icon={<Plus />}
           aria-label="New Workspace"
           title="New Workspace"
-          dispatch={{ action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" }}
+          action={TUG_ACTIONS.NEW_SPACE}
           data-testid="cards-new-space"
           size="2xs"
         />
-      </div>
+      </RailCardToolbar>
       {!hasContent ? (
         // Empty label instead of the list — an empty `flex: 1` list would grow
         // and open a gap under the toolbar. "No matches" is the distinct
         // filtered-to-zero face: there ARE cards, the filter is hiding them.
-        <div
-          className="cards-empty"
-          data-testid="cards-empty"
-        >
+        <TugEmptyLine className="cards-empty" data-testid="cards-empty">
           {dataSource.unfilteredCount() > 0 ? "No matches" : "None"}
-        </div>
+        </TugEmptyLine>
       ) : (
         <div
-          className="cards-list-wrap"
+          className={`${RAIL_CARD_LIST_WRAP_CLASS} cards-list-wrap`}
           ref={listWrapRef}
           data-filter-active={filtering ? "true" : undefined}
         >
@@ -1927,7 +1932,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       </div>
       <div className="cards-list-slack" ref={slackRef} aria-hidden="true" />
       {/* The card's one confirm, anchored to whichever workspace header armed
-          it. `confirmRole="danger"` puts default focus on Cancel, so a
+          it. `confirm={{ role: "danger" }}` puts default focus on Cancel, so a
           reflexive Return can never take a workspace and its sessions.
 
           The arrow and the boundary are one answer to one question ([P09]).
@@ -1949,7 +1954,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
             : deleteMessage(pendingDelete.name, pendingDelete.cards, pendingDelete.sessions)
         }
         confirmLabel="Delete"
-        confirmRole="danger"
+        confirm={{ role: "danger" }}
         side="bottom"
         align="center"
         collisionBoundary={cardRootRef.current}

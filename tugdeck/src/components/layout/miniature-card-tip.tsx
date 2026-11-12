@@ -37,7 +37,7 @@
 import "./miniature-card-tip.css";
 
 import React from "react";
-import { icons } from "lucide-react";
+import { TugNamedIcon } from "@/components/tugways/tug-named-icon";
 
 import { getRegistration } from "@/card-registry";
 import { deckColumnsOf, railMembersOf } from "@/deck-store-selectors";
@@ -177,12 +177,7 @@ function placeOf(deck: DeckState | null, target: MiniatureTarget): TipPlace | nu
 
 /** The lucide component a card's icon names, or `null`. */
 function IconFor({ name }: { name: string | null }): React.ReactElement | null {
-  if (name === null) return null;
-  const Icon = icons[name as keyof typeof icons] as
-    | React.ComponentType<React.SVGProps<SVGSVGElement>>
-    | undefined;
-  if (Icon === undefined) return null;
-  return <Icon className="layout-tip-icon" aria-hidden="true" />;
+  return <TugNamedIcon name={name} className="layout-tip-icon" aria-hidden="true" />;
 }
 
 /** What kind of card this is, in the registry's own word — said only when

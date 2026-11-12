@@ -9,7 +9,7 @@
  *    for flowing-prose surfaces without a line-height floor.
  *  - **React-side surfaces** — `TugAtomChip` (in `tug-atom-chip.tsx`)
  *    renders inline `<svg>` with CSS-variable `fill` / `stroke`. The
- *    transcript walker (`TugAtomTextBody`) and the four tool-block path
+ *    transcript walker (`AtomTextBody`) and the four tool-block path
  *    renderers (read/edit/write/notebook-edit) consume it.
  *
  * Putting colors on the inline `<svg>` via `var(--tug7-…)` references is

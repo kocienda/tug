@@ -5,7 +5,7 @@
  * Three sections — see [#step-20-1](arc/session-assistant-rendering.md#step-20-1):
  *
  *   1. Interactive sandbox — slider for `value`, numeric inputs for
- *      `min` / `max`, toggle for `density`, toggle for `fillRole`,
+ *      `min` / `max`, toggle for `density`, toggle for `fillTone`,
  *      configurable `caution` / `danger` thresholds. Re-renders the
  *      gauge live so design review can sweep through the domain and
  *      confirm color transitions at the thresholds.
@@ -119,8 +119,8 @@ export function GalleryTugLinearGauge(): React.ReactElement {
   const [min, setMin] = React.useState<number>(0);
   const [max, setMax] = React.useState<number>(100);
   const [density, setDensity] =
-    React.useState<TugLinearGaugeDensity>("detailed");
-  const [fillRole, setFillRole] =
+    React.useState<TugLinearGaugeDensity>("regular");
+  const [fillTone, setFillTone] =
     React.useState<"default" | "info" | "success">("default");
   const [labelText, setLabelText] = React.useState<string>("LINEAR");
   const [cautionPct, setCautionPct] = React.useState<number>(75);
@@ -143,7 +143,7 @@ export function GalleryTugLinearGauge(): React.ReactElement {
         <TugLabel className="cg-section-title">Interactive sandbox</TugLabel>
         <div style={labelStyle}>
           Tune <code>value</code>, <code>min</code>, <code>max</code>,{" "}
-          density, <code>fillRole</code>, and the caution / danger
+          density, <code>fillTone</code>, and the caution / danger
           thresholds. The gauge below re-renders live; sweep the value
           slider across the domain to verify color transitions match
           expectation.
@@ -197,19 +197,19 @@ export function GalleryTugLinearGauge(): React.ReactElement {
               }
             >
               <option value="compact">compact</option>
-              <option value="detailed">detailed</option>
+              <option value="regular">regular</option>
             </select>
           </div>
           <div style={controlGroupStyle}>
             <label style={fieldLabelStyle} htmlFor="cg-lgauge-fillrole">
-              fillRole
+              fillTone
             </label>
             <select
               id="cg-lgauge-fillrole"
               style={inputStyle}
-              value={fillRole}
+              value={fillTone}
               onChange={(e) =>
-                setFillRole(
+                setFillTone(
                   e.currentTarget.value as "default" | "info" | "success",
                 )
               }
@@ -269,7 +269,7 @@ export function GalleryTugLinearGauge(): React.ReactElement {
             thresholds={thresholds}
             label={labelText !== "" ? labelText : undefined}
             density={density}
-            fillRole={fillRole}
+            fillTone={fillTone}
             // Fixed-precision formatter so a slider sweep producing
             // fractional intermediate values (step = (max-min)/200)
             // doesn't shift the readout's width per character count.
@@ -379,7 +379,7 @@ export function GalleryTugLinearGauge(): React.ReactElement {
               value={60}
               min={0}
               max={100}
-              density="detailed"
+              density="regular"
               label="QUANTITY"
             />
           </div>
@@ -388,7 +388,7 @@ export function GalleryTugLinearGauge(): React.ReactElement {
               value={60}
               min={0}
               max={100}
-              density="detailed"
+              density="regular"
               label="QUANTITY"
               thresholds={{ caution: 0.75, danger: 0.9 }}
             />
@@ -398,7 +398,7 @@ export function GalleryTugLinearGauge(): React.ReactElement {
               value={95}
               min={0}
               max={100}
-              density="detailed"
+              density="regular"
               label="QUANTITY"
               thresholds={{ caution: 0.75, danger: 0.9 }}
             />

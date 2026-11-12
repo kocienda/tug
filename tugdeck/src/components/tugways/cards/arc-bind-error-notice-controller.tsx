@@ -10,15 +10,14 @@
  * must not round-trip through `useSyncExternalStore`/render), and posts one
  * caution carrying the server's reason.
  *
- * The subscription registers in `useLayoutEffect` ([L03]); no notice state
- * enters React state ([L02]); appearance is the bulletin's own CSS/DOM ([L06]).
+ * The sequence gate is {@link useSequencedBulletin}'s: keyed on the sequence
+ * rather than the reason, so two identical refusals in a row still notify —
+ * the second one is a second attempt.
  */
-
-import { useLayoutEffect, useRef } from "react";
 
 import { arcBindErrorStore } from "@/lib/arc-bind-error-store";
 
-import { useTugPaneBulletin } from "../tug-pane-bulletin";
+import { useSequencedBulletin } from "./use-sequenced-bulletin";
 
 const NOTICE_ID = "arc-bind-error";
 
@@ -28,32 +27,19 @@ export function ArcBindErrorNoticeController({
   /** The session whose bind refusals this notice reports on. */
   tugSessionId: string;
 }): null {
-  const api = useTugPaneBulletin();
-  // The last refusal posted, by sequence. Local data ([L24]) — never React
-  // state. Keyed on the sequence rather than the reason so two identical
-  // refusals in a row still notify: the second one is a second attempt.
-  const postedSeqRef = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    const apply = (): void => {
-      const error = arcBindErrorStore.errorFor(tugSessionId);
-      if (error === null) {
-        if (postedSeqRef.current !== null) {
-          postedSeqRef.current = null;
-          api.dismiss(NOTICE_ID);
-        }
-        return;
-      }
-      if (error.seq === postedSeqRef.current) return;
-      postedSeqRef.current = error.seq;
+  useSequencedBulletin(
+    {
+      read: () => arcBindErrorStore.errorFor(tugSessionId),
+      subscribe: (listener) => arcBindErrorStore.subscribe(listener),
+    },
+    (error, api) => {
       api.caution("Couldn't work that arc", {
         id: NOTICE_ID,
         description: error.reason,
       });
-    };
-    apply();
-    return arcBindErrorStore.subscribe(apply);
-  }, [api, tugSessionId]);
-
+      return NOTICE_ID;
+    },
+    tugSessionId,
+  );
   return null;
 }

@@ -11,7 +11,7 @@
  *    (`.gsi-masthead`), the row on the masthead model (`.gsi-prow`), and
  *    the dot-led live atom (`.gsi-atom`). The atom borrows the shipped
  *    session-color tokens so it is judged in the real paint; when these
- *    forms ship into `TugSessionIdentity` / the masthead / the rows, the
+ *    forms ship into `SessionIdentityView` / the masthead / the rows, the
  *    rules here die with the spike. Nothing here is a precedent the app
  *    inherits.
  */

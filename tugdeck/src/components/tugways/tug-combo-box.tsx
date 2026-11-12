@@ -26,11 +26,14 @@
  *     `descendable` item (a directory) stays open on its children so the user
  *     can keep navigating;
  *   - Escape closes the list (and only the list — it stops there);
- *   - Enter with the list closed calls `onSubmit` (the consumer's commit).
+ *   - Enter with the list closed dispatches `submit` (the consumer's commit).
  *
- * `onChange` reports every value the input passes through; `onSettle` reports
- * the ones it comes to *rest* on. A consumer whose value is durable writes on
- * `onSettle` — see its doc.
+ * The field reports through the responder chain, to its parent responder
+ * ([L11]), every event carrying `senderId` as its sender: `set-value` with
+ * phase `change` for every value the input passes through, `set-value` with
+ * phase `commit` for the ones it comes to *rest* on, and `submit` for Enter on
+ * the closed list. A consumer whose value is durable writes on the commit —
+ * see {@link TugComboBoxProps.senderId}.
  *
  * A caller-supplied `accessory` slots a trailing control beside the field (the
  * "escape hatch" — e.g. a native folder picker button). Each item may carry a
@@ -39,13 +42,15 @@
  *
  * Compositional component — composes `TugInput`; its overlay borrows
  * `tug-completion-menu.css`. Laws: [L02] (n/a — local UI state), [L06]
- * appearance via CSS, [L20] composed children keep their own tokens.
+ * appearance via CSS, [L19] component authoring guide, [L20] composed
+ * children keep their own tokens.
  *
  * @module components/tugways/tug-combo-box
  */
 
 import "./tug-completion-menu.css";
 import "./tug-combo-box.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, {
   useCallback,
@@ -60,11 +65,14 @@ import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 
 import { TugInput } from "./tug-input";
+import { TUG_ACTIONS } from "./action-vocabulary";
+import { useControlDispatch } from "./use-control-dispatch";
 import { useFocusable, useFocusManager } from "./use-focusable";
 import { ATTACHED_LIST_ATTRIBUTE, TAB_CONSUME_ATTRIBUTE } from "./focus-manager";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { layoutRectOf } from "@/lib/page-zoom-store";
 import { afterGesture } from "@/lib/gesture-scope";
+import { cn } from "@/lib/utils";
 
 /** One combo-box row: what to commit, how to render it, and how it behaves. */
 export interface TugComboBoxItem {
@@ -91,12 +99,37 @@ export interface TugComboBoxItem {
   readonly rowData?: Record<string, string | undefined>;
 }
 
-/** Props for {@link TugComboBox}. */
-export interface TugComboBoxProps {
+/**
+ * The props every completing field shares — {@link TugComboBox} and the
+ * presets that compose it, such as `TugFileChooser`. A preset extends this
+ * and forwards it whole, so the two surfaces cannot drift on what a field is.
+ */
+export interface TugComboFieldProps
+  extends Omit<
+    React.HTMLAttributes<HTMLDivElement>,
+    "children" | "placeholder" | "autoFocus" | "spellCheck" | "onChange" | "onSubmit" | "defaultValue"
+  > {
   /** Controlled input value. */
   value: string;
-  /** Called when the value changes — typing, accepting an item, or a descend. */
-  onChange: (value: string) => void;
+  /**
+   * The `event.sender` of everything the field dispatches to its parent
+   * responder ([L11]):
+   *
+   *  - `set-value`, phase `change` — the value changed: typing, accepting an
+   *    item, or a descend. A controlled host sets `value` from it.
+   *  - `set-value`, phase `commit` — the field came to rest: an item accepted
+   *    (by Enter, Tab, or click), Enter on the closed list, or focus leaving.
+   *    The value has already been through {@link normalizeOnClose}. This is
+   *    where a field whose value IS something durable (a setting, a stored
+   *    path) writes: typing is an in-flight edit, and the commit is where it
+   *    stops being in-flight. A descend does not commit — the user is still
+   *    navigating. It may arrive more than once for the same resting value
+   *    (accept then blur), so handlers must be idempotent.
+   *  - `submit` — Enter with the list closed: the consumer's commit.
+   *
+   * Defaults to a `useId()`-derived id.
+   */
+  senderId?: string;
   /**
    * Synchronous seed source, called with the current input value. The caller
    * filters + renders (labels, highlights, per-row trailing). In `menuMode` an
@@ -104,53 +137,19 @@ export interface TugComboBoxProps {
    */
   seed?: (query: string) => TugComboBoxItem[];
   /**
-   * Asynchronous source merged *below* the seed items (de-duped by `value`),
-   * debounced. Absent ⇒ the seed is the only source.
-   */
-  asyncItems?: (query: string) => Promise<TugComboBoxItem[]>;
-  /**
    * Enable dropdown-menu affordances: a pointer click, the trailing chevron,
    * or ArrowDown on the closed field opens the list showing the seed. Off ⇒ the
    * list opens only as a result of typing (a plain completing field).
    */
   menuMode?: boolean;
-  /** Trailing "escape" control beside the field (e.g. a Browse button). */
-  accessory?: React.ReactNode;
-  /** Leading control beside the field, rendered before the input (e.g. a Browse button). */
-  leadingAccessory?: React.ReactNode;
-  /**
-   * Normalize the resting value when the list closes (e.g. strip a directory's
-   * trailing slash). Applied only on the open→closed transition.
-   */
-  normalizeOnClose?: (value: string) => string;
-  /** Fired on Enter when the list is closed — the consumer's commit. */
-  onSubmit?: () => void;
-  /**
-   * Fired with the resting value every time the field comes to rest — an item
-   * accepted (by Enter, Tab, or click), Enter on the closed list, or focus
-   * leaving. The value has already been through {@link normalizeOnClose}.
-   *
-   * This is the callback for a field whose value IS something durable (a
-   * setting, a stored path): typing is an in-flight edit, and `onSettle` is
-   * where that edit stops being in-flight and has to be written. Without it a
-   * consumer has to guess which of `onChange`'s many reasons ended the edit,
-   * and a finished-looking field can hold a value nothing ever stored.
-   *
-   * A descend does not settle — the user is still navigating. May fire more
-   * than once for the same resting value (accept then blur), so consumers must
-   * be idempotent.
-   */
-  onSettle?: (value: string) => void;
   /** Fired when the list opens / closes. */
   onOpenChange?: (open: boolean) => void;
   placeholder?: string;
   "aria-label"?: string;
-  /** Input + accessory size. Defaults to `sm`. */
-  size?: "sm" | "md" | "lg";
+  /** Input + accessory size. Defaults to `md`. */
+  size?: Extract<TugSize, "sm" | "md" | "lg">;
   autoFocus?: boolean;
   className?: string;
-  /** Extra class on the `<input>` (e.g. a monospace family for paths). */
-  inputClassName?: string;
   /** `data-slot` on the overlay `<ul>` (a per-consumer styling hook). */
   overlaySlot?: string;
   /**
@@ -167,7 +166,6 @@ export interface TugComboBoxProps {
    */
   portalContainer?: HTMLElement | null;
   disabled?: boolean;
-  spellCheck?: boolean;
   /**
    * Author the field into a focus group ([P02]) — the standard `useFocusable`
    * opt-in. The focusable IS the `<input>` caret. The field consumes Tab only
@@ -184,6 +182,38 @@ export interface TugComboBoxProps {
    * {@link focusGroup} is also set and {@link menuMode} renders the chevron.
    */
   chevronFocusOrder?: number;
+  /**
+   * The field's `<input>`. The component's own ref is its root `<div>`
+   * (`data-slot="tug-combo-box"`); a caller that focuses or measures the
+   * input takes it here.
+   */
+  inputRef?: React.Ref<HTMLInputElement>;
+}
+
+/** Props for {@link TugComboBox}: the shared field props, plus its sources and slots. */
+export interface TugComboBoxProps extends TugComboFieldProps {
+  /**
+   * Asynchronous source merged *below* the seed items (de-duped by `value`),
+   * debounced. Absent ⇒ the seed is the only source.
+   */
+  asyncItems?: (query: string) => Promise<TugComboBoxItem[]>;
+  /** Trailing "escape" control beside the field (e.g. a Browse button). */
+  accessory?: React.ReactNode;
+  /** Leading control beside the field, rendered before the input (e.g. a Browse button). */
+  leadingAccessory?: React.ReactNode;
+  /**
+   * Normalize the resting value when the list closes (e.g. strip a directory's
+   * trailing slash). Applied only on the open→closed transition.
+   */
+  normalizeOnClose?: (value: string) => string;
+  /** Extra class on the `<input>` (e.g. a monospace family for paths). */
+  inputClassName?: string;
+  spellCheck?: boolean;
+  /**
+   * The root's `data-slot`. A primitive that composes the combo box names its
+   * own root here. @default "tug-combo-box"
+   */
+  "data-slot"?: string;
 }
 
 const DEBOUNCE_MS = 120;
@@ -192,23 +222,21 @@ const DEBOUNCE_MS = 120;
  * A text field that is also a menu. See the module doc for the full
  * interaction model.
  */
-export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
+export const TugComboBox = React.forwardRef<HTMLDivElement, TugComboBoxProps>(
   function TugComboBox(
     {
       value,
-      onChange,
       seed,
       asyncItems,
       menuMode = false,
       accessory,
       leadingAccessory,
       normalizeOnClose,
-      onSubmit,
-      onSettle,
+      senderId,
       onOpenChange,
       placeholder,
       "aria-label": ariaLabel,
-      size = "sm",
+      size = "md",
       autoFocus,
       className,
       inputClassName,
@@ -219,13 +247,38 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
       focusGroup,
       focusOrder = 0,
       chevronFocusOrder,
+      inputRef: callerInputRef,
+      "data-slot": dataSlot = "tug-combo-box",
+      ...rest
     },
     forwardedRef,
   ) {
     const [asyncList, setAsyncList] = useState<readonly TugComboBoxItem[]>([]);
     const [open, setOpen] = useState(false);
-    const [activeIndex, setActiveIndex] = useState(0);
-    const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+    // What the field reports, dispatched to the parent responder ([L11]).
+    const { dispatch } = useControlDispatch();
+    const fallbackSenderId = useId();
+    const sender = senderId ?? fallbackSenderId;
+    const onChange = useCallback(
+      (next: string) => {
+        dispatch({ action: TUG_ACTIONS.SET_VALUE, value: next, sender, phase: "change" });
+      },
+      [dispatch, sender],
+    );
+    const onSettle = useCallback(
+      (next: string) => {
+        dispatch({ action: TUG_ACTIONS.SET_VALUE, value: next, sender, phase: "commit" });
+      },
+      [dispatch, sender],
+    );
+    const onSubmit = useCallback(() => {
+      dispatch({ action: TUG_ACTIONS.SUBMIT, sender, phase: "discrete" });
+    }, [dispatch, sender]);
+    // The highlighted row and the list's anchor are appearance: they live in a
+    // ref and are written to the DOM ([L06]), so a hover or an arrow key moves
+    // the highlight without a render. `open` is state because it mounts the
+    // list, sets `aria-expanded` and is reported through `onOpenChange`.
+    const activeIndexRef = useRef(0);
     // Bumped to force an `asyncItems` refetch when the value itself hasn't
     // changed (a menu-mode open on an unchanged query).
     const [fetchNonce, setFetchNonce] = useState(0);
@@ -310,10 +363,12 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
       (el: HTMLInputElement | null) => {
         inputRef.current = el;
         focusableRef(el);
-        if (typeof forwardedRef === "function") forwardedRef(el);
-        else if (forwardedRef) forwardedRef.current = el;
+        if (typeof callerInputRef === "function") callerInputRef(el);
+        else if (callerInputRef) {
+          (callerInputRef as React.MutableRefObject<HTMLInputElement | null>).current = el;
+        }
       },
-      [forwardedRef, focusableRef],
+      [callerInputRef, focusableRef],
     );
 
     // Tab-consumption marker ([Q02], the editor's pattern). While the list is
@@ -327,15 +382,51 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
       else el.removeAttribute(TAB_CONSUME_ATTRIBUTE);
     }, [open]);
 
-    // Measure the input so the portaled overlay can anchor under it.
+    // Anchor the portaled list under the input: a DOM write onto the list
+    // ([L06]). A no-op while the list is not mounted; the effect below
+    // anchors it as it mounts.
     const measure = useCallback(() => {
       const el = inputRef.current;
-      if (el === null) return;
+      const list = listRef.current;
+      if (el === null || list === null) return;
       // Layout px: the list is fixed in the canvas overlay root, inside the
       // zoomed deck.
       const r = layoutRectOf(el);
-      setPos({ top: r.bottom, left: r.left, width: r.width });
+      list.style.top = `${r.bottom}px`;
+      list.style.left = `${r.left}px`;
+      list.style.minWidth = `${r.width}px`;
     }, []);
+
+    // Paint the highlight onto the rows: `aria-selected` and the selected
+    // class follow `activeIndexRef`, written to the DOM ([L06]). With
+    // `reveal`, the highlighted row is scrolled into view (keyboard moves).
+    const paintActive = useCallback((reveal: boolean) => {
+      const list = listRef.current;
+      if (list === null) return;
+      const rows = list.children;
+      for (let i = 0; i < rows.length; i++) {
+        const on = i === activeIndexRef.current;
+        rows[i].setAttribute("aria-selected", on ? "true" : "false");
+        rows[i].classList.toggle("tug-completion-menu-item-selected", on);
+      }
+      if (reveal) {
+        (rows[activeIndexRef.current] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+      }
+    }, []);
+
+    const setActive = useCallback(
+      (index: number, reveal: boolean) => {
+        activeIndexRef.current = index;
+        paintActive(reveal);
+      },
+      [paintActive],
+    );
+
+    // Every commit may mount or replace rows, and React draws them without the
+    // highlight, so it is painted after each one.
+    useLayoutEffect(() => {
+      paintActive(false);
+    });
 
     // Open the list when armed + focused + non-empty; otherwise (still armed)
     // close it. A no-op when disarmed — explicit closes go through `closeMenu`.
@@ -352,8 +443,8 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
     // The item set changed (add/remove/reorder/filter) — reset the highlight to
     // the top and clamp it in range.
     useLayoutEffect(() => {
-      setActiveIndex(0);
-    }, [itemsKey]);
+      setActive(0, true);
+    }, [itemsKey, setActive]);
 
     // Seed changed — reflect it into the open state immediately, so filtering
     // feels instant before the async results arrive.
@@ -388,10 +479,13 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
       syncOpen();
     }, [asyncList, syncOpen]);
 
-    // Keep the overlay anchored while it's open (the sheet/page can scroll).
+    // Anchor the list as it mounts, and keep it anchored while it's open (the
+    // sheet/page can scroll).
+    const listShown = open && items.length > 0;
     useLayoutEffect(() => {
-      if (!open) return;
+      if (!listShown) return;
       measure();
+      paintActive(true);
       const onScrollOrResize = (): void => measure();
       window.addEventListener("scroll", onScrollOrResize, true);
       window.addEventListener("resize", onScrollOrResize);
@@ -399,14 +493,7 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
         window.removeEventListener("scroll", onScrollOrResize, true);
         window.removeEventListener("resize", onScrollOrResize);
       };
-    }, [open, measure]);
-
-    // Keep the highlighted row in view during keyboard navigation.
-    useEffect(() => {
-      if (!open) return;
-      const row = listRef.current?.children[activeIndex] as HTMLElement | undefined;
-      row?.scrollIntoView({ block: "nearest" });
-    }, [open, activeIndex]);
+    }, [listShown, measure, paintActive]);
 
     const closeMenu = useCallback(() => {
       setOpen(false);
@@ -419,7 +506,7 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
     // what the field will be showing rather than a transient spelling.
     const settle = useCallback(
       (next: string) => {
-        onSettle?.(normalizeOnClose !== undefined ? normalizeOnClose(next) : next);
+        onSettle(normalizeOnClose !== undefined ? normalizeOnClose(next) : next);
       },
       [onSettle, normalizeOnClose],
     );
@@ -501,7 +588,7 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
           // Shift+Delete removes the highlighted row (the browser-autofill
           // convention) — keyboard parity with the row's trailing delete.
           if (event.key === "Delete" && event.shiftKey) {
-            const item = items[activeIndex];
+            const item = items[activeIndexRef.current];
             if (item?.onRemove !== undefined) {
               event.preventDefault();
               item.onRemove();
@@ -511,16 +598,16 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
           switch (event.key) {
             case "ArrowDown":
               event.preventDefault();
-              setActiveIndex((i) => (i + 1) % items.length);
+              setActive((activeIndexRef.current + 1) % items.length, true);
               return;
             case "ArrowUp":
               event.preventDefault();
-              setActiveIndex((i) => (i - 1 + items.length) % items.length);
+              setActive((activeIndexRef.current - 1 + items.length) % items.length, true);
               return;
             case "Enter": {
               // Accept the highlighted item AND close (the close-normalizer
               // runs) — distinct from Tab, which descends to keep navigating.
-              const item = items[activeIndex];
+              const item = items[activeIndexRef.current];
               if (item !== undefined) {
                 event.preventDefault();
                 onChange(item.value);
@@ -530,7 +617,7 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
               return;
             }
             case "Tab": {
-              const item = items[activeIndex];
+              const item = items[activeIndexRef.current];
               if (item !== undefined) {
                 event.preventDefault();
                 acceptItem(item);
@@ -549,14 +636,14 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
         }
         if (event.key === "Enter") {
           event.preventDefault();
-          onSubmit?.();
+          onSubmit();
           settle(value);
         }
       },
       [
         open,
         items,
-        activeIndex,
+        setActive,
         acceptItem,
         closeMenu,
         onChange,
@@ -596,7 +683,10 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
 
     return (
       <div
-        className={`tug-combo-box${className !== undefined ? ` ${className}` : ""}`}
+        {...rest}
+        ref={forwardedRef}
+        data-slot={dataSlot}
+        className={cn("tug-combo-box", className)}
         // The attached-list contract: while the caret is in the field, ↑/↓ drive
         // THIS list's highlight and never leave the field. Without the
         // declaration the engine's spatial stage claims a bare arrow whenever
@@ -670,32 +760,20 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
           </button>
         )}
         {accessory}
-        {open &&
-          pos !== null &&
-          items.length > 0 &&
+        {listShown &&
           createPortal(
             <ul
               ref={listRef}
               className="tug-completion-menu tug-combo-box-menu"
               data-slot={overlaySlot}
               role="listbox"
-              style={{
-                position: "fixed",
-                top: `${pos.top}px`,
-                left: `${pos.left}px`,
-                minWidth: `${pos.width}px`,
-              }}
+              style={{ position: "fixed" }}
             >
               {items.map((item, i) => (
                 <li
                   key={item.value}
                   role="option"
-                  aria-selected={i === activeIndex}
-                  className={
-                    i === activeIndex
-                      ? "tug-completion-menu-item tug-combo-box-item tug-completion-menu-item-selected"
-                      : "tug-completion-menu-item tug-combo-box-item"
-                  }
+                  className="tug-completion-menu-item tug-combo-box-item"
                   {...(item.rowData as React.LiHTMLAttributes<HTMLLIElement>)}
                   // mousedown (not click) so the input never blurs out from
                   // under the selection — keeps focus + the list alive to descend.
@@ -703,7 +781,7 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
                     event.preventDefault();
                     acceptItem(item);
                   }}
-                  onMouseMove={() => setActiveIndex(i)}
+                  onMouseMove={() => setActive(i, false)}
                 >
                   <span className="tug-completion-menu-label">{item.label}</span>
                   {item.trailing !== undefined && (

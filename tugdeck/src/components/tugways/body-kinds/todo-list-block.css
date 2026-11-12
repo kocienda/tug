@@ -93,24 +93,9 @@ body {
 
 /* ---------- Header ---------- */
 
-/* Pinned identity strip — stays visible while the user scrolls the
- * outer transcript. `top: var(--tugx-pin-stack-top, 0)` lets an outer
- * pin context push it down so the two telescope. Mirrors
- * `.tugx-paths-header` / `.tugx-file-header`. */
-.tugx-todo-header {
-  position: sticky;
-  top: var(--tugx-pin-stack-top, 0);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--tugx-block-strip-gap);
-  padding: var(--tugx-block-strip-padding);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color: var(--tugx-block-strip-color);
-  font-family: var(--tugx-block-strip-font);
-  font-size: var(--tugx-block-strip-size);
-}
+/* The strip itself — sticky, flex, the shared padding, surface and type —
+   is `.tugx-block-strip` in `styles/tugx-block.css`, which the header wears
+   beside its own class. */
 
 /* @tug-renders-on: --tugx-block-strip-bg */
 .tugx-todo-label {
@@ -138,7 +123,6 @@ body {
  * natural content height, host row-gap / padding tokens zeroed so the
  * rows stack flush and the row's own padding provides the inset. [L20] */
 .tugx-todo .tug-list-view.tugx-todo-list {
-  height: auto;
   --tugx-list-view-row-gap: 0;
   --tugx-list-view-padding-block: 0;
   --tugx-list-view-padding-inline: 0;

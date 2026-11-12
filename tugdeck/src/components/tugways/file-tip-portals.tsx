@@ -41,13 +41,12 @@
  */
 
 import React from "react";
-import { createPortal } from "react-dom";
 
-import { breadcrumb } from "@/lib/dom-forensics";
 import { fileTip } from "@/components/tugways/entity-tips";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { FILE_TEXT_ATTRIBUTE } from "@/lib/annotator/annotate-content";
 import { WRAPPED_ATTRIBUTE } from "@/lib/annotator/wrap-matches";
+import { useSpanPortals } from "@/components/tugways/use-span-portals";
 
 /**
  * Every confirmed path run the annotator has marked in a container — files
@@ -80,59 +79,21 @@ export function useFileTipPortals(): {
   onAnnotated: (container: HTMLElement) => void;
   portals: React.ReactNode;
 } {
-  const [mounts, setMounts] = React.useState<readonly FileTipMount[]>([]);
-
-  const onAnnotated = React.useCallback((container: HTMLElement): void => {
-    const spans = Array.from(
-      container.querySelectorAll<HTMLElement>(PATH_SPANS),
-    );
-    const next: FileTipMount[] = [];
-    for (const host of spans) {
-      const path = host.getAttribute("data-path");
-      if (path === null || path === "") continue;
-      let text = host.getAttribute(FILE_TEXT_ATTRIBUTE);
-      if (text === null) {
-        text = host.textContent ?? "";
-        host.setAttribute(FILE_TEXT_ATTRIBUTE, text);
-        host.textContent = "";
-      }
-      next.push({ host, path, text });
-    }
-    // Rebuild rather than merge, and only publish a change: a pass that finds
-    // the same spans it found last time must not re-render every tip, and a
-    // span that has left the DOM must not survive in the list.
-    breadcrumb("portal.hosts", { hook: "file-tip", hosts: next.length });
-    setMounts((prev) => (sameMounts(prev, next) ? prev : next));
-  }, []);
-
-  const portals = mounts.map(({ host, path, text }, index) => {
+  return useSpanPortals<FileTipMount>({
+    name: "file-tip",
+    selector: PATH_SPANS,
+    targetAttribute: "data-path",
+    textAttribute: FILE_TEXT_ATTRIBUTE,
+    mountFor: (host, path, text) => ({ host, path, text }),
     // A plain span, because the tooltip's trigger has to be an element and
     // the mark's own appearance is already on the host it portals into.
-    const run = <span>{text}</span>;
-    return createPortal(
+    render: ({ path, text }) => (
       <TugTooltip variant="entity" align="start" content={fileTip({ path })}>
-        {run}
-      </TugTooltip>,
-      host,
-      // Indexed, because one post can name the same path twice — two hosts,
-      // one path, and a path-only key would collide.
-      `file-tip:${index}:${path}`,
-    );
+        <span>{text}</span>
+      </TugTooltip>
+    ),
+    // Indexed, because one post can name the same path twice — two hosts,
+    // one path, and a path-only key would collide.
+    keyFor: ({ path }, index) => `file-tip:${index}:${path}`,
   });
-
-  return { onAnnotated, portals };
-}
-
-/** Whether two collections name the same hosts, in the same order. */
-function sameMounts(
-  a: readonly FileTipMount[],
-  b: readonly FileTipMount[],
-): boolean {
-  if (a.length !== b.length) return false;
-  return a.every(
-    (mount, i) =>
-      mount.host === b[i]!.host &&
-      mount.path === b[i]!.path &&
-      mount.text === b[i]!.text,
-  );
 }

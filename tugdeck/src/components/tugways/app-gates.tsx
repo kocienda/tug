@@ -9,11 +9,11 @@
  * deck through {@link GateDeckContext} rather than the card deck, so neither
  * page has a second copy of what they show.
  *
- * - `TugVersionGate` — app-wide blocking "update macOS" gate. Opens only when
+ * - `VersionGate` — app-wide blocking "update macOS" gate. Opens only when
  *   the host version is known-below its line's floor; takes precedence over
  *   ConfigureTug (which suppresses itself while the gate is open) so the two
  *   app-modals never stack (Spec S02).
- * - `TugRestoreGate` — app-wide blocking restore gate. A cold restore's
+ * - `RestoreGate` — app-wide blocking restore gate. A cold restore's
  *   reveal is one uninterruptible task on the thread every card shares, so
  *   the app answers nothing while it runs; the gate says so for exactly that
  *   long. Suppresses itself under the version gate.
@@ -32,16 +32,16 @@ import React from "react";
 
 import { UpdatePill } from "@/components/chrome/update-pill";
 import { ConfigureTug } from "./configure-tug";
-import { TugRestoreGate } from "./tug-restore-gate";
-import { TugVersionGate } from "./tug-version-gate";
+import { RestoreGate } from "@/components/chrome/restore-gate";
+import { VersionGate } from "@/components/chrome/version-gate";
 import { TugWorkspaceNameDialog } from "./tug-workspace-name-dialog";
 import { UpdateTug } from "./update-tug";
 
 export function AppGates(): React.ReactElement {
   return (
     <>
-      <TugVersionGate />
-      <TugRestoreGate />
+      <VersionGate />
+      <RestoreGate />
       <ConfigureTug />
       <UpdateTug />
       <UpdatePill />

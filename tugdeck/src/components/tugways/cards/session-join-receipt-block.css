@@ -3,32 +3,11 @@
    join's boundary is deliberately the commit receipt's skeleton: a reader
    should not have to learn a second shape for it. Appearance only ([L06]). */
 
-/* The discard's identity, in the chrome's detail column. Plain inline text for
-   the reason the commit receipt's header states: a flex container establishes
-   its own vertical alignment and would float the identity off the header's
-   line box. */
-.join-receipt-header {
-  display: block;
-  min-width: 0;
-  /* The receipt's face, read from the scope class the block root wears — a
-     receipt is prose, and the chrome's detail column publishes the mono
-     command face. The fallback is the column's own, for a header outside the
-     scope. */
-  font-family: var(--tugx-commit-subject-font, var(--tugx-block-code-font));
-}
+/* The discard's identity line and its subject's face are `.receipt-header` and
+   `.receipt-header-text` (`receipt-header.css`). */
 
 .join-receipt-summary {
   min-width: 0;
-}
-
-/* Override the header's `code { color: inherit }`, which would drain the
-   subject to the muted command tone. The squash subject is primary content,
-   not an incidental command. */
-.join-receipt-header .join-receipt-summary {
-  color: var(--tugx-block-text-color);
-  /* And the face of the line it sits on rather than the code face its element
-     would otherwise take — see the identity rules above. */
-  font-family: inherit;
 }
 
 /* The join's own line — `arc → base`, the identity a plain commit receipt has

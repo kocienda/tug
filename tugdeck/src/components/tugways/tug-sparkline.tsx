@@ -78,6 +78,8 @@ import type { SparklineWorkerResponse } from "@/lib/workers/sparkline-render-wor
 import { subscribeThemeChange } from "@/theme-tokens";
 import { usePageZoom } from "@/lib/page-zoom-store";
 import { isTugMotionEnabled } from "@/lib/scale-timing";
+import { cn } from "@/lib/utils";
+import { composeRefs } from "./compose-refs";
 
 /**
  * Response curve: maps the rate as a fraction of full scale (`x = rate /
@@ -235,19 +237,7 @@ function tryTransferControl(canvas: HTMLCanvasElement): OffscreenCanvas | null {
  */
 const spentCanvases = new WeakSet<HTMLCanvasElement>();
 
-export function TugSparkline({
-  getSeries,
-  subscribeActivity,
-  getColorChannel,
-  binMs,
-  fullScale,
-  hold = false,
-  curve = sparklineCurves.linear,
-  width = 64,
-  height = 22,
-  className,
-  title,
-}: {
+export interface TugSparklineProps extends Omit<React.ComponentPropsWithoutRef<"div">, "children"> {
   /** Current window oldest→newest; the last element is the still-open bin. */
   getSeries: (nowMs: number) => number[];
   /**
@@ -279,13 +269,34 @@ export function TugSparkline({
   hold?: boolean;
   /** Vertical response curve; see {@link sparklineCurves}. Default: linear. */
   curve?: SparklineCurve;
+  /** Width in CSS px. @default 64 */
   width?: number;
+  /** Height in CSS px. @default 22 */
   height?: number;
-  className?: string;
   /** Native hover tooltip. The graphic itself stays `aria-hidden`. */
   title?: string;
-}): React.ReactElement {
+}
+
+export const TugSparkline = React.forwardRef<HTMLDivElement, TugSparklineProps>(function TugSparkline(
+  {
+    getSeries,
+    subscribeActivity,
+    getColorChannel,
+    binMs,
+    fullScale,
+    hold = false,
+    curve = sparklineCurves.linear,
+    width = 64,
+    height = 22,
+    className,
+    title,
+    style,
+    ...rest
+  },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const setContainerRef = React.useMemo(() => composeRefs(containerRef, ref), [ref]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   /**
    * The live host — the instrument, on whichever thread took it. A ref, not
@@ -487,10 +498,11 @@ export function TugSparkline({
 
   return (
     <div
-      ref={containerRef}
-      className={className ? `tug-sparkline ${className}` : "tug-sparkline"}
+      {...rest}
+      ref={setContainerRef}
+      className={cn("tug-sparkline", className)}
       data-slot="tug-sparkline"
-      style={{ width, height }}
+      style={{ width, height, ...style }}
       title={title}
       aria-hidden
     >
@@ -513,4 +525,4 @@ export function TugSparkline({
       />
     </div>
   );
-}
+});

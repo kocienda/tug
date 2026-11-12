@@ -32,7 +32,7 @@ import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
 import { TugOptionGroup } from "@/components/tugways/tug-option-group";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
-import { TugHistoryList } from "@/components/tugways/tug-history-list";
+import { HistoryList } from "@/components/tugways/cards/session-history/history-list";
 import {
   CommitBlock,
   CommitHeaderTarget,
@@ -382,7 +382,7 @@ export function SpikeCommitSurfaces(): React.ReactElement {
           the sha copies <code>commit:a14a3efc</code>.
         </Caption>
         <div className="gallery-commit-surfaces-panel">
-          <TugHistoryList
+          <HistoryList
             commits={COMMITS}
             projectDir={FIXTURE_ROOT}
             metaFields={fields}

@@ -43,15 +43,9 @@ import "./tug-meta-run.css";
 
 import React from "react";
 
-export function TugMetaRun({
-  children,
-  parts,
-  separator = "gap",
-  fit = "natural",
-  slot = "tug-meta-run",
-  className,
-}: {
-  children?: React.ReactNode;
+import { cn } from "@/lib/utils";
+
+export interface TugMetaRunProps extends React.ComponentPropsWithoutRef<"span"> {
   /**
    * A fixed list of facts, some of which may be absent. Nulls are dropped and
    * a {@link TugMetaBullet} goes between whatever survives — so a run whose
@@ -83,19 +77,32 @@ export function TugMetaRun({
    * painting over them.
    */
   fit?: "natural" | "clip";
-  slot?: string;
-  className?: string;
-}): React.ReactElement {
+  /** The run's `data-slot`. Defaults to `"tug-meta-run"`. */
+  "data-slot"?: string;
+}
+
+export const TugMetaRun = React.forwardRef<HTMLSpanElement, TugMetaRunProps>(function TugMetaRun(
+  {
+    children,
+    parts,
+    separator = "gap",
+    fit = "natural",
+    "data-slot": dataSlot = "tug-meta-run",
+    className,
+    ...rest
+  },
+  ref,
+) {
   const present =
     parts === undefined
       ? null
       : parts.filter((part) => part !== null && part !== undefined && part !== false);
   return (
     <span
-      className={
-        className !== undefined ? `tug-meta-run ${className}` : "tug-meta-run"
-      }
-      data-slot={slot}
+      {...rest}
+      ref={ref}
+      className={cn("tug-meta-run", className)}
+      data-slot={dataSlot}
       data-fit={fit}
       data-separator={present !== null ? "bullet" : separator}
     >
@@ -111,7 +118,7 @@ export function TugMetaRun({
         : children}
     </span>
   );
-}
+});
 
 /** The interpunct between two facts. Decorative: it separates, it says nothing. */
 export function TugMetaBullet(): React.ReactElement {

@@ -746,3 +746,24 @@ body {
   pointer-events: auto;
   margin-inline-start: 0;
 }
+
+/* ---- Row state (`state`) ----
+   A row's standing among its neighbours, as `data-row-state` ([L06]).
+   `struck` — spent but legible: the row fades and its title is crossed out (a
+   message a rewind will discard). `dimmed` — quieted a step: the content
+   column only, so the row's selection fill and accessories keep their
+   strength (a Cards row naming a card in a workspace not on screen). A row
+   nested inside a dimmed row's content dims with it, by inheritance of the
+   opacity. */
+.tug-list-row[data-row-state="struck"] {
+  opacity: 0.5;
+}
+
+.tug-list-row[data-row-state="struck"] .tug-list-row-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.tug-list-row[data-row-state="dimmed"] .tug-list-row-content {
+  opacity: 0.72;
+}

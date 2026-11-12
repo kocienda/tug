@@ -1,5 +1,5 @@
 /**
- * Internal building block — app code should use `TugClamp` instead.
+ * Internal building block — app code should use `Clamp` instead.
  *
  * Measures whether a content element's natural height exceeds an N-line
  * cap and returns the overflow verdict, so a clamp container can decide

@@ -31,7 +31,7 @@
  * the session's own card. `Insert into Prompt` needs a composer, and a pane's
  * title bar has none. What is left is exactly the three acts above.
  *
- * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
+ * `TugEditorContextMenu` rather than the Radix-backed `PdfContextMenu`, for the
  * reason {@link useCommitIdentityMenu} uses it: its items write to the
  * clipboard inside the mousedown, and it moves no focus — a masthead is chrome,
  * and a copy from it must not take the key view away from the card's editor.
@@ -48,10 +48,8 @@ import React from "react";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import {
-  TugEditorContextMenu,
-  type TugEditorContextMenuEntry,
-} from "@/components/tugways/tug-editor-context-menu";
+import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { usePointMenu } from "@/components/tugways/use-point-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
 import { annotationEntryFor } from "@/lib/annotator/registry";
@@ -115,10 +113,7 @@ export function useFileIdentityMenu({
   enabled = true,
 }: FileIdentityMenuOptions): FileIdentityMenuResult {
   const manager = useResponderChain();
-  const [menuState, setMenuState] = React.useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const closeMenu = React.useCallback(() => setMenuState(null), []);
+  const { openAtEvent, renderMenu } = usePointMenu();
 
   const live = enabled && usable(path);
   const filePath = live ? path : "";
@@ -194,16 +189,14 @@ export function useFileIdentityMenu({
 
   const onContextMenu = React.useCallback(
     (e: React.MouseEvent): void => {
-      if (!live || manager === null) return;
-      e.preventDefault();
+      if (!live) return;
       // Claimed, not merely handled — the same rule `useCopyableText` follows.
       // The title inside the tier is a copyable in its own right and is on this
       // tier's path, so a press that only suppressed the native menu would open
       // a stack of menus over one point.
-      e.stopPropagation();
-      setMenuState({ x: e.clientX, y: e.clientY });
+      openAtEvent(e, null);
     },
-    [live, manager],
+    [live, openAtEvent],
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
@@ -229,13 +222,7 @@ export function useFileIdentityMenu({
   const contextMenu =
     live && manager !== null ? (
       <ResponderScope>
-        <TugEditorContextMenu
-          open={menuState !== null}
-          x={menuState?.x ?? 0}
-          y={menuState?.y ?? 0}
-          items={items}
-          onClose={closeMenu}
-        />
+        {renderMenu(items)}
       </ResponderScope>
     ) : null;
 

@@ -93,7 +93,7 @@ export function findWordBoundaries(
 // ---------------------------------------------------------------------------
 
 /**
- * Adapter for tug-markdown-view's CSS Custom Highlight / DOM Selection model.
+ * Adapter for a read-only DOM Selection scoped to one boundary element.
  *
  * Wraps `window.getSelection()` scoped to a boundary element. Used by items
  * 1-2 for context menu copy enablement, right-click classification, and
@@ -131,10 +131,9 @@ export class HighlightSelectionAdapter implements TextSelectionAdapter {
   /**
    * Select all content within the boundary element via DOM Selection.
    *
-   * Note: tug-markdown-view does NOT call this for virtualized select-all.
-   * The view's selectAll action handler sets a logical flag + CSS visual
-   * instead, because the DOM only contains a viewport window of blocks.
-   * This method exists for non-virtualized contexts or testing.
+   * Only meaningful when every node of the content is in the DOM; a
+   * virtualized surface, whose DOM holds a window of its rows, cannot select
+   * all through it.
    */
   selectAll(): void {
     const sel = window.getSelection();

@@ -4,7 +4,7 @@
  * The Quit item asks the shell whether it will ask the user. With no turn in
  * flight the answer is no and the quit goes straight on; otherwise
  * {@link QuitGuard.request} bumps a monotonic nonce and the app-level
- * `TugQuitGuard` runs {@link QuitGuard.ask} in the shell's alert. A nonce, as in
+ * `QuitGuard` runs {@link QuitGuard.ask} in the shell's alert. A nonce, as in
  * `logout-store.ts`, so there is no state for the orchestrator to consume.
  *
  * "Active" is `liveTurnsStore`'s answer and never a second opinion ([L28]): it
@@ -55,7 +55,7 @@ export type QuitAlert = (options: {
   message: string;
   confirmLabel: string;
   cancelLabel: string;
-  confirmRole: "danger";
+  confirm: { role: "danger" };
   signal: AbortSignal;
 }) => Promise<boolean>;
 
@@ -111,7 +111,7 @@ export class QuitGuard extends Subscribable {
         message: quitConfirmMessage(titles),
         confirmLabel: "Quit",
         cancelLabel: "Cancel",
-        confirmRole: "danger",
+        confirm: { role: "danger" },
         signal: workEnded.signal,
       });
     } finally {
@@ -122,7 +122,7 @@ export class QuitGuard extends Subscribable {
   }
 }
 
-/** The shell's guard. A body or the overlay mounts no `TugQuitGuard`, so this is only ever the shell's to run. */
+/** The shell's guard. A body or the overlay mounts no `QuitGuard`, so this is only ever the shell's to run. */
 export const quitGuard = new QuitGuard({
   liveTurns: liveTurnsStore,
   canAsk: () => getConnectionLifecycle()?.isOpen() ?? true,

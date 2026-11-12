@@ -18,7 +18,7 @@
 
 import { useId } from "react";
 
-import { TugBox } from "../tug-box";
+import { TugSettingsGroup } from "../tug-settings-group";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";
 import { TugSwitch } from "../tug-switch";
@@ -72,10 +72,8 @@ export function PdfCardControls({ settings, onChange }: PdfCardControlsProps) {
         data-testid="pdf-card-controls"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <TugBox
+        <TugSettingsGroup
           label="Opens With"
-          labelPosition="legend"
-          variant="bordered"
           className="card-view-controls-group"
         >
           <div className="card-view-controls-row">
@@ -108,12 +106,10 @@ export function PdfCardControls({ settings, onChange }: PdfCardControlsProps) {
             How a document opens. Zoom and mode you set while reading stay with
             the document.
           </TugLabel>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Pages"
-          labelPosition="legend"
-          variant="bordered"
           className="card-view-controls-group"
         >
           <div className="card-view-controls-row">
@@ -136,7 +132,7 @@ export function PdfCardControls({ settings, onChange }: PdfCardControlsProps) {
               data-testid="pdf-option-invert"
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
       </div>
     </ResponderScope>
   );

@@ -31,7 +31,9 @@
 
 import "./tug-section-label.css";
 
-import type React from "react";
+import React from "react";
+
+import { cn } from "@/lib/utils";
 
 /**
  * A section header: the bucket's name, and an optional qualifier that says
@@ -42,40 +44,36 @@ export interface SectionLabel {
   qualifier?: string;
 }
 
-export function TugSectionLabel({
-  label,
-  slot = "tug-section-label",
-  className,
-}: {
+export interface TugSectionLabelProps extends Omit<React.ComponentPropsWithoutRef<"div">, "children"> {
+  /** The section's name and qualifier. */
   label: SectionLabel;
   /**
    * The `data-slot` this header answers to. Defaulted rather than fixed
    * because a host's buckets are addressable individually — a test reaching
    * for the arc lane's fronted header wants that one, not "a section label".
    */
-  slot?: string;
-  className?: string;
-}): React.ReactElement {
-  return (
-    <div
-      className={
-        className !== undefined
-          ? `tug-section-label ${className}`
-          : "tug-section-label"
-      }
-      data-slot={slot}
-    >
-      <span className="tug-section-label-text">
-        <span className="tug-section-label-name">{label.name}</span>
-        {label.qualifier !== undefined ? (
-          <>
-            <span className="tug-section-label-arc" aria-hidden="true">
-              {" — "}
-            </span>
-            <span className="tug-section-label-qualifier">{label.qualifier}</span>
-          </>
-        ) : null}
-      </span>
-    </div>
-  );
+  "data-slot"?: string;
 }
+
+export const TugSectionLabel = React.forwardRef<HTMLDivElement, TugSectionLabelProps>(
+  function TugSectionLabel(
+    { label, "data-slot": dataSlot = "tug-section-label", className, ...rest },
+    ref,
+  ) {
+    return (
+      <div {...rest} ref={ref} className={cn("tug-section-label", className)} data-slot={dataSlot}>
+        <span className="tug-section-label-text">
+          <span className="tug-section-label-name">{label.name}</span>
+          {label.qualifier !== undefined ? (
+            <>
+              <span className="tug-section-label-arc" aria-hidden="true">
+                {" — "}
+              </span>
+              <span className="tug-section-label-qualifier">{label.qualifier}</span>
+            </>
+          ) : null}
+        </span>
+      </div>
+    );
+  },
+);

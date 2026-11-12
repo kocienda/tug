@@ -5,12 +5,13 @@
  * numbered 1..N, each carrying its own resting look. It has two lives, and
  * they are the same component because they must look like the same thing:
  *
- *  - **Exemplar** — no `onSelectSlot`. Every slot is inert, and the layout is
+ *  - **Exemplar** — no `action`. Every slot is inert, and the layout is
  *    a picture of an arrangement, for a chooser to label one of its options
  *    with. The enclosing control owns selection and hover.
- *  - **Control** — with `onSelectSlot`. Every slot is a button, and clicking
- *    one asks for that position. This is the in-row form on a Cards card Sessions or
- *    Text Files row.
+ *  - **Control** — with `action`. Every slot is a button, and clicking one
+ *    asks for that position: it dispatches `action` with the 0-based slot as
+ *    `value` and `senderId` as `sender` to the parent responder ([L11]). This
+ *    is the in-row form on a Cards card Sessions or Text Files row.
  *
  * `states` gives the per-slot look; anything it does not cover reads as
  * `"rest"`. A layout with no `states` at all is therefore an empty
@@ -48,7 +49,7 @@
  * ([L20] — the grammar has one definition, in `tug-button.tsx`).
  *
  * Laws: [L06] appearance via CSS and DOM attributes, never React state;
- *       [L11] the control form emits through `onSelectSlot`; [L16] pairings
+ *       [L11] the control form dispatches `action` through the chain; [L16] pairings
  *       declared; [L19] component authoring guide; [L20] token sovereignty —
  *       the composed slots keep their own tokens.
  * Decisions: [D121] layout imposition.
@@ -63,6 +64,7 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import { TugSlot, tugSlotLookClass } from "./tug-slot";
 import type { TugSlotSize, TugSlotState } from "./tug-slot";
+import type { TugAction } from "./action-vocabulary";
 
 /* ---------------------------------------------------------------------------
  * TugSlotLayoutProps
@@ -78,13 +80,13 @@ export interface TugSlotLayoutProps
    */
   states?: readonly TugSlotState[];
   /**
-   * Makes every slot a control. Called with the 0-based slot index and the
-   * click. Omit for the exemplar form.
+   * Makes every slot a control whose press dispatches this action — in
+   * practice `select-slot` — with the 0-based slot index as `value`. Omit for
+   * the exemplar form.
    */
-  onSelectSlot?: (
-    slot: number,
-    event?: React.MouseEvent<HTMLButtonElement>,
-  ) => void;
+  action?: TugAction;
+  /** The `event.sender` of every slot's press. */
+  senderId?: string;
   /**
    * Non-interactive appearance for the control form — the whole arrangement at
    * once.
@@ -95,7 +97,7 @@ export interface TugSlotLayoutProps
   /**
    * Slot size.
    * @selector .tug-slot-layout-size-sm | .tug-slot-layout-size-md
-   * @default "sm"
+   * @default "md"
    */
   size?: TugSlotSize;
   /**
@@ -145,7 +147,7 @@ export interface TugSlotLayoutProps
    * lit, which is the fact being read anyway.
    *
    * Everything stays addressed by ABSOLUTE slot: `states`, `slotLabel`, and
-   * `onSelectSlot` all speak the arrangement's own indices, so a windowed run
+   * the dispatched slot all speak the arrangement's own indices, so a windowed run
    * and a whole one are the same component fed the same facts. `setStates`
    * is the exception the projection cannot make — it writes positionally onto
    * the rendered chips, so a windowed layout's handle covers the drawn slice.
@@ -190,9 +192,10 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
     {
       count,
       states,
-      onSelectSlot,
+      action,
+      senderId,
       disabled = false,
-      size = "sm",
+      size = "md",
       slotLabel,
       focusGroup,
       spans,
@@ -282,7 +285,7 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
               size={size}
               disabled={disabled}
               {...(placement !== undefined ? { style: placement } : {})}
-              focusGroup={onSelectSlot !== undefined ? focusGroup : undefined}
+              focusGroup={action !== undefined ? focusGroup : undefined}
               /* The absolute SLOT, not the drawn position. Both give the same
                  left-to-right walk, because a window's positions map onto
                  ascending slots — but only the slot is stable when the window
@@ -294,13 +297,11 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
                  by slot, the reader stays on the PLACE they were on, which is
                  also the thing they were looking at. */
               focusOrder={slot}
-              aria-label={onSelectSlot !== undefined ? label : undefined}
-              title={onSelectSlot !== undefined ? label : undefined}
-              onSelect={
-                onSelectSlot !== undefined
-                  ? (event) => onSelectSlot(slot, event)
-                  : undefined
-              }
+              aria-label={action !== undefined ? label : undefined}
+              title={action !== undefined ? label : undefined}
+              action={action}
+              value={slot}
+              senderId={senderId}
             />
           );
         })}

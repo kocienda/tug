@@ -5,7 +5,7 @@
  * Four sections — see [#step-20-2](arc/session-assistant-rendering.md#step-20-2):
  *
  *   1. Interactive sandbox — slider for `value`, numeric inputs for
- *      `min` / `max`, toggles for `density`, `fillRole`, label,
+ *      `min` / `max`, toggles for `density`, `fillTone`, label,
  *      caution / danger thresholds, AND start / sweep angles for the
  *      custom geometry. The gauge re-renders live; sweep the slider
  *      to confirm color transitions match expectation and that the
@@ -293,8 +293,8 @@ export function GalleryTugArcGauge(): React.ReactElement {
   const [min, setMin] = React.useState<number>(0);
   const [max, setMax] = React.useState<number>(100);
   const [density, setDensity] =
-    React.useState<TugArcGaugeDensity>("detailed");
-  const [fillRole, setFillRole] =
+    React.useState<TugArcGaugeDensity>("regular");
+  const [fillTone, setFillTone] =
     React.useState<"default" | "info" | "success">("default");
   const [labelText, setLabelText] = React.useState<string>("LOAD");
   const [cautionPct, setCautionPct] = React.useState<number>(75);
@@ -320,7 +320,7 @@ export function GalleryTugArcGauge(): React.ReactElement {
       <div className="cg-section">
         <TugLabel className="cg-section-title">Interactive sandbox</TugLabel>
         <div style={labelStyle}>
-          Tune <code>value</code>, density, <code>fillRole</code>, the
+          Tune <code>value</code>, density, <code>fillTone</code>, the
           caution / danger thresholds, AND the arc's{" "}
           <code>startAngleDeg</code> / <code>sweepAngleDeg</code>.
           Sweep the value slider to verify the arc redraws smoothly
@@ -376,19 +376,19 @@ export function GalleryTugArcGauge(): React.ReactElement {
               }
             >
               <option value="compact">compact</option>
-              <option value="detailed">detailed</option>
+              <option value="regular">regular</option>
             </select>
           </div>
           <div style={controlGroupStyle}>
             <label style={fieldLabelStyle} htmlFor="cg-arcgauge-fillrole">
-              fillRole
+              fillTone
             </label>
             <select
               id="cg-arcgauge-fillrole"
               style={inputStyle}
-              value={fillRole}
+              value={fillTone}
               onChange={(e) =>
-                setFillRole(
+                setFillTone(
                   e.currentTarget.value as "default" | "info" | "success",
                 )
               }
@@ -474,7 +474,7 @@ export function GalleryTugArcGauge(): React.ReactElement {
             thresholds={thresholds}
             label={labelText !== "" ? labelText : undefined}
             density={density}
-            fillRole={fillRole}
+            fillTone={fillTone}
             geometry={geometry}
             formatValue={(v) => v.toFixed(1)}
           />
@@ -579,7 +579,7 @@ export function GalleryTugArcGauge(): React.ReactElement {
               value={60}
               min={0}
               max={100}
-              density="detailed"
+              density="regular"
               label="QUANTITY"
             />
           </div>
@@ -588,7 +588,7 @@ export function GalleryTugArcGauge(): React.ReactElement {
               value={60}
               min={0}
               max={100}
-              density="detailed"
+              density="regular"
               label="QUANTITY"
               thresholds={{ caution: 0.75, danger: 0.9 }}
             />
@@ -598,7 +598,7 @@ export function GalleryTugArcGauge(): React.ReactElement {
               value={95}
               min={0}
               max={100}
-              density="detailed"
+              density="regular"
               label="QUANTITY"
               thresholds={{ caution: 0.75, danger: 0.9 }}
             />

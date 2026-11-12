@@ -24,7 +24,7 @@
  *
  * Tuglaw cross-check:
  *  - [L06] appearance via DOM-mutation + CSS, not React state. The
- *    `iconRole` prop flips `[data-icon-role]` on the root; the rules
+ *    `iconTone` prop flips `[data-icon-tone]` on the root; the rules
  *    below paint the icon's `color` via the matching token slot.
  *  - [L17] every `--tugx-idialog-*` slot resolves to a `--tug7-*` /
  *    `--tug-*` base token in one hop.
@@ -168,23 +168,23 @@ body {
   width:  var(--tugx-idialog-icon-size);
   height: var(--tugx-idialog-icon-size);
   filter: var(--tugx-idialog-icon-halo);
-  /* color: set by [data-icon-role] selectors below. The icon
+  /* color: set by [data-icon-tone] selectors below. The icon
    * inherits via SVG `currentColor`. */
 }
 
-.tug-inline-dialog[data-icon-role="default"] .tug-inline-dialog-icon {
+.tug-inline-dialog[data-icon-tone="default"] .tug-inline-dialog-icon {
   color: var(--tugx-idialog-icon-default-color);
 }
-.tug-inline-dialog[data-icon-role="caution"] .tug-inline-dialog-icon {
+.tug-inline-dialog[data-icon-tone="caution"] .tug-inline-dialog-icon {
   color: var(--tugx-idialog-icon-caution-color);
 }
-.tug-inline-dialog[data-icon-role="danger"] .tug-inline-dialog-icon {
+.tug-inline-dialog[data-icon-tone="danger"] .tug-inline-dialog-icon {
   color: var(--tugx-idialog-icon-danger-color);
 }
-.tug-inline-dialog[data-icon-role="success"] .tug-inline-dialog-icon {
+.tug-inline-dialog[data-icon-tone="success"] .tug-inline-dialog-icon {
   color: var(--tugx-idialog-icon-success-color);
 }
-.tug-inline-dialog[data-icon-role="info"] .tug-inline-dialog-icon {
+.tug-inline-dialog[data-icon-tone="info"] .tug-inline-dialog-icon {
   color: var(--tugx-idialog-icon-info-color);
 }
 

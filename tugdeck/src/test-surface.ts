@@ -2715,13 +2715,13 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
       //     A standalone editor with its own
       //     `useCardStatePreservation` returns this directly.
       //
-      //   - TugPromptEntry wrapper (current):
+      //   - PromptEntry wrapper (current):
       //     `{ route, draft: TugTextEditingState | null }`.
-      //     This is what `TugPromptEntry` (and every card hosting it
+      //     This is what `PromptEntry` (and every card hosting it
       //     — `gallery-prompt-entry`, session-card) returns. Reach into
       //     `draft` to get the engine state.
       //
-      //   - TugPromptEntry legacy wrapper:
+      //   - PromptEntry legacy wrapper:
       //     `{ currentRoute, perRoute: { [route]: TugTextEditingState } }`.
       //     The pre-Step-15 shape, still readable for back-compat so
       //     a snapshot saved on an older build round-trips through a

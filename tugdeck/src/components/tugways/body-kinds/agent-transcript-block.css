@@ -107,22 +107,9 @@ body {
 
 /* ---------- Header ---------- */
 
-/* Pinned identity strip — stays visible while the user scrolls the
- * outer transcript. Mirrors `.tugx-json-header` / `.tugx-search-header`. */
-.tugx-agent-header {
-  position: sticky;
-  top: var(--tugx-pin-stack-top, 0);
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--tugx-block-strip-gap);
-  padding: var(--tugx-block-strip-padding);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color: var(--tugx-block-strip-color);
-  font-family: var(--tugx-block-strip-font);
-  font-size: var(--tugx-block-strip-size);
-}
+/* The strip itself — sticky, flex, the shared padding, surface and type —
+   is `.tugx-block-strip` in `styles/tugx-block.css`, which the header wears
+   beside its own class. */
 
 /* @tug-renders-on: --tugx-block-strip-bg */
 .tugx-agent-label {

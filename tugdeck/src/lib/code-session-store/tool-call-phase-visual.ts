@@ -155,7 +155,7 @@ export function toolCallPhaseVisual(
 ): TugProgressIndicatorPhaseVisual {
   switch (phase as ToolCallPhase) {
     case "in_flight":
-      return { role: "action", state: "running" };
+      return { tone: "action", state: "running" };
     case "awaiting":
       // A permission/question dialog is blocked on this call, so the dot
       // pulses in the caution tint: it is the call the user has to answer
@@ -163,16 +163,16 @@ export function toolCallPhaseVisual(
       // the same way. Mirrors `sessionSessionPhaseVisual`'s
       // `awaiting_approval` mapping, which is the same wait seen from the
       // session's end.
-      return { role: "caution", state: "running" };
+      return { tone: "caution", state: "running" };
     case "success":
-      return { role: "success", state: "completed" };
+      return { tone: "success", state: "completed" };
     case "error":
     case "interrupted":
-      return { role: "danger", state: "aborted" };
+      return { tone: "danger", state: "aborted" };
     case "steered":
     case "idle":
     default:
-      return { role: "inherit", state: "stopped" };
+      return { tone: "inherit", state: "stopped" };
   }
 }
 

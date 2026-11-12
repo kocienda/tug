@@ -36,7 +36,7 @@ This changes what the classification below *is*. A name's category used to be a 
 
 So "Both" is no longer a shape anyone authors. A menu item and a chord are two doors on one row, and the row says once how to open it. The thirty-odd one-line re-dispatch handlers that used to be the Both category are gone; what remains in `action-dispatch.ts` is the tugcast data frames, the `registry`-routed bodies, and one fork.
 
-**What is deliberately outside the table:** tugcast data frames (`spawn_session_ok`, `session_updated`, and the ~20 siblings — protocol, not commands), form-control currency (`set-value`, `toggle`, `select-value`, `set-color`, `set-property` — traffic between a control and its responder, not user intents), and the substrate text-editing bindings (⌃U / ⌃W / ⌥F / ⌥B and the CM6 keymaps — movement and deletion that only ever target the focused input). Each of those keeps the raw path, and the exclusions are checked in as a set so "absent from the table" is never a silent omission.
+**What is deliberately outside the table:** tugcast data frames (`spawn_session_ok`, `session_updated`, and the ~20 siblings — protocol, not commands), form-control currency (`set-value`, `toggle`, `select-value`, `set-property` — traffic between a control and its responder, not user intents), and the substrate text-editing bindings (⌃U / ⌃W / ⌥F / ⌥B and the CM6 keymaps — movement and deletion that only ever target the focused input). Each of those keeps the raw path, and the exclusions are checked in as a set so "absent from the table" is never a silent omission.
 
 ---
 

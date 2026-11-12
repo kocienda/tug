@@ -1,5 +1,5 @@
 /**
- * diff-card.tsx — a standalone Diff card: one {@link TugDiffDocument} in its
+ * diff-card.tsx — a standalone Diff card: one {@link DiffDocument} in its
  * own resizable card ([P20]).
  *
  * Two guises, one card. Seeded with an **unscoped head descriptor** it is the
@@ -23,7 +23,7 @@
  * reuses an already-open card for the same descriptor rather than duplicating.
  *
  * Laws: [L02] store reads via `useSyncExternalStore`; [L06] appearance via CSS;
- *       [L20] the composed TugDiffDocument keeps its own tokens.
+ *       [L20] the composed DiffDocument keeps its own tokens.
  *
  * @module components/tugways/cards/diff-card
  */
@@ -45,7 +45,7 @@ import { cardTitleStore } from "@/lib/card-title-store";
 import { CONTENT_WIDTH_COMFY_PX } from "@/lib/layout-imposer";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugLabel } from "@/components/tugways/tug-label";
-import { TugDiffDocument } from "@/components/tugways/tug-diff-document";
+import { DiffDocument } from "@/components/tugways/cards/diff-document";
 import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
 import {
   createGitDiffStore,
@@ -345,7 +345,7 @@ export function DiffCardContent({ cardId }: { cardId: string }): React.ReactElem
     );
   } else {
     body = (
-      <TugDiffDocument
+      <DiffDocument
         payload={payload}
         cardId={cardId}
         label={descriptor !== null ? descriptorLabel(descriptor) : undefined}

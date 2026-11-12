@@ -34,7 +34,7 @@ import { useSpatialOrder } from "@/components/tugways/use-spatial-order";
 import type { SpatialOrder } from "@/components/tugways/spatial-order";
 import { presentAlertSheet } from "@/components/tugways/tug-alert-sheet";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
-import { TugDiffDocument } from "@/components/tugways/tug-diff-document";
+import { DiffDocument } from "@/components/tugways/cards/diff-document";
 import type { GitDiffPayload } from "@/lib/git-diff-store";
 
 type ShowSheet = (options: ShowSheetOptions) => Promise<string | undefined>;
@@ -293,7 +293,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
         title: `Revert “${fileName}” to the last saved version?`,
         message: "Your changes will be lost.",
         confirmLabel: "Revert",
-        confirmRole: "danger",
+        confirm: { role: "danger" },
         cancelLabel: "Cancel",
         icon: null,
       }),
@@ -306,7 +306,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
         title: `Reload “${fileName}” from disk?`,
         message: "Your changes will be lost.",
         confirmLabel: "Reload",
-        confirmRole: "danger",
+        confirm: { role: "danger" },
         cancelLabel: "Cancel",
         icon: null,
       }),
@@ -321,7 +321,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
         title: `“${fileName}” has unsaved changes from a previous session, but the file has changed on disk.`,
         message: "Keep your unsaved changes, or use the version on disk?",
         confirmLabel: "Keep My Changes",
-        confirmRole: "action",
+        confirm: { role: "action" },
         cancelLabel: "Use Disk Version",
         icon: null,
       }).then((keep) => (keep ? "keep" : "disk")),
@@ -338,7 +338,7 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
         hideHeader: true,
         content: (close) => (
           <div className="text-card-compare-sheet" data-slot="text-card-compare-sheet">
-            <TugDiffDocument
+            <DiffDocument
               payload={payload}
               label="Disk → your buffer"
               // The whole reason to open this sheet is to READ the change; a

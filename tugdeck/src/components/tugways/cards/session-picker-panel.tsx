@@ -17,6 +17,7 @@
  * @module components/tugways/cards/session-picker-panel
  */
 
+import { FolderOpen } from "lucide-react";
 import type { OpeningForm } from "@/card-registry";
 import type { PickerNotice } from "@/lib/picker-notice-store";
 import {
@@ -57,7 +58,7 @@ export function sessionPickerPanel({
 }): OpeningForm {
   return {
     title: "Choose Session",
-    icon: "FolderOpen",
+    icon: <FolderOpen />,
     // A path combo box, a filter field, and session rows that carry a
     // three-line summary plus two trailing controls — the decision width
     // truncates all three.

@@ -31,6 +31,7 @@
  */
 
 import "./tug-accordion.css";
+import type { TugDensity } from "./tug-vocabulary";
 
 import React, {
   useCallback,
@@ -120,10 +121,11 @@ export interface TugAccordionMultipleProps {
 export type TugAccordionVariant = "separator" | "outline" | "inset" | "plain";
 
 /** How much room a trigger takes: a padded row, or one line of its own text. */
-export type TugAccordionDensity = "regular" | "compact";
+export type TugAccordionDensity = TugDensity;
 
 /** Shared props merged with the discriminated union. */
-export interface TugAccordionSharedProps {
+export interface TugAccordionSharedProps
+  extends Omit<React.ComponentPropsWithoutRef<"div">, "children" | "defaultValue" | "dir"> {
   /**
    * Border style for items.
    * - "separator" — divider lines between items (default)
@@ -153,8 +155,6 @@ export interface TugAccordionSharedProps {
    * matching this id in their `toggleSection` handler bindings. [L11]
    */
   senderId?: string;
-  /** Additional CSS class names. */
-  className?: string;
   /** TugAccordionItem children. */
   children: React.ReactNode;
   /**

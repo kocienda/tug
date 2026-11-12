@@ -40,7 +40,7 @@
 
 import React, { useEffect, useId, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { TugBox } from "../tug-box";
+import { TugSettingsGroup } from "../tug-settings-group";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";
 import { TugPopupButton } from "../tug-popup-button";
@@ -210,10 +210,8 @@ export function SettingsSessionCardBody() {
         data-testid="settings-session-card"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <TugBox
+        <TugSettingsGroup
           label="Transcript"
-          labelPosition="legend"
-          variant="bordered"
           className="settings-session-card-group"
         >
           {/* Label + slider on one row, the slider taking the rest of the
@@ -236,12 +234,10 @@ export function SettingsSessionCardBody() {
               formatter={MAGNIFICATION_FORMATTER}
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Prompt Editor"
-          labelPosition="legend"
-          variant="bordered"
           className="settings-session-card-group"
         >
           <div className="settings-session-card-row">
@@ -358,12 +354,10 @@ export function SettingsSessionCardBody() {
               ))}
             </div>
           </div>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="AI Model"
-          labelPosition="legend"
-          variant="bordered"
           className="settings-session-card-group"
         >
           {/* Defaults new cards adopt on first open — a card already carrying
@@ -380,7 +374,7 @@ export function SettingsSessionCardBody() {
               focusGroup={aiFocusGroup}
             />
           </div>
-        </TugBox>
+        </TugSettingsGroup>
       </div>
     </ResponderScope>
   );

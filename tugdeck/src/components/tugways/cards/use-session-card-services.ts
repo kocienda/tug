@@ -38,7 +38,7 @@ import {
   localCommandCompletionProvider,
   mergeCommandProviders,
 } from "./completion-providers/local-commands";
-import type { TugPromptEntryDelegate } from "../tug-prompt-entry";
+import type { PromptEntryDelegate } from "./prompt-entry";
 import type { SessionCardServices } from "./session-card";
 
 /** Stable empty `@` provider used while services aren't ready. */
@@ -63,10 +63,10 @@ export function useSessionCardServices(cardId: string): SessionCardServices | nu
   );
 
   // True ref: the delegate instance arrives after the child
-  // TugPromptEntry commits, so it cannot be initialized eagerly. Kept
+  // PromptEntry commits, so it cannot be initialized eagerly. Kept
   // here so the `/` position-0 gate (in `completionProviders`) reads
-  // the same identity the component passes to `<TugPromptEntry ref>`.
-  const entryDelegateRef = useRef<TugPromptEntryDelegate | null>(null);
+  // the same identity the component passes to `<PromptEntry ref>`.
+  const entryDelegateRef = useRef<PromptEntryDelegate | null>(null);
 
   // Completion providers. Null-safe on `services` so this can be
   // memoized unconditionally (rules of hooks); the caller only reads

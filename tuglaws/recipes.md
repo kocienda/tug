@@ -147,7 +147,7 @@ Three things are doing work:
 
 ### Reference implementation
 
-`tugdeck/src/components/tugways/tug-markdown-view.tsx:1108-1121` — streaming markdown rendering. `streamingStore.observe(streamingPath, ...)` is wired in a `useLayoutEffect`; the callback reads the latest text and calls `doSetRegion('stream', text)` to mutate the DOM. The component does not pull `streamingPath`'s value through `useSyncExternalStore` at all — it never enters React state.
+`tugdeck/src/components/tugways/tug-markdown-block.tsx`, the streaming-mode `useLayoutEffect` — streaming markdown rendering. `streamingStore.observe(streamingPath, ...)` is wired in a `useLayoutEffect`; the callback requests a frame flush (`tugdeck/src/lib/markdown/streaming-flush.ts`) that reads the latest text and reconciles the DOM through `renderIncremental`. The component does not pull `streamingPath`'s value through `useSyncExternalStore` at all — it never enters React state.
 
 ### Laws satisfied
 

@@ -44,7 +44,7 @@
  * for the squeeze that does come.
  *
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts
  * @covers tugdeck/src/lib/arc-review.ts
  */

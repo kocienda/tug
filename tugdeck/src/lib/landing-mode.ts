@@ -7,7 +7,7 @@
  * prompt draft is set aside until the mode exits. Commit mode was the first;
  * join mode is the second. Because the composer holds exactly one document, at
  * most one landing mode can be active — and one `landingMode` slot on
- * `TugPromptEntry` makes that structural rather than a rule two controllers
+ * `PromptEntry` makes that structural rather than a rule two controllers
  * each have to remember.
  *
  * The interface is extracted from `CommitModeController`'s shipped public
@@ -188,7 +188,7 @@ export interface LandingSnapshot {
 }
 
 /**
- * The façade `TugPromptEntry` drives. Both `CommitModeController` and
+ * The façade `PromptEntry` drives. Both `CommitModeController` and
  * `JoinModeController` implement it; the composer never names either class.
  */
 export interface LandingMode {

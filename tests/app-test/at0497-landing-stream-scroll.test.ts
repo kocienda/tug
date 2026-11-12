@@ -16,7 +16,7 @@
  * (`publishDraftFrame`, SURFACE_VERSION 2.14.0). Store, controller, composer,
  * editor and scroller are all the shipping objects.
  *
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/wave-caret.ts
  * @covers tugdeck/src/lib/changeset-draft-store.ts
  * @covers tugdeck/src/lib/commit-mode-controller.ts

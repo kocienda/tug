@@ -36,7 +36,7 @@
  * door that lands the flag without reaching the frame has landed nothing a
  * person can see, and no test of the form alone would say which half broke.
  *
- * Nor does it name `session-card.tsx`, `tug-prompt-entry.tsx`, or
+ * Nor does it name `session-card.tsx`, `prompt-entry.tsx`, or
  * `deck-manager.ts` in `@covers`, though it reaches through all three. All
  * three stand at the selection budget's ceiling, and each is already named by
  * a file that catches the same breakage sooner: at0140 walks the composer's

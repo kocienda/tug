@@ -13,6 +13,7 @@
  */
 
 import React, { useLayoutEffect } from "react";
+import { iconNamed } from "@/components/tugways/tug-named-icon";
 import { overlayAlert, overlayBulletin, overlayBulletinInsets } from "../bus/declarations/overlay";
 import { CanvasOverlayRoot } from "../components/chrome/canvas-overlay-root";
 import { OpenQuicklyOverlay } from "../components/chrome/open-quickly-overlay";
@@ -28,6 +29,12 @@ import { TugThemeProvider } from "../contexts/theme-provider";
 import { composeProviders } from "../lib/compose-providers";
 import { GateDeckContext, type GateDeck } from "../lib/gate-deck";
 
+/** An alert icon off the wire: a Lucide name drawn as its element, `""` as none. */
+function iconFromWire(name: string): React.ReactElement | null {
+  const Icon = iconNamed(name);
+  return Icon === null ? null : <Icon />;
+}
+
 /**
  * Answer the shell's alert requests with this page's alert: each is shown,
  * and its answer is the reply. Registered in a layout effect, because the
@@ -42,8 +49,9 @@ function AlertAnswerer(): null {
   useLayoutEffect(
     () =>
       overlayAlert.handle(async (options, _from, signal) => {
-        const given = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined));
-        return { confirmed: await showAlert({ ...given, signal }) };
+        const { icon, ...rest } = options;
+        const given = Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
+        return { confirmed: await showAlert({ ...given, ...(icon === undefined ? {} : { icon: iconFromWire(icon) }), signal }) };
       }),
     [showAlert],
   );

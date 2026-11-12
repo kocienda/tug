@@ -42,6 +42,8 @@ import "./session-error-block.css";
 import React from "react";
 import { AlertCircle, AlertTriangle, Copy, RotateCw } from "lucide-react";
 
+import { TugPushButton } from "@/components/tugways/tug-push-button";
+
 /**
  * `RenderInput` for the `error` kind, mirrored here as the props
  * shape so the dispatch can route to the component without an
@@ -99,27 +101,29 @@ export const SessionErrorBlock: React.FC<SessionErrorBlockProps> = ({
       <span className="session-error-block-message">{input.message}</span>
       <div className="session-error-block-actions">
         {input.recoverable && onRetry !== undefined ? (
-          <button
-            type="button"
-            className="session-error-block-button"
+          <TugPushButton
+            subtype="icon-text"
+            emphasis="outlined"
+            size="xs"
+            icon={<RotateCw aria-hidden="true" />}
             onClick={onRetry}
             data-slot="session-error-block-retry"
           >
-            <RotateCw size={12} aria-hidden="true" />
             Retry
-          </button>
+          </TugPushButton>
         ) : null}
         {!input.recoverable ? (
-          <button
-            type="button"
-            className="session-error-block-button"
+          <TugPushButton
+            subtype="icon-text"
+            emphasis="outlined"
+            size="xs"
+            icon={<Copy aria-hidden="true" />}
             onClick={onCopy}
             data-copied={copied ? "true" : undefined}
             data-slot="session-error-block-copy"
           >
-            <Copy size={12} aria-hidden="true" />
             {copied ? "Copied" : "Copy error"}
-          </button>
+          </TugPushButton>
         ) : null}
       </div>
     </div>

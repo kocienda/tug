@@ -59,7 +59,7 @@
  *
  * ## What this file deliberately does not declare
  *
- * `tug-prompt-entry.tsx` and `session-card.tsx` are both at the selection
+ * `prompt-entry.tsx` and `session-card.tsx` are both at the selection
  * budget's ceiling, and naming them here would push each past it — a one-line
  * edit to either would then turn `app-test-changed` into a sweep. The Z5
  * relabel and the band's mount site are corroborating details of a file whose

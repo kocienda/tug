@@ -572,6 +572,13 @@ body {
   border-width: 0;
 }
 
+/* ---- Numeric (`numeric`) ----
+   A count that changes under the reader holds its own width: tabular
+   figures, so the run behind it does not shift as the number moves. */
+.tug-badge[data-numeric="true"] {
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- ghost-accent --- */
 
 .tug-badge-ghost-accent {
@@ -749,4 +756,59 @@ body {
   background-color: color-mix(in srgb, currentColor 16%, transparent);
   color: currentColor;
   border-color: transparent;
+}
+
+/* ============================================================================
+   Click-copy badge (`copyOnClick`)
+   The badge paints everything; the shell is a button reset, a quiet hover
+   hint that the chip acts, and the copy → check glyph swap on the
+   `data-copied` flash. The check reuses the shared success tone.
+   ========================================================================= */
+
+.tug-badge-copy {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tug-badge-copy > .tug-badge {
+  gap: 3px;
+}
+
+.tug-badge-copy-text {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tug-badge-copy-icon {
+  width: var(--tug-icon-size-2xs);
+  height: var(--tug-icon-size-2xs);
+  /* Recessed at rest so the glyph reads as an affordance, not a second
+     piece of content; full strength on hover and after the copy. */
+  opacity: 0.6;
+  transition: opacity 120ms ease-out;
+}
+
+.tug-badge-copy:hover .tug-badge-copy-icon {
+  opacity: 1;
+}
+
+.tug-badge-copy-icon--done {
+  display: none;
+}
+
+.tug-badge-copy[data-copied] .tug-badge-copy-icon--idle {
+  display: none;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-badge-copy[data-copied] .tug-badge-copy-icon--done {
+  display: inline;
+  opacity: 1;
+  color: var(--tug7-element-global-text-normal-success-rest);
 }

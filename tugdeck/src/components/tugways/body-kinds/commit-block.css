@@ -86,9 +86,11 @@
   color: var(--tugx-block-text-color);
 }
 
-/* The hash chip is a TugBadge; only its typeface is commit-specific —
-   a short hash reads as an identifier, so it wants mono. */
-.tugx-commit-hash-badge {
+/* The hash chip is a click-copy TugBadge; only its typeface is
+   commit-specific — a short hash reads as an identifier, so it wants mono.
+   The badge's own rule is `font-family: inherit`, so this one names both
+   classes to win over it. */
+.tug-badge.tugx-commit-hash-badge {
   font-family: var(--tug-font-family-mono);
 }
 

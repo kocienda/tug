@@ -491,7 +491,7 @@ function userBodyParts(
   const displayed = text;
   if (displayed === "") return [];
   // Index-owned cache identity — the user body renders via
-  // `TugAtomMarkdownBody` → `TugMarkdownBlock` static mode, which does not
+  // `AtomMarkdownBody` → `TugMarkdownBlock` static mode, which does not
   // populate the shared cache.
   const identity = `turn.${turnKey}.message.${messageKey}.userbody`;
   const projected = markdownToText(streamingStore, identity, displayed);

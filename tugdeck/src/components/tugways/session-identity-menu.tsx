@@ -53,7 +53,7 @@
  * — omits the item instead, which is a different thing: what is constant per
  * surface is the menu, and a permanently dead row is not information.
  *
- * `TugEditorContextMenu` rather than the Radix-backed `TugContextMenu`, for the
+ * `TugEditorContextMenu` rather than the Radix-backed `PdfContextMenu`, for the
  * reason `useCopyableText` uses it: its items write to the clipboard inside the
  * mousedown, and it moves no focus — a row is chrome, and a copy from it must
  * not take the key view away from the card the reader is working in.
@@ -71,10 +71,8 @@ import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import {
-  TugEditorContextMenu,
-  type TugEditorContextMenuEntry,
-} from "@/components/tugways/tug-editor-context-menu";
+import { type TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
+import { usePointMenu } from "@/components/tugways/use-point-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { entityMenuItems } from "@/components/tugways/entity-menu-items";
 import { annotationEntryFor } from "@/lib/annotator/registry";
@@ -163,10 +161,7 @@ export function useSessionIdentityMenu({
   enabled = true,
 }: SessionIdentityMenuOptions): SessionIdentityMenuResult {
   const manager = useResponderChain();
-  const [menuState, setMenuState] = React.useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const closeMenu = React.useCallback(() => setMenuState(null), []);
+  const { openAtEvent, renderMenu } = usePointMenu();
 
   const citation = sessionCitation(identity, { project: true });
   const descriptionText = description?.trim() ?? "";
@@ -304,16 +299,14 @@ export function useSessionIdentityMenu({
 
   const onContextMenu = React.useCallback(
     (e: React.MouseEvent): void => {
-      if (!enabled || manager === null) return;
-      e.preventDefault();
+      if (!enabled) return;
       // Claimed, not merely handled — the same rule `useCopyableText` follows.
       // The runs inside this row are copyables of their own and every one of
       // them is on this row's path, so a press that only suppressed the native
       // menu would open a stack of them over one point.
-      e.stopPropagation();
-      setMenuState({ x: e.clientX, y: e.clientY });
+      openAtEvent(e, null);
     },
-    [enabled, manager],
+    [enabled, openAtEvent],
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
@@ -360,13 +353,7 @@ export function useSessionIdentityMenu({
   const contextMenu =
     enabled && manager !== null ? (
       <ResponderScope>
-        <TugEditorContextMenu
-          open={menuState !== null}
-          x={menuState?.x ?? 0}
-          y={menuState?.y ?? 0}
-          items={items}
-          onClose={closeMenu}
-        />
+        {renderMenu(items)}
       </ResponderScope>
     ) : null;
 

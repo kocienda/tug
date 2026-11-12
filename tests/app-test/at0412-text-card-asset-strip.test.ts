@@ -38,8 +38,8 @@
  * @covers tugdeck/src/components/tugways/tug-text-card-editor/file-drop.ts
  * @covers tugdeck/src/components/tugways/cards/text-card.tsx
  * @covers tugdeck/src/components/tugways/cards/text-card.css
- * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.tsx
- * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.css
+ * @covers tugdeck/src/components/tugways/cards/attachment-preview.tsx
+ * @covers tugdeck/src/components/tugways/cards/attachment-preview.css
  */
 
 import { describe, expect, test } from "bun:test";

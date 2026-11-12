@@ -73,7 +73,7 @@ Posted by the aggregator; parsed by `AppDelegate`'s `MenuState` struct. **Keep b
   "activeTheme": "ironclad",
   "openQuickly": true,
   "captureArmed": false,           // Keyboard pane recording a chord — host parks every key equivalent until disarm
-  "appModalOpen": false            // ConfigureTug / UpdateTug / TugVersionGate is up — nothing may change the card count
+  "appModalOpen": false            // ConfigureTug / UpdateTug / VersionGate is up — nothing may change the card count
 }
 ```
 
@@ -120,7 +120,7 @@ An item absent from `commands` falls through to whichever tier still owns it, wh
 
 ### `appModalOpen` — one fact, published to both tiers
 
-An app-modal wizard (`ConfigureTug`, `UpdateTug`, `TugVersionGate`) is a Radix `AlertDialog` portalled into the canvas overlay, so it traps the web view's pointer and focus. **The menu bar is not trapped.** Without a gate, ⌘N under an open wizard opens a Session card behind it.
+An app-modal wizard (`ConfigureTug`, `UpdateTug`, `VersionGate`) is a Radix `AlertDialog` portalled into the canvas overlay, so it traps the web view's pointer and focus. **The menu bar is not trapped.** Without a gate, ⌘N under an open wizard opens a Session card behind it.
 
 The rule is one rule — *nothing may change the number of cards on the deck* — and it reaches the menu bar by two routes, because enablement has two tiers:
 

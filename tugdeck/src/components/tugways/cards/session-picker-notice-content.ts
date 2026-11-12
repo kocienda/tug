@@ -9,6 +9,8 @@
  * @module components/tugways/cards/session-picker-notice-content
  */
 
+import React from "react";
+import { FolderX, Info, LogOut, TriangleAlert } from "lucide-react";
 import type { TugInlineAlertTone } from "../tug-inline-alert";
 import type { PickerNotice } from "@/lib/picker-notice-store";
 
@@ -17,8 +19,8 @@ export interface NoticeContent {
   title: string;
   message?: string;
   tone: TugInlineAlertTone;
-  /** Lucide icon name. */
-  icon: string;
+  /** Leading icon element; the inline alert sizes it. */
+  icon: React.ReactElement;
 }
 
 /**
@@ -43,7 +45,7 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
           ? `${reason}. Retry, or start a new session below.`
           : "Retry, or start a new session below.",
         tone: "caution",
-        icon: "TriangleAlert",
+        icon: React.createElement(TriangleAlert),
       };
     }
     case "restore_canceled":
@@ -54,7 +56,7 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
             ? `You stopped restoring the session for ${notice.staleProjectDir}.`
             : notice.message,
         tone: "muted",
-        icon: "Info",
+        icon: React.createElement(Info),
       };
     case "restore_timed_out":
       return {
@@ -62,7 +64,7 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
         message:
           "Restoring it took too long. The server may be unreachable — Retry, or start a new session below.",
         tone: "caution",
-        icon: "TriangleAlert",
+        icon: React.createElement(TriangleAlert),
       };
     case "signed_out":
       return notice.message === "claude_missing"
@@ -70,13 +72,13 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
             title: "Claude Code isn’t available",
             message: "Finish setup, then pick a session below.",
             tone: "caution",
-            icon: "TriangleAlert",
+            icon: React.createElement(TriangleAlert),
           }
         : {
             title: "You were signed out of Claude",
             message: "Log back in, then resume or start a session below.",
             tone: "caution",
-            icon: "LogOut",
+            icon: React.createElement(LogOut),
           };
     case "spawn_failed":
       // `message` already carries the human reason (from `spawnErrorMessage`).
@@ -86,7 +88,7 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
         title: "Can’t open this project",
         message: `${notice.message} Choose a directory that exists below, then Open.`,
         tone: "danger",
-        icon: "FolderX",
+        icon: React.createElement(FolderX),
       };
     case "spawn_budget":
       // Deliberately does NOT steer at the picker. The host refused on its
@@ -97,9 +99,9 @@ export function noticeContent(notice: PickerNotice): NoticeContent {
         title: "Can’t start another session",
         message: notice.message,
         tone: "caution",
-        icon: "TriangleAlert",
+        icon: React.createElement(TriangleAlert),
       };
     default:
-      return { title: notice.message, tone: "muted", icon: "Info" };
+      return { title: notice.message, tone: "muted", icon: React.createElement(Info) };
   }
 }

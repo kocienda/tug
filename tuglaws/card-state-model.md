@@ -16,7 +16,7 @@ Every component in a card falls into one of three categories, declared via the `
 | **Copyable** | `"copy"` | `user-select: none` | No effect | Not included in select-all | Context menu with Copy | No highlight |
 | **Chrome** | `"none"` or absent | `user-select: none` | No effect | Not included in select-all | "No Actions" fallback menu | No highlight |
 
-**Selectable** — text the user can directly select via keyboard or click-drag. Examples: tug-markdown-view content, tug-input, tug-textarea, tug-value-input, tug-prompt-input. These components set `user-select: text` and handle `selectAll` in the responder chain.
+**Selectable** — text the user can directly select via keyboard or click-drag. Examples: rendered markdown (`TugMarkdownBlock`), tug-input, tug-textarea, tug-value-input, tug-prompt-input. These components set `user-select: text` and handle `selectAll` in the responder chain.
 
 **Copyable** — informational text the user might want to copy but should never directly select. Examples: labels with `copyable` prop, timestamps, status lines. These inherit `user-select: none`. The only way to copy is right-click → Copy from a context menu, which reads `el.textContent` directly — no DOM Selection, no highlight. Use the `useCopyableText` hook.
 
@@ -65,7 +65,6 @@ Controls (buttons, checkboxes, switches, sliders, etc.) refuse focus on click vi
 | TugRadioGroup items | Refuses focus on click (via TugButton) |
 | TugInput, TugTextarea, TugValueInput | **Accepts focus** — needs keyboard input |
 | TugPromptInput | **Accepts focus** — contentEditable |
-| TugMarkdownView | **Accepts focus** — tabIndex=0 for keyboard shortcuts |
 
 ## Focus State Preservation Attributes
 
@@ -96,7 +95,7 @@ For the underlying capture/restore mechanism, see
 
 A card's *outer* scroll (the host-content element) is always saved into
 `bag.scroll` and needs no attribute. *Inner* scrollable regions — most
-notably `tug-markdown-view`'s virtual-list container — opt in via
+notably a `TugListView`'s scroll container — opt in via
 `data-tug-scroll-key="<key>"` so their independent scroll positions
 also survive reload (captured into `bag.regionScroll`).
 
@@ -235,7 +234,7 @@ SelectionGuard and editing components' selection models are separate systems:
 
 | Component | Selection owner | SelectionGuard's role |
 |-----------|----------------|----------------------|
-| tug-markdown-view | Browser (DOM Selection) | Boundary enforcement only. Native `::selection` renders. |
+| tug-markdown-block | Browser (DOM Selection) | Boundary enforcement only. Native `::selection` renders. |
 | tug-prompt-input | TugTextEngine | Boundary enforcement only. `data-tug-select="custom"` exempts from clipping. Native `::selection` renders. |
 | tug-input, tug-textarea, tug-value-input | Browser native | Boundary enforcement only. Native `::selection` renders. |
 

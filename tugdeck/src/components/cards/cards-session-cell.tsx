@@ -173,6 +173,7 @@ export function CardsSessionRow({
         data-cards-group-run={groupRunKey(spaceId, "sessions")}
         data-cards-space-run={spaceId}
         {...(spaceActive ? {} : { "data-cards-space-inactive": "true" })}
+        state={spaceActive ? undefined : "dimmed"}
       />
     </AnnotationScope>
   );
@@ -229,7 +230,7 @@ export function CardsUnconnectedSessionRow({
         <TugProgressIndicator
           variant="pulsing-dot"
           size={TUG_SESSION_ROW_INDICATOR_SIZE}
-          role="inherit"
+          tone="inherit"
           state="stopped"
           aria-hidden
         />
@@ -253,6 +254,7 @@ export function CardsUnconnectedSessionRow({
       data-cards-group-run={groupRunKey(spaceId, "sessions")}
       data-cards-space-run={spaceId}
       {...(spaceActive ? {} : { "data-cards-space-inactive": "true" })}
+      state={spaceActive ? undefined : "dimmed"}
     />
   );
 }

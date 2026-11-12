@@ -15,7 +15,7 @@ Origin: a design spike, since deleted, whose findings this document carries. Thi
 | An arc's name, in either register | `TugArcAtom` (`ArcSigil` atom) | `--tugx-atom-*` |
 | What a collapsed arc is doing | `ArcLifecycleLine` (track · fraction · note · facts) | its own type and tones |
 
-This is not a style guideline that a careful author upholds. Before the extraction, `tug-changes-list.css` and `session-changes-arc-lane.css` each spelled the eyebrow's five declarations in full, with a comment conceding the duplication was cheaper than a cross-import. That reasoning holds at two users and stops holding at the third. The components exist so that a fourth surface cannot get it wrong by being written carefully.
+This is not a style guideline that a careful author upholds. Before the extraction, `changes-list.css` and `session-changes-arc-lane.css` each spelled the eyebrow's five declarations in full, with a comment conceding the duplication was cheaper than a cross-import. That reasoning holds at two users and stops holding at the third. The components exist so that a fourth surface cannot get it wrong by being written carefully.
 
 ## The eyebrow
 
@@ -40,7 +40,7 @@ Two ways to hand parts over, and the difference is real rather than stylistic:
 
 **A run never paints outside its own box.** Atomicity has a cost: parts that will not shrink make a run that cannot shrink, and on a row whose leading and trailing slots are fixed, the excess lands *on top of* the trailing controls — fact text through a Bind button, which is what shipped until it was caught by eye. `fit` is the answer, and a row-borne run has to ask for it: `"clip"` bounds the run to its box and fades the last visible fact out at the trailing edge. `"natural"` stays the default, because a run sized by its own content — a rail row's right-aligned tail, a file row's metadata beside a path that truncates instead — is already correct, and clipping it would cut a fact that had the room.
 
-The fade needs no measured overflow gate the way `TugClamp` does. It covers the trailing edge of the *box*, and a run that fits ends short of that edge, so the gradient falls on empty space and paints nothing. It bites exactly when there is something to cut.
+The fade needs no measured overflow gate the way `Clamp` does. It covers the trailing edge of the *box*, and a run that fits ends short of that edge, so the gradient falls on empty space and paints nothing. It bites exactly when there is something to cut.
 
 ## An arc is named in one of two registers, and the register is the fact
 
@@ -52,7 +52,7 @@ Proportional in a pill means somebody is on this. Monospace means nobody is. A r
 
 `bound_session` is **one session or none**: an arc is bound to at most one live card, so the register shows one atom or the caret run. Nothing invents a second.
 
-**The pill is never authored at the call site.** `ArcSigil atom` and `TugSessionIdentity` both wear the settled session-atom skin, so radius, hairline, padding and size scale live in `tug-session-identity.css` and change with it. An arc atom and a session atom are siblings by construction, not by two sets of numbers kept equal by hand. Copying those values into a new surface — even as a design proposal — is the specific mistake this paragraph exists to prevent.
+**The pill is never authored at the call site.** `ArcSigil atom` and `SessionIdentityView` both wear the settled session-atom skin, so radius, hairline, padding and size scale live in `session-identity.css` and change with it. An arc atom and a session atom are siblings by construction, not by two sets of numbers kept equal by hand. Copying those values into a new surface — even as a design proposal — is the specific mistake this paragraph exists to prevent.
 
 The arc is **passed, not looked up**. A surface rendering the row already holds the fact; making the atom re-derive it from the changeset store would put something the row was built from behind a feed arriving.
 
@@ -68,7 +68,7 @@ The outdent is also why a row does not need a second mark saying the arc is unbo
 
 An arc block is two lines and sometimes three: who, then what the arc is doing, then what its join is doing. The lines below the first hang under the **name**, not under the pill that holds it — and the pill's text is a border plus its inline padding in from its own edge, which is a number no spacing token knows.
 
-**Indent by that inset, never by a space token that resembles it.** `tug-session-identity.css` publishes it (`--tugx-session-atom-text-inset`, and `-2xs` for the small chip) beside the padding it describes, so retuning the skin retunes what hangs under it. The Arcs card takes the `-2xs` inset directly; the Changes shade takes `--tugx-arc-stack-indent`, which is the **full** inset plus the row's own content indent minus the outdent above — full because the shade's eyebrow atom wears the chip tier's own size — and the lines are siblings of the row rather than children of it.
+**Indent by that inset, never by a space token that resembles it.** `session-identity.css` publishes it (`--tugx-session-atom-text-inset`, and `-2xs` for the small chip) beside the padding it describes, so retuning the skin retunes what hangs under it. The Arcs card takes the `-2xs` inset directly; the Changes shade takes `--tugx-arc-stack-indent`, which is the **full** inset plus the row's own content indent minus the outdent above — full because the shade's eyebrow atom wears the chip tier's own size — and the lines are siblings of the row rather than children of it.
 
 **One grammar, one scale — and the atom leads it.** The Arcs card, the Changes shade and the arc receipt render the same `ArcLifecycleBlock` at the same scale, the atom at the chip tier's one size. A `size` dial once let the card ask for a rail scale and the shade for a reading scale, and it was retired with the second atom register ([entity-presentation](entity-presentation.md#an-atoms-size-is-its-surfaces-register-never-a-call-sites-choice)): the rule that keeps a block coherent is that the atom and the lines beneath it move together — an atom a step smaller than the facts it heads reads as a caption over its own content, and a line a step smaller than the register beneath it reads as a footnote to its own block — and one scale is the only way to hold it without a second number to keep in step.
 

@@ -6,7 +6,7 @@
  * `/commit` / Session ▸ Commit… turn the entry into the commit-message editor
  * (the editor holds only the message — no routing chip) while the
  * bottom-anchored changes sheet is up, and Z5 swaps to cancel / auto-message /
- * commit. This controller is the single façade the generic `TugPromptEntry`
+ * commit. This controller is the single façade the generic `PromptEntry`
  * reads to drive the mode — it holds the `active` flag and folds the four
  * upstream stores (code-session turn state, the changeset snapshot, the draft
  * overlay, the commit verb round-trip) into one referentially-stable snapshot,

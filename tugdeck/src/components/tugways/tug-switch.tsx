@@ -20,6 +20,7 @@
  */
 
 import "./tug-switch.css";
+import type { TugRole, TugSize } from "./tug-vocabulary";
 
 import React, { useCallback, useId, useState } from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
@@ -37,7 +38,7 @@ import type { FocusPolicy } from "./focus-manager";
 // ---- Types ----
 
 /** Switch size names — matches TugCheckbox/TugInput/TugButton sizes */
-export type TugSwitchSize = "xs" | "sm" | "md" | "lg";
+export type TugSwitchSize = Extract<TugSize, "xs" | "sm" | "md" | "lg">;
 
 /**
  * Semantic role for the switch on-state color.
@@ -48,14 +49,7 @@ export type TugSwitchSize = "xs" | "sm" | "md" | "lg";
  *
  * @selector [data-role="<role>"]
  */
-export type TugSwitchRole =
-  | "option"
-  | "action"
-  | "agent"
-  | "data"
-  | "success"
-  | "caution"
-  | "danger";
+export type TugSwitchRole = Extract<TugRole, "option" | "action" | "agent" | "data" | "success" | "caution" | "danger">;
 
 /**
  * Maps role prop values to toggle-track token suffixes.
@@ -78,8 +72,16 @@ const ROLE_TOKEN_MAP: Record<string, string> = {
   danger:  "danger",
 };
 
-/** TugSwitch props. */
-export interface TugSwitchProps {
+/**
+ * TugSwitch props. They extend the Radix root's, less the ones the switch
+ * redefines: its checked state, its `role` (a colour role, not an ARIA one),
+ * and the change callback, which it replaces with a `toggle` dispatch [L11].
+ */
+export interface TugSwitchProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>,
+    "checked" | "defaultChecked" | "onCheckedChange" | "role" | "asChild" | "children"
+  > {
   /**
    * Controlled checked state.
    * @selector [data-state="checked"] | [data-state="unchecked"]
@@ -119,7 +121,10 @@ export interface TugSwitchProps {
    * @default false
    */
   required?: boolean;
-  /** Additional CSS class names on the wrapper element. */
+  /**
+   * Additional CSS class names on the switch root (`data-slot="tug-switch"`),
+   * with or without a label.
+   */
   className?: string;
   /** Accessibility label when no visible label is provided. */
   "aria-label"?: string;
@@ -187,6 +192,7 @@ export const TugSwitch = React.forwardRef<HTMLButtonElement, TugSwitchProps>(
       value,
       required = false,
       className,
+      style,
       "aria-label": ariaLabel,
       role,
       componentStatePreservationKey,
@@ -297,8 +303,8 @@ export const TugSwitch = React.forwardRef<HTMLButtonElement, TugSwitchProps>(
         value={value}
         required={required}
         aria-label={!label ? ariaLabel : undefined}
-        className={cn("tug-switch", `tug-switch-size-${size}`, !label && className)}
-        style={roleStyle}
+        className={cn("tug-switch", `tug-switch-size-${size}`, className)}
+        style={{ ...roleStyle, ...style }}
         data-role={role}
         data-tug-focus="refuse"
         {...rest}
@@ -313,11 +319,7 @@ export const TugSwitch = React.forwardRef<HTMLButtonElement, TugSwitchProps>(
 
     return (
       <label
-        className={cn(
-          "tug-switch-wrapper",
-          effectiveDisabled && "tug-switch-wrapper-disabled",
-          className,
-        )}
+        className={cn("tug-switch-wrapper", effectiveDisabled && "tug-switch-wrapper-disabled")}
       >
         {switchNode}
         <span className={cn("tug-switch-label", `tug-switch-label-${size}`)}>

@@ -1027,7 +1027,7 @@ body {
      `scrollKey` prop. */
   /* `--tugx-list-view-*` slots live in tug-list-view.css. */
 
-  /* TugMarkdownView / TugMarkdownBlock typography (--tugx-md-*).
+  /* TugMarkdownBlock typography (--tugx-md-*).
      Dark-theme values for `caravel`. The full token vocabulary is the
      contract every Layer-1 markdown block consumes; sloop.css
      declares the same token names with light-theme values.
@@ -1039,12 +1039,11 @@ body {
      (lighter-than-canvas vs darker-than-canvas) rather than just
      hue.
 
-     Layout tokens (--tugx-md-block-padding-x, --tugx-md-bottom-buffer,
-     --tugx-md-placeholder-bg) carry their existing CSS-fallback
-     values into explicit declarations so the whole markdown surface
+     The layout token (--tugx-md-block-padding-x) carries its existing
+     CSS-fallback value into an explicit declaration so the whole markdown surface
      is theme-controlled rather than hard-coded. */
 
-  /* `--tugx-md-*` slots live in tug-markdown-view.css's body{} block per
+  /* `--tugx-md-*` slots live in styles/tugx-md.css's body{} block per
    * tuglaws/token-naming.md. */
 
   /* ---- Thinking block (SessionThinkingBlock per Table T07) ----

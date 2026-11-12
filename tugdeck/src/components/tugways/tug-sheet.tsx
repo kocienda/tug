@@ -83,6 +83,7 @@
  */
 
 import "./tug-sheet.css";
+import type { TugTone } from "./tug-vocabulary";
 
 import React, {
   createContext,
@@ -138,7 +139,14 @@ import {
   subscribeShadeHeightDomain,
   writePersistedShadeFrac,
 } from "./shade-height";
-import { icons } from "lucide-react";
+import { sizedIcon } from "./internal/sized-icon";
+import { cn } from "@/lib/utils";
+
+/** The native attributes a sheet's panel element takes from its caller. */
+type TugSheetPanelElementProps = Omit<
+  React.HTMLAttributes<HTMLDivElement>,
+  "title" | "children" | "id" | "role" | "onKeyDown" | "onMouseDown"
+>;
 
 export { SHADE_HEIGHT_DOMAIN } from "./shade-height";
 
@@ -574,7 +582,13 @@ export interface TugSheetHandle {
  * TugSheet (Root)
  * ---------------------------------------------------------------------------*/
 
-/** TugSheet root props. */
+/**
+ * TugSheet root props. The root renders no element of its own — it holds the
+ * open state in context for the trigger and the content, and the content's
+ * panel is the element that takes native props.
+ *
+ * @no-element
+ */
 export interface TugSheetProps {
   /**
    * Seed the initial open state. Primarily an internal affordance for
@@ -754,15 +768,7 @@ export function TugSheetTrigger({ asChild = true, children }: TugSheetTriggerPro
  * tone color — `"agent"` is the violet the Z4B agent chips carry, so the
  * permission/model/effort picker sheets read as agent surfaces.
  */
-export type TugSheetIconRole =
-  | "muted"
-  | "agent"
-  | "accent"
-  | "active"
-  | "caution"
-  | "danger"
-  | "data"
-  | "success";
+export type TugSheetIconRole = Extract<TugTone, "muted" | "agent" | "accent" | "active" | "caution" | "danger" | "data" | "success">;
 
 /* ---------------------------------------------------------------------------
  * Exclusivity
@@ -814,25 +820,84 @@ export interface SheetExclusivity {
  */
 const SHEET_SETTLED_DISMISS = "tug-sheet:settled";
 
-export interface TugSheetContentProps {
+/**
+ * What a sheet's face is described by — its header and its panel's tiers —
+ * shared by {@link TugSheetContent}, the live modal sheet, and
+ * {@link TugSheetPanel}, the panel box it renders (and that a card measures
+ * before it commits). The live sheet forwards these to the panel whole, so the
+ * two cannot describe different boxes.
+ */
+export interface TugSheetFaceProps extends TugSheetPanelElementProps {
   /**
    * Sheet title (required — renders in header row, wired to aria-labelledby).
    */
   title: string;
   /**
-   * Optional Lucide icon name (PascalCase, e.g. `"Pencil"`) shown to the left
-   * of the title — the TugAlert header layout. Omit for no icon.
+   * Optional icon element (e.g. `<Pencil />`) shown to the left of the
+   * title — the TugAlert header layout, sized to the header's icon box.
+   * Omit for no icon.
    */
-  icon?: string;
+  icon?: React.ReactNode;
   /**
    * Color role for {@link icon}. Defaults to `"muted"`. Pass `"agent"` for the
    * Z4B picker sheets so the icon carries the agent tone.
    */
-  iconRole?: TugSheetIconRole;
+  iconTone?: TugSheetIconRole;
   /**
    * Optional description text (wired to aria-describedby).
    */
   description?: string;
+  /**
+   * Visual entrance/exit style. All styles share the identical
+   * fully-presented geometry — only the animated transition differs
+   * [L06]. Defaults to `"scale-fade"` (fade in while scaling up). See
+   * {@link TugSheetPresentation}.
+   */
+  presentation?: TugSheetPresentation;
+  /**
+   * Resting width of the panel within the host pane. Defaults to `"sm"`.
+   * See {@link TugSheetDisplayWidth}.
+   */
+  displayWidth?: TugSheetDisplayWidth;
+  /**
+   * When `true`, the user can drag-resize the panel (native CSS `resize`).
+   * Defaults to `false`. See {@link ShowSheetOptions.resizable}.
+   */
+  resizable?: boolean;
+  /**
+   * Lay the panel out so its body is the part that gives under a short
+   * canvas. See {@link ShowSheetOptions.bodyScroll}.
+   */
+  bodyScroll?: boolean;
+  /**
+   * Lock the panel's proportions to an aspect-ratio'd content region so the
+   * margin around that region stays uniform at every size (e.g. an image
+   * preview). The body must mark its aspect region with
+   * `data-tug-aspect-region`; the panel's height then becomes
+   * content-driven (the region's `aspect-ratio` sets it from the width) and
+   * drag-resize is width-only — height follows the aspect, so dragging can't
+   * produce lopsided letterbox margins. The live sheet caps the width to its
+   * `maxHostFraction` of the card, and additionally clamps it so the
+   * content-driven height never exceeds that same fraction. Requires
+   * `resizable`. Defaults to `false`.
+   */
+  aspectLockContent?: boolean;
+  /**
+   * Suppress the title-bar header; the content owns the panel. `title`
+   * still labels the dialog (via `aria-label`). Defaults to `false`.
+   * See {@link ShowSheetOptions.hideHeader}.
+   */
+  hideHeader?: boolean;
+  /**
+   * Keep the title but drop the divider rule beneath it (and its extra
+   * spacing). For compact sheets whose body reads as one unit with the
+   * title. Defaults to `false`. See {@link ShowSheetOptions.hideHeaderRule}.
+   */
+  hideHeaderRule?: boolean;
+}
+
+/** {@link TugSheetContent} props: the shared face, plus what makes it a live modal sheet. */
+export interface TugSheetContentProps extends TugSheetFaceProps {
   /**
    * Override initial focus target. Call event.preventDefault() to manage manually.
    */
@@ -872,28 +937,6 @@ export interface TugSheetContentProps {
    */
   senderId?: string;
   /**
-   * Visual entrance/exit style. All styles share the identical
-   * fully-presented geometry — only the animated transition differs
-   * [L06]. Defaults to `"scale-fade"` (fade in while scaling up). See
-   * {@link TugSheetPresentation}.
-   */
-  presentation?: TugSheetPresentation;
-  /**
-   * Resting width of the panel within the host pane. Defaults to `"sm"`.
-   * See {@link TugSheetDisplayWidth}.
-   */
-  displayWidth?: TugSheetDisplayWidth;
-  /**
-   * When `true`, the user can drag-resize the panel (native CSS `resize`).
-   * Defaults to `false`. See {@link ShowSheetOptions.resizable}.
-   */
-  resizable?: boolean;
-  /**
-   * Lay the panel out so its body is the part that gives under a short
-   * canvas. See {@link ShowSheetOptions.bodyScroll}.
-   */
-  bodyScroll?: boolean;
-  /**
    * Cap the panel to this fraction (0–1) of the host card's box on BOTH
    * axes — the panel never exceeds `fraction × pane-frame width/height`,
    * so it stays visibly nested inside the card rather than bleeding to
@@ -909,31 +952,6 @@ export interface TugSheetContentProps {
    * See {@link ShowSheetOptions.maxHostFraction}.
    */
   maxHostFraction?: number;
-  /**
-   * Lock the panel's proportions to an aspect-ratio'd content region so the
-   * margin around that region stays uniform at every size (e.g. an image
-   * preview). The body must mark its aspect region with
-   * `data-tug-aspect-region`; the panel's height then becomes
-   * content-driven (the region's `aspect-ratio` sets it from the width) and
-   * drag-resize is width-only — height follows the aspect, so dragging can't
-   * produce lopsided letterbox margins. The width is still capped to
-   * {@link maxHostFraction} of the card, and additionally clamped so the
-   * content-driven height never exceeds that same fraction. Requires
-   * `resizable`. Defaults to `false`.
-   */
-  aspectLockContent?: boolean;
-  /**
-   * Suppress the title-bar header; the content owns the panel. `title`
-   * still labels the dialog (via `aria-label`). Defaults to `false`.
-   * See {@link ShowSheetOptions.hideHeader}.
-   */
-  hideHeader?: boolean;
-  /**
-   * Keep the title but drop the divider rule beneath it (and its extra
-   * spacing). For compact sheets whose body reads as one unit with the
-   * title. Defaults to `false`. See {@link ShowSheetOptions.hideHeaderRule}.
-   */
-  hideHeaderRule?: boolean;
   /**
    * Disposition toward an enclosing focus cycle on a **committed** close ([P15]
    * generalized to sub-surfaces). `"retain"` (default) pops normally — the cycle
@@ -1090,37 +1108,15 @@ export function notifySheetContentChanged(el: HTMLElement): void {
 }
 
 /** {@link TugSheetPanel} props. */
-export interface TugSheetPanelProps {
+export interface TugSheetPanelProps extends TugSheetFaceProps {
   /** Ref to the `.tug-sheet-content` element itself. */
   panelRef?: React.Ref<HTMLDivElement>;
   /** The panel element's `id` (the live sheet's `contentId`). */
   id?: string;
-  /** Sheet title — rendered in the header, and the `aria-label` when hidden. */
-  title: string;
-  /** Optional Lucide icon name (PascalCase), resolved here. */
-  icon?: string;
-  /** Color role for {@link icon}. */
-  iconRole?: TugSheetIconRole;
-  /** Optional description text. */
-  description?: string;
   /** Element id for the title heading (`aria-labelledby`). */
   titleId?: string;
   /** Element id for the description (`aria-describedby`). */
   descriptionId?: string;
-  /** The `data-tug-sheet-presentation` tier. */
-  presentation?: TugSheetPresentation;
-  /** The `data-display-width` tier. */
-  displayWidth?: TugSheetDisplayWidth;
-  /** Marks the panel resizable (`data-resizable`); the handles are {@link trailing}. */
-  resizable?: boolean;
-  /** Marks the panel's body as the part that gives (`data-body-scroll`). */
-  bodyScroll?: boolean;
-  /** Marks the panel aspect-locked (`data-aspect-lock`). */
-  aspectLockContent?: boolean;
-  /** Suppress the header block. */
-  hideHeader?: boolean;
-  /** Drop the header's bottom rule. */
-  hideHeaderRule?: boolean;
   onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
   onMouseDown?: React.MouseEventHandler<HTMLDivElement>;
   /**
@@ -1155,7 +1151,7 @@ export function TugSheetPanel({
   id,
   title,
   icon,
-  iconRole = "muted",
+  iconTone = "muted",
   description,
   titleId,
   descriptionId,
@@ -1171,11 +1167,9 @@ export function TugSheetPanel({
   wrapInterior,
   trailing,
   children,
+  className,
+  ...rest
 }: TugSheetPanelProps) {
-  // Resolve the optional header icon by Lucide name (PascalCase), matching
-  // TugAlert's lookup. Unknown names resolve to null (no icon, no throw).
-  const IconComponent = icon ? (icons[icon as keyof typeof icons] ?? null) : null;
-
   const interior = (
     <>
       {/* Sheet header: an optional role-colored icon left of the
@@ -1190,14 +1184,14 @@ export function TugSheetPanel({
               ? "tug-sheet-header tug-sheet-header-no-rule"
               : "tug-sheet-header"
           }
-          data-icon-role={icon ? iconRole : undefined}
+          data-icon-tone={icon ? iconTone : undefined}
           data-has-description={description ? "true" : undefined}
         >
-          {IconComponent && (
+          {icon && (
             <div className="tug-sheet-icon" aria-hidden="true">
               {/* The icon box owns the size (one-line vs two-line
                   header, see tugx-header.css); the svg fills it. */}
-              <IconComponent size="100%" />
+              {sizedIcon(icon, "100%")}
             </div>
           )}
           <div className="tug-sheet-heading">
@@ -1228,9 +1222,10 @@ export function TugSheetPanel({
 
   return (
     <div
+      {...rest}
       ref={panelRef}
       id={id}
-      className="tug-sheet-content"
+      className={cn("tug-sheet-content", className)}
       role="dialog"
       aria-labelledby={hideHeader ? undefined : titleId}
       aria-label={hideHeader ? title : undefined}
@@ -1269,7 +1264,7 @@ export function TugSheetPanel({
 export function TugSheetContent({
   title,
   icon,
-  iconRole = "muted",
+  iconTone = "muted",
   description,
   onOpenAutoFocus,
   getResult,
@@ -1295,6 +1290,8 @@ export function TugSheetContent({
   reportNaturalHeight,
   modalScopeSelector,
   children,
+  className,
+  ...rest
 }: TugSheetContentProps) {
   const { open, onOpenChange, contentId, responderId } = useTugSheetContext();
   // Chrome ref drives the inert effect (`inert` on `.tug-pane-body`).
@@ -2428,7 +2425,7 @@ export function TugSheetContent({
 
   // Inertness management: `.tug-pane-body` is `inert` while the sheet is
   // open ([L03]/[L06]). The toggle is the shared `usePaneInert` primitive
-  // (also used by `TugControlBar`); the trigger capture below stays here
+  // (also used by `ControlBar`); the trigger capture below stays here
   // because focus-restore-on-close is sheet-specific.
   // The `modalScopeSelector` narrows the inert region below the whole pane
   // body (the shade's transcript-only carve-out, [P17]).
@@ -2683,11 +2680,13 @@ export function TugSheetContent({
           onUnmountAutoFocus={handleUnmountAutoFocus}
         >
           <TugSheetPanel
+            {...rest}
+            className={className}
             panelRef={composedContentRef}
             id={contentId}
             title={title}
             icon={icon}
-            iconRole={iconRole}
+            iconTone={iconTone}
             description={description}
             titleId={titleId}
             descriptionId={descriptionId}
@@ -2825,15 +2824,15 @@ export interface ShowSheetOptions {
    */
   foldPresentation?: TugSheetFoldPresentation;
   /**
-   * Optional Lucide icon name (PascalCase) shown left of the title — the
-   * TugAlert header layout. See {@link TugSheetContentProps.icon}.
+   * Optional icon element shown left of the title — the TugAlert header
+   * layout. See {@link TugSheetContentProps.icon}.
    */
-  icon?: string;
+  icon?: React.ReactNode;
   /**
    * Color role for {@link icon}. Defaults to `"muted"`; pass `"agent"` for the
    * Z4B picker sheets. See {@link TugSheetIconRole}.
    */
-  iconRole?: TugSheetIconRole;
+  iconTone?: TugSheetIconRole;
   /** Optional description (wired to aria-describedby). */
   description?: string;
   /**
@@ -3403,7 +3402,7 @@ export function useTugSheet(): {
         <TugSheetContent
           title={options.title}
           icon={options.icon}
-          iconRole={options.iconRole}
+          iconTone={options.iconTone}
           description={options.description}
           onOpenAutoFocus={options.onOpenAutoFocus}
           getResult={getResultForContent}

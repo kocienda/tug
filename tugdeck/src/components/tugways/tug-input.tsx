@@ -38,6 +38,7 @@
  */
 
 import "./tug-input.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, { useCallback, useId, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,7 @@ import type { FocusPolicy, KeyViewBehavior } from "./focus-manager";
 // ---- Types ----
 
 /** TugInput size names — matches TugButton sizes */
-export type TugInputSize = "sm" | "md" | "lg";
+export type TugInputSize = Extract<TugSize, "sm" | "md" | "lg">;
 
 /** TugInput validation state */
 export type TugInputValidation = "default" | "invalid" | "valid" | "warning";
@@ -219,7 +220,7 @@ export const TugInput = React.forwardRef<HTMLInputElement, TugInputProps>(
     // A DISABLED field registers nothing. The DOM refuses focus on a disabled
     // input, so a registration would leave the walk with a stop it can land on
     // in the registry and not in the browser — the ring goes nowhere and Tab
-    // reads as broken. Same rule TugColorWell and TugValueInput follow.
+    // reads as broken. Same rule TugValueInput follows.
     const focusableId = useId();
     const { focusableRef } = useFocusable({
       id: focusableId,

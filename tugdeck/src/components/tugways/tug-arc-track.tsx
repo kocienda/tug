@@ -30,6 +30,9 @@ import "./tug-arc-track.css";
 
 import React from "react";
 
+import { cn } from "@/lib/utils";
+import { composeRefs } from "./compose-refs";
+
 import { TugTooltip } from "./tug-tooltip";
 import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
 import {
@@ -67,15 +70,15 @@ export type {
   ArcTrackSteps,
 } from "@/lib/arc-track-model";
 
-export interface TugArcTrackProps {
+export interface TugArcTrackProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
+  /** The arc's phases, steps and stop, as the track draws them. */
   model: ArcTrackModel;
-  "aria-label"?: string;
 }
 
-export function TugArcTrack({
-  model,
-  "aria-label": ariaLabel,
-}: TugArcTrackProps): React.ReactElement {
+export const TugArcTrack = React.forwardRef<HTMLSpanElement, TugArcTrackProps>(function TugArcTrack(
+  { model, "aria-label": ariaLabel, className, ...rest },
+  ref,
+) {
   // The track draws the phases the arc has, never the six with two struck
   // out: a plain arc did not skip devise and review, it never had them. It
   // did have a brief, so it draws one.
@@ -87,11 +90,13 @@ export function TugArcTrack({
   // And it is stilled while it is out of its scroller's view
   // (`lib/motion-guard/offscreen.ts`).
   const rootRef = React.useRef<HTMLSpanElement | null>(null);
+  const setRootRef = React.useMemo(() => composeRefs(rootRef, ref), [ref]);
   useOffscreenPause(rootRef, model.stopped === null);
   return (
     <span
-      ref={rootRef}
-      className="tug-arc-track"
+      {...rest}
+      ref={setRootRef}
+      className={cn("tug-arc-track", className)}
       data-slot="tug-arc-track"
       data-phase={model.phase}
       data-direct={model.direct ? "true" : undefined}
@@ -124,4 +129,4 @@ export function TugArcTrack({
       })}
     </span>
   );
-}
+});

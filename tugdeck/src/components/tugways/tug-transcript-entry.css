@@ -429,3 +429,71 @@ body {
   align-items: center;
   gap: var(--tugx-transcript-controls-gap);
 }
+
+/* ---- Density: compact (`density="compact"`) ----
+   The transcript type a narrow rail reads (the Overview), sized in `em`
+   against the host's 14px root: identifier 0.95em (≈13.3px — a hair under
+   body; the weight and the icon do the landmark work), timestamp 0.85em with
+   tabular figures, glyph 1.2em nudged 1px down, controls hugging the body.
+
+   The gutter is the one number narrower than a full card's: 2.2em. The glyph
+   is centered in that track, so its width is spent twice — half as the
+   standoff from the card edge, half as the gap before the identifier — and a
+   rail cannot afford a full card's gutter on both. The last pixel between the
+   glyph and the text column comes off the grid gap rather than the track:
+   narrowing the track again would pull the icon off the card edge too, and
+   the gap is the one number that moves the text column alone. */
+.tug-transcript-entry[data-density="compact"] {
+  --tugx-transcript-controls-margin-top: var(--tug-space-2xs);
+  --tugx-transcript-icon-column-width: 2.2em;
+  --tugx-transcript-icon-column-gap: 2px;
+}
+
+.tug-transcript-entry[data-density="compact"] .tug-transcript-entry__identifier {
+  font-size: 0.95em;
+}
+
+.tug-transcript-entry[data-density="compact"] .tug-transcript-entry__timestamp {
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.tug-transcript-entry[data-density="compact"] .tug-transcript-entry__icon svg {
+  width: 1.2em;
+  height: 1.2em;
+  margin-block-start: var(--tugx-transcript-icon-nudge, 1px);
+}
+
+/* Optical corrections to that one box, per voice. The size above is the side
+   of the glyph's square, not how large the glyph READS: `Newspaper` inks
+   nearly the whole square, so at the shared size it out-weighed the `User`
+   above it; the `operator` sprite carries margin inside its own viewBox, so
+   at the same number it read a size below everything else. Nudged until the
+   three sit at one weight down a column of posts. Here rather than on the
+   icon registry: the `size` that registry sets is overridden by the `em`
+   rule above, so a number written there governs nothing. Judged by eye,
+   because "reads the same size" is a perceptual claim and nothing computes
+   it; `at0365` measures that the pair is applied at all. */
+.tug-transcript-entry[data-density="compact"][data-participant="observer"]
+  .tug-transcript-entry__icon
+  svg {
+  width: 1.08em;
+  height: 1.08em;
+  /* Vertical offset from the header's text top; larger reads lower. */
+  --tugx-transcript-icon-nudge: 2px;
+}
+
+.tug-transcript-entry[data-density="compact"][data-participant="operator"]
+  .tug-transcript-entry__icon
+  svg {
+  width: 1.34em;
+  height: 1.34em;
+  /* Vertical offset from the header's text top; smaller reads higher. */
+  --tugx-transcript-icon-nudge: 0.25px;
+}
+
+/* Per-entry control-row icons (the copy button's glyph) scale with the row. */
+.tug-transcript-entry[data-density="compact"] .tug-transcript-entry__controls .lucide {
+  width: 1em;
+  height: 1em;
+}

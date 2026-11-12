@@ -3,11 +3,9 @@
    ----------------------------------------------------------------------------
    App-wide preferences, hosted by the Settings card's General section: the
    default-project-directory box with its path field and explanatory hint, and
-   the ⌘R slot-stack choice. Each group is a bordered TugBox with a legend
-   painted on the border, its controls left-aligned inside — the master/detail
-   panels read top to bottom down their leading edge. Structure mirrors
-   .settings-app (settings-app-body.css) — the same legend-out-of-flow
-   treatment, for the same WebKit reason.
+   the ⌘R slot-stack choice. Each group is a `TugSettingsGroup`, its controls
+   left-aligned inside — the master/detail panels read top to bottom down
+   their leading edge.
    ----------------------------------------------------------------------------- */
 
 .settings-general {
@@ -16,43 +14,6 @@
   gap: var(--tug-space-2xl);
   /* Room for the first box's legend, which overhangs above its border. */
   padding-top: var(--tug-space-md);
-}
-
-.settings-general-group {
-  width: 100%;
-  box-sizing: border-box;
-  /* The legend is absolutely positioned (below), so its line is reserved by
-     the box's own padding — the box height is padding + content, always.
-     WebKit's built-in fieldset/legend layout is pass-dependent. */
-  position: relative;
-}
-
-/* Generous inset, matching .settings-session-card-group: the legend overhangs
-   the top border, so the first control needs real room beneath it rather than
-   the one line the legend itself occupies. Compound (0,3,0) selector needed to
-   beat TugBox's own inset padding rule `.tug-box-inset.tug-box-md` (0,2,0). */
-.settings-general .settings-general-group.tug-box-bordered {
-  padding: var(--tug-space-2xl) var(--tug-space-2xl) var(--tug-space-xl);
-}
-
-/* The legend sits ON the border line, painted over it, out of flow. */
-.settings-general-group > .tug-box-legend {
-  position: absolute;
-  top: 0;
-  left: var(--tug-space-lg);
-  transform: translateY(-50%);
-  background: var(--tugx-pane-bg);
-  /* WebKit gives `<legend>` an intrinsic inline-size past its visible text,
-     truncating the fieldset's top border to its right. */
-  inline-size: max-content;
-}
-
-/* Layout lives on the body div, never the fieldset. Left-packed. */
-.settings-general-group > .tug-box-body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--tug-space-lg);
 }
 
 /* The chooser takes a readable measure rather than the whole box — a path

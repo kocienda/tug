@@ -29,6 +29,7 @@ import React, { useLayoutEffect, useRef } from "react";
 
 import {
   TugFindBar,
+  useFindBarHost,
   type TugFindBarHandle,
 } from "@/components/tugways/tug-find-bar";
 import { createFindSession } from "@/lib/create-find-session";
@@ -105,21 +106,26 @@ export const TextCardFindBar = React.forwardRef<
     };
   }, [session]);
 
+  // The bar's dismissal arrives as `close-find` ([L11]); this wrapper hands
+  // it to its host's `onClose`.
+  const FindBarHost = useFindBarHost(onClose);
+
   return (
+    <FindBarHost>
     <TugFindBar
       ref={ref}
       session={session}
-      onClose={onClose}
       cardRootRef={cardRootRef}
       initialQuery={initialQuery}
       placeholder="Find in file"
       className="text-card-find-bar"
-      dataSlot="text-card-find-bar"
+      data-slot="text-card-find-bar"
       inputTestId="text-card-find-input"
       focusGroup={focusGroup}
       focusOrderBase={focusOrderBase}
       replace={replace}
       replacementTestId="text-card-replace-input"
     />
+    </FindBarHost>
   );
 });

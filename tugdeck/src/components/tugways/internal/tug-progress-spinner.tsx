@@ -44,15 +44,13 @@ import { cn } from "@/lib/utils";
 import "./tug-progress-spinner.css";
 import type { TugProgressIndicatorState } from "../tug-progress-indicator";
 
-export interface TugProgressSpinnerProps {
+export interface TugProgressSpinnerProps extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /** Diameter in CSS px. @default 16 */
   size?: number;
   /** Lifecycle state. @default "running" */
   state?: TugProgressIndicatorState;
   /** When true, opacity dims and animation freezes. */
   disabled?: boolean;
-  /** Additional CSS class names. */
-  className?: string;
 }
 
 const SPOKE_COUNT = 12;
@@ -74,7 +72,7 @@ const SPOKE_ORIGIN_Y = (OUTER / SPOKE_HEIGHT) * 100;
 
 export const TugProgressSpinner = React.forwardRef<HTMLSpanElement, TugProgressSpinnerProps>(
   function TugProgressSpinner(
-    { size = 16, state = "running", disabled = false, className },
+    { size = 16, state = "running", disabled = false, className, style, ...rest },
     ref,
   ) {
     return (
@@ -83,7 +81,8 @@ export const TugProgressSpinner = React.forwardRef<HTMLSpanElement, TugProgressS
         data-slot="tug-progress-spinner"
         data-state={state}
         aria-hidden="true"
-        style={{ width: `${size}px`, height: `${size}px` }}
+        {...rest}
+        style={{ width: `${size}px`, height: `${size}px`, ...style }}
         className={cn(
           "tug-progress-spinner",
           state === "running" && "tug-progress-spinner-running",

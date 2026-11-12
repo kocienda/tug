@@ -47,6 +47,8 @@
  *    `--tugx-dialog-button-*` slot family ([Table T07]); composes no
  *    other component's tokens.
  *  - [L24] state zoning — no React state inside the primitive.
+ *  - [L11] a press dispatches `action` (with `value` and `senderId`) to the
+ *    parent responder through the chain; there is no click callback.
  *
  * Decisions:
  *  - [D13] inline (not modal) prompts; this primitive composes inside
@@ -57,18 +59,21 @@
  */
 
 import "./tug-dialog-button.css";
+import type { TugRole } from "./tug-vocabulary";
 
 import React from "react";
 import { CircleCheckBig } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { TugAction } from "./action-vocabulary";
+import { useControlDispatch } from "./use-control-dispatch";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 /** Color domain. `action` paints the standard outline; `danger` paints the destructive variant. */
-export type TugDialogButtonRole = "action" | "danger";
+export type TugDialogButtonRole = Extract<TugRole, "action" | "danger">;
 
 /**
  * Selection-affordance shape for choice mode. Ignored when `selected`
@@ -82,7 +87,11 @@ export type TugDialogButtonRole = "action" | "danger";
  */
 export type TugDialogButtonSelectionStyle = "check" | "radio";
 
-export interface TugDialogButtonProps {
+export interface TugDialogButtonProps
+  extends Omit<
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
+    "onClick" | "children" | "role" | "value" | "type" | "disabled"
+  > {
   /** Primary action label — sentence-case, semibold. NOT uppercased. */
   label: string;
   /**
@@ -118,12 +127,19 @@ export interface TugDialogButtonProps {
   role?: TugDialogButtonRole;
   /** Disable the button. Renders the disabled visual treatment and ignores clicks. */
   disabled?: boolean;
-  /** Click handler. Not fired when {@link disabled} is true. */
-  onClick?: () => void;
-  /** Accessibility label override (defaults to {@link label}). */
-  ariaLabel?: string;
-  /** Forwarded class name for cascade-scoped customization. */
-  className?: string;
+  /**
+   * The action a press dispatches to the parent responder ([L11]). Not
+   * dispatched when {@link disabled} is true; with no action, a press does
+   * nothing.
+   */
+  action?: TugAction;
+  /** The press's `event.value` — the choice or item the button stands for. */
+  value?: unknown;
+  /**
+   * The press's `event.sender`, so a responder that hosts several dialog
+   * buttons or groups can tell them apart.
+   */
+  senderId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +186,7 @@ export function resolveDialogButtonRole(
 }
 
 /**
- * Resolve the accessible name. Falls back to `label` when `ariaLabel`
+ * Resolve the accessible name. Falls back to `label` when `aria-label`
  * is omitted. Pure; exported for tests.
  *
  * Returning a string (never `undefined`) lets the JSX consumer pass
@@ -219,9 +235,12 @@ export const TugDialogButton = React.forwardRef<
     trailing,
     role,
     disabled = false,
-    onClick,
-    ariaLabel,
+    action,
+    value,
+    senderId,
+    "aria-label": ariaLabel,
     className,
+    ...rest
   },
   ref,
 ) {
@@ -233,9 +252,10 @@ export const TugDialogButton = React.forwardRef<
   const hasDescription =
     description !== undefined && description !== null && description !== false;
 
+  const { dispatch } = useControlDispatch();
   const handleClick = (): void => {
-    if (disabled) return;
-    onClick?.();
+    if (disabled || action === undefined) return;
+    dispatch({ action, value, sender: senderId, phase: "discrete" });
   };
 
   // ARIA semantics differ by mode:
@@ -256,6 +276,7 @@ export const TugDialogButton = React.forwardRef<
 
   return (
     <button
+      {...rest}
       ref={ref}
       type="button"
       data-slot="tug-dialog-button"

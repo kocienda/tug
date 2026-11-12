@@ -30,8 +30,8 @@
  * @covers tugdeck/src/lib/landing-notice.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-notice.tsx
  * @covers tugdeck/src/components/tugways/tug-sheet.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.css
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.css
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

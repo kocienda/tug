@@ -112,7 +112,7 @@ export interface TugFilterFieldDelegate {
    *
    * Superseded by {@link attachedListMoveCursor} for any list with a row cursor
    * to drive, and consulted only when that is absent. One consumer remains:
-   * the session-history view renders a `TugHistoryList`, a plain mapped list
+   * the session-history view renders a `HistoryList`, a plain mapped list
    * with no cursor model and no per-row focus stops, so there is nothing to
    * cursor and handing the key view to the list container is the right and only
    * behavior there. Reach for the attached-list contract first; this is the
@@ -147,7 +147,8 @@ export interface TugFilterFieldDelegate {
   filterFieldDidRequestDismiss?(): void;
 }
 
-export interface TugFilterFieldProps {
+export interface TugFilterFieldProps
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "children" | "defaultValue" | "onChange" | "onSubmit"> {
   /** The behavior contract. See {@link TugFilterFieldDelegate}. */
   delegate: TugFilterFieldDelegate;
   /**
@@ -183,7 +184,7 @@ export interface TugFilterFieldProps {
   fill?: boolean;
   /**
    * Field size, forwarded to `TugInput`.
-   * @default "sm"
+   * @default "md"
    */
   size?: TugInputSize;
   /**
@@ -208,30 +209,32 @@ export interface TugFilterFieldProps {
   "aria-label"?: string;
   /** Test hook on the wrapper. */
   "data-testid"?: string;
-  /** Additional class names on the wrapper. */
-  className?: string;
 }
 
 /**
  * A list's filter field. See the module docstring for the delegate contract,
  * the value-authority model, and the two Escape arbiters.
  */
-export function TugFilterField({
-  delegate,
-  attachment,
-  placeholder,
-  defaultValue,
-  query,
-  fill = false,
-  size = "sm",
-  disabled = false,
-  focusGroup,
-  focusOrder,
-  focusPolicy,
-  "aria-label": ariaLabel,
-  "data-testid": dataTestid,
-  className,
-}: TugFilterFieldProps): React.ReactElement {
+export const TugFilterField = React.forwardRef<HTMLDivElement, TugFilterFieldProps>(function TugFilterField(
+  {
+    delegate,
+    attachment,
+    placeholder,
+    defaultValue,
+    query,
+    fill = false,
+    size = "md",
+    disabled = false,
+    focusGroup,
+    focusOrder,
+    focusPolicy,
+    "aria-label": ariaLabel,
+    "data-testid": dataTestid,
+    className,
+    ...rest
+  },
+  ref,
+) {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
   // WebKit collapses a programmatic `select()` on the mouseup that ends the
@@ -447,12 +450,15 @@ export function TugFilterField({
     (el: HTMLDivElement | null): void => {
       wrapperRef.current = el;
       responderRef(el);
+      if (typeof ref === "function") ref(el);
+      else if (ref !== null) ref.current = el;
     },
-    [responderRef],
+    [responderRef, ref],
   );
 
   return (
     <div
+      {...rest}
       ref={setWrapperRef}
       data-slot="tug-filter-field"
       data-empty={defaultValue === undefined || defaultValue === "" ? "true" : "false"}
@@ -500,4 +506,4 @@ export function TugFilterField({
       </ResponderScope>
     </div>
   );
-}
+});

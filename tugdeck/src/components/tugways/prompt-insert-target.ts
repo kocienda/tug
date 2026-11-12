@@ -149,7 +149,7 @@ export interface DictationHandle {
 
 /**
  * The Session card's target: the store's pending-insert slots, which
- * `TugPromptEntry` already observes and consumes. `raise` is supplied by the
+ * `PromptEntry` already observes and consumes. `raise` is supplied by the
  * caller because bringing a card forward is the deck's act and the store
  * knows nothing about decks.
  */

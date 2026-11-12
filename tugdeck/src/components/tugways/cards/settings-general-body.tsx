@@ -47,10 +47,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { TugBox } from "../tug-box";
+import { TugSettingsGroup } from "../tug-settings-group";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugLabel } from "../tug-label";
-import { TugFileChooser } from "../tug-file-chooser";
+import { TugFileChooser, useFileChooserHost } from "../tug-file-chooser";
 import { useResponderForm } from "../use-responder-form";
 import { useHostFacts } from "@/lib/host-facts-store";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
@@ -99,6 +99,7 @@ export function SettingsGeneralBody() {
   // Typing forks a draft; settling writes it and drops back to reading the
   // store, so a draft can only ever exist under the user's hands.
   const [draft, setDraft] = useState<string | null>(null);
+  const DraftHost = useFileChooserHost({ onChange: setDraft, onSettle: (path) => settle(path) });
   const value = draft ?? stored;
 
   // Whether the currently shown path exists on disk. `null` while unknown —
@@ -152,6 +153,10 @@ export function SettingsGeneralBody() {
     "",
   );
   const [briefsDraft, setBriefsDraft] = useState<string | null>(null);
+  const BriefsHost = useFileChooserHost({
+    onChange: setBriefsDraft,
+    onSettle: (path) => settleBriefs(path),
+  });
   const briefsValue = briefsDraft ?? briefsStored;
   const briefsSettleSeq = useRef(0);
   const settleBriefs = useCallback(
@@ -191,63 +196,57 @@ export function SettingsGeneralBody() {
         data-testid="settings-general"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <TugBox
+        <TugSettingsGroup
           label="Default Project Directory"
-          labelPosition="legend"
-          variant="bordered"
           className="settings-general-group"
         >
           <div
             className="settings-general-field"
             data-testid="settings-default-project-dir-field"
           >
-            <TugFileChooser
+            <DraftHost>
+            <TugFileChooser size="sm"
               value={value}
-              onChange={setDraft}
               base={value !== "" ? value : home ?? "/"}
               kind="directory"
-              onSettle={settle}
               placeholder={resolvedFallback}
               aria-label="Default project directory"
             />
+            </DraftHost>
           </div>
           <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
             {missing
               ? "This folder doesn't exist yet — it will be created the first time it's needed."
               : "The fallback when no session card says otherwise: Open Quickly with nothing open, and the new-session path when there are no recent projects."}
           </TugLabel>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Briefs Directory"
-          labelPosition="legend"
-          variant="bordered"
           className="settings-general-group"
         >
           <div
             className="settings-general-field"
             data-testid="settings-briefs-dir-field"
           >
-            <TugFileChooser
+            <BriefsHost>
+            <TugFileChooser size="sm"
               value={briefsValue}
-              onChange={setBriefsDraft}
               base={home ?? "/"}
               kind="directory"
-              onSettle={settleBriefs}
               placeholder={DEFAULT_BRIEFS_TEMPLATE}
               aria-label="Briefs directory"
             />
+            </BriefsHost>
           </div>
           <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
             Where a brief is written when you ask for one. Unset means briefs/
             inside the project; {"{project_dir}"} stands for the project.
           </TugLabel>
-        </TugBox>
+        </TugSettingsGroup>
 
-        <TugBox
+        <TugSettingsGroup
           label="Card Masthead Paths"
-          labelPosition="legend"
-          variant="bordered"
           className="settings-general-group"
         >
           <div
@@ -270,7 +269,7 @@ export function SettingsGeneralBody() {
             writes the path from the open project it sits in; a file outside
             every open project keeps its full path.
           </TugLabel>
-        </TugBox>
+        </TugSettingsGroup>
 
       </div>
     </ResponderScope>

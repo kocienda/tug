@@ -392,7 +392,7 @@ const ICON_BY_KIND: Readonly<
  * One path row — `[icon] [path] [ref]`.
  *
  * The same `TugListRow` the commit receipt's file list is built from
- * (`TugChangesList`'s compact row: `variant="flush" density="compact" mono`,
+ * (`ChangesList`'s compact row: `variant="flush" density="compact" mono`,
  * a fixed-cell glyph leading, the path as content, an annotation trailing).
  * A `/match` result and a commit's file list are the same kind of line, so
  * they are the same row — the icon simply stands where the git status mark
@@ -595,7 +595,7 @@ export const PathListBlock: React.FC<PathListBlockProps> = ({
   // both compositions. Copy is owned by the chrome header, so it renders
   // only in the standalone header.
   const sortToggle = showSortToggle ? (
-    <TugIconButton
+    <TugIconButton size="sm"
       className="tugx-paths-sort"
       icon={sortByName ? <ArrowDownAZ /> : <ListOrdered />}
       aria-label={
@@ -639,7 +639,7 @@ export const PathListBlock: React.FC<PathListBlockProps> = ({
       className={rootClass}
     >
       {embedded ? null : (
-        <div className="tugx-paths-header" data-slot={DATA_SLOT_HEADER}>
+        <div className="tugx-paths-header tugx-block-strip" data-slot={DATA_SLOT_HEADER}>
           {label !== undefined ? (
             <span className="tugx-paths-label" data-slot="path-list-label">
               {label}
@@ -668,6 +668,7 @@ export const PathListBlock: React.FC<PathListBlockProps> = ({
        * block grows to its natural height; the outer transcript owns
        * the scroll. */}
       <TugListView<PathListDataSource>
+        sizing="content"
         dataSource={dataSource}
         cellRenderers={CELL_RENDERERS}
         className="tugx-paths-list"

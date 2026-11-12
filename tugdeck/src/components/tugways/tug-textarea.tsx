@@ -35,13 +35,13 @@
  */
 
 import "./tug-textarea.css";
+import type { TugSize } from "./tug-vocabulary";
 
 import React, {
   useCallback,
   useId,
   useLayoutEffect,
   useRef,
-  useState,
 } from "react";
 import { cn } from "@/lib/utils";
 import { useTugBoxDisabled } from "./internal/tug-box-context";
@@ -52,7 +52,7 @@ import type { FocusPolicy } from "./focus-manager";
 // ---- Types ----
 
 /** TugTextarea size names — matches TugInput and TugButton sizes */
-export type TugTextareaSize = "sm" | "md" | "lg";
+export type TugTextareaSize = Extract<TugSize, "sm" | "md" | "lg">;
 
 /** TugTextarea validation state */
 export type TugTextareaValidation = "default" | "invalid" | "valid" | "warning";
@@ -209,11 +209,24 @@ const TugTextareaBody: React.FC<TugTextareaBodyProps> = ({
   // `hostRef` in setRef below so the element lands on both.
   const internalRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Counter state — track current character count for the counter display.
-  const [charCount, setCharCount] = useState<number>(() => {
-    if (value !== undefined) return String(value).length;
-    if (defaultValue !== undefined) return String(defaultValue).length;
-    return 0;
+  // The character counter is appearance: its text and its warning/danger
+  // colour are written to the DOM from the field's own value ([L06]), after
+  // every commit (a controlled value) and on every input.
+  const counterRef = useRef<HTMLSpanElement | null>(null);
+  const paintCounter = useCallback(() => {
+    const el = internalRef.current;
+    const counter = counterRef.current;
+    if (el === null || counter === null || maxLength === undefined) return;
+    const count = el.value.length;
+    counter.textContent = `${count} / ${maxLength}`;
+    counter.classList.toggle("tug-textarea-counter-danger", count >= maxLength);
+    counter.classList.toggle(
+      "tug-textarea-counter-warning",
+      count < maxLength && count >= maxLength - Math.ceil(maxLength * 0.1),
+    );
+  }, [maxLength]);
+  useLayoutEffect(() => {
+    paintCounter();
   });
 
   // Merge the caller-supplied `hostRef` with the body's own
@@ -273,13 +286,12 @@ const TugTextareaBody: React.FC<TugTextareaBodyProps> = ({
     };
   }, [autoResize, maxRows]);
 
-  // Handle onChange to track character count for the counter.
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setCharCount(e.target.value.length);
+      paintCounter();
       onChange?.(e);
     },
-    [onChange],
+    [onChange, paintCounter],
   );
 
   const textareaClassName = cn(
@@ -291,18 +303,6 @@ const TugTextareaBody: React.FC<TugTextareaBodyProps> = ({
     resize && !autoResize && `tug-textarea-resize-${resize}`,
     autoResize && "tug-textarea-auto-resize",
     className,
-  );
-
-  // Determine counter color class.
-  const counterClassName = cn(
-    "tug-textarea-counter",
-    maxLength !== undefined &&
-      charCount >= maxLength &&
-      "tug-textarea-counter-danger",
-    maxLength !== undefined &&
-      charCount < maxLength &&
-      charCount >= maxLength - Math.ceil(maxLength * 0.1) &&
-      "tug-textarea-counter-warning",
   );
 
   const textarea = (
@@ -328,9 +328,7 @@ const TugTextareaBody: React.FC<TugTextareaBodyProps> = ({
     return (
       <div className="tug-textarea-wrapper">
         {textarea}
-        <span className={counterClassName}>
-          {charCount} / {maxLength}
-        </span>
+        <span ref={counterRef} className="tug-textarea-counter" />
       </div>
     );
   }

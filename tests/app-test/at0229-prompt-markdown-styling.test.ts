@@ -3,7 +3,7 @@
  * prompt entry, driven through the real app.
  *
  * Exercises the shared `markdownTextStyling` capability on `TugTextEditor`
- * as it reaches `TugPromptEntry` — always on, since Code (prose) is the
+ * as it reaches `PromptEntry` — always on, since Code (prose) is the
  * resting mode:
  *
  *   1. Markdown tokens are subtly styled — heading and strong render bold,
@@ -19,7 +19,7 @@
  *      default `markdown()` bundle is absent — verified session-free (no
  *      submit is driven, so no real turn is dispatched).
  *
- * Surface: `gallery-prompt-entry` (composes the real `TugPromptEntry`), so
+ * Surface: `gallery-prompt-entry` (composes the real `PromptEntry`), so
  * no live Claude session is needed. Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * Background: ⌘A is an Edit-menu key equivalent, and a pid-mode launch has
@@ -30,7 +30,7 @@
  * the editor between cases lands with nobody's screen.
  *
  * @covers tugdeck/src/components/tugways/tug-text-editor/
- * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/cards/prompt-entry.tsx
  * @covers tugdeck/src/lib/markdown-text-styling.ts
  */
 

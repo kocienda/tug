@@ -62,8 +62,8 @@ export class ErrorBoundary extends React.Component<
     if (this.state.error) {
       return (
         <TugBanner
-          variant="error"
-          visible={true}
+          kind="error"
+          open={true}
           tone="danger"
           message={this.state.error.message}
           footer={

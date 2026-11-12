@@ -37,7 +37,7 @@
  * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
- * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-identity.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts
  * @covers tugdeck/src/lib/arc-meta-facts.ts
  */

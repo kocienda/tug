@@ -8,8 +8,10 @@
  *
  * Card-agnostic: the Session card's transcript and the Overview's column both
  * mount it, and neither owns it. What a host supplies is the positioned
- * ancestor it floats in, the click that jumps, and the attribute that shows
- * it — nothing about the button knows which transcript it is over.
+ * ancestor it floats in, a responder that handles `last-turn` — the same
+ * jump ⌃⇧⌘] makes — and the attribute that shows it. Nothing about the button
+ * knows which transcript it is over: the press dispatches `last-turn` to its
+ * parent responder through the chain ([L11]).
  *
  * **Visibility is appearance state.** The host toggles a `data-visible`
  * attribute on the button — written from whatever its own follow-bottom
@@ -20,6 +22,9 @@
  * behind a condition, so the show / hide is a pure CSS transition with no
  * React reconciliation ([L26]).
  *
+ * Laws: [L19] component authoring guide, [L11] the press dispatches through the
+ * chain, [L06] visibility is a data attribute
+ *
  * @module components/tugways/tug-jump-to-bottom-button
  */
 
@@ -28,15 +33,18 @@ import "./tug-jump-to-bottom-button.css";
 import React from "react";
 import { ArrowDown } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TUG_ACTIONS } from "./action-vocabulary";
 
-export interface TugJumpToBottomButtonProps {
-  /**
-   * Fired when the user clicks the button — the host jumps its transcript to
-   * the latest content and re-engages follow-bottom.
-   */
-  onClick: () => void;
-}
+/**
+ * TugJumpToBottomButton props: the native button's, less the click and the
+ * content the component owns. The press is not a prop — it dispatches
+ * `last-turn` to the parent responder, which jumps its transcript to the
+ * latest content and re-engages follow-bottom.
+ */
+export interface TugJumpToBottomButtonProps
+  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "children" | "role"> {}
 
 /**
  * Round jump-to-latest button. The host owns visibility via the
@@ -47,12 +55,13 @@ export interface TugJumpToBottomButtonProps {
 export const TugJumpToBottomButton = React.forwardRef<
   HTMLButtonElement,
   TugJumpToBottomButtonProps
->(function TugJumpToBottomButton({ onClick }, ref) {
+>(function TugJumpToBottomButton({ className, ...rest }, ref) {
   return (
     <TugPushButton
+      {...rest}
       ref={ref}
       data-slot="tug-jump-to-bottom-button"
-      className="tug-jump-to-bottom-button"
+      className={cn("tug-jump-to-bottom-button", className)}
       subtype="icon"
       emphasis="filled"
       role="action"
@@ -65,7 +74,7 @@ export const TugJumpToBottomButton = React.forwardRef<
       // standing Return's-home and swallow every editor submit chord.
       neverDefaultButton
       aria-label="Scroll to latest"
-      onClick={onClick}
+      action={TUG_ACTIONS.LAST_TURN}
     />
   );
 });

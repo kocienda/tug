@@ -1,7 +1,7 @@
 /* ============================================================================
    gallery-prompt-entry.css
    ============================================================================
-   Showcase card for TugPromptEntry in a flex column: a placeholder stands in
+   Showcase card for PromptEntry in a flex column: a placeholder stands in
    for a transcript and flexes into the remaining height; the entry below is
    content-sized (the editor auto-heights up to maxRows, then scrolls). No
    split pane, no JS sizing.

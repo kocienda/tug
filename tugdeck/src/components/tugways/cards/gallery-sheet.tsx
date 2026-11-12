@@ -10,6 +10,7 @@
  * @module components/tugways/cards/gallery-sheet
  */
 
+import { Bell, Bot, Eye, ListChecks, MoveHorizontal, Pencil, Settings2, Share2 } from "lucide-react";
 import React, { useMemo, useRef } from "react";
 import {
   TugSheet,
@@ -483,7 +484,7 @@ export function GallerySheet() {
             onClick={async () => {
               const result = await showSheet({
                 title: "Rename Card",
-                icon: "Pencil",
+                icon: <Pencil />,
                 description: "Enter a new name for this card.",
                 content: (close) => (
                   <FieldSheetBody
@@ -511,8 +512,8 @@ export function GallerySheet() {
             onClick={() =>
               void showSheet({
                 title: "Model",
-                icon: "Bot",
-                iconRole: "agent",
+                icon: <Bot />,
+                iconTone: "agent",
                 description: "Choose the model this session runs on.",
                 content: (close) => (
                   <ButtonsSheetBody
@@ -623,7 +624,7 @@ export function GallerySheet() {
                 Open Settings
               </TugPushButton>
             </TugSheetTrigger>
-            <TugSheetContent title="Card Settings" icon="Settings2">
+            <TugSheetContent title="Card Settings" icon={<Settings2 />}>
               <CardSettingsSheetBody />
             </TugSheetContent>
           </TugSheet>
@@ -645,7 +646,7 @@ export function GallerySheet() {
             </TugSheetTrigger>
             <TugSheetContent
               title="Share Card"
-              icon="Share2"
+              icon={<Share2 />}
               description="Choose who can view or edit this card. Changes take effect immediately."
             >
               <ClosingFieldSheetBody
@@ -669,7 +670,7 @@ export function GallerySheet() {
         </div>
         <TugSheet ref={sheetRef}>
           {/* No TugSheetTrigger — opened programmatically */}
-          <TugSheetContent title="Notifications" icon="Bell">
+          <TugSheetContent title="Notifications" icon={<Bell />}>
             <ClosingFieldSheetBody
               label="Notification channel"
               fieldId="sheet-imp-channel"
@@ -710,7 +711,7 @@ export function GallerySheet() {
             <TugSheetTrigger asChild>
               <TugPushButton emphasis="outlined" size="sm">Review Checklist</TugPushButton>
             </TugSheetTrigger>
-            <TugSheetContent title="Pre-launch Checklist" icon="ListChecks">
+            <TugSheetContent title="Pre-launch Checklist" icon={<ListChecks />}>
               <RichChecklistContent />
             </TugSheetContent>
           </TugSheet>
@@ -738,7 +739,7 @@ export function GallerySheet() {
                 Open Spatial Sheet
               </TugPushButton>
             </TugSheetTrigger>
-            <TugSheetContent title="Card Visibility" icon="Eye">
+            <TugSheetContent title="Card Visibility" icon={<Eye />}>
               <SpatialSheetBody />
             </TugSheetContent>
           </TugSheet>
@@ -769,7 +770,7 @@ export function GallerySheet() {
               onClick={() =>
                 void showSheet({
                   title: `Display width — ${tier}`,
-                  icon: "MoveHorizontal",
+                  icon: <MoveHorizontal />,
                   displayWidth: tier,
                   content: (close) => (
                     <ButtonsSheetBody

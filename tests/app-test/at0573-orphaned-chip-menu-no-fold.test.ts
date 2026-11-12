@@ -20,7 +20,7 @@
  * must still fold it. A guard that bought a quiet menu by making the row
  * unfoldable would be the worse trade.
  *
- * @covers tugdeck/src/components/tugways/tug-changes-list.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/changes-list.tsx
  * @covers tugdeck/src/lib/whole-entity-press.ts
  */
 
