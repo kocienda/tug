@@ -33,7 +33,7 @@ import { anyMenuOpen, observeOpenMenus } from "@/lib/open-menu-registry";
 import { claimSoleTooltip, releaseSoleTooltip, type TooltipClaim } from "@/lib/open-tooltip-registry";
 import { deckRootElement, layoutPxOf } from "@/lib/page-zoom-store";
 import { observeTooltipDismiss } from "@/lib/tooltip-dismiss";
-import { tooltipDelayNow } from "@/lib/tooltip-delay";
+import { tooltipDelayNow, tooltipsOff } from "@/lib/tooltip-delay";
 
 /** The class the compiler writes on a hit target. */
 const HIT_SELECTOR = ".tgh";
@@ -41,7 +41,8 @@ const HIT_SELECTOR = ".tgh";
 const ACTIVE_ATTR = "data-tgh-active";
 
 /** The longest a pointer rests on a mark before the bubble opens — less when
- *  the user's Tooltip Delay is shorter, read when the timer is armed. */
+ *  the user's Tooltip Delay is shorter, and never under Never; read when the
+ *  timer is armed. */
 export const HOVER_DELAY_MS = 150;
 /** The bubble's distance from the mark, and from the window's edge. */
 const SIDE_OFFSET_PX = 6;
@@ -275,7 +276,9 @@ export function attachChartHover(body: HTMLElement, table: ChartTable): void {
     };
     standing = s;
     hit.setAttribute(ACTIVE_ATTR, "");
-    s.timer = setTimeout(() => openBubble(s), tooltipDelayNow(HOVER_DELAY_MS));
+    // Under Never the mark still lights, and no bubble is armed.
+    const delay = tooltipDelayNow(HOVER_DELAY_MS);
+    if (!tooltipsOff(delay)) s.timer = setTimeout(() => openBubble(s), delay);
   });
   body.addEventListener("pointerleave", endHover);
 }

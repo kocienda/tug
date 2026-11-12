@@ -86,7 +86,7 @@ import {
 } from "@/lib/open-tooltip-registry";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { composeRefs, refOfElement } from "@/components/tugways/compose-refs";
-import { useTooltipDelay } from "@/lib/tooltip-delay";
+import { nativeTooltipDelayMs, tooltipsOff, useTooltipDelay } from "@/lib/tooltip-delay";
 import { postToHost } from "@/host/channel";
 import { tooltipDelayToHost } from "@/host/declarations/services";
 
@@ -134,11 +134,13 @@ export function TugTooltipProvider({
 }: TugTooltipProviderProps) {
   const setting = useTooltipDelay();
   React.useEffect(() => {
-    if (syncHost) postToHost(tooltipDelayToHost, { delayMs: setting });
+    if (syncHost) postToHost(tooltipDelayToHost, { delayMs: nativeTooltipDelayMs(setting) });
   }, [syncHost, setting]);
   return (
     <Tooltip.Provider
-      delayDuration={delayDuration ?? setting}
+      // Under Never no bubble opens at all (`TugTooltip` refuses the open);
+      // Radix still needs a delay to hold, and a negative one is not one.
+      delayDuration={delayDuration ?? (tooltipsOff(setting) ? 0 : setting)}
       skipDelayDuration={skipDelayDuration}
     >
       {children}
@@ -292,6 +294,8 @@ export function TugTooltip({
   ...rest
 }: TugTooltipProps) {
   const overlayRoot = useCanvasOverlay();
+  // Settings ▸ General ▸ Tooltip Delay. Under Never, no bubble opens.
+  const delaySetting = useTooltipDelay();
 
   // Local mirror of Radix's open state. Always tracked (not just in
   // truncated mode) so the observeDispatch effect below has a stable
@@ -344,6 +348,10 @@ export function TugTooltip({
   function handleOpenChange(nextOpen: boolean) {
     // Never block close — only suppress open when a gate says so. [L06]
     if (nextOpen === true) {
+      // Tooltips are off: Settings ▸ General ▸ Tooltip Delay says Never.
+      if (tooltipsOff(delaySetting)) {
+        return;
+      }
       // A menu is up: the user is answering a question, not asking one. No
       // bubble opens over an open menu, whatever the hover says.
       if (anyMenuOpen()) {
@@ -475,7 +483,9 @@ export function TugTooltip({
   // close path. delayDuration is forwarded only when the caller
   // overrides the provider-level default.
   const rootProps: React.ComponentPropsWithoutRef<typeof Tooltip.Root> = {
-    ...(delayDuration !== undefined ? { delayDuration } : {}),
+    // A ceiling read under Never comes back negative; the open gate refuses
+    // the open, and Radix is never handed a negative delay.
+    ...(delayDuration !== undefined && delayDuration >= 0 ? { delayDuration } : {}),
     open: effectiveOpen,
     onOpenChange: handleOpenChange,
   };

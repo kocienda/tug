@@ -519,20 +519,25 @@ export function putMastheadPathStyle(style: MastheadPathStyle): void {
 export const TOOLTIP_DELAY_DOMAIN = "dev.tugapp.app";
 export const TOOLTIP_DELAY_KEY = "tooltip-delay-ms";
 
-/** The delay a label tooltip has always had, and the setting's default. */
-export const DEFAULT_TOOLTIP_DELAY_MS = 900;
+/** The setting's default. */
+export const DEFAULT_TOOLTIP_DELAY_MS = 200;
+
+/** The stored value for Never: no tooltip opens. */
+export const TOOLTIP_DELAY_NEVER = -1;
 
 /** The longest delay the setting will hold; anything past it is unreadable. */
 export const MAX_TOOLTIP_DELAY_MS = 10_000;
 
 /**
  * How long every tooltip waits before it appears, in whole milliseconds
- * (`lib/tooltip-delay.ts` says which tips wait less). An absent, mistyped or
+ * (`lib/tooltip-delay.ts` says which tips wait less), or
+ * {@link TOOLTIP_DELAY_NEVER} for no tooltips at all. An absent, mistyped or
  * out-of-range value reads as {@link DEFAULT_TOOLTIP_DELAY_MS}.
  */
 export function parseTooltipDelay(entry: TaggedValue | undefined): number {
   if (entry?.kind !== "i64" || typeof entry.value !== "number") return DEFAULT_TOOLTIP_DELAY_MS;
   const ms = entry.value;
+  if (ms === TOOLTIP_DELAY_NEVER) return TOOLTIP_DELAY_NEVER;
   return Number.isInteger(ms) && ms >= 0 && ms <= MAX_TOOLTIP_DELAY_MS ? ms : DEFAULT_TOOLTIP_DELAY_MS;
 }
 
@@ -542,7 +547,8 @@ export function parseTooltipDelay(entry: TaggedValue | undefined): number {
  * answers the choice rather than the round trip. Stored as `Value::I64`.
  */
 export function putTooltipDelay(ms: number): void {
-  const value = Math.round(Math.min(Math.max(ms, 0), MAX_TOOLTIP_DELAY_MS));
+  const value =
+    ms === TOOLTIP_DELAY_NEVER ? TOOLTIP_DELAY_NEVER : Math.round(Math.min(Math.max(ms, 0), MAX_TOOLTIP_DELAY_MS));
   getTugbankClient()?.setLocalValue(TOOLTIP_DELAY_DOMAIN, TOOLTIP_DELAY_KEY, { kind: "i64", value });
   fetch(`/api/defaults/${TOOLTIP_DELAY_DOMAIN}/${TOOLTIP_DELAY_KEY}`, {
     method: "PUT",

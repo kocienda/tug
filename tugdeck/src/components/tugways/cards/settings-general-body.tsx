@@ -21,7 +21,7 @@
  *
  * The second choice is how long **every tooltip** waits before it appears —
  * the house tooltips, the chart bubble and the OS tooltips of a `title`
- * attribute alike — offered as times and stored in milliseconds
+ * attribute alike — offered as times and Never, and stored in milliseconds
  * (`lib/tooltip-delay.ts`).
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
@@ -312,8 +312,8 @@ export function SettingsGeneralBody() {
           </div>
           <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
             How long the pointer rests on something before its tooltip
-            appears. Chart marks and Layout places answer sooner when this is
-            longer than they wait on their own.
+            appears; Never turns tooltips off. Chart marks and Layout places
+            answer sooner when this is longer than they wait on their own.
           </TugLabel>
         </TugSettingsGroup>
 

@@ -1,23 +1,25 @@
 /**
  * at0807-settings-tooltip-delay.test.ts — Settings ▸ General ▸ Tooltip Delay
- * is a time, and every kind of tooltip waits it ([AT0807]).
+ * is a time every kind of tooltip waits, or Never ([AT0807]).
  *
  * Scenario:
  *
- *   Open the Settings card the way ⌘, does. Unset, the row reads 0.9 s, and a
+ *   Open the Settings card the way ⌘, does. Unset, the row reads 0.2s, and a
  *   house tooltip — the bullseye button in the Settings card's own title bar,
- *   drawn in the card's own page — waits 900 ms. Press 0.3 s. Then:
+ *   drawn in the card's own page — waits 200 ms. Press 0.7s. Then:
  *
- *   - 300 reached tugbank as milliseconds, read back over `GET /api/defaults/…`;
- *   - the same bubble opens in about 300 ms — not at once, not at 900 — in
- *     the same page with no reload: the card page's provider read the new
- *     time, which is the proof that a body page, not only the shell, answers
- *     the setting, and that the time shown is the time waited;
+ *   - 700 reached tugbank as milliseconds, read back over `GET /api/defaults/…`;
+ *   - the same bubble opens in about 700 ms in the same page with no reload:
+ *     the card page's provider read the new time, which is the proof that a
+ *     body page, not only the shell, answers the setting, and that the time
+ *     shown is the time waited;
  *   - the host put the OS tooltips (the `title` tooltips WebKit hands AppKit)
- *     at 300 ms, read off the app's `NSInitialToolTipDelay` default, which the
+ *     at 700 ms, read off the app's `NSInitialToolTipDelay` default, which the
  *     host writes beside telling the live tooltip manager.
  *
- *   0.9 s again puts the OS default back at the default every launch posts.
+ *   Press Never: the same hover raises no bubble at all, and the OS tooltips
+ *   go to an hour — AppKit has no off switch, only a delay. 0.2s again puts
+ *   the OS default back at the value every launch posts.
  *
  * Timing is read in the page: a `MutationObserver` on the trigger's
  * `aria-describedby` — Radix's statement that its bubble stands — clocks the
@@ -163,9 +165,9 @@ async function nativeDelay(bundleId: string, want: number): Promise<number | nul
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0807: Settings ▸ General ▸ Tooltip Delay is a time every tooltip waits",
+  "at0807: Settings ▸ General ▸ Tooltip Delay is a time every tooltip waits, or Never",
   () => {
-    test("0.3 s makes a card page's tooltip and the OS tooltips wait 300 ms", async () => {
+    test("each choice is the time a card page's tooltip and the OS tooltips wait, and Never raises none", async () => {
       const app = await launchTugApp({ ...NO_AX, testName: "at0807-settings-tooltip-delay" });
       try {
         const { bundleId } = await app.checkAccessibilityPermission({ prompt: false });
@@ -177,7 +179,7 @@ describe.skipIf(!SHOULD_RUN)(
           { timeoutMs: 10000 },
         );
 
-        // Unset: the row says 0.9 s, the bubble waits 900 ms, and the shell
+        // Unset: the row says 0.2s, the bubble waits 200 ms, and the shell
         // has told the host the same.
         const active = await page.evalJS<{ value: string | null; label: string | null }>(
           `(function () {
@@ -185,23 +187,42 @@ describe.skipIf(!SHOULD_RUN)(
              return { value: seg && seg.getAttribute("data-choice-value"), label: seg && seg.textContent.trim() };
            })()`,
         );
-        expect(active, "an unset delay reads as 0.9 s").toEqual({ value: "900", label: "0.9 s" });
+        expect(active, "an unset delay reads as 0.2s").toEqual({ value: "200", label: "0.2s" });
         const defaultMs = await timeOpen(page);
-        expect(defaultMs, "at 0.9 s a label tip waits 900 ms").toBeGreaterThanOrEqual(850);
-        expect(await nativeDelay(bundleId, 900), "at 0.9 s the OS tooltips wait 900 ms").toBe(900);
+        expect(defaultMs, "at 0.2s a label tip waits 200 ms").toBeGreaterThanOrEqual(150);
+        expect(defaultMs, "and no longer than it was told to").toBeLessThan(550);
+        expect(await nativeDelay(bundleId, 200), "at 0.2s the OS tooltips wait 200 ms").toBe(200);
 
-        // 0.3 s.
-        await choose(page, "300");
-        expect(await storedDelay(app, 300), "300 ms reached tugbank").toBe(300);
-        const shortMs = await timeOpen(page);
-        expect(shortMs, "at 0.3 s the same tip waits about 300 ms, with no reload").toBeGreaterThanOrEqual(250);
-        expect(shortMs, "and no longer than it was told to").toBeLessThan(700);
-        expect(await nativeDelay(bundleId, 300), "at 0.3 s the host puts the OS tooltips at 300 ms").toBe(300);
+        // 0.7s.
+        await choose(page, "700");
+        expect(await storedDelay(app, 700), "700 ms reached tugbank").toBe(700);
+        const longMs = await timeOpen(page);
+        expect(longMs, "at 0.7s the same tip waits about 700 ms, with no reload").toBeGreaterThanOrEqual(650);
+        expect(await nativeDelay(bundleId, 700), "at 0.7s the host puts the OS tooltips at 700 ms").toBe(700);
 
-        // Back to 0.9 s, the value every launch posts.
-        await choose(page, "900");
-        expect(await storedDelay(app, 900)).toBe(900);
-        expect(await nativeDelay(bundleId, 900), "0.9 s puts the OS tooltips back").toBe(900);
+        // Never: the hover raises nothing, however long it rests.
+        await choose(page, "-1");
+        expect(await storedDelay(app, -1), "Never reached tugbank").toBe(-1);
+        await page.evalJS<null>(
+          `(function () {
+            var a = document.querySelector(${JSON.stringify(TRIGGER)});
+            a.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+            a.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
+            a.dispatchEvent(new PointerEvent("pointermove", { bubbles: true }));
+            return null;
+          })()`,
+        );
+        await new Promise((r) => setTimeout(r, 1200));
+        expect(
+          await page.evalJS<string | null>(`document.querySelector(${JSON.stringify(TRIGGER)}).getAttribute("aria-describedby")`),
+          "under Never a resting pointer raises no bubble",
+        ).toBeNull();
+        expect(await nativeDelay(bundleId, 3_600_000), "under Never the OS tooltips wait an hour").toBe(3_600_000);
+
+        // Back to 0.2s, the value every launch posts.
+        await choose(page, "200");
+        expect(await storedDelay(app, 200)).toBe(200);
+        expect(await nativeDelay(bundleId, 200), "0.2s puts the OS tooltips back").toBe(200);
       } finally {
         await app.close();
       }
