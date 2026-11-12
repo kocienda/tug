@@ -33,13 +33,15 @@ import { anyMenuOpen, observeOpenMenus } from "@/lib/open-menu-registry";
 import { claimSoleTooltip, releaseSoleTooltip, type TooltipClaim } from "@/lib/open-tooltip-registry";
 import { deckRootElement, layoutPxOf } from "@/lib/page-zoom-store";
 import { observeTooltipDismiss } from "@/lib/tooltip-dismiss";
+import { tooltipDelayNow } from "@/lib/tooltip-speed";
 
 /** The class the compiler writes on a hit target. */
 const HIT_SELECTOR = ".tgh";
 /** On the target being read, which is what shows a band's crosshair. */
 const ACTIVE_ATTR = "data-tgh-active";
 
-/** How long a pointer rests on a mark before the bubble opens. */
+/** How long a pointer rests on a mark before the bubble opens, at the Standard
+ *  tooltip speed; the user's speed scales it when the timer is armed. */
 export const HOVER_DELAY_MS = 150;
 /** The bubble's distance from the mark, and from the window's edge. */
 const SIDE_OFFSET_PX = 6;
@@ -273,7 +275,7 @@ export function attachChartHover(body: HTMLElement, table: ChartTable): void {
     };
     standing = s;
     hit.setAttribute(ACTIVE_ATTR, "");
-    s.timer = setTimeout(() => openBubble(s), HOVER_DELAY_MS);
+    s.timer = setTimeout(() => openBubble(s), tooltipDelayNow(HOVER_DELAY_MS));
   });
   body.addEventListener("pointerleave", endHover);
 }

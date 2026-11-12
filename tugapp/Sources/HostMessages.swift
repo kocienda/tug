@@ -622,6 +622,13 @@ struct SetTheme: Decodable, Equatable {
     var color: String
 }
 
+/// `tooltipDelay`: how long an OS tooltip waits before it appears, in
+/// milliseconds — the Tooltip Speed setting, applied to AppKit's tooltip
+/// manager for the `title` tooltips WebKit draws.
+struct TooltipDelay: Decodable, Equatable {
+    var delayMs: Double
+}
+
 /// `clipboardRead`: read the pasteboard, answered with `onClipboardRead`.
 struct ClipboardReadRequest: Decodable, Equatable {
     var requestId: String
@@ -967,7 +974,7 @@ enum ToHostName: String, CaseIterable {
     case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
     case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
-    case sourceTree, choosePath, getSettings, setTheme
+    case sourceTree, choosePath, getSettings, setTheme, tooltipDelay
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
     case openPath, lookUpInDictionary, spellingGuesses, rememberSpelling, trashPath, restorePath, thumbnailPath
     case exportSession, updateAction, dictation, pageZoom, hostFrames
@@ -978,7 +985,7 @@ enum ToHostName: String, CaseIterable {
     /// card's own body, and the answer is the window's whole zoom either way.
     var shellOnly: Bool {
         switch self {
-        case .sourceTree, .setTheme, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
+        case .sourceTree, .setTheme, .tooltipDelay, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
              .bodyCreate, .bodyDestroy, .bodyDelays, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .switchHold, .overlayCreate:
             return true
@@ -1048,6 +1055,7 @@ enum ToHost {
     case choosePath(ChoosePath)
     case getSettings
     case setTheme(SetTheme)
+    case tooltipDelay(TooltipDelay)
     case clipboardRead(ClipboardReadRequest)
     case clipboardWrite(ClipboardWrite)
     case clipboardWriteImage(ClipboardWriteImage)
@@ -1107,6 +1115,7 @@ enum ToHost {
         case .choosePath: return .choosePath(try read(ChoosePath.self))
         case .getSettings: _ = try read(EmptyPayload.self); return .getSettings
         case .setTheme: return .setTheme(try read(SetTheme.self))
+        case .tooltipDelay: return .tooltipDelay(try read(TooltipDelay.self))
         case .clipboardRead: return .clipboardRead(try read(ClipboardReadRequest.self))
         case .clipboardWrite: return .clipboardWrite(try read(ClipboardWrite.self))
         case .clipboardWriteImage: return .clipboardWriteImage(try read(ClipboardWriteImage.self))

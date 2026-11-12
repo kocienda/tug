@@ -1075,6 +1075,25 @@
       ]
     },
     {
+      "name": "tooltipDelay",
+      "from": "shell",
+      "samples": [
+        {
+          "delayMs": 1500
+        },
+        {
+          "delayMs": 0
+        }
+      ],
+      "refused": [
+        1500,
+        {},
+        {
+          "delayMs": "1500"
+        }
+      ]
+    },
+    {
       "name": "clipboardRead",
       "from": "any",
       "samples": [

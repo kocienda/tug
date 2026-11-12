@@ -59,6 +59,19 @@ export const setThemeToHost = defineToHost({
   refused: ["#1c1e22", {}, { color: 0x1c1e22 }],
 });
 
+/**
+ * How long an OS tooltip waits before it appears, in milliseconds — the
+ * Tooltip Speed setting applied to the `title` tooltips WebKit hands AppKit
+ * (`lib/tooltip-speed.ts`). Posted by the shell's tooltip provider.
+ */
+export const tooltipDelayToHost = defineToHost({
+  name: "tooltipDelay",
+  from: "shell",
+  codec: obj({ delayMs: num }),
+  samples: [{ delayMs: 1500 }, { delayMs: 0 }],
+  refused: [1500, {}, { delayMs: "1500" }],
+});
+
 export const clipboardReadToHost = defineToHost({
   name: "clipboardRead",
   from: "any",

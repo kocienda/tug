@@ -86,6 +86,9 @@ import {
 } from "@/lib/open-tooltip-registry";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { composeRefs, refOfElement } from "@/components/tugways/compose-refs";
+import { nativeTooltipDelayMs, scaleTooltipDelay, useTooltipSpeed } from "@/lib/tooltip-speed";
+import { postToHost } from "@/host/channel";
+import { tooltipDelayToHost } from "@/host/declarations/services";
 
 /* ---------------------------------------------------------------------------
  * TugTooltipProvider
@@ -94,8 +97,10 @@ import { composeRefs, refOfElement } from "@/components/tugways/compose-refs";
 /** TugTooltipProvider props. */
 export interface TugTooltipProviderProps {
   /**
-   * Delay in ms before tooltip appears on hover. Long enough that a pointer
-   * crossing a control on its way somewhere else never raises a bubble.
+   * Base delay in ms before a tooltip appears on hover, at the Standard
+   * tooltip speed. Long enough that a pointer crossing a control on its way
+   * somewhere else never raises a bubble. The user's Tooltip Speed setting
+   * scales it (`lib/tooltip-speed.ts`).
    * @default 900
    */
   delayDuration?: number;
@@ -105,6 +110,13 @@ export interface TugTooltipProviderProps {
    * @default 0
    */
   skipDelayDuration?: number;
+  /**
+   * Whether this provider also carries the speed to the host, for the OS
+   * tooltips WebKit draws for a `title` attribute. Only the shell's does: the
+   * host takes the message from the shell alone, and once is enough.
+   * @default false
+   */
+  syncHost?: boolean;
   /** App subtree. */
   children: React.ReactNode;
 }
@@ -112,14 +124,25 @@ export interface TugTooltipProviderProps {
 /**
  * Thin wrapper around Radix Tooltip.Provider. Place once at the app root
  * near other top-level providers (TugThemeProvider, ResponderChainProvider).
+ * The delay it hands Radix is the base scaled by the user's tooltip speed,
+ * read through `useSyncExternalStore` ([L02]); Radix reads it from context at
+ * each open, so a changed setting reaches the next hover with no remount.
  */
 export function TugTooltipProvider({
   delayDuration = 900,
   skipDelayDuration = 0,
+  syncHost = false,
   children,
 }: TugTooltipProviderProps) {
+  const speed = useTooltipSpeed();
+  React.useEffect(() => {
+    if (syncHost) postToHost(tooltipDelayToHost, { delayMs: nativeTooltipDelayMs(speed) });
+  }, [syncHost, speed]);
   return (
-    <Tooltip.Provider delayDuration={delayDuration} skipDelayDuration={skipDelayDuration}>
+    <Tooltip.Provider
+      delayDuration={scaleTooltipDelay(delayDuration, speed)}
+      skipDelayDuration={skipDelayDuration}
+    >
       {children}
     </Tooltip.Provider>
   );
@@ -184,7 +207,10 @@ export interface TugTooltipProps
    * @default true
    */
   arrow?: boolean;
-  /** Override delay duration for this specific tooltip. */
+  /**
+   * Override the base delay for this specific tooltip. Pass it through
+   * `useTooltipDelay` so the user's tooltip speed scales it too.
+   */
   delayDuration?: number;
   /**
    * Only show when the trigger content is visually clipped (overflow ellipsis).

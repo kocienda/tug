@@ -2800,6 +2800,8 @@ extension MainWindow {
             TugLog.info("launch", "deck lap", fields)
         case .setTheme(let theme):
             bridgeDelegate?.bridgeSetTheme(color: theme.color)
+        case .tooltipDelay(let delay):
+            TooltipDelay.apply(milliseconds: delay.delayMs)
         case .pageZoom(let zoom):
             // The Layout card's Zoom row: a level, chosen directly. The same
             // path as the View menu's, so it persists and is remembered for
@@ -3051,4 +3053,37 @@ func captureOwnWindowImage(_ windowID: CGWindowID) -> CGImage? {
     return create(
         .null, .optionIncludingWindow, windowID, [.boundsIgnoreFraming, .bestResolution]
     )?.takeRetainedValue()
+}
+
+// MARK: - Tooltip speed
+
+extension TooltipDelay {
+    /// The `NSUserDefaults` key AppKit's tooltip manager reads its initial
+    /// delay from, in milliseconds, when it first starts.
+    static let defaultsKey = "NSInitialToolTipDelay"
+
+    /// Put the OS tooltips — the ones WebKit hands AppKit for a `title`
+    /// attribute — at `milliseconds`.
+    ///
+    /// Two halves, because AppKit reads the default once: writing it after
+    /// the manager has started changes nothing on screen (measured on a
+    /// running process). So the default is written for the next launch, and
+    /// the live manager is told directly through `setInitialToolTipDelay:`,
+    /// which takes seconds. That selector is AppKit's own and not public, so
+    /// it is called only when the manager answers it; a release that drops it
+    /// leaves the setting to take effect at the next launch instead.
+    static func apply(milliseconds: Double) {
+        let ms = max(0, milliseconds)
+        UserDefaults.standard.set(ms, forKey: defaultsKey)
+
+        guard let cls = NSClassFromString("NSToolTipManager") as? NSObject.Type else { return }
+        let shared = NSSelectorFromString("sharedToolTipManager")
+        guard cls.responds(to: shared),
+              let manager = cls.perform(shared)?.takeUnretainedValue() as? NSObject else { return }
+        let setter = NSSelectorFromString("setInitialToolTipDelay:")
+        guard manager.responds(to: setter),
+              let imp = manager.method(for: setter) else { return }
+        typealias SetDelay = @convention(c) (AnyObject, Selector, Double) -> Void
+        unsafeBitCast(imp, to: SetDelay.self)(manager, setter, ms / 1000)
+    }
 }

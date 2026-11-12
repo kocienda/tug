@@ -2,7 +2,7 @@
  * settings-general-body.tsx — the General settings panel.
  *
  * App-wide preferences that belong to the app itself rather than to a card
- * type. Two directory rows and one choice. The **default project directory** —
+ * type. Two directory rows and two choices. The **default project directory** —
  * where Tug looks when nothing else says otherwise (Open Quickly with no
  * bound card, and the session picker's path seed when there are no recents).
  * And the **briefs directory** — where a brief is written when the user asks
@@ -14,10 +14,15 @@
  * placeholder so the user sees what they will get without the fallback being
  * written back as if they had chosen it.
  *
- * The choice is how a card **masthead** spells the file it names — the full
+ * The first choice is how a card **masthead** spells the file it names — the full
  * path, or the path relative to the open project it sits in. It belongs to
  * no one card type: the text card, the file view and the diff pop-out all
  * draw their path through the one masthead (`lib/masthead-path.ts`).
+ *
+ * The second choice is how quickly **every tooltip** appears — the house
+ * tooltips, the chart bubble and the OS tooltips of a `title` attribute alike.
+ * It stores a speed that scales each kind's own base delay
+ * (`lib/tooltip-speed.ts`).
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
  * shown in a settled field is a claim about what Tug will do — Open Quickly
@@ -68,6 +73,10 @@ import {
   MASTHEAD_PATHS_KEY,
   parseMastheadPathStyle,
   putMastheadPathStyle,
+  TOOLTIP_SPEED_DOMAIN,
+  TOOLTIP_SPEED_KEY,
+  parseTooltipSpeed,
+  putTooltipSpeed,
 } from "@/settings-api";
 import type { TaggedValue } from "@/lib/tugbank-client";
 import "./settings-general-body.css";
@@ -182,10 +191,20 @@ export function SettingsGeneralBody() {
   );
   const mastheadPathsId = useId();
 
+  const tooltipSpeed = useTugbankValue(
+    TOOLTIP_SPEED_DOMAIN,
+    TOOLTIP_SPEED_KEY,
+    parseTooltipSpeed,
+    "standard",
+  );
+  const tooltipSpeedId = useId();
+
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
       [mastheadPathsId]: (v: string) =>
         putMastheadPathStyle(v === "project" ? "project" : "full"),
+      [tooltipSpeedId]: (v: string) =>
+        putTooltipSpeed(parseTooltipSpeed({ kind: "string", value: v })),
     },
   });
 
@@ -268,6 +287,33 @@ export function SettingsGeneralBody() {
             How a text, file or diff card names its file. Project Relative
             writes the path from the open project it sits in; a file outside
             every open project keeps its full path.
+          </TugLabel>
+        </TugSettingsGroup>
+
+        <TugSettingsGroup
+          label="Tooltip Speed"
+          className="settings-general-group"
+        >
+          <div
+            className="settings-general-field"
+            data-testid="settings-tooltip-speed-field"
+          >
+            <TugChoiceGroup
+              size="sm"
+              senderId={tooltipSpeedId}
+              value={tooltipSpeed}
+              aria-label="Tooltip speed"
+              items={[
+                { value: "slow", label: "Slow" },
+                { value: "standard", label: "Standard" },
+                { value: "fast", label: "Fast" },
+                { value: "instant", label: "Instant" },
+              ]}
+            />
+          </div>
+          <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+            How long the pointer rests on something before its tooltip
+            appears. Instant shows tips as you sweep across controls.
           </TugLabel>
         </TugSettingsGroup>
 

@@ -2577,7 +2577,9 @@ export class DeckManager implements IDeckManagerStore {
                 this.setSpaceTheme(this.spacesStore.activeSpaceId, theme),
             },
           ],
-          [TugTooltipProvider, null],
+          // The shell's provider alone carries the tooltip speed to the host,
+          // for the OS tooltips WebKit draws for a `title` attribute.
+          [TugTooltipProvider, { syncHost: true }],
           [ErrorBoundary, null],
           [ResponderChainProvider, null],
           [DeckManagerContext.Provider, { value: this }],

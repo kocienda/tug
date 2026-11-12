@@ -515,6 +515,44 @@ export function putMastheadPathStyle(style: MastheadPathStyle): void {
   });
 }
 
+/** tugbank domain/key holding how quickly a tooltip answers a hover. */
+export const TOOLTIP_SPEED_DOMAIN = "dev.tugapp.app";
+export const TOOLTIP_SPEED_KEY = "tooltip-speed";
+
+/**
+ * How quickly every tooltip in the app appears. A speed rather than a number
+ * of milliseconds: each kind of tip keeps its own base delay and the speed
+ * scales it (`lib/tooltip-speed.ts`), so a chart mark still answers sooner
+ * than a toolbar label at every speed.
+ */
+export type TooltipSpeed = "slow" | "standard" | "fast" | "instant";
+
+/** An absent or unreadable key means `"standard"`, the delays tips have always had. */
+export function parseTooltipSpeed(entry: TaggedValue | undefined): TooltipSpeed {
+  if (entry?.kind !== "string") return "standard";
+  const v = entry.value;
+  return v === "slow" || v === "fast" || v === "instant" ? v : "standard";
+}
+
+/**
+ * Persist the tooltip speed. App-wide, and fire-and-forget like
+ * `putMastheadPathStyle`, with the local cache written first so the next hover
+ * answers the choice rather than the round trip. Stored as `Value::String`.
+ */
+export function putTooltipSpeed(speed: TooltipSpeed): void {
+  getTugbankClient()?.setLocalValue(TOOLTIP_SPEED_DOMAIN, TOOLTIP_SPEED_KEY, {
+    kind: "string",
+    value: speed,
+  });
+  fetch(`/api/defaults/${TOOLTIP_SPEED_DOMAIN}/${TOOLTIP_SPEED_KEY}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "string", value: speed }),
+  }).catch((err) => {
+    console.warn("[settings] PUT tooltip-speed failed:", err);
+  });
+}
+
 /** tugbank domain/key holding the app-wide default project directory. */
 export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugapp.app";
 export const DEFAULT_PROJECT_PATH_KEY = "default-project-path";

@@ -93,6 +93,13 @@ export function installJsdom(): JsdomSubstrate {
   for (const key of REPLACED_CLASSES) {
     if (win[key] !== undefined) install(key, win[key]);
   }
+  // The frame clock is jsdom's whenever the global holds none. A file that
+  // stubs it outside jsdom restores it by assignment — never by `delete`,
+  // which slows every later file — and so leaves the key present but
+  // undefined, which the `in` check above would read as the runtime's own.
+  for (const key of ["requestAnimationFrame", "cancelAnimationFrame"]) {
+    if (g[key] === undefined && win[key] !== undefined) install(key, win[key]);
+  }
   install("window", win);
   install("document", win.document);
   install("navigator", win.navigator);

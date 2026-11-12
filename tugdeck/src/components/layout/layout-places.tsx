@@ -77,6 +77,7 @@ import {
 } from "@/components/tugways/tug-column-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { useTooltipDelay } from "@/lib/tooltip-speed";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
 import { useItemGroupKeyboard } from "@/components/tugways/use-item-group-keyboard";
@@ -111,7 +112,8 @@ export interface LayoutPlace {
   senderId: string;
 }
 
-/** How long a target waits before it answers a hover. Shorter than the app's
+/** How long a target waits before it answers a hover, at the Standard tooltip
+ *  speed (the user's speed scales it). Shorter than the app's
  *  label default: a reader scanning a picture of their deck is asking "what is
  *  this one", card after card, and a near-second delay per card made the
  *  scan a wait. */
@@ -234,13 +236,14 @@ function Target({
   tip: React.ReactNode;
   children: React.ReactElement;
 }): React.ReactElement {
+  const delayDuration = useTooltipDelay(TARGET_TIP_DELAY_MS);
   if (tip === null || tip === undefined) return children;
   return (
     <TugTooltip
       content={tip}
       variant="entity"
       side="top"
-      delayDuration={TARGET_TIP_DELAY_MS}
+      delayDuration={delayDuration}
     >
       {children}
     </TugTooltip>
