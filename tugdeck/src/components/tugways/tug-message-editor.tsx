@@ -337,12 +337,12 @@ export const TugMessageEditor = React.forwardRef<
 
   return (
     <TugTextEditor
-      {...rest}
       ref={(delegate) => {
         substrateRef.current = delegate;
       }}
       className={cn("tug-message-editor", className)}
       data-slot="tug-message-editor"
+      {...rest}
       data-testid={dataTestid}
       aria-label={ariaLabel}
       borderless={borderless}

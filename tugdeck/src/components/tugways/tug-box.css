@@ -1,6 +1,7 @@
 /* @tug-pairings {
   --tug7-element-field-text-normal-label-rest      | --tug7-surface-global-primary-normal-default-rest | content
   --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | informational
+  --tug7-element-field-text-normal-label-rest      | --tugx-box-legend-bg                              | content
 } */
 
 /**
@@ -12,7 +13,21 @@
  * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-default-rest    | informational | .tug-box-bordered (border-color)  |
  * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-default-rest    | informational | .tug-box-filled (border-color)    |
  * | --tug7-element-global-divider-normal-separator-rest | --tug7-surface-global-primary-normal-default-rest  | informational | .tug-box-separator (border-color) |
+ * | --tug7-element-field-text-normal-label-rest       | --tugx-box-legend-bg                                 | content     | .tug-box-group > .tug-box-legend (color) |
  */
+
+/* ---- The legend's backdrop ----
+   A group's legend is painted over its top border, so it has to fill with
+   the surface the box sits on, which the box cannot see. This is the one
+   token a host surface sets to say what boxes inside it sit on; unset, it is
+   the box's own surface. The default sits at the root so that a host's
+   declaration on `body` or any element nearer the box wins by inheritance,
+   with no specificity between them. The pane sets it (`tug-pane.css`), and a
+   sheet or card that paints its own ground under its groups sets it there. */
+
+:root {
+  --tugx-box-legend-bg: var(--tug7-surface-global-primary-normal-default-rest);
+}
 
 /* ---- Reset fieldset defaults ---- */
 
@@ -26,13 +41,14 @@
 
 /* ---- Variants ---- */
 
-.tug-box-bordered {
-  /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-box-bordered,
+.tug-box-group {
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
 }
 
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .tug-box-filled {
-  /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
   background-color: var(--tug7-surface-global-primary-normal-sunken-rest);
   /* A filled box paints its own surface, so it publishes it for descendants
@@ -40,8 +56,8 @@
   --tugx-ambient-surface: var(--tug7-surface-global-primary-normal-sunken-rest);
 }
 
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .tug-box-separator {
-  /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
   border: none;
   border-top: 1px solid var(--tug7-element-global-divider-normal-separator-rest);
   width: 100%;
@@ -59,6 +75,44 @@
 .tug-box-bordered:not(.tug-box-inset),
 .tug-box-filled:not(.tug-box-inset) {
   padding: var(--tug-space-xs);
+}
+
+/* ---- Group ----
+   A bordered settings group. The legend is taken out of flow and painted
+   over the top border, so its line is reserved by the box's own padding
+   (the box height is padding + content, always — WebKit's built-in
+   fieldset/legend layout is pass-dependent). The inset is
+   generous: the legend overhangs the border, so the first control needs real
+   room beneath it. `.tug-box.tug-box-group` is (0,2,0) and follows the inset
+   rules, so it wins over `.tug-box-inset.tug-box-md` by order. */
+
+.tug-box.tug-box-group {
+  position: relative;
+  padding: var(--tug-space-2xl) var(--tug-space-2xl) var(--tug-space-xl);
+}
+
+/* The legend sits ON the border line, painted over it, out of flow. */
+/* @tug-renders-on: --tugx-box-legend-bg */
+.tug-box-group > .tug-box-legend {
+  position: absolute;
+  top: 0;
+  left: var(--tug-space-lg);
+  transform: translateY(-50%);
+  background: var(--tugx-box-legend-bg);
+  /* WebKit gives `<legend>` an intrinsic inline-size past its visible text,
+     truncating the fieldset's top border to its right. */
+  inline-size: max-content;
+}
+
+/* Left-packed: the panels read top to bottom down their leading edge; a
+   block that wants the full measure declares `width: 100%`. A caller that
+   lays its body out otherwise overrides at `.its-class > .tug-box-body`
+   with a compound that outranks this (0,2,0) rule. */
+.tug-box-group > .tug-box-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-lg);
 }
 
 /* ---- Body ----

@@ -157,10 +157,10 @@ export const TugCommitAtom = React.forwardRef<
 ) {
   return (
     <span
-      {...rest}
       ref={ref}
       className={cn("tug-session-identity", "tug-commit-atom", className)}
       data-slot="tug-commit-atom"
+      {...rest}
       data-tier="chip"
       data-interactive={interactive ? "true" : undefined}
       data-missing={missing ? "true" : undefined}

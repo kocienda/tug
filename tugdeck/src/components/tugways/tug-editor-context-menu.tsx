@@ -871,10 +871,10 @@ export const TugEditorContextMenu = React.forwardRef<HTMLDivElement, TugEditorCo
 
   return createPortal(
     <div
-      {...rest}
       ref={setMenuRef}
       data-slot="tug-editor-context-menu"
       className={cn("tug-menu-content", "tug-editor-context-menu", className)}
+      {...rest}
       role="menu"
       // Mark the menu and its items as focus-refusing so a click on
       // an item does NOT promote a first responder. The menu portals

@@ -1,12 +1,32 @@
+/* @tug-pairings {
+  --tug7-element-atom-text-normal-default-rest   | --tug7-surface-atom-primary-normal-default-rest | content
+  --tug7-element-atom-border-normal-default-rest | --tug7-surface-atom-primary-normal-default-rest | decorative
+} */
+
 /*
  * TugChip — the atom-chip look, with room for a ✕ ([L06]).
  *
  * An opaque atom surface carrying a 9% Key-hue wash, bounded by a soft 32%
  * inset hairline (in place of a hard 1px border), 3px radius — the
  * `command-atom.ts` chip spec, so a chip reads as an atom.
+ *
+ * A member of the atom family. Atoms are painted from TypeScript
+ * (`command-atom.ts`); the chip is the one atom drawn by a stylesheet, so it
+ * reads the atom slot's base tokens through its own `--tugx-chip-*` aliases,
+ * each one hop to the token the atom spec names ([L17], [L20]). The wash is
+ * the control slot's filled-action surface, as the atom spec's is.
  */
 
-/* @tug-renders-on: --tug7-surface-atom-primary-normal-default-rest */
+/* ---- Component-tier aliases — resolve to base tier in one hop [L17] ---- */
+
+body {
+  --tugx-chip-bg:     var(--tug7-surface-atom-primary-normal-default-rest);
+  --tugx-chip-wash:   var(--tug7-surface-control-primary-filled-action-rest);
+  --tugx-chip-border: var(--tug7-element-atom-border-normal-default-rest);
+  --tugx-chip-fg:     var(--tug7-element-atom-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tugx-chip-bg */
 .tug-chip {
   display: inline-flex;
   align-items: center;
@@ -16,12 +36,12 @@
   border-radius: 3px;
   background: color-mix(
     in srgb,
-    var(--tug7-surface-control-primary-filled-action-rest) 9%,
-    var(--tug7-surface-atom-primary-normal-default-rest)
+    var(--tugx-chip-wash) 9%,
+    var(--tugx-chip-bg)
   );
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--tug7-element-atom-border-normal-default-rest) 32%, transparent);
-  color: var(--tug7-element-atom-text-normal-default-rest);
+    color-mix(in srgb, var(--tugx-chip-border) 32%, transparent);
+  color: var(--tugx-chip-fg);
   font-family: var(--tug-font-family-sans);
   font-size: 0.8125rem;
 }

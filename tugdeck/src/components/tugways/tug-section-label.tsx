@@ -61,7 +61,7 @@ export const TugSectionLabel = React.forwardRef<HTMLDivElement, TugSectionLabelP
     ref,
   ) {
     return (
-      <div {...rest} ref={ref} className={cn("tug-section-label", className)} data-slot={dataSlot}>
+      <div ref={ref} className={cn("tug-section-label", className)} data-slot={dataSlot} {...rest}>
         <span className="tug-section-label-text">
           <span className="tug-section-label-name">{label.name}</span>
           {label.qualifier !== undefined ? (

@@ -16,6 +16,7 @@ import React, { useRef, useLayoutEffect, useCallback } from "react";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import { cn } from "@/lib/utils";
 import { useCopyableText } from "./use-copyable-text";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 
 // ---- Types ----
 
@@ -198,6 +199,7 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
       icon,
       iconTone,
       className,
+      onContextMenu: callerOnContextMenu,
       ...rest
     },
     ref,
@@ -331,8 +333,8 @@ export const TugLabel = React.forwardRef<HTMLLabelElement, TugLabelProps>(
           data-slot="tug-label"
           htmlFor={htmlFor}
           className={labelClassName}
-          onContextMenu={copyable.handleContextMenu}
           {...rest}
+          onContextMenu={composeEventHandlers(callerOnContextMenu, copyable.handleContextMenu)}
         >
           {icon && (
             <span

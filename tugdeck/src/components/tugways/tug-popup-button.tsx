@@ -324,9 +324,10 @@ function TugPopupButtonImpl<V extends TugPopupButtonPayload = never>(
 
   const trigger = (
     <TugButton
-      {...rest}
       ref={ref}
       data-slot="tug-popup-button"
+      className={cn("tug-popup-button", className)}
+      {...rest}
       emphasis="outlined"
       role="option"
       size={size}
@@ -334,7 +335,6 @@ function TugPopupButtonImpl<V extends TugPopupButtonPayload = never>(
       // The macOS popup-button key contract: ↓ / ↑ and any printable character
       // open the menu, alongside Space / Return.
       menuTrigger
-      className={cn("tug-popup-button", className)}
       focusGroup={focusGroup}
       focusOrder={focusOrder}
       focusPolicy={focusPolicy}

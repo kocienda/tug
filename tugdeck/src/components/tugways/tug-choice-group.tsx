@@ -41,6 +41,7 @@ import { useControlDispatch } from "./use-control-dispatch";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { useComponentStatePreservation } from "./use-component-state-preservation";
 import { useItemGroupKeyboard } from "./use-item-group-keyboard";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 import type { FocusPolicy } from "./focus-manager";
 import type { CommitMode } from "./focus-act";
 
@@ -273,6 +274,7 @@ export const TugChoiceGroup = React.forwardRef<HTMLDivElement, TugChoiceGroupPro
       focusPolicy,
       reselect = false,
       commit = "deferred",
+      onKeyDown: callerOnKeyDown,
       ...rest
     },
     ref,
@@ -472,8 +474,8 @@ export const TugChoiceGroup = React.forwardRef<HTMLDivElement, TugChoiceGroupPro
         )}
         style={{ ...roleStyle, ...style }}
         tabIndex={focusGroup !== undefined ? 0 : undefined}
-        onKeyDown={onKeyDown}
         {...rest}
+        onKeyDown={composeEventHandlers(callerOnKeyDown, onKeyDown)}
       >
         {/* Sliding indicator pill — only the *animated* variant needs the
             imperatively-positioned overlay (it slides between segments). The

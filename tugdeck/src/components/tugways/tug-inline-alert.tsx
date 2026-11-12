@@ -88,10 +88,10 @@ export const TugInlineAlert = React.forwardRef<HTMLDivElement, TugInlineAlertPro
 ) {
   return (
     <div
-      {...rest}
       ref={ref}
       data-slot="tug-inline-alert"
       className={cn("tug-inline-alert", className)}
+      {...rest}
       role={live === "alert" ? "alert" : "status"}
       data-tone={tone}
       data-accent={accent ? "true" : undefined}

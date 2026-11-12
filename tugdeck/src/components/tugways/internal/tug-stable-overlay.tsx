@@ -72,7 +72,7 @@ export const TugStableOverlay = React.forwardRef<HTMLSpanElement, TugStableOverl
   // DOM, dominated load time (O(N²) layout thrash) — hence its removal.
 
   return (
-    <span {...rest} ref={ref} className={cn("tug-stable-overlay", className)} data-slot={dataSlot}>
+    <span ref={ref} className={cn("tug-stable-overlay", className)} data-slot={dataSlot} {...rest}>
       <span className="tug-stable-overlay-variant" data-tug-stable="active">
         {active}
       </span>

@@ -123,10 +123,10 @@ export const TugMarkdownText = React.forwardRef<HTMLDivElement, TugMarkdownTextP
   const setRootRef = useMemo(() => composeRefs<HTMLDivElement>(annotatedRef, ref), [annotatedRef, ref]);
   return (
     <div
-      {...rest}
       ref={setRootRef}
       className={cn("tug-markdown-text", className)}
       data-slot={dataSlot}
+      {...rest}
       data-tugx-findable={findable ? "" : undefined}
     >
       {lines.map((line, i) => (

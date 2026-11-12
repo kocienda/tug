@@ -683,10 +683,10 @@ export const TugComboBox = React.forwardRef<HTMLDivElement, TugComboBoxProps>(
 
     return (
       <div
-        {...rest}
         ref={forwardedRef}
         data-slot={dataSlot}
         className={cn("tug-combo-box", className)}
+        {...rest}
         // The attached-list contract: while the caret is in the field, ↑/↓ drive
         // THIS list's highlight and never leave the field. Without the
         // declaration the engine's spatial stage claims a bare arrow whenever

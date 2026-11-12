@@ -1,20 +1,27 @@
+import fs from "fs";
+import path from "path";
+
 import { describe, expect, test } from "bun:test";
 
 import {
   checkCallbacks,
   checkFile,
+  checkGuide,
   checkGallery,
   checkInternalImport,
   checkPrefixPlacement,
   checkPrimitiveStore,
+  checkRootOrder,
   checkStructure,
   checkVocabulary,
   componentName,
   importSpecifiers,
   isDomainStore,
+  isPrimitive,
   leadingDocblock,
   ratchet,
   resolveSpecifier,
+  restSpreadTags,
 } from "../component-conformance";
 
 const TW = "tugdeck/src/components/tugways";
@@ -256,6 +263,89 @@ describe("L11 callbacks", () => {
   });
 });
 
+describe("R01/R02 root order", () => {
+  const FILE = `${TW}/tug-x.tsx`;
+
+  test("a data-slot after the spread fails R01", () => {
+    const source = 'return <div\n  {...rest}\n  ref={ref}\n  data-slot="tug-x"\n/>;';
+    expect(checkRootOrder(FILE, source)).toEqual([
+      { rule: "R01", path: FILE, detail: "<div> at line 2 writes `data-slot` after `{...rest}`" },
+    ]);
+  });
+
+  test("a handler before the spread fails R02, once per handler", () => {
+    const source = '<Comp\n  onKeyDown={onKeyDown}\n  onBlur={(e) => { if (a > b) go(); }}\n  {...rest}\n>';
+    expect(checkRootOrder(FILE, source).map((v) => `${v.rule} ${v.detail}`)).toEqual([
+      "R02 <Comp> at line 4 writes `onKeyDown` before `{...rest}`",
+      "R02 <Comp> at line 4 writes `onBlur` before `{...rest}`",
+    ]);
+  });
+
+  test("the root order passes: identity, then the spread, then handlers and invariants", () => {
+    const source = [
+      "<LabelPrimitive.Root",
+      "  ref={ref}",
+      '  data-slot="tug-x"',
+      '  className={cn("tug-x", className)}',
+      "  {...rest}",
+      "  // An on-handler named in a comment is not an attribute: onClick={x}",
+      "  onKeyDown={composeEventHandlers(callerOnKeyDown, onKeyDown)}",
+      '  role="status"',
+      ">",
+    ].join("\n");
+    expect(checkRootOrder(FILE, source)).toEqual([]);
+  });
+
+  test("an attribute inside an expression or a string is not the tag's", () => {
+    const source = [
+      "<div",
+      '  title="onClick=nothing"',
+      '  data-label={x ? "data-slot=y" : undefined}',
+      "  {...rest}",
+      '  aria-label={`data-slot="z"`}',
+      "  child={<span data-slot=\"inner\" />}",
+      "/>",
+    ].join("\n");
+    expect(checkRootOrder(FILE, source)).toEqual([]);
+  });
+
+  test("an object spread of rest is not a tag", () => {
+    const source = "const merged = {...rest};\nconst props = { a: 1, ...rest };\nuse({...rest});";
+    expect(restSpreadTags(source)).toEqual([]);
+  });
+
+  test("a single-line tag splits at the spread", () => {
+    const [tag] = restSpreadTags('<span ref={ref} data-slot="tug-x" {...rest}>');
+    expect(tag.name).toBe("span");
+    expect(tag.before).toContain("data-slot=");
+    expect(tag.after.trim()).toBe("");
+  });
+
+  test("a non-primitive is not read", () => {
+    expect(checkRootOrder(`${TW}/cards/x.tsx`, '<div {...rest} data-slot="x" />')).toEqual([]);
+  });
+
+  // Every primitive in the tree, one row each: the root order the rules hold
+  // is the order every primitive writes, so a caller's `data-slot` reaches its
+  // element and a caller's handler never replaces the control's.
+  const tugways = path.resolve(import.meta.dir, "../../src/components/tugways");
+  const primitives = [
+    ...fs.readdirSync(tugways).map((f) => `${TW}/${f}`),
+    ...fs.readdirSync(path.join(tugways, "internal")).map((f) => `${TW}/internal/${f}`),
+  ].filter(isPrimitive);
+
+  test("the table of primitives is the library", () => {
+    expect(primitives.length).toBeGreaterThan(80);
+  });
+
+  for (const file of primitives) {
+    test(`${path.posix.basename(file)} writes the root order`, () => {
+      const source = fs.readFileSync(path.resolve(import.meta.dir, "../../..", file), "utf8");
+      expect(checkRootOrder(file, source)).toEqual([]);
+    });
+  }
+});
+
 describe("G01 gallery", () => {
   test("a top-level primitive no gallery card imports fails; an imported one passes", () => {
     const files = [
@@ -285,5 +375,60 @@ describe("ratchet", () => {
     expect(ratchet([], { T02: { [`${TW}/tug-tab-bar.tsx`]: "reason" } })).toEqual([
       `T02 ${TW}/tug-tab-bar.tsx: allowlisted but no longer violates; remove the entry`,
     ]);
+  });
+});
+
+describe("checkGuide — the authoring guide's code against [L11]", () => {
+  const FENCE = "```";
+
+  test("catches the onCheckedChange shape the guide carried", () => {
+    const guide = [
+      "### Props Interface",
+      "",
+      `${FENCE}typescript`,
+      "export interface TugSwitchProps {",
+      "  /** Whether the switch is on. @selector [data-state=\"checked\"] */",
+      "  checked?: boolean;",
+      "  /** Callback when toggled. */",
+      "  onCheckedChange?: (checked: boolean) => void;",
+      "}",
+      FENCE,
+    ].join("\n");
+    expect(checkGuide(guide)).toEqual([
+      "guide line 3: a props interface declares `onCheckedChange`, which [L11] sends through the chain",
+    ]);
+  });
+
+  test("does not read a callback the interface omits in its extends clause", () => {
+    const guide = [
+      `${FENCE}typescript`,
+      "export interface TugSwitchProps",
+      "  extends Omit<React.ComponentPropsWithoutRef<typeof Root>, \"onCheckedChange\" | \"role\"> {",
+      "  checked?: boolean;",
+      "}",
+      FENCE,
+    ].join("\n");
+    expect(checkGuide(guide)).toEqual([]);
+  });
+
+  test("passes the guide's own marked counter-example", () => {
+    const guide = [
+      `${FENCE}tsx`,
+      "export interface TugCloseButtonProps {",
+      "  onClose: () => void;  // ❌ callback for a user interaction",
+      "}",
+      FENCE,
+    ].join("\n");
+    expect(checkGuide(guide)).toEqual([]);
+  });
+
+  test("reads only TypeScript fences", () => {
+    const guide = ["```css", "interface FakeProps {", "  onClick: () => void;", "}", FENCE].join("\n");
+    expect(checkGuide(guide)).toEqual([]);
+  });
+
+  test("the guide in the tree is clean", () => {
+    const guide = fs.readFileSync(path.resolve(import.meta.dir, "../../../tuglaws/component-authoring.md"), "utf8");
+    expect(checkGuide(guide)).toEqual([]);
   });
 });

@@ -2079,15 +2079,15 @@ export const TugTextCardEditor = React.forwardRef<
   return (
     <ResponderScope>
       <div
-        {...rest}
         ref={composedHostRef}
         data-slot="tug-text-card-editor"
+        className={cn("tug-text-card-editor", className)}
+        {...rest}
         // What absorbs the card's height when it resizes: a crossing's
         // cover hangs everything below it from the moving edge.
         data-crossing-scroller=""
         data-tug-select="custom"
         data-focus-stop={focusGroup !== undefined ? "true" : undefined}
-        className={cn("tug-text-card-editor", className)}
       />
       {contextMenu}
     </ResponderScope>

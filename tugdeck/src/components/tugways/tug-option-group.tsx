@@ -43,6 +43,7 @@ import { useControlDispatch } from "./use-control-dispatch";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { useComponentStatePreservation } from "./use-component-state-preservation";
 import { useItemGroupKeyboard } from "./use-item-group-keyboard";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 import type { FocusPolicy } from "./focus-manager";
 
 // ---- Types ----
@@ -215,6 +216,7 @@ export const TugOptionGroup = React.forwardRef<HTMLDivElement, TugOptionGroupPro
       focusGroup,
       focusOrder = 0,
       focusPolicy,
+      onKeyDown: callerOnKeyDown,
       ...rest
     },
     ref,
@@ -335,8 +337,8 @@ export const TugOptionGroup = React.forwardRef<HTMLDivElement, TugOptionGroupPro
         )}
         style={{ ...roleStyle, ...style }}
         tabIndex={focusGroup !== undefined ? 0 : undefined}
-        onKeyDown={onKeyDown}
         {...rest}
+        onKeyDown={composeEventHandlers(callerOnKeyDown, onKeyDown)}
       >
         {items.map((item, index) => {
           const isOn = value.includes(item.value);

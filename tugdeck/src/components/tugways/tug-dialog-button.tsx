@@ -276,10 +276,11 @@ export const TugDialogButton = React.forwardRef<
 
   return (
     <button
-      {...rest}
       ref={ref}
-      type="button"
       data-slot="tug-dialog-button"
+      className={cn("tug-dialog-button", className)}
+      {...rest}
+      type="button"
       data-mode={mode}
       data-role={resolvedRole}
       data-selected={mode === "choice" ? (selected ? "true" : "false") : undefined}
@@ -290,7 +291,6 @@ export const TugDialogButton = React.forwardRef<
       aria-disabled={disabled ? "true" : undefined}
       disabled={disabled}
       onClick={handleClick}
-      className={cn("tug-dialog-button", className)}
     >
       <span className="tug-dialog-button-stack">
         <span className="tug-dialog-button-title-row">

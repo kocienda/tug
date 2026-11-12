@@ -228,6 +228,17 @@ The `consumeInitialScrollTop` one-shot keeps the saved value tied to the FIRST c
 
 **Authoring note.** Capture closures (`captureState` / `onSave`) must read from the live source of truth (React state / refs / DOM) at the moment they're called, not from a stale closure captured at hook-defining time — `[L07]`. The hook stores the closure in a ref and re-syncs it on every render so the framework always sees the latest render's state.
 
+**Narrow the saved payload defensively.** The initializer reads `typeof saved?.collapsed === "boolean" ? saved.collapsed : overThreshold`, not `saved?.collapsed ?? overThreshold`, so a code change that evolves the payload shape can never crash a card on cold boot: an unrecognized payload falls back to the default.
+
+**The renderer writes the scroll position before paint.** An imperative renderer handed `initialScrollTop` assigns `scroller.scrollTop = initialScrollTop` immediately after it appends the scroller, inside the same `useLayoutEffect` call, so the scroller's first observable `scrollTop` already matches the bag.
+
+**Anti-patterns.**
+
+- **Do not** add a `restoreState` callback to `useComponentStatePreservation`. The capability is gone for a reason — a post-mount apply re-renders the component with the saved value, which the user sees as a flicker.
+- **Do not** read `useSavedComponentState` outside a `useState` initializer and then `setState` from a `useEffect`. That is the same post-mount apply path in a different shape.
+- **Do not** read `useSavedRegionScroll` and write `el.scrollTop = saved.y` from a `useEffect` after the scroller mounts. That produces the visible 0 → saved jump. Pass the value into the imperative renderer at creation time instead.
+- **Do not** use a timer to wait for content to settle before applying scroll position. Timers are unreliable for async content delivery; the right answer is to save the layout geometry at save time and hydrate it before first paint (below), so the restore math is exact, not estimated.
+
 ### Saving geometry for first-paint accuracy
 
 Phase E.6's anchor-metadata channel gave variable-height virtualized scrollers a content-relative restore target (`meta.anchor = { index, offset }`). Phase E.8 made restore happen at mount time via `useSavedComponentState` / `useSavedRegionScroll`. Phase E.9 closes the gap that remained: the OUTER transcript scrollport still hopped because `TugListView` mounted with an empty `heightIndex`, so the anchor-resolve math on commit 1 returned an estimate, then refined as cells were measured.
@@ -270,6 +281,39 @@ A writer may carry any combination of the families; listeners ignore keys they d
 1. On every commit, write `data-tug-scroll-state` with the substrate's geometry payload (in a `useLayoutEffect` or scroll-event listener, depending on the substrate's update granularity).
 2. Read `useSavedRegionScroll(scrollKey)` at render time. In a mount `useLayoutEffect`, decode `meta` and hydrate the substrate's internal layout primitives BEFORE the substrate's first-paint-driving effects run.
 3. If the substrate has hot fallbacks (anchor-based, line-relative, pixel raw), prefer the richer geometry when present; fall back to pixel `y` for older bags / unrecognized meta.
+
+`TugListView` is the reference substrate. It writes its geometry on every commit:
+
+```ts
+const meta = {
+  anchor: { index: anchorIndex, offset: anchorOffset },
+  cellHeights: heightIndexRef.current.snapshot(),
+  scrollHeight: el.scrollHeight,
+};
+el.setAttribute("data-tug-scroll-state", JSON.stringify(meta));
+```
+
+and hydrates its layout state in a mount `useLayoutEffect`, before its first-paint-driving effects:
+
+```ts
+const savedRegionScroll = useSavedRegionScroll(scrollKey);
+React.useLayoutEffect(() => {
+  if (savedRegionScroll === undefined) return;
+  const meta = savedRegionScroll.meta;
+  if (meta === null || typeof meta !== "object") return;
+
+  const cellHeights = (meta as { cellHeights?: unknown }).cellHeights;
+  if (Array.isArray(cellHeights)) {
+    heightIndexRef.current.hydrate(cellHeights);
+  }
+  const anchor = (meta as { anchor?: unknown }).anchor;
+  if (anchor !== null && typeof anchor === "object" && "index" in anchor && "offset" in anchor) {
+    // ...stash for the apply effect...
+  }
+}, []);
+```
+
+It also applies a per-cell `min-height` from the hydrated `cellHeights`, so async sub-content fills its destined slot without shifting siblings and the anchor cell stays at the saved viewport position from the very first paint.
 
 **Contract.** The first paint after restore reproduces the user-visible state at last save, INCLUDING the layout that made it user-visible. No timer. No opacity mask. No estimated-then-refined hops. `[L23]`.
 

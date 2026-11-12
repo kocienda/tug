@@ -831,10 +831,10 @@ export const TugCodeView = React.forwardRef<
   return (
     <ResponderScope>
       <div
-        {...rest}
         ref={composedHostRef}
         data-slot="tug-code-view"
         className={cn("tug-code-view", className)}
+        {...rest}
       />
     </ResponderScope>
   );

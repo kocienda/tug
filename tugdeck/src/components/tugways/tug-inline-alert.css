@@ -27,15 +27,17 @@ body {
   --tugx-inline-alert-border:  var(--tug7-element-global-border-normal-muted-rest);
   --tugx-inline-alert-icon-fg: var(--tug7-element-global-icon-normal-muted-rest);
   /* The accented notice's leading bar and icon ink (`accent`). Per tone
-     below; untoned, the bar is the muted border and the icon stays muted. */
-  --tugx-inline-alert-accent:         var(--tugx-inline-alert-border);
-  --tugx-inline-alert-accent-icon-fg: var(--tugx-inline-alert-icon-fg);
+     below; untoned, the bar is the muted border and the icon stays muted.
+     Each names its base token directly ([L17]): every tone that warms the
+     border (caution, danger, accent) sets both of these too. */
+  --tugx-inline-alert-accent:         var(--tug7-element-global-border-normal-muted-rest);
+  --tugx-inline-alert-accent-icon-fg: var(--tug7-element-global-icon-normal-muted-rest);
 }
 
 /* ---- Container ---- */
 
+/* @tug-renders-on: --tugx-inline-alert-bg */
 .tug-inline-alert {
-  /* @tug-renders-on: --tugx-inline-alert-bg */
   background-color: var(--tugx-inline-alert-bg);
   color: var(--tugx-inline-alert-fg);
   border: 1px solid var(--tugx-inline-alert-border);
@@ -63,9 +65,9 @@ body {
 
 /* ---- Icon container ---- */
 
+/* @tug-renders-on: --tugx-inline-alert-bg */
 .tug-inline-alert-icon {
-  /* @tug-renders-on: --tugx-inline-alert-bg
-     Always muted — tone rides the border + buttons, not the icon. */
+  /* Always muted — tone rides the border + buttons, not the icon. */
   color: var(--tugx-inline-alert-icon-fg);
   flex-shrink: 0;
   width: var(--tugx-header-icon-one);
@@ -146,8 +148,8 @@ body {
   --tugx-inline-alert-accent-icon-fg: var(--tug7-element-tone-icon-normal-accent-rest);
 }
 
+/* @tug-renders-on: --tugx-inline-alert-bg */
 .tug-inline-alert[data-accent="true"] {
-  /* @tug-renders-on: --tugx-inline-alert-bg */
   border-left: 4px solid var(--tugx-inline-alert-accent);
 }
 
@@ -155,8 +157,8 @@ body {
   align-items: center;
 }
 
+/* @tug-renders-on: --tugx-inline-alert-bg */
 .tug-inline-alert[data-accent="true"] .tug-inline-alert-icon {
-  /* @tug-renders-on: --tugx-inline-alert-bg */
   color: var(--tugx-inline-alert-accent-icon-fg);
 }
 

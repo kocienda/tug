@@ -16,6 +16,8 @@
  * @covers tests/app-test/_harness/style-census.ts
  * @covers tugdeck/src/components/tugways/tug-settings-group.tsx
  * @covers tugdeck/src/components/tugways/tug-settings-group.css
+ * @covers tugdeck/src/components/tugways/tug-box.tsx
+ * @covers tugdeck/src/components/tugways/tug-box.css
  * @covers tugdeck/src/components/tugways/cards/settings-general-body.css
  * @covers tugdeck/src/components/tugways/cards/settings-session-card-body.css
  * @covers tugdeck/src/components/tugways/cards/text-card-controls.tsx

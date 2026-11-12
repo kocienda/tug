@@ -282,8 +282,10 @@ export const TugIconButton = React.forwardRef<HTMLButtonElement, TugIconButtonPr
 
     return (
       <TugButton
-        {...rest}
         ref={ref}
+        data-slot={dataSlot ?? "tug-icon-button"}
+        className={cn("tug-icon-button", className)}
+        {...rest}
         subtype="icon"
         emphasis={emphasis}
         rounded={rounded}
@@ -297,8 +299,6 @@ export const TugIconButton = React.forwardRef<HTMLButtonElement, TugIconButtonPr
         focusGroup={focusGroup}
         focusOrder={focusOrder}
         focusPolicy={focusPolicy}
-        data-slot={dataSlot ?? "tug-icon-button"}
-        className={cn("tug-icon-button", className)}
       />
     );
   },

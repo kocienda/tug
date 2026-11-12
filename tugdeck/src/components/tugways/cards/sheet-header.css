@@ -1,3 +1,7 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-overlay-rest | informational
+} */
+
 /* ----------------------------------------------------------------------------
    sheet-header.css — the read-only sheets' header and notice
    ----------------------------------------------------------------------------
@@ -9,12 +13,12 @@
    line notice ([L06]); the panel surface is the composed `TugSheet`'s.
    ----------------------------------------------------------------------------- */
 
-/* The strip→body gap, on the scaffold header that holds one. */
-.tug-sheet-scaffold-header:has(> .sheet-header) {
-  margin-bottom: 0.5rem;
-}
-
+/* The strip carries the gap above the body on its own box. It is the only
+   child of the scaffold header, a flex item, so the margin stays inside that
+   header rather than collapsing through it; no rule reaches into the
+   scaffold's own parts ([L20]). */
 .sheet-header {
+  margin-bottom: 0.5rem;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -60,7 +64,7 @@
 
 /* The line notice: one muted, centred sentence in a sheet whose body is not a
    list. */
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .sheet-notice[data-layout="line"] {
   color: var(--tug7-element-global-text-normal-muted-rest);
   text-align: center;

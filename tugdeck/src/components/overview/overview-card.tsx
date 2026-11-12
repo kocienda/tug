@@ -1543,6 +1543,26 @@ export function OverviewContent({
   }, [setFollowing, pinToBottom, releaseHold]);
 
   /**
+   * Home and ⌃⇧⌘[ — the top of the loaded column, the mirror of
+   * {@link jumpToBottom}, as the Session card's `FIRST_TURN` is the mirror of
+   * its `LAST_TURN`.
+   *
+   * Follow-bottom is released FIRST, so the write below is the reader leaving
+   * the live edge and no arriving post pulls them back down. The top is the
+   * top of what is loaded: landing there is under `LOAD_OLDER_PX`, so the
+   * scroll that write fires asks for the page before it, and that page goes
+   * in above the reader with the reading line held, as any reader's scroll to
+   * the top would have it. A second press goes on to the new top.
+   */
+  const jumpToTop = useCallback((): void => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    releaseHold();
+    setFollowing(false);
+    el.scrollTop = 0;
+  }, [setFollowing, releaseHold]);
+
+  /**
    * Step the column one POST — the Session transcript's ⌃⌘[ / ⌃⌘], read here.
    *
    * The selection is the transcript's own
@@ -1649,7 +1669,12 @@ export function OverviewContent({
       [TUG_ACTIONS.NEXT_TURN]: () => {
         pageByPost("down");
       },
-      // The jump-to-latest button's press, and ⌃⇧⌘] — the column's live edge.
+      // Home and ⌃⇧⌘[ — the top of the loaded column.
+      [TUG_ACTIONS.FIRST_TURN]: () => {
+        jumpToTop();
+      },
+      // The jump-to-latest button's press, End and ⌃⇧⌘] — the column's live
+      // edge.
       [TUG_ACTIONS.LAST_TURN]: () => {
         jumpToBottom();
       },

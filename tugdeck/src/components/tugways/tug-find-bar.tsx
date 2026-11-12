@@ -472,10 +472,10 @@ export const TugFindBar = React.forwardRef<TugFindBarHandle, TugFindBarProps>(
     return (
       <ResponderScope>
         <TugEntryShell
-          {...rest}
           ref={shellRef}
           className={cn("tug-find-bar", className)}
           data-slot={dataSlot}
+          {...rest}
           accessoryRow={
             replaceRowShown ? (
               <FindReplaceField

@@ -99,10 +99,10 @@ export const TugMetaRun = React.forwardRef<HTMLSpanElement, TugMetaRunProps>(fun
       : parts.filter((part) => part !== null && part !== undefined && part !== false);
   return (
     <span
-      {...rest}
       ref={ref}
       className={cn("tug-meta-run", className)}
       data-slot={dataSlot}
+      {...rest}
       data-fit={fit}
       data-separator={present !== null ? "bullet" : separator}
     >

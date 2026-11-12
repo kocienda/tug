@@ -249,8 +249,8 @@ export const TugInput = React.forwardRef<HTMLInputElement, TugInputProps>(
           className={buildInputClassName(size, validation, className)}
           disabled={effectiveDisabled}
           aria-invalid={validation === "invalid" ? "true" : undefined}
-          onContextMenu={handleContextMenu}
           {...rest}
+          onContextMenu={handleContextMenu}
         />
         {contextMenu}
       </>

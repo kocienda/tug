@@ -40,6 +40,7 @@ import type { TugPopupMenuEntry, TugPopupMenuItem } from "./internal/tug-popup-m
 import { TugTooltip } from "./tug-tooltip";
 import { useControlDispatch } from "./use-control-dispatch";
 import { useItemGroupKeyboard } from "./use-item-group-keyboard";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 import type { FocusPolicy } from "./focus-manager";
 import { cardDragCoordinator, exceedsDragThreshold } from "@/card-drag-coordinator";
 import { TUG_ACTIONS } from "./action-vocabulary";
@@ -607,6 +608,7 @@ export const TugTabBar = React.forwardRef<HTMLDivElement, TugTabBarProps>(functi
     focusOrder = 0,
     focusPolicy,
     className,
+    onKeyDown: callerOnKeyDown,
     ...rest
   }: TugTabBarProps,
   ref,
@@ -858,8 +860,8 @@ export const TugTabBar = React.forwardRef<HTMLDivElement, TugTabBarProps>(functi
       data-testid="tug-tab-bar"
       data-pane-id={stackId}
       tabIndex={focusGroup !== undefined ? 0 : undefined}
-      onKeyDown={onKeyDown}
       {...rest}
+      onKeyDown={composeEventHandlers(callerOnKeyDown, onKeyDown)}
     >
       {cards.map((card) => {
         // A per-card icon override wins over the componentId's registry

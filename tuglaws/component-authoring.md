@@ -120,21 +120,40 @@ Interactive components effectively always cite [L11] because any interactive com
 Exported. Extends native HTML element props when wrapping a native element. JSDoc on every non-obvious prop. Use `@selector` to document the CSS selector for stateful props.
 
 ```typescript
-export interface TugSwitchProps {
-  /** Whether the switch is on. @selector [data-state="checked"] */
+export interface TugSwitchProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root>,
+    "checked" | "defaultChecked" | "onCheckedChange" | "role" | "asChild" | "children"
+  > {
+  /**
+   * Controlled checked state.
+   * @selector [data-state="checked"] | [data-state="unchecked"]
+   */
   checked?: boolean;
-  /** Callback when toggled. */
-  onCheckedChange?: (checked: boolean) => void;
-  /** Inline label text. */
+  /** Default checked state (uncontrolled). */
+  defaultChecked?: boolean;
+  /** Stable identifier passed as `event.sender` on every `toggle` action. */
+  senderId?: string;
+  /** Inline label text. Renders a wrapping label element. */
   label?: string;
-  /** Visual size. @default "md" */
-  size?: "sm" | "md" | "lg";
-  /** Semantic role for color injection. No role = accent. @selector [data-role="<role>"] */
-  role?: "action" | "agent" | "data" | "success" | "caution" | "danger" | "option";
-  /** @selector [aria-disabled="true"] */
+  /**
+   * Visual size variant.
+   * @selector .tug-switch-size-xs | .tug-switch-size-sm | .tug-switch-size-md | .tug-switch-size-lg
+   * @default "md"
+   */
+  size?: TugSwitchSize;
+  /**
+   * Disables the switch.
+   * @selector :disabled | [data-disabled]
+   * @default false
+   */
   disabled?: boolean;
+  /** Semantic role for the on-state track color. @selector [data-role="<role>"] */
+  role?: TugSwitchRole;
 }
 ```
+
+The switch has no `onCheckedChange`: a toggle dispatches `toggle` through the responder chain [L11], and the props omit Radix's callback so a caller cannot pass one.
 
 Rules:
 - Extend `React.ComponentPropsWithoutRef<'element'>` for native wrappers
@@ -177,7 +196,7 @@ role?: TugCheckboxRole;
 ```
 
 Props that do **not** need `@selector`:
-- Callback props (`onCheckedChange`, `onClick`, `onChange`)
+- Native event handlers (`onClick`, `onKeyDown`, `onChange`)
 - String data props (`name`, `value`, `aria-label`)
 - `className` — always passed through to `cn()`, no selector needed
 
@@ -222,29 +241,45 @@ Use `React.forwardRef` for any component that wraps a DOM element or Radix primi
 
 ```typescript
 export const TugSwitch = React.forwardRef<HTMLButtonElement, TugSwitchProps>(
-  function TugSwitch({ checked, onCheckedChange, label, size = "md", role, disabled, ...rest }, ref) {
-    // ...
-    return (
-      <Switch.Root
-        ref={ref}
-        data-slot="tug-switch"
-        className={cn("tug-switch", `tug-switch-${size}`)}
-        checked={checked}
-        onCheckedChange={onCheckedChange}
-        disabled={disabled}
-        {...rest}
-      >
-        <Switch.Thumb className="tug-switch-thumb" />
-      </Switch.Root>
+  function TugSwitch(
+    { checked, defaultChecked, senderId, label, size = "md", disabled = false, className, style, role, ...rest },
+    ref,
+  ) {
+    // ... the box's disabled cascade, focus registration, saved state, role style ...
+    const { dispatch: controlDispatch } = useControlDispatch();
+    const handleCheckedChange = useCallback(
+      (next: boolean) => {
+        if (!isExternallyControlled) setInternalChecked(next);
+        controlDispatch({ action: TUG_ACTIONS.TOGGLE, value: next, sender: effectiveSenderId, phase: "discrete" });
+      },
+      [controlDispatch, effectiveSenderId, isExternallyControlled],
     );
-  }
+
+    return (
+      <SwitchPrimitive.Root
+        ref={setRefs}
+        data-slot="tug-switch"
+        checked={effectiveChecked}
+        disabled={effectiveDisabled}
+        className={cn("tug-switch", `tug-switch-size-${size}`, className)}
+        style={{ ...roleStyle, ...style }}
+        {...rest}
+        data-role={role}
+        data-tug-focus="refuse"
+        onCheckedChange={handleCheckedChange}
+      >
+        <SwitchPrimitive.Thumb className="tug-switch-thumb" />
+      </SwitchPrimitive.Root>
+    );
+  },
 );
 ```
 
 Rules:
 - `data-slot="tug-{name}"` on the root element — always. This is the stable semantic anchor for CSS and tooling.
 - `className` via `cn()` (from `lib/utils.ts`) — composes base class, size variant, and caller's className
-- Spread `...rest` last to allow prop overrides
+- **The root element has one order.** First the identity: `ref`, the literal `data-slot` and `className`, with any prop the component destructured and passes on (`rest` cannot hold those). Then `{...rest}`. Then everything the component must keep whatever the caller passed: its handlers, its roles and the ARIA it manages, focus refusals, a wrapper's fixed props, and the `data-*` attributes that report its own state. A caller can rename the slot and add classes; it cannot falsify a state report or switch off a refusal. The conformance checker holds the two halves a regex can see: `R01` (a literal `data-slot` precedes `{...rest}`) and `R02` (no `on…` attribute precedes it).
+- **A handler the control needs is composed, never replaced.** When the control writes a handler a caller may also pass, it destructures that name and writes `composeEventHandlers(callerHandler, ownHandler)` (`internal/compose-event-handlers.ts`) after the spread. The caller's runs first, and the control's runs unless the caller called `preventDefault()`: a veto is an explicit act, never an accident of prop order. A callback the chain carries instead ([L11]) is not a handler, and the props omit it.
 - No React state for appearance [L06]. All visual changes via CSS custom properties, classes, or data attributes. **This includes text content in input fields** — see "Input Value Management" below.
 - Functional components (no refs needed) skip `forwardRef` but still get `data-slot`
 
@@ -438,15 +473,9 @@ When authoring a body-kind or chrome wrapper, **consume `--tugx-block-*` directl
   line-height:   var(--tugx-block-code-line-height);
   color:         var(--tugx-block-text-color);
 }
-.tugx-file-header {
-  padding:    var(--tugx-block-strip-padding);
-  gap:        var(--tugx-block-strip-gap);
-  background: var(--tugx-block-strip-bg);
-  border-bottom: 1px solid var(--tugx-block-strip-border);
-  color:      var(--tugx-block-strip-color);
-  font-size:  var(--tugx-block-strip-size);
-  font-family: var(--tugx-block-strip-font);
-}
+/* The identity strip is not written here: the header wears the shared
+   `.tugx-block-strip` class (`styles/tugx-block.css`), which carries the
+   strip's padding, colours, type and sticky pin for every body kind. */
 
 /* file-block.css body{} — only file-specific slots */
 body {
@@ -795,11 +824,15 @@ The composition rule is a single CSS variable propagated through the cascade.
 **`--tugx-pin-stack-top`** — written by `TugTranscriptEntry` onto the entry root via a `useLayoutEffect` + `ResizeObserver` on its `__pin` element (the single sticky wrapper carrying the icon and attribution header — one sticky per entry, so each row contributes one compositing-overlap candidate, not two). The value is the live measured height of that pinned block. Descendant sticky chrome consumes it as the top offset:
 
 ```css
-.tugx-file-header,
-.tugx-diff-header,
-.tugx-term-header,
-.tugx-md-fenced-code-header,
-.tool-block-chrome-header {
+/* styles/tugx-block.css — every body kind's identity strip */
+.tugx-block-strip {
+  position: sticky;
+  top: var(--tugx-pin-stack-top, 0);
+  z-index: 1;
+}
+
+/* blocks/block-header.css — the tool-call header */
+.tool-call-header {
   position: sticky;
   top: var(--tugx-pin-stack-top, 0);
   z-index: 1;
@@ -810,7 +843,7 @@ When no transcript entry is present (gallery cards, ad-hoc consumers, the `Rende
 
 Deeper-tier bars compose the same way through additional component-owned variables:
 
-- **`--tugx-block-header-height`** — written by `BlockChrome` on its root from a ResizeObserver on `.tool-block-chrome-header`. Sticky descendants inside the chrome (a diff's hunk header) read it so they pin BELOW the chrome header.
+- **`--tugx-block-header-height`** — written by `BlockChrome` on its root from a ResizeObserver on its header (`.tool-call-header`). Sticky descendants inside the chrome (a diff's hunk header) read it so they pin BELOW the chrome header.
 - **`--tugx-diff-header-height`** — written by `DiffBlock` on its root from a ResizeObserver on the standalone-mode identity header (unset when embedded mode suppresses the header). Sticky descendants inside the body kind (`DiffBlock`'s hunk headers) read all three pin-stack variables in a single calc:
 
 ```css
@@ -1140,118 +1173,7 @@ For trash / more / info / dismiss icon buttons that sit at the trailing edge of 
 
 ## Restoring saved state at mount
 
-A stateful component that opts into the [A9] Component State Preservation Protocol has two halves to wire up: **capture** and **restore-at-mount**. Capture lands the current value into `bag.components` at save time. Restore-at-mount reads the saved value at render time and uses it as the initial state, so the component's very first paint after a restore (cold boot, cross-pane move, tab reopen, HMR remount) already reflects what the user last saved.
-
-The contract is one sentence: **user-visible state at first paint after restore equals user-visible state at last save before destruction.** No intermediate frame painted with the `useState` default. No jump from a 0 scrollTop to the saved scrollTop. If your component ever needs a post-mount `setState` to "apply" a saved value, you are violating the contract — that mechanism is what makes a restored card visibly jump.
-
-### The canonical pattern — `useSavedComponentState` in a `useState` initializer
-
-For a component whose state lives in React (fold flags, popover open state, toggle values), pair `useSavedComponentState<T>(componentStatePreservationKey)` with a `useState` initializer:
-
-```tsx
-function TerminalBlock({ componentStatePreservationKey, ... }: Props) {
-  const overThreshold = lineCount > collapseThreshold;
-  const savedComponentState = useSavedComponentState<{ collapsed: boolean }>(
-    componentStatePreservationKey,
-  );
-  const [collapsed, setCollapsed] = useState<boolean>(() =>
-    typeof savedComponentState?.collapsed === "boolean"
-      ? savedComponentState.collapsed
-      : overThreshold,
-  );
-
-  useComponentStatePreservation<{ collapsed: boolean }>({
-    componentStatePreservationKey,
-    captureState: () => ({ collapsed }),
-  });
-  // ...
-}
-```
-
-Three things this pattern guarantees:
-
-- The read happens in render, before `useState` runs its initializer. The saved value flows straight into the initial state — no effect, no re-render.
-- The initializer narrows defensively (`typeof saved?.collapsed === "boolean"`) so a code change that evolves the payload shape can never crash a card on cold boot. An unrecognized payload falls back to the default.
-- The `captureState` closure is stored in a ref synced on every render, so it always sees the latest local state at harvest time [L07].
-
-### The scroll-axis variant — `useSavedRegionScroll` plus imperative `initialScrollTop`
-
-For imperative renderers that own an inner scrollport (TerminalBlock's virtualized scroller, FileBlock's CM6 mount), the same primitive carries through to scroll position:
-
-```tsx
-const scrollKey = `${componentStatePreservationKey}/term-scroll`;
-const savedRegionScroll = useSavedRegionScroll(scrollKey);
-const initialScrollTopRef = useRef<number | undefined>(savedRegionScroll?.y);
-const firstRenderConsumedRef = useRef(false);
-const consumeInitialScrollTop = useCallback((): number | undefined => {
-  if (firstRenderConsumedRef.current) return undefined;
-  firstRenderConsumedRef.current = true;
-  return initialScrollTopRef.current;
-}, []);
-
-useLayoutEffect(() => {
-  const handle = renderTerminal(
-    outer, body, data, getOuter, collapsed, "top", scrollKey,
-    consumeInitialScrollTop(),
-  );
-  return () => handle.cleanup();
-}, [collapsed, /* ... */, consumeInitialScrollTop]);
-```
-
-The renderer assigns `scroller.scrollTop = initialScrollTop` immediately after `body.appendChild(scroller)`, inside the same `useLayoutEffect` call — before paint. The scroller's first observable `scrollTop` already matches the bag. The `consumeInitialScrollTop` one-shot ensures only the FIRST creation of the inner scroller consumes the saved value; subsequent rebuilds (collapse-toggle, streaming re-render) pass `undefined` and rely on the anchor-based default. The element-identity-gated `MutationObserver` pass in `card-host.tsx` covers any later scroller-rebuild path by re-applying the bag value to the new element.
-
-### Custom geometry meta — when raw `{x, y}` isn't enough
-
-Some scrollers can't restore correctly from raw pixel `scrollTop` alone:
-
-- **Variable-height virtualized lists** (`TugListView` driving session-card's transcript). Cell heights drift as async sub-content settles; the saved pixel `y` no longer maps to the saved *content* by the time the bag is replayed.
-- **Code editors with wrapping** (CM6 in `FileBlock`). Font-load reflow shifts the pixel position of every line on first paint; a raw pixel restore lands at the wrong line.
-
-For these, the substrate writes a richer payload onto `data-tug-scroll-state`:
-
-```ts
-// TugListView writer (every commit):
-const meta = {
-  anchor: { index: anchorIndex, offset: anchorOffset },
-  cellHeights: heightIndexRef.current.snapshot(),
-  scrollHeight: el.scrollHeight,
-};
-el.setAttribute("data-tug-scroll-state", JSON.stringify(meta));
-```
-
-And on the read side, hydrates its internal layout state before first paint:
-
-```ts
-// TugListView mount-time hydration:
-const savedRegionScroll = useSavedRegionScroll(scrollKey);
-React.useLayoutEffect(() => {
-  if (savedRegionScroll === undefined) return;
-  const meta = savedRegionScroll.meta;
-  if (meta === null || typeof meta !== "object") return;
-
-  const cellHeights = (meta as { cellHeights?: unknown }).cellHeights;
-  if (Array.isArray(cellHeights)) {
-    heightIndexRef.current.hydrate(cellHeights);
-  }
-  const anchor = (meta as { anchor?: unknown }).anchor;
-  if (anchor !== null && typeof anchor === "object" && "index" in anchor && "offset" in anchor) {
-    // ...stash for the apply effect...
-  }
-}, []);
-```
-
-The substrate also applies per-cell `min-height` from hydrated `cellHeights` so async sub-content fills its destined slot without shifting siblings — the anchor cell stays at the saved viewport position from the very first paint.
-
-The meta schema and the conventions for the three families (`anchor`, `cellHeights`, `line`, `scrollHeight`) are documented in [state-preservation.md](state-preservation.md#saving-geometry-for-first-paint-accuracy) and in `RegionScrollSnapshot`'s prose docstring. New substrates that need richer meta extend the same channel.
-
-### Anti-patterns
-
-- **Do not** add a `restoreState` callback to `useComponentStatePreservation`. The capability is gone for a reason — a post-mount apply re-renders the component with the saved value, which the user sees as a flicker.
-- **Do not** read `useSavedComponentState` outside a `useState` initializer and then `setState` from a `useEffect`. That is the same post-mount apply path in a different shape.
-- **Do not** read `useSavedRegionScroll` and write `el.scrollTop = saved.y` from a `useEffect` after the scroller mounts. That produces the visible 0 → saved jump. Pass the value into the imperative renderer at creation time instead.
-- **Do not** use a timer to wait for content to settle before applying scroll position. Timers are unreliable for async content delivery; the right answer is to save the layout geometry at save time and hydrate it before first paint, so the restore math is exact, not estimated.
-
-See [state-preservation.md](state-preservation.md) for the full protocol, capture/restore moments, and the relationship to `[L23]`.
+A component that opts into the [A9] protocol reads its saved value at render time — in a `useState` initializer, or as an imperative renderer's `initialScrollTop` — so its first paint after a restore is already the saved state, and nothing applies it after mount. The pattern, its scroll and geometry variants, and the anti-patterns are in [state-preservation.md](state-preservation.md#restoring-saved-state-at-mount).
 
 ---
 
@@ -1531,6 +1453,7 @@ Before a component is done:
 - [ ] Every token matches what it styles: surface tokens for fills/backgrounds, border tokens for borders, text tokens for text — no semantic mismatches
 - [ ] No ad-hoc theme logic in component TSX/JS
 - [ ] `data-slot="tug-{name}"` on root element
+- [ ] Root element in order: `ref`, `data-slot`, `className`, then `{...rest}`, then handlers, roles, ARIA, focus refusals and state reports; a handler a caller may also pass goes through `composeEventHandlers`
 - [ ] Module docstring cites minimum law set ([L06], [L11] if interactive, [L15] if interactive, [L16] if CSS, [L19]) plus any component-specific laws; no `Spec S##` references
 - [ ] Props interface exported with JSDoc; every CSS-targetable prop has `@selector` annotation
 - [ ] `@tug-pairings` present in both compact and expanded-table formats; components with no pairings use `@tug-pairings: none`
@@ -1558,52 +1481,7 @@ A **gallery** card is an exemplary demo of an established `Tug*` component: prop
 
 ## Stores That Observe CONTROL Push Frames
 
-Some external stores aren't backed by tugbank; they're projections of
-server-side state that the supervisor pushes over the CONTROL feed.
-`SessionLedgerStore` is the second consumer of this pattern — the
-first was the live-sessions broadcast handling that landed alongside
-T3.4.c §step-4-5-5.
-
-The shape:
-
-1. **Action-dispatch as the wire-side decoder.** `action-dispatch.ts`
-   registers handlers for the response/push frame names (e.g.,
-   `session_updated`, `list_sessions_ok`, `forget_session_ok`). Each
-   handler validates the payload shape and forwards a typed event
-   through a small pub/sub bus.
-2. **A pub/sub bus per store.** The ledger uses
-   `lib/session-ledger-events.ts` — a process-global module that
-   exports `subscribe*` / `publish*` functions per event kind. The bus
-   is the single decoupling point between the wire decoder and the
-   store consumer.
-3. **The store subscribes on construction.** The store calls each
-   `subscribeTo*` once in its constructor, holding the unsubscribe
-   functions in a `disposers: Array<() => void>` so a future
-   `dispose()` can clean up. The store then mutates its in-memory
-   cache and emits a listener tick — exactly like a tugbank-backed
-   store under [L02].
-4. **`useSyncExternalStore` is still the React boundary.** The hook
-   that exposes the store to React (`useSessionLedger(projectDir)`)
-   wraps the store with `useSyncExternalStore` so [L02] holds: external
-   state never enters React state, even one tick removed via the bus.
-5. **Imperative actions roundtrip through the bus.** A method like
-   `forgetSession(sessionId)` sends a CONTROL frame and returns a
-   promise. The promise's resolver lives in a pending-map on the
-   store; the matching `forget_session_ok` / `_err` ack arrives via
-   the bus and resolves the promise. Tests publish the ack frame
-   directly to drive the store without a real wire.
-6. **Reconnect re-fetches.** The store hooks
-   `connectionDidReconnect` (from `connection-lifecycle`) and calls
-   `invalidateAll()` on every reconnect after the first — covering the
-   gap where push frames may have landed during a wire bounce. [L23]
-   compliance: the server-side ledger persists; the client-side cache
-   is the rebuildable projection.
-
-When to use this pattern: the projected state is server-owned, has
-many keys (per-workspace, per-session), and updates frequently enough
-that tugbank's `domain-changed` cadence isn't a fit. When the data is
-small (a single config blob, a recents list with 5 entries),
-`useTugbankValue` is still the right shape.
+A store that projects server-side state pushed over the CONTROL feed, rather than a tugbank value, has its own shape: a wire decoder, a pub/sub bus, `useSyncExternalStore` at the React boundary, and a re-fetch on reconnect. It is in [control-feed-stores.md](control-feed-stores.md).
 
 ---
 

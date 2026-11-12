@@ -540,11 +540,11 @@ const MarkdownBlockBody: React.FC<
 
   return (
     <div
-      {...rest}
       ref={setContainer}
       data-slot="tug-markdown-block"
-      data-tugx-findable={findable ? "" : undefined}
       className={cn("tug-markdown-block", className)}
+      {...rest}
+      data-tugx-findable={findable ? "" : undefined}
     />
   );
 };

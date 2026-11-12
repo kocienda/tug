@@ -43,10 +43,10 @@ export const TugStatusMark = React.forwardRef<HTMLSpanElement, TugStatusMarkProp
     const mark = statusMark(status);
     return (
       <span
-        {...rest}
         ref={ref}
         className={cn("tug-status-mark", className)}
         data-slot="tug-status-mark"
+        {...rest}
         data-mark={mark}
         aria-hidden="true"
       >

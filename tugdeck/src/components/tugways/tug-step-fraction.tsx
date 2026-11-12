@@ -33,10 +33,10 @@ export const TugStepFraction = React.forwardRef<HTMLSpanElement, TugStepFraction
     return (
       <span
         aria-label={`step ${current} of ${total}`}
-        {...rest}
         ref={ref}
         className={cn("tug-step-fraction", className)}
         data-slot="tug-step-fraction"
+        {...rest}
       >
         <span className="tug-step-fraction-i">{current}</span>
         <span className="tug-step-fraction-slash">/</span>

@@ -43,6 +43,7 @@ import { useTugBoxDisabled } from "./internal/tug-box-context";
 import { TugGroupRole, buildRoleStyle } from "./internal/tug-group-utils";
 import { useControlDispatch } from "./use-control-dispatch";
 import { useItemGroupKeyboard } from "./use-item-group-keyboard";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 import type { FocusPolicy } from "./focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import {
@@ -238,6 +239,7 @@ export const TugRadioGroup = React.forwardRef<HTMLDivElement, TugRadioGroupProps
       focusPolicy,
       columns = 1,
       commitOnEnter = false,
+      onKeyDown: callerOnKeyDown,
       ...rest
     },
     ref,
@@ -396,8 +398,8 @@ export const TugRadioGroup = React.forwardRef<HTMLDivElement, TugRadioGroupProps
           dir={dir as "ltr" | "rtl" | undefined}
           style={{ ...roleStyle, ...style }}
           tabIndex={focusGroup !== undefined ? 0 : undefined}
-          onKeyDown={onKeyDown}
           {...rest}
+          onKeyDown={composeEventHandlers(callerOnKeyDown, onKeyDown)}
         >
           {label && (
             <span id={labelId} className="tug-radio-group-label">

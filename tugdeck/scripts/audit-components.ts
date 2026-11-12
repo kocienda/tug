@@ -8,6 +8,10 @@
  * violates. The allowlist can therefore only shrink — a change that fixes a
  * violation deletes its entry in the same commit.
  *
+ * It also holds the fenced code of `tuglaws/component-authoring.md` to the
+ * [L11] callback list, with nothing allowlisted, so the guide cannot teach a
+ * props interface the checker refuses in a primitive.
+ *
  * Prints one line per problem and exits 1, or a `PASS` line with the count of
  * allowlisted violations.
  *
@@ -17,12 +21,13 @@
 import fs from "fs";
 import path from "path";
 
-import { type Allowlist, checkTree, ratchet } from "./component-conformance";
+import { type Allowlist, checkGuide, checkTree, ratchet } from "./component-conformance";
 
 const TUGDECK = path.resolve(import.meta.dir, "..");
 const REPO = path.dirname(TUGDECK);
 const SRC = path.join(TUGDECK, "src");
 const ALLOWLIST = path.join(import.meta.dir, "component-conformance-allowlist.json");
+const GUIDE = path.join(REPO, "tuglaws/component-authoring.md");
 
 function walk(dir: string, out: string[]): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -40,7 +45,7 @@ const violations = checkTree(
     source: fs.readFileSync(full, "utf8"),
   })),
 );
-const problems = ratchet(violations, allowlist);
+const problems = [...ratchet(violations, allowlist), ...checkGuide(fs.readFileSync(GUIDE, "utf8"))];
 
 if (problems.length > 0) {
   for (const line of problems) console.log(line);

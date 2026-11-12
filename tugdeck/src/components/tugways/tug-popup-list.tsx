@@ -215,8 +215,8 @@ export const TugPopupListScroller = React.forwardRef<
       // markup (`overlay/overlay-surface-drawer.ts`) honours it in its own box.
       data-stick-to-bottom={stickToBottom ? "" : undefined}
       className={cn("tug-popup-list-scroller", className)}
-      onScroll={handleScroll}
       {...rest}
+      onScroll={handleScroll}
     >
       {children}
     </div>

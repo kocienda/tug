@@ -64,7 +64,7 @@ export const TugInlineMarkdown = React.forwardRef<HTMLSpanElement, TugInlineMark
   function TugInlineMarkdown({ text, className, ...rest }, ref) {
     const nodes = React.useMemo(() => renderRuns(inlineMarkdownRuns(text)), [text]);
     return (
-      <span {...rest} ref={ref} data-slot="tug-inline-markdown" className={cn("tug-inline-markdown", className)}>
+      <span ref={ref} data-slot="tug-inline-markdown" className={cn("tug-inline-markdown", className)} {...rest}>
         {nodes}
       </span>
     );

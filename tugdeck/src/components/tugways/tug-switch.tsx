@@ -297,7 +297,6 @@ export const TugSwitch = React.forwardRef<HTMLButtonElement, TugSwitchProps>(
         ref={setRefs}
         data-slot="tug-switch"
         checked={effectiveChecked}
-        onCheckedChange={handleCheckedChange}
         disabled={effectiveDisabled}
         name={name}
         value={value}
@@ -305,9 +304,10 @@ export const TugSwitch = React.forwardRef<HTMLButtonElement, TugSwitchProps>(
         aria-label={!label ? ariaLabel : undefined}
         className={cn("tug-switch", `tug-switch-size-${size}`, className)}
         style={{ ...roleStyle, ...style }}
+        {...rest}
         data-role={role}
         data-tug-focus="refuse"
-        {...rest}
+        onCheckedChange={handleCheckedChange}
       >
         <SwitchPrimitive.Thumb className="tug-switch-thumb" />
       </SwitchPrimitive.Root>

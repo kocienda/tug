@@ -51,6 +51,11 @@
 body {
   /* --- Pane frame (.tug-pane-chrome outer chrome) --- */
   --tugx-pane-bg: var(--tug7-surface-global-primary-normal-content-rest);
+  /* What a box inside the pane sits on, for the legend a settings group
+     paints over its border (`tug-box.css`). The pane's own surface, named
+     here directly so the alias is one hop ([L17]); the rail treatment below
+     sets it with the pane's. */
+  --tugx-box-legend-bg: var(--tug7-surface-global-primary-normal-content-rest);
   --tugx-pane-border: var(--tug7-element-card-border-normal-frame-rest, var(--tug7-element-global-border-normal-default-rest));
   --tugx-pane-shadow-active: 0 1px 4px var(--tug7-element-global-shadow-normal-md-rest);
   --tugx-pane-shadow-inactive: 0 1px 4px var(--tug7-element-global-shadow-normal-xs-rest);
@@ -441,6 +446,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
     var(--tug7-surface-global-primary-normal-sunken-rest),
     var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
   );
+  --tugx-box-legend-bg: var(--tugx-pane-bg);
   --tugx-pane-border: color-mix(
     in oklch,
     var(--tug7-element-global-border-normal-strong-rest),

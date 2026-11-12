@@ -96,10 +96,10 @@ export const TugSpriteIcon = React.forwardRef<SVGSVGElement, TugSpriteIconProps>
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      {...rest}
       ref={ref}
       data-slot="tug-sprite-icon"
       className={cn("lucide", `lucide-${name}`, className)}
+      {...rest}
       aria-hidden={ariaHidden}
     >
       <use href={`#tug-i-${name}`} />

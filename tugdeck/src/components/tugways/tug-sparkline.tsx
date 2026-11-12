@@ -498,10 +498,10 @@ export const TugSparkline = React.forwardRef<HTMLDivElement, TugSparklineProps>(
 
   return (
     <div
-      {...rest}
       ref={setContainerRef}
       className={cn("tug-sparkline", className)}
       data-slot="tug-sparkline"
+      {...rest}
       style={{ width, height, ...style }}
       title={title}
       aria-hidden

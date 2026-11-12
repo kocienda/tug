@@ -2703,6 +2703,9 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
 
   // ---- tug-box.css ----
   { element: "--tug7-element-global-divider-normal-separator-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
+  // A group's legend on what the box sits on — the pane's surface, which the
+  // pane sets as `--tugx-box-legend-bg`.
+  { element: "--tug7-element-field-text-normal-label-rest", surface: "--tugx-box-legend-bg", role: "content" },
 
   // ---- tug-bulletin.css ----
   { element: "--tugx-bulletin-fg", surface: "--tugx-bulletin-bg", role: "content" },
@@ -2806,6 +2809,22 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
 
   // ---- tug-activity-line.css ----
   { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tugx-pane-bg", role: "content" },
+
+  // ---- tug-chip.css — the atom slot's default tone, drawn by a stylesheet ----
+  // The atom ground carries alpha, so parentSurface composites it over
+  // surface-default before the label is measured, as the session atom's is.
+  {
+    element: "--tug7-element-atom-text-normal-default-rest",
+    surface: "--tug7-surface-atom-primary-normal-default-rest",
+    role: "content",
+    parentSurface: "--tug7-surface-global-primary-normal-default-rest",
+  },
+
+  // ---- cards/receipt-header.css ----
+  { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-surface-card-primary-normal-block-rest", role: "content" },
+
+  // ---- cards/repo-notice.css ----
+  { element: "--tug7-element-tone-text-normal-danger-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },
 
   // ---- tug-quiet-line.css ----
   { element: "--tug7-element-global-text-normal-muted-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },

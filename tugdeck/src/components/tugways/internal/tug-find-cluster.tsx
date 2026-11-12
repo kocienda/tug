@@ -165,7 +165,7 @@ export const TugFindCluster = React.forwardRef<HTMLDivElement, TugFindClusterPro
 
   return (
     <ResponderScope>
-      <div {...rest} ref={ref} className={cn("tugx-find-cluster", className)} data-slot="tug-find-cluster">
+      <div ref={ref} className={cn("tugx-find-cluster", className)} data-slot="tug-find-cluster" {...rest}>
         <TugBadge
           emphasis="tinted"
           role="action"

@@ -40,7 +40,7 @@ export const TugArcAtom = React.forwardRef<HTMLSpanElement, TugArcAtomProps>(fun
   ref,
 ) {
   return (
-    <span {...rest} ref={ref} className={cn("tug-arc-atom", className)} data-slot="tug-arc-atom">
+    <span ref={ref} className={cn("tug-arc-atom", className)} data-slot="tug-arc-atom" {...rest}>
       <ArcSigil name={name} nameContent={nameContent} slot={dataSlot} atom title={title} />
     </span>
   );

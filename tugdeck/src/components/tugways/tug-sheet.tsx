@@ -1222,15 +1222,15 @@ export function TugSheetPanel({
 
   return (
     <div
-      {...rest}
       ref={panelRef}
-      id={id}
       className={cn("tug-sheet-content", className)}
+      data-slot="tug-sheet"
+      {...rest}
+      id={id}
       role="dialog"
       aria-labelledby={hideHeader ? undefined : titleId}
       aria-label={hideHeader ? title : undefined}
       aria-describedby={description ? descriptionId : undefined}
-      data-slot="tug-sheet"
       data-tug-sheet-presentation={presentation}
       data-display-width={displayWidth}
       data-resizable={resizable ? "true" : undefined}
@@ -2680,8 +2680,8 @@ export function TugSheetContent({
           onUnmountAutoFocus={handleUnmountAutoFocus}
         >
           <TugSheetPanel
-            {...rest}
             className={className}
+            {...rest}
             panelRef={composedContentRef}
             id={contentId}
             title={title}

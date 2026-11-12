@@ -584,10 +584,10 @@ export const TugPopupMenu = React.forwardRef<HTMLDivElement, TugPopupMenuProps>(
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal container={overlayRoot}>
         <DropdownMenuPrimitive.Content
-          {...rest}
           ref={ref}
           data-slot="tug-popup-menu"
           className={cn("tug-menu-content", inDialog && "tug-menu-in-dialog", className)}
+          {...rest}
           align={align}
           {...(side !== undefined ? { side } : {})}
           sideOffset={sideOffset}

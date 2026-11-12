@@ -300,12 +300,12 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
 
   return (
     <div
-      {...rest}
       ref={ref}
       data-slot="tug-inline-dialog"
+      className={cn("tug-inline-dialog", className)}
+      {...rest}
       data-icon-tone={iconTone}
       data-layout={layout}
-      className={cn("tug-inline-dialog", className)}
     >
       <div
         className="tug-inline-dialog-row"

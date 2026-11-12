@@ -8433,9 +8433,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
 
     return (
       <div
-        {...rest}
         ref={setScrollContainerRef}
         data-slot="tug-list-view"
+        className={cn("tug-list-view", className)}
+        {...rest}
         data-tug-scroll-key={scrollKey ?? "tug-list-view"}
         data-row-layout={rowLayout}
         data-sizing={sizing === "content" ? "content" : undefined}
@@ -8450,7 +8451,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         data-offscreen-skip={
           inline === true && offscreenSkip ? "" : undefined
         }
-        className={cn("tug-list-view", className)}
         style={containerStyle}
         role={listRole}
         // A subordinate list adds no Tab stop of its own (the filter input owns

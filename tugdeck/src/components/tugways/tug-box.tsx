@@ -7,7 +7,9 @@
  * outer box disables all inner boxes and their controls.
  *
  * Variants: plain (invisible grouping), bordered (border, no fill),
- * filled (border + sunken background), separator (horizontal rule).
+ * filled (border + sunken background), group (a bordered settings group,
+ * its legend painted on the border, its body a left-packed column),
+ * separator (horizontal rule).
  * Label position: legend (in border line) or above (heading above children).
  * Inset padding scales with size: sm/md/lg.
  *
@@ -50,9 +52,9 @@ const ROUNDED_MAP: Record<TugBoxRounded, string> = {
 
 /**
  * TugBox visual variant.
- * @selector .tug-box-plain | .tug-box-bordered | .tug-box-filled | .tug-box-separator
+ * @selector .tug-box-plain | .tug-box-bordered | .tug-box-filled | .tug-box-group | .tug-box-separator
  */
-export type TugBoxVariant = "plain" | "bordered" | "filled" | "separator";
+export type TugBoxVariant = "plain" | "bordered" | "filled" | "group" | "separator";
 
 /**
  * Where the label appears.
@@ -81,8 +83,11 @@ export interface TugBoxProps
    * - "plain": invisible — functional grouping only, no visual chrome.
    * - "bordered": visible border, no background fill.
    * - "filled": visible border + subtle background fill.
+   * - "group": a bordered settings group — the legend is painted over the
+   *   top border on `--tugx-box-legend-bg`, a generous inset clears it, and
+   *   the body is a left-packed column. Always labels as a legend.
    * - "separator": renders as a horizontal rule (no children, no label).
-   * @selector .tug-box-plain | .tug-box-bordered | .tug-box-filled | .tug-box-separator
+   * @selector .tug-box-plain | .tug-box-bordered | .tug-box-filled | .tug-box-group | .tug-box-separator
    * @default "plain"
    */
   variant?: TugBoxVariant;
@@ -204,11 +209,12 @@ export const TugBox = React.forwardRef<HTMLFieldSetElement, TugBoxProps>(
       );
     }
 
-    // Inset default: true for bordered/filled, false for plain.
-    const resolvedInset = inset ?? (variant === "bordered" || variant === "filled");
-
-    // Border radius — only meaningful for bordered/filled.
-    const hasBorder = variant === "bordered" || variant === "filled";
+    // Border radius and inset — only meaningful for the variants that draw a
+    // border. Inset defaults to true for them, false for plain.
+    const hasBorder = variant === "bordered" || variant === "filled" || variant === "group";
+    const resolvedInset = inset ?? hasBorder;
+    // A group always labels on its border.
+    const resolvedLabelPosition = variant === "group" ? "legend" : labelPosition;
     const resolvedRadius = hasBorder ? ROUNDED_MAP[rounded] : undefined;
 
     return (
@@ -229,10 +235,10 @@ export const TugBox = React.forwardRef<HTMLFieldSetElement, TugBoxProps>(
           style={{ borderRadius: resolvedRadius, ...style }}
           {...rest}
         >
-          {label && labelPosition === "legend" && (
+          {label && resolvedLabelPosition === "legend" && (
             <legend className="tug-box-legend">{label}</legend>
           )}
-          {label && labelPosition === "above" && (
+          {label && resolvedLabelPosition === "above" && (
             <span className="tug-box-label-above">{label}</span>
           )}
           {/* The body div is the ONLY layout surface for box content. The

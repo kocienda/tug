@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils";
 import type { TugFormatter } from "@/lib/tug-format";
 import { clamp, validateNumericInput } from "@/lib/tug-validate";
 import { useTugBoxDisabled } from "./internal/tug-box-context";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 import { useControlDispatch } from "./use-control-dispatch";
 import { useFocusable } from "./use-focusable";
 import type { FocusPolicy } from "./focus-manager";
@@ -396,6 +397,10 @@ export const TugValueInput = React.forwardRef<HTMLInputElement, TugValueInputPro
       focusGroup,
       focusOrder = 0,
       focusPolicy,
+      onFocus: callerOnFocus,
+      onMouseUp: callerOnMouseUp,
+      onKeyDown: callerOnKeyDown,
+      onBlur: callerOnBlur,
       ...rest
     },
     ref,
@@ -488,12 +493,12 @@ export const TugValueInput = React.forwardRef<HTMLInputElement, TugValueInputPro
           style={{ width: editing.inputWidth, ...style }}
           aria-disabled={effectiveDisabled || undefined}
           aria-label="Value"
-          onFocus={editing.handleFocus}
-          onMouseUp={editing.handleMouseUp}
-          onKeyDown={editing.handleKeyDown}
-          onBlur={editing.handleBlur}
-          onContextMenu={handleContextMenu}
           {...rest}
+          onFocus={composeEventHandlers(callerOnFocus, editing.handleFocus)}
+          onMouseUp={composeEventHandlers(callerOnMouseUp, editing.handleMouseUp)}
+          onKeyDown={composeEventHandlers(callerOnKeyDown, editing.handleKeyDown)}
+          onBlur={composeEventHandlers(callerOnBlur, editing.handleBlur)}
+          onContextMenu={handleContextMenu}
         />
         {contextMenu}
       </>

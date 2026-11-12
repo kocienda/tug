@@ -94,10 +94,10 @@ export const TugArcTrack = React.forwardRef<HTMLSpanElement, TugArcTrackProps>(f
   useOffscreenPause(rootRef, model.stopped === null);
   return (
     <span
-      {...rest}
       ref={setRootRef}
       className={cn("tug-arc-track", className)}
       data-slot="tug-arc-track"
+      {...rest}
       data-phase={model.phase}
       data-direct={model.direct ? "true" : undefined}
       data-stopped={model.stopped !== null ? "true" : undefined}

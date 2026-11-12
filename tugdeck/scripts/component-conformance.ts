@@ -51,6 +51,14 @@
  *    declares a user-action callback ({@link ACTION_CALLBACKS}); the action
  *    travels the responder chain. An `Omit` in the `extends` clause is not a
  *    declaration.
+ *  - **R01 slot-before-rest.** In a primitive, a JSX tag that spreads
+ *    `{...rest}` writes its `data-slot` before the spread, so a caller's
+ *    `data-slot` overrides it ([L19]: identity and defaults, then the spread,
+ *    then what the component must keep).
+ *  - **R02 handler-after-rest.** In a primitive, no `on…` attribute precedes
+ *    `{...rest}` in the same tag: a handler written there is silently replaced
+ *    by a caller's handler of the same name. The control destructures the
+ *    name and writes the composed handler after the spread.
  *  - **G01 gallery.** Some `cards/gallery-*.tsx` imports every top-level
  *    primitive. It reads the whole tree, so it is {@link checkTree}'s, not
  *    {@link checkFile}'s.
@@ -75,6 +83,8 @@ export type RuleId =
   | "C09"
   | "V01"
   | "L11"
+  | "R01"
+  | "R02"
   | "G01";
 
 export interface Violation {
@@ -409,6 +419,7 @@ export function checkStructure(file: string, source: string): Violation[] {
 
 /** The user-action callbacks [L11] sends through the chain instead. */
 export const ACTION_CALLBACKS = [
+  "onCheckedChange",
   "onPressedChange",
   "onClick",
   "onSelect",
@@ -436,6 +447,159 @@ export function checkCallbacks(file: string, source: string): Violation[] {
   }));
 }
 
+/**
+ * The authoring guide's code held to the same [L11] list. A fenced
+ * TypeScript block in the guide that declares, in a props interface, a
+ * callback the chain carries instead teaches the shape the checker refuses
+ * in a primitive. Returns one line per problem, naming the block's opening
+ * line; empty means the guide's interfaces are clean. Nothing is
+ * allowlisted. The one exemption is the guide's own counter-example: a
+ * declaration whose line carries `❌` is the guide showing what not to write.
+ */
+export function checkGuide(markdown: string): string[] {
+  const problems: string[] = [];
+  const lines = markdown.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^```(ts|tsx|typescript)\s*$/.test(lines[i])) continue;
+    const open = i + 1;
+    const body: string[] = [];
+    for (i++; i < lines.length && !/^```\s*$/.test(lines[i]); i++) body.push(lines[i]);
+    for (const iface of propsInterfaceBodies(body.join("\n"))) {
+      for (const line of iface.split("\n")) {
+        if (line.includes("❌")) continue;
+        for (const name of ACTION_CALLBACKS) {
+          if (new RegExp(`^\\s*${name}\\??\\s*:`).test(line)) {
+            problems.push(`guide line ${open}: a props interface declares \`${name}\`, which [L11] sends through the chain`);
+          }
+        }
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * The source with every comment blanked to spaces, newlines kept, so an
+ * offset into it is an offset into the file and a line number reads true.
+ */
+function blankComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|\s)\/\/.*$/gm, (m, lead: string) => lead + " ".repeat(m.length - lead.length));
+}
+
+/**
+ * The text with everything inside `{…}` and inside a quoted attribute value
+ * blanked, so what remains is a tag's attribute names at its own level.
+ */
+function attributeLevel(text: string): string {
+  let out = "";
+  let depth = 0;
+  let quote: string | null = null;
+  for (const c of text) {
+    if (quote !== null) {
+      out += c === quote ? c : " ";
+      if (c === quote) quote = null;
+    } else if (c === "{") {
+      depth++;
+      out += " ";
+    } else if (c === "}") {
+      depth = Math.max(0, depth - 1);
+      out += " ";
+    } else if (depth > 0) {
+      out += c === "\n" ? c : " ";
+    } else {
+      if (c === '"' || c === "'") quote = c;
+      out += c;
+    }
+  }
+  return out;
+}
+
+/** One JSX opening tag that spreads `{...rest}`, split at the spread. */
+export interface RestSpreadTag {
+  /** The tag's name: `div`, `Comp`, `LabelPrimitive.Root`. */
+  name: string;
+  /** The 1-based line of the spread. */
+  line: number;
+  /** The tag's attributes before the spread, at the tag's own level. */
+  before: string;
+  /** The tag's attributes after the spread, at the tag's own level. */
+  after: string;
+}
+
+/**
+ * Every JSX opening tag in the source that spreads `{...rest}` among its
+ * attributes. An object spread (`{ ...rest, x }`, `const p = {...rest}`) is
+ * not a tag's and is not returned: walking back from it meets an enclosing
+ * `{` or the end of a statement before it meets a `<`.
+ */
+export function restSpreadTags(source: string): RestSpreadTag[] {
+  const code = blankComments(source);
+  const out: RestSpreadTag[] = [];
+  for (const m of code.matchAll(/\{\s*\.\.\.rest\s*\}/g)) {
+    const at = m.index ?? 0;
+    let depth = 0;
+    let start = -1;
+    for (let i = at - 1; i >= 0; i--) {
+      const c = code[i];
+      if (c === "}") depth++;
+      else if (c === "{") {
+        if (depth === 0) break;
+        depth--;
+      } else if (depth === 0 && (c === ";" || c === ">")) break;
+      else if (depth === 0 && c === "<" && /[A-Za-z]/.test(code[i + 1] ?? "")) {
+        start = i;
+        break;
+      }
+    }
+    if (start < 0) continue;
+    const from = at + m[0].length;
+    let end = -1;
+    let quote: string | null = null;
+    depth = 0;
+    for (let i = from; i < code.length; i++) {
+      const c = code[i];
+      if (quote !== null) {
+        if (c === quote) quote = null;
+      } else if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (depth === 0 && (c === '"' || c === "'")) quote = c;
+      else if (depth === 0 && c === ">") {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) continue;
+    const name = /^<([\w.]+)/.exec(code.slice(start))?.[1] ?? "?";
+    out.push({
+      name,
+      line: code.slice(0, at).split("\n").length,
+      before: attributeLevel(code.slice(start + 1 + name.length, at)),
+      after: attributeLevel(code.slice(from, end)),
+    });
+  }
+  return out;
+}
+
+/**
+ * R01 and R02: the root order. A tag that spreads `{...rest}` writes its
+ * `data-slot` before the spread, and no handler before it.
+ */
+export function checkRootOrder(file: string, source: string): Violation[] {
+  if (!isPrimitive(file)) return [];
+  const out: Violation[] = [];
+  for (const tag of restSpreadTags(source)) {
+    if (/(^|\s)data-slot\s*=/.test(tag.after)) {
+      out.push({ rule: "R01", path: file, detail: `<${tag.name}> at line ${tag.line} writes \`data-slot\` after \`{...rest}\`` });
+    }
+    for (const h of tag.before.matchAll(/(?:^|\s)(on[A-Z]\w*)\s*=/g)) {
+      out.push({ rule: "R02", path: file, detail: `<${tag.name}> at line ${tag.line} writes \`${h[1]}\` before \`{...rest}\`` });
+    }
+  }
+  return out;
+}
+
 /** Every per-file rule over one file. */
 export function checkFile(file: string, source: string): Violation[] {
   return [
@@ -445,6 +609,7 @@ export function checkFile(file: string, source: string): Violation[] {
     ...checkStructure(file, source),
     ...checkVocabulary(file, source),
     ...checkCallbacks(file, source),
+    ...checkRootOrder(file, source),
   ];
 }
 

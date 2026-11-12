@@ -58,10 +58,10 @@ export const TugJumpToBottomButton = React.forwardRef<
 >(function TugJumpToBottomButton({ className, "aria-label": ariaLabel = "Scroll to latest", ...rest }, ref) {
   return (
     <TugPushButton
-      {...rest}
       ref={ref}
       data-slot="tug-jump-to-bottom-button"
       className={cn("tug-jump-to-bottom-button", className)}
+      {...rest}
       subtype="icon"
       emphasis="filled"
       role="action"

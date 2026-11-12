@@ -156,10 +156,10 @@ export const TugStepRow = React.forwardRef<HTMLLIElement, TugStepRowProps>(funct
   const { tone, state } = tugStepRowDotVisual(status, busyTone);
   return (
     <li
-      {...rest}
       ref={ref}
       className={cn("tug-step-row", className)}
       data-slot="tug-step-row"
+      {...rest}
       data-step={stepKey}
       data-status={status}
       data-density={density === "compact" ? "compact" : undefined}

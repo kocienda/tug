@@ -1,3 +1,7 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-subtle-rest | --tug7-surface-global-primary-normal-default-rest | informational
+} */
+
 /*
  * TugEmptyLine — a list's empty line. It stands in for the list's first row,
  * at that row's height, in the subtle ink of text at rest on the surface.

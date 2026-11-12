@@ -464,16 +464,16 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
 
     const statusContent = (
       <div
-        {...rest}
         ref={setRef}
         data-slot="tug-pane-banner"
+        className={cn("tug-pane-banner", className)}
+        {...rest}
         data-kind="status"
         data-visible={String(open)}
         data-tone={r.tone}
         data-contained={contained ? "true" : undefined}
         role="status"
         aria-live="polite"
-        className={cn("tug-pane-banner", className)}
       >
         <div className="tug-pane-banner-clip">
           {strip}
@@ -491,16 +491,16 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
       // rendering for the exit animation.
       <FocusScopeRadix.FocusScope trapped={open} loop>
         <div
-          {...rest}
           ref={setRef}
           data-slot="tug-pane-banner"
+          className={cn("tug-pane-banner", className)}
+          {...rest}
           data-kind="error"
           data-visible={String(open)}
           data-tone={r.tone}
           data-contained={contained ? "true" : undefined}
           role="alert"
           aria-live="assertive"
-          className={cn("tug-pane-banner", className)}
         >
           <div className="tug-pane-banner-clip">
             {strip}

@@ -53,7 +53,7 @@ export const TugSheetScaffold = React.forwardRef<HTMLDivElement, TugSheetScaffol
   ref,
 ) {
   return (
-    <div {...rest} ref={ref} className={cn("tug-sheet-scaffold", className)} data-slot="tug-sheet-scaffold">
+    <div ref={ref} className={cn("tug-sheet-scaffold", className)} data-slot="tug-sheet-scaffold" {...rest}>
       {header !== undefined ? (
         <div className="tug-sheet-scaffold-header" data-slot="tug-sheet-scaffold-header">
           {header}

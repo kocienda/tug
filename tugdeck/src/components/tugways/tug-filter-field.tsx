@@ -458,9 +458,10 @@ export const TugFilterField = React.forwardRef<HTMLDivElement, TugFilterFieldPro
 
   return (
     <div
-      {...rest}
       ref={setWrapperRef}
       data-slot="tug-filter-field"
+      className={cn("tug-filter-field", className)}
+      {...rest}
       data-empty={defaultValue === undefined || defaultValue === "" ? "true" : "false"}
       data-fill={fill ? "true" : undefined}
       // Declares the attached-list contract to the document arrow stages, which
@@ -469,7 +470,6 @@ export const TugFilterField = React.forwardRef<HTMLDivElement, TugFilterFieldPro
         ? { [ATTACHED_LIST_ATTRIBUTE]: "" }
         : {})}
       data-testid={dataTestid}
-      className={cn("tug-filter-field", className)}
     >
       <ResponderScope>
         <TugInput

@@ -202,9 +202,12 @@ export const TugFileChooser = React.forwardRef<HTMLDivElement, TugFileChooserPro
 
     return (
       <TugComboBox
-        {...rest}
         ref={forwardedRef}
         data-slot="tug-file-chooser"
+        // The size modifier rides the class list; the square Browse button's
+        // box is restated per size in the CSS.
+        className={cn("tug-file-chooser", `tug-file-chooser-size-${size}`, className)}
+        {...rest}
         value={value}
         senderId={sender}
         seed={seed}
@@ -218,9 +221,6 @@ export const TugFileChooser = React.forwardRef<HTMLDivElement, TugFileChooserPro
         size={size}
         autoFocus={autoFocus}
         disabled={disabled}
-        // The size modifier rides the class list; the square Browse button's
-        // box is restated per size in the CSS.
-        className={cn("tug-file-chooser", `tug-file-chooser-size-${size}`, className)}
         inputClassName="tug-file-chooser-input"
         overlaySlot={overlaySlot}
         portalContainer={portalContainer}

@@ -212,16 +212,16 @@ export const TugBanner = React.forwardRef<HTMLDivElement, TugBannerProps>(
     if (kind === "error") {
       return (
         <div
-          {...rest}
           ref={setRef}
           data-slot="tug-banner"
+          className={cn("tug-banner", className)}
+          {...rest}
           data-kind="error"
           data-visible="true"
           data-tone={tone}
           data-contained={contained ? "true" : undefined}
           role="alert"
           aria-live="assertive"
-          className={cn("tug-banner", className)}
         >
           {/* Strip — full-width, solid, high-urgency */}
           <div className="tug-banner-strip">
@@ -252,15 +252,15 @@ export const TugBanner = React.forwardRef<HTMLDivElement, TugBannerProps>(
           aria-hidden="true"
         />
         <div
-          {...rest}
           ref={setRef}
           data-slot="tug-banner"
+          className={cn("tug-banner", className)}
+          {...rest}
           data-kind="status"
           data-visible={String(open)}
           data-tone={tone}
           role="status"
           aria-live="polite"
-          className={cn("tug-banner", className)}
         >
           {/* Strip — full-width, solid, bold attention strip */}
           <div className="tug-banner-strip">

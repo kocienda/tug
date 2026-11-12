@@ -706,13 +706,13 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
         <AlertDialog.Portal container={overlayRoot}>
           <AlertDialog.Overlay className="tug-alert-overlay" />
           <AlertDialog.Content
-            {...rest}
             ref={(el: HTMLDivElement | null) => {
               (responderRef as (node: HTMLDivElement | null) => void)(el);
               contentElRef.current = el;
             }}
             className={cn("tug-alert-content", className)}
             data-slot="tug-alert"
+            {...rest}
             // The alertdialog semantics AlertDialog used to provide, kept
             // explicit on the plain Dialog primitive ([P13]): the role, and
             // outside interactions never dismiss — the user must respond.

@@ -14,7 +14,10 @@
  *   inject      Generate and insert @tug-pairings comment blocks into CSS files.
  *   verify      Cross-check @tug-pairings blocks against theme-pairings.ts.
  *   lint        Hard-fail on annotation completeness, alias chain depth,
- *               missing @tug-pairings blocks, and unresolved pairings.
+ *               missing @tug-pairings blocks, and unresolved pairings,
+ *               held against `audit-tokens-ratchet.json`: a violation the
+ *               ratchet does not list fails, and so does an entry that no
+ *               longer matches, so the list can only shrink.
  *
  * Usage:
  *   bun run scripts/audit-tokens.ts tokens
@@ -39,26 +42,21 @@ const GENERATED_CSS = path.join(TUGDECK, "styles/themes/ironclad.css");
 const TUGWAYS = path.join(TUGDECK, "src/components/tugways");
 const PAIRING_MAP_PATH = path.join(TUGWAYS, "theme-pairings.ts");
 
-/** Component CSS files in scope for the contrast audit. */
-const COMPONENT_CSS_FILES = [
-  "internal/tug-button.css",
-  "tug-pane.css",
-  "tug-tab-bar.css",
-  "tug-menu.css",
-  "tug-dialog.css",
-  "tug-badge.css",
-  "tug-switch.css",
-  "tug-checkbox.css",
-  "tug-text-editor.css",
-  "tug-input.css",
-  "tug-label.css",
-  "tug-data.css",
-  "tug-code.css",
-  "tug-dock.css",
-  "tug-sheet.css",
-  "cards/gallery-popup-button.css",
-  "cards/gallery-theme-accessibility.css",
-].map((f) => path.join(TUGWAYS, f));
+const RATCHET_PATH = path.join(import.meta.dir, "audit-tokens-ratchet.json");
+
+/**
+ * Every CSS file in the library, sorted, as absolute paths. The audit reads
+ * the whole library: a hand list goes stale the first time a file is added,
+ * and the files outside it were exactly the ones the lint passed unread.
+ */
+export function libraryCssFiles(root: string = TUGWAYS): string[] {
+  return [...new Bun.Glob("**/*.css").scanSync({ cwd: root })]
+    .sort()
+    .map((f) => path.join(root, f));
+}
+
+/** The library's CSS files, in scope for every subcommand. */
+const LIBRARY_CSS_FILES = libraryCssFiles();
 
 // ---------------------------------------------------------------------------
 // Token classification (from the plan)
@@ -439,7 +437,7 @@ function findAllSurfacesForSelector(
 /** Build a global alias map from all component CSS files. */
 function buildGlobalAliases(): AliasMap {
   const aliases: AliasMap = {};
-  for (const file of COMPONENT_CSS_FILES) {
+  for (const file of LIBRARY_CSS_FILES) {
     if (!fs.existsSync(file)) continue;
     const css = fs.readFileSync(file, "utf-8");
     Object.assign(aliases, extractAliases(css));
@@ -447,12 +445,31 @@ function buildGlobalAliases(): AliasMap {
   return aliases;
 }
 
+/** The global alias map, built once per process: the library is read whole. */
+let globalAliasCache: AliasMap | null = null;
+function globalAliasesOnce(): AliasMap {
+  return (globalAliasCache ??= buildGlobalAliases());
+}
+
+/**
+ * Whether a file's rules set colour: a foreground or background property
+ * given a token. A layout-only file has nothing to pair.
+ */
+function setsColour(rules: CssRule[]): boolean {
+  return rules.some((rule) =>
+    [...rule.properties].some(
+      ([prop, val]) =>
+        (ELEMENT_PROPERTIES.has(prop) || SURFACE_PROPERTIES.has(prop)) && extractVarRef(val) !== null,
+    ),
+  );
+}
+
 function cmdPairings(): void {
   const allPairings: CssPairing[] = [];
   // Build a global alias map from ALL files first (handles cross-file alias chains)
   const globalAliases = buildGlobalAliases();
 
-  for (const file of COMPONENT_CSS_FILES) {
+  for (const file of LIBRARY_CSS_FILES) {
     if (!fs.existsSync(file)) {
       console.warn(`⚠ File not found: ${file}`);
       continue;
@@ -1034,7 +1051,7 @@ function cmdInject(apply: boolean): void {
   const globalAliases = buildGlobalAliases();
   const fileData: Map<string, CssPairing[]> = new Map();
 
-  for (const file of COMPONENT_CSS_FILES) {
+  for (const file of LIBRARY_CSS_FILES) {
     if (!fs.existsSync(file)) continue;
     const css = fs.readFileSync(file, "utf-8");
     const basename = path.relative(TUGWAYS, file);
@@ -1225,7 +1242,7 @@ function cmdVerify(): void {
   // Parse @tug-pairings blocks from all CSS files
   const cssPairings: { element: string; surface: string; file: string }[] = [];
 
-  for (const file of COMPONENT_CSS_FILES) {
+  for (const file of LIBRARY_CSS_FILES) {
     if (!fs.existsSync(file)) continue;
     const css = fs.readFileSync(file, "utf-8");
     const basename = path.relative(TUGWAYS, file);
@@ -1293,7 +1310,7 @@ function cmdVerify(): void {
   // Check all files have blocks
   let filesWithBlock = 0;
   let filesWithout = 0;
-  for (const file of COMPONENT_CSS_FILES) {
+  for (const file of LIBRARY_CSS_FILES) {
     if (!fs.existsSync(file)) continue;
     const css = fs.readFileSync(file, "utf-8");
     if (css.includes("@tug-pairings")) {
@@ -1303,7 +1320,7 @@ function cmdVerify(): void {
       console.log(`  Missing @tug-pairings: ${path.relative(TUGWAYS, file)}`);
     }
   }
-  console.log(`\nFiles with @tug-pairings: ${filesWithBlock}/${COMPONENT_CSS_FILES.length}`);
+  console.log(`\nFiles with @tug-pairings: ${filesWithBlock}/${LIBRARY_CSS_FILES.length}`);
 
   // Exit code
   if (gaps.length > 0 || filesWithout > 0) {
@@ -1317,10 +1334,19 @@ function cmdVerify(): void {
 // ---------------------------------------------------------------------------
 
 /** Violation record for a single lint failure. */
-interface LintViolation {
+export interface LintViolation {
   type: "MISSING_ANNOTATION" | "MULTI_HOP_ALIAS" | "MISSING_PAIRINGS_BLOCK" | "UNRESOLVED_PAIRING";
+  /** The file, relative to `components/tugways/`. */
+  file: string;
   message: string;
 }
+
+/**
+ * The lint's ratchet: per violation type, per file, how many violations of
+ * that type the file is allowed. It lists the library's older violations so
+ * the lint can read the whole library without fixing all of them at once.
+ */
+export type LintRatchet = Partial<Record<LintViolation["type"], Record<string, number>>>;
 
 /**
  * Lint check 1: annotation completeness.
@@ -1364,6 +1390,7 @@ function checkAnnotationCompleteness(
       if (!annotationMap.has(rule.selector)) {
         violations.push({
           type: "MISSING_ANNOTATION",
+          file: basename,
           message: `MISSING_ANNOTATION: ${basename}:${rule.selector} sets ${prop} without background-color and has no @tug-renders-on`,
         });
         // Only report once per selector (not once per property)
@@ -1395,7 +1422,7 @@ function checkAliasChainDepth(
     // Target must be a base tug token (1-hop rule): --tug7-, --tugc-, or --tug- (scale)
     if (!isBaseTugToken(target)) {
       // Count hops: follow the chain to find total depth
-      const globalAliases = buildGlobalAliases();
+      const globalAliases = globalAliasesOnce();
       let hops = 0;
       let current = alias;
       const visited = new Set<string>();
@@ -1408,6 +1435,7 @@ function checkAliasChainDepth(
       }
       violations.push({
         type: "MULTI_HOP_ALIAS",
+        file: basename,
         message: `MULTI_HOP_ALIAS: ${basename}: ${alias} resolves through ${hops} hops (max 1)`,
       });
     }
@@ -1419,17 +1447,21 @@ function checkAliasChainDepth(
 /**
  * Lint check 3: @tug-pairings block presence.
  *
- * Every CSS file in COMPONENT_CSS_FILES must contain a @tug-pairings comment block.
+ * Every CSS file that sets colour must contain a @tug-pairings comment block.
+ * A file sets colour when one of its rules gives a foreground or background
+ * property a token: a layout-only file has nothing to pair.
  * Violation: MISSING_PAIRINGS_BLOCK: {file}
  */
 function checkPairingsBlockPresence(
   file: string,
   css: string,
+  rules: CssRule[],
 ): LintViolation[] {
   const basename = path.relative(TUGWAYS, file);
-  if (!css.includes("@tug-pairings")) {
+  if (setsColour(rules) && !css.includes("@tug-pairings")) {
     return [{
       type: "MISSING_PAIRINGS_BLOCK",
+      file: basename,
       message: `MISSING_PAIRINGS_BLOCK: ${basename}`,
     }];
   }
@@ -1462,6 +1494,7 @@ function checkZeroUnresolved(
       if (surfaces.length === 0) {
         violations.push({
           type: "UNRESOLVED_PAIRING",
+          file: basename,
           message: `UNRESOLVED_PAIRING: ${basename}:${rule.selector} — ${elementToken} has no deterministic surface`,
         });
         // Only report once per selector
@@ -1480,47 +1513,112 @@ function checkZeroUnresolved(
  * Exit code: 0 if zero violations; 1 if any violation found.
  * All violations are printed before exit. [D03] Lint hard gate,.
  */
-function cmdLint(): void {
+/**
+ * Every lint violation in one CSS file. `file` is an absolute path under
+ * `components/tugways/`; the violations name it relative to that directory.
+ */
+export function lintCss(file: string, css: string): LintViolation[] {
+  const rules = parseRules(css);
+  const annotationMap = parseRendersOnAnnotations(css);
+  return [
+    ...checkPairingsBlockPresence(file, css, rules),
+    ...checkAnnotationCompleteness(file, css, rules, annotationMap),
+    ...checkAliasChainDepth(file, css),
+    ...checkZeroUnresolved(file, css, rules, annotationMap),
+  ];
+}
+
+/** Count violations per type, per file — the shape the ratchet records. */
+export function countViolations(violations: LintViolation[]): LintRatchet {
+  const counts: LintRatchet = {};
+  for (const v of violations) {
+    const byFile = (counts[v.type] ??= {});
+    byFile[v.file] = (byFile[v.file] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Hold violations against the ratchet, both ways, as the conformance
+ * allowlist is held. A file with more violations of a type than its entry
+ * allows fails, naming every one of them, since a count cannot say which is
+ * new; a file with fewer fails too, because its entry is stale and must come
+ * down to what it now has (or out, at zero). `ran` names the files this run
+ * read: an entry for a file it did not read is not judged. Returns one line
+ * per problem; empty means the library and the ratchet agree.
+ */
+export function ratchetLint(
+  violations: LintViolation[],
+  ratchet: LintRatchet,
+  ran?: ReadonlySet<string>,
+): string[] {
+  const problems: string[] = [];
+  const counts = countViolations(violations);
+  const types = new Set([...Object.keys(counts), ...Object.keys(ratchet)]) as Set<LintViolation["type"]>;
+  for (const type of [...types].sort()) {
+    const have = counts[type] ?? {};
+    const allowed = ratchet[type] ?? {};
+    const files = new Set([...Object.keys(have), ...Object.keys(allowed)]);
+    for (const file of [...files].sort()) {
+      if (ran !== undefined && !ran.has(file)) continue;
+      const n = have[file] ?? 0;
+      const limit = allowed[file] ?? 0;
+      if (n > limit) {
+        const listed = limit === 0 ? "is not on the ratchet" : `is allowed ${limit}`;
+        problems.push(`${type} ${file}: ${n} violation(s), and the file ${listed}:`);
+        for (const v of violations) {
+          if (v.type === type && v.file === file) problems.push(`    ${v.message}`);
+        }
+      } else if (n < limit) {
+        problems.push(
+          n === 0
+            ? `${type} ${file}: on the ratchet but no longer violates; remove the entry`
+            : `${type} ${file}: the ratchet allows ${limit} but the file has ${n}; lower the entry to ${n}`,
+        );
+      }
+    }
+  }
+  return problems;
+}
+
+/** Read the ratchet file. A missing file is an empty ratchet. */
+function readRatchet(): LintRatchet {
+  if (!fs.existsSync(RATCHET_PATH)) return {};
+  const doc = JSON.parse(fs.readFileSync(RATCHET_PATH, "utf-8")) as { violations?: LintRatchet };
+  return doc.violations ?? {};
+}
+
+function cmdLint(only: string[] = []): void {
   console.log(`\n=== Lint Token Annotations ===\n`);
 
   const allViolations: LintViolation[] = [];
 
-  for (const file of COMPONENT_CSS_FILES) {
+  // Named files (paths relative to `components/tugways/`) narrow the run to
+  // them, and the ratchet is held over those files alone; with none, the run
+  // reads the whole library.
+  const files = only.length > 0 ? only.map((f) => path.join(TUGWAYS, f)) : LIBRARY_CSS_FILES;
+  for (const file of files) {
     if (!fs.existsSync(file)) {
       console.warn(`⚠ File not found: ${path.relative(TUGWAYS, file)}`);
       continue;
     }
-    const css = fs.readFileSync(file, "utf-8");
-    const rules = parseRules(css);
-    const annotationMap = parseRendersOnAnnotations(css);
-
-    allViolations.push(...checkPairingsBlockPresence(file, css));
-    allViolations.push(...checkAnnotationCompleteness(file, css, rules, annotationMap));
-    allViolations.push(...checkAliasChainDepth(file, css));
-    allViolations.push(...checkZeroUnresolved(file, css, rules, annotationMap));
+    allViolations.push(...lintCss(file, fs.readFileSync(file, "utf-8")));
   }
 
-  if (allViolations.length === 0) {
-    console.log(`✓ Zero violations. All annotation, alias, and pairing checks pass.`);
+  const ran = only.length > 0 ? new Set(only) : undefined;
+  const problems = ratchetLint(allViolations, readRatchet(), ran);
+  const listed = allViolations.length;
+  if (problems.length === 0) {
+    console.log(
+      listed === 0
+        ? `✓ Zero violations. All annotation, alias, and pairing checks pass.`
+        : `✓ ${files.length} file(s): every violation is on the ratchet (${listed} listed), and no entry is stale.`,
+    );
     return;
   }
 
-  // Group violations by type for readability
-  const byType = new Map<string, LintViolation[]>();
-  for (const v of allViolations) {
-    const list = byType.get(v.type) ?? [];
-    list.push(v);
-    byType.set(v.type, list);
-  }
-
-  for (const [type, violations] of byType) {
-    console.log(`\n--- ${type} (${violations.length}) ---`);
-    for (const v of violations) {
-      console.log(`  ${v.message}`);
-    }
-  }
-
-  console.log(`\nTotal violations: ${allViolations.length}`);
+  for (const line of problems) console.log(`  ${line}`);
+  console.log(`\nThe library and ${path.relative(TUGDECK, RATCHET_PATH)} disagree. Fix the new violations; lower or remove the stale entries.`);
   process.exit(1);
 }
 
@@ -1721,7 +1819,7 @@ function extractFlagValue(rawArgs: string[], flag: string): string | undefined {
   return value;
 }
 
-switch (command) {
+if (import.meta.main) switch (command) {
   case "tokens":
     cmdTokens();
     break;
@@ -1749,7 +1847,7 @@ switch (command) {
     cmdVerify();
     break;
   case "lint":
-    cmdLint();
+    cmdLint(args.slice(1).filter((a) => !a.startsWith("--")));
     break;
   default:
     console.log(`Usage: bun run audit:tokens <command> [flags]
@@ -1766,8 +1864,9 @@ Commands:
     --json                              Output flat JSON object suitable for --map flag (default: human-readable report)
   inject [--apply]                    Generate @tug-pairings comment blocks (dry run by default)
   verify                              Cross-check @tug-pairings blocks against pairing map
-  lint                                Hard-fail on missing annotations, multi-hop aliases, missing
-                                      @tug-pairings blocks, and unresolved pairings
+  lint [files…]                       Hard-fail on missing annotations, multi-hop aliases, missing
+                                      @tug-pairings blocks, and unresolved pairings; named files
+                                      (relative to components/tugways/) narrow the run
 
 Examples:
   bun run audit:tokens rename-map --json > token-rename-map.json

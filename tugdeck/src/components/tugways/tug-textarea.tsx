@@ -319,8 +319,8 @@ const TugTextareaBody: React.FC<TugTextareaBodyProps> = ({
       maxLength={maxLength}
       value={value}
       defaultValue={defaultValue}
-      onChange={handleChange}
       {...rest}
+      onChange={handleChange}
     />
   );
 
@@ -423,8 +423,8 @@ export const TugTextarea = React.forwardRef<
         borderless={borderless}
         disabled={disabled}
         hostRef={setRefs}
-        onContextMenu={handleContextMenu}
         {...rest}
+        onContextMenu={handleContextMenu}
       />
       {contextMenu}
     </>

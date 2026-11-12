@@ -1,3 +1,7 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-default-rest | --tug7-surface-card-primary-normal-block-rest | content
+} */
+
 /* ----------------------------------------------------------------------------
    receipt-header.css — the identity line of a landing receipt
    ----------------------------------------------------------------------------
@@ -31,6 +35,7 @@
 /* The receipt's sentence is a `<code>`, which `.tool-call-header-detail code`
    hands the column's own family; it is the receipt's sentence rather than a
    code run, so it takes the line's face instead. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-block-rest */
 .receipt-header .receipt-header-text {
   color: var(--tugx-block-text-color);
   font-family: inherit;

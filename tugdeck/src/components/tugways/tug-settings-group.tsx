@@ -5,9 +5,10 @@
  * The Settings card's sections and the cards' own option sheets lay their
  * controls out in these: a bordered {@link TugBox} filling its column, the
  * legend taken out of flow and set on the top border, a generous inset that
- * clears the overhanging legend, and a left-packed column of controls. The
- * shape is fixed — every caller drew the same one — so the props are the
- * box's own, less the two the shape decides (`variant`, `labelPosition`).
+ * clears the overhanging legend, and a left-packed column of controls. That
+ * shape is the box's own `group` variant, which this selects; the group adds
+ * nothing but the rule that it fills its column. The props are the box's
+ * own, less the two the shape decides (`variant`, `labelPosition`).
  * A caller that lays its controls out differently styles
  * `.its-class > .tug-box-body` on top, the way a box's body is always styled.
  *
@@ -43,8 +44,7 @@ export const TugSettingsGroup = React.forwardRef<HTMLFieldSetElement, TugSetting
     return (
       <TugBox
         ref={ref}
-        variant="bordered"
-        labelPosition="legend"
+        variant="group"
         data-slot={dataSlot}
         className={cn("tug-settings-group", className)}
         {...rest}

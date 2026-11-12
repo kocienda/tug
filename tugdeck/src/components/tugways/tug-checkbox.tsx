@@ -322,7 +322,6 @@ export const TugCheckbox = React.forwardRef<HTMLButtonElement, TugCheckboxProps>
         ref={setRefs}
         data-slot="tug-checkbox"
         checked={effectiveChecked}
-        onCheckedChange={handleCheckedChange}
         disabled={effectiveDisabled}
         name={name}
         value={value}
@@ -330,9 +329,10 @@ export const TugCheckbox = React.forwardRef<HTMLButtonElement, TugCheckboxProps>
         aria-label={!label ? ariaLabel : undefined}
         className={cn("tug-checkbox", `tug-checkbox-size-${size}`, className)}
         style={{ ...roleStyle, ...style }}
+        {...rest}
         data-role={role}
         data-tug-focus="refuse"
-        {...rest}
+        onCheckedChange={handleCheckedChange}
       >
         <CheckboxPrimitive.Indicator className="tug-checkbox-indicator">
           <span className="tug-checkbox-icon-check" aria-hidden="true">

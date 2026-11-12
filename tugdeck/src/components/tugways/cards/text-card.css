@@ -55,6 +55,7 @@
    rule hands the strip the whole card, which collapses the editor's viewport to
    zero — and CM6 renders only what is in its viewport, so the document would go
    blank. This strip is sized by its own content instead. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 [data-slot="tug-attachment-preview"][data-deletable].text-card-asset-strip {
   display: flex;
   flex: 0 0 auto;
@@ -143,11 +144,10 @@
 }
 
 /* The shared controls' legends mask the group border with a swatch of their
- * backdrop, so the swatch has to name the surface the controls actually sit
- * on — here, the sheet's. */
-/* @tug-renders-on: --tugx-sheet-bg */
-.text-card-options .text-card-controls-group > .tug-box-legend {
-  background: var(--tugx-sheet-bg);
+ * backdrop, so the options tell the boxes inside them what they sit on —
+ * here, the sheet's surface (`tug-box.css`, `--tugx-box-legend-bg`). */
+.text-card-options {
+  --tugx-box-legend-bg: var(--tugx-sheet-bg);
 }
 
 /* ---- Open (empty) surface ---- */

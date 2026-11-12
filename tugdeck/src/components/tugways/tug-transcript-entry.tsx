@@ -753,14 +753,14 @@ export const TugTranscriptEntry = React.forwardRef<HTMLDivElement, TugTranscript
 
   return (
     <div
-      {...rest}
       ref={setRootRef}
       data-slot="tug-transcript-entry"
+      className={cn("tug-transcript-entry", className)}
+      {...rest}
       data-participant={participant}
       data-density={density === "compact" ? "compact" : undefined}
       role="article"
       aria-labelledby={labelledById}
-      className={cn("tug-transcript-entry", className)}
     >
       {/* ONE sticky element per entry: icon + attribution header pin as
           a single block. The child class names (and their geometry) are

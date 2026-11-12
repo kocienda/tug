@@ -1,3 +1,7 @@
+/* @tug-pairings {
+  --tug7-element-tone-text-normal-danger-rest | --tug7-surface-global-primary-normal-content-rest | content
+} */
+
 /* RepoNotice — the shades' no-git and non-repo block, both kinds on one
    plinth. It mirrors ConfigureTug's step row ([D106]): a rounded block on the
    transcript block surface, the title + detail stacked on the left, the
@@ -45,6 +49,8 @@
   flex: 0 0 auto;
 }
 
+/* The failed git init's error, beneath the block on the shade's own surface. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .tug-repo-notice-error {
   padding: 0 var(--tug-space-xl);
   font-size: 0.75rem;

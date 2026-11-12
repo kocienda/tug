@@ -30,8 +30,8 @@
  * the shape [L17] bans — and it is fine here for reasons of **scope, not
  * sanction**. [L17] governs theme alias tokens resolving to a `--tug7-*` /
  * `--tugc-*` / scale target, and its enforcer (`checkAliasChainDepth` in
- * `tugdeck/scripts/audit-tokens.ts`) reads only `body {}` blocks in
- * `COMPONENT_CSS_FILES`. A component-scoped geometry input is outside both
+ * `tugdeck/scripts/audit-tokens.ts`) reads only `body {}` blocks in the
+ * library's CSS under `src/components/tugways/`. A component-scoped geometry input is outside both
  * the law's subject and the guard's reach. Stated here so the next reader
  * does not have to rediscover it.
  *

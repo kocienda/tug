@@ -208,10 +208,10 @@ export const TugAtomRef = React.forwardRef<HTMLSpanElement, TugAtomRefProps>(fun
 
   const skin = (
     <span
-      {...rest}
       ref={ref}
       className={cn("tug-atom-ref", stamps && ANNOTATION_CLASS, className)}
       data-slot={dataSlot}
+      {...rest}
       {...marks}
     >
       <span className="tug-atom-ref-icon" aria-hidden="true">

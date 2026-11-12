@@ -633,9 +633,10 @@ export const TugConfirmPopover = React.forwardRef<
         onOpenAutoFocus={handleOpenAutoFocus}
       >
         <div
-          {...rest}
           data-slot="tug-confirm-popover"
           className={cn("tug-confirm-popover", className)}
+          ref={responderRef as (el: HTMLDivElement | null) => void}
+          {...rest}
           // Refuse first-responder promotion on the surface itself, not just its
           // buttons. A pointerdown in the popover's empty space (or on the message
           // label) would otherwise run a pointer-driven promotion of this responder,
@@ -655,7 +656,6 @@ export const TugConfirmPopover = React.forwardRef<
           // row, a whole card — where "as wide as what you clicked" is not a
           // size at all, so the box sizes to the question instead.
           data-anchored={isControlled ? "external" : "trigger"}
-          ref={responderRef as (el: HTMLDivElement | null) => void}
         >
           {/* Registers the button-row arrow order against the popover's trap mode.
               Rendered here (inside TugPopover's FocusModeScope) so the context-form

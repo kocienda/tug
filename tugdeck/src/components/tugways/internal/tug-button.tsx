@@ -1286,11 +1286,11 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
       data-tug-activity={activity}
       aria-busy={loading || activity !== undefined ? "true" : undefined}
       aria-disabled={ariaDisabled}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={buttonClassName}
       data-rounded={resolvedRounded}
       {...rest}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
     >
       <span className="tug-button-rest-content">{renderContent()}</span>
       {confirmation !== undefined && (

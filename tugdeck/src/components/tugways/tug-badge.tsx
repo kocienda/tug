@@ -27,6 +27,7 @@ import React, { useRef } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCopyableText } from "./use-copyable-text";
+import { composeEventHandlers } from "./internal/compose-event-handlers";
 import { TugStableOverlay } from "./internal/tug-stable-overlay";
 
 /** How long the check flash stays up after a click copy, in ms. */
@@ -202,6 +203,7 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
     numeric = false,
     className,
     style,
+    onContextMenu: callerOnContextMenu,
     ...rest
   }: TugBadgeProps, ref) {
     const emphasisRoleClass = `tug-badge-${emphasis}-${role}`;
@@ -337,8 +339,8 @@ export const TugBadge = React.forwardRef<HTMLSpanElement, TugBadgeProps>(
           )}
           aria-disabled={disabled || undefined}
           style={mergedStyle}
-          onContextMenu={copyable.handleContextMenu}
           {...rest}
+          onContextMenu={composeEventHandlers(callerOnContextMenu, copyable.handleContextMenu)}
         >
           {inner}
         </span>
