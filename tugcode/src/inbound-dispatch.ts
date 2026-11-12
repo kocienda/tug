@@ -99,15 +99,6 @@ export const INBOUND_HANDLERS: InboundHandlers = {
       writeLine,
     ),
 
-  // Add a working directory ([#step-13c]) — same respawn-to-apply shape as
-  // effort, fire-and-forget for the same reason.
-  add_directory: (msg, { sessionManager, writeLine }) =>
-    reportAsync(
-      sessionManager?.handleAddDirectory(msg.directory),
-      "Add directory failed",
-      writeLine,
-    ),
-
   stop_task: (msg, { sessionManager }) =>
     sessionManager?.handleStopTask(msg.task_id),
 

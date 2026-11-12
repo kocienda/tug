@@ -190,10 +190,6 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Export the session transcript to a file (Markdown or JSON Lines)",
   },
   {
-    name: "add-dir",
-    description: "Add a working directory to this session",
-  },
-  {
     name: "cd",
     description: "Move this card into another directory, carrying the conversation",
     takesArgs: true,

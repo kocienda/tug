@@ -226,11 +226,6 @@ Type `/rewind`, or choose Session > Rewind. The sheet lists your messages, and y
 
 Type `/cd <path>`, or `/change-directory <path>`, or `/cd` with a path atom in it. A bare `/cd` opens a folder picker. The card moves and the conversation comes with it, carried into a new session in that directory. It is refused while a turn is running, on a card bound to an arc, and for the directory the card is already in. There is no menu item or chord for it.
 
-### Give this session another directory
-<!-- source: tugdeck/src/lib/slash-commands.ts (/add-dir); tugdeck/src/components/tugways/cards/session-card.tsx (add-dir surface); tugapp/Sources/MenuBarBuilder.swift (session.addDir) -->
-
-Type `/add-dir`, or choose Session > Add Working Directory, and pick the folder. The session stays where it is and can now reach that folder as well. `/add-dir` takes no path; the picker is the only way to name the folder.
-
 ### Start a fresh session
 <!-- source: tugdeck/src/lib/slash-commands.ts (/clear, aliases /new and /reset); tugdeck/src/components/tugways/cards/session-card.tsx (clear surface); tugapp/Sources/MenuBarBuilder.swift (session.new, file.newSessionCard) -->
 

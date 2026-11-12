@@ -32,7 +32,6 @@ describe("an offWire session", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn, true);
     store.send("hello", []);
-    store.addDirectory("/tmp/elsewhere");
     store.stopJob("t1");
     expect(codeInputs(conn)).toEqual([]);
 

@@ -161,12 +161,6 @@ export interface ClaudeSpawnConfig {
    */
   effort?: string | null;
   /**
-   * Extra working directories granted as claude read roots ([#step-13c]),
-   * each emitted as an additional `--add-dir`. Accumulated by `/add-dir` and
-   * re-applied on every (re)spawn, like {@link effort}.
-   */
-  additionalDirectories?: readonly string[];
-  /**
    * The plugin's prompt texts, appended to the system prompt after the nudge
    * in the order {@link PLUGIN_PROMPT_FILES} names them. Read from the plugin
    * at every (re)spawn; an absent file contributes nothing, and with none the
@@ -347,12 +341,6 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     "--add-dir", tugDataRoot(),
     "--settings", CLAUDE_SPAWN_SETTINGS,
   ];
-
-  // Extra working directories from `/add-dir` ([#step-13c]) — one `--add-dir`
-  // each, applied on every (re)spawn so they survive resume / fork / continue.
-  for (const dir of config.additionalDirectories ?? []) {
-    args.push("--add-dir", dir);
-  }
 
   if (config.model) {
     args.push("--model", config.model);

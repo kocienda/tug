@@ -155,16 +155,6 @@ export interface EffortChange {
 }
 
 /**
- * Add a working directory ([#step-13c]). Like `effort_change`, claude exposes
- * no live add-directory verb over the bridge, so tugcode respawns claude with
- * the dir in `--add-dir` (+ `--resume`).
- */
-export interface AddDirectory {
-  type: "add_directory";
-  directory: string;
-}
-
-/**
  * What a fresh session is *for*, when the server-driven arc starts it rather
  * than the user.
  *
@@ -471,7 +461,6 @@ export type InboundMessage =
   | PermissionModeMessage
   | ModelChange
   | EffortChange
-  | AddDirectory
   | SessionCommand
   | StopTask
   | StopAllWork
@@ -500,7 +489,6 @@ export const INBOUND_VERBS = [
   "permission_mode",
   "model_change",
   "effort_change",
-  "add_directory",
   "session_command",
   "stop_task",
   "stop_all_work",

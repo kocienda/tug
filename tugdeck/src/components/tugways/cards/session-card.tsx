@@ -4118,24 +4118,6 @@ export function SessionCardBody({
         // "canceled" → no bulletin.
       });
     },
-    // Add a working directory ([#step-13c]). The native directory picker
-    // supplies the path; `addDirectory` sends an `add_directory` CODE_INPUT
-    // frame and tugcode respawns claude with the dir in `--add-dir` (+
-    // `--resume`) — claude has no live add-directory verb over the bridge, so
-    // it applies on respawn like an effort change. No-op on cancel, or when the
-    // picker is unavailable.
-    "add-dir": () => {
-      const notify = paneBulletinRef.current;
-      if (!isPathPickerAvailable()) {
-        notify?.caution("Directory picker needs the Tug app");
-        return;
-      }
-      void pickPath("directory").then((dir) => {
-        if (dir === null) return; // canceled
-        codeSessionStore.addDirectory(dir);
-        notify?.success("Working directory added");
-      });
-    },
     // `/cd` and `/change-directory` — move this card into another directory,
     // carrying the conversation. Refused mid-turn, on an arc-bound card, and
     // for the directory the card is already in; the target is the draft's

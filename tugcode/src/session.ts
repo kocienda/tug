@@ -482,8 +482,8 @@ export class SessionManager {
    *
    * Unlike model *setting*, which is a live `set_model` control request to the
    * running process, model *survival* is tugcode's job: every respawn tugcode
-   * performs for its own reasons — an `--effort` change, an `--add-dir`, a
-   * fork, a continue — starts a process that knows nothing of the control
+   * performs for its own reasons — an `--effort` change, a fork, a continue
+   * — starts a process that knows nothing of the control
    * requests the old one received. Without this record those respawns silently
    * drop the user's model back to the account default. Recorded by
    * {@link handleModelChange} and re-applied by {@link liveSpawnConfig}.
@@ -495,8 +495,8 @@ export class SessionManager {
    *
    * Recorded here beside {@link currentModel} rather than in
    * {@link liveSpawnConfig}, which carries spawn *flags* and not environment:
-   * the variable must survive tugcode's own respawns (an `--effort` change, an
-   * `/add-dir`) exactly as the model does, and {@link spawnClaude} reads it
+   * the variable must survive tugcode's own respawns (an `--effort` change)
+   * exactly as the model does, and {@link spawnClaude} reads it
    * into the child's environment on every one.
    *
    * Per-arc, not per-card: a fresh session started with no stage clears it, so
@@ -510,13 +510,6 @@ export class SessionManager {
    * {@link currentArc} is; a rotation naming none clears it.
    */
   private currentAutocompactPct: number | null = null;
-  /**
-   * Working directories added via `/add-dir` ([#step-13c]), in add order. Like
-   * {@link currentEffort}, tugcode owns the `--add-dir` flags and re-applies
-   * these on every (re)spawn (claude has no live add-directory control verb
-   * over the bridge). {@link handleAddDirectory} appends + respawns to apply.
-   */
-  private additionalDirectories: string[] = [];
   /**
    * Optional `/context`-style breakdown emitter. Injected by main.ts
    * after reading the user's Claude Code settings; null in tests and
@@ -912,7 +905,7 @@ export class SessionManager {
   /**
    * The spawn fields that describe the LIVE session's settings rather than
    * which conversation to open — plugin dir, permission mode, reasoning
-   * effort, model, and the `/add-dir` roots.
+   * effort and model.
    *
    * Every `buildClaudeArgs` caller needs all of them, and each caller differs
    * only in its session flags (`--resume` / `--session-id` / `--continue` /
@@ -927,7 +920,6 @@ export class SessionManager {
     | "permissionMode"
     | "effort"
     | "model"
-    | "additionalDirectories"
     | "pluginPrompts"
   > {
     return {
@@ -935,7 +927,6 @@ export class SessionManager {
       permissionMode: this.permissionManager.getMode(),
       effort: this.currentEffort,
       model: this.currentModel,
-      additionalDirectories: this.additionalDirectories,
       // Read per spawn rather than per session, so an edit to the shipped
       // prompt file takes effect on the next respawn.
       pluginPrompts: readPluginPrompts(this.getPluginDir()),
@@ -4162,7 +4153,7 @@ export class SessionManager {
    */
   private async respawnIntoRewindFork(newId: string): Promise<void> {
     this.resumeSessionId = newId;
-    // The fork's JSONL was just written, so a later effort/add-dir respawn
+    // The fork's JSONL was just written, so a later effort respawn
     // may legitimately `--resume` it. `claudeReceivedInput` is reset because
     // it is a fact about the *process*, and this is a different one.
     this.sessionMode = "resume";
@@ -4274,7 +4265,7 @@ export class SessionManager {
   }
 
   /**
-   * Spawn mode for a live setting change (effort, add-dir) that must respawn
+   * Spawn mode for a live setting change (effort) that must respawn
    * the current session in place: `--resume` when claude has a conversation on
    * disk to load, `--session-id` (re-create the id) when it does not.
    *
@@ -4306,34 +4297,6 @@ export class SessionManager {
    */
   private liveRespawnId(mode: "resume" | "session-id"): string {
     return mode === "resume" ? this.resolveClaudeId() : this.sessionId;
-  }
-
-  /**
-   * Add a working directory to the session ([#step-13c]). Records the dir
-   * (deduped) so every (re)spawn grants it via `--add-dir`, then respawns the
-   * session in place to apply it now ({@link liveRespawnMode} picks `--resume`
-   * vs `--session-id`) — the same shape as {@link handleEffortChange}, because
-   * claude exposes no live add-directory control verb over the bridge. A blank
-   * or already-present dir is a no-op (no needless respawn). Before the first
-   * spawn (no `sessionId` yet) we just record it; the initial spawn picks it up
-   * via `buildClaudeArgs`.
-   */
-  async handleAddDirectory(directory: string): Promise<void> {
-    return this.respawn(() => this.addDirectory(directory));
-  }
-
-  private async addDirectory(directory: string): Promise<void> {
-    const dir = directory.trim();
-    if (dir === "" || this.additionalDirectories.includes(dir)) return;
-    console.log(`Adding working directory: ${dir}`);
-    this.additionalDirectories.push(dir);
-
-    if (this.sessionId === null || this.sessionId === "") return;
-
-    await this.killAndCleanup();
-    const mode = this.liveRespawnMode();
-    this.claudeProcess = this.spawnClaude(this.liveRespawnId(mode), mode);
-    this.startStdoutDrain(this.claudeProcess);
   }
 
   /**

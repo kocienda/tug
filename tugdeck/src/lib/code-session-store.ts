@@ -1413,27 +1413,10 @@ export class CodeSessionStore extends Subscribable {
   }
 
   /**
-   * Add a working directory to the session ([#step-13c]). Emits an
-   * `add_directory` CODE_INPUT frame and changes no transcript state — tugcode
-   * applies it by respawning claude with the dir in `--add-dir` + `--resume`
-   * (claude exposes no live add-directory control verb over the bridge), the
-   * same respawn-to-apply shape as {@link setEffort}. Sent directly rather than
-   * through the reducer: there is no transcript/optimistic state to track, so a
-   * reducer event would be ceremony. The `/add-dir` surface is the only caller.
-   */
-  addDirectory(directory: string): void {
-    if (this._disposed) return;
-    this.write(
-      FeedId.CODE_INPUT,
-      encodeCodeInputPayload({ type: "add_directory", directory }, this.tugSessionId),
-    );
-  }
-
-  /**
    * Stop a running background job. Emits a `stop_task` CODE_INPUT frame
    * (tugcode forwards it to claude as a `stop_task` control request). Sent
-   * directly rather than through the reducer — the {@link addDirectory}
-   * precedent: no optimistic ledger flip happens here. The wire confirms the
+   * directly rather than through the reducer: no optimistic ledger flip
+   * happens here. The wire confirms the
    * stop with `task_updated{status:"killed"}` + a `stopped` task
    * notification (pinned by the v2.1.173-jobs-spike capture), and the
    * ledger row flips when those land — the row stays truthful rather than

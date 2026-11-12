@@ -576,7 +576,6 @@ struct MenuBarBuilder {
         // The tool-permission RULES editor — a different surface from the AI
         // mixer, so it keeps its own row.
         sessionMenu.addItem(sessionCommandItem("Permission Rules…", "permissions", "session.permissionRules"))
-        sessionMenu.addItem(sessionCommandItem("Add Working Directory…", "add-dir", "session.addDir"))
         sessionMenu.addItem(NSMenuItem.separator())
         sessionMenu.addItem(sessionCommandItem("Rewind…", "rewind", "session.rewind"))
         sessionMenu.addItem(sessionCommandItem("Compact Conversation", "compact", "session.compact"))

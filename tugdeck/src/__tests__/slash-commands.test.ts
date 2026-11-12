@@ -313,7 +313,7 @@ describe("the /dataviz redirect", () => {
 describe("slashCommandName", () => {
   test("extracts the name from a command line, args and whitespace tolerated", () => {
     expect(slashCommandName("/vim")).toBe("vim");
-    expect(slashCommandName("  /add-dir /tmp/foo  ")).toBe("add-dir");
+    expect(slashCommandName("  /cd /tmp/foo  ")).toBe("cd");
     expect(slashCommandName("/btw some text")).toBe("btw");
   });
 

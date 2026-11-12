@@ -15,7 +15,6 @@ import type {
   PermissionModeMessage,
   ModelChange,
   EffortChange,
-  AddDirectory,
   SessionCommand,
   SessionStageSpec,
   StopTask,
@@ -41,7 +40,6 @@ export type {
   PermissionModeMessage,
   ModelChange,
   EffortChange,
-  AddDirectory,
   SessionCommand,
   SessionStageSpec,
   StopTask,
@@ -101,10 +99,6 @@ export function isModelChange(msg: InboundMessage): msg is ModelChange {
 
 export function isEffortChange(msg: InboundMessage): msg is EffortChange {
   return msg.type === "effort_change";
-}
-
-export function isAddDirectory(msg: InboundMessage): msg is AddDirectory {
-  return msg.type === "add_directory";
 }
 
 export function isSessionCommand(msg: InboundMessage): msg is SessionCommand {

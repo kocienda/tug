@@ -129,15 +129,6 @@ describe("the recorded model reaches every respawn path", () => {
     expect(args[args.indexOf("--effort") + 1]).toBe("max");
   });
 
-  test("an /add-dir respawn carries --model", async () => {
-    const m = manager();
-    m.handleModelChange("sonnet");
-    await m.handleAddDirectory("/Users/me/notes");
-
-    expect(spawns.length).toBe(1);
-    expect(modelFlag(spawns[0])).toBe("sonnet");
-  });
-
   test("a fork carries --model", async () => {
     const m = manager();
     m.handleModelChange("fable");
