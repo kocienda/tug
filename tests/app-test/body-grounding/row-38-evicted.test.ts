@@ -23,6 +23,7 @@
  * the last turn in it and its composer holding the draft.
  *
  * @family row-38
+ * @motion
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
  * @covers tugdeck/src/lib/card-placement.ts

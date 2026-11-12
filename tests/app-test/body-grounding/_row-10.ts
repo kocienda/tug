@@ -43,9 +43,8 @@ import { expect } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import { underHold, type BodyViewSnapshot, type CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
-import { bodyOfKind } from "../_harness/card-reach";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { escapeHasTaker, focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
@@ -316,7 +315,7 @@ export async function switchKind(kind: CardKind, leg: Leg, tier?: Tier): Promise
     const standing = await readStanding(app, K, (await regionRectOf(app, K))!);
     const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
 
-    await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+    await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
     await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
     const away = await app.evalJS<string>(ACTIVE_SPACE);
     expect(away, "a second workspace is shown").not.toBe(home);
@@ -362,23 +361,20 @@ export async function switchSessions(leg: Leg, tier?: Tier): Promise<void> {
     const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
 
     // ---- The away workspace, with a body card of its own ----
-    await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+    await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
     await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
     const away = await app.evalJS<string>(ACTIVE_SPACE);
     expect(away, "a second workspace is shown").not.toBe(home);
     await expectHidden(app, A, "A after leaving home");
     await expectHidden(app, B, "B after leaving home");
-    // The verb reveals the Cards card and opens a rename; Escape leaves it,
-    // when the rename holds the keyboard — a bare Escape with no taker beeps.
-    // The rename is waited for first: its body is made by the switch, and a
-    // key posted before that page is up reaches a view with nothing to take it.
-    const cards = await bodyOfKind(app, "cards");
+    // The away workspace's own Workspaces card is waited for, shown and ready:
+    // its body is made by the switch, and a key posted before that page is up
+    // reaches a view with nothing to take it.
     await pollFor(
-      () => cards.evalJS<boolean>(`document.activeElement !== null && document.activeElement.matches(".cards-space-rename")`),
-      (v) => v,
+      () => app.bodies(),
+      (all) => all.some((b) => b.componentId === "cards" && b.state === "ready" && b.visible),
       10_000,
     );
-    if (await escapeHasTaker(app)) await app.nativeKey("Escape", []);
     await Bun.sleep(300);
     const focusedBefore = await app.getFocusedCardId();
     await app.nativeKey("n", ["cmd"]);

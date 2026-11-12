@@ -15,6 +15,11 @@
  * closes, the scrim fades, and the keyboard lands on the new workspace's row
  * in its Workspaces card, at the top of the list.
  *
+ * Between the cut and the close the question waits, bounded, for that row's
+ * rect: the cut asks the Workspaces card now on screen to locate it
+ * (`workspace-name-zoom.ts`), and the modal zooms out to it as the scrim
+ * fades. No Workspaces card, no rect, and the close goes ahead at once.
+ *
  * Laws: [L02] the pages' states are read from `bodyCardsStore` by
  * subscription; [L33] the wait is bounded, and a page that never paints
  * delays the cut by the bound and no more.
@@ -24,7 +29,8 @@
 
 import { bodyCardsStore } from "./body-cards-store";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
-import { askWorkspaceName } from "./workspace-name-request";
+import { askWorkspaceName, type WorkspaceNameRect } from "./workspace-name-request";
+import { locateSpaceRow } from "./workspace-name-zoom";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import { nextSpaceName } from "../spaces";
 
@@ -105,22 +111,26 @@ const LIVE_WAIT: PaintWaitDeps = {
  *
  * `pages` is how the wait reads the pending pages: the body cards' store,
  * unless a test hands its own.
+ *
+ * `from` is the rect of the control that raised it, in window points — the
+ * modal's zoom rectangles run from there — or `null` for a door with no
+ * place on screen, which raises it with no run.
  */
 export async function newWorkspaceThroughModal(
   store: IDeckManagerStore,
-  pages: PaintWaitDeps = LIVE_WAIT,
+  { pages = LIVE_WAIT, from = null }: { pages?: PaintWaitDeps; from?: WorkspaceNameRect | null } = {},
 ): Promise<string | null> {
   const begin = store.beginPendingSpace;
   const adopt = store.adoptPendingSpace;
   if (begin === undefined || adopt === undefined) {
     const proposed = nextSpaceName(store.getSpacesSnapshot().spaces.map((s) => s.name));
-    const name = await askWorkspaceName("new", proposed);
+    const name = await askWorkspaceName("new", proposed, { from });
     return name === null ? null : store.createSpace(name);
   }
   const { id, name: proposed } = begin();
   // Written by the settle, which runs inside the ask.
   const landed: { id: string | null } = { id: null };
-  const committed = await askWorkspaceName("new", proposed, (name) => {
+  const settle = (name: string): Promise<void> | void => {
     const cardIds = store.getSpaceDeck(id)?.cards.map((c) => c.id) ?? [];
     const wait = waitForPaint(cardIds, pages);
     const cut = (): void => {
@@ -129,13 +139,17 @@ export async function newWorkspaceThroughModal(
       // that one is not this name's to adopt.
       if (store.getSpacesSnapshot().pendingSpaceId !== id) return;
       landed.id = adopt(name);
+      // The new row exists now, at the top of the list: ask where, so the
+      // question's close can zoom out to it.
+      if (landed.id !== null) locateSpaceRow(store, landed.id);
     };
     if (wait.already) {
       cut();
       return;
     }
     return wait.done.then(cut);
-  });
+  };
+  const committed = await askWorkspaceName("new", proposed, { settle, from, awaitDestination: true });
   const adopted = landed.id;
   if (committed === null || adopted === null) {
     // Cancelled, or another question took the modal over. A later New

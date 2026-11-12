@@ -1320,6 +1320,10 @@ export const MOTION_CARVE_OUTS: ReadonlyMap<string, string> = new Map([
   ["tugdeck/src/components/tugways/tug-popover.css", "[L14] Radix Popover"],
   ["tugdeck/src/components/tugways/tug-tooltip.css", "[L14] Radix Tooltip"],
   ["tugdeck/src/components/tugways/update-tug.css", "[L14] Radix AlertDialog"],
+  // The naming modal's zoom-in replaces the alert's entrance on the same
+  // Radix content, as the update wizard's does, and Presence waits on its
+  // `animationend` the same way.
+  ["tugdeck/src/components/chrome/workspace-name-dialog.css", "[L14] Radix Dialog"],
   // Entrances React mounts with a CSS animation and no exit to coordinate.
   // They predate this rule and are declared here rather than moved: each is a
   // one-shot on an element whose insertion the code controls, which is the

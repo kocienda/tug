@@ -1,9 +1,11 @@
 /**
  * New Workspace through the naming modal: the bounded wait for the pending
- * pages, in its three endings, and the gesture's two outcomes over a deck
- * that holds a pending workspace.
+ * pages, in its three endings, the gesture's two outcomes over a deck that
+ * holds a pending workspace, and the close's bounded wait for the new row's
+ * rect, which the modal zooms out to.
  *
  * @covers tugdeck/src/lib/new-workspace.ts
+ * @covers tugdeck/src/lib/workspace-name-zoom.ts
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -14,7 +16,12 @@ import {
   answerWorkspaceName,
   getWorkspaceNameRequest,
   resetWorkspaceNameRequestForTests,
+  setWorkspaceNameTimerForTests,
+  WORKSPACE_NAME_DESTINATION_BOUND_MS,
+  type WorkspaceNameTimer,
 } from "../workspace-name-request";
+import { answerSpaceRow } from "../workspace-name-zoom";
+import { CARDS_CARD_ID } from "../cards-card-id";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { DeckState } from "../../layout-tree";
 import type { SpacesSnapshot } from "../../spaces";
@@ -86,8 +93,11 @@ describe("waitForPaint", () => {
   });
 });
 
-/** A deck that holds one pending workspace of cards with no pages to wait on. */
-function fakeDeck(): { store: IDeckManagerStore; log: string[] } {
+/**
+ * A deck that holds one pending workspace of cards with no pages to wait on;
+ * with `cardsCard`, the deck on screen holds a Workspaces card.
+ */
+function fakeDeck(cardsCard = false): { store: IDeckManagerStore; log: string[] } {
   const log: string[] = [];
   let pending: string | null = null;
   const rail: DeckState = {
@@ -97,6 +107,7 @@ function fakeDeck(): { store: IDeckManagerStore; log: string[] } {
     hasFocus: true,
   };
   const store = {
+    getSnapshot: () => ({ cards: cardsCard ? [{ id: "cards-1", componentId: CARDS_CARD_ID }] : [] }),
     getSpacesSnapshot: (): SpacesSnapshot => ({
       spaces: [{ id: "home", name: "Home" }],
       activeSpaceId: "home",
@@ -161,6 +172,7 @@ describe("newWorkspaceThroughModal", () => {
     let minted = 0;
     const rail = { cards: [{ id: "rail" }], panes: [], imposition: { sidebars: {} }, hasFocus: true } as unknown as DeckState;
     const store = {
+      getSnapshot: () => ({ cards: [] }),
       getSpacesSnapshot: (): SpacesSnapshot => ({
         spaces: [{ id: "home", name: "Home" }],
         activeSpaceId: "home",
@@ -188,12 +200,12 @@ describe("newWorkspaceThroughModal", () => {
     } as unknown as IDeckManagerStore;
 
     const firstPages = fakePages([]);
-    const first = newWorkspaceThroughModal(store, firstPages.deps);
+    const first = newWorkspaceThroughModal(store, { pages: firstPages.deps });
     answerWorkspaceName(getWorkspaceNameRequest().seq, "First");
     expect(getWorkspaceNameRequest().waiting).toBe(true);
 
     // The second New takes the modal and the pending slot while the first waits.
-    const second = newWorkspaceThroughModal(store, fakePages(["rail"]).deps);
+    const second = newWorkspaceThroughModal(store, { pages: fakePages(["rail"]).deps });
     const secondSeq = getWorkspaceNameRequest().seq;
     firstPages.paint("rail");
     expect(await first).toBeNull();
@@ -202,5 +214,76 @@ describe("newWorkspaceThroughModal", () => {
     answerWorkspaceName(secondSeq, "Second");
     expect(await second).toBe("new-2");
     expect(log).toEqual(["begin new-1", "begin new-2", "adopt new-2 Second"]);
+  });
+});
+
+describe("the close's wait for the new row", () => {
+  const ROW = { top: 72, left: 8, width: 280, height: 28 };
+  let bound: (() => void) | null = null;
+  const timer: WorkspaceNameTimer = (fn, ms) => {
+    expect(ms).toBe(WORKSPACE_NAME_DESTINATION_BOUND_MS);
+    bound = fn;
+    return () => {
+      bound = null;
+    };
+  };
+
+  afterEach(() => {
+    resetWorkspaceNameRequestForTests();
+    cardsSpaceVerbRequest.clear();
+    bound = null;
+  });
+
+  test("the cut asks the Workspaces card for the row, and the close waits for its rect", async () => {
+    setWorkspaceNameTimerForTests(timer);
+    const { store, log } = fakeDeck(true);
+    const gesture = newWorkspaceThroughModal(store, { from: { top: 30, left: 260, width: 20, height: 20 } });
+    answerWorkspaceName(getWorkspaceNameRequest().seq, "Notes");
+    // Cut, and asked where the row is — between the cut and the close.
+    expect(log).toEqual(["begin", "adopt Notes"]);
+    expect(cardsSpaceVerbRequest.getSnapshot()).toMatchObject({ verb: "locate", spaceId: "new" });
+    expect(getWorkspaceNameRequest()).toMatchObject({ open: true, waiting: true, to: null });
+    // The card answers; the question closes carrying the row.
+    cardsSpaceVerbRequest.clear();
+    answerSpaceRow("cards-1", ROW);
+    expect(getWorkspaceNameRequest()).toMatchObject({ open: false, to: ROW });
+    expect(bound).toBeNull();
+    expect(await gesture).toBe("new");
+    // The keyboard lands on the row after the close, as it always did.
+    expect(cardsSpaceVerbRequest.getSnapshot()).toMatchObject({ verb: "focus", spaceId: "new" });
+  });
+
+  test("a card that never answers: the question closes at the bound, with no row", async () => {
+    setWorkspaceNameTimerForTests(timer);
+    const { store } = fakeDeck(true);
+    const gesture = newWorkspaceThroughModal(store);
+    answerWorkspaceName(getWorkspaceNameRequest().seq, "Notes");
+    expect(getWorkspaceNameRequest().open).toBe(true);
+    bound?.();
+    expect(getWorkspaceNameRequest()).toMatchObject({ open: false, to: null });
+    expect(await gesture).toBe("new");
+    // Late: the row reports after the bound closed the question, and is dropped.
+    answerSpaceRow("cards-1", ROW);
+    expect(getWorkspaceNameRequest().to).toBeNull();
+  });
+
+  test("a card with no row on screen answers none, and the close goes ahead at once", async () => {
+    setWorkspaceNameTimerForTests(timer);
+    const { store } = fakeDeck(true);
+    const gesture = newWorkspaceThroughModal(store);
+    answerWorkspaceName(getWorkspaceNameRequest().seq, "Notes");
+    answerSpaceRow("cards-1", null);
+    expect(getWorkspaceNameRequest()).toMatchObject({ open: false, to: null });
+    expect(await gesture).toBe("new");
+  });
+
+  test("a deck with no Workspaces card has no row to land on: no ask, no wait", async () => {
+    setWorkspaceNameTimerForTests(timer);
+    const { store } = fakeDeck(false);
+    const gesture = newWorkspaceThroughModal(store);
+    answerWorkspaceName(getWorkspaceNameRequest().seq, "Notes");
+    expect(getWorkspaceNameRequest()).toMatchObject({ open: false, to: null });
+    expect(bound).toBeNull();
+    expect(await gesture).toBe("new");
   });
 });

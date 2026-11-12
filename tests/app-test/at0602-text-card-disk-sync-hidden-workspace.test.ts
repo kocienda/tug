@@ -131,7 +131,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // card is left mounted in a layer the canvas stops showing, which is
         // the state under test.
         await app.evalJS<null>(
-          `(window.tugdeck.lab.dispatch("new-space"), null)`,
+          `(window.tugdeck.lab.createSpace(), null)`,
         );
         // With the card's workspace confirmed hidden: a shape that left the
         // card shown would prove nothing. On bodies that is the host not

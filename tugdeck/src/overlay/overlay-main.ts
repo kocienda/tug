@@ -86,7 +86,7 @@ import { installScopedReload } from "../lib/scoped-reload";
 import { readKeyboardAccess } from "../settings-api";
 import { FeedId } from "../protocol";
 import { createOverlayGateDeck } from "./overlay-gate-deck";
-import { installOverlayClaim } from "./overlay-claim";
+import { installOverlayClaim, overlayDialogStands } from "./overlay-claim";
 import { installOverlayDrawing } from "./overlay-drawing";
 import { renderOverlayRoot } from "./overlay-root";
 
@@ -261,8 +261,15 @@ follow(deckFacts, (facts) => {
   // raised a frame before its claim reaches the host, so the engine's grant
   // of its field's caret at mount is declined; the key view is landed again
   // when the page gets the keyboard.
+  //
+  // The posted claim is read once a frame, so it trails the page by up to a
+  // frame: a modal's dialog leaves the DOM a frame before its claim of the
+  // whole window does. The keyboard has often moved on in that frame — New
+  // Workspace's close hands it to the new workspace's row — and a key-sink
+  // park written then would take it back. So the page holds the keyboard
+  // only while it claims the whole window and a dialog still stands in it.
   let holdsKeyboard = false;
-  setKeyboardYield(() => !holdsKeyboard);
+  setKeyboardYield(() => !holdsKeyboard || !overlayDialogStands(document));
   window.addEventListener("focus", () => {
     if (holdsKeyboard) getFocusManager()?.focusKeyView();
   });

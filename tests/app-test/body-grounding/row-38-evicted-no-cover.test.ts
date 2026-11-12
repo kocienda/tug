@@ -16,6 +16,7 @@
  * has painted.
  *
  * @family row-38
+ * @motion
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
@@ -85,7 +86,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: an eviction with no cover",
 
         // ---- Parked; critical pressure evicts it, keeping no cover ----
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         const parked = await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         // A Session card is a kind the clock takes: hidden, its eviction is armed.

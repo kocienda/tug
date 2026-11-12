@@ -70,6 +70,8 @@ export interface CardsCellContextValue {
   /** How many workspaces there are — what disables Delete on the last one. */
   spaceCount: number;
   filterQuery: string;
+  /** The card's own id: what a row's rect is measured in, for the naming modal's zoom. */
+  cardId: string;
 }
 
 export const CardsCellContext =

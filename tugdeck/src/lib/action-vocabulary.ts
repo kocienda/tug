@@ -1091,12 +1091,17 @@ export const TUG_ACTIONS = {
   // `ACTIVATE_SPACE` above is the opposite case and stays a command: a
   // workspace CAN be named, by id, from the Window menu's list.
   //
-  // NEW_SPACE:       payload — `{}`. Make a workspace and go to it.
+  // NEW_SPACE:       payload — `{}`, or `{ from: { cardId, rect } }` from a
+  //                  door with a place on screen (the Workspaces card's `+`):
+  //                  its rect in that card's page, where the naming modal's
+  //                  zoom rectangles run from. Make a workspace and go to it.
   // RENAME_SPACE:    payload — `{ spaceId: string }`, and optionally
   //                  `{ name: string }`. Without a name it opens the
   //                  header's inline field; with one it commits.
-  // DUPLICATE_SPACE: payload — `{ spaceId: string }`. Copy the layout and
-  //                  its sidebars, not its sessions.
+  // DUPLICATE_SPACE: payload — `{ spaceId: string }`, and optionally
+  //                  `{ from: { cardId, rect } }` from a header row's menu:
+  //                  that row's rect, where the naming modal's zoom runs
+  //                  from. Copy the layout and its sidebars, not its sessions.
   // DELETE_SPACE:    payload — `{ spaceId: string }`. Confirms first when
   //                  the workspace holds live sessions.
   NEW_SPACE:              "new-space",

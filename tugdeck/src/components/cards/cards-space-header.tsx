@@ -74,6 +74,7 @@ import { THEME_CATALOG, themeCatalogEntry } from "@/theme-catalog";
 
 import type { CardsDataSource } from "./cards-data-source";
 import { CARDS_RENAME_FOCUS_ORDER, useCellContext } from "./cards-cell-context";
+import { zoomSourceOf, type ZoomSource } from "@/lib/workspace-name-zoom";
 
 /**
  * The verbs menu for one workspace row.
@@ -93,15 +94,26 @@ export function useSpaceRowMenu(opts: {
   spaceId: string;
   name: string;
   spaceCount: number;
+  /** The card the row is drawn in: what the row's rect is measured in. */
+  cardId: string;
 }): {
   menu: React.ReactNode;
-  openMenuAt: (x: number, y: number) => void;
+  openMenuAt: (x: number, y: number, row: Element | null) => void;
 } {
-  const { spaceId, name, spaceCount } = opts;
+  const { spaceId, name, spaceCount, cardId } = opts;
   const { available, openAt, renderMenu } = usePointMenu();
+  // The header row's rect as the menu opens — an item's value is sampled at
+  // menu-open time — which Duplicate carries as the point the naming modal's
+  // zoom rectangles run from. The menu stands over the row while it is open
+  // (a scroll that moves the row dismisses it), so the rect is where the row
+  // still is when an item is chosen.
+  const [from, setFrom] = React.useState<ZoomSource | null>(null);
   const openMenuAt = React.useCallback(
-    (x: number, y: number): void => openAt(x, y, null),
-    [openAt],
+    (x: number, y: number, row: Element | null): void => {
+      setFrom(row === null ? null : zoomSourceOf(row, cardId));
+      openAt(x, y, null);
+    },
+    [openAt, cardId],
   );
 
   const items = React.useMemo<TugEditorContextMenuEntry[]>(() => {
@@ -115,7 +127,7 @@ export function useSpaceRowMenu(opts: {
       {
         action: TUG_ACTIONS.DUPLICATE_SPACE,
         label: "Duplicate",
-        value: { spaceId },
+        value: from === null ? { spaceId } : { spaceId, from },
       },
       {
         action: TUG_ACTIONS.DELETE_SPACE,
@@ -124,7 +136,7 @@ export function useSpaceRowMenu(opts: {
         value: { spaceId },
       },
     ];
-  }, [spaceId, spaceCount]);
+  }, [spaceId, spaceCount, from]);
 
   const menu =
     !available ? null : (
@@ -318,6 +330,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
     spaceId,
     name,
     spaceCount: ctx.spaceCount,
+    cardId: ctx.cardId,
   });
   if (row === undefined || row.type !== "space-header") return null;
   const renaming = ctx.renamingSpaceId === row.spaceId;
@@ -339,7 +352,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
         if (menu.menu === null) return;
         e.preventDefault();
         e.stopPropagation();
-        menu.openMenuAt(e.clientX, e.clientY);
+        menu.openMenuAt(e.clientX, e.clientY, e.currentTarget);
       }}
       trailing={
         <>
@@ -437,7 +450,7 @@ export const SpaceHeaderCell: TugListViewCellRenderer<CardsDataSource> = ({
               const el = e?.currentTarget;
               if (el === undefined) return;
               const rect = el.getBoundingClientRect();
-              menu.openMenuAt(rect.left, rect.bottom);
+              menu.openMenuAt(rect.left, rect.bottom, el.closest(".cards-space-header"));
             }}
             data-testid="cards-space-verbs-button"
             size="2xs"

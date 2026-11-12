@@ -112,6 +112,8 @@ import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
 import { useResponder } from "@/components/tugways/use-responder";
+import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
+import { reportSpaceRow, zoomSourceOf } from "@/lib/workspace-name-zoom";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
@@ -747,6 +749,40 @@ const SpaceEmptyCell: TugListViewCellRenderer<CardsDataSource> = ({
     </div>
   );
 };
+
+/**
+ * The card's own door to a new workspace ([B01]). New needs no target — the
+ * verb makes a workspace and names none — so its payload carries only where
+ * the press was: this button's rect in this card's page, with the card's id,
+ * which the shell turns into the point the naming modal's zoom rectangles
+ * run from (`lib/workspace-name-zoom.ts`). The rect is measured at the click,
+ * so it is where the button stands when it is pressed. The action goes to the
+ * button's parent responder exactly as the chain-action mode sends it, and
+ * the chain root answers it ([P02]), so the button works the same whether or
+ * not this card holds focus.
+ */
+function NewSpaceButton({ cardId }: { cardId: string }): React.ReactElement {
+  const { dispatch } = useControlDispatch();
+  const senderId = React.useId();
+  return (
+    <TugIconButton
+      icon={<Plus />}
+      aria-label="New Workspace"
+      title="New Workspace"
+      onClick={(e) => {
+        const el = e?.currentTarget;
+        dispatch({
+          action: TUG_ACTIONS.NEW_SPACE,
+          value: el === undefined ? undefined : { from: zoomSourceOf(el, cardId) },
+          sender: senderId,
+          phase: "discrete",
+        });
+      }}
+      data-testid="cards-new-space"
+      size="2xs"
+    />
+  );
+}
 
 const CARDS_CELL_RENDERERS: Record<
   string,
@@ -1510,6 +1546,25 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     // workspaces, all but one anchored to a row nobody can see ([B06]).
     if (!layerShown) return;
     const { verb, spaceId } = verbRequest;
+    if (verb === "locate") {
+      // Where the naming modal's zoom lands: the workspace's header row as it
+      // stands, measured and reported, with nothing moved — no scroll, no
+      // cursor, no keyboard. A row the list has not drawn yet (the request
+      // can arrive a commit ahead of the data that holds it) leaves the
+      // request for the next commit — a filter that hides the row leaves it
+      // too — and the asker's wait is bounded. A row drawn outside the list's
+      // visible band is not on screen: `null`.
+      const root = listWrapRef.current;
+      const header =
+        root?.querySelector<HTMLElement>(`.cards-space-header[data-cards-space-id="${CSS.escape(spaceId)}"]`) ?? null;
+      if (header === null || root === null) return;
+      cardsSpaceVerbRequest.clear();
+      const band = root.getBoundingClientRect();
+      const box = header.getBoundingClientRect();
+      const visible = box.bottom > band.top && box.top < band.bottom;
+      reportSpaceRow(cardId, visible ? header : null);
+      return;
+    }
     cardsSpaceVerbRequest.clear();
     if (verb === "focus") {
       // New Workspace's landing: the keyboard on the new workspace's header
@@ -1548,7 +1603,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       cards: store.spaceCardCount(spaceId),
       anchor: anchorForSpace(spaceId),
     });
-  }, [verbRequest, layerShown, anchorForSpace, spaceNameOf, landCursorOn, dataSource]);
+  }, [verbRequest, layerShown, anchorForSpace, spaceNameOf, landCursorOn, dataSource, cardId]);
 
   const cellContext = useMemo<CardsCellContextValue>(
     () => ({
@@ -1568,6 +1623,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       focusRenameField,
       spaceCount,
       filterQuery,
+      cardId,
     }),
     [
       onRowPointerDown,
@@ -1585,6 +1641,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       focusRenameField,
       spaceCount,
       filterQuery,
+      cardId,
     ],
   );
 
@@ -1876,20 +1933,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           focusGroup={CARDS_FOCUS_GROUP}
           focusOrder={CARDS_FILTER_FOCUS_ORDER}
         />
-        {/* The card's own door to a new workspace ([B01]). It dispatches the
-            table command with NO payload, which is the verb's "the active
-            workspace" form — New needs no target at all, and sending one
-            would only say something the verb does not read. The chain root
-            answers it ([P02]), so the button works the same whether or not
-            this card holds focus. */}
-        <TugIconButton
-          icon={<Plus />}
-          aria-label="New Workspace"
-          title="New Workspace"
-          action={TUG_ACTIONS.NEW_SPACE}
-          data-testid="cards-new-space"
-          size="2xs"
-        />
+        <NewSpaceButton cardId={cardId} />
       </RailCardToolbar>
       {!hasContent ? (
         // Empty label instead of the list — an empty `flex: 1` list would grow

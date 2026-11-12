@@ -10,8 +10,8 @@
  * workspace's panes less its rail's, the same rule the list's rows are built
  * by.
  *
- * So this makes a fresh workspace through the real `+`, cancels the name
- * field New opens, and asks to delete it:
+ * So this makes a fresh workspace through the real `+`, committing the name
+ * the naming modal proposes, and asks to delete it:
  *
  *   1. **The sentence counts nothing.** The fresh workspace stands a
  *      three-card rail and nothing else, so it asks only "Delete <name>?" —
@@ -39,6 +39,7 @@ import {
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
 import type { App, BodyApp } from "./_harness";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -48,12 +49,13 @@ const HOME = "count-home";
 /**
  * Read in a Workspaces card's own page: on bodies each is a body holding its
  * card alone, so no layer scope is in it. The `+` puts the user in a fresh
- * workspace, whose own Workspaces card — the visible one — raises the rename,
- * the menu verb's confirm and the header it hangs under; C1 parks with HOME.
+ * workspace once its name is committed, whose own Workspaces card — the
+ * visible one — raises the menu verb's confirm and the header it hangs under;
+ * C1 parks with HOME.
  */
 const HEADER = `[data-testid="cards-space-header"]`;
 const NEW_BUTTON = `[data-testid="cards-new-space"]`;
-const RENAME_INPUT = `[data-testid="cards-space-rename"]`;
+const NAME_FIELD = '[data-slot="tug-workspace-name-field"]';
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_MESSAGE = '[data-slot="tug-confirm-message"]';
 const CONFIRM_CANCEL = '[data-slot="tug-confirm-cancel"]';
@@ -139,18 +141,23 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 25_000 },
           );
 
-          // ---- A fresh workspace, through the real `+`.
+          // ---- A fresh workspace, through the real `+` and the naming
+          // modal it raises, committing the proposed name.
+          const overlay = await overlayReady(app);
           await app.body("C1").nativeClickAtElement(NEW_BUTTON);
-          const shown = await freshCardsBody(app);
-          await shown.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
+          await overlay.waitForCondition<boolean>(
+            `(function () {
+               var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+               return f !== null && document.activeElement === f && document.documentElement.getAttribute("data-overlay-claim-state") === "all";
+             })()`,
             { timeoutMs: 15_000 },
           );
-          await app.nativeKey("Escape");
-          await shown.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
-            { timeoutMs: 8_000 },
+          await app.nativeKey("Return");
+          await app.waitForCondition<boolean>(
+            `window.tugdeck.diag.getSpaces().activeSpaceId !== ${JSON.stringify(HOME)}`,
+            { timeoutMs: 15_000 },
           );
+          const shown = await freshCardsBody(app);
           const spaces = await app.evalJS<{
             activeSpaceId: string;
             spaces: { id: string; name: string }[];

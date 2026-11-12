@@ -143,6 +143,7 @@ import { shareArcPresses } from "./arc-press-store";
 import { cardTitleStore } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
 import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
+import { answerSpaceRow } from "./workspace-name-zoom";
 import { requestLogout } from "./logout-store";
 import { overlaySurfaceBook } from "./overlay-surfaces";
 import { createSurfaceRelay, overlayRectOf } from "./surface-relay";
@@ -276,6 +277,7 @@ import {
   cardFollowed,
   cardsLedgerBindings,
   cardsSpaceVerb,
+  cardsSpaceRow,
   deckActivateCard,
   deckActivateSpace,
   deckAddCard,
@@ -1314,6 +1316,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     bodyCardsStore.subscribe(relaySpaceVerb),
   );
   relaySpaceVerb();
+  // The Cards card's answer to `locate`: where a workspace's header row
+  // stands in its page, which becomes the naming modal's zoom destination
+  // once offset by the card's content box (`workspace-name-zoom.ts`).
+  releases.push(
+    cardsSpaceRow.handle(({ rect }, from) => {
+      if (from.cardId !== null && bodyCardsStore.has(from.cardId)) answerSpaceRow(from.cardId, rect);
+    }),
+  );
 
   // The deck verbs an arrangement card makes, called on the deck: the
   // flow-offset calls are prototype methods, and a detached call loses its

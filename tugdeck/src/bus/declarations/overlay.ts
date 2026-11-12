@@ -93,6 +93,16 @@ export interface OverlayRect {
 
 const rect = obj({ x: num, y: num, width: num, height: num });
 
+/** A rect as `zoom-rects.ts` runs one, in the same points as {@link OverlayRect}. */
+export interface OverlayZoomRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+const zoomRect = obj({ top: num, left: num, width: num, height: num });
+
 /**
  * One card's surface at rest: the surface as its body rendered it, and where
  * the card rests — its content box (the body's viewport, which the surface's
@@ -252,19 +262,31 @@ export const overlayOpenFile = defineAction({
 /**
  * The naming modal's question — New Workspace's or Duplicate Workspace's
  * name, with the proposed one — as the shell holds it
- * (`lib/workspace-name-request.ts`). The overlay draws the modal from it.
+ * (`lib/workspace-name-request.ts`). The overlay draws the modal from it,
+ * and runs its zoom rectangles between `from`, `to` and its panel: rects in
+ * window points, which the shell converts a card's rect into.
  */
 export const overlayWorkspaceName = defineSharedStore({
   key: "overlay.workspaceName",
   owner: "shell",
   scope: overlayOnly,
-  codec: obj({ open: bool, seq: num, verb: literal("new", "duplicate"), proposed: str, waiting: bool }),
-  initial: { open: false, seq: 0, verb: "new", proposed: "", waiting: false } as {
+  codec: obj({
+    open: bool,
+    seq: num,
+    verb: literal("new", "duplicate"),
+    proposed: str,
+    waiting: bool,
+    from: nullable(zoomRect),
+    to: nullable(zoomRect),
+  }),
+  initial: { open: false, seq: 0, verb: "new", proposed: "", waiting: false, from: null, to: null } as {
     open: boolean;
     seq: number;
     verb: "new" | "duplicate";
     proposed: string;
     waiting: boolean;
+    from: OverlayZoomRect | null;
+    to: OverlayZoomRect | null;
   },
 });
 

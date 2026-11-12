@@ -97,6 +97,7 @@ import type { IDeckManagerStore } from "@/deck-manager-store";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
 import { askWorkspaceName } from "@/lib/workspace-name-request";
 import { newWorkspaceThroughModal } from "@/lib/new-workspace";
+import { locateSpaceRow, readZoomSource, zoomSourceInWindow } from "@/lib/workspace-name-zoom";
 import { duplicateSpaceName } from "@/spaces";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { isBodyKind } from "@/lib/body-handoff";
@@ -2798,8 +2799,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // user does not commit: the workspace is built pending while the modal
       // stands, its pages made hidden, and a committed name is one cut onto
       // them at the top of the list (`lib/new-workspace.ts`).
-      [TUG_ACTIONS.NEW_SPACE]: () => {
-        void newWorkspaceThroughModal(store);
+      // The Workspaces card's `+` sends its own rect, which the modal's zoom
+      // rectangles run from; the Window menu and a chord send none, and the
+      // modal rises with no run (`lib/workspace-name-zoom.ts`).
+      [TUG_ACTIONS.NEW_SPACE]: (event: ActionEvent) => {
+        void newWorkspaceThroughModal(store, { from: zoomSourceInWindow(readZoomSource(event.value)) });
       },
       [TUG_ACTIONS.RENAME_SPACE]: (event: ActionEvent) => {
         const payload = event.value as
@@ -2832,8 +2836,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // screen changes behind the modal.
         const source = store.getSpacesSnapshot().spaces.find((s) => s.id === spaceId);
         if (source === undefined) return;
-        void askWorkspaceName("duplicate", duplicateSpaceName(source.name)).then((name) => {
-          if (name !== null) store.duplicateSpace(spaceId, name);
+        // A header row's menu sends that row's rect, which the zoom runs from.
+        const from = zoomSourceInWindow(readZoomSource(event.value));
+        // The copy is made as the name commits, under the scrim, and the
+        // question waits, bounded, for the Workspaces card on screen to say
+        // where its row stands, directly after its source's, so the modal
+        // zooms out to it. The copy is not activated and the keyboard stays
+        // where it was; only the rect is asked for.
+        void askWorkspaceName("duplicate", duplicateSpaceName(source.name), {
+          from,
+          awaitDestination: true,
+          settle: (name) => {
+            const copy = store.duplicateSpace(spaceId, name);
+            if (copy !== null) locateSpaceRow(store, copy);
+          },
         });
       },
       [TUG_ACTIONS.DELETE_SPACE]: (event: ActionEvent) => {

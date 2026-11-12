@@ -192,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("at0750 — a dormant body's cost, and its reveal",
         await body.driveSession({ op: "send", text: "Stream the long turn." });
         await body.waitForCondition<boolean>(`${promptPhase} === "streaming"`, { timeoutMs: 10_000 });
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         const hiddenAt = Date.now();

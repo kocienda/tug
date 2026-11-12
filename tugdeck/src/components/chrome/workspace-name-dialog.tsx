@@ -42,16 +42,52 @@
  * wave where its buttons were, in the same box, so the panel keeps its size,
  * and nothing the user does answers it again.
  *
+ * ## The zoom in
+ *
+ * A question raised from a place on screen — the Workspaces card's `+`, a
+ * header row's `···` menu — carries that place's rect as `from`, in window
+ * points, and the panel zooms in from it on classic zoom rectangles
+ * (`chrome/zoom-rects.ts`), held hidden for the run's length by CSS keyed on
+ * `data-zoom`. The update wizard's pattern — mark, then measure, then run —
+ * with one difference: the run is planted two frames after the mount, not in
+ * it. The panel's first frame lays out and paints the scrim and the panel
+ * and is long, and a run planted before it would paint its first rectangles
+ * only after, already partway to the panel. So the panel is marked `hold`
+ * (hidden, measured at its real size) at the mount and `run` when the
+ * rectangles plant, which starts its delayed fade. Reduced motion or a zero
+ * timing scale marks nothing, so the panel is up on its first frame as
+ * before, and a question with no `from` (the Window menu, a chord) gets no
+ * run and no mark.
+ *
+ * ## The zoom out
+ *
+ * A committed question closes with `to` when the asker learned where its
+ * workspace's row landed, and the panel zooms out to that row as the scrim
+ * fades. The panel is measured as the closed snapshot arrives, in the store's
+ * own notification, which runs before React re-renders and Radix takes the
+ * content down, so the box read is the panel still standing. A close with no
+ * `to` fades as it always has.
+ *
+ * A cancel — the Cancel button, Escape, ⌘. — zooms back the way it came,
+ * from the panel to the question's `from`, as a window closes back into its
+ * icon. The page closes the panel itself on a cancel, before the shell's
+ * closed snapshot returns, so the run is taken in the cancel with the panel
+ * still standing. A question with no `from` cancels with the fade alone.
+ *
  * Laws: [L02] the question enters React through `useSyncExternalStore`;
- * [L06] the panel's look is the alert's CSS, keyed on Radix's `data-state`;
- * [L19] `data-slot` names the parts; [L25] mounted into the canvas overlay.
+ * [L06] the panel's look is the alert's CSS, keyed on Radix's `data-state`,
+ * and the zoom's hold is CSS keyed on a `data-zoom` the ref callback sets on
+ * the DOM, never React state; [L19] `data-slot` names the parts; [L25]
+ * mounted into the canvas overlay.
  *
  * @module components/chrome/workspace-name-dialog
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
-import React, { useCallback, useId, useRef, useState } from "react";
+import React, { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 
+import { runZoomRects } from "@/components/chrome/zoom-rects";
+import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useGateDeck } from "@/lib/gate-deck";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
@@ -101,13 +137,27 @@ export function WorkspaceNameDialog(): React.ReactElement {
   const shownRef = useRef<WorkspaceNameRequest>(request);
   if (request.open) shownRef.current = request;
   const shown = shownRef.current;
+  // Read by the content's ref callback, which runs in the commit this render
+  // produces: a ref set here is current there, and an effect would be late.
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const answer = useCallback(
     (name: string | null) => {
       if (!open || request.waiting) return;
       if (name !== null && name.trim() === "") return;
-      // A cancel closes here at once; a commit waits for the shell.
-      if (name === null) setAnswered(request.seq);
+      // A cancel closes here at once, and zooms back to where the question
+      // came from, measured now while the panel stands; a commit waits for
+      // the shell, and zooms out to its row when the shell says where.
+      if (name === null) {
+        const from = shownRef.current.from;
+        const node = contentRef.current;
+        if (from !== null && node !== null) {
+          const box = node.getBoundingClientRect();
+          runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, from);
+        }
+        setAnswered(request.seq);
+      }
       deck.answerWorkspaceName(request.seq, name);
     },
     [open, request.waiting, request.seq, deck],
@@ -129,6 +179,72 @@ export function WorkspaceNameDialog(): React.ReactElement {
     actions: { [TUG_ACTIONS.CANCEL_DIALOG]: () => cancel() },
   });
 
+  // The zoom in, from the place that raised the question to this panel. A ref
+  // callback, not an effect on `open`: Radix's Presence mounts the content a
+  // commit after the flag flips, and the callback is the first moment there
+  // is a panel to measure, before it has painted a frame. Radix re-attaches
+  // the node on the closing commit too, which the open guard turns away, and
+  // a question already zoomed for is not zoomed for again.
+  const zoomedSeqRef = useRef(0);
+  // The panel as it stands: what the zoom out measures.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const attachContent = useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+      responderRef(node);
+      if (node === null || !openRef.current) return;
+      const question = shownRef.current;
+      if (question.seq === zoomedSeqRef.current) return;
+      zoomedSeqRef.current = question.seq;
+      const from = question.from;
+      if (from === null) return;
+      // A run that would plant nothing — reduced motion, a zero timing
+      // scale — marks nothing, so the panel is up on its first frame.
+      if (!isTugMotionEnabled() || getTugTiming() === 0) return;
+      // Mark first, measure second: the alert's entrance opens at
+      // `scale(0.96)`, and the hold replaces it with no animation at all, so
+      // the box read is the panel at its real size.
+      node.dataset.zoom = "hold";
+      const box = node.getBoundingClientRect();
+      const to = { top: box.top, left: box.left, width: box.width, height: box.height };
+      // The run waits out the panel's first frame. That frame lays out and
+      // paints the scrim and the panel, and it is long; a run planted in this
+      // commit starts its clock before it and paints its first rectangles
+      // only after, so the run is seen starting partway to the panel. Two
+      // frames on, the panel is drawn (hidden) and the run's frames are cheap.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (node.dataset.zoom !== "hold") return;
+          if (!node.isConnected || !openRef.current || shownRef.current.seq !== question.seq) {
+            delete node.dataset.zoom;
+            return;
+          }
+          node.dataset.zoom = "run";
+          if (!runZoomRects(from, to)) delete node.dataset.zoom;
+        }),
+      );
+    },
+    [responderRef],
+  );
+
+  // The zoom out, from this panel to the row the committed name landed on.
+  // A store listener rather than an effect on the closed render: by that
+  // render's commit Radix may already have taken the content down, and the
+  // listener runs as the snapshot changes, with the panel still in the DOM.
+  useLayoutEffect(() => {
+    let last = getWorkspaceNameRequest();
+    return subscribeWorkspaceNameRequest(() => {
+      const previous = last;
+      const next = getWorkspaceNameRequest();
+      last = next;
+      if (!previous.open || next.open || next.seq !== previous.seq || next.to === null) return;
+      const node = contentRef.current;
+      if (node === null) return;
+      const box = node.getBoundingClientRect();
+      runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, next.to);
+    });
+  }, []);
+
   return (
     <Dialog.Root
       open={open}
@@ -139,7 +255,7 @@ export function WorkspaceNameDialog(): React.ReactElement {
       <Dialog.Portal container={overlayRoot}>
         <Dialog.Overlay className="tug-alert-overlay" data-slot="tug-workspace-name-scrim" />
         <Dialog.Content
-          ref={responderRef as (node: HTMLDivElement | null) => void}
+          ref={attachContent}
           className="tug-alert-content tug-workspace-name-dialog"
           data-slot="tug-workspace-name-dialog"
           data-verb={shown.verb}

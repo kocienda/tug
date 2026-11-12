@@ -99,7 +99,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 39: eviction by time hidden", (
 
         // ---- The workspace parked: hidden, and no pressure raised ----
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         const hidden = await settleFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         const hiddenAt = Date.now();

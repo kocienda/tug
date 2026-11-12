@@ -15,7 +15,8 @@
  *   grip moves the shell's flow offset.
  * - **Cards.** A bound Session card's row names its session (the binding the
  *   shell mirrors); a card's row × closes it in the shell; the new-workspace
- *   button makes a workspace whose name is typed in the body; a click on the
+ *   button raises the naming modal in the overlay, and the name typed there
+ *   makes the workspace in the shell and goes there; a click on the
  *   other workspace's header goes there; and the menu's Delete Workspace
  *   raises its confirm in the body, whose answer deletes the workspace in the
  *   shell.
@@ -34,6 +35,7 @@ import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixtur
 import { pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { expectRailSurface, standUpKind } from "./_kind-bodies";
 import { cardKind } from "./_kinds";
+import { overlayReady } from "../overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -202,7 +204,7 @@ const H_TITLE = "r33 hello";
 // A body holds one Cards card, so its selectors need no workspace layer to
 // pick the shown one by: the shell's `[data-space-shown]` layers are not in it.
 const NEW_SPACE = '[data-testid="cards-new-space"]';
-const RENAME = '[data-testid="cards-space-rename"]';
+const NAME_FIELD = '[data-slot="tug-workspace-name-field"]';
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_OK = `${CONFIRM} [data-slot="tug-confirm-confirm"]`;
 const NEW_NAME = "r33 elsewhere";
@@ -349,19 +351,28 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
         const closed = await settleFor(() => deckState(app), (d) => !d.cards.some((c) => c.id === H), READ_MS);
         expect(closed.cards.some((c) => c.id === H), "the row × closed the card in the shell's deck").toBe(false);
 
-        // ── A new workspace, named in the body ──────────────────────────
+        // ── A new workspace, named in the modal the body's button raises ──
         const home = (await spaces(app)).activeSpaceId;
+        const overlay = await overlayReady(app);
         await clickIn(body, NEW_SPACE);
+        // The name is asked first, in the overlay, with the proposed name
+        // selected so typing replaces it; nothing is made until it commits.
+        await overlay.waitForCondition<boolean>(
+          `(function () {
+             var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+             return f !== null && document.activeElement === f && document.documentElement.getAttribute("data-overlay-claim-state") === "all";
+           })()`,
+          { timeoutMs: READ_MS },
+        );
+        expect((await spaces(app)).activeSpaceId, "nothing is made while the name is asked").toBe(home);
+        await app.nativeType(NEW_NAME);
+        await app.nativeKey("Return");
         const created = await settleFor(() => spaces(app), (s) => s.activeSpaceId !== home, READ_MS);
         expect(created.activeSpaceId, "the body's New Workspace made a workspace in the shell and went there").not.toBe(home);
         const fresh: BodyApp = await shownCards(app);
-        const field = await settleFor(() => fresh.evalJS<boolean>(present(RENAME)), (v) => v, READ_MS);
-        expect(field, "the new workspace's Cards body opened its name field").toBe(true);
-        await app.nativeType(NEW_NAME);
-        await app.nativeKey("Return");
         const named = await settleFor(() => spaces(app), (s) => s.spaces.some((x) => x.name === NEW_NAME), READ_MS);
         const createdId = named.spaces.find((x) => x.name === NEW_NAME)?.id ?? "";
-        expect(createdId, "the shell holds the workspace named in the body").toBe(created.activeSpaceId);
+        expect(createdId, "the shell holds the workspace named in the modal").toBe(created.activeSpaceId);
 
         // ── Go there: the home workspace's header ───────────────────────
         const homeName = named.spaces.find((x) => x.id === home)?.name ?? "";

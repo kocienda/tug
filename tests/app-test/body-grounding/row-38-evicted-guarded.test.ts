@@ -139,7 +139,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a guarded card through evic
         // ---- Hidden past the clock, and through a warning: both pages stand ----
         await app.bodyDelays({ evictAfterMs: EVICT_AFTER_MS });
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         const hidden = await settleFor(
           async () => [await bodyOf(app, A), await bodyOf(app, B)],

@@ -17,7 +17,8 @@
  * others: a workspace delete must walk the close guards, so it is a command
  * the shell answers, never a deck call. A workspace verb the shell's menu
  * asked the Cards card to answer is `cards.spaceVerb`, sent to the shown
- * workspace's Cards card.
+ * workspace's Cards card; `locate` among them asks where a workspace's
+ * header row stands, which the card answers with `cards.spaceRow`.
  *
  * Three deck verbs any card makes: a card added (its id minted by the page
  * that asks, so the asker holds it before the card lands), a singleton
@@ -368,5 +369,17 @@ export const deckInterruptLiveSessions = defineRequest({
 export const cardsSpaceVerb = defineAction({
   id: "cards.spaceVerb",
   owner: "card",
-  codec: obj({ verb: literal("rename", "delete", "focus"), spaceId: str }),
+  codec: obj({ verb: literal("rename", "delete", "focus", "locate"), spaceId: str }),
+});
+
+/**
+ * The Cards card's answer to `locate`: the workspace's header row's rect in
+ * the card's own page, or `null` when no such row is on screen. The shell
+ * converts it to window points by the sending card's content box and sets
+ * it as the naming modal's zoom destination (`lib/workspace-name-zoom.ts`).
+ */
+export const cardsSpaceRow = defineAction({
+  id: "cards.spaceRow",
+  owner: "shell",
+  codec: obj({ rect: nullable(obj({ top: num, left: num, width: num, height: num })) }),
 });

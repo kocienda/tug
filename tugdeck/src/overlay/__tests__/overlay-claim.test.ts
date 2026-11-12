@@ -18,6 +18,7 @@ import {
   OVERLAY_CLAIM_STATE_ATTRIBUTE,
   installOverlayClaim,
   overlayClaimKind,
+  overlayDialogStands,
   readOverlayClaim,
 } from "../overlay-claim";
 
@@ -41,7 +42,11 @@ describe("the overlay's claim", () => {
     dialog.setAttribute("role", "dialog");
     document.body.append(dialog);
     expect(readOverlayClaim(document)).toEqual({ all: true });
+    // Read live, as the page's keyboard yield reads it: the posted claim
+    // trails the dialog's leaving by a frame, and this does not.
+    expect(overlayDialogStands(document)).toBe(true);
     dialog.remove();
+    expect(overlayDialogStands(document)).toBe(false);
     const marked = document.createElement("div");
     marked.setAttribute(OVERLAY_CLAIM_ATTRIBUTE, "");
     document.body.append(marked);

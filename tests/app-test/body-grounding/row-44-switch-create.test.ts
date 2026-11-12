@@ -29,6 +29,7 @@
  * after the cut.
  *
  * @family row-44-switch
+ * @motion
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx

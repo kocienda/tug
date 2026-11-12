@@ -151,6 +151,28 @@ describe("DeckManager's pending workspace", () => {
     for (const cardId of pendingCards) expect(manager.spaceOf(cardId)).toBeNull();
   });
 
+  test("discarded, is gone before any of its cards hears its destruction", () => {
+    // A card of a workspace still pending is one the make-ahead makes a page
+    // for; heard destroyed while still pending, its dropped page is asked for
+    // again, and that page's own destruction observer joins the destruction
+    // in progress — a loop.
+    const { id } = manager.beginPendingSpace();
+    const pendingCards = manager.getSpaceDeck(id)?.cards.map((c) => c.id) ?? [];
+    const heard: Array<{ cardId: string; pending: string | undefined; space: string | null }> = [];
+    const releases = pendingCards.map((cardId) =>
+      manager.observeCardWillBeginDestruction(cardId, () => {
+        heard.push({ cardId, pending: manager.getSpacesSnapshot().pendingSpaceId, space: manager.spaceOf(cardId) });
+      }),
+    );
+    manager.discardPendingSpace();
+    for (const release of releases) release();
+    expect(heard.map((h) => h.cardId)).toEqual(pendingCards);
+    for (const h of heard) {
+      expect(h.pending, `${h.cardId} heard its destruction with its workspace still pending`).toBeUndefined();
+      expect(h.space).toBeNull();
+    }
+  });
+
   test("adopted, is named, first in the list, and shown", () => {
     const home = manager.getSpacesSnapshot().activeSpaceId;
     const { id } = manager.beginPendingSpace();

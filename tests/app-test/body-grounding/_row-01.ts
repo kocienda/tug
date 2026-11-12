@@ -44,6 +44,8 @@
 import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
+import { testTmpDir } from "../_harness/test-cleanup";
+import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
 import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, settleFor, readPalette, type FloorMeasure, type FrameClasses } from "./_frames";
 import { armPlaceholderSampler, landedFrom, openKind, placeholderAt, readPlaceholderSampler } from "./_kind-bodies";
@@ -74,6 +76,18 @@ const PLACED_MS = 3_000;
  */
 const BURST_MS = 2_000;
 const BURST_INTERVAL_MS = 33;
+/**
+ * How long a landing the shell's DOM has taken takes to reach the screen: two
+ * display frames. The placeholder sampler reads the DOM in
+ * `requestAnimationFrame`, before that frame paints, so the landed state is
+ * committed a frame later and the host shows the body's view in its own
+ * transaction after that. A capture inside this window is the window as it
+ * stood before the landing — the deck's arrival, which the judgement leaves
+ * out — and not the body's; measured 2026-11-12, the only canvas frame after
+ * a DOM landing was the first capture, 6–32 ms after it, and every later one
+ * was the body. Every frame that can show the landed state is still judged.
+ */
+const LANDING_PIPELINE_MS = 34;
 const FINISH_MS = 200;
 
 const oneCard = {
@@ -164,6 +178,31 @@ interface ArrivalReading {
   handOffWall: number;
   /** The host carried the body in on its frame's arrive beat: the plan named it, and landed it. */
   carried: boolean;
+}
+
+/**
+ * Launch under a tugbank whose default project is an empty directory. An
+ * unbound Session card's picker lists that project's sessions, and the
+ * default is otherwise a directory every live session on the machine writes
+ * to: the picker grows when the list lands, and the area under its sheet,
+ * dark like the canvas, shrinks — a change the judge reads as canvas going
+ * away, on a body that was whole throughout. A quiet project gives the picker
+ * nothing to load.
+ */
+async function launchQuiet(testName: string): Promise<App> {
+  const tugbankPath = mkTempTugbank();
+  seedTugbankForLaunch(tugbankPath);
+  tugbankWrite(tugbankPath, "dev.tugapp.app", "default-project-path", "string", testTmpDir("row-01-quiet-project-"));
+  const app = await launchTugApp({ testName, env: { TUGBANK_PATH: tugbankPath } });
+  const close = app.close.bind(app);
+  app.close = async () => {
+    try {
+      await close();
+    } finally {
+      rmTempTugbank(tugbankPath);
+    }
+  };
+  return app;
 }
 
 /** The row's judgement of one arrival. */
@@ -284,7 +323,7 @@ async function arriveOpened(
   });
   const landedWall = landedFrom(samples, cardId);
   expect(landedWall, `${label}: the card's pane landed inside the burst`).not.toBeNull();
-  const judged = frames.filter((f) => f.wall >= landedWall!);
+  const judged = frames.filter((f) => f.wall >= landedWall! + LANDING_PIPELINE_MS);
   expect(judged.length, `${label}: frames were captured after the pane landed`).toBeGreaterThan(0);
   note(`${label}: opened ${handOffWall - openWall} ms before the placeholder stood; its pane landed ${landedWall! - handOffWall} ms after it`);
   // The finished body: the burst's last frame when the body painted inside
@@ -310,7 +349,7 @@ async function arriveOpened(
 
 /** A card of `kind` opened the way it opens, read from the hand-off on. */
 export async function arrivalOfKind(kind: CardKind): Promise<void> {
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}` });
+  const app = await launchQuiet(`${TEST_NAME}-${kind.componentId}`);
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
@@ -326,7 +365,7 @@ export async function arrivalOfKind(kind: CardKind): Promise<void> {
 
 /** Launch with the seed card and a spare waiting connected, and run `body`. */
 async function withSpare(name: string, body: (app: App) => Promise<void>): Promise<void> {
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}` });
+  const app = await launchQuiet(`${TEST_NAME}-${name}`);
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     // The spare is made a beat after the shell paints, and waits connected.

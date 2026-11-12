@@ -30,6 +30,7 @@
  * its container again.
  *
  * @family row-38
+ * @motion
  * @covers tugapp/Sources/BodyCovers.swift
  * @covers tugapp/Sources/BodyBeatsRunner.swift
  * @covers tugapp/Sources/BodyLifecycle.swift

@@ -42,6 +42,7 @@
  * through the gesture that now carries it.
  *
  * @family row-44-switch
+ * @motion
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/tugways/app-gates.tsx

@@ -36,3 +36,30 @@
   align-items: center;
   justify-content: center;
 }
+
+/*
+ * Zoomed in from the control that raised it: the panel is held hidden while
+ * the zoom rectangles run, then fades in where the last one landed. Two
+ * marks, because the run waits out the panel's own first frame: `hold` from
+ * the mount, hidden with no animation at all, so the box measured for the run
+ * is the panel at its real size; then `run` when the rectangles plant, a fade
+ * with no scale term delayed by the run's length. `backwards` holds it at
+ * `opacity: 0` through the delay; the shorthand resets what the alert's own
+ * entrance wrote. The close is untouched. Neither mark is set when no run
+ * would plant.
+ */
+@keyframes tug-workspace-name-zoom-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.tug-alert-content.tug-workspace-name-dialog[data-zoom="hold"][data-state="open"] {
+  animation: none;
+  opacity: 0;
+}
+
+.tug-alert-content.tug-workspace-name-dialog[data-zoom="run"][data-state="open"] {
+  animation:
+    tug-workspace-name-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
+    var(--tugx-zoom-run-duration, 200ms) backwards;
+}

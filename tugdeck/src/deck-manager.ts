@@ -1709,16 +1709,23 @@ export class DeckManager implements IDeckManagerStore {
    * pages it asked for, and the boot latch goes back to what it was. The
    * list was never touched and nothing was saved, so nothing else moves.
    * A no-op with none held.
+   *
+   * The workspace leaves the store before its cards are destroyed. While it
+   * is held, its cards are pending ones whose pages the make-ahead asks for
+   * whenever one has none (`body-make-ahead.ts`); destroyed while still held,
+   * each card's page dropped is a page the make-ahead asks for again, whose
+   * new page attaches a destruction observer the destruction in progress
+   * then calls — a loop that holds the shell until WebKit kills it.
    */
   public discardPendingSpace = (): void => {
     const record = this.spacesStore.pending();
     if (record === null) return;
+    this.spacesStore.discardPending();
     for (const card of record.deck?.cards ?? []) {
       this.cardLifecycle.notifyCardWillBeginDestruction(card.id);
       this.discardComponentStatePreservationRegistry(card.id);
       this.cardStates.delete(card.id);
     }
-    this.spacesStore.discardPending();
     if (this.pendingSpaceLatch !== null) this.factoryRailPending = this.pendingSpaceLatch;
     this.pendingSpaceLatch = null;
   };

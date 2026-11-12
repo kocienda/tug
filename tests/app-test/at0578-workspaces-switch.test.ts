@@ -483,10 +483,15 @@ const wait = (ms: number): Promise<void> =>
  * host shows. A switch commits before the host has placed the incoming
  * card, and a kind lookup made in that window finds the outgoing one, whose
  * page keeps the mark it had.
+ *
+ * Shown means painted and opaque, not only placed visible: the host brings
+ * an incoming view in over its reveal, and a native click made before it is
+ * opaque may not reach the page — the fold cue's first click after a switch
+ * was lost that way about one run in three.
  */
 async function untilShown(app: App, cardId: string): Promise<void> {
   const deadline = Date.now() + 8_000;
-  while (!(await app.bodies()).some((b) => b.cardId === cardId && b.visible)) {
+  while (!(await app.bodies()).some((b) => b.cardId === cardId && b.visible && b.painted && b.opacity >= 0.99)) {
     if (Date.now() >= deadline) throw new Error(`${cardId}'s body was not shown within 8 s`);
     await wait(50);
   }

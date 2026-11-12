@@ -6,6 +6,7 @@
  * `_row-01.ts`'s).
  *
  * @family row-01-arrival
+ * @motion
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts

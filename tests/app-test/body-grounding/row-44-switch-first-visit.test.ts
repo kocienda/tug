@@ -20,6 +20,7 @@
  * painted.
  *
  * @family row-44-switch
+ * @motion
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/lib/body-stand-in-store.ts
  * @covers tugdeck/src/components/chrome/card-host.tsx

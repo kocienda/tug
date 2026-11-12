@@ -17,6 +17,7 @@
  * the host unhid each view showed.
  *
  * @family row-44-switch
+ * @motion
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/body/body-root.tsx

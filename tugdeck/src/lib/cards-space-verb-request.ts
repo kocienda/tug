@@ -33,13 +33,18 @@
 
 import { Subscribable } from "./subscribable";
 
+/** What a workspace verb asks of the Workspaces card. */
+export type SpaceVerb = "rename" | "delete" | "focus" | "locate";
+
 /** A workspace verb the Workspaces card has yet to answer. */
 export interface SpaceVerbRequest {
   /**
    * `focus` is New Workspace's: the keyboard lands on the new workspace's
    * header row, which a Workspaces card can place and nothing outside it can.
+   * `locate` asks only where a workspace's header row stands, for the naming
+   * modal's zoom: the card answers with the row's rect and moves nothing.
    */
-  readonly verb: "rename" | "delete" | "focus";
+  readonly verb: SpaceVerb;
   readonly spaceId: string;
   /**
    * Monotonic, so two requests naming the same workspace differ by identity.
@@ -57,7 +62,7 @@ class SpaceVerbRequestStore extends Subscribable {
   getSnapshot = (): SpaceVerbRequest | null => this.slot;
 
   /** Put a verb in the slot for the card to answer. */
-  request = (verb: "rename" | "delete" | "focus", spaceId: string): void => {
+  request = (verb: SpaceVerb, spaceId: string): void => {
     this.slot = { verb, spaceId, token: this.nextToken };
     this.nextToken += 1;
     this.notify();

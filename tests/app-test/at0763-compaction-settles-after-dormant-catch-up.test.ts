@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0763: a compaction a dormant card slept through 
 
         // ---- The card is put away and sleeps before the compaction runs ----
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         const slept = await pollFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);

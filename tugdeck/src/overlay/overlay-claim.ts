@@ -47,9 +47,14 @@ const DIALOGS = '[role="dialog"], [role="alertdialog"]';
 /** What the claim is read from: marked surfaces, and the bulletins Sonner draws. */
 const CLAIMED = `[${OVERLAY_CLAIM_ATTRIBUTE}], [data-sonner-toast]`;
 
+/** Whether a dialog stands in `doc` now: what a claim of the whole window is read from. */
+export function overlayDialogStands(doc: Document): boolean {
+  return doc.querySelector(DIALOGS) !== null;
+}
+
 /** The claim `doc` stands for now. Reads layout. */
 export function readOverlayClaim(doc: Document): OverlayClaim {
-  if (doc.querySelector(DIALOGS) !== null) return { all: true };
+  if (overlayDialogStands(doc)) return { all: true };
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
   for (const el of doc.querySelectorAll(CLAIMED)) {
     const r = el.getBoundingClientRect();

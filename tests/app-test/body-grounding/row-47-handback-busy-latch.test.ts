@@ -91,7 +91,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 47: a hidden card's hand-back",
 
         // ---- Parked, asleep, and shown again mid-turn: the catch-up's bracket opens and closes ----
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         await pollFor(() => body.evalJS<boolean>("window.__tug.bodyDormancy().dormant"), (d) => d, 5_000);

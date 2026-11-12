@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 35: a turn streaming at reveal"
         await body.waitForCondition<boolean>(`${promptPhase} === "streaming"`, { timeoutMs: 10_000 });
         const heldAt = Date.now();
         const home = await app.evalJS<string>(ACTIVE_SPACE);
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+        await app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`);
         await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 5_000);
         await pollFor(() => bodyOf(app, A), (b) => b?.shown === false, 5_000);
         await pollFor(() => body.evalJS<Read>(READ), (r) => r.dormant, 5_000);
