@@ -60,8 +60,15 @@ ELAPSED=$((SECONDS - START))
 # both "No AppIntents.framework dependency found" and "Metadata extraction
 # skipped, no AppIntents.framework dependency found", so the match is on the
 # part the two share, in either case.
+#
+# The other is the test host failing to reach com.apple.linkd.autoShortcut,
+# the App Shortcuts daemon a host-less XCTest bundle has no business with.
+# It is NSLog chatter from the running tests rather than a build diagnostic,
+# it carries the text "error:" only inside an NSError description, and it
+# prints several times on every test run.
 DIAGS="$(grep -E 'warning:|error:|^ld: |^clang: |^Undefined' "$LOG" \
     | grep -v 'appintentsmetadataprocessor.*[Nn]o AppIntents.framework dependency found' \
+    | grep -v 'xctest\[.*com\.apple\.linkd\.autoShortcut' \
     || true)"
 # A `test` action ends its log with XCTest's own tally; carry the last one
 # (the all-tests suite) into the summary so a green run still says how much ran.
