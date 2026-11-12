@@ -27,8 +27,8 @@
  * reading. Radix's delay is a `setTimeout`, not a frame, so a background
  * app-test window running no rAF does not stall it. The hover is the
  * `pointerenter` + `pointermove` at0404 synthesizes. Between timings the
- * bubble is closed by the trusted click that picks the next time, because a
- * synthesized leave never closes a hoverable Radix bubble.
+ * bubble is closed by the trusted click that picks the next time, and the
+ * synthetic leave each timing starts with waits for it to be gone.
  *
  * Gating
  * ------
@@ -58,12 +58,11 @@ const FIELD = '[data-testid="settings-tooltip-delay-field"]';
  * Hover the trigger and return how long its bubble took to stand, in ms,
  * measured in the page.
  *
- * The trigger must be closed first. It is not closed here: a synthesized leave
- * does not close a hoverable Radix bubble (no real pointer ever moves), so the
- * caller closes it with an act — the trusted click on a speed segment, which
- * `lib/tooltip-dismiss` answers by ending every hover. What this does do is
- * React's synthetic leave, which clears the trigger's "pointer is inside me"
- * latch so the next enter is heard.
+ * The caller closes the bubble first with an act, the trusted click on a delay
+ * segment, which `lib/tooltip-dismiss` answers by ending every hover. What
+ * this adds is React's synthetic leave, which clears the trigger's "pointer is
+ * inside me" latch so the next enter is heard, and then it waits for the bubble
+ * to be gone.
  */
 async function timeOpen(page: BodyApp): Promise<number> {
   await page.evalJS<null>(

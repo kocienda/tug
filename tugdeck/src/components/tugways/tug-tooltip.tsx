@@ -142,6 +142,14 @@ export function TugTooltipProvider({
       // Radix still needs a delay to hold, and a negative one is not one.
       delayDuration={delayDuration ?? (tooltipsOff(setting) ? 0 : setting)}
       skipDelayDuration={skipDelayDuration}
+      // A leave closes the bubble at once. Radix's hoverable content keeps it
+      // up across a grace area (the hull of the exit point and the bubble) so
+      // a reader can travel onto it, and refuses every other open while the
+      // pointer is inside. A label bubble wider than its button covers the
+      // buttons beside it, so a pointer resting on a masthead neighbour left
+      // the old bubble stuck and the neighbour's never came. Tug's bubbles
+      // are labels with nothing in them to reach.
+      disableHoverableContent
     >
       {children}
     </Tooltip.Provider>
