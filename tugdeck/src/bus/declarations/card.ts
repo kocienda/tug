@@ -179,6 +179,13 @@ export interface CardFactsValue {
   /** Whether the card's session has been compacted. */
   compacted: boolean;
   /**
+   * The folders the card's session may read and write beyond its project
+   * directory, as its metadata store holds them (`additionalDirectories`):
+   * the Session Summary's Directories row reads them from here for a body
+   * card. Empty with no session, or none granted.
+   */
+  directories: string[];
+  /**
    * Whether the card's page is dormant: hidden past its delay, its session
    * subscription dropped, until it has caught up on being shown.
    */
@@ -204,6 +211,7 @@ export const cardFacts = defineSharedStore<CardFactsValue | null>({
       ),
       canInterrupt: bool,
       compacted: bool,
+      directories: arr(str),
       dormant: bool,
     }),
   ),

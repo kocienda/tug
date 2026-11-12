@@ -839,6 +839,8 @@ export class CodeSessionStore extends Subscribable {
       // reference through unchanged preserves `Object.is` stability
       // across quiescent snapshot rebuilds ([L02]).
       lastContextBreakdown: this.state.lastContextBreakdown,
+      // A fresh object per grant answer, the same reference otherwise ([L02]).
+      lastDirectoryGrant: this.state.lastDirectoryGrant,
       lastError: this.state.lastError,
       lastReplayResult: this.state.lastReplayResult,
       replayEverCompleted: this.state.replayEverCompleted,
@@ -1410,6 +1412,21 @@ export class CodeSessionStore extends Subscribable {
   setEffort(effort: string): void {
     if (this._disposed) return;
     this.dispatch({ type: "set_effort", effort });
+  }
+
+  /**
+   * Grant the session a further folder (`/add-dir`). Emits an
+   * `add_directory` CODE_INPUT frame and changes no transcript state: tugcode
+   * applies the grant live through `apply_flag_settings` and answers with an
+   * `add_directory_result`, which lands on `lastDirectoryGrant`, after a
+   * granted folder has reached the metadata store's `additionalDirectories`.
+   */
+  addDirectory(directory: string): void {
+    if (this._disposed) return;
+    this.write(
+      FeedId.CODE_INPUT,
+      encodeCodeInputPayload({ type: "add_directory", directory }, this.tugSessionId),
+    );
   }
 
   /**

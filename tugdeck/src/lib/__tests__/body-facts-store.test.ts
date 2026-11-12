@@ -22,6 +22,7 @@ function facts(over: Partial<CardFactsValue> = {}): CardFactsValue {
     titleBar: null,
     canInterrupt: false,
     compacted: false,
+    directories: [],
     dormant: false,
     ...over,
   };
@@ -64,6 +65,23 @@ describe("facts", () => {
     await bus.flush();
     expect(store.activityOf("a")).toBe("idle");
     expect(store.canInterrupt("a")).toBe(false);
+  });
+
+  test("a card's granted folders are what its body last said, and hold still between", async () => {
+    const { store, a } = await setup();
+    const none = store.directories("a");
+    expect(none).toEqual([]);
+    expect(store.directories("a")).toBe(none);
+
+    cardFacts.on(a.bus).set(facts({ directories: ["/u/shared", "/u/docs"] }));
+    await bus.flush();
+    const held = store.directories("a");
+    expect(held).toEqual(["/u/shared", "/u/docs"]);
+    expect(store.directories("a")).toBe(held);
+
+    cardFacts.on(a.bus).set(facts());
+    await bus.flush();
+    expect(store.directories("a")).toEqual([]);
   });
 
   test("identical facts keep the object and notify nobody", async () => {

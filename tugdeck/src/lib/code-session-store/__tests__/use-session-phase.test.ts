@@ -88,6 +88,7 @@ describe("unknown liveness reads idle, never danger", () => {
       titleBar: null,
       canInterrupt: true,
       compacted: false,
+      directories: [],
       dormant: false,
     });
     await bus.flush();

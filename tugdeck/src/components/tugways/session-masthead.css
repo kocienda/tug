@@ -434,6 +434,25 @@
   justify-content: flex-start;
 }
 
+/* The DIRECTORIES row lists one folder per line, so its key sits at the top of
+   the run rather than centred against it, and each folder elides on its own
+   line rather than the run being cut as one. */
+.session-masthead-telemetry-row[data-row="directories"] {
+  align-items: start;
+}
+
+.session-masthead-telemetry-directories {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.session-masthead-telemetry-directory {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* An ENCLOSED value — the atom's pill, the citation's badge — is a bordered
    thing, and `overflow: hidden` on the cell around it cuts the border off
    mid-curve rather than eliding the text. So the cell stops clipping and the

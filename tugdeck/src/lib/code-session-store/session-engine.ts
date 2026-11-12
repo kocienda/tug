@@ -646,6 +646,7 @@ export class SessionEngine {
       case "control_request_forward":
       case "cost_update":
       case "context_breakdown":
+      case "add_directory_result":
       case "error":
         return frame;
       case "turn_cancelled":

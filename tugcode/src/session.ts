@@ -39,12 +39,14 @@ import type {
   ReplayRelocationOrigin,
   SideQuestion,
   SideQuestionAnswer,
+  AddDirectoryResult,
   InterruptNoop,
   StopAllWorkDone,
   SessionStageSpec,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
 import {
   type ReplayTelemetry,
@@ -106,6 +108,7 @@ import {
   buildWakeStartedMessage,
   extractAsyncLaunch,
   mapStreamEvent,
+  reportedAdditionalDirectories,
   routeTopLevelEvent,
   streamingUsageFrame,
   terseWakeSummary,
@@ -305,6 +308,14 @@ const RESULT_WATCHDOG_MS = 12000;
  * drains even the largest message in a fraction of it.
  */
 const STDIN_WRITE_TIMEOUT_MS = RESULT_WATCHDOG_MS;
+
+/**
+ * How long a folder grant waits for claude to answer its
+ * `apply_flag_settings` request. claude answers at once when it is reading
+ * its input; silence past this means the process is gone or wedged, and the
+ * grant is reported refused rather than left pending.
+ */
+const FLAG_SETTINGS_TIMEOUT_MS = 10_000;
 
 /** A `FileSink` result is a byte count, or a promise of one while the pipe is full. */
 function isPending<T>(result: T | Promise<T>): result is Promise<T> {
@@ -510,6 +521,39 @@ export class SessionManager {
    * {@link currentArc} is; a rotation naming none clears it.
    */
   private currentAutocompactPct: number | null = null;
+  /**
+   * The folders this session has been granted beyond its own directory, in
+   * grant order — the bridge's `/add-dir`. Applied live with
+   * `apply_flag_settings`, whose list *replaces* the last one sent, so every
+   * grant sends the whole of this; and re-applied as `--add-dir` on every
+   * spawn through {@link liveSpawnConfig}, because the flag layer dies with
+   * the process. Grows only when claude has accepted the request carrying it.
+   */
+  private additionalDirectories: string[] = [];
+  /**
+   * The folders claude's last `system/init` reported, the Tug data root
+   * excluded. They include folders granted other ways — a project's
+   * `permissions.additionalDirectories`, say — that {@link additionalDirectories}
+   * never sees, so the list sent between turns is this and that together.
+   */
+  private reportedDirectories: string[] = [];
+  /**
+   * The tail of the grants in flight. Grants run one after another so each
+   * request's list includes every folder accepted before it: two sent at once
+   * would each carry a list missing the other's folder, and the later one
+   * would revoke it.
+   */
+  private addDirectoryChain: Promise<void> = Promise.resolve();
+  /**
+   * In-flight `apply_flag_settings` requests, keyed by control `request_id`,
+   * each settled by claude's turn-free `control_response` — caught in
+   * {@link handleClaudeLine} before turn routing, like the side questions,
+   * so a grant answers idle or mid-turn.
+   */
+  private pendingFlagSettings = new Map<
+    string,
+    { resolve: () => void; reject: (err: Error) => void }
+  >();
   /**
    * Optional `/context`-style breakdown emitter. Injected by main.ts
    * after reading the user's Claude Code settings; null in tests and
@@ -816,6 +860,13 @@ export class SessionManager {
        */
       crashRespawn?: boolean;
       /**
+       * The folders this session already holds, read off its ledger row by
+       * tugcast and forwarded as `--granted-dir` ([main.ts]), in grant order.
+       * They seed {@link additionalDirectories}, so the first spawn of a
+       * resume carries them. Omit for a session granted none.
+       */
+      grantedDirectories?: readonly string[];
+      /**
        * Starts the claude process from the arguments and environment the
        * manager composed. Omit → `ClaudeProcess`'s default spawner, which resolves the
        * binary and calls `Bun.spawn`. Tests pass a fake child here.
@@ -844,6 +895,9 @@ export class SessionManager {
       options?.claudeHome ?? claudeHomeFromEnv();
     this.relocation = options?.relocation ?? null;
     this.crashRespawn = options?.crashRespawn ?? false;
+    // Deduped, in order: the seed is what the first spawn's `--add-dir` flags
+    // and every later grant's whole list are built from.
+    this.additionalDirectories = [...new Set(options?.grantedDirectories ?? [])];
     this.jsonlReader = options?.jsonlReader ?? defaultJsonlReader;
     this.jsonlWriter = options?.jsonlWriter ?? defaultJsonlWriter;
     this.contextBreakdownEmitter = options?.contextBreakdownEmitter ?? null;
@@ -905,7 +959,7 @@ export class SessionManager {
   /**
    * The spawn fields that describe the LIVE session's settings rather than
    * which conversation to open — plugin dir, permission mode, reasoning
-   * effort and model.
+   * effort, model, and the folders the session was granted.
    *
    * Every `buildClaudeArgs` caller needs all of them, and each caller differs
    * only in its session flags (`--resume` / `--session-id` / `--continue` /
@@ -920,6 +974,7 @@ export class SessionManager {
     | "permissionMode"
     | "effort"
     | "model"
+    | "additionalDirectories"
     | "pluginPrompts"
   > {
     return {
@@ -927,6 +982,7 @@ export class SessionManager {
       permissionMode: this.permissionManager.getMode(),
       effort: this.currentEffort,
       model: this.currentModel,
+      additionalDirectories: [...this.additionalDirectories],
       // Read per spawn rather than per session, so an edit to the shipped
       // prompt file takes effect on the next respawn.
       pluginPrompts: readPluginPrompts(this.getPluginDir()),
@@ -2195,6 +2251,15 @@ export class SessionManager {
     ) {
       return;
     }
+    // A folder grant's `apply_flag_settings` answer, caught turn-free for the
+    // same reason as the side question's: a grant may be made mid-turn.
+    if (
+      event.type === "control_response" &&
+      this.pendingFlagSettings.size > 0 &&
+      this.tryFlagSettingsControlResponse(event)
+    ) {
+      return;
+    }
     // Wake bracket detector ([D07]). The harness's built-in scheduler
     // fires ScheduleWakeup / CronCreate timers between turns and emits
     // a fresh `system/init` to bracket the resulting assistant turn.
@@ -2226,6 +2291,7 @@ export class SessionManager {
         this.sessionInitSeen = true;
         this.announceSegmentIfIdChanged(event);
       }
+      this.reportedDirectories = reportedAdditionalDirectories(event);
     }
     // Open a turn for a buffered follow-on. `handleUserMessage` opens
     // the turn for the idle case; when it instead queued the message
@@ -2416,6 +2482,7 @@ export class SessionManager {
     writeLine({
       type: "system_metadata",
       cwd: this.projectDir,
+      additional_directories: this.sessionDirectories(),
       ipc_version: IPC_VERSION,
     });
   }
@@ -4103,6 +4170,167 @@ export class SessionManager {
     sendControlRequest(stdin, generateRequestId(), { subtype: "set_model", model });
   }
 
+  /**
+   * Grant the session a further folder, live (the bridge's `/add-dir`).
+   *
+   * The folder must be an absolute path to a directory: claude's
+   * `apply_flag_settings` validates nothing and answers `success` for a path
+   * that does not exist, so this check is the only one a bad path meets. A
+   * folder already granted is a no-op. Otherwise the whole list, with the new
+   * folder at its end, goes in one `apply_flag_settings` request — the
+   * request replaces the list it last carried, so sending only the new folder
+   * would revoke the others — and the folder is kept only once claude
+   * answers `success`. Before claude is up the folder is simply kept, and the
+   * first spawn's `--add-dir` grants it.
+   *
+   * Every grant is answered with an `add_directory_result`: granted, with the
+   * whole list, or refused, with the reason — when the path is not a
+   * directory, when claude answers with an error, or when it does not answer
+   * at all.
+   */
+  handleAddDirectory(directory: string): Promise<void> {
+    const grant = this.addDirectoryChain.then(async () => {
+      try {
+        await this.addDirectory(directory);
+        this.emitSessionDirectories();
+        this.emitAddDirectoryResult(directory, null);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.log(`Directory grant refused: ${reason}`);
+        this.emitAddDirectoryResult(directory, reason);
+      }
+    });
+    this.addDirectoryChain = grant;
+    return grant;
+  }
+
+  /**
+   * The session's folders as the deck shows them: what claude's last
+   * `system/init` reported, then the bridge's grants it has not reported yet.
+   */
+  private sessionDirectories(): string[] {
+    const out = [...this.reportedDirectories];
+    for (const dir of this.additionalDirectories) {
+      if (!out.includes(dir)) out.push(dir);
+    }
+    return out;
+  }
+
+  /**
+   * Send the session's folders on a `system_metadata` frame carrying only
+   * them and the cwd. Claude reports its list only on a `system/init`, which
+   * waits for the next turn, so a grant between turns reaches the deck this
+   * way; tugcast's merge keeps every other field it holds.
+   */
+  private emitSessionDirectories(): void {
+    writeLine({
+      type: "system_metadata",
+      cwd: this.projectDir,
+      additional_directories: this.sessionDirectories(),
+      ipc_version: IPC_VERSION,
+    });
+  }
+
+  /** Emit the {@link AddDirectoryResult} for one grant; `reason` null is granted. */
+  private emitAddDirectoryResult(directory: string, reason: string | null): void {
+    const frame: AddDirectoryResult = {
+      type: "add_directory_result",
+      tug_session_id: this.sessionId,
+      directory,
+      ok: reason === null,
+      ...(reason === null ? {} : { reason }),
+      additional_directories: [...this.additionalDirectories],
+      ipc_version: IPC_VERSION,
+    };
+    writeLine(frame);
+  }
+
+  private async addDirectory(directory: string): Promise<void> {
+    const raw = directory.trim();
+    if (!isAbsolute(raw)) {
+      throw new Error(`${raw === "" ? "(empty)" : raw} is not an absolute path`);
+    }
+    const dir = resolvePath(raw);
+    let isDirectory = false;
+    try {
+      isDirectory = statSync(dir).isDirectory();
+    } catch {
+      throw new Error(`${dir} does not exist`);
+    }
+    if (!isDirectory) throw new Error(`${dir} is not a directory`);
+    if (this.additionalDirectories.includes(dir)) return;
+
+    const list = [...this.additionalDirectories, dir];
+    if (this.claudeProcess) {
+      try {
+        await this.applyFlagSettings({ permissions: { additionalDirectories: list } });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`${dir}: ${reason}`);
+      }
+    }
+    console.log(`Granted directory: ${dir}`);
+    this.additionalDirectories = list;
+  }
+
+  /**
+   * Send one `apply_flag_settings` control request and wait for claude's
+   * answer, rejecting on an error answer or on silence past
+   * {@link FLAG_SETTINGS_TIMEOUT_MS}.
+   */
+  private applyFlagSettings(settings: Record<string, unknown>): Promise<void> {
+    const child = this.claudeProcess;
+    if (!child) return Promise.reject(new Error("no claude process"));
+    const requestId = generateRequestId();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pendingFlagSettings.delete(requestId)) {
+          reject(new Error("claude did not answer the request"));
+        }
+      }, FLAG_SETTINGS_TIMEOUT_MS);
+      this.pendingFlagSettings.set(requestId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
+      sendControlRequest(child.stdin, requestId, {
+        subtype: "apply_flag_settings",
+        settings,
+      });
+    });
+  }
+
+  /**
+   * Settle a pending {@link applyFlagSettings} from its `control_response`.
+   * Returns `true` (consumed) when the response matched one. The answer's
+   * `subtype` is `success`, or anything else with an `error` string beside it.
+   */
+  private tryFlagSettingsControlResponse(
+    event: Record<string, unknown>,
+  ): boolean {
+    const requestId = readControlResponseRequestId(event);
+    if (requestId === null) return false;
+    const pending = this.pendingFlagSettings.get(requestId);
+    if (pending === undefined) return false;
+    this.pendingFlagSettings.delete(requestId);
+    const response = isRecord(event.response) ? event.response : {};
+    if (response.subtype === "success") {
+      pending.resolve();
+    } else {
+      const message =
+        typeof response.error === "string" && response.error !== ""
+          ? response.error
+          : "claude refused the request";
+      pending.reject(new Error(message));
+    }
+    return true;
+  }
+
   /** The `rewind_preview` verb — {@link Rewind.handleRewindPreview}. */
   handleRewindPreview(msg: RewindPreview): Promise<void> {
     return this.rewind.handleRewindPreview(msg);
@@ -4429,6 +4657,11 @@ export class SessionManager {
     // card, so a rotation naming none spawns claude without it.
     this.currentArc = stage?.arc ?? null;
     this.currentAutocompactPct = stage?.autocompact_pct ?? null;
+    // A new session starts without the folders the last one was granted —
+    // a grant belongs to the session it was made in. tugcast clears its
+    // record on the same segment kinds, `new` and `rotation`.
+    this.additionalDirectories = [];
+    this.reportedDirectories = [];
 
     // The effort is recorded before the spawn so the level rides that one
     // spawn. Setting it afterwards would cost a second respawn through
@@ -4480,6 +4713,9 @@ export class SessionManager {
     // claude id is known synchronously here (we minted it above), so
     // no need to wait for claude's own emission.
     writeLine({ type: "session_init", session_id: this.sessionId, ipc_version: IPC_VERSION });
+    // The card still holds the folders the last session was granted, and
+    // claude reports none until a turn; say now that this session has none.
+    this.emitSessionDirectories();
   }
 
   /**

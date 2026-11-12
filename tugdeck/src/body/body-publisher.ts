@@ -181,6 +181,9 @@ export function readBodyCardFacts(cardId: string): CardFactsValue {
     activity: snapshot === null ? null : sessionPhaseFromSnapshot(snapshot, cardJoinReady(cardId)),
     canInterrupt: snapshot?.canInterrupt === true,
     compacted: snapshot !== null && snapshot.compactionSeed !== null,
+    // The folders granted beyond the project directory, which the shell's
+    // Session Summary lists in its Directories row.
+    directories: [...(cardServicesStore.getServices(cardId)?.sessionMetadataStore.getSnapshot().additionalDirectories ?? [])],
     // This page's own dormancy, which the masthead and the Cards rows read.
     dormant: bodyVisibilityStore.getSnapshot().dormant,
     // What the card holds as this page's own registries know it; the shell's
@@ -326,7 +329,9 @@ export function installBodyPublisher(
     watched = store;
     // The changes feed moves the arc's join offer, which the phase key folds in.
     const changes = services?.changesController ?? null;
-    const releases = [store?.subscribe(publish), changes?.subscribe(publish)];
+    // The metadata store moves the granted folders.
+    const metadata = services?.sessionMetadataStore ?? null;
+    const releases = [store?.subscribe(publish), changes?.subscribe(publish), metadata?.subscribe(publish)];
     releaseSession = store === null ? null : () => releases.forEach((release) => release?.());
   };
   const onServices = (): void => {

@@ -197,6 +197,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "Session | AI Settings… | - | runCardCommand: | session.ai",
         "Session | Cycle Permission Mode | ⌃⌥⌘p | cyclePermissionModeFromMenu: | session.permissionMode.cycle",
         "Session | Permission Rules… | - | runCardCommand: | session.permissionRules",
+        "Session | Add Project Directory… | - | runCardCommand: | session.addProjectDir",
         "Session | ---",
         "Session | Rewind… | - | runCardCommand: | session.rewind",
         "Session | Compact Conversation | - | runCardCommand: | session.compact",

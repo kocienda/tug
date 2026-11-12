@@ -112,6 +112,11 @@ pub const CREATE_SESSIONS_SQL: &str = "
         -- selector for every later spawn — so the card stayed pinned
         -- on a stage model through the user's own `/new`, forever.
         hand_back_owed    INTEGER NOT NULL DEFAULT 0,
+        -- The folders this session was granted beyond its own
+        -- directory (the bridge's `/add-dir`), a JSON array of
+        -- absolute paths in grant order. NULL for none. Kept so a
+        -- session resumed across launches is spawned with them.
+        granted_dirs      TEXT,
         -- The unread mark's two stamps, in ms. `last_turn_end_at` is
         -- the last live turn that completed (never a cancelled or an
         -- errored one); `last_attended_at` is the last time the user

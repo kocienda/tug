@@ -161,6 +161,14 @@ export interface ClaudeSpawnConfig {
    */
   effort?: string | null;
   /**
+   * Folders the session was granted beyond its own directory, in grant
+   * order, each emitted as its own `--add-dir` beside the Tug data root's.
+   * A grant is applied live through `apply_flag_settings`, but that layer
+   * dies with the process, so every spawn carries the list again or the
+   * respawned session silently loses what it was granted.
+   */
+  additionalDirectories?: readonly string[];
+  /**
    * The plugin's prompt texts, appended to the system prompt after the nudge
    * in the order {@link PLUGIN_PROMPT_FILES} names them. Read from the plugin
    * at every (re)spawn; an absent file contributes nothing, and with none the
@@ -341,6 +349,13 @@ export function buildClaudeArgs(config: ClaudeSpawnConfig): string[] {
     "--add-dir", tugDataRoot(),
     "--settings", CLAUDE_SPAWN_SETTINGS,
   ];
+
+  // The session's granted folders — one `--add-dir` each, on every spawn, so
+  // a resume, an effort change, a fork or a continue keeps what the session
+  // was granted. The Tug data root's flag above is separate and unconditional.
+  for (const dir of config.additionalDirectories ?? []) {
+    args.push("--add-dir", dir);
+  }
 
   if (config.model) {
     args.push("--model", config.model);

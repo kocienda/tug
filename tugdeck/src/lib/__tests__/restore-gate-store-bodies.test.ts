@@ -41,6 +41,7 @@ const FACTS: CardFactsValue = {
   titleBar: null,
   canInterrupt: false,
   compacted: false,
+  directories: [],
   dormant: false,
 };
 

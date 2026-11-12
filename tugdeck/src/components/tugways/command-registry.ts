@@ -726,6 +726,9 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
     (chain) => sessionBound(chain) && (chain.menu.session?.hasTurns ?? false),
   ],
   ["compact", "Compact Conversation", "session.compact"],
+  // A grant goes to the running claude, so it waits for the turn to end the
+  // way the AI settings do.
+  ["add-dir", "Add Project Directory…", "session.addProjectDir", sessionSettingsChangeable],
   ["diff", "Show Project Diff", "session.diff"],
   ["context", "Show Context", "session.context"],
   ["usage", "Show Usage", "session.usage"],

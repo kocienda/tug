@@ -38,6 +38,7 @@ function facts(over: Partial<CardFactsValue> = {}): CardFactsValue {
     titleBar: null,
     canInterrupt: false,
     compacted: false,
+    directories: [],
     dormant: false,
     ...over,
   };

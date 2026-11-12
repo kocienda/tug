@@ -362,6 +362,17 @@ const systemMetadata = obj({
   output_style: opt(str),
   fast_mode_state: opt(str),
   apiKeySource: opt(str),
+  additional_directories: opt(arr(str)),
+});
+
+const addDirectoryResult = obj({
+  type: lit("add_directory_result"),
+  ...envelope,
+  tug_session_id: str,
+  directory: str,
+  ok: bool,
+  reason: opt(str),
+  additional_directories: arr(str),
 });
 
 const controlRequestForward = obj({
@@ -745,6 +756,7 @@ export const OUTBOUND_DECODERS = {
   goal_feedback: goalFeedback,
   streaming_usage: streamingUsage,
   context_breakdown: contextBreakdown,
+  add_directory_result: addDirectoryResult,
   unknown_event: unknownEvent,
   error: errorFrame,
   resume_failed: resumeFailed,

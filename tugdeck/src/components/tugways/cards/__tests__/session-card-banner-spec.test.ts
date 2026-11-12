@@ -93,6 +93,7 @@ function baseSnap(
     permissionDenials: [],
     sessionInitTokens: null,
     lastContextBreakdown: null,
+    lastDirectoryGrant: null,
     lastError: null,
     lastReplayResult: null,
     replayEverCompleted: false,

@@ -49,6 +49,9 @@ function shellPageBus(): PageBus | null {
   return bus?.page.role === "shell" ? bus : null;
 }
 
+/** A card that has said no folders: one array, so a reader's snapshot holds still. */
+const NO_DIRECTORIES: readonly string[] = Object.freeze([]);
+
 export class BodyFactsStore extends Subscribable {
   private readonly composed = new Map<string, BodyFacts>();
   /** Releases the binding to every page bus and the subscriptions taken on each. */
@@ -104,6 +107,9 @@ export class BodyFactsStore extends Subscribable {
 
   /** Whether the card's session has been compacted. */
   compacted = (cardId: string): boolean => this.get(cardId).facts?.compacted === true;
+
+  /** The folders the card's session holds beyond its project directory. Stable until they change. */
+  directories = (cardId: string): readonly string[] => this.get(cardId).facts?.directories ?? NO_DIRECTORIES;
 
   /**
    * The card's cold restore as its body last said (`card.restoreHold`):

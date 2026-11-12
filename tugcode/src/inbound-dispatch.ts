@@ -99,6 +99,17 @@ export const INBOUND_HANDLERS: InboundHandlers = {
       writeLine,
     ),
 
+  // Grant a further folder live, through `apply_flag_settings` — no respawn.
+  // Fire-and-forget like the others: the handler awaits claude's answer and
+  // reports it, granted or refused, as an `add_directory_result` frame; only
+  // an unexpected throw reaches `reportAsync`.
+  add_directory: (msg, { sessionManager, writeLine }) =>
+    reportAsync(
+      sessionManager?.handleAddDirectory(msg.directory),
+      "Add directory failed",
+      writeLine,
+    ),
+
   stop_task: (msg, { sessionManager }) =>
     sessionManager?.handleStopTask(msg.task_id),
 

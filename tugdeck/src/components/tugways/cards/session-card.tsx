@@ -151,7 +151,7 @@ import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
 import { TugInlineAlert } from "../tug-inline-alert";
-import { AlertTriangle, GitBranch, Unplug } from "lucide-react";
+import { AlertTriangle, FolderPlus, GitBranch, Unplug } from "lucide-react";
 
 import {
   TugSheet,
@@ -159,7 +159,9 @@ import {
   useTugSheet,
   type TugSheetHandle,
 } from "../tug-sheet";
-import { presentAlertSheet } from "../tug-alert-sheet";
+import { presentAlertSheet, presentAlertSheetChoice } from "../tug-alert-sheet";
+import { awaitDirectoryGrant, rememberDirectory } from "@/lib/directory-grant";
+import { displayPath } from "@/lib/memory-destinations";
 import { useResponderChain } from "../responder-chain-provider";
 import { useResponder } from "../use-responder";
 import { useCopyableButton } from "../use-copyable-text";
@@ -3839,6 +3841,66 @@ export function SessionCardBody({
     });
   };
 
+  // `/add-dir` — grant the session a further folder, live ([B01]–[B03]). The
+  // folder is the draft's first path atom, else the argument, else the
+  // picker, as `/cd` takes its target. A dialog then asks the terminal's
+  // question: this session only, or remembered in the project's local
+  // settings as well. The bulletin waits on the folder appearing in the
+  // session's list; a refusal posts tugcode's reason ([B07]). A grant goes to
+  // the running claude, so it waits for the turn to end. Reads live ([L07]).
+  const addDirectory = (args: string, draft?: SlashCommandDraft): void => {
+    const notify = paneBulletinRef.current;
+    const invoked = cardSessionBindingStore.getBinding(cardId);
+    if (invoked === undefined || getConnection() === null) return;
+    if (!guardTurnIdleForSetting("the directories")) return;
+    const grant = (dir: string) => {
+      void presentAlertSheetChoice(cardPickerSheet.showSheet, {
+        title: "Add this directory?",
+        message: `${displayPath(dir, hostFactsStore.getSnapshot()?.home ?? "")} becomes readable and writable by this session.`,
+        icon: <FolderPlus aria-hidden="true" />,
+        confirmLabel: "Yes, for this session",
+        alternateLabel: "Yes, and remember this directory",
+        cancelLabel: "Cancel",
+      }).then(async (choice) => {
+        if (choice === null) return;
+        // The dialog is asynchronous: read the binding and the turn again.
+        const binding = cardSessionBindingStore.getBinding(cardId);
+        if (binding === undefined || getConnection() === null) return;
+        if (!guardTurnIdleForSetting("the directories")) return;
+        if (choice === "alternate" && !(await rememberDirectory(binding.projectDir, dir))) {
+          paneBulletinRef.current?.caution("Couldn't save the directory to the project's settings");
+        }
+        const answer = awaitDirectoryGrant({
+          grants: codeSessionStore,
+          directories: sessionMetadataStore,
+          directory: dir,
+        });
+        codeSessionStore.addDirectory(dir);
+        const outcome = await answer;
+        const shown = displayPath(outcome.directory, hostFactsStore.getSnapshot()?.home ?? "");
+        if (outcome.ok) paneBulletinRef.current?.success(`Directory added: ${shown}`);
+        else paneBulletinRef.current?.caution(`Couldn't add the directory: ${outcome.reason}`);
+      });
+    };
+    const target = resolveDirectoryTarget({
+      atomPath: firstPathAtomValue(draft?.atoms ?? []),
+      argText: args,
+      projectDir: invoked.projectDir,
+      home: hostFactsStore.getSnapshot()?.home ?? null,
+    });
+    if (target !== null) {
+      grant(target);
+      return;
+    }
+    if (!isPathPickerAvailable()) {
+      notify?.caution("Directory picker needs the Tug app");
+      return;
+    }
+    void pickPath("directory").then((dir) => {
+      if (dir !== null) grant(dir);
+    });
+  };
+
   const slashCommandSurfaces: Record<
     LocalCommandName,
     (args: string, draft?: SlashCommandDraft) => void
@@ -4124,6 +4186,7 @@ export function SessionCardBody({
     // first path atom, else the argument, else the picker. Reads live
     // ([L07]).
     cd: (args, draft) => changeDirectory(args, draft),
+    "add-dir": (args, draft) => addDirectory(args, draft),
     "change-directory": (args, draft) => changeDirectory(args, draft),
     // `/rename <text>` names the session directly; bare `/rename` opens the
     // one-field dialog seeded with the current name ([#step-13d]). The

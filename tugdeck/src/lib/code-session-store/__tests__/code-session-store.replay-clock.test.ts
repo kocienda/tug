@@ -522,6 +522,8 @@ describe("BRACKET_FRAME_TYPES — the partition is total", () => {
     "task_started",
     "task_updated",
     "task_progress",
+    // A folder grant's answer — a live tugcode's, never a replay's.
+    "add_directory_result",
     // `/rewind`, which cannot run during a restore.
     "prompt_anchor",
     "rewind_preview_result",

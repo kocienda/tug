@@ -79,6 +79,7 @@ export function buildDefaultsSnapshot(
     slashCommands: [],
     models: catalog ?? [],
     effort,
+    additionalDirectories: [],
   };
   lastBuild = { modelSelector, permissionMode, effort, catalog, snapshot };
   return snapshot;

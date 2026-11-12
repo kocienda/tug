@@ -44,6 +44,7 @@ const FRAMES: CatalogFrame[] = listGoldenVersions().flatMap((version) =>
 
 /** Tags with a decoder and no frame anywhere in the catalog, sorted. */
 const UNCAPTURED = [
+  "add_directory_result",
   "add_user_message",
   "api_retry",
   "assistant_opener",

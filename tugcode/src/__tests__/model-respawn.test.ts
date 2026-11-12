@@ -4,7 +4,7 @@
  *
  * Setting a model is a live `set_model` control request to the running claude.
  * But tugcode kills and respawns that process on its own initiative — to apply
- * an `--effort` change, to apply an `/add-dir`, to fork, to continue — and the
+ * an `--effort` change, to fork, to continue — and the
  * new process has never seen that control request. Unless tugcode re-applies
  * the selection as `--model`, every one of those respawns silently reverts the
  * user to the account default.

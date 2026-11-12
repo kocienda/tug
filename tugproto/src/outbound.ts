@@ -660,6 +660,16 @@ export interface SystemMetadata {
   output_style?: string;
   fast_mode_state?: string;
   apiKeySource?: string;
+  /**
+   * The folders the session may read and write beyond its project
+   * directory, the Tug data root excluded (it is plumbing every spawn
+   * grants). Claude's `system/init` reports them; tugcode also sends its
+   * own list on the spawn-time frame and after every granted
+   * `add_directory`, since Claude reports nothing between turns. Present
+   * means the whole list, so an empty one is "none"; absent says nothing
+   * and tugcast's merge keeps the list it holds.
+   */
+  additional_directories?: string[];
 }
 
 /**
@@ -1054,6 +1064,37 @@ export interface SideQuestionAnswer {
   request_id: string;
   answer: string | null;
   synthetic: boolean;
+  ipc_version: number;
+}
+
+/**
+ * tugcode → client answer to an `add_directory` grant: whether the folder
+ * was granted, and the session's whole granted list afterwards.
+ *
+ * `ok` is `true` when claude accepted the `apply_flag_settings` request that
+ * carried the folder, or the folder was already granted, or claude was not
+ * yet up and the folder will ride the first spawn's `--add-dir`. It is
+ * `false`, with `reason`, when the path is not an absolute path to a
+ * directory or claude refused or did not answer the request.
+ *
+ * `additional_directories` is tugcode's own list, the folders this session
+ * was granted through the bridge in grant order, after the grant (unchanged
+ * by a refusal). It is the confirmation between turns: claude emits no
+ * `system:init` until the next turn, and that `init`'s
+ * `additional_directories` is the authority that supersedes this one.
+ *
+ * Deliberately not an `error` frame, which puts the card in its errored
+ * state: a refused folder is a caution, not a broken session.
+ */
+export interface AddDirectoryResult {
+  type: "add_directory_result";
+  tug_session_id: string;
+  /** The folder the grant named, as the client sent it. */
+  directory: string;
+  ok: boolean;
+  /** Why the grant was refused; present only when `ok` is false. */
+  reason?: string;
+  additional_directories: string[];
   ipc_version: number;
 }
 
@@ -1785,6 +1826,7 @@ export type OutboundMessage =
   | SkillsInventory
   | HooksInventory
   | SideQuestionAnswer
+  | AddDirectoryResult
   | StopAllWorkDone
   | PromptAnchor
   | UnknownEvent;
@@ -1849,6 +1891,7 @@ export const OUTBOUND_TAGS = [
   "skills_inventory",
   "hooks_inventory",
   "side_question_answer",
+  "add_directory_result",
   "stop_all_work_done",
   "prompt_anchor",
   "unknown_event",

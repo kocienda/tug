@@ -1908,6 +1908,7 @@ impl SessionLedger {
         Self::migrate_sessions_add_demoted(conn)?;
         Self::migrate_sessions_add_hand_back_owed(conn)?;
         Self::migrate_sessions_add_attention_stamps(conn)?;
+        Self::migrate_sessions_add_granted_dirs(conn)?;
         Self::migrate_scan_cache_add_resume_columns(conn)?;
         Self::migrate_overview_posts_add_elapsed_ms(conn)?;
         Self::migrate_overview_posts_add_project_dir(conn)?;
@@ -2757,6 +2758,25 @@ impl SessionLedger {
         }
         Ok(())
     }
+    /// Self-healing add of `sessions.granted_dirs` — the folders a session
+    /// was granted beyond its own directory. Pre-column rows read `NULL`, no
+    /// folders, which is what they had. No-op on a fresh DB (the CREATE TABLE
+    /// defines it) or when already migrated.
+    fn migrate_sessions_add_granted_dirs(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if cols.is_empty() {
+            return Ok(());
+        }
+        if !cols.iter().any(|(n, _)| n == "granted_dirs") {
+            match conn.execute("ALTER TABLE sessions ADD COLUMN granted_dirs TEXT", []) {
+                Ok(_) => {}
+                Err(err) if is_duplicate_column(&err) => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Ok(())
+    }
+
     /// Self-healing add of `minted_tags.line_id` — the line that owns a
     /// spelling ([P08]). A no-op when the table is absent (the CREATE-batch
     /// then declares it) or when the column is already there.
@@ -5395,6 +5415,45 @@ impl SessionLedger {
         drop(conn);
         self.notify_sessions_changed();
         Ok(())
+    }
+
+    /// Record the folders `session_id` was granted beyond its own directory,
+    /// in grant order; an empty list clears the record. Not a row-change
+    /// notification: nothing a session row's readers show depends on it.
+    pub fn set_granted_dirs(&self, session_id: &str, dirs: &[String]) -> Result<(), LedgerError> {
+        let value = if dirs.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(dirs)?)
+        };
+        let conn = self.db.lock();
+        let affected = conn.execute(
+            "UPDATE sessions SET granted_dirs = ?2 WHERE session_id = ?1",
+            params![session_id, value],
+        )?;
+        if affected == 0 {
+            return Err(LedgerError::NotFound(session_id.to_owned()));
+        }
+        Ok(())
+    }
+
+    /// The folders `session_id` was granted beyond its own directory, in
+    /// grant order.
+    ///
+    /// Total: an unknown session, a row written before the column, a value
+    /// that does not parse, and a query error all read as no folders — a
+    /// session spawned without a grant asks again, which is the safe miss.
+    pub fn granted_dirs(&self, session_id: &str) -> Vec<String> {
+        let conn = self.db.lock();
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT granted_dirs FROM sessions WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(None);
+        raw.and_then(|text| serde_json::from_str::<Vec<String>>(&text).ok())
+            .unwrap_or_default()
     }
 
     /// What a rotation seated `session_id` as, or `None` if no rotation did.
@@ -11357,6 +11416,61 @@ mod tests {
             l.stage_provenance("older"),
             Some(("review".to_string(), Some("opus".to_string())))
         );
+    }
+
+    #[test]
+    fn a_sessions_granted_folders_round_trip_on_its_row() {
+        // A resumed session is spawned with the folders it held, so they live
+        // on the row: in grant order, cleared by an empty list, and read as
+        // none for a row that never held any or a session that is not there.
+        let l = fresh();
+        for id in ["granted", "plain"] {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), id, None)
+                .expect("record_spawn");
+        }
+        let dirs = vec!["/Users/me/notes".to_string(), "/Users/me/specs".to_string()];
+        l.set_granted_dirs("granted", &dirs).expect("set_granted_dirs");
+        assert_eq!(l.granted_dirs("granted"), dirs);
+        assert!(l.granted_dirs("plain").is_empty(), "a row never granted any holds none");
+        assert!(l.granted_dirs("no-such-session").is_empty(), "an unknown session is not an error");
+
+        l.set_granted_dirs("granted", &[]).expect("clear");
+        assert!(l.granted_dirs("granted").is_empty());
+        let stored: Option<String> = l
+            .db
+            .lock()
+            .query_row("SELECT granted_dirs FROM sessions WHERE session_id = 'granted'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(stored, None, "an empty list is stored as no record, not as `[]`");
+
+        assert!(matches!(
+            l.set_granted_dirs("no-such-session", &dirs),
+            Err(LedgerError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn a_ledger_opened_over_a_pre_migration_file_accepts_granted_folders() {
+        // Additive and self-healing: a database written before the column
+        // grows it on the next open, and its rows read as holding none.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        {
+            let l = SessionLedger::open(&path, 0).expect("open");
+            l.record_spawn("older", WS_A, "/proj", "card-1", millis(0), "older", None)
+                .expect("record_spawn");
+            let conn = l.db.lock();
+            conn.execute("ALTER TABLE sessions DROP COLUMN granted_dirs", [])
+                .expect("drop the column so the reopen has to add it");
+        }
+
+        let l = SessionLedger::open(&path, 0).expect("reopen");
+        assert!(l.granted_dirs("older").is_empty());
+        let dirs = vec!["/Users/me/notes".to_string()];
+        l.set_granted_dirs("older", &dirs).expect("the reopened ledger accepts the write");
+        assert_eq!(l.granted_dirs("older"), dirs);
     }
 
     #[test]

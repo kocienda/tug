@@ -884,6 +884,21 @@ export interface ContextBreakdownCategory {
 }
 
 /**
+ * The answer to the session's latest `/add-dir` grant
+ * (`add_directory_result`): whether the folder was granted, and why not when
+ * it was refused. The session's folder list itself is the metadata store's
+ * (`SessionMetadataSnapshot.additionalDirectories`), which a granted folder
+ * has already reached when this lands. A fresh object per answer, so two
+ * refusals of the same folder are two answers.
+ */
+export interface DirectoryGrantSnapshot {
+  directory: string;
+  ok: boolean;
+  /** Why the grant was refused; `null` when granted. */
+  reason: string | null;
+}
+
+/**
  * Reducer projection of the most-recent `context_breakdown` wire
  * frame. Drives the Session card's Context popover when present. The
  * popover paints the categories in array order; `contextMax` is the
@@ -1335,6 +1350,11 @@ export interface CodeSessionSnapshot {
    * renders.
    */
   lastContextBreakdown: ContextBreakdownSnapshot | null;
+  /**
+   * The answer to the latest `/add-dir` grant, `null` until one lands. The
+   * reference changes only when a new answer does ([L02]).
+   */
+  lastDirectoryGrant: DirectoryGrantSnapshot | null;
   lastError: {
     cause:
       | "session_state_errored"

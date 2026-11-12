@@ -576,6 +576,10 @@ struct MenuBarBuilder {
         // The tool-permission RULES editor — a different surface from the AI
         // mixer, so it keeps its own row.
         sessionMenu.addItem(sessionCommandItem("Permission Rules…", "permissions", "session.permissionRules"))
+        // Grant this session another folder, live: the same command as a bare
+        // `/add-dir`, which opens the folder picker and asks the terminal's
+        // two-scope question. Disabled mid-turn by the registry gate.
+        sessionMenu.addItem(sessionCommandItem("Add Project Directory…", "add-dir", "session.addProjectDir"))
         sessionMenu.addItem(NSMenuItem.separator())
         sessionMenu.addItem(sessionCommandItem("Rewind…", "rewind", "session.rewind"))
         sessionMenu.addItem(sessionCommandItem("Compact Conversation", "compact", "session.compact"))

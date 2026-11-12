@@ -253,6 +253,7 @@ describe("resolveAiConfigSources", () => {
       slashCommands: [],
       models: CATALOG,
       effort: null,
+      additionalDirectories: [],
       ...over,
     };
   }

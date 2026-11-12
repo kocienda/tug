@@ -44,11 +44,20 @@ export interface AlertSheetOptions {
   confirm?: { role?: TugButtonRole };
   /** Cancel button label, or `null` for a single-button alert. @default null */
   cancelLabel?: string | null;
+  /**
+   * A second affirmative choice, shown outlined between Cancel and the
+   * confirm button, or `null` for none. Read through
+   * {@link presentAlertSheetChoice}, which says which of the two was taken.
+   * @default null
+   */
+  alternateLabel?: string | null;
 }
 
 interface TugAlertSheetViewProps extends AlertSheetOptions {
   onConfirm: () => void;
   onCancel: () => void;
+  /** Required when `alternateLabel` is set. */
+  onAlternate?: () => void;
 }
 
 /**
@@ -62,8 +71,10 @@ export function TugAlertSheetView({
   confirmLabel = "OK",
   confirm,
   cancelLabel = null,
+  alternateLabel = null,
   onConfirm,
   onCancel,
+  onAlternate,
 }: TugAlertSheetViewProps): React.ReactElement {
   const confirmButtonRole = confirm?.role ?? "action";
   const iconNode =
@@ -77,7 +88,8 @@ export function TugAlertSheetView({
   // alerts seed the lone confirm.
   const focusGroup = React.useId();
   const CANCEL_ORDER = 0;
-  const CONFIRM_ORDER = 1;
+  const ALTERNATE_ORDER = 1;
+  const CONFIRM_ORDER = 2;
   const seedOrder =
     confirmButtonRole === "danger" && cancelLabel !== null ? CANCEL_ORDER : CONFIRM_ORDER;
   useSeedKeyView(`${focusGroup}:${seedOrder}`);
@@ -114,6 +126,19 @@ export function TugAlertSheetView({
             focusOrder={CANCEL_ORDER}
           >
             {cancelLabel}
+          </TugPushButton>
+        ) : null}
+        {alternateLabel !== null ? (
+          <TugPushButton
+            size="sm"
+            emphasis="outlined"
+            role="action"
+            onClick={onAlternate}
+            data-testid="alert-alternate"
+            focusGroup={focusGroup}
+            focusOrder={ALTERNATE_ORDER}
+          >
+            {alternateLabel}
           </TugPushButton>
         ) : null}
         <TugPushButton
@@ -164,4 +189,35 @@ export function presentAlertSheet(
       />
     ),
   }).then((result) => result === "ok");
+}
+
+/** Which affirmative choice a {@link presentAlertSheetChoice} alert took. */
+export type AlertSheetChoice = "confirm" | "alternate";
+
+/**
+ * Present a pane-modal alert with two affirmative choices — the confirm
+ * button (the default, on Enter) and `alternateLabel` beside it — and resolve
+ * which was taken, or `null` when cancelled or dismissed. Presented as
+ * {@link presentAlertSheet} is, at `md` width so three buttons sit on one
+ * row.
+ */
+export function presentAlertSheetChoice(
+  showSheet: (options: ShowSheetOptions) => Promise<string | undefined>,
+  options: AlertSheetOptions & { alternateLabel: string },
+): Promise<AlertSheetChoice | null> {
+  return showSheet({
+    title: options.title,
+    displayWidth: "md",
+    hideHeader: true,
+    presentation: "rise",
+    bottomAnchorSelector: MODAL_REST_LINE,
+    content: (close) => (
+      <TugAlertSheetView
+        {...options}
+        onConfirm={() => close("confirm")}
+        onAlternate={() => close("alternate")}
+        onCancel={() => close()}
+      />
+    ),
+  }).then((result) => (result === "confirm" || result === "alternate" ? result : null));
 }

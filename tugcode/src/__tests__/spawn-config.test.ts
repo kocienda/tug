@@ -73,9 +73,19 @@ describe("buildClaudeArgs", () => {
     expect(args[idx + 1]).toBe("abc");
   });
 
-  test("emits exactly one --add-dir, the Tug data root", () => {
+  test("with no granted folders emits exactly one --add-dir, the Tug data root", () => {
     const args = buildClaudeArgs(defaultConfig);
     expect(args.filter((a) => a === "--add-dir").length).toBe(1);
+  });
+
+  test("emits one more --add-dir per granted folder, after the Tug data root's", () => {
+    const args = buildClaudeArgs({
+      ...defaultConfig,
+      additionalDirectories: ["/Users/me/notes", "/Users/me/specs"],
+    });
+    const dirs = args.flatMap((a, i) => (a === "--add-dir" ? [args[i + 1]] : []));
+    expect(dirs.length).toBe(3);
+    expect(dirs.slice(1)).toEqual(["/Users/me/notes", "/Users/me/specs"]);
   });
 
   test("with continue: true includes --continue", () => {

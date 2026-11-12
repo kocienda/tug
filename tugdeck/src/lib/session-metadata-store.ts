@@ -95,6 +95,14 @@ export interface SessionMetadataSnapshot {
    * respawn-to-apply ([R07]) emits no fresh metadata for a resumed session.
    */
   effort: string | null;
+  /**
+   * The folders the session may read and write beyond its project directory
+   * (`system_metadata.additional_directories`), in the order granted, the Tug
+   * data root excluded. Empty until a frame carries them, and when there are
+   * none. tugcode sends the list after every granted `/add-dir`, so a grant
+   * shows here without waiting for a turn.
+   */
+  additionalDirectories: string[];
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -108,6 +116,7 @@ const EMPTY_SNAPSHOT: SessionMetadataSnapshot = {
   slashCommands: [],
   models: [],
   effort: null,
+  additionalDirectories: [],
 };
 
 // ── Reconciliation: two sources, one derived snapshot ──────────────────────────
@@ -159,6 +168,8 @@ interface SystemRegion {
   cwd: string | null;
   version: string | null;
   slashCommands: SlashCommandInfo[];
+  /** `null` when the frame did not carry the field, which says nothing. */
+  additionalDirectories: string[] | null;
 }
 
 /**
@@ -215,6 +226,7 @@ function reconcileSnapshot(
         : cap.commands,
     models: cap.models,
     effort: opt.effort ?? cap.effort,
+    additionalDirectories: sys?.additionalDirectories ?? [],
   };
 }
 
@@ -438,6 +450,9 @@ function parseSystemRegion(payload: unknown): SystemRegion | null {
     cwd: typeof p.cwd === "string" ? p.cwd : null,
     version: typeof p.version === "string" ? p.version : null,
     slashCommands,
+    additionalDirectories: Array.isArray(p.additional_directories)
+      ? p.additional_directories.filter((d): d is string => typeof d === "string")
+      : null,
   };
 }
 
@@ -575,6 +590,25 @@ export class SessionMetadataStore extends Subscribable {
     // non-null. Carry the last real model forward when the incoming is blank.
     if (sys.model === null && this._system?.model != null) {
       sys.model = this._system.model;
+    }
+    // A frame without the folder list says nothing about it; one with the
+    // list, even empty, is the whole answer.
+    if (sys.additionalDirectories === null && this._system?.additionalDirectories != null) {
+      sys.additionalDirectories = this._system.additionalDirectories;
+    }
+    // A sparse frame — tugcode's spawn-time and folder-list frames, which
+    // tugcast forwards unmerged when it holds no row for the session yet (a
+    // `/new`, a rotation) — carries no catalog, mode or version. It says
+    // nothing about them, so the ones held stand, as tugcast's merge keeps
+    // an absent field; otherwise the command catalog would shrink to the
+    // handshake's until the next turn.
+    const raw = payload as Record<string, unknown>;
+    if (this._system !== null) {
+      if (!("slash_commands" in raw) && !("skills" in raw) && !("agents" in raw)) {
+        sys.slashCommands = this._system.slashCommands;
+      }
+      if (!("version" in raw)) sys.version = this._system.version;
+      if (!("permissionMode" in raw)) sys.permissionMode = this._system.permissionMode;
     }
     this._system = sys;
     // An optimistic override is superseded ONLY by a frame that actually

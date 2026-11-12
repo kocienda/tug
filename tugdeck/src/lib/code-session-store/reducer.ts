@@ -54,6 +54,7 @@ import type {
   CodeSessionEvent,
   ContentBlockStartEvent,
   ContextBreakdownEvent,
+  AddDirectoryResultEvent,
   ControlRequestForwardEvent,
   CostUpdateEvent,
   ReplayCompleteEvent,
@@ -107,6 +108,7 @@ import type {
   CardSessionMode,
   CodeSessionPhase,
   ContextBreakdownSnapshot,
+  DirectoryGrantSnapshot,
   ControlRequestForward,
   CostSnapshot,
   InterruptReason,
@@ -993,6 +995,8 @@ export interface CodeSessionState {
    * stability.
    */
   lastContextBreakdown: ContextBreakdownSnapshot | null;
+  /** The answer to the latest `/add-dir` grant; see `handleAddDirectoryResult`. */
+  lastDirectoryGrant: DirectoryGrantSnapshot | null;
   /**
    * Set of msg_ids already committed to the transcript. Used to
    * dedupe `turn_complete` events whose msg_id has already produced a
@@ -2087,6 +2091,7 @@ export function createInitialState(
     permissionDenials: [],
     sessionInitTokens: null,
     lastContextBreakdown: null,
+    lastDirectoryGrant: null,
     committedMsgIds: new Set(),
     lastReplayResult: null,
     replayEverCompleted: false,
@@ -6126,6 +6131,24 @@ function captureSessionInit(
 }
 
 /**
+ * `add_directory_result` reducer handler. Records the grant's answer on
+ * `state.lastDirectoryGrant` and nothing else: the folder list is the
+ * metadata store's, carried on `system_metadata`, which tugcode sends ahead
+ * of a granted answer. Fires no effect.
+ */
+function handleAddDirectoryResult(
+  state: CodeSessionState,
+  event: AddDirectoryResultEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const grant: DirectoryGrantSnapshot = {
+    directory: event.directory,
+    ok: event.ok,
+    reason: event.ok ? null : (event.reason ?? null),
+  };
+  return { state: { ...state, lastDirectoryGrant: grant }, effects: [] };
+}
+
+/**
  * `context_breakdown` reducer handler. Projects the wire frame onto
  * `state.lastContextBreakdown` and fires a `record-context-breakdown`
  * effect so the supervisor persists the latest blob.
@@ -9431,6 +9454,8 @@ function reduceEvent(
       return handleStreamingUsage(state, event);
     case "context_breakdown":
       return handleContextBreakdown(state, event);
+    case "add_directory_result":
+      return handleAddDirectoryResult(state, event);
     case "system_metadata":
       // [D09] SessionMetadataStore owns this feed — drop explicitly.
       return { state, effects: [] };

@@ -172,6 +172,32 @@ describe("turn content", () => {
 });
 
 describe("decoders the catalog has not captured", () => {
+  test("add_directory_result: granted, refused, and a list of paths", () => {
+    const granted = {
+      type: "add_directory_result",
+      tug_session_id: "tug",
+      directory: "/u/shared",
+      ok: true,
+      additional_directories: ["/u/shared"],
+      ipc_version: 2,
+    };
+    expect(failPath("add_directory_result", granted)).toBeNull();
+    const refused = { ...granted, ok: false, reason: "/u/shared does not exist", additional_directories: [] };
+    expect(failPath("add_directory_result", refused)).toBeNull();
+    expect(failPath("add_directory_result", { ...granted, additional_directories: [3] })).toBe(
+      "$.additional_directories[0]",
+    );
+    expect(failPath("add_directory_result", { ...granted, ok: "yes" })).toBe("$.ok");
+  });
+
+  test("system_metadata: the granted folders are a list of paths", () => {
+    const frame = { type: "system_metadata", cwd: "/u/p", additional_directories: ["/u/shared"], ipc_version: 2 };
+    expect(failPath("system_metadata", frame)).toBeNull();
+    expect(failPath("system_metadata", { ...frame, additional_directories: "/u/shared" })).toBe(
+      "$.additional_directories",
+    );
+  });
+
   test("turn_cancelled", () => {
     const frame = { type: "turn_cancelled", msg_id: "m", seq: 4, partial_result: "so far", ipc_version: 2 };
     expect(failPath("turn_cancelled", frame)).toBeNull();

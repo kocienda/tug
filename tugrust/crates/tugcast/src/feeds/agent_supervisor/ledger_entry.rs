@@ -96,6 +96,12 @@ pub struct LedgerEntry {
     /// before the first turn re-forks. `None` for every session that did not
     /// move.
     pub relocate_from: Option<RelocateOrigin>,
+    /// The folders the session holds beyond its own directory, in grant
+    /// order. `None` until the bridge first spawns, when it is read off the
+    /// ledger row the session resumes; then moved by every grant tugcode
+    /// confirms, and cleared by a new session or a rotation, which start
+    /// without them. Read on every spawn and forwarded as `--granted-dir`.
+    pub granted_dirs: Option<Vec<String>>,
     /// Provisional mnemonic tag tugdeck minted "from the drop" and sent on the
     /// first `spawn_session`. Set once on the fresh insert and preserved across
     /// reconnects (like `permission_mode`); the ledger's `record_spawn` claims
@@ -499,6 +505,7 @@ impl LedgerEntry {
             session_mode,
             permission_mode: None,
             relocate_from: None,
+            granted_dirs: None,
             tag: None,
             line_id: None,
             pending_segments: std::collections::VecDeque::new(),

@@ -226,6 +226,11 @@ Type `/rewind`, or choose Session > Rewind. The sheet lists your messages, and y
 
 Type `/cd <path>`, or `/change-directory <path>`, or `/cd` with a path atom in it. A bare `/cd` opens a folder picker. The card moves and the conversation comes with it, carried into a new session in that directory. It is refused while a turn is running, on a card bound to an arc, and for the directory the card is already in. There is no menu item or chord for it.
 
+### Give this session another directory
+<!-- source: tugdeck/src/lib/slash-commands.ts (/add-dir); tugdeck/src/components/tugways/cards/session-card.tsx (addDirectory); tugdeck/src/lib/directory-grant.ts; tugapp/Sources/MenuBarBuilder.swift (session.addProjectDir); tugdeck/src/components/tugways/session-masthead.tsx (Directories row) -->
+
+Type `/add-dir <path>`, or `/add-dir` with a path atom in it, or choose Session > Add Project Directory. A bare `/add-dir` opens a folder picker. The card stays where it is and the session may now read and write that folder too. You are asked how long: "Yes, for this session" grants it until the session ends, and "Yes, and remember this directory" also saves it to the project's local settings so later sessions have it. It is refused while a turn is running, and a path that is not a folder is reported with the reason. The Directories row in the Session Summary lists every folder the session holds beyond its own. There is no command to remove one: a session's grant ends with the session, and a remembered folder is removed in Permission Rules, on the Workspace tab.
+
 ### Start a fresh session
 <!-- source: tugdeck/src/lib/slash-commands.ts (/clear, aliases /new and /reset); tugdeck/src/components/tugways/cards/session-card.tsx (clear surface); tugapp/Sources/MenuBarBuilder.swift (session.new, file.newSessionCard) -->
 

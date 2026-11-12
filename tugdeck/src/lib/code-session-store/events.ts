@@ -637,6 +637,14 @@ export interface ClearJobsActionEvent {
 export type ContextBreakdownEvent = WireEvent<Wire.ContextBreakdown>;
 
 /**
+ * `add_directory_result` — tugcode's answer to an `/add-dir` grant: granted,
+ * or refused with the reason. Projected onto
+ * `CodeSessionSnapshot.lastDirectoryGrant`; no phase transition, since a
+ * grant can be answered in any phase.
+ */
+export type AddDirectoryResultEvent = WireEvent<Wire.AddDirectoryResult>;
+
+/**
  * `cost_update` — telemetry frame carrying cumulative dollar cost and
  * per-turn/session accounting. Surfaced through the snapshot's
  * `lastCost` field with no phase transition; `cost_update` can land in
@@ -1608,6 +1616,7 @@ export type CodeSessionEvent =
   | CostUpdateEvent
   | StreamingUsageEvent
   | ContextBreakdownEvent
+  | AddDirectoryResultEvent
   | ApiRetryEvent
   | ModelRefusalFallbackEvent
   | OutputTruncatedEvent

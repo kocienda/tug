@@ -119,6 +119,8 @@ import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { bodyFactsStore } from "@/lib/body-facts-store";
+import { hostFactsStore } from "@/lib/host-facts-store";
+import { displayPath } from "@/lib/memory-destinations";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useSessionBranch } from "@/lib/changeset-all-store";
 import { useOverview } from "@/lib/overview-store";
@@ -460,6 +462,61 @@ function TelemetryBirthRow({
     <TelemetryRow label={compacted || bodyCompacted ? "COMPACTED" : "CREATED"}>
       {stamp(createdAtMs)}
     </TelemetryRow>
+  );
+}
+
+/** A card with no metadata store here: one array, so the snapshot holds still. */
+const NO_DIRECTORIES: readonly string[] = Object.freeze([]);
+
+/**
+ * The DIRECTORIES row: each folder the session may read and write beyond its
+ * project directory, one per line, and no row at all when there are none.
+ *
+ * It reads `additionalDirectories` off the card's metadata store — what the
+ * wire reports Claude holds, granted folders, remembered ones and ones from
+ * settings alike — rather than what Tug believes it sent. A body card's
+ * metadata store lives in its own page, so its folders arrive on the card's
+ * facts. There is no remove affordance: Claude Code has no remove, a
+ * session's grant ends with the session, and a remembered folder is removed
+ * in the Permission Rules editor's Workspace tab.
+ *
+ * A LEAF for the reason `TelemetryBirthRow` is one: its subscriptions exist
+ * only while the panel is open.
+ */
+function TelemetryDirectoriesRow({ cardId }: { cardId: string | undefined }): React.ReactElement | null {
+  const services = useSyncExternalStore(cardServicesStore.subscribe, () =>
+    cardId === undefined ? null : cardServicesStore.getServices(cardId),
+  );
+  const metadata = services?.sessionMetadataStore ?? null;
+  const own = useSyncExternalStore(
+    metadata?.subscribe ?? NOOP_SUBSCRIBE,
+    metadata !== null ? () => metadata.getSnapshot().additionalDirectories : () => NO_DIRECTORIES,
+    () => NO_DIRECTORIES,
+  );
+  const body = useSyncExternalStore(bodyFactsStore.subscribe, () =>
+    cardId === undefined ? NO_DIRECTORIES : bodyFactsStore.directories(cardId),
+  );
+  const home = useSyncExternalStore(hostFactsStore.subscribe, () => hostFactsStore.getSnapshot()?.home ?? "");
+  const directories = metadata !== null ? own : body;
+  if (directories.length === 0) return null;
+  return (
+    <TugKeyValueRow
+      className="session-masthead-telemetry-row"
+      data-row="directories"
+      label="DIRECTORIES"
+      labelClassName="session-masthead-telemetry-label"
+      valueClassName="session-masthead-telemetry-value"
+      trailing={null}
+      trailingClassName="session-masthead-telemetry-action"
+    >
+      <span className="session-masthead-telemetry-directories">
+        {directories.map((dir) => (
+          <span key={dir} className="session-masthead-telemetry-directory" title={dir}>
+            {displayPath(dir, home)}
+          </span>
+        ))}
+      </span>
+    </TugKeyValueRow>
   );
 }
 
@@ -846,6 +903,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
                   pixels above this panel. */}
               <TelemetryBirthRow cardId={cardId} createdAtMs={createdAtMs} />
               <TelemetryRow label="BRANCH">{identity.branch ?? "—"}</TelemetryRow>
+              <TelemetryDirectoriesRow cardId={cardId} />
               {/* The two copyable forms sit TOGETHER, the atom directly above
                   the flat citation, each labeled by what a paste of it yields:
                   the atom returns the chip, the citation is flat text for

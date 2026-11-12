@@ -21,7 +21,8 @@
 //! - **camelCase keys:** `permissionMode`, `apiKeySource`.
 //! - **snake_case keys:** `session_id`, `cwd`, `tools`, `model`,
 //!   `slash_commands`, `plugins`, `agents`, `skills`, `mcp_servers`,
-//!   `version`, `output_style`, `fast_mode_state`, `ipc_version`.
+//!   `version`, `output_style`, `fast_mode_state`, `ipc_version`,
+//!   `additional_directories`.
 //!
 //! All key constants below use the on-wire names verbatim — using the
 //! wrong case silently no-ops the merge on that field.
@@ -57,6 +58,10 @@ mod keys {
     pub const AGENTS: &str = "agents";
     pub const SKILLS: &str = "skills";
     pub const MCP_SERVERS: &str = "mcp_servers";
+
+    // Whole-list fields: incoming wins whenever it carries the field, an
+    // empty list included; absent keeps current.
+    pub const ADDITIONAL_DIRECTORIES: &str = "additional_directories";
 }
 
 const SCALAR_FIELDS: &[&str] = &[
@@ -77,6 +82,14 @@ const ARRAY_FIELDS: &[&str] = &[
     keys::MCP_SERVERS,
 ];
 
+/// Arrays whose presence is the whole answer. A session's granted folders
+/// can shrink to none — a `/new` starts without them — so an empty incoming
+/// list is a fact, not a gap, and the non-empty-wins rule of
+/// [`ARRAY_FIELDS`] would keep the last session's folders on the card. A
+/// frame that omits the field (the replay's synthesized one) says nothing,
+/// so current is kept.
+const LIST_FIELDS: &[&str] = &[keys::ADDITIONAL_DIRECTORIES];
+
 /// Merge `incoming` over `current`, preferring the more-informationally-
 /// rich value per field. Returns the merged payload as a fresh
 /// `Map<String, Value>` ready to be wrapped in `Value::Object`.
@@ -91,6 +104,8 @@ const ARRAY_FIELDS: &[&str] = &[
 /// - Scalar string fields → [`as_present`]; empty string is treated as
 ///   absent.
 /// - Array fields → non-empty incoming wins, otherwise current is kept.
+/// - Whole-list fields → incoming wins when present, otherwise current is
+///   kept.
 /// - `session_id`, `ipc_version`, `type` → pass through from incoming
 ///   (PK + wire housekeeping; never merged).
 ///
@@ -143,6 +158,16 @@ pub fn merge_session_metadata(current: Option<&Value>, incoming: &Value) -> Map<
         let incoming_arr = incoming_obj.get(*field).and_then(|v| v.as_array());
         let incoming_nonempty = incoming_arr.is_some_and(|a| !a.is_empty());
         if !incoming_nonempty && let Some(current_v) = current_obj.get(*field) {
+            merged.insert((*field).to_owned(), current_v.clone());
+        }
+    }
+
+    // Whole-list fields — present incoming wins (already in `merged`),
+    // absent keeps current.
+    for field in LIST_FIELDS {
+        if !incoming_obj.contains_key(*field)
+            && let Some(current_v) = current_obj.get(*field)
+        {
             merged.insert((*field).to_owned(), current_v.clone());
         }
     }
@@ -280,6 +305,7 @@ mod tests {
             .into_iter()
             .chain(SCALAR_FIELDS.iter().copied())
             .chain(ARRAY_FIELDS.iter().copied())
+            .chain(LIST_FIELDS.iter().copied())
             .collect()
     }
 
@@ -327,11 +353,39 @@ mod tests {
             .filter(|(_, is_array)| *is_array)
             .map(|(name, _)| name.as_str())
             .collect();
-        let arrays: std::collections::BTreeSet<&str> = ARRAY_FIELDS.iter().copied().collect();
+        let arrays: std::collections::BTreeSet<&str> =
+            ARRAY_FIELDS.iter().chain(LIST_FIELDS).copied().collect();
         assert_eq!(
             arrays, interface_arrays,
             "ARRAY_FIELDS and SystemMetadata's array-typed fields disagree.\n  ARRAY_FIELDS: {arrays:?}\n  interface:    {interface_arrays:?}"
         );
+    }
+
+    #[test]
+    fn granted_folders_are_replaced_by_any_list_and_kept_when_absent() {
+        let mut current = live_payload();
+        current["additional_directories"] = json!(["/a", "/b"]);
+
+        // The replay's synthesized frame carries no list: the folders stay.
+        let merged = merge_session_metadata(Some(&current), &replay_payload());
+        assert_eq!(merged["additional_directories"], json!(["/a", "/b"]));
+
+        // A grant's sparse frame carries the whole list: it replaces.
+        let grant = json!({
+            "type": "system_metadata", "cwd": "/p",
+            "additional_directories": ["/a", "/b", "/c"], "ipc_version": 2,
+        });
+        let merged = merge_session_metadata(Some(&current), &grant);
+        assert_eq!(merged["additional_directories"], json!(["/a", "/b", "/c"]));
+        assert_eq!(merged["model"], current["model"], "a sparse frame keeps the model");
+
+        // A new session's spawn frame carries an empty list: none, not a gap.
+        let fresh = json!({
+            "type": "system_metadata", "cwd": "/p",
+            "additional_directories": [], "ipc_version": 2,
+        });
+        let merged = merge_session_metadata(Some(&current), &fresh);
+        assert_eq!(merged["additional_directories"], json!([]));
     }
 
     #[test]

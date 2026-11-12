@@ -273,6 +273,10 @@ pub trait ChildSpawner: Send + Sync + 'static {
     /// forwarded as `--relocate-from` / `--relocate-from-dir`. `None` for
     /// every session that did not move.
     ///
+    /// `granted_dirs` are the folders the session was granted beyond its own
+    /// directory, in grant order, forwarded as one `--granted-dir` each so
+    /// tugcode spawns claude with them. Empty for a session granted none.
+    ///
     /// `crash_respawn` is true on every spawn after the loop's first: the
     /// child before this one died. Forwarded as `--crash-respawn`, so tugcode
     /// re-creates a session claude never wrote to disk instead of resuming
@@ -287,6 +291,7 @@ pub trait ChildSpawner: Send + Sync + 'static {
         resume_claude_session_id: Option<&str>,
         permission_mode: Option<&str>,
         relocate_from: Option<&RelocateOrigin>,
+        granted_dirs: &[String],
         crash_respawn: bool,
     ) -> SpawnFuture;
 }
@@ -330,7 +335,9 @@ impl TugcodeSpawner {
 /// `["--dir", <project_dir>, "--session-id", <uuid>, "--session-mode", <new|resume>]`,
 /// and additionally `["--resume-session", <claude_session_id>]` when
 /// `resume_claude_session_id` is `Some` (only emitted for resume spawns
-/// whose claude session id has diverged from `session_id`).
+/// whose claude session id has diverged from `session_id`), and one
+/// `["--granted-dir", <path>]` per folder in `granted_dirs`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_tugcode_command(
     tugcode_path: &Path,
     project_dir: &Path,
@@ -339,6 +346,7 @@ pub(crate) fn build_tugcode_command(
     resume_claude_session_id: Option<&str>,
     permission_mode: Option<&str>,
     relocate_from: Option<&RelocateOrigin>,
+    granted_dirs: &[String],
 ) -> (String, Vec<String>) {
     let (program, mut args): (String, Vec<String>) =
         if tugcode_path.extension().and_then(|s| s.to_str()) == Some("ts") {
@@ -385,6 +393,14 @@ pub(crate) fn build_tugcode_command(
         args.push("--permission-mode".to_string());
         args.push(mode.to_string());
     }
+    // The folders the session was granted, read off its ledger row, so a
+    // resume across launches or a crash respawn spawns claude able to reach
+    // them. Absent for a session granted none, which is the argv it had
+    // before grants existed.
+    for dir in granted_dirs {
+        args.push("--granted-dir".to_string());
+        args.push(dir.clone());
+    }
     (program, args)
 }
 
@@ -397,9 +413,11 @@ impl ChildSpawner for TugcodeSpawner {
         resume_claude_session_id: Option<&str>,
         permission_mode: Option<&str>,
         relocate_from: Option<&RelocateOrigin>,
+        granted_dirs: &[String],
         crash_respawn: bool,
     ) -> SpawnFuture {
         let tugcode_path = self.tugcode_path.clone();
+        let granted_dirs = granted_dirs.to_vec();
         let project_dir = project_dir.to_path_buf();
         let session_id = session_id.to_string();
         let resume_claude_session_id = resume_claude_session_id.map(|s| s.to_string());
@@ -414,6 +432,7 @@ impl ChildSpawner for TugcodeSpawner {
                 resume_claude_session_id.as_deref(),
                 permission_mode.as_deref(),
                 relocate_from.as_ref(),
+                &granted_dirs,
             );
             if crash_respawn {
                 args.push("--crash-respawn".to_string());
@@ -843,6 +862,28 @@ pub async fn run_session_bridge(
             entry.relocate_from.clone()
         };
 
+        // The folders the session was granted, read once from the ledger row
+        // it resumes and kept on the entry after that, where a grant made
+        // while it runs moves them; a crash respawn then carries what the
+        // session holds now rather than what it was born with.
+        let granted_dirs = {
+            let cached = ledger_entry.lock().await.granted_dirs.clone();
+            match cached {
+                Some(dirs) => dirs,
+                None => {
+                    let row = resume_claude_session_id
+                        .clone()
+                        .unwrap_or_else(|| tug_session_id.as_str().to_owned());
+                    let dirs = match session_ledger.as_ref() {
+                        Some(ledger) => ledger.run(move |l| l.granted_dirs(&row)).await,
+                        None => Vec::new(),
+                    };
+                    ledger_entry.lock().await.granted_dirs = Some(dirs.clone());
+                    dirs
+                }
+            }
+        };
+
         // Spawn subprocess — interruptible by cancel so
         // `close_session` can tear down a stalled spawner.
         tracing::info!(
@@ -861,6 +902,7 @@ pub async fn run_session_bridge(
                 resume_claude_session_id.as_deref(),
                 permission_mode.as_deref(),
                 relocate_from.as_ref(),
+                &granted_dirs,
                 crash_respawn,
             ) => result,
             _ = cancel.cancelled() => return,
@@ -2379,6 +2421,36 @@ async fn relay_session_io_tracked(
                                     ),
                                 );
                             }
+                            // The folders the session holds follow it onto
+                            // the new row, so a fork, a rewind or a continue
+                            // resumed after a relaunch still holds them. A
+                            // `/new` and a rotation are new sessions, which
+                            // start without them; tugcode clears its own list
+                            // on the same two.
+                            if let Some(ledger) = session_ledger {
+                                let fresh = segment
+                                    .as_ref()
+                                    .is_some_and(|s| s.kind == "new" || s.kind == "rotation");
+                                let dirs = {
+                                    let mut entry = ledger_entry.lock().await;
+                                    if fresh {
+                                        entry.granted_dirs = Some(Vec::new());
+                                    }
+                                    entry.granted_dirs.clone().unwrap_or_default()
+                                };
+                                if !dirs.is_empty() {
+                                    let row = record_id.to_string();
+                                    if let Err(err) =
+                                        ledger.run(move |l| l.set_granted_dirs(&row, &dirs)).await
+                                    {
+                                        warn!(
+                                            session = %tug_session_id,
+                                            error = %err,
+                                            "set_granted_dirs failed; the new segment will not carry its folders across a relaunch"
+                                        );
+                                    }
+                                }
+                            }
                             // The segment now exists on its line; write its
                             // provenance beside it.
                             if let (Some(ledger), Some(fork)) = (session_ledger, &segment) {
@@ -2869,6 +2941,37 @@ async fn relay_session_io_tracked(
                         } else {
                             line.as_bytes().to_vec()
                         };
+
+                        // `add_directory_result` peek: a grant tugcode
+                        // confirmed moves the folders the session holds, on
+                        // the entry (so a crash respawn carries them) and on
+                        // the ledger row (so a resume across launches does).
+                        // Keyed by claude's id, as the title below is.
+                        // Best-effort, like the title: the frame forwards
+                        // either way.
+                        if line.contains("\"type\":\"add_directory_result\"") {
+                            if let Some(dirs) = parse_granted_dirs(line.as_bytes()) {
+                                let row_id = {
+                                    let mut entry = ledger_entry.lock().await;
+                                    entry.granted_dirs = Some(dirs.clone());
+                                    entry.claude_session_id.clone()
+                                }
+                                .unwrap_or_else(|| tug_session_id.as_str().to_owned());
+                                if let Some(ledger) = session_ledger {
+                                    let row = row_id.clone();
+                                    if let Err(err) =
+                                        ledger.run(move |l| l.set_granted_dirs(&row, &dirs)).await
+                                    {
+                                        warn!(
+                                            session = %tug_session_id,
+                                            row = %row_id,
+                                            error = %err,
+                                            "set_granted_dirs failed; the grant holds until the process ends"
+                                        );
+                                    }
+                                }
+                            }
+                        }
 
                         // `session_title` peek: claude's auto-generated
                         // `ai-title`, forwarded live by tugcode instead of
@@ -3850,6 +3953,22 @@ fn parse_session_segment(line: &[u8]) -> Option<SessionSegmentAnnouncement> {
         arc: field("arc"),
         model: field("model"),
     })
+}
+
+/// The session's whole granted list from a granted `add_directory_result`
+/// IPC line, or `None` for a refused grant or a line that does not parse —
+/// a refusal leaves the list where it was, so there is nothing to record.
+fn parse_granted_dirs(line: &[u8]) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_slice(line).ok()?;
+    if !value.get("ok")?.as_bool()? {
+        return None;
+    }
+    value
+        .get("additional_directories")?
+        .as_array()?
+        .iter()
+        .map(|dir| dir.as_str().map(str::to_owned))
+        .collect()
 }
 
 /// Extract the `title` field from a `session_title` IPC line — claude's
@@ -6693,6 +6812,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert_eq!(program, "/opt/tugtool/tugcode");
         assert_eq!(
@@ -6718,6 +6838,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert_eq!(program, "bun");
         assert_eq!(
@@ -6749,6 +6870,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         let (_p2, args2) = build_tugcode_command(
             &spawner.tugcode_path,
@@ -6758,6 +6880,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(args1.iter().any(|a| a == "/work/a"));
         assert!(args1.iter().any(|a| a == "sess-a"));
@@ -6777,6 +6900,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         let i = args
             .iter()
@@ -6801,6 +6925,7 @@ mod tests {
             Some("claude-internal-id-7"),
             None,
             None,
+            &[],
         );
         let i = args
             .iter()
@@ -6829,6 +6954,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(
             !args.iter().any(|a| a == "--resume-session"),
@@ -6850,6 +6976,7 @@ mod tests {
             None,
             Some("plan"),
             None,
+            &[],
         );
         let i = args
             .iter()
@@ -6874,6 +7001,7 @@ mod tests {
             None,
             None,
             Some(&origin),
+            &[],
         );
         let mode = args
             .iter()
@@ -6899,6 +7027,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert_eq!(
             plain,
@@ -6914,6 +7043,47 @@ mod tests {
     }
 
     #[test]
+    fn test_build_tugcode_command_passes_one_granted_dir_per_folder() {
+        let dirs = vec!["/Users/me/notes".to_string(), "/Users/me/specs".to_string()];
+        let (_, args) = build_tugcode_command(
+            Path::new("/opt/tugtool/tugcode"),
+            Path::new("/work/g"),
+            "sess-g",
+            SessionMode::Resume,
+            None,
+            None,
+            None,
+            &dirs,
+        );
+        let granted: Vec<&str> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "--granted-dir")
+            .map(|(i, _)| args[i + 1].as_str())
+            .collect();
+        assert_eq!(granted, vec!["/Users/me/notes", "/Users/me/specs"]);
+    }
+
+    #[test]
+    fn granted_dirs_are_read_only_from_a_granted_result() {
+        assert_eq!(
+            parse_granted_dirs(
+                br#"{"type":"add_directory_result","directory":"/b","ok":true,"additional_directories":["/a","/b"]}"#
+            ),
+            Some(vec!["/a".to_string(), "/b".to_string()])
+        );
+        // A refusal leaves the list where it was: nothing to record.
+        assert_eq!(
+            parse_granted_dirs(
+                br#"{"type":"add_directory_result","directory":"/x","ok":false,"reason":"no","additional_directories":["/a"]}"#
+            ),
+            None
+        );
+        assert_eq!(parse_granted_dirs(br#"{"type":"add_directory_result"}"#), None);
+        assert_eq!(parse_granted_dirs(b"not json"), None);
+    }
+
+    #[test]
     fn test_build_tugcode_command_omits_permission_mode_when_none() {
         let (_, args) = build_tugcode_command(
             Path::new("/opt/tugtool/tugcode"),
@@ -6923,6 +7093,7 @@ mod tests {
             None,
             None,
             None,
+            &[],
         );
         assert!(
             !args.iter().any(|a| a == "--permission-mode"),
@@ -7117,6 +7288,7 @@ mod tests {
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
             _relocate_from: Option<&RelocateOrigin>,
+            _granted_dirs: &[String],
             _crash_respawn: bool,
         ) -> SpawnFuture {
             let mut command = tokio::process::Command::new("/bin/sh");
@@ -7237,6 +7409,7 @@ mod tests {
                 None,
                 None,
                 None,
+                &[],
                 false,
             )
             .await
@@ -7300,6 +7473,7 @@ mod tests {
                 None,
                 None,
                 None,
+                &[],
                 false,
             )
             .await
@@ -7347,6 +7521,7 @@ mod tests {
                     Some("claude-seg-2"),
                     None,
                     None,
+                    &[],
                     crash_respawn,
                 )
                 .await

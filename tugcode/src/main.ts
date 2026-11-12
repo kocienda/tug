@@ -102,6 +102,10 @@ let relocateFromDir: string | undefined;
 // on every spawn after its loop's first. A resume of a segment claude never
 // wrote to disk is then re-created under its own id rather than refused.
 let crashRespawn = false;
+// `--granted-dir <path>`, repeated: the folders this session already holds,
+// read by tugcast off the session's ledger row, in grant order. Each becomes
+// an `--add-dir` on the claude spawn, so a resume across launches keeps them.
+const grantedDirectories: string[] = [];
 // `--stub-transcript=<path>` (or `--stub-transcript <path>`) routes
 // the IPC loop through the deterministic replay engine in
 // `stub-replay.ts` instead of spawning claude. Test-only;
@@ -206,6 +210,9 @@ for (let i = 0; i < args.length; i++) {
     i++;
   } else if (args[i] === "--crash-respawn") {
     crashRespawn = true;
+  } else if (args[i] === "--granted-dir" && i + 1 < args.length) {
+    grantedDirectories.push(args[i + 1]);
+    i++;
   } else if (args[i] === "--permission-mode" && i + 1 < args.length) {
     const raw = args[i + 1];
     // Ignore an unknown value (future / corrupt client) rather than seed the
@@ -450,7 +457,13 @@ async function main() {
         sessionId,
         sessionMode,
         resumeSessionId,
-        { contextBreakdownEmitter, initialPermissionMode: permissionMode, relocation, crashRespawn },
+        {
+          contextBreakdownEmitter,
+          initialPermissionMode: permissionMode,
+          relocation,
+          crashRespawn,
+          grantedDirectories,
+        },
       );
 
       // Send protocol_ack first (with placeholder session_id)

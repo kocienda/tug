@@ -1327,3 +1327,86 @@ async fn session_is_content_empty_needs_both_a_blank_row_and_no_transcript() {
         "a session the ledger has never seen is left to the request's mode"
     );
 }
+
+// ---- granted folders reach the spawn of a resumed session ----
+
+/// Records the `--granted-dir` folders every spawn is handed, then stalls —
+/// the spawn happens in a detached bridge task, so they arrive on a channel.
+struct GrantRecordingSpawner {
+    granted: mpsc::UnboundedSender<Vec<String>>,
+}
+
+impl ChildSpawner for GrantRecordingSpawner {
+    fn spawn_child(
+        &self,
+        _project_dir: &std::path::Path,
+        _session_id: &str,
+        _session_mode: SessionMode,
+        _resume_claude_session_id: Option<&str>,
+        _permission_mode: Option<&str>,
+        _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
+        granted_dirs: &[String],
+        _crash_respawn: bool,
+    ) -> SpawnFuture {
+        let _ = self.granted.send(granted_dirs.to_vec());
+        Box::pin(async { std::future::pending::<std::io::Result<SessionChild>>().await })
+    }
+}
+
+/// A session granted folders in an earlier launch is resumed holding them:
+/// the bridge reads them off the session's ledger row and hands them to the
+/// spawn, which forwards one `--granted-dir` each to tugcode.
+#[tokio::test]
+async fn a_resumed_session_is_spawned_with_the_folders_its_row_holds() {
+    let (state_tx, _state_rx) = broadcast::channel(512);
+    let (meta_tx, _meta_rx) = broadcast::channel(32);
+    let (code_tx, _code_rx) = broadcast::channel(32);
+    let (control_tx, _control_rx) = broadcast::channel(512);
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let recorder: Arc<dyn SessionsRecorder> =
+        Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger)));
+    let (tx, mut granted_rx) = mpsc::unbounded_channel::<Vec<String>>();
+    let factory: SpawnerFactory = Arc::new(move || {
+        Arc::new(GrantRecordingSpawner { granted: tx.clone() }) as Arc<dyn ChildSpawner>
+    });
+    let (sup, mut register_rx) = AgentSupervisor::new_with_ledger(
+        SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+        SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+        SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+        SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+        control_tx,
+        recorder,
+        Some(Arc::clone(&ledger)),
+        factory,
+        AgentSupervisorConfig::default(),
+        Arc::new(WorkspaceRegistry::new_for_test()),
+        CancellationToken::new(),
+        SupervisorDeps::default(),
+    );
+    tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+    // The row the earlier launch left: a session granted two folders.
+    ledger
+        .record_spawn(
+            "sess-granted",
+            test_project_dir(),
+            test_project_dir(),
+            "card-1",
+            crate::session_ledger::now_millis(),
+            "sess-granted",
+            None,
+        )
+        .expect("record_spawn");
+    let dirs = vec!["/Users/me/notes".to_string(), "/Users/me/specs".to_string()];
+    ledger.set_granted_dirs("sess-granted", &dirs).expect("set_granted_dirs");
+
+    sup.handle_control("spawn_session", &resume_payload("card-1", "sess-granted"), 10)
+        .await
+        .expect_handled();
+
+    let spawned = tokio::time::timeout(Duration::from_secs(5), granted_rx.recv())
+        .await
+        .expect("a spawn reached the spawner within 5s")
+        .expect("the spawner channel is open");
+    assert_eq!(spawned, dirs, "the resume spawn carries the folders the row holds, in order");
+}

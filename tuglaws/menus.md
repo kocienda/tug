@@ -362,6 +362,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `maker.newCardInPane` | `add-card-to-active-pane` | first responder | registry gate |
 | `maker.reload` | `reload` | registered handler | host tier |
 | `maker.rightRail` | `toggle-rail:right` | first responder | registry gate |
+| `session.addProjectDir` | `run-slash-command:add-dir` | key card | registry gate |
 | `session.agents` | `run-slash-command:agents` | key card | registry gate |
 | `session.ai` | `run-slash-command:ai` | key card | registry gate |
 | `session.commandPicker` | `open-command-picker` | key card | registry gate |

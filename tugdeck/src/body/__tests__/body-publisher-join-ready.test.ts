@@ -47,10 +47,11 @@ function arcRow(over: Partial<ArcChangesetEntry> = {}): ArcChangesetEntry {
 
 const realGetServices = cardServicesStore.getServices;
 
-/** Stand services in for card A: an idle session, and the changes feed's arc rows. */
+/** Stand services in for card A: an idle session, no granted folders, and the changes feed's arc rows. */
 function standServices(arcs: ArcChangesetEntry[]): void {
   const services = {
     codeSessionStore: { getSnapshot: () => idle },
+    sessionMetadataStore: { getSnapshot: () => ({ additionalDirectories: [] }) },
     changesController: { getSnapshot: () => ({ arcs }) },
   };
   cardServicesStore.getServices = ((cardId: string) =>

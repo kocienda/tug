@@ -31,6 +31,7 @@ import type {
   ToolUseStructured,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
+import { tugDataRoot } from "./spawn-config.ts";
 import { extractTaskNotificationWake } from "./replay.ts";
 
 /**
@@ -486,6 +487,27 @@ function objectOr(value: unknown): object {
 }
 
 /**
+ * The folders a `system/init` reports in `additional_directories`, as the
+ * session's granted folders: every one Claude reports, in its order and
+ * once each, except the Tug data root, which every spawn grants itself as
+ * plumbing rather than a folder the user added. A trailing slash is not a
+ * different folder. A missing or malformed field reads as none.
+ */
+export function reportedAdditionalDirectories(raw: unknown): string[] {
+  if (!isRecord(raw) || !Array.isArray(raw.additional_directories)) return [];
+  const strip = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+  const root = strip(tugDataRoot());
+  const out: string[] = [];
+  for (const entry of raw.additional_directories) {
+    if (typeof entry !== "string" || entry.length === 0) continue;
+    const dir = strip(entry);
+    if (dir === root || out.includes(dir)) continue;
+    out.push(dir);
+  }
+  return out;
+}
+
+/**
  * Route a single top-level stdout message to IPC outbound messages.
  * Handles all 8+ top-level message types per D03.
  * Exported for unit testing.
@@ -583,6 +605,7 @@ export function routeTopLevelEvent(
           output_style: event.output_style || "",
           fast_mode_state: event.fast_mode_state || "",
           apiKeySource: event.apiKeySource || "",
+          additional_directories: reportedAdditionalDirectories(event),
           ipc_version: IPC_VERSION,
         };
         messages.push(sysMsg);
