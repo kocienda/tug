@@ -18,6 +18,13 @@
  * the same way. One that memory pressure took is not: pressure is the
  * governor, and a machine short of memory gets the skeletons.
  *
+ * A pending workspace — one New Workspace has built while the naming modal
+ * asks for its name — is not in the list's order and waits for no quiet
+ * moment. It is mounted unshown from the start, and its cards are handed off
+ * and their pages asked for the moment it appears, beside whatever else is
+ * loading, so they have painted, or nearly, by the time the name is
+ * committed and the deck cuts to it.
+ *
  * A bound Session card is not made ahead. Its page is made by the session
  * restore pass when its workspace is first shown, which decides whether it
  * resumes or spawns, and a page made ahead of that pass would be handed the
@@ -67,15 +74,31 @@ export function nextAhead(f: AheadFacts): AheadAct {
   if (f.cards.some((c) => c.state === "creating" || c.state === "ready")) return null;
   for (const spaceId of aheadOrder(f)) {
     if (!f.mounted.has(spaceId)) return { kind: "mount", spaceId };
-    const cardIds = [
-      ...f.unhanded.filter((c) => c.spaceId === spaceId).map((c) => c.cardId),
-      ...f.cards
-        .filter((c) => c.spaceId === spaceId && (c.state === "unmade" || (c.state === "evicted" && c.timeEvicted)))
-        .map((c) => c.cardId),
-    ];
+    const cardIds = cardsToMake(f, spaceId);
     if (cardIds.length > 0) return { kind: "make", spaceId, cardIds };
   }
   return null;
+}
+
+/**
+ * What to make for the pending workspace, at once: every card of it not yet
+ * asked for, whatever else is loading. Null with none pending, or with
+ * nothing of it left to ask for.
+ */
+export function pendingAhead(f: AheadFacts, pendingSpaceId: string | undefined): AheadAct {
+  if (pendingSpaceId === undefined || !f.mounted.has(pendingSpaceId)) return null;
+  const cardIds = cardsToMake(f, pendingSpaceId);
+  return cardIds.length > 0 ? { kind: "make", spaceId: pendingSpaceId, cardIds } : null;
+}
+
+/** A mounted space's cards whose pages are still to be asked for. */
+function cardsToMake(f: AheadFacts, spaceId: string): string[] {
+  return [
+    ...f.unhanded.filter((c) => c.spaceId === spaceId).map((c) => c.cardId),
+    ...f.cards
+      .filter((c) => c.spaceId === spaceId && (c.state === "unmade" || (c.state === "evicted" && c.timeEvicted)))
+      .map((c) => c.cardId),
+  ];
 }
 
 /** What the shell hands the pass. */
@@ -125,18 +148,7 @@ export function installMakeAhead(deps: MakeAheadDeps): () => void {
     };
   };
 
-  const pass = (): void => {
-    timer = null;
-    // A card that is no longer evicted has no eviction to answer.
-    for (const cardId of deps.timeEvicted) {
-      if (bodyCardsStore.stateOf(cardId) !== "evicted") deps.timeEvicted.delete(cardId);
-    }
-    const act = nextAhead(facts());
-    if (act === null) return;
-    if (act.kind === "mount") {
-      mountAhead(act.spaceId);
-      return;
-    }
+  const make = (act: { spaceId: string; cardIds: string[] }): void => {
     const kinds = new Map((deck.getSpaceDeck(act.spaceId)?.cards ?? []).map((c) => [c.id, c.componentId]));
     for (const cardId of act.cardIds) {
       if (!bodyCardsStore.has(cardId)) {
@@ -153,13 +165,34 @@ export function installMakeAhead(deps: MakeAheadDeps): () => void {
     }
   };
 
+  const pass = (): void => {
+    timer = null;
+    // A card that is no longer evicted has no eviction to answer.
+    for (const cardId of deps.timeEvicted) {
+      if (bodyCardsStore.stateOf(cardId) !== "evicted") deps.timeEvicted.delete(cardId);
+    }
+    const act = nextAhead(facts());
+    if (act === null) return;
+    if (act.kind === "mount") {
+      mountAhead(act.spaceId);
+      return;
+    }
+    make(act);
+  };
+
   /** Anything moved: the pass waits for a quiet moment again. */
   const moved = (): void => {
-    const active = deck.getSpacesSnapshot().activeSpaceId;
+    const spaces = deck.getSpacesSnapshot();
+    const active = spaces.activeSpaceId;
     if (recency[0] !== active) {
       const at = recency.indexOf(active);
       if (at >= 0) recency.splice(at, 1);
       recency.unshift(active);
+    }
+    // The pending workspace is made now, not at the next quiet moment.
+    if (spaces.pendingSpaceId !== undefined) {
+      const act = pendingAhead(facts(), spaces.pendingSpaceId);
+      if (act !== null && act.kind === "make") make(act);
     }
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(pass, MAKE_AHEAD_QUIET_MS);

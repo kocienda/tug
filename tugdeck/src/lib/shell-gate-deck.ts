@@ -10,6 +10,7 @@ import type { CardDeck } from "../card-deck";
 import { countWorkCards } from "../deck-store-selectors";
 import { getConnection } from "./connection-singleton";
 import type { GateDeck } from "./gate-deck";
+import { answerWorkspaceName } from "./workspace-name-request";
 import { fireFreshSpawn } from "./session-restore";
 import { openHelpInCard } from "./open-help-in-card";
 import { getTugbankClient } from "./tugbank-singleton";
@@ -67,5 +68,8 @@ export function createShellGateDeck(deck: CardDeck): GateDeck {
     },
     openFirstSession: (projectDir) => openFirstSession(deck, projectDir),
     interruptLiveSessions: () => deck.interruptLiveSessions(),
+    answerWorkspaceName: (seq, name) => {
+      answerWorkspaceName(seq, name);
+    },
   };
 }

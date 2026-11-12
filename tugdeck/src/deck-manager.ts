@@ -58,6 +58,7 @@ import { scheduleAfterPaint, type CancelAfterPaint } from "./lib/after-paint";
 import { SpaceSwitchMark, switchMarkDeadlineMs } from "./lib/space-switch-mark";
 import {
   duplicatedDeck,
+  duplicateSpaceName,
   moveCardBetweenDecks,
   nextSpaceName,
   parkedDeck,
@@ -1615,8 +1616,14 @@ export class DeckManager implements IDeckManagerStore {
    * slim imposition with a stand-in face for each, and the departing views
    * hand over to those faces in one host transaction, as a switch's do.
    *
-   * `name` is the caller's when it has one (the Workspaces card's rename-on-
-   * create), and otherwise {@link nextSpaceName}'s.
+   * `name` is the caller's when it has one, and otherwise
+   * {@link nextSpaceName}'s. The workspace goes at the end of the list.
+   *
+   * New Workspace does not come here: it asks the name first, in the naming
+   * modal, over a workspace built the same way and held pending until the
+   * name is committed ({@link beginPendingSpace}, {@link adoptPendingSpace},
+   * `lib/new-workspace.ts`), which puts it at the top. This is the direct
+   * verb, for a deck that holds no pending workspace and for tests.
    *
    * Returns the new space's id.
    */
@@ -1626,16 +1633,32 @@ export class DeckManager implements IDeckManagerStore {
       trimmed !== undefined && trimmed.length > 0
         ? trimmed
         : nextSpaceName(this.spacesStore.list.map((s) => s.name));
-    const id = crypto.randomUUID();
+    const record = this._newSpaceRecord(chosen);
+    this.spacesStore.insert(record);
+    // The latch would otherwise stand a SECOND rail the first time a card
+    // opened here: it is armed at boot by an empty boot deck, and is still
+    // waiting when this deck arrives with a rail it did not ask for.
+    this.factoryRailPending = false;
+    this.activateSpace(record.id);
+    return record.id;
+  };
+
+  /**
+   * A new workspace's record, built whole: its factory rail standing, under
+   * the four-up slim imposition, wearing the theme of the workspace being
+   * left so that creating one never changes what is on screen. What
+   * {@link createSpace} inserts and {@link beginPendingSpace} holds.
+   */
+  private _newSpaceRecord(name: string): SpaceRecord {
     // The new workspace wears the theme of the one being left, so creating
     // one never changes what is on screen.
     const theme = this.spacesStore.activeTheme();
     const rail = this.factoryRailSeats();
     const base = buildDefaultLayout();
     const front = rail.length > 0 ? rail[rail.length - 1] : undefined;
-    this.spacesStore.insert({
-      id,
-      name: chosen,
+    return {
+      id: crypto.randomUUID(),
+      name,
       deck: {
         ...base,
         cards: rail.map((seat) => seat.card),
@@ -1645,13 +1668,79 @@ export class DeckManager implements IDeckManagerStore {
       },
       ...(front !== undefined ? { focusedCardId: front.card.id } : {}),
       ...(theme !== undefined ? { theme } : {}),
-    });
-    // The latch would otherwise stand a SECOND rail the first time a card
-    // opened here: it is armed at boot by an empty boot deck, and is still
-    // waiting when this deck arrives with a rail it did not ask for.
+    };
+  }
+
+  /**
+   * The boot latch's value when {@link beginPendingSpace} cleared it, so a
+   * discard puts it back; `null` with no workspace pending.
+   */
+  private pendingSpaceLatch: boolean | null = null;
+
+  /**
+   * Build a new workspace whole, exactly as {@link createSpace} does, and hold
+   * it pending while the naming modal asks for its name ([B06]).
+   *
+   * Pending is out of the list: the Workspaces card, the Window menu and
+   * every save go on without it, so quitting with the modal open leaves no
+   * trace. And it is mounted unshown, as a parked workspace made ahead is,
+   * so its rail cards become body cards whose pages the make-ahead pass asks
+   * for at once (`lib/body-make-ahead.ts`), hidden, while the user reads and
+   * types. Nothing on screen changes. A pending workspace already held is
+   * discarded first: there is one modal, so there is one pending workspace.
+   *
+   * Returns its id and {@link nextSpaceName}'s name for it, the one the modal
+   * proposes.
+   */
+  public beginPendingSpace = (): { id: string; name: string } => {
+    this.discardPendingSpace();
+    const record = this._newSpaceRecord(nextSpaceName(this.spacesStore.list.map((s) => s.name)));
+    // Cleared for the reason createSpace clears it, and remembered, so a
+    // discard leaves the latch as it found it.
+    this.pendingSpaceLatch = this.factoryRailPending;
     this.factoryRailPending = false;
-    this.activateSpace(id);
-    return id;
+    this.spacesStore.setPending(record);
+    return { id: record.id, name: record.name };
+  };
+
+  /**
+   * Drop the pending workspace and its cards' pages ([B03]): its cards are
+   * destroyed as a deleted workspace's are, so the body shell destroys the
+   * pages it asked for, and the boot latch goes back to what it was. The
+   * list was never touched and nothing was saved, so nothing else moves.
+   * A no-op with none held.
+   */
+  public discardPendingSpace = (): void => {
+    const record = this.spacesStore.pending();
+    if (record === null) return;
+    for (const card of record.deck?.cards ?? []) {
+      this.cardLifecycle.notifyCardWillBeginDestruction(card.id);
+      this.discardComponentStatePreservationRegistry(card.id);
+      this.cardStates.delete(card.id);
+    }
+    this.spacesStore.discardPending();
+    if (this.pendingSpaceLatch !== null) this.factoryRailPending = this.pendingSpaceLatch;
+    this.pendingSpaceLatch = null;
+  };
+
+  /**
+   * Name the pending workspace, put it at the top of the list ([B04]) and
+   * activate it — the cut onto the pages made while it was pending. A `name`
+   * empty after trimming keeps the proposed one. The workspace joins the list
+   * still mounted, in one notify, so its layer and its pages are never taken
+   * down on the way in; the activation saves.
+   *
+   * Returns its id, or `null` with none held.
+   */
+  public adoptPendingSpace = (name?: string): string | null => {
+    const record = this.spacesStore.pending();
+    if (record === null) return null;
+    const trimmed = name?.trim();
+    if (trimmed !== undefined && trimmed.length > 0) record.name = trimmed;
+    this.pendingSpaceLatch = null;
+    this.spacesStore.adoptPending(0);
+    this.activateSpace(record.id);
+    return record.id;
   };
 
   /**
@@ -1663,17 +1752,20 @@ export class DeckManager implements IDeckManagerStore {
   };
 
   /**
-   * Copy a workspace's layout and sidebars into a new one named `<name> copy`,
-   * appended after the source and NOT activated ([P06]).
+   * Copy a workspace's layout and sidebars into a new one named `name` — the
+   * name the naming modal committed, `Duplicate of <source name>` unless the
+   * user typed another — inserted directly after the source and NOT activated
+   * ([P06]).
    *
    * The copy's shape is {@link duplicatedDeck}'s, which is where the argument
    * for copying so little is written down. Not activating is the other half of
    * the same reading: Duplicate is a gesture about the list, so the user stays
    * where they were working.
    *
-   * Returns the new space's id, or `null` when `spaceId` names no space.
+   * A `name` empty after trimming takes the proposed one. Returns the new
+   * space's id, or `null` when `spaceId` names no space.
    */
-  public duplicateSpace = (spaceId: string): string | null => {
+  public duplicateSpace = (spaceId: string, name?: string): string | null => {
     const index = this.spacesStore.indexOf(spaceId);
     if (index === -1) {
       console.warn(`duplicateSpace: no space with id "${spaceId}"`);
@@ -1691,7 +1783,7 @@ export class DeckManager implements IDeckManagerStore {
     this.spacesStore.insert(
       {
         id,
-        name: `${source.name} copy`,
+        name: name !== undefined && name.trim() !== "" ? name.trim() : duplicateSpaceName(source.name),
         deck,
         ...(source.theme !== undefined ? { theme: source.theme } : {}),
       },

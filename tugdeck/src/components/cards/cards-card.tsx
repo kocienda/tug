@@ -1503,6 +1503,13 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     if (!layerShown) return;
     const { verb, spaceId } = verbRequest;
     cardsSpaceVerbRequest.clear();
+    if (verb === "focus") {
+      // New Workspace's landing: the keyboard on the new workspace's header
+      // row, revealed first for the reason a rename's field is.
+      anchorForSpace(spaceId);
+      landCursorOn(dataSource.indexForSpace(spaceId));
+      return;
+    }
     if (verb === "rename") {
       // A field opened on a header scrolled out of the list is a field nobody
       // can see — a just-created workspace lands at the list's end — so the
@@ -1533,7 +1540,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       cards: store.spaceCardCount(spaceId),
       anchor: anchorForSpace(spaceId),
     });
-  }, [verbRequest, layerShown, anchorForSpace, spaceNameOf]);
+  }, [verbRequest, layerShown, anchorForSpace, spaceNameOf, landCursorOn, dataSource]);
 
   const cellContext = useMemo<CardsCellContextValue>(
     () => ({

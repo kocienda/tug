@@ -120,6 +120,13 @@ export function projectArrangementSpaces(deck: ArrangementDeck): ArrangementSpac
     const parked = deck.getSpaceDeck(space.id);
     if (parked !== null) decks[space.id] = parked;
   }
+  // The pending workspace is in no list but is mounted, and its cards' pages
+  // read their arrangement from its deck.
+  const pending = spacesSnapshot.pendingSpaceId;
+  if (pending !== undefined) {
+    const deckOfPending = deck.getSpaceDeck(pending);
+    if (deckOfPending !== null) decks[pending] = deckOfPending;
+  }
   return {
     activeSpaceId: spacesSnapshot.activeSpaceId,
     spaces: spacesSnapshot.spaces.map((s) => ({

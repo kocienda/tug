@@ -5,7 +5,8 @@
  * (`update-tug.tsx`) are mounted in the overlay page wherever the host keeps
  * one ([B07]), and in the shell only where it does not. Neither reads the
  * arrangement: the setup wizard counts the deck's work cards and opens the
- * first session, and the update wizard ends the turns in flight. So they read
+ * first session, the update wizard ends the turns in flight, and the naming
+ * modal answers the workspace-name question the shell asked. So they read
  * the deck through this narrow seam instead of `useCardDeck()`, and each page
  * supplies it from what it holds — the shell from its own deck, the overlay
  * from `deck.cards` and the shell's verbs.
@@ -23,6 +24,8 @@ export interface GateDeck {
   openFirstSession(projectDir: string): void;
   /** End every turn in flight; resolves once the deck has answered, or given up asking. */
   interruptLiveSessions(): Promise<unknown>;
+  /** Answer the naming modal's question `seq` with a name, or `null` to cancel (`workspace-name-request.ts`). */
+  answerWorkspaceName(seq: number, name: string | null): void;
 }
 
 export const GateDeckContext = createContext<GateDeck | null>(null);

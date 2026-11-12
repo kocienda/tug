@@ -93,7 +93,7 @@ Reading on the user-shaped deck: the picture stood 139 ms. Every frame before th
 
 ## Non-goals {#non-goals}
 
-- **A sheet, modal or otherwise, over the arriving canvas or the window.** Built in [F07] and reverted. It hides the skeletons, which are the point, and it cannot both show them and hide a cascade.
+- **A sheet, modal or otherwise, over the arriving canvas or the window.** Built in [F07] and reverted. It hides the skeletons, which are the point, and it cannot both show them and hide a cascade. *One exception, `briefs/workspace-naming-modal-brief.md` [B09]:* New Workspace and Duplicate Workspace ask a name in an app-modal. A new workspace has no cards of the user's to show, only its factory rail, and the modal has a question to ask; a switch between existing workspaces keeps its skeletons and gets no modal.
 - **Removing or weakening the set hold.** [F07] again. The hold is what makes the landing one picture.
 - **Counting a card painted at its chrome frame.** A member counts at content paint only ([B03]); the other reading drops the picture onto a blank box.
 - **Saving a second copy of the card structure.** It is in tugbank and restored at once ([F01]).

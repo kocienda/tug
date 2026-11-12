@@ -391,18 +391,21 @@ export interface IDeckManagerStore extends DeckView {
   initialFocusedCardId?: string;
 
   /**
-   * Add a workspace, activate it, and stand its factory rail ([P05]). The
-   * name is the caller's when given, and `Workspace N` otherwise. Returns the
-   * new space's id.
+   * Add a workspace at the end of the list, activate it, and stand its
+   * factory rail ([P05]). The name is the caller's when given, and
+   * `Workspace N` otherwise. Returns the new space's id. New Workspace itself
+   * asks the name first and builds the workspace pending
+   * (`lib/new-workspace.ts`).
    */
   createSpace: (name?: string) => string;
 
   /**
    * Copy a workspace's layout and sidebars — never its content cards — into a
-   * new one named `<name> copy`, appended after the source and not activated
-   * ([P06]). Returns the new id, or `null` when no space has that id.
+   * new one named `name` (`Duplicate of <name>` when absent), inserted after
+   * the source and not activated ([P06]). Returns the new id, or `null` when
+   * no space has that id.
    */
-  duplicateSpace: (spaceId: string) => string | null;
+  duplicateSpace: (spaceId: string, name?: string) => string | null;
 
   /**
    * Remove a workspace and close its sessions ([P07]). Refuses the last one.

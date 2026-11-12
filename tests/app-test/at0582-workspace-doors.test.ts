@@ -42,7 +42,8 @@
  * The doors leg is the [B01] card half: New / Rename / Duplicate / Delete
  * used to open from a right-click and nowhere else, which makes a verb one a
  * person has to already know about. The card's toolbar now carries a New
- * button and every header row a `···` onto the same three-item menu — New is
+ * button (which asks the new workspace's name in the app-modal) and every
+ * header row a `···` onto the same three-item menu — New is
  * the toolbar's alone, because a menu opened on a row is about that row — and
  * every one of them is answered at the chain root rather than on this card
  * ([P02]), so the doors work whether or not the card holds focus.
@@ -73,6 +74,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
 import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
+import { overlayReady } from "./overlay-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -114,6 +116,9 @@ const runUnder = (id: string): string =>
   `${SHOWN}.cards-list [data-cards-space-run="${id}"]:not([data-testid="cards-space-header"])`;
 const MENU_ITEM = "[data-item-action]";
 const NEW_BUTTON = `${SHOWN}[data-testid="cards-new-space"]`;
+/** The naming modal New asks in, drawn in the overlay page. */
+const NAME_FIELD = '[data-slot="tug-workspace-name-field"]';
+const NAME_DIALOG = '[data-slot="tug-workspace-name-dialog"]';
 const VERBS_BUTTON = `${SHOWN}[data-testid="cards-space-verbs-button"]`;
 /** The inline rename field. Portaled nowhere — it stands in the header row. */
 const RENAME_INPUT = '[data-testid="cards-space-rename"]';
@@ -452,13 +457,27 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(SPACE_ONE);
           await app.nativeKey("Escape");
 
-          // ---- 2. The New button makes a second workspace and goes there.
+          // ---- 2. The New button asks the name, then makes a second
+          // workspace at the top of the list and goes there.
           expect(
             await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(NEW_BUTTON)}).length`,
             ),
           ).toBe(1);
+          const overlay = await overlayReady(app);
           await kindBody(app, "cards").nativeClickAtElement(NEW_BUTTON);
+          await overlay.waitForCondition<boolean>(
+            `(function () {
+               var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+               return f !== null && document.activeElement === f && document.documentElement.getAttribute("data-overlay-claim-state") === "all";
+             })()`,
+            { timeoutMs: 8_000 },
+          );
+          await app.nativeKey("Return");
+          await overlay.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(NAME_DIALOG)}) === null && document.documentElement.getAttribute("data-overlay-claim-state") !== "all"`,
+            { timeoutMs: 8_000 },
+          );
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.length === 2`,
             { timeoutMs: 8_000 },
@@ -470,6 +489,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the active one, which is what makes the button one gesture.
           expect(spaces.activeSpaceId).not.toBe(SPACE_ONE);
           expect(spaces.spaces).toHaveLength(2);
+          expect(spaces.spaces[0]?.id, "the new workspace is first in the list").toBe(spaces.activeSpaceId);
 
           // ---- 3. With two workspaces, Delete is live and names no reason.
           await kindBody(app, "cards").waitForCondition<boolean>(

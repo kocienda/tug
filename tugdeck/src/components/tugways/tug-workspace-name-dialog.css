@@ -1,0 +1,38 @@
+/*
+ * TugWorkspaceNameDialog. The modal chrome (scrim, panel, shadow, z-index,
+ * open and close animation) comes from the inherited `tug-alert-overlay` /
+ * `tug-alert-content` classes and the title and button row from the shared
+ * `.tug-alert-*` classes; this file styles only the field between them. No
+ * color-setting rules: the field is a TugInput and wears its own tokens.
+ */
+
+.tug-workspace-name-dialog {
+  text-align: left;
+}
+
+.tug-workspace-name-dialog .tug-workspace-name-field {
+  display: block;
+  width: 100%;
+  min-width: 280px;
+  margin: 12px 0 16px;
+}
+
+/*
+ * Waiting on a committed name: the buttons keep their box, so the panel
+ * keeps its size, and the wave stands over it in their place.
+ */
+.tug-workspace-name-dialog .tug-workspace-name-actions {
+  position: relative;
+}
+
+.tug-workspace-name-dialog .tug-workspace-name-actions[data-waiting] > :not(.tug-workspace-name-wave) {
+  visibility: hidden;
+}
+
+.tug-workspace-name-dialog .tug-workspace-name-wave {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -51,6 +51,17 @@ export class SpacesStore extends Subscribable {
   private mounted: Set<string> = new Set();
 
   /**
+   * The workspace being made while the naming modal asks for its name, or
+   * `null`. Held OUT of {@link records}, so the list snapshot, the Window
+   * menu and every save ({@link persistable}) go on as if it were not there,
+   * and mounted unshown, so its panes render in their hidden layer and its
+   * cards' pages can be made before it is shown. It is mounted for as long as
+   * it is held: it leaves only by being discarded ({@link discardPending}) or
+   * adopted into the list ({@link adoptPending}), never by an unmount.
+   */
+  private pendingRecord: SpaceRecord | null = null;
+
+  /**
    * The last {@link SpacesSnapshot} handed out, rebuilt only when the list
    * changes. `useSyncExternalStore` compares by identity and would loop
    * forever on a snapshot minted per read, so this cache is the contract
@@ -71,8 +82,15 @@ export class SpacesStore extends Subscribable {
    */
   getSnapshot = (): SpacesSnapshot => {
     if (this.snapshotCache === null) {
-      const mountedSpaceIds = this.records.filter((s) => this.mounted.has(s.id)).map((s) => s.id);
+      const pending = this.pendingRecord;
+      // The pending workspace goes first: it is adopted at the top of the
+      // list, so its layer does not move when it joins.
+      const mountedSpaceIds = [
+        ...(pending !== null ? [pending.id] : []),
+        ...this.records.filter((s) => this.mounted.has(s.id)).map((s) => s.id),
+      ];
       const mountedDecks = new Map<string, DeckState>();
+      if (pending?.deck != null) mountedDecks.set(pending.id, pending.deck);
       for (const space of this.records) {
         // The active space's deck is the live one and is not cached here —
         // see {@link SpacesSnapshot}.
@@ -89,6 +107,7 @@ export class SpacesStore extends Subscribable {
         activeSpaceId: this.activeId,
         mountedSpaceIds,
         mountedDecks,
+        ...(pending !== null ? { pendingSpaceId: pending.id } : {}),
       };
     }
     return this.snapshotCache;
@@ -142,23 +161,30 @@ export class SpacesStore extends Subscribable {
       const deck = space.deck ?? liveDeck;
       if (deck.cards.some((c) => c.id === cardId)) return space.id;
     }
+    if (this.pendingRecord?.deck?.cards.some((c) => c.id === cardId)) return this.pendingRecord.id;
     return null;
   }
 
-  /** The deck of any space; the active one answers with `liveDeck`. */
+  /** The deck of any space, the pending one too; the active one answers with `liveDeck`. */
   deckOf(spaceId: string, liveDeck: DeckState): DeckState | null {
+    if (this.pendingRecord !== null && this.pendingRecord.id === spaceId) return this.pendingRecord.deck;
     const space = this.find(spaceId);
     if (space === undefined) return null;
     return space.deck ?? liveDeck;
   }
 
-  /** Every card id across every space, the active one read from `liveDeck`. */
+  /**
+   * Every card id across every space, the active one read from `liveDeck`,
+   * and the pending one's: its cards hold state for as long as it is held, and
+   * the orphan sweep must not read them as nobody's.
+   */
   allCardIds(liveDeck: DeckState): Set<string> {
     const ids = new Set<string>();
     for (const space of this.records) {
       const deck = space.deck ?? liveDeck;
       for (const card of deck.cards) ids.add(card.id);
     }
+    for (const card of this.pendingRecord?.deck?.cards ?? []) ids.add(card.id);
     return ids;
   }
 
@@ -188,7 +214,46 @@ export class SpacesStore extends Subscribable {
     this.records = records;
     this.activeId = activeSpaceId;
     this.mounted = new Set([activeSpaceId]);
+    this.pendingRecord = null;
     this.notify();
+  }
+
+  /** The pending workspace's record, or `null`. Mutable: the manager names it. */
+  pending(): SpaceRecord | null {
+    return this.pendingRecord;
+  }
+
+  /**
+   * Hold `record` pending, mounted unshown, in place of any pending one.
+   * Its `deck` must be set: a pending workspace is never the active one.
+   */
+  setPending(record: SpaceRecord): void {
+    this.pendingRecord = record;
+    this.notify();
+  }
+
+  /** Drop the pending workspace, unmounting it. Returns what it held, or `null`. */
+  discardPending(): SpaceRecord | null {
+    const record = this.pendingRecord;
+    if (record === null) return null;
+    this.pendingRecord = null;
+    this.notify();
+    return record;
+  }
+
+  /**
+   * Move the pending workspace into the list at `index` (default: the top),
+   * still mounted, in one notify, so its layer is never unmounted on the way
+   * in. Returns what it held, or `null`.
+   */
+  adoptPending(index = 0): SpaceRecord | null {
+    const record = this.pendingRecord;
+    if (record === null) return null;
+    this.pendingRecord = null;
+    this.records.splice(index, 0, record);
+    this.mounted.add(record.id);
+    this.notify();
+    return record;
   }
 
   /**

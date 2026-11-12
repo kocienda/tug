@@ -1,40 +1,33 @@
 /**
- * at0656-workspace-new-opens-name.test.ts — New Workspace shows the workspace
- * it made and puts its name up for editing.
+ * at0656-workspace-new-opens-name.test.ts — New Workspace asks for the new
+ * workspace's name, with the default selected, and the name typed is the name
+ * the workspace wears.
  *
- * A new workspace is one the user is about to name. New used to create the
- * workspace, go there, and stop: the new header was appended at the END of the
- * Workspaces list, often below the fold, and nothing offered its name for
- * editing — so the one thing the user wanted to do next took a scroll, a find,
- * and a right-click. New now runs Rename's own path on the workspace it just
- * made: the Workspaces card is revealed (opened if it is closed), the new
- * header is scrolled into view, and its field opens holding the default name,
- * selected, with the keyboard — so typing replaces the name.
+ * A new workspace is one the user is about to name. The name used to be
+ * asked after the fact, in an inline field the Workspaces card opened on the
+ * new header — so New made a workspace whatever the user did next, and
+ * Escape could only keep its default name. It is now asked first, in the
+ * app-modal the overlay draws over the whole window: the field holds the
+ * default name, selected, with the keyboard, so typing replaces it; Return
+ * makes the workspace under that name, first in the list, and goes there;
+ * and Escape makes nothing at all.
  *
  * Both doors are driven, because they reach the handler from different
- * places and the second one is where the reveal earns its keep:
+ * places:
  *
- *   1. **The card's `+`**, over a list long enough to scroll, so "the header
- *      is in view" is a claim the scroll had to make true rather than one a
- *      short list made true by accident. Typing then Return names the
- *      workspace — the selected default is replaced, not appended to.
+ *   1. **The card's `+`**, over a long list of workspaces. Typing then Return
+ *      names the workspace — the selected default is replaced, not appended
+ *      to — and the new workspace is the list's first row, whose header the
+ *      new workspace's own Workspaces card shows.
  *   2. **The Window menu's row** (its control frame — the harness cannot click
  *      a native menu item), from a workspace with no Workspaces card open at
- *      all. The field opening at all is the proof the card was brought.
- *      Escape then cancels the rename and the workspace KEEPS its default
- *      name: Escape is the rename's cancel, never an undo of the creation.
+ *      all. Escape then closes the modal and the list is exactly what it was:
+ *      a cancelled New makes nothing.
  *
- * Escape on an EXISTING workspace's rename restoring its old name is pinned
- * by at0582's rename leg and is not repeated here.
+ * Rename Workspace keeps the inline field; at0582's rename leg pins it.
  *
- * The handler lives in `deck-canvas.tsx` and the reveal in `cards-card.tsx`,
- * and both are hubs already at the selection ceiling `ACCEPTED_FANOUT`
- * records, which only pays down. So this names the two narrower modules the
- * path runs through: the request store New hands the verb to, and the header
- * whose field it opens.
- *
- * @covers tugdeck/src/lib/cards-space-verb-request.ts
- * @covers tugdeck/src/components/cards/cards-space-header.tsx
+ * @covers tugdeck/src/lib/new-workspace.ts
+ * @covers tugdeck/src/components/tugways/tug-workspace-name-dialog.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -46,25 +39,20 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
-import { hasBodyOfKind, kindBody, waitForBodyPainted } from "./_harness/card-reach";
+import { hasBodyOfKind, waitForBodyPainted } from "./_harness/card-reach";
+import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const HOME = "new-home";
 
-/**
- * "On screen" — every visited workspace stays mounted, so the deck holds one
- * Workspaces card per visited workspace and only one of them is shown. Each
- * is its own body, whose page holds that one card and no space layer, so the
- * scope is the body chosen — the visible one, `kindBody(app, "cards")` — and
- * the prefix is empty. New moves to the workspace it made, whose Workspaces
- * card is not `C1`.
- */
-const SHOWN = "";
-const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
-const NEW_BUTTON = `${SHOWN}[data-testid="cards-new-space"]`;
-const RENAME_INPUT = `${SHOWN}[data-testid="cards-space-rename"]`;
+/** Every visited workspace's Workspaces card is its own body; the shown one is chosen by kind. */
+const HEADER = `[data-testid="cards-space-header"]`;
+const NEW_BUTTON = `[data-testid="cards-new-space"]`;
+
+const NAME_DIALOG = '[data-slot="tug-workspace-name-dialog"]';
+const NAME_FIELD = '[data-slot="tug-workspace-name-field"]';
 
 /** How many parked workspaces stand behind the home one — enough to scroll. */
 const PARKED = 20;
@@ -136,51 +124,41 @@ function blob(withCardsCard: boolean): Record<string, unknown> {
   return { version: 5, activeSpaceId: HOME, spaces };
 }
 
-interface FieldFacts {
-  spaceId: string | null;
-  value: string | null;
+interface ModalFacts {
+  verb: string | null;
+  value: string;
   selectedWhole: boolean;
-  focused: boolean;
-  inView: boolean;
-  scrolls: boolean;
 }
 
 /**
- * Wait for the rename field to open on the shown layer, then read what a
- * person would see of it: which header holds it, its text and selection,
- * whether it holds the keyboard, and whether its row lies inside the card's
- * scroller.
+ * Wait for the naming modal to stand with the keyboard in its field and the
+ * overlay claiming the whole window, then read what a person would see of it.
  */
-async function openField(app: App): Promise<FieldFacts> {
-  // The shown Workspaces card — painted and placed, so a hidden layer's card
-  // that is still ready is never the one waited in.
-  const card: BodyApp = await waitForBodyPainted(app, "cards", 15_000);
-  await card.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
-    { timeoutMs: 15_000 },
-  );
-  // A frame for the reveal's scroll and the field's focus to settle.
-  await new Promise<void>((r) => setTimeout(r, 400));
-  return card.evalJS<FieldFacts>(
+async function openModal(overlay: BodyApp): Promise<ModalFacts> {
+  await overlay.waitForCondition<boolean>(
     `(function () {
-       var f = document.querySelector(${JSON.stringify(RENAME_INPUT)});
-       var header = f.closest(".cards-space-header");
-       var scroller = f.closest(".cards-card");
-       var row = (header && header.closest(".tug-list-view-cell")) || header;
-       var r = row.getBoundingClientRect();
-       var s = scroller.getBoundingClientRect();
+       var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+       return f !== null && document.activeElement === f && document.documentElement.getAttribute("data-overlay-claim-state") === "all";
+     })()`,
+    { timeoutMs: 8_000 },
+  );
+  return overlay.evalJS<ModalFacts>(
+    `(function () {
+       var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+       var d = document.querySelector(${JSON.stringify(NAME_DIALOG)});
        return {
-         spaceId: header ? header.getAttribute("data-cards-space-id") : null,
+         verb: d === null ? null : d.getAttribute("data-verb"),
          value: f.value,
-         selectedWhole:
-           f.value.length > 0 &&
-           f.selectionStart === 0 &&
-           f.selectionEnd === f.value.length,
-         focused: document.activeElement === f,
-         inView: r.top >= s.top - 1 && r.bottom <= s.bottom + 1,
-         scrolls: scroller.scrollHeight > scroller.clientHeight,
+         selectedWhole: f.value.length > 0 && f.selectionStart === 0 && f.selectionEnd === f.value.length,
        };
      })()`,
+  );
+}
+
+async function modalGone(overlay: BodyApp): Promise<void> {
+  await overlay.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(NAME_DIALOG)}) === null && document.documentElement.getAttribute("data-overlay-claim-state") !== "all"`,
+    { timeoutMs: 8_000 },
   );
 }
 
@@ -188,14 +166,17 @@ async function spaces(
   app: App,
 ): Promise<{ activeSpaceId: string; spaces: { id: string; name: string }[] }> {
   // card-dom: shell
-  return app.evalJS(`window.tugdeck.diag.getSpaces()`);
+  const json = await app.evalJS<string>(
+    `JSON.stringify((function (s) { return { activeSpaceId: s.activeSpaceId, spaces: s.spaces.map(function (w) { return { id: w.id, name: w.name }; }) }; })(window.tugdeck.diag.getSpaces()))`,
+  );
+  return JSON.parse(json) as { activeSpaceId: string; spaces: { id: string; name: string }[] };
 }
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0656 — New Workspace shows the new workspace and opens its name",
+  "at0656 — New Workspace asks for the new workspace's name",
   () => {
     test(
-      "the card's + scrolls the new header into view with its name selected, and typing names it",
+      "the card's + asks with the default selected, and the name typed is the workspace's, first in the list",
       async () => {
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
@@ -218,7 +199,19 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === ${PARKED + 1}`,
             { timeoutMs: 25_000 },
           );
+          const overlay = await overlayReady(app);
           await app.body("C1").nativeClickAtElement(NEW_BUTTON);
+          const modal = await openModal(overlay);
+          note(`at0656 + modal: ${JSON.stringify(modal)}`);
+          expect(modal.verb, "the modal asks for New").toBe("new");
+          expect(modal.value.length, "holding a default name").toBeGreaterThan(0);
+          expect(modal.selectedWhole, "selected whole, so typing replaces it").toBe(true);
+          const before = await spaces(app);
+          expect(before.spaces.length, "nothing is made while the name is asked").toBe(PARKED + 1);
+
+          await app.nativeType("Studio");
+          await app.nativeKey("Return");
+          await modalGone(overlay);
           // card-dom: shell
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.length === ${PARKED + 2}`,
@@ -226,48 +219,19 @@ describe.skipIf(!SHOULD_RUN)(
           );
           const after = await spaces(app);
           const created = after.activeSpaceId;
-          const defaultName =
-            after.spaces.find((s) => s.id === created)?.name ?? "";
           expect(created, "New goes to the workspace it made").not.toBe(HOME);
+          expect(after.spaces[0]?.id, "first in the list").toBe(created);
+          expect(after.spaces[0]?.name, "wearing the name typed, which replaced the default").toBe("Studio");
 
-          const field = await openField(app);
-          note(`at0656 + field: ${JSON.stringify(field)}`);
-          expect(
-            field.scrolls,
-            "the list overflows its card, so being in view took a scroll",
-          ).toBe(true);
-          expect(field.spaceId, "the field opens on the new workspace").toBe(
-            created,
-          );
-          expect(field.value, "holding its default name").toBe(defaultName);
-          expect(field.selectedWhole, "selected whole, so typing replaces it").toBe(
-            true,
-          );
-          expect(field.focused, "with the keyboard").toBe(true);
-          expect(field.inView, "and its header is scrolled into view").toBe(true);
-
-          await app.nativeType("Studio");
-          await app.nativeKey("Return");
-          await kindBody(app, "cards").waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
+          // The new workspace's own Workspaces card shows it as the first row.
+          const card = await waitForBodyPainted(app, "cards", 15_000);
+          await card.waitForCondition<boolean>(
+            `(function () {
+               var h = document.querySelector(${JSON.stringify(HEADER)});
+               return h !== null && h.getAttribute("data-cards-space-id") === ${JSON.stringify(created)};
+             })()`,
             { timeoutMs: 8_000 },
           );
-          // The field is the Workspaces card's, in its own body, and the
-          // rename it commits is the deck's: it crosses the bus to the shell
-          // a beat after the field closes, so the name is waited for in the
-          // shell rather than read the instant the body lets go.
-          await app
-            // card-dom: shell
-            .waitForCondition<boolean>(
-              `window.tugdeck.diag.getSpaces().spaces.some(function (s) { return s.id === ${JSON.stringify(created)} && s.name !== ${JSON.stringify(defaultName)}; })`,
-              { timeoutMs: 4_000 },
-            )
-            .catch(() => undefined);
-          const named = await spaces(app);
-          expect(
-            named.spaces.find((s) => s.id === created)?.name,
-            "typing replaced the default name",
-          ).toBe("Studio");
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);
@@ -277,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "the menu's New brings the Workspaces card, and Escape keeps the default name",
+      "the menu's New asks too, and Escape makes nothing",
       async () => {
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
@@ -306,42 +270,28 @@ describe.skipIf(!SHOULD_RUN)(
             await hasBodyOfKind(app, "cards"),
             "no Workspaces card is on screen to start",
           ).toBe(false);
+          const before = await spaces(app);
 
+          const overlay = await overlayReady(app);
           await app.dispatchControlAction("new-space");
-          // card-dom: shell
-          await app.waitForCondition<boolean>(
-            `window.tugdeck.diag.getSpaces().spaces.length === ${PARKED + 2}`,
-            { timeoutMs: 10_000 },
-          );
-          const after = await spaces(app);
-          const created = after.activeSpaceId;
-          const defaultName =
-            after.spaces.find((s) => s.id === created)?.name ?? "";
-
-          const field = await openField(app);
-          note(`at0656 menu field: ${JSON.stringify(field)}`);
-          expect(field.spaceId, "the card was brought, open on the new workspace").toBe(
-            created,
-          );
-          expect(field.value).toBe(defaultName);
-          expect(field.selectedWhole).toBe(true);
-          expect(field.focused).toBe(true);
-          expect(field.inView, "its header in view").toBe(true);
+          const modal = await openModal(overlay);
+          note(`at0656 menu modal: ${JSON.stringify(modal)}`);
+          expect(modal.verb).toBe("new");
+          expect(modal.selectedWhole).toBe(true);
 
           await app.nativeKey("Escape");
-          await kindBody(app, "cards").waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
-            { timeoutMs: 8_000 },
-          );
+          await modalGone(overlay);
+          // Whether the full projection still crosses the bridge after a
+          // discard: read for the record, never asserted.
+          const whole = await app
+            // card-dom: shell
+            .evalJS<unknown>(`window.tugdeck.diag.getSpaces()`)
+            .then(() => "crosses")
+            .catch((e: unknown) => `refused: ${String(e)}`);
+          note(`at0656 full getSpaces after Escape: ${whole}`);
           const kept = await spaces(app);
-          expect(
-            kept.spaces.length,
-            "Escape cancels the rename, never the creation",
-          ).toBe(PARKED + 2);
-          expect(
-            kept.spaces.find((s) => s.id === created)?.name,
-            "and the workspace keeps its default name",
-          ).toBe(defaultName);
+          expect(kept.spaces.map((s) => s.id), "a cancelled New makes nothing").toEqual(before.spaces.map((s) => s.id));
+          expect(kept.activeSpaceId, "and the user stays where they were").toBe(HOME);
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);

@@ -9,7 +9,8 @@
  * overlay asks of the shell is answered here: an update action for the host,
  * the setup wizard's first session, and the modals it has up, which the
  * shell's menu reads. An alert the shell raises is asked of the overlay
- * ({@link overlayShowAlert}), and the Tug menu's Configure Tug… opens the
+ * ({@link overlayShowAlert}), and so is the naming modal's workspace name
+ * (`workspace-name-request.ts`), and the Tug menu's Configure Tug… opens the
  * wizard there. Open Quickly is drawn there too ([B08]): the shell's open
  * state crosses, and its close and the file it chose come back.
  *
@@ -34,6 +35,8 @@ import {
   overlayRestoreGate,
   overlayUpdateAction,
   overlayUpdateState,
+  overlayWorkspaceName,
+  overlayWorkspaceNameAnswer,
 } from "../bus/declarations/overlay";
 import { pageBus } from "../bus/page-bus";
 import { postToHost } from "../host/channel";
@@ -58,6 +61,7 @@ import { restoreGateStore } from "./restore-gate-store";
 import { openFirstSession } from "./shell-gate-deck";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { postUpdateAction, updateStore, type UpdateAction } from "./update-store";
+import { answerWorkspaceName, getWorkspaceNameRequest, subscribeWorkspaceNameRequest } from "./workspace-name-request";
 
 /** Whether the host keeps an overlay page above the cards: it does wherever it makes body views. */
 export function hostKeepsOverlay(): boolean {
@@ -186,6 +190,15 @@ export function installOverlayShell(deck: CardDeck): () => void {
   );
   const lifecycle = getAppLifecycle();
   if (lifecycle !== null) releases.push(lifecycle.observeApplicationWillResignActive(() => closeOpenQuickly()));
+
+  // The naming modal, drawn in the overlay: the question is the shell's, and
+  // its answer — from the overlay alone — comes back to the asker.
+  relay(subscribeWorkspaceNameRequest, () => overlayWorkspaceName.set({ ...getWorkspaceNameRequest() }));
+  releases.push(
+    overlayWorkspaceNameAnswer.handle(({ seq, name }, from) => {
+      if (from.cardId === OVERLAY_CARD_ID) answerWorkspaceName(seq, name);
+    }),
+  );
 
   return () => {
     for (const release of releases.splice(0)) release();

@@ -26,7 +26,12 @@
  *      answer is not a state change but a card: Rename and Delete with no
  *      `spaceId` act on the ACTIVE workspace ([P02]) and reach the Workspaces
  *      card, revealing it if it is closed ([P03]) — the inline field for one,
- *      the confirm for the other.
+ *      the confirm for the other. Duplicate asks for the copy's name first,
+ *      in the app-modal the overlay draws, with `Duplicate of <source>`
+ *      proposed: Escape makes nothing, and Return makes the copy directly
+ *      after its source, not activated. New asks in the same modal, and
+ *      its committed name makes the workspace first in the list and goes
+ *      there.
  *
  * The harness cannot click a native menu item, so each verb is driven through
  * the control frame its `@objc` action sends and the MENU is still what is
@@ -42,6 +47,8 @@
  * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
+ * @covers tugdeck/src/components/tugways/tug-workspace-name-dialog.tsx
+ * @covers tugdeck/src/lib/workspace-name-request.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -55,6 +62,11 @@ import {
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
 import { kindBody } from "./_harness/card-reach";
+import { overlayReady } from "./overlay-fixture";
+
+/** The naming modal, in the overlay page, and its field. */
+const NAME_DIALOG = '[data-slot="tug-workspace-name-dialog"]';
+const NAME_FIELD = '[data-slot="tug-workspace-name-field"]';
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -244,8 +256,25 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
         }
 
         // ---- 3. Each wire does what its row says. ------------------------
-        // New: creates and activates, which is `createSpace`'s own contract.
+        // New: asks the name first, in the app-modal the overlay draws, and
+        // the committed name makes the workspace at the top of the list and
+        // goes there.
+        const overlay = await overlayReady(app);
+        const fieldUp = `(function () {
+          var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+          return f !== null && document.activeElement === f && document.documentElement.getAttribute("data-overlay-claim-state") === "all";
+        })()`;
+        const dialogGone = `document.querySelector(${JSON.stringify(NAME_DIALOG)}) === null && document.documentElement.getAttribute("data-overlay-claim-state") !== "all"`;
         await app.dispatchControlAction("new-space");
+        await overlay.waitForCondition<boolean>(fieldUp, { timeoutMs: 8_000 });
+        expect(
+          await overlay.evalJS<string | null>(
+            `(function () { var d = document.querySelector(${JSON.stringify(NAME_DIALOG)}); return d === null ? null : d.getAttribute("data-verb"); })()`,
+          ),
+          "the modal asks for New",
+        ).toBe("new");
+        await app.nativeKey("Return");
+        await overlay.waitForCondition<boolean>(dialogGone, { timeoutMs: 8_000 });
         await app.waitForCondition<boolean>(
           `window.tugdeck.diag.getSpaces().spaces.length === 3`,
           { timeoutMs: 10_000 },
@@ -259,21 +288,39 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
           "the new workspace is the one you are now in",
         ).not.toBe(SPACE_ONE);
         const created = afterNew.activeSpaceId;
-        // New also opens the new workspace's name for editing (at0656 pins
-        // the whole of that); cancel it so the rows below start from rest.
-        await kindBody(app, "cards").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
-          { timeoutMs: 15_000 },
-        );
-        await app.nativeKey("Escape");
-        await kindBody(app, "cards").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
-          { timeoutMs: 8_000 },
-        );
+        expect(afterNew.spaces[0]?.id, "the new workspace is first in the list").toBe(created);
 
         // Duplicate: a copy of the ACTIVE workspace, from a row that names no
-        // workspace at all — which is the whole of [P02].
+        // workspace at all — which is the whole of [P02]. It asks for the
+        // copy's name first, in the app-modal, and a cancel makes nothing.
+        const sourceName =
+          afterNew.spaces.find((s) => s.id === created)?.name ?? "";
         await app.dispatchControlAction("duplicate-space");
+        await overlay.waitForCondition<boolean>(fieldUp, { timeoutMs: 8_000 });
+        const field = await overlay.evalJS<{ value: string; selectedWhole: boolean; verb: string | null }>(
+          `(function () {
+             var f = document.querySelector(${JSON.stringify(NAME_FIELD)});
+             var d = document.querySelector(${JSON.stringify(NAME_DIALOG)});
+             return {
+               value: f.value,
+               selectedWhole: f.value.length > 0 && f.selectionStart === 0 && f.selectionEnd === f.value.length,
+               verb: d === null ? null : d.getAttribute("data-verb"),
+             };
+           })()`,
+        );
+        expect(field.verb, "the modal asks for Duplicate").toBe("duplicate");
+        expect(field.value, "the copy's proposed name says what it copies").toBe(`Duplicate of ${sourceName}`);
+        expect(field.selectedWhole, "and it is selected, so typing replaces it").toBe(true);
+        await app.nativeKey("Escape");
+        await overlay.waitForCondition<boolean>(dialogGone, { timeoutMs: 8_000 });
+        const afterCancel = await app.evalJS<{ spaces: { id: string }[] }>(`window.tugdeck.diag.getSpaces()`);
+        expect(afterCancel.spaces.map((s) => s.id), "a cancelled Duplicate makes nothing").toEqual(afterNew.spaces.map((s) => s.id));
+
+        // Asked again and answered, the copy is made directly after its source.
+        await app.dispatchControlAction("duplicate-space");
+        await overlay.waitForCondition<boolean>(fieldUp, { timeoutMs: 8_000 });
+        await app.nativeKey("Return");
+        await overlay.waitForCondition<boolean>(dialogGone, { timeoutMs: 8_000 });
         await app.waitForCondition<boolean>(
           `window.tugdeck.diag.getSpaces().spaces.length === 4`,
           { timeoutMs: 10_000 },
@@ -282,19 +329,18 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
           activeSpaceId: string;
           spaces: { id: string; name: string }[];
         }>(`window.tugdeck.diag.getSpaces()`);
-        const sourceName =
-          afterNew.spaces.find((s) => s.id === created)?.name ?? "";
+        const sourceAt = afterDuplicate.spaces.findIndex((s) => s.id === created);
         expect(
-          afterDuplicate.spaces.map((s) => s.name),
-          "the copy is named after what it copied",
-        ).toContain(`${sourceName} copy`);
+          afterDuplicate.spaces[sourceAt + 1]?.name,
+          "the copy wears the committed name, directly after what it copied",
+        ).toBe(`Duplicate of ${sourceName}`);
         expect(
           afterDuplicate.activeSpaceId,
           "and the copy is not activated — you stay where you were",
         ).toBe(created);
 
-        // Rename: the field opening again is the verb's own work, on the
-        // card New brought ([P03]).
+        // Rename: the field opening is the verb's own work, on the new
+        // workspace's own Workspaces card ([P03]).
         expect(
           await kindBody(app, "cards").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,

@@ -14,6 +14,7 @@ import {
   MAIN_SPACE_NAME,
   activeSpaceTheme,
   duplicatedDeck,
+  duplicateSpaceName,
   moveCardBetweenDecks,
   nextSpaceName,
   parkedDeck,
@@ -176,6 +177,13 @@ describe("nextSpaceName", () => {
 
   test("ignores names that are not of the pattern", () => {
     expect(nextSpaceName(["Main", "Scratch"])).toBe("Workspace 1");
+  });
+});
+
+describe("duplicateSpaceName", () => {
+  test("proposes the copy as a duplicate of its source, by the source's name", () => {
+    expect(duplicateSpaceName("Home")).toBe("Duplicate of Home");
+    expect(duplicateSpaceName("Workspace 3")).toBe("Duplicate of Workspace 3");
   });
 });
 

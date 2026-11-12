@@ -172,7 +172,7 @@ declare global {
         seedDeck(state: unknown, focusCardId?: string): void;
         createSpace(name?: string): string;
         renameSpace(spaceId: string, name: string): void;
-        duplicateSpace(spaceId: string): string | null;
+        duplicateSpace(spaceId: string, name?: string): string | null;
         deleteSpace(spaceId: string): boolean;
         reorderSpaces(order: readonly string[]): void;
         spaceHoldsLiveSessions(spaceId: string): number;
@@ -1159,7 +1159,7 @@ async function loadTestSurface(
       renameSpace: (spaceId: string, name: string) => {
         deck.renameSpace(spaceId, name);
       },
-      duplicateSpace: (spaceId: string) => deck.duplicateSpace(spaceId),
+      duplicateSpace: (spaceId: string, name?: string) => deck.duplicateSpace(spaceId, name),
       deleteSpace: (spaceId: string) => deck.deleteSpace(spaceId),
       reorderSpaces: (order: readonly string[]) => {
         deck.reorderSpaces(order);

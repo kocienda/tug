@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aheadOrder, nextAhead, type AheadFacts } from "../body-make-ahead";
+import { aheadOrder, nextAhead, pendingAhead, type AheadFacts } from "../body-make-ahead";
 
 const base: AheadFacts = {
   activeSpaceId: "home",
@@ -12,6 +12,34 @@ const base: AheadFacts = {
 };
 
 describe("body-make-ahead", () => {
+  test("a pending workspace's cards are made at once, while another page loads", () => {
+    const f: AheadFacts = {
+      ...base,
+      mounted: new Set(["home", "new"]),
+      cards: [
+        { cardId: "h1", spaceId: "home", state: "creating", timeEvicted: false },
+        { cardId: "n1", spaceId: "new", state: "unmade", timeEvicted: false },
+        { cardId: "n2", spaceId: "new", state: "creating", timeEvicted: false },
+      ],
+      unhanded: [{ cardId: "n0", spaceId: "new" }],
+    };
+    expect(pendingAhead(f, "new")).toEqual({ kind: "make", spaceId: "new", cardIds: ["n0", "n1"] });
+    // The ordinary pass, which waits for nothing to be loading, makes nothing.
+    expect(nextAhead(f)).toBeNull();
+  });
+
+  test("a pending workspace is never in the ordinary pass's order", () => {
+    const f: AheadFacts = { ...base, spaceOrder: ["home"], mounted: new Set(["home", "new"]), unhanded: [{ cardId: "n0", spaceId: "new" }] };
+    expect(aheadOrder(f)).toEqual([]);
+    expect(nextAhead(f)).toBeNull();
+  });
+
+  test("nothing is made for no pending workspace, or one with every page asked for", () => {
+    expect(pendingAhead(base, undefined)).toBeNull();
+    const f: AheadFacts = { ...base, mounted: new Set(["home", "new"]), cards: [...base.cards, { cardId: "n1", spaceId: "new", state: "painted", timeEvicted: false }] };
+    expect(pendingAhead(f, "new")).toBeNull();
+  });
+
   test("parked spaces go the most recently shown first, then the rest in the list's order", () => {
     expect(aheadOrder({ ...base, recency: ["home", "c", "gone"] })).toEqual(["c", "a", "b"]);
   });

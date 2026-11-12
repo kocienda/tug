@@ -21,6 +21,9 @@
  *   Claude Code is installed, signed in, and the first session is opened.
  * - `UpdateTug` and `UpdatePill` — the update wizard and its modeless pill,
  *   which hand one zoom rect between them and so share a page.
+ * - `TugWorkspaceNameDialog` — the name New Workspace and Duplicate
+ *   Workspace ask for before they make anything, the question the shell
+ *   asked (`workspace-name-request.ts`), answered through the gate deck.
  *
  * @module components/tugways/app-gates
  */
@@ -31,6 +34,7 @@ import { UpdatePill } from "@/components/chrome/update-pill";
 import { ConfigureTug } from "./configure-tug";
 import { TugRestoreGate } from "./tug-restore-gate";
 import { TugVersionGate } from "./tug-version-gate";
+import { TugWorkspaceNameDialog } from "./tug-workspace-name-dialog";
 import { UpdateTug } from "./update-tug";
 
 export function AppGates(): React.ReactElement {
@@ -41,6 +45,7 @@ export function AppGates(): React.ReactElement {
       <ConfigureTug />
       <UpdateTug />
       <UpdatePill />
+      <TugWorkspaceNameDialog />
     </>
   );
 }

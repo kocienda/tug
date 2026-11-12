@@ -368,5 +368,5 @@ export const deckInterruptLiveSessions = defineRequest({
 export const cardsSpaceVerb = defineAction({
   id: "cards.spaceVerb",
   owner: "card",
-  codec: obj({ verb: literal("rename", "delete"), spaceId: str }),
+  codec: obj({ verb: literal("rename", "delete", "focus"), spaceId: str }),
 });

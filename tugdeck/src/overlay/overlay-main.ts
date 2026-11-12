@@ -43,6 +43,7 @@ import {
   overlayRestoreGate,
   overlayUpdateAction,
   overlayUpdateState,
+  overlayWorkspaceName,
 } from "../bus/declarations/overlay";
 import { deckFacts, deckFrontmostProject } from "../bus/declarations/deck";
 import { installPage, page } from "../bus/page";
@@ -71,6 +72,7 @@ import { motionBreaker } from "../lib/motion-guard/breaker";
 import { networkPathStore } from "../lib/network-path-store";
 import { relayFrontmostProjectBinding } from "../lib/frontmost-project";
 import { adoptOpenQuicklyOpen, setOpenQuicklyCloseSink, setOpenQuicklyFileSink } from "../lib/open-quickly-store";
+import { adoptWorkspaceNameRequest } from "../lib/workspace-name-request";
 import { OVERLAY_CARD_ID } from "../lib/overlay-card";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { restoreGateStore } from "../lib/restore-gate-store";
@@ -149,6 +151,9 @@ follow(overlayOpenQuickly, ({ open, seq }) => adoptOpenQuicklyOpen(open, seq));
 follow(deckFrontmostProject, ({ binding }) => relayFrontmostProjectBinding(binding));
 setOpenQuicklyCloseSink((seq) => overlayCloseOpenQuickly.dispatch({ seq }));
 setOpenQuicklyFileSink((path, line) => overlayOpenFile.dispatch({ path, line: line ?? null }));
+// The naming modal is drawn here and asked by the shell: its question is the
+// shell's, and its answer goes back through this page's gate deck.
+follow(overlayWorkspaceName, (request) => adoptWorkspaceNameRequest(request));
 // The shell's facts every page renders against: the theme, the zoom, the
 // keyboard's mode and modality, the held modifiers, the motion switch, and
 // whether the app is frontmost — a backgrounded window paints no focus ring

@@ -7,8 +7,17 @@
  * workspace's factory rail, five cards on its two sides — so it is read by
  * row 44's judge (`readGesture`), with the cards' ids taken from the deck
  * once the gesture has made them. The app launches on one workspace holding
- * one Text card, shown; New Workspace is performed through its control
- * action, and every frame is read until each rail card's page has painted.
+ * one Text card, shown; the create is performed through the deck's direct
+ * `createSpace` verb, and every frame is read until each rail card's page
+ * has painted.
+ *
+ * The direct verb, not New Workspace's control action: New now asks the
+ * name in an app-modal over a workspace built pending, its pages made
+ * hidden, so it cuts onto painted pages and never reaches this hand-over
+ * (`row-44-switch-create-modal.test.ts` judges that gesture). A create onto
+ * cards with no page yet is still the deck's to land in one cut, faced, and
+ * `createSpace` is the verb that lands it.
+ *
  * The departing card's view must hand over to the arriving cards' faces in
  * the switch's one host transaction, and no rail pane's box or title band
  * may show the canvas.
@@ -78,14 +87,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
         expect(home?.visible, "the shown workspace's card is a body, shown").toBe(true);
 
         const mark = await app.evalJS<number>("(window.__deckTrace.enable(true), window.__deckTrace.mark())");
-        // The stand-ins standing once the gesture has run. The control action is dispatched with no
-        // dwell after it, so the read lands while the rail's pages are still being made.
+        // The stand-ins standing once the gesture has run. The create is called with no dwell after
+        // it, so the read lands while the rail's pages are still being made.
         let standIns = { faces: -1 };
         // The faces the host was posted.
         let posted: string[] = [];
         const bad = await readGesture(
           app,
-          () => app.evalJS<null>(`(window.__tug.dispatchControlAction("new-space"), null)`),
+          () => app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`),
           async () => {
             standIns = await app.evalJS<{ faces: number }>(
               `({ faces: document.querySelectorAll('[data-body-stand-in]').length })`,

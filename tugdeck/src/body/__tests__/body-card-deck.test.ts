@@ -556,6 +556,16 @@ const DECK_VIEW_EVIDENCE: {
     // Only the shell's deck manager holds the mounted set; a page has none.
     expect(v.mountSpaceAhead).toBeUndefined();
   },
+  beginPendingSpace: (v) => {
+    // Only the shell's deck manager holds a pending workspace; a page has none.
+    expect(v.beginPendingSpace).toBeUndefined();
+  },
+  discardPendingSpace: (v) => {
+    expect(v.discardPendingSpace).toBeUndefined();
+  },
+  adoptPendingSpace: (v) => {
+    expect(v.adoptPendingSpace).toBeUndefined();
+  },
   renameSpace: async (v, { shellHeard, flush }) => {
     v.renameSpace("s1", "Work");
     await flush();

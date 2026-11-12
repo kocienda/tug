@@ -95,6 +95,9 @@ import { ARCS_CARD_ID } from "@/lib/arcs-card-id";
 import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
+import { askWorkspaceName } from "@/lib/workspace-name-request";
+import { newWorkspaceThroughModal } from "@/lib/new-workspace";
+import { duplicateSpaceName } from "@/spaces";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { isBodyKind } from "@/lib/body-handoff";
 import { hostKeepsOverlay } from "@/lib/overlay-shell";
@@ -2791,15 +2794,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // or a `···` landed on; absent, the verb means the ACTIVE workspace,
       // which is the target the menu names. `targetSpaceId` below is that one
       // rule, written once.
-      // New is Rename's second path run on the workspace it just made: a new
-      // workspace is one you are about to name, so the Workspaces card comes
-      // forward — opened if it is closed — with the new header's field open
-      // and its default name selected. Escape keeps that name; nothing here
-      // undoes the creation.
+      // New asks the name first, in the naming modal, and makes nothing the
+      // user does not commit: the workspace is built pending while the modal
+      // stands, its pages made hidden, and a committed name is one cut onto
+      // them at the top of the list (`lib/new-workspace.ts`).
       [TUG_ACTIONS.NEW_SPACE]: () => {
-        const spaceId = store.createSpace();
-        revealSidebarCard(store, CARDS_CARD_ID);
-        cardsSpaceVerbRequest.request("rename", spaceId);
+        void newWorkspaceThroughModal(store);
       },
       [TUG_ACTIONS.RENAME_SPACE]: (event: ActionEvent) => {
         const payload = event.value as
@@ -2825,7 +2825,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           (event.value as { spaceId?: unknown } | undefined)?.spaceId,
         );
         if (spaceId === null) return;
-        store.duplicateSpace(spaceId);
+        // Every door to Duplicate — the row menus, the Window menu — asks for
+        // the copy's name first, in the app-modal, with `Duplicate of <source
+        // name>` proposed. A cancel makes nothing; a name makes the copy
+        // directly after its source, not activated ([P06]), so nothing on
+        // screen changes behind the modal.
+        const source = store.getSpacesSnapshot().spaces.find((s) => s.id === spaceId);
+        if (source === undefined) return;
+        void askWorkspaceName("duplicate", duplicateSpaceName(source.name)).then((name) => {
+          if (name !== null) store.duplicateSpace(spaceId, name);
+        });
       },
       [TUG_ACTIONS.DELETE_SPACE]: (event: ActionEvent) => {
         const spaceId = targetSpaceId(

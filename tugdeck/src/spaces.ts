@@ -106,6 +106,12 @@ export interface SpacesSnapshot {
    * deck is the live one. A mounted id with no entry here is the active one.
    */
   mountedDecks: ReadonlyMap<string, DeckState>;
+  /**
+   * The workspace being made while the naming modal is open, if any: mounted
+   * unshown (it is in {@link mountedSpaceIds} and {@link mountedDecks}) but in
+   * no list, menu or save until it is adopted.
+   */
+  readonly pendingSpaceId?: string;
 }
 
 /** No workspaces: what a page that holds only one card's deck knows of them. */
@@ -241,6 +247,14 @@ export function nextSpaceName(existing: readonly string[]): string {
     const candidate = `Workspace ${n}`;
     if (!taken.has(candidate)) return candidate;
   }
+}
+
+/**
+ * The name Duplicate Workspace proposes for a copy of `sourceName`, filled in
+ * and selected in the naming modal: the user's own wording.
+ */
+export function duplicateSpaceName(sourceName: string): string {
+  return `Duplicate of ${sourceName}`;
 }
 
 /**

@@ -741,6 +741,24 @@ export interface DeckView extends CardDeck {
    */
   mountSpaceAhead?: (spaceId: string) => void;
 
+  /**
+   * Build a new workspace whole but hold it pending: mounted unshown, its
+   * cards' pages asked for at once, and absent from the list, the menu and
+   * every save. Replaces a pending one already held. Returns its id and the
+   * name it is proposed under. Optional: only the deck manager holds one.
+   */
+  beginPendingSpace?: () => { id: string; name: string };
+
+  /** Drop the pending workspace and its cards' pages, leaving no trace. A no-op with none held. */
+  discardPendingSpace?: () => void;
+
+  /**
+   * Name the pending workspace (its proposed name when `name` is empty after
+   * trimming), put it first in the list and activate it. Returns its id, or
+   * `null` with none held.
+   */
+  adoptPendingSpace?: (name?: string) => string | null;
+
   /** Rename a workspace. Trims; a name empty after trimming is refused. */
   renameSpace: (spaceId: string, name: string) => void;
 

@@ -88,6 +88,12 @@ export const SURFACE_CENSUS: readonly SurfaceCensusEntry[] = [
     why: "The deck-global Open Quickly dialog. Its open state is the shell's (`overlay.openQuickly`) and so is the project it searches (`deck.frontmostProject`); it searches on the overlay's own connection, and its choice and its close go back (`overlay.openFile`, `overlay.closeOpenQuickly`).",
   },
   {
+    module: "components/tugways/tug-workspace-name-dialog.tsx",
+    page: "overlay",
+    how: "relayed",
+    why: "An app-modal. New and Duplicate Workspace ask the shell's question (`overlay.workspaceName`), and the name or the cancel goes back (`overlay.workspaceNameAnswer`).",
+  },
+  {
     module: "components/chrome/zoom-readout.tsx",
     page: "overlay",
     how: "relayed",

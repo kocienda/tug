@@ -12,7 +12,7 @@
 
 import { deckInterruptLiveSessions } from "../bus/declarations/arrangement";
 import { deckCards } from "../bus/declarations/deck";
-import { overlayOpenFirstSession } from "../bus/declarations/overlay";
+import { overlayOpenFirstSession, overlayWorkspaceNameAnswer } from "../bus/declarations/overlay";
 import { INTERRUPT_LIVE_SESSIONS_HORIZON_MS } from "../body/body-card-deck";
 import { isSidebarCard } from "../card-registry";
 import type { GateDeck } from "../lib/gate-deck";
@@ -33,5 +33,6 @@ export function createOverlayGateDeck(): GateDeck {
     openFirstSession: (projectDir) => overlayOpenFirstSession.dispatch({ projectDir }),
     interruptLiveSessions: () =>
       deckInterruptLiveSessions.ask({}, { horizon: { ms: INTERRUPT_LIVE_SESSIONS_HORIZON_MS } }),
+    answerWorkspaceName: (seq, name) => overlayWorkspaceNameAnswer.dispatch({ seq, name }),
   };
 }

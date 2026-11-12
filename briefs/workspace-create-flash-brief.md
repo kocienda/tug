@@ -42,6 +42,8 @@ A first sketch read the problem as load time and proposed warming the new worksp
 
 **[B05] The rename field stays where it is.** It opens inside the Workspaces card's content once that page paints ([F06]). Under a lid that reads as loading, that is the right moment, and `at0656` keeps pinning it.
 
+*Superseded by `briefs/workspace-naming-modal-brief.md` [B08]:* New Workspace now asks the name first, in an app-modal, and the inline field on create is retired; `at0656` pins the name in its new place. Rename Workspace keeps the inline field.
+
 **[B06] A frame judge lands red before the fix.** One app-test samples frames across New Workspace, shaped like the row 44 switch judge: no frame of canvas in any rail pane after the cut; no departing card drawn over the new layer; one `store-notify` for the gesture, spelled `"cut"`; no pane rect moving after it. It is run against the current build first so it fails on [F02] and [F03], and the fix is judged by it. It carries `@covers` for the modules it reaches, and is one file under the corpus's 20 s budget.
 
 **[B07] Create gets its own doctrine row.** `tuglaws/animation-doctrine.md` row D2 covers the switch. A row for workspace create names the target "one cut onto loading faces" and cites this brief.
@@ -57,6 +59,7 @@ A first sketch read the problem as load time and proposed warming the new worksp
 ## Non-goals {#non-goals}
 
 - **Warming the new workspace's pages before showing it.** The first sketch proposed mounting the new workspace parked, loading its five bodies hidden, and cutting when all had painted. Rejected by the user: the problem is flashing, not load time, and a loading interface with progress indication is fine. It would also have reversed the body program's rule that a never-shown workspace gets no bodies.
+  *Carved out by `briefs/workspace-naming-modal-brief.md` [B10]:* New Workspace through the naming modal does exactly this, because the gesture is answered at once by the modal and the pages load while the user reads and types, so nothing waits with nothing on screen. The non-goal stands for every other gesture.
 - **More spares or a wider lane.** Load time is untouched. A set of rail spares would cost about 146 MB each for a gain this brief does not want.
 - **Duplicate Workspace.** It appends without activating, so it has no first show and nothing here touches it.
 - **Delete Workspace and the switch itself.** Both already land as cuts onto painted bodies.

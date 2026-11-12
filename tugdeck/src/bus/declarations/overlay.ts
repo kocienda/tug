@@ -249,6 +249,32 @@ export const overlayOpenFile = defineAction({
   codec: obj({ path: str, line: nullable(num) }),
 });
 
+/**
+ * The naming modal's question — New Workspace's or Duplicate Workspace's
+ * name, with the proposed one — as the shell holds it
+ * (`lib/workspace-name-request.ts`). The overlay draws the modal from it.
+ */
+export const overlayWorkspaceName = defineSharedStore({
+  key: "overlay.workspaceName",
+  owner: "shell",
+  scope: overlayOnly,
+  codec: obj({ open: bool, seq: num, verb: literal("new", "duplicate"), proposed: str, waiting: bool }),
+  initial: { open: false, seq: 0, verb: "new", proposed: "", waiting: false } as {
+    open: boolean;
+    seq: number;
+    verb: "new" | "duplicate";
+    proposed: string;
+    waiting: boolean;
+  },
+});
+
+/** The naming modal's answer to question `seq`: the name committed, or `null` for a cancel. */
+export const overlayWorkspaceNameAnswer = defineAction({
+  id: "overlay.workspaceNameAnswer",
+  owner: "shell",
+  codec: obj({ seq: num, name: nullable(str) }),
+});
+
 /** The app-modals the overlay has on screen, which the shell's menu reads (`app-modal-store.ts`). */
 export const overlayAppModal = defineSharedStore({
   key: "overlay.appModal",

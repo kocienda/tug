@@ -49,6 +49,7 @@ const SHELL_DECK_READERS: Record<string, string> = {
   "lib/pane-verbs.ts": "answers the `pane.*` verbs on the shell's arrangement",
   "lib/restore-gate-store.ts": "holds the shell's restore gate only for cards in the shell's shown workspace",
   "lib/host-menu-state.ts": "projects the shell's arrangement into the host's menus",
+  "lib/new-workspace.ts": "New Workspace, which builds, adopts or discards the shell's pending workspace",
 };
 
 /** The `{ … }` names a source file imports, by its import declarations. */

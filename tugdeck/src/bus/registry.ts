@@ -54,6 +54,8 @@ import {
   overlaySurfaces,
   overlayUpdateAction,
   overlayUpdateState,
+  overlayWorkspaceName,
+  overlayWorkspaceNameAnswer,
 } from "./declarations/overlay";
 import {
   cardContent,
@@ -145,6 +147,7 @@ export const SHARED_STORES: readonly AnySharedStore[] = [
   overlayNetworkPath,
   overlayBulletinInsets,
   overlayAppModal,
+  overlayWorkspaceName,
   deckFacts,
   deckMenu,
   deckFrontmostProject,
@@ -193,6 +196,7 @@ export const ROUTED_ACTIONS: readonly RoutedAction<any>[] = [
   overlaySurfaceDismissed,
   overlayCloseOpenQuickly,
   overlayOpenFile,
+  overlayWorkspaceNameAnswer,
   deckActivateCard,
   deckFlashCard,
   deckFlashSlot,

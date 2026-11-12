@@ -78,7 +78,7 @@ The earlier rounds (`briefs/switch-hand-over-brief.md`, `briefs/workspace-create
 - **A progress glyph on the lid or the face.** Removed at the user's direction on 2026-10-27 (`e6c94ec2b`): a host-drawn face cannot animate it, and a still glyph read as stuck.
 - **Keeping hidden bodies awake to avoid the catch-up.** Dormancy and eviction stay as they are; [B03] changes what a reveal shows, not when a body sleeps.
 - **Pre-tinting bodies to the on-screen theme ahead of a switch.** Considered and rejected: it is the current mechanism's premise, and it is what puts the departed tint on the arriving cards. A body's theme is a fact of its workspace, not of the screen.
-- **Warming a workspace's pages before showing it.** Rejected in the create brief and stays rejected.
+- **Warming a workspace's pages before showing it.** Rejected in the create brief and stays rejected — except for New Workspace through the naming modal, which `briefs/workspace-naming-modal-brief.md` [B10] carves out: the modal answers the gesture at once, so the loading behind it makes nobody wait on an empty screen.
 
 ---
 
