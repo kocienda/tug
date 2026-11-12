@@ -1002,8 +1002,11 @@ reap *MODE:
     fi
 
 # Render the styled DMG background art (resources/dmg-preview.svg) into the
-# multi-representation HiDPI TIFF the dmgbuild step consumes. Two reps —
-# 720x460 @1x + 1440x920 @2x — combined via `tiffutil -cathidpicheck`.
+# multi-representation HiDPI TIFF the dmgbuild step consumes. Two reps, @1x
+# and @2x, combined via `tiffutil -cathidpicheck`. The size is the SVG's own
+# canvas (`-z`, never a fixed -w/-h): a size written here squashed the art
+# under the Finder's icons the first time the canvas grew. The canvas height
+# is tied to window_rect in tugrust/scripts/dmg/settings.py; change them together.
 # Re-run after editing the SVG; the live app/Applications icons are NOT
 # painted in (Finder draws them), so only the art changes here.
 # Render resources/dmg-preview.svg into the HiDPI dmg-background.tiff (run after editing the SVG).
@@ -1018,8 +1021,8 @@ dmg-background:
     OUT=resources/dmg-background.tiff
     TMP="$(mktemp -d)"
     trap 'rm -rf "$TMP"' EXIT
-    rsvg-convert -w 720  -h 460 "$SRC" -o "$TMP/bg-1x.png"
-    rsvg-convert -w 1440 -h 920 "$SRC" -o "$TMP/bg-2x.png"
+    rsvg-convert -z 1 "$SRC" -o "$TMP/bg-1x.png"
+    rsvg-convert -z 2 "$SRC" -o "$TMP/bg-2x.png"
     tiffutil -cathidpicheck "$TMP/bg-1x.png" "$TMP/bg-2x.png" -out "$OUT"
     echo "==> wrote $OUT"
     tiffutil -info "$OUT" | grep -iE "image width|image length"

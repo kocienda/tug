@@ -4,8 +4,8 @@
 # Tug.dmg: the app icon on the left, an /Applications symlink on the right,
 # the arrow and "Drag Tug to Applications" caption painted into the retina
 # background, as much Finder chrome hidden as Finder will honour. Coordinates
-# are in the 720x517 content area (origin top-left, icon centers); the art's
-# ink stays in its top 460 pt, the safe area described at window_rect below.
+# are in the 720x498 background (origin top-left, icon centers); every word
+# and icon stays in its white band, the safe area described at window_rect.
 #
 # Invoked by build-app.sh as:
 #   dmgbuild -s settings.py \
@@ -49,16 +49,31 @@ symlinks = {"Applications": "/Applications"}
 
 # window_rect = ((x, y), (w, h)), and h includes the title bar.
 #
-# Finder does not honour show_pathbar/show_status_bar below: a user's global
-# View > Show Path Bar / Show Status Bar wins, and each bar takes ~28 pt off
-# the bottom of the content area. The worst case is title bar (~33 pt) + path
-# bar + status bar = ~89 pt of chrome, so the window is 460 + 90 = 550 pt tall
-# and the visible content is never shorter than 460 pt. The background is
-# 720x517 (550 less the title bar) so it fills the window with no strip of
-# Finder's own fill below it in either appearance; its bottom 57 pt is blank,
-# and is what the bars cover. Keep every word and mark of the art inside
-# x 32..688, y 16..440: with 460 pt of art in a 460 pt window the caption was
-# cut in half and a scroll bar ran over its right end.
+# Finder shows chrome a disk image cannot turn off, and all of it comes off the
+# bottom of the visible background, which is anchored top-left under whatever
+# sits above it:
+#
+#   title bar    27-28 pt on macOS 11-15, 32 pt on 26, 33 pt on 27   always
+#   tab bar      ~36 pt     the user's View > Show Tab Bar
+#   path bar     ~28 pt     the user's View > Show Path Bar
+#   status bar   ~28 pt     the user's View > Show Status Bar
+#
+# show_pathbar, show_status_bar and show_tab_view below are written to the
+# .DS_Store and Finder ignores them in favour of those global settings. The
+# worst case is 33 + 36 + 28 + 28 = 125 pt, so the window is 400 + 125 = 525 pt
+# tall and the top 400 pt of the background is visible on every Mac.
+#
+# The background (resources/dmg-preview.svg, rendered to dmg-background.tiff)
+# is laid out for that:
+#
+#   y   0..36    dark grey band
+#   y  36..400   white band: heading, wordmark, icons, arrow, caption
+#   y 400..498   dark grey band, which is what the bars cover
+#
+# Keep every word and icon inside x 32..688, y 50..380: 32 pt at the sides is a
+# 15 pt always-shown scroll bar plus a margin. The background is 498 pt tall,
+# the window less the SMALLEST title bar (27 pt), so it reaches the bottom of
+# the window on every macOS and none of Finder's own fill shows below it.
 #
 # The background's height does not set the window's scroll bounds (measured:
 # 517 pt of art under 489 pt of visible content showed no scroll bar).
@@ -69,7 +84,7 @@ symlinks = {"Applications": "/Applications"}
 # anchor there (the one display-independent corner): x=100 gives a left margin
 # that's always honored; the top lands just under the menu bar (a reliable top
 # margin isn't possible — the clamp wins).
-window_rect = ((100, 100000), (720, 550))
+window_rect = ((100, 100000), (720, 525))
 
 default_view = "icon-view"
 show_icon_preview = False
@@ -91,7 +106,8 @@ icon_size = 128
 
 # Icon centers in the content area (origin top-left): symmetric about
 # the horizontal center (360), 304 pt apart, leaving the central lane for the
-# painted arrow. See the plan's DMG coordinate table.
+# painted arrow, whose shaft is on the same y. With 128 pt icons and a label
+# below, the row spans about y 195..347 of the white band.
 #
 # Only the two user-visible items are positioned. dmgbuild's own support files
 # (the .background image and .VolumeIcon.icns) are deliberately NOT listed:
@@ -100,8 +116,8 @@ icon_size = 128
 # scroll bounds (the cause of the tall/scrolling window) — keep them out of this
 # dict so the window's scroll bounds stay inside the background.
 icon_locations = {
-    appname: (208, 250),
-    "Applications": (512, 250),
+    appname: (208, 259),
+    "Applications": (512, 259),
 }
 
 # Drop the ".app" extension so the icon label reads "Tug", not "Tug.app"
