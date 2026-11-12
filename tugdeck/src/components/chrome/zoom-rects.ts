@@ -147,10 +147,13 @@ const ZOOM_RUN_DURATION_MS = 200;
  *   to a centred panel, is long and crosses a busy deck with no scrim behind
  *   it yet (the scrim arrives after the run), and the pill's figures read
  *   there as a box that barely appears, vanishes, and shows only in its
- *   last bunched frames. So everything is turned up: 600ms with a rectangle
- *   per frame, even spacing so the middle of the trip is as dense as its
- *   end, a six-deep trail whose members hold full strength for the first
- *   half of their life before fading, and a 2px stroke in the text colour.
+ *   last bunched frames. So it is turned up: 450ms with a rectangle per
+ *   frame, even spacing so the middle of the trip is as dense as its end, a
+ *   four-deep trail whose members hold full strength for the first half of
+ *   their life before fading, and a 1.5px stroke in the text colour. A
+ *   600ms run with a six-deep trail and a 2px stroke was tried on the user's
+ *   deck (2026-11-12): every frame drawn, and far too much — a thicket of up
+ *   to seventeen boxes.
  *   Cross-reference: `--tugx-zoom-sheet-run-duration` in `zoom-rects.css`
  *   carries its duration, the way `--tugx-zoom-run-duration` carries the
  *   pill's.
@@ -170,8 +173,8 @@ interface ZoomRunFigures {
 
 const ZOOM_RUN_FIGURES: Record<ZoomRunKind, ZoomRunFigures> = {
   pill: { count: ZOOM_RECT_COUNT, durationMs: ZOOM_RUN_DURATION_MS, trail: ZOOM_TRAIL_DEPTH, ease: ZOOM_EASE_POWER, hold: 0 },
-  // 31 stations + 6 trail = 36 slots over 600ms: a slot is one 60Hz frame.
-  sheet: { count: 31, durationMs: 600, trail: 6, ease: 1, hold: 0.5 },
+  // 24 stations + 4 trail = 27 slots over 450ms: a slot is one 60Hz frame.
+  sheet: { count: 24, durationMs: 450, trail: 4, ease: 1, hold: 0.5 },
 };
 
 /**

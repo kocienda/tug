@@ -62,7 +62,7 @@
 .tug-alert-content.tug-workspace-name-dialog[data-zoom="run"][data-state="open"] {
   animation:
     tug-workspace-name-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
-    var(--tugx-zoom-sheet-run-duration, 600ms) backwards;
+    var(--tugx-zoom-sheet-run-duration, 450ms) backwards;
 }
 
 /*
@@ -83,7 +83,7 @@
 .tug-alert-overlay.tug-workspace-name-scrim[data-zoom="run"][data-state="open"] {
   animation:
     tug-workspace-name-scrim-in calc(150ms * var(--tug-timing, 1)) ease-out
-    calc(var(--tugx-zoom-sheet-run-duration, 600ms) + 150ms * var(--tug-timing, 1)) backwards;
+    calc(var(--tugx-zoom-sheet-run-duration, 450ms) + 150ms * var(--tug-timing, 1)) backwards;
 }
 
 /*
