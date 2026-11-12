@@ -12,6 +12,7 @@
  * | Element                                          | Surface                                            | Role    | Context |
  * |--------------------------------------------------|----------------------------------------------------|---------|---------|
  * | --tug7-element-control-border-filled-accent-rest | --tug7-surface-overlay-primary-normal-dim-rest     | control | .tugx-zoom-rect stroke over the wizard's scrim |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-overlay-primary-normal-dim-rest     | control | .tugx-zoom-rect sheet-run stroke over the naming sheet's scrim |
  */
 
 /* The run's unscaled length, published for the two arriving surfaces that
@@ -23,6 +24,8 @@
  * one place the scale is applied. */
 :root {
   --tugx-zoom-run-duration: calc(200ms * var(--tug-timing, 1));
+  /* The `sheet` run's length: must equal its `durationMs` in `zoom-rects.ts`. */
+  --tugx-zoom-sheet-run-duration: calc(400ms * var(--tug-timing, 1));
 }
 
 /* ---- The layer ----
@@ -78,4 +81,12 @@
   border: 1px solid var(--tug7-element-control-border-filled-accent-rest);
   opacity: 0;
   pointer-events: none;
+}
+
+/* A `sheet` run — the workspace naming sheet — is stroked in the text colour:
+ * it travels from a sidebar control rather than from an accent pill, so there
+ * is no accent edge for it to be. */
+.tugx-zoom-rects-layer[data-kind="sheet"] > .tugx-zoom-rect {
+  /* @tug-renders-on: --tug7-surface-overlay-primary-normal-dim-rest */
+  border-color: var(--tug7-element-global-text-normal-default-rest);
 }

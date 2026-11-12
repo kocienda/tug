@@ -61,5 +61,5 @@
 .tug-alert-content.tug-workspace-name-dialog[data-zoom="run"][data-state="open"] {
   animation:
     tug-workspace-name-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
-    var(--tugx-zoom-run-duration, 200ms) backwards;
+    var(--tugx-zoom-sheet-run-duration, 400ms) backwards;
 }

@@ -136,6 +136,32 @@ const ZOOM_EASE_POWER = 1.25;
  */
 const ZOOM_RUN_DURATION_MS = 200;
 
+/**
+ * The two kinds of run. A run's figures are tied together: a rectangle per
+ * display frame is what the original drew, so a longer run plants more
+ * rectangles rather than holding each one up longer.
+ *
+ * - `pill` — the update pill and wizard: one `moderate`, the pill's accent
+ *   stroke, the figures above.
+ * - `sheet` — the workspace naming sheet: a run twice as long with twice the
+ *   rectangles, so the trip from a sidebar control to a centred panel is
+ *   drawn in enough frames to be seen travelling, stroked in the text colour.
+ *   Cross-reference: `--tugx-zoom-sheet-run-duration` in `zoom-rects.css`
+ *   carries its duration, the way `--tugx-zoom-run-duration` carries the
+ *   pill's.
+ */
+export type ZoomRunKind = "pill" | "sheet";
+
+interface ZoomRunFigures {
+  readonly count: number;
+  readonly durationMs: number;
+}
+
+const ZOOM_RUN_FIGURES: Record<ZoomRunKind, ZoomRunFigures> = {
+  pill: { count: ZOOM_RECT_COUNT, durationMs: ZOOM_RUN_DURATION_MS },
+  sheet: { count: 20, durationMs: 400 },
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -282,7 +308,7 @@ function bunchedParameter(index: number, count: number): number {
  * Pure decoration: nothing is returned to await, and dropping the run costs the
  * caller nothing ([B06]).
  */
-export function runZoomRects(from: ZoomRect, to: ZoomRect): boolean {
+export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "pill"): boolean {
   if (!isTugMotionEnabled()) return false;
   const timing = getTugTiming();
   if (timing === 0) return false;
@@ -293,17 +319,19 @@ export function runZoomRects(from: ZoomRect, to: ZoomRect): boolean {
   const host = ensureLayer();
   if (host === null) return false;
   const token = runToken;
+  host.dataset.kind = kind;
+  const { count, durationMs } = ZOOM_RUN_FIGURES[kind];
 
   // The run's unscaled clock, in slots. A rectangle lights at its own slot and
   // is gone `ZOOM_TRAIL_DEPTH` slots later, so the last one goes out at slot
   // `count - 1 + trail` and the whole run is that many slots long.
-  const slotCount = ZOOM_RECT_COUNT - 1 + ZOOM_TRAIL_DEPTH;
-  const slotMs = ZOOM_RUN_DURATION_MS / slotCount;
+  const slotCount = count - 1 + ZOOM_TRAIL_DEPTH;
+  const slotMs = durationMs / slotCount;
   const lifeMs = slotMs * ZOOM_TRAIL_DEPTH;
 
   const rects: HTMLDivElement[] = [];
-  for (let i = 0; i < ZOOM_RECT_COUNT; i += 1) {
-    const t = bunchedParameter(i, ZOOM_RECT_COUNT);
+  for (let i = 0; i < count; i += 1) {
+    const t = bunchedParameter(i, count);
     const el = document.createElement("div");
     el.className = "tugx-zoom-rect";
     el.dataset.slot = "zoom-rect";

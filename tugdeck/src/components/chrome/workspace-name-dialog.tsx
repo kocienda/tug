@@ -154,7 +154,7 @@ export function WorkspaceNameDialog(): React.ReactElement {
         const node = contentRef.current;
         if (from !== null && node !== null) {
           const box = node.getBoundingClientRect();
-          runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, from);
+          runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, from, "sheet");
         }
         setAnswered(request.seq);
       }
@@ -220,7 +220,7 @@ export function WorkspaceNameDialog(): React.ReactElement {
             return;
           }
           node.dataset.zoom = "run";
-          if (!runZoomRects(from, to)) delete node.dataset.zoom;
+          if (!runZoomRects(from, to, "sheet")) delete node.dataset.zoom;
         }),
       );
     },
@@ -241,7 +241,7 @@ export function WorkspaceNameDialog(): React.ReactElement {
       const node = contentRef.current;
       if (node === null) return;
       const box = node.getBoundingClientRect();
-      runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, next.to);
+      runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, next.to, "sheet");
     });
   }, []);
 
