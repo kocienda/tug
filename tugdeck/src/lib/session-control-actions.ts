@@ -34,7 +34,7 @@ import { sessionSynopsisStore } from "./session-synopsis-store";
 import { sessionUsageStore } from "./session-usage-store";
 import { sessionCitationStore } from "./session-citation-store";
 import { sessionSpawnErrorStore } from "./session-spawn-error-store";
-import { notifySpawnRejected } from "./session-restore";
+import { handOffUnaskedAck, notifySpawnRejected } from "./session-restore";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { takePendingReload } from "./reload-reasons";
 import { sendRequestInflight } from "./session-lifecycle";
@@ -278,6 +278,20 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
       payload.seated_session_id.length > 0
         ? payload.seated_session_id
         : tugSessionId;
+    // The spawn this ack answers was sent for a reason, and that reason is
+    // what reads the transcript below — once, into the stores the binding
+    // builds. The reason is taken before the binding is written because an
+    // ack this page sent no spawn for is a body's card, or a page acting for
+    // a card that is not its own: the shell must make that card a body card
+    // first, or the binding would build its stores here, where no page draws
+    // them.
+    const reloadReason = takePendingReload(cardId);
+    if (reloadReason === undefined && handOffUnaskedAck(cardId)) {
+      logSessionLifecycle("spawn.unasked_ack_handed_off", {
+        card_id: cardId,
+        tug_session_id: tugSessionId,
+      });
+    }
     // Both pairs, and only one of them seats the line: the address is a
     // segment of this line that the line is not sitting on, so it is `bind`
     // rather than `seat`, and the line's seat is the segment the server says
@@ -299,11 +313,8 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
           ? { id: ackArcId, name: ackArcName }
           : undefined,
     });
-    // The binding above built this card's stores and asked them for nothing.
-    // The spawn it answers was sent for a reason, and that reason is what
-    // reads the transcript — once, into the stores just built. An ack this
-    // page sent no spawn for (a body's card, seen by the shell) has none.
-    const reloadReason = takePendingReload(cardId);
+    // The binding above built this card's stores and asked them for nothing;
+    // the reason taken before it reads the transcript into them.
     if (reloadReason === "rebind") {
       // A same-server reconnect re-asserting a card whose stores stood
       // through it ([B03]). The binding above matched them, so nothing was

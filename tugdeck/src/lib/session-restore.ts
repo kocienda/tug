@@ -129,7 +129,7 @@ import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
-import { handOffToBody, isBodyCard, isDeferredBody } from "./body-handoff";
+import { handOffToBody, hostCapabilitiesStore, isBodyCard, isDeferredBody } from "./body-handoff";
 import { bodyCardsStore } from "./body-cards-store";
 import { restoreGateRoster } from "./restore-gate-roster";
 import { page } from "../bus/page";
@@ -814,7 +814,7 @@ export function restoreSessions(
   installRegistrySubscriptions(connection);
 
   const rebind = opts?.rebind === true;
-  const sessionCardIds =
+  const deckCardIds =
     opts?.cardIds ??
     new Set([
       ...deck
@@ -827,6 +827,18 @@ export function restoreSessions(
           )
         : []),
     ]);
+  // A body acts for its own card alone ([L38]). Its deck can be its whole
+  // workspace's (an arrangement body's, `createDeckView`), and the Cards
+  // card's body is handed every card's bindings row, so a body pass that took
+  // every Session card of its deck resumed sessions other pages own — and the
+  // shell, sent acks it never asked for, built stores for a parked workspace's
+  // cards that no page draws. A body only ever holds stores for its own card,
+  // so nothing it re-asserted on purpose is lost.
+  const sessionCardIds: ReadonlySet<string> = page.isBody
+    ? page.cardId !== null && deckCardIds.has(page.cardId)
+      ? new Set([page.cardId])
+      : new Set()
+    : deckCardIds;
   if (sessionCardIds.size === 0) {
     // No dev cards to restore — the pass is trivially settled.
     restorePassGate._settle();
@@ -1119,6 +1131,8 @@ export function restoreSpaceSessions(
  *   the new one never sends, so they are cleared, every store with them, and
  *   the cards restore for that reason.
  *
+ * In a body page it re-asserts the page's own card only (`restoreSessions`).
+ *
  * Returns the kind it acted on.
  */
 export function reassertOnReconnect(
@@ -1323,6 +1337,28 @@ export function fireNewSpawn(
     provisionSpawnTag(lineId, provisioned?.tag),
     lineId,
   );
+}
+
+/**
+ * A `spawn_session_ok` this page sent no spawn for, for `cardId`: hand the
+ * card to its body with a `restore`, so its session is held in its own page
+ * rather than by stores the shell would build. True when the card is now a
+ * body card. False — doing nothing — without body views, for a card already
+ * a body card, for one a restore pass is still deciding (that pass hands it
+ * off itself), and for one no workspace's deck holds.
+ *
+ * tugcast sends every spawn ack to every page, so the shell sees acks for
+ * spawns another page sent. Written as the binding, such an ack built a
+ * pageless card's stores in the shell, where under body views nothing draws
+ * a card, and every later route to a page then refused the card as bound.
+ * `restore` rather than the ack's ids: the body reads the ledger and resumes
+ * the same session, which tugcast re-holds for the same card.
+ */
+export function handOffUnaskedAck(cardId: string): boolean {
+  if (!hostCapabilitiesStore.get().bodyViews) return false;
+  if (bodyCardsStore.has(cardId)) return false;
+  if (restorePassCards.has(cardId) || sessionRestoreRegistry.has(cardId)) return false;
+  return handOffToBody(cardId, () => ({ kind: "restore" }));
 }
 
 /**

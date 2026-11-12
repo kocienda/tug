@@ -351,6 +351,12 @@ impl PageRegistry {
         self.inner.lock().pages.values().cloned().collect()
     }
 
+    /// The live page on `client_id`, if one is registered: what a log line
+    /// names a sender by.
+    pub(crate) fn record(&self, client_id: u64) -> Option<PageRecord> {
+        self.inner.lock().pages.get(&client_id).cloned()
+    }
+
     /// Resolve a target against the live pages. Where two live pages answer
     /// one target — two shells, or a body reloading before its old socket is
     /// gone — the newest, which has the highest `client_id`, is the one
@@ -466,6 +472,21 @@ mod tests {
         let mut rx = reg.departures();
         reg.depart(9);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn record_answers_a_registered_page_and_nothing_after_it_departs() {
+        let reg = PageRegistry::new();
+        assert!(reg.record(99).is_none());
+        reg.register(7, &body("p1", "c1"));
+        let rec = reg.record(7).expect("a registered page has a record");
+        assert_eq!(rec.role, PageRole::Body);
+        assert_eq!(rec.card_id.as_deref(), Some("c1"));
+        assert_eq!(rec.page_id.as_deref(), Some("p1"));
+        assert!(reg.record(99).is_none());
+        reg.depart(7);
+        assert!(reg.record(7).is_none());
+        assert!(reg.record(99).is_none());
     }
 
     #[test]

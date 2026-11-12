@@ -414,6 +414,9 @@ impl AgentSupervisor {
             }
             SessionMode::New => tug_session_id,
         };
+        // Name the page that sent this spawn, so a resume nobody on the shell
+        // asked for can be traced to the page behind it.
+        let sender = self.pages.record(client_id);
         tracing::info!(
             target: "dev::session-lifecycle",
             event = "spawn.supervisor_recv",
@@ -421,6 +424,10 @@ impl AgentSupervisor {
             tug_session_id = %tug_session_id,
             project_dir = %project_dir_str,
             session_mode = session_mode.as_wire_str(),
+            client_id = client_id,
+            client_role = sender.as_ref().map_or("unregistered", |r| r.role.as_str()),
+            client_card = sender.as_ref().and_then(|r| r.card_id.as_deref()).unwrap_or(""),
+            client_page = sender.as_ref().and_then(|r| r.page_id.as_deref()).unwrap_or(""),
         );
 
         // Phase 0: validate + canonicalize + acquire workspace.
