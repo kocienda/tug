@@ -3958,17 +3958,31 @@ fn parse_session_segment(line: &[u8]) -> Option<SessionSegmentAnnouncement> {
 /// The session's whole granted list from a granted `add_directory_result`
 /// IPC line, or `None` for a refused grant or a line that does not parse —
 /// a refusal leaves the list where it was, so there is nothing to record.
+///
+/// The list is persisted on the session's row, so every folder passes the
+/// [L29] gateway here, whatever spelling tugcode reported; two spellings of
+/// one folder become one entry.
 fn parse_granted_dirs(line: &[u8]) -> Option<Vec<String>> {
     let value: serde_json::Value = serde_json::from_slice(line).ok()?;
     if !value.get("ok")?.as_bool()? {
         return None;
     }
-    value
+    let reported: Vec<String> = value
         .get("additional_directories")?
         .as_array()?
         .iter()
         .map(|dir| dir.as_str().map(str::to_owned))
-        .collect()
+        .collect::<Option<_>>()?;
+    let mut dirs: Vec<String> = Vec::with_capacity(reported.len());
+    for dir in reported {
+        let canonical = crate::path_resolver::resolve_to_claude_form(Path::new(&dir))
+            .to_string_lossy()
+            .into_owned();
+        if !dirs.contains(&canonical) {
+            dirs.push(canonical);
+        }
+    }
+    Some(dirs)
 }
 
 /// Extract the `title` field from a `session_title` IPC line — claude's
@@ -7084,6 +7098,31 @@ mod tests {
             None
         );
         assert_eq!(parse_granted_dirs(b"not json"), None);
+    }
+
+    #[test]
+    fn granted_dirs_are_persisted_in_their_canonical_spelling() {
+        // [L29]: the list lands on the session's row, so a folder reported
+        // through a symlink is stored as the folder, and the two spellings of
+        // one folder are one entry.
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let real = scratch.path().join("real");
+        std::fs::create_dir(&real).expect("mkdir");
+        let alias = scratch.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).expect("symlink");
+        let canonical = crate::path_resolver::resolve_to_claude_form(&real)
+            .to_string_lossy()
+            .into_owned();
+        let line = serde_json::json!({
+            "type": "add_directory_result",
+            "directory": alias,
+            "ok": true,
+            "additional_directories": [alias, real],
+        });
+        assert_eq!(
+            parse_granted_dirs(line.to_string().as_bytes()),
+            Some(vec![canonical])
+        );
     }
 
     #[test]

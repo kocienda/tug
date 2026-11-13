@@ -25,6 +25,11 @@
  *      the card in its errored state is the store's unit test
  *      (`code-session-store.directory-grant.test.ts`).
  *
+ *   D. **The folder is the server's canonical spelling ([L29]).** Named
+ *      through a symlink, the dialog shows, and the grant sends, the
+ *      gateway's spelling, never the alias: the bulletin only lands when the
+ *      answer for the canonical folder matches what the card sent.
+ *
  * The command runs through `run-card-command`, the menu's door and the same
  * body typing it would reach; the frames tugcode would write are injected,
  * since a harness bind has no tugcode. tugcode's half — the live
@@ -36,6 +41,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { launchTugApp, type App } from "./_harness";
 import { waitForBodyReady } from "./_harness/card-reach";
@@ -126,6 +134,7 @@ async function readDirectoriesRow(app: App): Promise<string[] | null> {
 /** What the dialog showed: its buttons, its checkbox's label and whether it opened checked. */
 interface DialogReading {
   buttons: string[];
+  message: string;
   checkbox: string;
   checked: boolean;
 }
@@ -144,6 +153,7 @@ async function grantForThisSession(app: App, dir: string): Promise<DialogReading
       buttons: Array.from(document.querySelectorAll('.tug-alert-actions button')).map(function (b) {
         return (b.textContent || "").trim();
       }),
+      message: (document.querySelector('.tug-alert-message').textContent || "").trim(),
       checkbox: (document.querySelector('.tug-alert-checkbox').textContent || "").trim(),
       checked: document.querySelector('[data-testid="alert-checkbox"]').getAttribute("data-state") === "checked",
     })`,
@@ -154,6 +164,25 @@ async function grantForThisSession(app: App, dir: string): Promise<DialogReading
     { timeoutMs: 8_000 },
   );
   return reading;
+}
+
+/** The server's canonical spelling of `path`, from the gateway the card asks. */
+async function serverCanonical(app: App, path: string): Promise<string> {
+  await app.body("S").evalJS(`(() => {
+    window.__at0808_canonical = undefined;
+    fetch("/api/fs/stat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: [${JSON.stringify(path)}], kind: "dir" }),
+    })
+      .then((r) => r.json())
+      .then((j) => { window.__at0808_canonical = (j.canonical || {})[${JSON.stringify(path)}] || ""; })
+      .catch(() => { window.__at0808_canonical = ""; });
+  })()`);
+  await app.body("S").waitForCondition<boolean>(`window.__at0808_canonical !== undefined`, {
+    timeoutMs: 8_000,
+  });
+  return app.body("S").evalJS<string>(`window.__at0808_canonical`);
 }
 
 describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
@@ -172,6 +201,7 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
         const dialog = await grantForThisSession(app, GRANTED);
         expect(dialog).toEqual({
           buttons: ["Cancel", "Add"],
+          message: `${GRANTED} becomes readable and writable by this session.`,
           checkbox: `Include this directory in all ${PROJECT_DIR} sessions in the future`,
           checked: false,
         });
@@ -221,6 +251,44 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
           },
         });
         await waitForBulletin(app, "warning", "does not exist");
+
+        // ---- D. Named through a symlink, the folder is the canonical one. --
+        const scratch = mkdtempSync(join(tmpdir(), "at0808-"));
+        try {
+          const real = join(scratch, "real");
+          const alias = join(scratch, "alias");
+          await Bun.write(join(real, ".keep"), "");
+          symlinkSync(real, alias);
+          const canonical = await serverCanonical(app, alias);
+          expect(canonical, "the gateway answers for the alias").not.toBe("");
+          expect(canonical, "the gateway resolves the alias").not.toBe(alias);
+
+          const aliased = await grantForThisSession(app, alias);
+          expect(aliased.message).toBe(`${canonical} becomes readable and writable by this session.`);
+          await app.body("S").driveSession({
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT,
+            decoded: {
+              type: "add_directory_result",
+              tug_session_id: SESSION_ID,
+              directory: canonical,
+              ok: true,
+              additional_directories: [GRANTED, canonical],
+              ipc_version: 2,
+            },
+          });
+          await app.ingestSessionMetadata("S", {
+            type: "system_metadata",
+            tug_session_id: SESSION_ID,
+            cwd: PROJECT_DIR,
+            additional_directories: [GRANTED, canonical],
+            ipc_version: 2,
+          });
+          await waitForBulletin(app, "success", "real");
+          expect(await readDirectoriesRow(app)).toEqual([GRANTED, canonical]);
+        } finally {
+          rmSync(scratch, { recursive: true, force: true });
+        }
         process.stdout.write("VERDICT: PASS\n");
       } catch (err) {
         process.stdout.write("VERDICT: FAIL\n");

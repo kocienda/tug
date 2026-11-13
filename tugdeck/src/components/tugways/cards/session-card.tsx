@@ -161,6 +161,7 @@ import {
 } from "../tug-sheet";
 import { presentAlertSheet, presentAlertSheetWithCheckbox } from "../tug-alert-sheet";
 import { awaitDirectoryGrant, rememberDirectory } from "@/lib/directory-grant";
+import { canonicalizeDirPath } from "@/lib/dir-existence";
 import { displayPath } from "@/lib/memory-destinations";
 import { useResponderChain } from "../responder-chain-provider";
 import { useResponder } from "../use-responder";
@@ -3843,17 +3844,32 @@ export function SessionCardBody({
 
   // `/add-dir` — grant the session a further folder, live ([B01]–[B03]). The
   // folder is the draft's first path atom, else the argument, else the
-  // picker, as `/cd` takes its target. A dialog then asks the terminal's
-  // question: this session only, or remembered in the project's local
-  // settings as well. The bulletin waits on the folder appearing in the
-  // session's list; a refusal posts tugcode's reason ([B07]). A grant goes to
-  // the running claude, so it waits for the turn to end. Reads live ([L07]).
+  // picker, as `/cd` takes its target. Both it and the project directory are
+  // put through the server's canonicalization gateway first ([L29]): the
+  // folder is persisted (the session ledger, the project's settings) and
+  // compared (the grant's answer, the session's list), and the dialog shows
+  // the spelling that is stored. A dialog then asks to add it, with a
+  // checkbox to remember it in the project's local settings as well. The
+  // bulletin waits on the folder appearing in the session's list; a refusal
+  // posts tugcode's reason ([B07]). A grant goes to the running claude, so it
+  // waits for the turn to end. Reads live ([L07]).
   const addDirectory = (args: string, draft?: SlashCommandDraft): void => {
     const notify = paneBulletinRef.current;
     const invoked = cardSessionBindingStore.getBinding(cardId);
     if (invoked === undefined || getConnection() === null) return;
     if (!guardTurnIdleForSetting("the directories")) return;
-    const grant = (dir: string) => {
+    const grant = async (raw: string) => {
+      const [dir, projectDir] = await Promise.all([
+        canonicalizeDirPath(raw),
+        canonicalizeDirPath(invoked.projectDir),
+      ]);
+      // No canonical spelling, nothing stored: a raw path never leaves here.
+      if (dir === null || projectDir === null) {
+        paneBulletinRef.current?.caution(
+          `Couldn't add the directory: Tug couldn't resolve ${dir === null ? raw : invoked.projectDir}`,
+        );
+        return;
+      }
       const home = hostFactsStore.getSnapshot()?.home ?? "";
       void presentAlertSheetWithCheckbox(cardPickerSheet.showSheet, {
         title: "Add this directory?",
@@ -3861,7 +3877,7 @@ export function SessionCardBody({
         icon: <FolderPlus aria-hidden="true" />,
         // Checked, the folder is also written to the project's local
         // settings, so every later session in the project starts with it.
-        checkboxLabel: `Include this directory in all ${displayPath(invoked.projectDir, home)} sessions in the future`,
+        checkboxLabel: `Include this directory in all ${displayPath(projectDir, home)} sessions in the future`,
         confirmLabel: "Add",
         cancelLabel: "Cancel",
       }).then(async (answer) => {
@@ -3870,7 +3886,7 @@ export function SessionCardBody({
         const binding = cardSessionBindingStore.getBinding(cardId);
         if (binding === undefined || getConnection() === null) return;
         if (!guardTurnIdleForSetting("the directories")) return;
-        if (answer.checked && !(await rememberDirectory(binding.projectDir, dir))) {
+        if (answer.checked && !(await rememberDirectory(projectDir, dir))) {
           paneBulletinRef.current?.caution("Couldn't save the directory to the project's settings");
         }
         const granted = awaitDirectoryGrant({
@@ -3892,7 +3908,7 @@ export function SessionCardBody({
       home: hostFactsStore.getSnapshot()?.home ?? null,
     });
     if (target !== null) {
-      grant(target);
+      void grant(target);
       return;
     }
     if (!isPathPickerAvailable()) {
@@ -3900,7 +3916,7 @@ export function SessionCardBody({
       return;
     }
     void pickPath("directory").then((dir) => {
-      if (dir !== null) grant(dir);
+      if (dir !== null) void grant(dir);
     });
   };
 
