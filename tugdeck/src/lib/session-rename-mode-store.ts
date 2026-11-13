@@ -3,7 +3,7 @@
  * open for editing in place.
  *
  * Rename has several doors — the masthead's right-click item, the pencil
- * beside the name, bare `/rename`, Session › Rename Session… — and one editor,
+ * in the title bar's rollup, bare `/rename`, Session › Rename Session… — and one editor,
  * in the masthead's title line. Every door sets this one flag and the masthead
  * reads it, so the doors cannot drift into behaviours of their own.
  *

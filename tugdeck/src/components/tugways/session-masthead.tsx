@@ -74,7 +74,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
 import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
-import { FolderOpenDot, Summary, X } from "lucide-react";
+import { FolderOpenDot, Pencil, Summary, X } from "lucide-react";
 
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
@@ -1059,7 +1059,25 @@ export const SessionMasthead = React.memo(function SessionMasthead({
       */}
       {accessoryHost !== null && createPortal(
       <>
-      {/* The SUMMARY leads and Reveal follows, which is the cluster's rule and
+      {/* Rename leads the card's own run, so it is the leftmost button in the
+          rollup: a plain pencil that opens the masthead's inline name field,
+          the same mode the right-click item and a bare `/rename` set. It
+          activates its card, unlike the two beside it, because the field it
+          opens takes that card's keyboard. */}
+      {cardId !== undefined && (
+        <TugTooltip content="Rename Session">
+          <TugIconButton
+            size="sm"
+            icon={<Pencil />}
+            data-slot="session-masthead-rename"
+            data-testid="session-name-rename"
+            tabIndex={-1}
+            aria-label="Rename session"
+            onClick={beginRename}
+          />
+        </TugTooltip>
+      )}
+      {/* The SUMMARY comes next and Reveal follows, which is the cluster's rule and
           not this card's preference: the rollup reads right to left as a fixed
           spine — bullseye, card width, Reveal in Finder — and only the
           leftmost positions belong to whatever a particular card adds. Reveal

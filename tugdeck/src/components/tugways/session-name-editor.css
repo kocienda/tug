@@ -1,12 +1,8 @@
 /**
- * The Session card masthead's inline name editor, and the Rename button that
- * opens it.
+ * The Session card masthead's inline name editor.
  *
  * No colour is set here. The field is a `TugInput` and keeps its own tokens
- * ([L20]); the button is a ghost `TugPushButton` at the title-bar cluster's
- * size, painted by the cluster's own rules in `tug-pane.css` through the
- * `.tug-pane-title-bar-inline-control` class its wrapper wears. So this file
- * states only where they sit and what type the field speaks in.
+ * ([L20]), so this file states only where it sits and what type it speaks in.
  */
 
 /* ── The field ────────────────────────────────────────────────────────────
@@ -36,82 +32,4 @@
   letter-spacing: inherit;
   -webkit-user-select: text;
   user-select: text;
-}
-
-/* ── The Rename button ────────────────────────────────────────────────────
-   Shown while the pointer is on the name, on the button, or on the place the
-   button will stand: the component writes `data-revealed` from
-   `pointerenter`/`pointerleave` on the name and on this wrapper, and this
-   file draws it ([L06]).
-
-   It follows the identity's whole run, name and `^arc` both, and stands
-   outside it: the run is the session's grammar, and a button's label inside
-   it would read as part of the name.
-
-   At rest the wrapper takes no room in the line — a reserved gap would stand
-   on every masthead to hold a control most readers never reach for — and it
-   takes back the identity's own inter-item gap, which a zero-width item
-   would otherwise still be charged. What it does have at rest is a PAD —
-   its `::before`, laid over the stretch the button will occupy — so a pointer
-   that arrives there from any side enters the wrapper and reveals the button,
-   and the reader does not have to find the name first.
-
-   Revealed, the pad stays and covers the wrapper's whole box plus the
-   button's overhang, beneath the button. Without it the gap between the name
-   and the button, above and below the one-line wrapper, would be outside
-   every listened-to element, and a pointer crossing it would conceal the
-   button it was heading for.
-
-   The button is the cluster's size, which is taller than the title line. The
-   wrapper stays one line tall and centers the button, which overhangs it
-   evenly above and below, so revealing it never changes the line's height. */
-.session-name-rename {
-  position: relative;
-  /* Over the description line's box, which comes later in the row and would
-     otherwise take the pointer along the overhang's bottom edge. */
-  z-index: 1;
-  display: inline-flex;
-  align-self: center;
-  align-items: center;
-  flex: none;
-  block-size: 1lh;
-  inline-size: 0;
-  margin-inline-start: calc(-1 * var(--tugx-session-identity-icon-gap, 6px));
-}
-
-.session-name-rename::before {
-  content: "";
-  position: absolute;
-  inset-block: -0.375rem;
-  inset-inline-start: 0;
-  inline-size: 6.5rem;
-}
-
-.session-name-rename > .tug-button {
-  display: none;
-  position: relative;
-}
-
-.session-name-rename[data-revealed] {
-  inline-size: auto;
-  margin-inline-start: 0;
-  padding-inline-start: 0.25em;
-}
-
-.session-name-rename[data-revealed]::before {
-  inline-size: 100%;
-}
-
-.session-name-rename[data-revealed] > .tug-button {
-  display: inline-flex;
-}
-
-/* The title's text box clips, for the sake of a plain-string title that
-   elides at its edge. The masthead's title is a node whose own runs do the
-   eliding inside a box already clamped to this one, so the clip here buys
-   nothing and costs the button twice: it would cut the overhang above and
-   below the line, and it would cut the resting pad, which lies past the
-   box's inline end by design. */
-.session-masthead-row .tug-session-row-name-line .tug-list-row-title .tug-label-text {
-  overflow: visible;
 }

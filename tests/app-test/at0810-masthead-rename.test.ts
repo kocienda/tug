@@ -6,7 +6,7 @@
  *
  * The masthead's name becomes a text field while its card is in rename mode.
  * Two doors on the masthead open it — Rename Session… in the right-click menu,
- * and the pencil that follows the name on hover — and three gestures close it:
+ * and the pencil that leads the title bar's rollup — and three gestures close it:
  * Escape leaves the name as it was, Return commits the field, and clicking
  * away commits it too. A bare `/rename` in the composer opens the same field.
  *
@@ -15,10 +15,9 @@
  *   - the menu row is reached through the real right press the title bar has
  *     to let through (see at0556 for what happens when it does not);
  *   - the pencil sits in the title bar, whose pointer-down starts a drag, so
- *     the real press on it is also the proof that it moves no card. It is
- *     revealed by the `pointerenter` the name listens for, dispatched here
- *     the way `revealPaneControls` dispatches the title bar's — a background
- *     app-test has no business moving the physical cursor;
+ *     the real press on it is also the proof that it moves no card. It is a
+ *     member of the rollup, revealed with the row by `revealPaneControls` — a
+ *     background app-test has no business moving the physical cursor;
  *   - the field takes the key view through the focus engine from chrome that
  *     stands outside the card host, so only real keystrokes say whether the
  *     typing, the Return and the Escape reach it.
@@ -61,7 +60,7 @@ const PANE = ".body-chrome-frame";
 const MASTHEAD = `${PANE} [data-slot="session-masthead"]`;
 const TITLE = `${MASTHEAD} .tug-session-identity-title`;
 const EDITOR = `${MASTHEAD} [data-testid="session-name-editor"]`;
-const PENCIL = `${MASTHEAD} [data-testid="session-name-rename"]`;
+const PENCIL = `${PANE} [data-testid="session-name-rename"]`;
 const MENU = '[data-slot="tug-editor-context-menu"]';
 const RENAME_ROW = `${MENU} [data-item-action="rename-session"]`;
 const PROMPT = `[data-slot="tug-text-editor"] .cm-content`;
@@ -242,50 +241,26 @@ describe.skipIf(!SHOULD_RUN)("at0810 — the masthead's name is edited in place"
 
         // ---- The pencil opens it, and the press drags nothing. ------------
         //
-        // The pointer enters the name, which is all the reveal asks for; the
-        // button has no width until then. The place it will stand answers the
-        // pointer all the same: a point just past the name, at rest, is the
-        // button's own wrapper, so a pointer arriving there reveals it too.
-        expect(
-          await body.evalJS<boolean>(
-            `(function(){
-               var r = document.querySelector(${JSON.stringify(TITLE)}).getBoundingClientRect();
-               var hit = document.elementFromPoint(r.right + 24, r.top + r.height / 2);
-               return hit !== null && hit.closest('[data-slot="session-name-rename"]') !== null;
-             })()`,
-          ),
-        ).toBe(true);
+        // It is one of the rollup's buttons and nothing more: revealed with
+        // the row, the leftmost button in it, a glyph with no label, and no
+        // control of any kind stands in the title line beside the name.
         const before = await body.evalJS<{ left: number; top: number; gesture: string | null }>(
           paneFrame(),
         );
-        expect(
-          await body.evalJS<number>(
-            `document.querySelector(${JSON.stringify(PENCIL)}).closest('[data-slot="session-name-rename"]').getBoundingClientRect().width`,
-          ),
-        ).toBe(0);
-        await body.evalJS<null>(
-          `(function(){
-             document.querySelector(${JSON.stringify(TITLE)})
-               .closest(".tug-session-identity-run")
-               .dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
-             return null;
-           })()`,
-        );
-        await body.waitForCondition<boolean>(
+        await body.revealPaneControls(PANE);
+        const seat = await body.evalJS<{ first: boolean; label: string; inTitleLine: number }>(
           `(function(){
              var el = document.querySelector(${JSON.stringify(PENCIL)});
-             if (el === null) return false;
-             var span = el.closest('[data-slot="session-name-rename"]');
-             return span.getBoundingClientRect().width > 0 && el.getBoundingClientRect().width > 0;
+             var row = el.closest('[data-testid="tug-pane-title-bar-rollup-row"]');
+             return {
+               first: row !== null && row.querySelector(".tug-button") === el,
+               label: el.textContent.trim(),
+               inTitleLine: document.querySelectorAll(${JSON.stringify(`${MASTHEAD} .tug-session-row-name-line .tug-button`)}).length,
+             };
            })()`,
-          { timeoutMs: 8_000 },
         );
-        // The label is the button's own, inside its box.
-        expect(
-          await body.evalJS<string>(
-            `document.querySelector(${JSON.stringify(PENCIL)}).textContent.trim()`,
-          ),
-        ).toBe("Rename");
+        note("at0810 pencil seat", JSON.stringify(seat));
+        expect(seat).toEqual({ first: true, label: "", inTitleLine: 0 });
         await body.nativeClickAtElement(PENCIL);
         await body.waitForCondition<boolean>(
           `(function(){ var s = ${titleState()}; return s.editing && s.focused; })()`,

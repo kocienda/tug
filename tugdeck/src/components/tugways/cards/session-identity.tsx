@@ -247,12 +247,6 @@ export interface SessionIdentityViewProps
    * the name's seat in the run and the `^arc` run keeps its own.
    */
   nameEditor?: React.ReactNode;
-  /**
-   * Rendered after the identity's run — the name and its `^arc` — and outside
-   * it: the masthead's Rename button. Not rendered while {@link nameEditor}
-   * stands in for the name.
-   */
-  nameAccessory?: React.ReactNode;
 }
 
 /**
@@ -396,7 +390,6 @@ export const SessionIdentityView = React.forwardRef<
     tooltip = true,
     arc,
     nameEditor,
-    nameAccessory,
     className,
     style: restStyle,
     ...rest
@@ -526,10 +519,6 @@ export const SessionIdentityView = React.forwardRef<
           <SessionArcMarker sessionId={identity.id} />
         )}
       </span>
-      {/* After the run, never inside it: the run is the identity's grammar,
-          `name^arc`, and a control's label standing in it would be read as
-          part of what the session is called. */}
-      {nameEditor === undefined || nameEditor === null ? nameAccessory : null}
       {isMissing ? null : <SessionPrivacyMarker sessionId={identity.id} />}
     </span>
   );

@@ -1,12 +1,12 @@
 /**
  * session-name-editor — the Session card masthead's name, editable in place.
  *
- * Two parts, both mounted by `SessionIdentityRow` on the one surface that asks
- * for them (the masthead): {@link SessionNameEditor}, the field that stands
- * where the name stood while the card's rename mode is on, and
- * {@link SessionNameRenameButton}, the pencil that follows the name and opens
- * it. Whether the mode is on is `sessionRenameModeStore`'s; these components
- * only close it.
+ * {@link SessionNameEditor} is the field that stands where the name stood
+ * while the card's rename mode is on, mounted by `SessionIdentityRow` on the
+ * one surface that asks for it (the masthead). Whether the mode is on is
+ * `sessionRenameModeStore`'s; the field only closes it. The doors that open
+ * it are elsewhere: the masthead's right-click item, the pencil in the title
+ * bar's rollup, and a bare `/rename`.
  *
  * **The field's contract.** Return commits, Escape cancels, and clicking away
  * commits. A blank commit clears the name. A commit that changes nothing sends
@@ -35,10 +35,10 @@
  *
  * Laws: [L02] rename mode is read by the row through `useSyncExternalStore`;
  *       [L03] the keyboard is taken in a layout effect, after `TugInput`'s own
- *       registration; [L06] the pencil's reveal is a DOM attribute and CSS; [L07] the
+ *       registration; [L07] the
  *       seed and the prior focus target are read once, at open; [L11] the
  *       field is a control and the card owns the commit; [L20] the composed
- *       input and button keep their own tokens; [L31] a commit with no
+ *       input keeps its own tokens; [L31] a commit with no
  *       committer registered still renames.
  *
  * @module components/tugways/session-name-editor
@@ -46,13 +46,11 @@
 
 import "./session-name-editor.css";
 
-import { Pencil } from "lucide-react";
 import React from "react";
 
 import { sendToCardContent } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import type { FocusTarget, KeyViewBehavior } from "@/components/tugways/focus-manager";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugInput } from "@/components/tugways/tug-input";
 import { useFocusManager } from "@/components/tugways/use-focusable";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -243,85 +241,5 @@ function SessionNameField({
         }, 0);
       }}
     />
-  );
-}
-
-export interface SessionNameRenameButtonProps {
-  /** Open the surface's inline name editor. */
-  onRename: () => void;
-}
-
-/**
- * The Rename button after the name: a ghost `TugPushButton` with the pencil
- * and its label, the app's ordinary icon-and-label button. It leaves the key
- * view where it is on click and is not the pane's grab handle, so a press on
- * it neither takes the keyboard from the composer nor begins a drag.
- *
- * It is revealed while the pointer is on the name, on the button, or on the
- * place the button will stand — the wrapper's stylesheet lays a pad there, so
- * a pointer coming from the right finds it too. The reveal is read from
- * `pointerenter`/`pointerleave` rather than the
- * `:hover` pseudo-class — the same rule the pane's own rollup follows, because
- * a pseudo-class is decided by WebKit's hit-testing against the physical
- * cursor. The listeners write one attribute on the pencil's own span and
- * nothing re-renders ([L06]).
- */
-export function SessionNameRenameButton({
-  onRename,
-}: SessionNameRenameButtonProps): React.ReactElement {
-  const spanRef = React.useRef<HTMLSpanElement | null>(null);
-  React.useLayoutEffect(() => {
-    const span = spanRef.current;
-    // The identity's run — the name and its `^arc` — is what the button follows.
-    const name = span?.previousElementSibling;
-    if (span === null || !(name instanceof HTMLElement)) return;
-    const reveal = (): void => span.setAttribute("data-revealed", "");
-    const conceal = (e: PointerEvent): void => {
-      // Travelling between the name and the pencil is not leaving.
-      const to = e.relatedTarget;
-      if (to instanceof Node && (span.contains(to) || name.contains(to))) return;
-      span.removeAttribute("data-revealed");
-    };
-    const parts = [name, span];
-    for (const el of parts) {
-      el.addEventListener("pointerenter", reveal);
-      el.addEventListener("pointerleave", conceal);
-    }
-    return () => {
-      for (const el of parts) {
-        el.removeEventListener("pointerenter", reveal);
-        el.removeEventListener("pointerleave", conceal);
-      }
-    };
-  }, []);
-  return (
-    <span
-      ref={spanRef}
-      // The second class is the pane's: it puts the pencil under the title-bar
-      // cluster's own palette, so it reads as one of the bar's controls.
-      className="session-name-rename tug-pane-title-bar-inline-control"
-      data-slot="session-name-rename"
-    >
-      <TugPushButton
-        // The cluster's own size, so the glyph matches the controls at the
-        // bar's right.
-        size="sm"
-        subtype="icon-text"
-        emphasis="ghost"
-        role="action"
-        icon={<Pencil />}
-        // Chrome, like the masthead's other buttons — never a Tab stop.
-        tabIndex={-1}
-        aria-label="Rename session"
-        data-testid="session-name-rename"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e?.stopPropagation();
-          onRename();
-        }}
-      >
-        Rename
-      </TugPushButton>
-    </span>
   );
 }

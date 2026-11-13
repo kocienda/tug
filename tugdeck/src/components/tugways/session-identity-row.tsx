@@ -174,10 +174,7 @@ import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 
 
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
-import {
-  SessionNameEditor,
-  SessionNameRenameButton,
-} from "@/components/tugways/session-name-editor";
+import { SessionNameEditor } from "@/components/tugways/session-name-editor";
 import { useSessionRenameMode } from "@/lib/session-rename-mode-store";
 import { sessionTitleParts } from "@/lib/session-identity";
 import {
@@ -930,8 +927,8 @@ export interface SessionIdentityRowProps
   hostCardId?: string;
   /**
    * Open this surface's inline name editor, for the menu's Rename Session…
-   * item and the pencil after the name. Only the Session card's masthead
-   * supplies one; without it both are absent. With it and {@link hostCardId},
+   * item. Only the Session card's masthead supplies one; without it the item
+   * is absent. With it and {@link hostCardId},
    * the row is also where the editor stands: while that card is in rename
    * mode the name run is the field. See
    * {@link SessionIdentityMenuOptions.onRename}.
@@ -1325,7 +1322,7 @@ export function SessionIdentityRow({
       // both, and only one of them can be acted on.
       tooltip={!identityMenu}
       {...(renameCardId !== null && onRename !== undefined
-        ? renaming
+        && renaming
           ? {
               nameEditor: (
                 <SessionNameEditor
@@ -1342,7 +1339,6 @@ export function SessionIdentityRow({
                 />
               ),
             }
-          : { nameAccessory: <SessionNameRenameButton onRename={onRename} /> }
         : {})}
     />
   );
