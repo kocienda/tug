@@ -113,6 +113,12 @@ export type AnnotationMenuFacts =
        * greys out is the failure this shape prevents.
        */
       resumable: boolean;
+      /**
+       * The surface has an inline name editor to open, so the menu offers
+       * Rename Session…. Only the Session card's masthead says so: a rename
+       * from a chip or a row on another card is not offered.
+       */
+      renamable?: boolean;
       /** The project a resume opens in; empty until the ledger answers. */
       projectDir: string;
       /** The full description, `undefined` on a surface that carries none. */
@@ -676,8 +682,9 @@ registerAnnotationKind("commit-sha", {
 });
 
 /**
- * A session's menu — how to GET to the session, then the forms it can be
- * copied as, then the two runs only a row carries.
+ * A session's menu — how to GET to the session, then the one act a surface
+ * may offer on it, then the forms it can be copied as, then the two runs only
+ * a row carries.
  *
  * **The first item is one item, not two.** A reader right-clicking a session
  * wants to reach it; whether that costs a raise or a resume is the app's
@@ -731,6 +738,12 @@ function sessionMenuEntries(
                 label: "Resume Session",
                 disabled: !known.resumable,
               },
+    ],
+    act: [
+      known?.renamable === true && {
+        action: TUG_ACTIONS.RENAME_SESSION,
+        label: "Rename Session…",
+      },
     ],
     copy: [
       known !== null && {

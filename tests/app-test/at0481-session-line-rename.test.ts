@@ -22,7 +22,7 @@
  *
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/rows.rs
- * @covers tugdeck/src/components/tugways/cards/rename-session-sheet.tsx
+ * @covers tugdeck/src/lib/session-rename-commit.ts
  * @covers tugdeck/src/lib/session-name-store.ts
  * @covers tugdeck/src/lib/session-line-store.ts
  */

@@ -258,7 +258,7 @@ A live session has no trash icon: close its card first. A session running in a t
 ### Name a session
 <!-- source: tugdeck/src/lib/slash-commands.ts (/rename, alias /name, /unname); tugapp/Sources/MenuBarBuilder.swift (session.rename, session.unname) -->
 
-Type `/rename <name>`, or a bare `/rename` or Session > Rename Session for a dialog. The name shows in the masthead and the session chooser. `/unname`, or Session > Unname Session, clears it and the callsign comes back.
+Type `/rename <name>`, or a bare `/rename` or Session > Rename Session to edit the name in place in the masthead; the masthead's right-click menu and the pencil beside the name open the same field. The name shows in the masthead and the session chooser. `/unname`, or Session > Unname Session, clears it and the callsign comes back.
 
 ### Keep a session out of the Overview
 <!-- source: tugdeck/src/lib/slash-commands.ts (/private); tugdeck/src/components/tugways/cards/session-card.tsx (private surface) -->

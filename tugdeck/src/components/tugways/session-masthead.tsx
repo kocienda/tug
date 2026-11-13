@@ -134,6 +134,7 @@ import {
 import { PermissionRulesStore } from "@/lib/permission-rules-store";
 import type { PermissionsSnapshot } from "@/lib/permission-rules";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { sessionRenameModeStore } from "@/lib/session-rename-mode-store";
 import { useSessionBranch } from "@/lib/changeset-all-store";
 import { useOverview } from "@/lib/overview-store";
 import {
@@ -845,6 +846,12 @@ export const SessionMasthead = React.memo(function SessionMasthead({
   // project nothing has listed yet. The row above is what it reads — handed
   // over rather than looked up a second time.
   const createdAtMs = useSessionCreatedAtMs(cardId, row);
+  // The masthead is the one surface with an inline name editor, so it is the
+  // one that makes its menu renamable: the item opens this card's rename mode,
+  // the same flag every other rename door sets.
+  const beginRename = useCallback((): void => {
+    if (cardId !== undefined) sessionRenameModeStore.begin(cardId);
+  }, [cardId]);
   // The last few beats for this session — shown in the activity line's popover.
   const history = linesForScope(digest.lines, sessionId, BEAT_HISTORY_COUNT);
   // …and the Observer posts they group under ([B08]). Newest-first, to match
@@ -952,6 +959,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
             this everywhere else cannot see it from here.
           */
           hostCardId={cardId}
+          {...(cardId !== undefined ? { onRename: beginRename } : {})}
           nameProps={{ className: "session-masthead-title" }}
           /*
             The tape is the entry point to the expanded Activity card: clicking it

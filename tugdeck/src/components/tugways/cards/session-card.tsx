@@ -115,7 +115,8 @@ import { useHooksSheet } from "./hooks-sheet";
 import { useUsageSheet } from "./usage-sheet";
 import { useDataVisualizationSheet, VIZ_SKILL_COMMAND } from "./data-visualization-sheet";
 import { useHelpSheet } from "./help-sheet";
-import { useRenameSessionSheet } from "./rename-session-sheet";
+import { commitSessionRename } from "@/lib/session-rename-commit";
+import { sessionRenameModeStore } from "@/lib/session-rename-mode-store";
 import { useResumeSheet } from "./resume-sheet";
 import { SessionPendingContextStrip } from "./session-pending-context-strip";
 import { SessionFoldControl } from "./session-fold-control";
@@ -3570,16 +3571,25 @@ export function SessionCardBody({
   // confirmation toast in this card.
   const paneBulletinRef = useRef<TugPaneBulletinApi>(null);
 
-  // `/rename` session name ([#step-13d]). `/rename <text>` sets it directly;
-  // bare `/rename` opens a one-field dialog seeded with the current name. Both
-  // optimistically update the Z4B chip, send `rename_session` to tugcast, and
-  // report the outcome in this card's bulletin when the ack lands — which is
-  // why the hook is handed the bulletin: the dialog path has no other voice.
-  const renameSheet = useRenameSessionSheet({
-    cardId,
-    showSheet: cardPickerSheet.showSheet,
-    notify: () => paneBulletinRef.current,
-  });
+  // The session's name. `/rename <text>` and `/unname` set it directly; bare
+  // `/rename` opens the masthead's inline name editor. Every door commits
+  // through `renameTo`: an optimistic name write, the `rename_session` frame,
+  // and the outcome in this card's bulletin when the ack lands, read live
+  // because the bulletin ref is only good at call time ([L07]).
+  const renameTo = useCallback(
+    (name: string) => commitSessionRename(cardId, name, () => paneBulletinRef.current),
+    [cardId],
+  );
+
+  // The masthead's inline name editor commits through this card, because the
+  // outcome is reported in this card's bulletin and the masthead — chrome
+  // above the card host — cannot reach it. Registered in a layout effect so
+  // it is in place before any gesture can open the editor ([L03]), and
+  // released on unmount ([L27]).
+  useLayoutEffect(
+    () => sessionRenameModeStore.registerCommitter(cardId, renameTo),
+    [cardId, renameTo],
+  );
 
   // Reasoning-effort set path + per-card persistence/restore ([#step-4],
   // [D07]). `setEffort` sends `effort_change` (tugcode respawns with
@@ -4321,24 +4331,25 @@ export function SessionCardBody({
     "add-dir": (args, draft) => addDirectory(args, draft),
     "remove-dir": (args, draft) => removeDirectoryCommand(args, draft),
     "change-directory": (args, draft) => changeDirectory(args, draft),
-    // `/rename <text>` names the session directly; bare `/rename` opens the
-    // one-field dialog seeded with the current name ([#step-13d]). The
-    // pane-bulletin confirmation belongs to the rename surface, which raises it
-    // on the ack for both paths — naming a session is not done until the ledger
-    // says it is.
+    // `/rename <text>` names the session directly; bare `/rename` — and
+    // Session › Rename Session…, which arrives as it — opens the masthead's
+    // inline name editor, seeded with the current name. An unbound card has
+    // no session to name and no name in its masthead to edit, so it opens
+    // nothing. The bulletin is raised on the ack for every path — naming a
+    // session is not done until the ledger says it is.
     rename: (args) => {
       const name = args.trim();
       if (name.length === 0) {
-        renameSheet.openRenameSheet();
+        if (cardSessionBindingStore.getBinding(cardId) === undefined) return;
+        sessionRenameModeStore.begin(cardId);
         return;
       }
-      renameSheet.renameTo(name);
+      renameTo(name);
     },
-    // `/unname` — clears the session's name so the callsign comes back. The
-    // clearing path already existed behind the dialog; a blank is what
-    // `commitRename` reads as a clear, and it bulletins the outcome on the ack
-    // like every other rename.
-    unname: () => renameSheet.renameTo(""),
+    // `/unname` — clears the session's name so the callsign comes back. A
+    // blank is what `commitSessionRename` reads as a clear, and it bulletins
+    // the outcome on the ack like every other rename.
+    unname: () => renameTo(""),
     // `/logout` — app-level. Hands off to the deck-root Logout orchestrator
     // (confirm → interrupt every turn → `claude_logout` → ConfigureTug reopens);
     // the same nonce the File-menu "Log out…" bumps, so there's one flow.

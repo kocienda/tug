@@ -1360,6 +1360,14 @@ export const TUG_ACTIONS = {
   SHOW_SESSION:          "show-session",
   RESUME_SESSION:        "resume-session",
 
+  // RENAME_SESSION:         payload — none. Open the inline name editor for the
+  //                         session the right-click landed on. Offered only by
+  //                         a surface that has such an editor to open — the
+  //                         Session card's masthead — and handled by the
+  //                         session menu's own responder, which hands it to
+  //                         the surface.
+  RENAME_SESSION:        "rename-session",
+
   // ---- The commit a right-click landed on ----
   //
   // Every one of these is menu-only over a sampled target — "the commit the

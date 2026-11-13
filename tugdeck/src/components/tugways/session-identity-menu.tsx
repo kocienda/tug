@@ -19,6 +19,9 @@
  *   Show Session / Resume Session   go to the session, however it must be reached
  *   (Current Session, dimmed, on the session's own card)
  *   ─────
+ *   Rename Session…             open the name for editing in place, where the
+ *                               surface has an editor to open (the masthead)
+ *   ─────
  *   Copy as Atom                the citation + the atom sidecar — pastes as the chip
  *   Copy as Citation            the flat string, for outside Tug
  *   Copy Session ID             the full UUID, which nothing on screen shows
@@ -119,6 +122,13 @@ export interface SessionIdentityMenuOptions {
    */
   hostCardId?: string | null;
   /**
+   * Open this surface's inline name editor. Supplying it is what makes the
+   * surface renamable: the menu offers Rename Session… and routes it here.
+   * Omitted — every surface but the Session card's masthead — the item is
+   * absent.
+   */
+  onRename?: () => void;
+  /**
    * Off, the hook is inert — no responder is registered, the handler does
    * nothing, and `contextMenu` is null, so the press falls through to whatever
    * claimed it before. A knob rather than a second component because hooks
@@ -158,10 +168,11 @@ export function useSessionIdentityMenu({
   description,
   activity,
   hostCardId,
+  onRename,
   enabled = true,
 }: SessionIdentityMenuOptions): SessionIdentityMenuResult {
   const manager = useResponderChain();
-  const { openAtEvent, renderMenu } = usePointMenu();
+  const { openAtEvent, renderMenu, anchor } = usePointMenu();
 
   const citation = sessionCitation(identity, { project: true });
   const descriptionText = description?.trim() ?? "";
@@ -258,6 +269,36 @@ export function useSessionIdentityMenu({
     copy(citation);
   }, [identity, citation, copy]);
 
+  // Read through a ref so the responder's handler always calls the surface's
+  // current opener ([L07]); only whether there IS one shapes the menu.
+  const onRenameRef = React.useRef(onRename);
+  onRenameRef.current = onRename;
+  const renamable = onRename !== undefined;
+  //
+  // The editor opens AFTER the menu has closed, never from the row's press.
+  // The menu stands on the card's focus stack, and its pop restores the key
+  // view it captured when it opened: an editor that took the keyboard while
+  // the menu was still up would have it taken back a blink later, and would
+  // read the loss as a click-away. So a press on the row only notes the
+  // request, and the layout effect below — which React runs after the closing
+  // menu's own cleanup, in the same commit — opens the editor ([L03]).
+  const menuOpen = anchor !== null;
+  const menuOpenRef = React.useRef(menuOpen);
+  menuOpenRef.current = menuOpen;
+  const renamePending = React.useRef(false);
+  const renameSession = React.useCallback((): void => {
+    if (menuOpenRef.current) {
+      renamePending.current = true;
+      return;
+    }
+    onRenameRef.current?.();
+  }, []);
+  React.useLayoutEffect(() => {
+    if (menuOpen || !renamePending.current) return;
+    renamePending.current = false;
+    onRenameRef.current?.();
+  }, [menuOpen]);
+
   const responderId = React.useId();
   const { responderRef, ResponderScope } = useOptionalResponder({
     id: responderId,
@@ -269,6 +310,7 @@ export function useSessionIdentityMenu({
       // where it was always unambiguous: the row's own menu item.
       [TUG_ACTIONS.SHOW_SESSION]: showSession,
       [TUG_ACTIONS.RESUME_SESSION]: resumeSession,
+      [TUG_ACTIONS.RENAME_SESSION]: renameSession,
       [TUG_ACTIONS.COPY_SESSION_ATOM]: copyAtom,
       [TUG_ACTIONS.COPY_SESSION_CITATION]: () => copy(citation),
       [TUG_ACTIONS.COPY_SESSION_ID]: () => copy(identity.id),
@@ -327,6 +369,7 @@ export function useSessionIdentityMenu({
           unresolved: !identity.resolved,
           resumable,
           projectDir,
+          ...(renamable ? { renamable } : {}),
           ...(description !== undefined ? { description } : {}),
           ...(activity !== undefined ? { activity } : {}),
         },
@@ -344,6 +387,7 @@ export function useSessionIdentityMenu({
     openCardId,
     resumable,
     projectDir,
+    renamable,
     description,
     activity,
   ]);

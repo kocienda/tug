@@ -47,6 +47,8 @@ import "../components/tugways/entity-tips.css";
 import "../components/tugways/tug-badge.css";
 import "../components/tugways/tug-status-mark.css";
 import "../components/tugways/cards/session-identity.css";
+import "../components/tugways/session-name-editor.css";
+import "../components/tugways/tug-input.css";
 import "../components/tugways/tug-filter-field.css";
 import "../components/tugways/internal/tug-progress-pulsing-dot.css";
 import "../components/tugways/tug-progress-indicator.css";

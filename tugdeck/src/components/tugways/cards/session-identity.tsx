@@ -241,6 +241,17 @@ export interface SessionIdentityViewProps
    * {@link arcMarkerTitle} builds the hover sentence for both branches.
    */
   arc?: { name: string; review?: string | null } | false;
+  /**
+   * Rendered IN PLACE OF the name run — the masthead's inline name field,
+   * while its card is in rename mode. The title box stays, so the field takes
+   * the name's seat in the run and the `^arc` run keeps its own.
+   */
+  nameEditor?: React.ReactNode;
+  /**
+   * Rendered after the name and before the `^arc` run — the masthead's rename
+   * pencil. Not rendered while {@link nameEditor} stands in for the name.
+   */
+  nameAccessory?: React.ReactNode;
 }
 
 /**
@@ -383,6 +394,8 @@ export const SessionIdentityView = React.forwardRef<
     hostCardId,
     tooltip = true,
     arc,
+    nameEditor,
+    nameAccessory,
     className,
     style: restStyle,
     ...rest
@@ -491,10 +504,13 @@ export const SessionIdentityView = React.forwardRef<
           {/* One run. A custom name means no callsign beside it ([D141]), and
               an unnamed session's name IS `project/callsign` — so there is
               never a second run to render. */}
-          <span className="tug-session-identity-name">
-            {renderFilterHighlight(title.name, highlight)}
-          </span>
+          {nameEditor ?? (
+            <span className="tug-session-identity-name">
+              {renderFilterHighlight(title.name, highlight)}
+            </span>
+          )}
         </span>
+        {nameEditor === undefined || nameEditor === null ? nameAccessory : null}
         {/* The bound arc is part of the identity wherever the identity is
             met — a session on an arc is never named without it. The one
             opt-out is `arc={false}`, for a surface whose row already names

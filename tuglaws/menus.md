@@ -477,7 +477,7 @@ The two reach each other through one typed action. `useAnnotationMenu` samples t
 ```
 [ Go to it ]        Open in Editor · Open Diff · Open Image · Show / Resume Session · Show in Finder
 ────
-[ Act on it ]       Show / Hide Detail · Bind · Unbind · Discard · Replay
+[ Act on it ]       Show / Hide Detail · Rename Session… · Bind · Unbind · Discard · Replay
 ────
 [ Copy it ]         Copy as <Format> · Copy <Noun>
 ────

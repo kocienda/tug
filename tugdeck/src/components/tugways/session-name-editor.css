@@ -1,0 +1,59 @@
+/**
+ * The Session card masthead's inline name editor, and the pencil that opens it.
+ *
+ * No colour is set here. The field is a `TugInput` and the pencil a
+ * `TugIconButton`; each keeps its own tokens ([L20]), so this file states only
+ * where they sit and what type the field speaks in.
+ */
+
+/* ── The field ────────────────────────────────────────────────────────────
+   It stands where the name stood, in the title's own type, so the line does
+   not change voice or height the moment it becomes editable. The box metrics
+   are restated because the field's own are a form row's, and a form row is
+   taller than a title line: left alone, opening the editor would move every
+   line of chrome beneath it.
+
+   `user-select: text` is stated because the chrome around it is
+   `user-select: none`, which WebKit lets reach into a text field. */
+.tug-input.session-name-editor {
+  display: inline-block;
+  flex: 0 1 auto;
+  inline-size: 18em;
+  min-inline-size: 6em;
+  max-inline-size: 100%;
+  block-size: auto;
+  min-block-size: 0;
+  padding-block: 0;
+  padding-inline: 0.25em;
+  font-size: inherit;
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: inherit;
+  letter-spacing: inherit;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ── The pencil ───────────────────────────────────────────────────────────
+   Shown while the pointer is on the name or on the pencil: the component
+   writes `data-revealed` from `pointerenter`/`pointerleave` and this file
+   draws it ([L06]). At rest it takes no room: the `^arc` run abuts the name,
+   and a reserved gap there would stand on every masthead to hold a control
+   most readers never reach for. The gap before the glyph is padding, not
+   margin, so the pencil's box abuts the name and the pointer crosses from one
+   to the other without leaving both. */
+.session-name-rename {
+  display: inline-flex;
+  align-self: center;
+  flex: none;
+  inline-size: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.session-name-rename[data-revealed],
+.session-name-rename:focus-within {
+  inline-size: auto;
+  padding-inline-start: 0.25em;
+  overflow: visible;
+  opacity: 1;
+}

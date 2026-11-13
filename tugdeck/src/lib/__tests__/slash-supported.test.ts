@@ -45,7 +45,7 @@ describe("classifySlashCommand", () => {
   });
 
   test("`/unname` is typeable, takes no argument, and says what it does", () => {
-    // The clearing path existed only behind the rename dialog; a verb is what
+    // The clearing path existed only behind a blanked rename; a verb is what
     // makes it reachable by typing.
     const unname: { description: string; takesArgs?: boolean } | undefined =
       LOCAL_SLASH_COMMANDS.find((c) => c.name === "unname");

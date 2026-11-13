@@ -648,6 +648,45 @@ describe("a session is offered only the copies its surface can perform", () => {
     // reader can act on, so it is dim rather than gone.
     expect(resume?.[0]?.disabled).toBe(true);
   });
+
+  test("Rename Session… is offered only where the surface can edit the name, between the go-to row and the copies", () => {
+    const facts = {
+      kind: "session",
+      openCardId: "card-3",
+      isOwnCard: true,
+      resumable: false,
+      projectDir: "/repo",
+    } as const;
+    const entries = (renamable: boolean | undefined) =>
+      annotationEntryFor("session")?.menuEntries(
+        SAMPLE.session as SamplePayload,
+        renamable === undefined ? facts : { ...facts, renamable },
+      ) ?? [];
+
+    const offered = entries(true);
+    expect(offered.map((e) => e.label).slice(0, 3)).toEqual([
+      "Current Session",
+      "Rename Session…",
+      "Copy as Atom",
+    ]);
+    // A block of its own: a rule above it and a rule above the copies.
+    expect(offered[1]?.action).toBe(TUG_ACTIONS.RENAME_SESSION);
+    expect(offered[1]?.separatorBefore).toBe(true);
+    expect(offered[2]?.separatorBefore).toBe(true);
+
+    for (const renamable of [false, undefined]) {
+      expect(
+        entries(renamable).some(
+          (e) => e.action === TUG_ACTIONS.RENAME_SESSION,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      bareEntries("session").some(
+        (e) => e.action === TUG_ACTIONS.RENAME_SESSION,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("a commit's menu grows with what the surface holds", () => {

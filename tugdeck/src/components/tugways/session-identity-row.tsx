@@ -175,6 +175,12 @@ import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import {
+  SessionNameEditor,
+  SessionNameRenameButton,
+} from "@/components/tugways/session-name-editor";
+import { useSessionRenameMode } from "@/lib/session-rename-mode-store";
+import { sessionTitleParts } from "@/lib/session-identity";
+import {
   TugSessionRow,
   TUG_SESSION_ROW_STACK_DOT_SIZE,
   type TugSessionRowProps,
@@ -922,6 +928,15 @@ export interface SessionIdentityRowProps
    * See {@link SessionIdentityMenuOptions.hostCardId}.
    */
   hostCardId?: string;
+  /**
+   * Open this surface's inline name editor, for the menu's Rename Session…
+   * item and the pencil after the name. Only the Session card's masthead
+   * supplies one; without it both are absent. With it and {@link hostCardId},
+   * the row is also where the editor stands: while that card is in rename
+   * mode the name run is the field. See
+   * {@link SessionIdentityMenuOptions.onRename}.
+   */
+  onRename?: () => void;
 }
 
 export function SessionIdentityRow({
@@ -949,6 +964,7 @@ export function SessionIdentityRow({
   nameProps,
   identityMenu = false,
   hostCardId,
+  onRename,
   className,
   style,
   ...rest
@@ -1210,8 +1226,17 @@ export function SessionIdentityRow({
         : descriptionFull,
     activity: beat?.text ?? null,
     hostCardId,
+    ...(onRename !== undefined ? { onRename } : {}),
     enabled: identityMenu,
   });
+
+  // ── The name, editable in place ───────────────────────────────────────
+  // Only on a surface that says it has an editor to open and which card it
+  // is the chrome of. Every other mount passes no card id, which registers no
+  // listener at all.
+  const renameCardId =
+    onRename !== undefined && hostCardId !== undefined ? hostCardId : null;
+  const renaming = useSessionRenameMode(renameCardId);
   const ActivityRun = markdown ? ActivityMarkdownText : ActivityText;
   // The post, whole, flattened the way the description is: a post is written
   // to one paragraph, and a newline inside a clamped box is a break the
@@ -1299,6 +1324,25 @@ export function SessionIdentityRow({
       // showing the session's name and description over a row already showing
       // both, and only one of them can be acted on.
       tooltip={!identityMenu}
+      {...(renameCardId !== null && onRename !== undefined
+        ? renaming
+          ? {
+              nameEditor: (
+                <SessionNameEditor
+                  cardId={renameCardId}
+                  name={identity.customName}
+                  // An unnamed session's title is its minted handle: shown
+                  // as the placeholder, never seeded as a name to edit.
+                  placeholder={
+                    identity.customName === null
+                      ? sessionTitleParts(identity).name
+                      : ""
+                  }
+                />
+              ),
+            }
+          : { nameAccessory: <SessionNameRenameButton onRename={onRename} /> }
+        : {})}
     />
   );
 
@@ -1404,7 +1448,18 @@ export function SessionIdentityRow({
       // was claimed by the label and answered with Cut/Copy/Paste/Select All
       // over the label's text, which is the row's title spelled out rather
       // than the session. One menu for the row means the row is asked first.
-      onContextMenuCapture={menu.onContextMenu}
+      //
+      // The open name field is the exception: a right-click in a text field
+      // is about the text, and the field answers it itself.
+      onContextMenuCapture={(e) => {
+        if (
+          e.target instanceof Element &&
+          e.target.closest('[data-slot="session-name-editor"]') !== null
+        ) {
+          return;
+        }
+        menu.onContextMenu(e);
+      }}
     />
     {menu.contextMenu}
     </>

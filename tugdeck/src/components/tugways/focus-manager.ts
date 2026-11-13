@@ -1388,8 +1388,8 @@ export class FocusContext {
    * mirrors real DOM focus onto the key-view element, so parking a text stop
    * would put focus on the field's *wrapper* and strand an assistive-tech user
    * with no caret in any field until they typed. **A seeded or explicitly
-   * placed stop never parks**: `rename-session-sheet` says so in its own
-   * comment ("the engine seeds the key view onto the FIELD (caret on open)"),
+   * placed stop never parks**: the masthead's `session-name-editor` relies on
+   * it (the field takes the key view by placement, with the caret, on open),
    * and so do the gallery sheet, the resume sheet, the attachment preview, and
    * the session question / permission dialogs — every one a Class-A
    * auto-engaging surface, so an unqualified rule would open every text-first
