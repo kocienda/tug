@@ -57,6 +57,10 @@
    Horizontal padding matches actions; vertical is tighter near actions. */
 .tug-confirm-popover > .tug-label {
   padding: 0.25rem 0.75rem 0.75rem;
+  /* A newline in the message is a line break the caller chose, so a long
+     question can be split where it reads well instead of setting the
+     popover's width on one line. */
+  white-space: pre-line;
 }
 
 .tug-confirm-popover[data-side="top"] > .tug-label {

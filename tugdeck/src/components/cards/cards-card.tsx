@@ -236,6 +236,10 @@ let lastSelectedRowId: string | null = null;
  * cards two of which are sessions closes three things, not five. A workspace
  * with no sessions says nothing about them, instead of "(0 sessions)", which
  * reads as a warning about something that is not there.
+ *
+ * The sentence breaks after "and": on one line it set the popover's width,
+ * and a long name made the confirm wider than the question needed. The
+ * confirm's message honours the authored break (`white-space: pre-line`).
  */
 function deleteMessage(name: string, cards: number, sessions: number): string {
   // Never mention zero of anything: an empty workspace is just deleted.
@@ -247,7 +251,7 @@ function deleteMessage(name: string, cards: number, sessions: number): string {
       : sessions === 1
         ? " (1 session)"
         : ` (${sessions} sessions)`;
-  return `Delete ${name} and close ${cardsPhrase}${sessionsPhrase}?`;
+  return `Delete ${name} and\nclose ${cardsPhrase}${sessionsPhrase}?`;
 }
 
 // ---------------------------------------------------------------------------
