@@ -8,19 +8,20 @@
  * | --tug7-element-checkmark-icon-normal-plain-rest    | --tug7-surface-toggle-primary-normal-on-rest          | control       | .share-turn-mark__check (color)              |
  */
 
-/* The share mode's per-turn check, in the transcript entry's icon seat.
- * Unchecked it is an empty square; checked it fills and shows the tick. */
+/* The share mode's per-turn check, at the right of the turn's header row,
+ * just after its address. Unchecked it is an empty square; checked it fills
+ * and shows the tick. Sized a step above the address so it reads as the
+ * thing to click. */
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .share-turn-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1rem;
-  height: 1rem;
-  margin-block-start: 0.125em;
+  width: 1.125rem;
+  height: 1.125rem;
   padding: 0;
-  border: 1px solid var(--tug7-surface-toggle-primary-normal-off-rest);
+  border: 1.5px solid var(--tug7-surface-toggle-primary-normal-off-rest);
   border-radius: 0.25rem;
   background-color: transparent;
   cursor: pointer;
@@ -39,8 +40,8 @@
 
 /* @tug-renders-on: --tug7-surface-toggle-primary-normal-on-rest */
 .share-turn-mark__check {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
   color: var(--tug7-element-checkmark-icon-normal-plain-rest);
   visibility: hidden;
 }

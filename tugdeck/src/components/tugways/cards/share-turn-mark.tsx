@@ -1,8 +1,9 @@
 /**
  * `ShareTurnMark` — the per-turn check a Session card shows in share mode.
  *
- * In share mode each selectable turn's first row carries a check in place of
- * its participant glyph. A plain click toggles the turn and makes it the
+ * In share mode each selectable turn's first row carries a check at the right
+ * of its header, just after the turn address; the participant glyph keeps its
+ * seat. A plain click toggles the turn and makes it the
  * anchor; a shift-click marks every selectable turn from the anchor to this
  * one; a ⌘-click toggles, as a plain click does. The modifiers are read from
  * the gesture record at pointerdown, as the list view reads them, because the
@@ -60,7 +61,7 @@ export function isShareLeadRow(row: SessionRowDescriptor, ordinal: number): bool
 /**
  * The mark for a cell's row: a {@link ShareTurnMark} while share mode is on
  * and `lead` says the row is its turn's first, otherwise `undefined` (the
- * glyph draws).
+ * row draws no check).
  */
 export function useShareTurnMark(turn: TurnEntry | undefined, lead: boolean): React.ReactNode {
   const context = React.useContext(ShareTurnsContext);

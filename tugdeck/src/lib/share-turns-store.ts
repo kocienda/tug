@@ -125,6 +125,21 @@ export class ShareTurnsStore extends Subscribable {
     this.set({ selected: next.selected, anchor: next.anchor });
   }
 
+  /**
+   * Mark every turn in `keys` — the selectable turns, as the card reads them
+   * — and clear the anchor, so the next shift-click starts from the turn it
+   * lands on.
+   */
+  markAll(keys: Iterable<string>): void {
+    this.set({ selected: new Set(keys), anchor: null });
+  }
+
+  /** Unmark every turn and clear the anchor. The mode stays on. */
+  clearMarks(): void {
+    if (this.snapshot.selected.size === 0 && this.snapshot.anchor === null) return;
+    this.set({ selected: EMPTY_SELECTION, anchor: null });
+  }
+
   setToolMode(toolMode: ShareToolMode): void {
     if (this.snapshot.toolMode !== toolMode) this.set({ toolMode });
   }

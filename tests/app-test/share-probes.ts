@@ -26,6 +26,8 @@ export const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-bod
 export const MARK = `${CARD} [data-slot="share-turn-mark"]`;
 export const SHADE = `${CARD} [data-slot="session-share-view"]`;
 export const COUNT = `${CARD} [data-testid="session-share-count"]`;
+export const MARK_ALL = `${CARD} [data-testid="session-share-mark-all"]`;
+export const CLEAR = `${CARD} [data-testid="session-share-clear"]`;
 export const PREVIEW = `${CARD} [data-testid="session-share-preview"]`;
 export const COPY = `${CARD} [data-testid="session-share-copy"]`;
 export const SAVE = `${CARD} [data-testid="session-share-save"]`;

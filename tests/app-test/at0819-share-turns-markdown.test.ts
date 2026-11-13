@@ -14,7 +14,9 @@
  *      bottom of the transcript and rests on the Z2 status bar, and the
  *      composer stays where it is, with the draft typed into it still there.
  *   B. Clicking marks 1 and 3 toggles them; a shift-click on 4 extends from
- *      3, so 1, 3 and 4 are marked.
+ *      3, so 1, 3 and 4 are marked. Each check sits at the right of its
+ *      turn's header, after the turn address, and the participant icon still
+ *      draws in its seat.
  *   C. Copy acts at once: with Markdown chosen (a share starts as a PDF), a
  *      press on a selection not yet previewed shows the preview first, with a
  *      Copy button, and Return on it copies.
@@ -23,6 +25,7 @@
  *      holds nothing of the unmarked turn 2.
  *   E. Marking turn 2 moves the selection off the preview: Copy stays open,
  *      and the next press would preview again.
+ *   E2. Mark All marks all four turns; Clear unmarks them, leaving the mode on.
  *   F. Escape leaves share mode, and the composer's draft is intact.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
@@ -43,10 +46,13 @@ import { rmSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
+  CLEAR,
   COPY,
   COUNT,
   ENTRY_REGION,
   HOME,
+  MARK,
+  MARK_ALL,
   PROMPT_INPUT,
   SECRET,
   SHADE,
@@ -141,6 +147,22 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         await countIs("3 turns");
         const checked = (await card.evalJS<Mark[]>(marksJs())).map((m) => m.checked);
         expect(checked, "1, 3 and 4 are marked").toEqual([true, false, true, true]);
+        const seat = await card.evalJS<{ icons: number; marks: number; rightOfAddress: boolean }>(`(function(){
+          var marks = Array.from(document.querySelectorAll(${JSON.stringify(MARK)}));
+          var right = marks.every(function (m) {
+            var pin = m.closest(".tug-transcript-entry__pin");
+            var seq = pin && pin.querySelector(".tug-transcript-entry__sequence");
+            return seq !== null && m.getBoundingClientRect().left >= seq.getBoundingClientRect().right;
+          });
+          var icons = marks.filter(function (m) {
+            var pin = m.closest(".tug-transcript-entry__pin");
+            return pin !== null && pin.querySelector(".tug-transcript-entry__icon svg") !== null;
+          }).length;
+          return { icons: icons, marks: marks.length, rightOfAddress: right };
+        })()`);
+        note(`at0819 mark seat: ${JSON.stringify(seat)}`);
+        expect(seat.icons, "every marked row keeps its participant icon").toBe(seat.marks);
+        expect(seat.rightOfAddress, "each check sits right of its turn address").toBe(true);
 
         // ── C. Copy previews first, then copies on its own button ──────────
         expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy is open once a turn is marked").toBe(true);
@@ -172,6 +194,15 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
           timeoutMs: 4_000,
         });
         expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy stays open").toBe(true);
+
+        // ── E2. Mark All, then Clear ───────────────────────────────────────
+        await card.nativeClickAtElement(MARK_ALL);
+        await countIs("4 turns");
+        expect((await card.evalJS<Mark[]>(marksJs())).every((m) => m.checked), "every turn is marked").toBe(true);
+        await card.nativeClickAtElement(CLEAR);
+        await countIs("No turns marked");
+        expect((await card.evalJS<Mark[]>(marksJs())).some((m) => m.checked), "no turn is marked").toBe(false);
+        expect(await card.evalJS<boolean>(`!!document.querySelector(${JSON.stringify(SHADE)})`), "the mode stays on").toBe(true);
 
         // ── F. Escape leaves, and the draft is there ───────────────────────
         await app.nativeKey("Escape");

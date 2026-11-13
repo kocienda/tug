@@ -183,7 +183,7 @@ export interface TugTranscriptEntryProps
    * after the sequence badge when both are present.
    */
   headerTrailing?: React.ReactNode;
-  /** A control in the icon's seat — see {@link TugTranscriptEntryPinProps.mark}. */
+  /** A control after the turn address — see {@link TugTranscriptEntryPinProps.mark}. */
   mark?: React.ReactNode;
   /** Row body content. The primitive imposes no opinion on text rendering. */
   body: React.ReactNode;
@@ -632,10 +632,10 @@ export interface TugTranscriptEntryPinProps {
   /** Optional trailing header slot, after the address. */
   headerTrailing?: React.ReactNode;
   /**
-   * A control drawn in the icon's seat in place of the participant glyph —
-   * the share mode's per-turn check. Absent, the glyph draws. The seat is
-   * hidden from assistive technology only while it holds the glyph, so a
-   * control placed here keeps its role and name.
+   * A control drawn at the header's trailing edge, just after the turn
+   * address — the share mode's per-turn check. The participant glyph always
+   * keeps its seat: who spoke is never traded away for a control. Absent,
+   * nothing draws.
    */
   mark?: React.ReactNode;
   /**
@@ -683,15 +683,9 @@ export const TugTranscriptEntryPin = React.forwardRef<
       data-stuck={stuck === true ? "true" : undefined}
       data-crossing-pin=""
     >
-      {marked ? (
-        <div className="tug-transcript-entry__icon" data-marked="">
-          {mark}
-        </div>
-      ) : (
-        <div className="tug-transcript-entry__icon" aria-hidden="true">
-          {PARTICIPANT_ICONS[participant]}
-        </div>
-      )}
+      <div className="tug-transcript-entry__icon" aria-hidden="true">
+        {PARTICIPANT_ICONS[participant]}
+      </div>
       <div className="tug-transcript-entry__header">
         <strong id={identifierId} className="tug-transcript-entry__identifier">
           {identifier}
@@ -706,6 +700,11 @@ export const TugTranscriptEntryPin = React.forwardRef<
             aria-label={`${SPEAKER_ARIA_NOUN[address.speaker]} message ${formatTurnAddress(address).slice(1)}`}
           >
             {formatTurnAddress(address)}
+          </span>
+        )}
+        {marked && (
+          <span className="tug-transcript-entry__mark" data-slot="tug-transcript-entry-mark">
+            {mark}
           </span>
         )}
         {headerTrailing !== undefined && headerTrailing !== null && (

@@ -1,8 +1,9 @@
 /**
  * @tug-pairings
- * | Element                                     | Surface                                           | Role    | Context                                                       |
- * |---------------------------------------------|---------------------------------------------------|---------|---------------------------------------------------------------|
- * | --tug7-element-field-text-normal-label-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__hint, field labels, .session-share-view__rendering |
+ * | Element                                       | Surface                                           | Role    | Context                                                       |
+ * |-----------------------------------------------|---------------------------------------------------|---------|---------------------------------------------------------------|
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__instruction-lead                          |
+ * | --tug7-element-field-text-normal-label-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__instruction-more, field labels, .session-share-view__rendering |
  */
 
 /* The Share shade's content ([P01]): a header strip (the BlockStrip, styled by
@@ -42,10 +43,26 @@
   white-space: nowrap;
 }
 
-/* What to do next, in one quiet line: how marks are made. */
+/* The first thing the shade says, directly under its header: where the
+   checks are and how to use them. The lead is full-strength text at the
+   transcript's own size, in the weight of an identifier, so it is read
+   before any control; the follow-on is the quieter how-to of a range. */
+.session-share-view__instruction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  padding: var(--tug-space-md) var(--tug-space-md) var(--tug-space-xs);
+}
+
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-share-view__hint {
-  padding: var(--tug-space-sm) var(--tug-space-md) 0;
+.session-share-view__instruction-lead {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-view__instruction-more {
   color: var(--tug7-element-field-text-normal-label-rest);
   font-size: 12px;
 }

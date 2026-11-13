@@ -647,4 +647,21 @@ describe("ShareTurnsStore gate", () => {
     store.extendTo("t4", ["t1", "t3", "t4"]);
     expect([...store.getSnapshot().selected].sort()).toEqual(["t3", "t4"]);
   });
+
+  test("Mark All marks every given turn and drops the anchor; Clear unmarks them and keeps the mode", () => {
+    const store = new ShareTurnsStore();
+    store.enter();
+    store.toggle("t3");
+    store.markAll(["t1", "t3", "t4"]);
+    expect([...store.getSnapshot().selected].sort()).toEqual(["t1", "t3", "t4"]);
+    expect(store.getSnapshot().anchor).toBeNull();
+    store.clearMarks();
+    expect(store.getSnapshot().selected.size).toBe(0);
+    expect(store.getSnapshot().anchor).toBeNull();
+    expect(store.getSnapshot().active).toBe(true);
+    // Clearing nothing publishes nothing.
+    const before = store.getSnapshot();
+    store.clearMarks();
+    expect(store.getSnapshot()).toBe(before);
+  });
 });

@@ -3630,6 +3630,10 @@ export function SessionCardBody({
     shareTurnsStore.leave();
     entryDelegateRef.current?.focus();
   }, [shareTurnsStore, entryDelegateRef]);
+  // The shade's Mark All: every turn that carries a check, read live ([L07]).
+  const markAllShare = useCallback(() => {
+    shareTurnsStore.markAll(selectableTurnKeys(codeSessionStore.getSnapshot().transcript));
+  }, [shareTurnsStore, codeSessionStore]);
   // A Changes or History shade arriving leaves share mode: both make the
   // transcript inert, where the marks are. Observed on the controller itself,
   // so the two never stand together for a frame ([L22]).
@@ -5709,6 +5713,7 @@ export function SessionCardBody({
                           onSave={handleShareSave}
                           onShare={handleSharePick}
                           onDone={leaveShare}
+                          onMarkAll={markAllShare}
                         />
                       </div>
                     </TugSheetContent>

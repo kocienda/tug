@@ -5,7 +5,8 @@
  * the card's view slot, resting on the Z2 status bar, while the composer and
  * Z2 stay where they are. Unlike them it is modeless — the transcript above it
  * stays live, because that is where the turns are marked: each selectable
- * turn's first row shows a check in its icon seat, a click toggles it and a
+ * turn's first row shows a check at the right of its header, after the turn
+ * address; a click toggles it and a
  * shift-click extends from the anchor. The shade itself
  * (`TugSheetContent presentation="shade" shadeModeless`) is mounted by the
  * Session card around this view; this is what sits inside it:
@@ -90,6 +91,8 @@ export interface SessionShareViewProps {
   onShare: (anchor: () => ShareAnchor | null) => void;
   /** Leave share mode — Done and Escape. */
   onDone: () => void;
+  /** Mark every selectable turn — the card knows which those are. */
+  onMarkAll: () => void;
 }
 
 export function SessionShareView({
@@ -99,6 +102,7 @@ export function SessionShareView({
   onSave,
   onShare,
   onDone,
+  onMarkAll,
 }: SessionShareViewProps): React.ReactElement {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const count = snapshot.selected.size;
@@ -151,7 +155,40 @@ export function SessionShareView({
             }
             name="Share Turns"
             detail={<span data-testid="session-share-count">{shareCountLabel(count)}</span>}
+            actions={
+              <>
+                <TugPushButton
+                  size="sm"
+                  emphasis="ghost"
+                  role="action"
+                  onClick={onMarkAll}
+                  data-testid="session-share-mark-all"
+                >
+                  Mark All
+                </TugPushButton>
+                <TugPushButton
+                  size="sm"
+                  emphasis="ghost"
+                  role="action"
+                  disabled={count === 0}
+                  onClick={() => store.clearMarks()}
+                  data-testid="session-share-clear"
+                >
+                  Clear
+                </TugPushButton>
+              </>
+            }
           />
+        </div>
+        {/* The one thing to do first, said first and said plainly: the
+            checks are in the transcript, at the right of each turn. */}
+        <div className="session-share-view__instruction" data-testid="session-share-instruction">
+          <strong className="session-share-view__instruction-lead">
+            Check the box at the right of each turn you want to share.
+          </strong>
+          <span className="session-share-view__instruction-more">
+            Shift-click a box to mark every turn between it and the last one you clicked.
+          </span>
         </div>
         <div className="session-share-view__fields">
           <span className="session-share-view__field">
@@ -178,9 +215,6 @@ export function SessionShareView({
               data-testid="session-share-format"
             />
           </span>
-        </div>
-        <div className="session-share-view__hint">
-          Click a turn&rsquo;s check to mark it; shift-click marks a range.
         </div>
         <div className="session-share-view__actions tug-sheet-actions">
           {snapshot.rendering ? (

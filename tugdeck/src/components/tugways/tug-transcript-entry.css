@@ -338,6 +338,15 @@ body {
   color: var(--tugx-transcript-sequence-color);
 }
 
+/* A control at the header's trailing edge, just after the turn address — the
+ * share mode's per-turn check. Centered on the control axis, as the trailing
+ * slot is, so a box does not ride the text baseline. */
+.tug-transcript-entry__mark {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+}
+
 .tug-transcript-entry__body {
   margin-top: var(--tugx-transcript-body-margin-top);
   line-height: var(--tugx-transcript-body-line-height);
