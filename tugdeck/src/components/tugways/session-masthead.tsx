@@ -128,7 +128,7 @@ import {
   classifyDirectory,
   directoryRemover,
   foreignDirectoryNote,
-  removalQuestion,
+  REMOVAL_TITLE,
   type DirectoryOrigin,
 } from "@/lib/directory-grant";
 import { PermissionRulesStore } from "@/lib/permission-rules-store";
@@ -601,7 +601,6 @@ function TelemetryDirectoriesRow({
     anchor: HTMLElement;
   } | null>(null);
   if (directories.length === 0) return null;
-  const project = displayPath(projectDir, home);
   const folders = directories.map((dir) => ({
     dir,
     origin:
@@ -644,11 +643,7 @@ function TelemetryDirectoriesRow({
             message={
               pending === null
                 ? ""
-                : removalQuestion({
-                    shown: displayPath(pending.directory, home),
-                    origin: pending.origin,
-                    project,
-                  })
+                : REMOVAL_TITLE
             }
             confirmLabel="Remove"
             cancelLabel="Cancel"

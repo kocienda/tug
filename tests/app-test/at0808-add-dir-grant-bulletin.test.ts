@@ -424,7 +424,7 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
           // ---- E. The Summary's `x` removes a folder. -----------------------
           const asked = await removeThroughSummary(app, GRANTED);
           expect(asked).toEqual({
-            message: `Remove this directory?\n${GRANTED} is no longer readable or writable by this session.`,
+            message: "Remove this directory?",
             buttons: ["Cancel", "Remove"],
             summaryOpen: true,
           });

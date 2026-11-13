@@ -20,7 +20,6 @@ import {
   normalizeDirectory,
   registerDirectoryRemover,
   removalConsequence,
-  removalQuestion,
   removalRefusal,
   removeDirectory,
   type DirectoryRemover,
@@ -344,18 +343,18 @@ describe("removeDirectory", () => {
   });
 });
 
-describe("removalQuestion / foreignDirectoryNote", () => {
-  test("a session folder's question says this session", () => {
-    expect(removalQuestion({ shown: "~/shared", origin: { kind: "session" }, project: "~/proj" })).toBe(
-      "Remove this directory?\n~/shared is no longer readable or writable by this session.",
+describe("removalConsequence / foreignDirectoryNote", () => {
+  test("a session folder's consequence says this session", () => {
+    expect(removalConsequence({ shown: "~/shared", origin: { kind: "session" }, project: "~/proj" })).toBe(
+      "~/shared is no longer readable or writable by this session.",
     );
   });
 
-  test("a remembered folder's question names the project's future sessions", () => {
+  test("a remembered folder's consequence names the project's future sessions", () => {
     expect(
-      removalQuestion({ shown: "~/shared", origin: { kind: "remembered", rule: "~/shared" }, project: "~/proj" }),
+      removalConsequence({ shown: "~/shared", origin: { kind: "remembered", rule: "~/shared" }, project: "~/proj" }),
     ).toBe(
-      "Remove this directory?\n~/shared is no longer readable or writable by this session or by future ~/proj sessions.",
+      "~/shared is no longer readable or writable by this session or by future ~/proj sessions.",
     );
   });
 

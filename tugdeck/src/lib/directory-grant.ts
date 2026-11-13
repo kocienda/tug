@@ -27,7 +27,7 @@
  * local settings as well, since a settings rule would grant it again.
  *
  * The question a removal asks and the note a folder that cannot be removed
- * wears are {@link removalQuestion} and {@link foreignDirectoryNote}. The
+ * wears are {@link REMOVAL_TITLE} and {@link foreignDirectoryNote}. The
  * Session card owns the removal itself — its turn guard, its stores and its
  * bulletin — and lends it to the chrome that asks, the Session Summary's
  * `x`, through {@link registerDirectoryRemover}.
@@ -350,18 +350,6 @@ export function removalConsequence(args: {
 
 /** The question every removal asks, wherever it is asked. */
 export const REMOVAL_TITLE = "Remove this directory?";
-
-/**
- * The removal's question as one message, for a confirm with no title of its
- * own: the question, then {@link removalConsequence} on its own line.
- */
-export function removalQuestion(args: {
-  shown: string;
-  origin: DirectoryOrigin;
-  project: string;
-}): string {
-  return `${REMOVAL_TITLE}\n${removalConsequence(args)}`;
-}
 
 /**
  * Why a named folder cannot be removed, as a caution, or `null` when it can:
