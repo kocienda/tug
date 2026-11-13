@@ -1,23 +1,10 @@
-/* @tug-pairings {
- * --tugx-pane-control-on-fg-rest | --tug7-surface-card-primary-normal-titlebar-active | control
- * --tugx-pane-control-off-fg-rest | --tug7-surface-card-primary-normal-titlebar-inactive | control
- * } */
-
 /**
- * @tug-pairings
- * | Element                         | Surface                                              | Role    | Context                                                         |
- * |---------------------------------|------------------------------------------------------|---------|-----------------------------------------------------------------|
- * | --tugx-pane-control-on-fg-rest  | --tug7-surface-card-primary-normal-titlebar-active   | control | .tug-pane[data-focused="true"] .session-name-rename-label       |
- * | --tugx-pane-control-off-fg-rest | --tug7-surface-card-primary-normal-titlebar-inactive | control | .tug-pane:not([data-focused="true"]) .session-name-rename-label |
- */
-
-/**
- * The Session card masthead's inline name editor, and the pencil that opens it.
+ * The Session card masthead's inline name editor, and the Rename button that
+ * opens it.
  *
- * One colour is set here, the Rename word's, in the title-bar controls' own
- * resting ink. The field is a `TugInput` and keeps its own tokens
- * ([L20]); the pencil is a `TugIconButton` at the title-bar cluster's size,
- * painted by the cluster's own rules in `tug-pane.css` through the
+ * No colour is set here. The field is a `TugInput` and keeps its own tokens
+ * ([L20]); the button is a ghost `TugPushButton` at the title-bar cluster's
+ * size, painted by the cluster's own rules in `tug-pane.css` through the
  * `.tug-pane-title-bar-inline-control` class its wrapper wears. So this file
  * states only where they sit and what type the field speaks in.
  */
@@ -28,8 +15,8 @@
    are restated because the field's own are a form row's, and a form row is
    taller than a title line: left alone, opening the editor would move every
    line of chrome beneath it. So the box is exactly one line tall, border
-   included, and it is pulled back by its own border and padding so the first
-   letter of the name stands where it stood before the field opened.
+   included. Its edge stands where the name began, and the text sits in from
+   that edge by the field's own inline padding, as text in a field does.
 
    `user-select: text` is stated because the chrome around it is
    `user-select: none`, which WebKit lets reach into a text field. */
@@ -42,8 +29,7 @@
   block-size: 1lh;
   min-block-size: 0;
   padding-block: 0;
-  padding-inline: 0.25em;
-  margin-inline-start: calc(-0.25em - 1px);
+  padding-inline: 0.5em;
   font-size: inherit;
   font-weight: var(--tug-font-weight-semibold);
   line-height: inherit;
@@ -52,69 +38,80 @@
   user-select: text;
 }
 
-/* ── The pencil ───────────────────────────────────────────────────────────
-   Shown while the pointer is on the name or on the pencil: the component
-   writes `data-revealed` from `pointerenter`/`pointerleave` and this file
-   draws it ([L06]). At rest it takes no room: the `^arc` run abuts the name,
-   and a reserved gap there would stand on every masthead to hold a control
-   most readers never reach for. The gap before the glyph is padding, not
-   margin, so the pencil's box abuts the name and the pointer crosses from one
-   to the other without leaving both.
+/* ── The Rename button ────────────────────────────────────────────────────
+   Shown while the pointer is on the name, on the button, or on the place the
+   button will stand: the component writes `data-revealed` from
+   `pointerenter`/`pointerleave` on the name and on this wrapper, and this
+   file draws it ([L06]).
+
+   It follows the identity's whole run, name and `^arc` both, and stands
+   outside it: the run is the session's grammar, and a button's label inside
+   it would read as part of the name.
+
+   At rest the wrapper takes no room in the line — a reserved gap would stand
+   on every masthead to hold a control most readers never reach for — and it
+   takes back the identity's own inter-item gap, which a zero-width item
+   would otherwise still be charged. What it does have at rest is a PAD —
+   its `::before`, laid over the stretch the button will occupy — so a pointer
+   that arrives there from any side enters the wrapper and reveals the button,
+   and the reader does not have to find the name first.
+
+   Revealed, the pad stays and covers the wrapper's whole box plus the
+   button's overhang, beneath the button. Without it the gap between the name
+   and the button, above and below the one-line wrapper, would be outside
+   every listened-to element, and a pointer crossing it would conceal the
+   button it was heading for.
 
    The button is the cluster's size, which is taller than the title line. The
    wrapper stays one line tall and centers the button, which overhangs it
-   evenly above and below, so revealing the pencil never changes the line's
-   height. */
+   evenly above and below, so revealing it never changes the line's height. */
 .session-name-rename {
+  position: relative;
+  /* Over the description line's box, which comes later in the row and would
+     otherwise take the pointer along the overhang's bottom edge. */
+  z-index: 1;
   display: inline-flex;
   align-self: center;
   align-items: center;
   flex: none;
   block-size: 1lh;
   inline-size: 0;
-  overflow: hidden;
-  opacity: 0;
+  margin-inline-start: calc(-1 * var(--tugx-session-identity-icon-gap, 6px));
 }
 
-.session-name-rename[data-revealed],
-.session-name-rename:focus-within {
-  inline-size: auto;
-  padding-inline-start: 0.625em;
-  overflow: visible;
-  opacity: 1;
-  /* The overhang below the line lies over the description line's box, which
-     comes later and would otherwise take the pointer along the button's
-     bottom edge. */
+.session-name-rename::before {
+  content: "";
+  position: absolute;
+  inset-block: -0.375rem;
+  inset-inline-start: 0;
+  inline-size: 6.5rem;
+}
+
+.session-name-rename > .tug-button {
+  display: none;
   position: relative;
-  z-index: 1;
 }
 
-/* The word after the pencil. It is outside the button, so the button's
-   rollover box is the icon's width and no wider; it wears the title-bar
-   controls' resting ink, in the caption's size, and opens the editor too. */
-.session-name-rename-label {
-  flex: none;
-  padding-inline: 0.125em 0.25em;
-  font-size: var(--tug-font-size-xs);
-  font-weight: var(--tug-font-weight-regular);
-  white-space: nowrap;
-  cursor: default;
+.session-name-rename[data-revealed] {
+  inline-size: auto;
+  margin-inline-start: 0;
+  padding-inline-start: 0.25em;
 }
 
-/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
-.tug-pane[data-focused="true"] .session-name-rename-label {
-  color: var(--tugx-pane-control-on-fg-rest);
+.session-name-rename[data-revealed]::before {
+  inline-size: 100%;
 }
 
-/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
-.tug-pane:not([data-focused="true"]) .session-name-rename-label {
-  color: var(--tugx-pane-control-off-fg-rest);
+.session-name-rename[data-revealed] > .tug-button {
+  display: inline-flex;
 }
 
-/* The title's text box elides by clipping, and a clip on both axes would cut
-   the pencil's overhang off above and below the line. On the masthead it
-   clips along the line only, which is all the eliding needs. */
+/* The title's text box clips, for the sake of a plain-string title that
+   elides at its edge. The masthead's title is a node whose own runs do the
+   eliding inside a box already clamped to this one, so the clip here buys
+   nothing and costs the button twice: it would cut the overhang above and
+   below the line, and it would cut the resting pad, which lies past the
+   box's inline end by design. */
 .session-masthead-row .tug-session-row-name-line .tug-list-row-title .tug-label-text {
-  overflow-x: clip;
-  overflow-y: visible;
+  overflow: visible;
 }

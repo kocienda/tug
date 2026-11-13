@@ -12,6 +12,16 @@ describe("what the inline editor's commit does with a draft", () => {
     // An unnamed session opens empty; leaving it empty is not a clear.
     expect(sessionRenameCommit(null, "")).toEqual({ rename: false });
     expect(sessionRenameCommit(null, "   ")).toEqual({ rename: false });
+    // An unnamed session's field opens holding its handle; committing the
+    // handle as it stands is not a rename, and neither is emptying it.
+    expect(sessionRenameCommit(null, "tug/calm-meridian", "tug/calm-meridian")).toEqual({
+      rename: false,
+    });
+    expect(sessionRenameCommit(null, "", "tug/calm-meridian")).toEqual({ rename: false });
+    expect(sessionRenameCommit(null, "low tide", "tug/calm-meridian")).toEqual({
+      rename: true,
+      name: "low tide",
+    });
   });
 
   test("a changed draft renames to its trimmed text, and a blank one clears", () => {

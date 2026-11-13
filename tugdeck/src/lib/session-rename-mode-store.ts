@@ -30,13 +30,19 @@ const NONE: ReadonlySet<string> = new Set();
  * trimmed draft is the name already (or both are empty), otherwise rename to
  * the trimmed draft — which is a clear when it is blank. A click-away from an
  * untouched field is not a rename.
+ *
+ * `handle` is what an unnamed session's field opens holding — its minted
+ * `project/callsign`, there to be typed over. Committing it as it stands
+ * names nothing: a handle is not a name.
  */
 export function sessionRenameCommit(
   name: string | null,
   draft: string,
+  handle: string | null = null,
 ): { rename: false } | { rename: true; name: string } {
   const next = draft.trim();
   if (next === (name ?? "").trim()) return { rename: false };
+  if (name === null && handle !== null && next === handle.trim()) return { rename: false };
   return { rename: true, name: next };
 }
 

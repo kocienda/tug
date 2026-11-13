@@ -52,7 +52,7 @@ import React from "react";
 import { sendToCardContent } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import type { FocusTarget, KeyViewBehavior } from "@/components/tugways/focus-manager";
-import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugInput } from "@/components/tugways/tug-input";
 import { useFocusManager } from "@/components/tugways/use-focusable";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -80,8 +80,10 @@ export interface SessionNameEditorProps {
   /** The session's custom name, or null for a session that has none. */
   name: string | null;
   /**
-   * What an unnamed session's title shows — its `project/callsign`. It is the
-   * placeholder rather than the seed: a minted handle is not a name to edit.
+   * What an unnamed session's title shows — its `project/callsign` — and ""
+   * for a named one. The field opens holding it, selected whole, so there is
+   * always text to type over; committing it untouched names nothing, because
+   * a minted handle is not a name.
    */
   placeholder: string;
 }
@@ -112,9 +114,10 @@ function SessionNameField({
   // Set by whichever ending ran first, so the blur an ending causes cannot
   // run a second one.
   const ended = React.useRef(false);
-  // The name as it stood when the field opened: the seed, and what a commit
-  // is compared against.
+  // The name as it stood when the field opened, which a commit is compared
+  // against, and the handle an unnamed session's field opens holding.
   const opened = React.useRef(name);
+  const handle = React.useRef(name === null ? placeholder : null);
   // Where the card kept the keyboard before the field took it.
   const priorTarget = React.useRef<FocusTarget | null>(null);
   // The pending blur-commit (see `onBlur`), cleared on unmount so a field the
@@ -171,6 +174,7 @@ function SessionNameField({
       const verdict = sessionRenameCommit(
         opened.current,
         fieldRef.current?.value ?? "",
+        handle.current,
       );
       if (verdict.rename && !sessionRenameModeStore.commit(cardId, verdict.name)) {
         // No card registered a commit — rename all the same, without the
@@ -203,7 +207,7 @@ function SessionNameField({
       data-slot="session-name-editor"
       data-testid="session-name-editor"
       aria-label="Session name"
-      defaultValue={opened.current ?? ""}
+      defaultValue={opened.current ?? handle.current ?? ""}
       placeholder={placeholder}
       // The title bar is a gesture surface; a press or a keystroke aimed at
       // the field is the field's.
@@ -248,14 +252,15 @@ export interface SessionNameRenameButtonProps {
 }
 
 /**
- * The pencil after the name, and the word Rename after the pencil. The pencil
- * is a `TugIconButton`, which refuses first responder on click and is not the
- * pane's grab handle, so a press on it neither takes the keyboard from the
- * composer nor begins a drag. The word is a second target for the same act,
- * outside the button so the button's rollover box stays the icon's own.
+ * The Rename button after the name: a ghost `TugPushButton` with the pencil
+ * and its label, the app's ordinary icon-and-label button. It leaves the key
+ * view where it is on click and is not the pane's grab handle, so a press on
+ * it neither takes the keyboard from the composer nor begins a drag.
  *
- * It is revealed while the pointer is on the name or on the pencil itself, and
- * the reveal is read from `pointerenter`/`pointerleave` rather than the
+ * It is revealed while the pointer is on the name, on the button, or on the
+ * place the button will stand — the wrapper's stylesheet lays a pad there, so
+ * a pointer coming from the right finds it too. The reveal is read from
+ * `pointerenter`/`pointerleave` rather than the
  * `:hover` pseudo-class — the same rule the pane's own rollup follows, because
  * a pseudo-class is decided by WebKit's hit-testing against the physical
  * cursor. The listeners write one attribute on the pencil's own span and
@@ -267,7 +272,7 @@ export function SessionNameRenameButton({
   const spanRef = React.useRef<HTMLSpanElement | null>(null);
   React.useLayoutEffect(() => {
     const span = spanRef.current;
-    // The name is the run the pencil follows.
+    // The identity's run — the name and its `^arc` — is what the button follows.
     const name = span?.previousElementSibling;
     if (span === null || !(name instanceof HTMLElement)) return;
     const reveal = (): void => span.setAttribute("data-revealed", "");
@@ -297,10 +302,13 @@ export function SessionNameRenameButton({
       className="session-name-rename tug-pane-title-bar-inline-control"
       data-slot="session-name-rename"
     >
-      <TugIconButton
+      <TugPushButton
         // The cluster's own size, so the glyph matches the controls at the
         // bar's right.
         size="sm"
+        subtype="icon-text"
+        emphasis="ghost"
+        role="action"
         icon={<Pencil />}
         // Chrome, like the masthead's other buttons — never a Tab stop.
         tabIndex={-1}
@@ -311,19 +319,9 @@ export function SessionNameRenameButton({
           e?.stopPropagation();
           onRename();
         }}
-      />
-      <span
-        className="session-name-rename-label"
-        // The button already names the act for assistive tech.
-        aria-hidden="true"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onRename();
-        }}
       >
         Rename
-      </span>
+      </TugPushButton>
     </span>
   );
 }

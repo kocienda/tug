@@ -1331,8 +1331,9 @@ export function SessionIdentityRow({
                 <SessionNameEditor
                   cardId={renameCardId}
                   name={identity.customName}
-                  // An unnamed session's title is its minted handle: shown
-                  // as the placeholder, never seeded as a name to edit.
+                  // An unnamed session's title is its minted handle: the
+                  // field opens holding it, selected, and committing it
+                  // untouched names nothing.
                   placeholder={
                     identity.customName === null
                       ? sessionTitleParts(identity).name

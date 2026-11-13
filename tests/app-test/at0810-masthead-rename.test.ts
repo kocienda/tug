@@ -208,8 +208,24 @@ describe.skipIf(!SHOULD_RUN)("at0810 — the masthead's name is edited in place"
           );
         };
 
+        // Where the masthead's lines stand, for the claim that opening the
+        // field moves none of them: the title box, the description under it,
+        // and the bar they are both in.
+        const lines = (): string =>
+          `(function(){
+             function box(sel){ var b = document.querySelector(sel).getBoundingClientRect(); return [Math.round(b.top * 10) / 10, Math.round(b.height * 10) / 10]; }
+             return {
+               title: box(${JSON.stringify(TITLE)}),
+               description: box(${JSON.stringify(`${MASTHEAD} .tug-session-row-description`)}),
+               bar: box(${JSON.stringify(`${PANE} .tug-pane-title-bar`)}),
+             };
+           })()`;
+        const atRest = await body.evalJS<unknown>(lines());
+
         // ---- The menu's row opens the field; Escape leaves the name. ------
         await openFromMenu();
+        // Editing changes nothing vertically: no line hops, the bar keeps its height.
+        expect(await body.evalJS<unknown>(lines())).toEqual(atRest);
         const opened = await body.evalJS<TitleState>(titleState());
         note("at0810 opened", JSON.stringify(opened));
         // Seeded with the name, the whole of it selected so typing replaces it.
@@ -227,7 +243,18 @@ describe.skipIf(!SHOULD_RUN)("at0810 — the masthead's name is edited in place"
         // ---- The pencil opens it, and the press drags nothing. ------------
         //
         // The pointer enters the name, which is all the reveal asks for; the
-        // pencil has no width until then.
+        // button has no width until then. The place it will stand answers the
+        // pointer all the same: a point just past the name, at rest, is the
+        // button's own wrapper, so a pointer arriving there reveals it too.
+        expect(
+          await body.evalJS<boolean>(
+            `(function(){
+               var r = document.querySelector(${JSON.stringify(TITLE)}).getBoundingClientRect();
+               var hit = document.elementFromPoint(r.right + 24, r.top + r.height / 2);
+               return hit !== null && hit.closest('[data-slot="session-name-rename"]') !== null;
+             })()`,
+          ),
+        ).toBe(true);
         const before = await body.evalJS<{ left: number; top: number; gesture: string | null }>(
           paneFrame(),
         );
@@ -239,6 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0810 — the masthead's name is edited in place"
         await body.evalJS<null>(
           `(function(){
              document.querySelector(${JSON.stringify(TITLE)})
+               .closest(".tug-session-identity-run")
                .dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
              return null;
            })()`,
@@ -252,11 +280,21 @@ describe.skipIf(!SHOULD_RUN)("at0810 — the masthead's name is edited in place"
            })()`,
           { timeoutMs: 8_000 },
         );
+        // The label is the button's own, inside its box.
+        expect(
+          await body.evalJS<string>(
+            `document.querySelector(${JSON.stringify(PENCIL)}).textContent.trim()`,
+          ),
+        ).toBe("Rename");
         await body.nativeClickAtElement(PENCIL);
         await body.waitForCondition<boolean>(
           `(function(){ var s = ${titleState()}; return s.editing && s.focused; })()`,
           { timeoutMs: 8_000 },
         );
+        // Opened by a press, the name is still selected whole.
+        const byPencil = await body.evalJS<TitleState>(titleState());
+        expect(byPencil.value).toBe(NAME);
+        expect(byPencil.selected).toBe(NAME.length);
         const during = await body.evalJS<{ left: number; top: number; gesture: string | null }>(
           paneFrame(),
         );

@@ -248,8 +248,9 @@ export interface SessionIdentityViewProps
    */
   nameEditor?: React.ReactNode;
   /**
-   * Rendered after the name and before the `^arc` run — the masthead's rename
-   * pencil. Not rendered while {@link nameEditor} stands in for the name.
+   * Rendered after the identity's run — the name and its `^arc` — and outside
+   * it: the masthead's Rename button. Not rendered while {@link nameEditor}
+   * stands in for the name.
    */
   nameAccessory?: React.ReactNode;
 }
@@ -510,7 +511,6 @@ export const SessionIdentityView = React.forwardRef<
             </span>
           )}
         </span>
-        {nameEditor === undefined || nameEditor === null ? nameAccessory : null}
         {/* The bound arc is part of the identity wherever the identity is
             met — a session on an arc is never named without it. The one
             opt-out is `arc={false}`, for a surface whose row already names
@@ -526,6 +526,10 @@ export const SessionIdentityView = React.forwardRef<
           <SessionArcMarker sessionId={identity.id} />
         )}
       </span>
+      {/* After the run, never inside it: the run is the identity's grammar,
+          `name^arc`, and a control's label standing in it would be read as
+          part of what the session is called. */}
+      {nameEditor === undefined || nameEditor === null ? nameAccessory : null}
       {isMissing ? null : <SessionPrivacyMarker sessionId={identity.id} />}
     </span>
   );
