@@ -83,20 +83,7 @@ import {
 } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
-import {
-  useSpaceLayerShown,
-  useSpaceLayerShownSource,
-} from "@/components/chrome/space-layer";
-import { cardsListAnchor, cardsListCursor } from "@/bus/declarations/arrangement";
-import {
-  anchorAfterScroll,
-  anchorForRow,
-  scrollTopForAnchor,
-  slackAfterScroll,
-  slackForAnchor,
-  type AnchorRow,
-  type ListAnchor,
-} from "@/lib/cards-list-anchor";
+import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import { BlockDropCaret } from "@/components/tugways/block-drop-caret";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { useBlockReorder } from "@/components/tugways/block-reorder";
@@ -865,272 +852,6 @@ function useCardsInputs(filterQuery: string): CardsDataSource {
   return dataSource;
 }
 
-/** Every drawn row's box, in the card scroller's content coordinates. */
-function readRowBoxes(root: HTMLElement, dataSource: CardsDataSource): AnchorRow[] {
-  const rootTop = root.getBoundingClientRect().top;
-  const count = dataSource.numberOfItems();
-  const rows: AnchorRow[] = [];
-  for (const cell of root.querySelectorAll<HTMLElement>(
-    ".cards-list .tug-list-view-cell[data-tug-list-cell-index]",
-  )) {
-    const index = Number(cell.getAttribute("data-tug-list-cell-index"));
-    if (!Number.isInteger(index) || index < 0 || index >= count) continue;
-    const box = cell.getBoundingClientRect();
-    rows.push({
-      id: dataSource.idForIndex(index),
-      top: box.top - rootTop + root.scrollTop,
-      height: box.height,
-    });
-  }
-  return rows;
-}
-
-const sameAnchor = (a: ListAnchor | null, b: ListAnchor | null): boolean =>
-  a === b ||
-  (a !== null && b !== null && a.rowId === b.rowId && Math.abs(a.offset - b.offset) < 0.5);
-
-/**
- * How long after a wheel, a touch or a key in the card its scrolling is still
- * the reader's, ms — long enough to cover a wheel's momentum frames and a
- * cursor move's reveal, short of the next thing the deck does on its own.
- */
-const GESTURE_TAIL_MS = 500;
-
-/**
- * Keep this card's scroller one with the deck's list anchor
- * (`cards.listAnchor`), which replaces any per-card scroll memory ([B04]).
- *
- * - **Written** while the card is on screen: a pointer-down on a row anchors
- *   that row and makes it the deck's cursor (`cards.listCursor`), and a
- *   scroll the reader makes keeps the anchored row while any of it is in
- *   view, or takes the first row in view when it is not. A scroll with no
- *   gesture behind it — a wheel, a touch, a key or a held pointer in this
- *   card since it came on screen — is never a reading: one stray programmatic
- *   scroll would otherwise rewrite the shared truth for every card after it,
- *   and an arriving card has had no gesture, so nothing that lands in it
- *   during a switch proposes.
- * - **Read** at mount, each time the card comes on screen, and whenever the
- *   anchor moves in a card the reader has not touched — on screen or
- *   parked. A parked card follows it as it moves, because a page shown again
- *   puts up the picture it last drew before it hears it is shown: placed
- *   only at the show, its first frames are the old position, and the list
- *   jumps. Placed while parked, its scroller is already where the reader
- *   left the list, and the move marks its page stale (`body-staleness.ts`)
- *   so the host retakes its last frame and holds the page until it has
- *   drawn as shown.
- * - **Given room** when it is taller than the card the reader left: a row
- *   anchored low near the list's end asks for a `scrollTop` past a taller
- *   card's range, so the placement stands that much room below the list
- *   (`slackRef`) rather than clamping the row lower, and the room collapses as
- *   the reader scrolls back up out of it.
- * - **The cursor adopted** at each placement, and whenever the deck's cursor
- *   moves while this card is on screen and untouched: the list parks its
- *   cursor, and the selection a click would have left, on the deck's row with
- *   no reveal, since the placement has already put the scroller where it
- *   belongs. So no card keeps a cursor or a fill of its own from the last
- *   time it was shown.
- * - **Held** until the list has rows. A card standing up for a workspace
- *   mounts, comes on screen and hears the anchor before its rows arrive, and
- *   a placement then has nothing to measure; so it stays owed, and the
- *   content's `ResizeObserver` delivery — after the rows' layout, before the
- *   frame that shows them — pays it. Nothing else moves the scroller on a
- *   switch, so the row lands where it was clicked in that first frame and
- *   stays there ([B06]).
- *
- * Both halves are DOM work driven by a store, so the store is observed
- * directly in a layout effect rather than read through a render ([L22],
- * [L03]); the scroll the placement itself causes is not taken back as a
- * reading.
- */
-function useSharedListAnchor(
-  rootRef: React.RefObject<HTMLDivElement | null>,
-  slackRef: React.RefObject<HTMLDivElement | null>,
-  dataSource: CardsDataSource,
-  adoptCursor: (index: number) => void,
-): void {
-  const shownSource = useSpaceLayerShownSource();
-  const dataSourceRef = useRef(dataSource);
-  dataSourceRef.current = dataSource;
-  const adoptCursorRef = useRef(adoptCursor);
-  adoptCursorRef.current = adoptCursor;
-  useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (root === null) return;
-    const slackEl = slackRef.current;
-    const view = root.ownerDocument.defaultView;
-    /** The `scrollTop` the last placement landed, until its scroll event comes. */
-    let placedTop: number | null = null;
-    /** Whether the reader has scrolled or clicked in this card. */
-    let touched = false;
-    /** Whether a placement is owed: asked for before the list had rows to place. */
-    let owed = false;
-    /** The room the last placement stood below the list, px. */
-    let slack = 0;
-    /** Until when a scroll is the reader's, by the last wheel, touch or key. */
-    let gestureUntil = 0;
-    /** Whether a pointer pressed in this card is still down. */
-    let pointerHeld = false;
-
-    const setSlack = (px: number): void => {
-      if (Math.abs(px - slack) < 0.5) return;
-      slack = px;
-      if (slackEl !== null) slackEl.style.blockSize = px > 0 ? `${px}px` : "";
-    };
-    const adopt = (): void => {
-      const rowId = cardsListCursor.getSnapshot();
-      if (rowId === null) return;
-      const index = dataSourceRef.current.indexForId(rowId);
-      if (index >= 0) adoptCursorRef.current(index);
-    };
-
-    const place = (): void => {
-      owed = false;
-      const rows = readRowBoxes(root, dataSourceRef.current);
-      if (rows.length === 0) {
-        owed = true;
-        return;
-      }
-      adopt();
-      const anchor = cardsListAnchor.getSnapshot();
-      if (anchor === null) return;
-      const row = rows.find((r) => r.id === anchor.rowId) ?? null;
-      // Measured against the list's natural extent, then given the room it
-      // lacks, so the clamp below never moves the row ([F04a]).
-      const natural = {
-        clientHeight: root.clientHeight,
-        scrollHeight: root.scrollHeight - slack,
-      };
-      const room = slackForAnchor(anchor, row, natural);
-      setSlack(room);
-      const top = scrollTopForAnchor(anchor, row, {
-        clientHeight: natural.clientHeight,
-        scrollHeight: natural.scrollHeight + room,
-      });
-      if (top === null) return;
-      // A parked card placed itself as the anchor moved, so the placement
-      // at its show usually finds the scroller already there: writing the
-      // same value again is a second write to a scroller that is not moving.
-      if (Math.abs(root.scrollTop - top) < 0.5) return;
-      root.scrollTop = top;
-      placedTop = root.scrollTop;
-    };
-    const propose = (next: ListAnchor | null): void => {
-      if (next === null || sameAnchor(next, cardsListAnchor.getSnapshot())) return;
-      cardsListAnchor.propose(next);
-    };
-    const reading = (): boolean =>
-      pointerHeld || (view !== null && view.performance.now() < gestureUntil);
-    const noteGesture = (): void => {
-      if (view !== null) gestureUntil = view.performance.now() + GESTURE_TAIL_MS;
-    };
-
-    const onScroll = (): void => {
-      // The room collapses as the scroller leaves it, whoever moved it.
-      if (slack > 0) {
-        setSlack(
-          slackAfterScroll(slack, root.scrollTop, root.clientHeight, root.scrollHeight - slack),
-        );
-      }
-      if (placedTop !== null && Math.abs(root.scrollTop - placedTop) < 0.5) {
-        placedTop = null;
-        return;
-      }
-      placedTop = null;
-      if (!shownSource.get() || !reading()) return;
-      touched = true;
-      propose(
-        anchorAfterScroll(
-          readRowBoxes(root, dataSourceRef.current),
-          root.scrollTop,
-          root.clientHeight,
-          cardsListAnchor.getSnapshot(),
-        ),
-      );
-    };
-    const onPointerDown = (event: PointerEvent): void => {
-      if (!shownSource.get() || !(event.target instanceof Element)) return;
-      pointerHeld = true;
-      const cell = event.target.closest<HTMLElement>(
-        ".cards-list .tug-list-view-cell[data-tug-list-cell-index]",
-      );
-      if (cell === null) return;
-      const index = Number(cell.getAttribute("data-tug-list-cell-index"));
-      const rowId = dataSourceRef.current.idForIndex(index);
-      const row = readRowBoxes(root, dataSourceRef.current).find(
-        (r) => r.id === rowId,
-      );
-      if (row === undefined) return;
-      touched = true;
-      propose(anchorForRow(row, root.scrollTop));
-      // The clicked row is the deck's cursor as well as its anchor ([B02]).
-      if (rowId !== cardsListCursor.getSnapshot()) cardsListCursor.propose(rowId);
-    };
-    const onPointerUp = (): void => {
-      if (!pointerHeld) return;
-      pointerHeld = false;
-      noteGesture();
-    };
-    const onKeyDown = (): void => {
-      if (!shownSource.get()) return;
-      touched = true;
-      noteGesture();
-    };
-
-    place();
-    let wasShown = shownSource.get();
-    const releaseShown = shownSource.subscribe(() => {
-      const shown = shownSource.get();
-      if (shown !== wasShown) {
-        // A card arriving or going has had no gesture since it last showed.
-        pointerHeld = false;
-        gestureUntil = 0;
-      }
-      if (shown && !wasShown) place();
-      // A card put away is placed afresh when it next shows, and follows the
-      // anchor until the reader touches it there.
-      if (!shown && wasShown) touched = false;
-      wasShown = shown;
-    });
-    const releaseAnchor = cardsListAnchor.subscribe(() => {
-      // Every card the reader has not touched follows the anchor's arrival,
-      // a parked one included: placed only when it comes on screen, it would
-      // show its old position first and jump.
-      if (!touched) place();
-    });
-    const releaseCursor = cardsListCursor.subscribe(() => {
-      // The card the reader is in is where the cursor came from, and an echo
-      // arriving behind a second arrow would set it back a row. A parked card
-      // adopts it too, so it shows the cursor where it is from its first frame.
-      if (!touched) adopt();
-    });
-    const content = root.querySelector<HTMLElement>(".cards-card-content");
-    const rowsArrived = new ResizeObserver(() => {
-      if (owed && !touched) place();
-    });
-    if (content !== null) rowsArrived.observe(content);
-    root.addEventListener("scroll", onScroll, { passive: true });
-    root.addEventListener("pointerdown", onPointerDown, { capture: true });
-    root.addEventListener("wheel", noteGesture, { passive: true });
-    root.addEventListener("touchmove", noteGesture, { passive: true });
-    root.addEventListener("keydown", onKeyDown, { capture: true });
-    view?.addEventListener("pointerup", onPointerUp, { capture: true });
-    view?.addEventListener("pointercancel", onPointerUp, { capture: true });
-    return () => {
-      releaseShown();
-      releaseAnchor();
-      releaseCursor();
-      rowsArrived.disconnect();
-      root.removeEventListener("scroll", onScroll);
-      root.removeEventListener("pointerdown", onPointerDown, { capture: true });
-      root.removeEventListener("wheel", noteGesture);
-      root.removeEventListener("touchmove", noteGesture);
-      root.removeEventListener("keydown", onKeyDown, { capture: true });
-      view?.removeEventListener("pointerup", onPointerUp, { capture: true });
-      view?.removeEventListener("pointercancel", onPointerUp, { capture: true });
-    };
-  }, [rootRef, slackRef, shownSource]);
-}
-
 export interface CardsContentProps {
   /** The Cards card's id. */
   cardId: string;
@@ -1808,32 +1529,19 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
 
   /** The row the list last said its cursor stands on. */
   const cursorRowRef = useRef<string | null>(null);
-  const shownSource = useSpaceLayerShownSource();
   // Publish where the keyboard is standing, so a slot or width chord typed with
   // the caret on a row and nothing selected acts on THAT row
   // (`resolveLayoutSelection`'s second rung). The list hands back `null` the
   // moment it stops holding the keyboard, and a header maps to no card, so the
   // published answer is only ever a card the user is actually pointed at.
-  //
-  // The same row is the deck's one cursor (`cards.listCursor`, [B02]) when it
-  // moves in the card on screen, so every other workspace's card stands its
-  // cursor there too. A `null` is this list letting go of the keyboard, not
-  // the cursor leaving the row, so it is not proposed.
   const publishCursor = useCallback(
     (rowId: string | null): void => {
       cursorRowRef.current = rowId;
       setLayoutCursorCard(
         rowId === null ? null : (cardIdByRowId.get(rowId) ?? null),
       );
-      if (
-        rowId !== null &&
-        shownSource.get() &&
-        rowId !== cardsListCursor.getSnapshot()
-      ) {
-        cardsListCursor.propose(rowId);
-      }
     },
-    [cardIdByRowId, shownSource],
+    [cardIdByRowId],
   );
   // The list reports its cursor only when the cursor moves, and the map under
   // it can move on its own — rows arriving, a card closing — so the published
@@ -1901,19 +1609,6 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     [responderRef],
   );
 
-  // The room below the list a placement in a taller card stands ([F04a]): a
-  // sibling of the content element rather than its padding, so the content's
-  // border-box height — what the rail measures — is still the list's own.
-  const slackRef = useRef<HTMLDivElement | null>(null);
-  // The deck's cursor, adopted with no reveal: the placement has already put
-  // the scroller where it belongs ([B03]). It takes the list's own selection
-  // with it, which is the fill a click leaves: a card parked holding the row
-  // it was left by would otherwise paint that row when it next shows ([B02]).
-  const adoptCursor = useCallback((index: number): void => {
-    listRef.current?.moveCursorTo(index, { reveal: false, select: true });
-  }, []);
-  useSharedListAnchor(cardRootRef, slackRef, dataSource, adoptCursor);
-
   return (
     <ResponderScope>
     <div
@@ -1972,6 +1667,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
               dataSource={dataSource}
               delegate={delegate}
               cellRenderers={CARDS_CELL_RENDERERS}
+              scrollKey="cards-card"
               inline
               rowLayout="flush"
               focusGroup={hasContent ? CARDS_FOCUS_GROUP : undefined}
@@ -1987,7 +1683,6 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
         </div>
       )}
       </div>
-      <div className="cards-list-slack" ref={slackRef} aria-hidden="true" />
       {/* The card's one confirm, anchored to whichever workspace header armed
           it. `confirm={{ role: "danger" }}` puts default focus on Cancel, so a
           reflexive Return can never take a workspace and its sessions.

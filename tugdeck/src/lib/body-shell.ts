@@ -114,8 +114,7 @@ import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore, pageless } from "./body-cards-store";
 import { installMakeAhead } from "./body-make-ahead";
-import { onSpaceWillSwitch } from "./space-switch-signal";
-import { switchHoldToHost } from "../host/declarations/geometry";
+import { spaceCutToHost } from "../host/declarations/geometry";
 import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
@@ -129,7 +128,6 @@ import {
   cardPlanCancelled,
   cardPlanLanded,
   cardPlacementDiag,
-  noteSwitchStarting,
   shownFactsOf,
   wantsBodyShown,
 } from "./card-placement";
@@ -297,7 +295,6 @@ import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
 import { flashCardPane, setPaneFlashRelay } from "./flash-pane-border";
 import { shareLayoutSelection } from "./cards-selection-store";
-import { shareCardsListAnchor } from "./cards-list-anchor";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
 import { closeGuardWalk } from "./close-guard-walk";
@@ -1263,9 +1260,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     bodyStandInStore.attach(),
     // The layout selection is the shell's, and the Cards list proposes to it.
     shareLayoutSelection(bus),
-    // Where the reader is in the Workspaces list is the shell's, so it
-    // outlives any one card; the card the reader is in proposes it.
-    shareCardsListAnchor(bus),
     // A body card's binding is the shell's, and its body proposes each change.
     shareCardBinding(bus),
     // The arc transport presses are the shell's, where their answers arrive:
@@ -1860,29 +1854,21 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   });
   releases.push(makeAhead.release);
 
-  // ---- A switch onto painted pages is held as one picture ----
+  // ---- A switch is the host's cut ----
 
-  // The host holds the window's picture from before the shell renders the
-  // switched frame until the arriving workspace is on, so the switch shows
-  // the departed workspace and then the arriving one, never the shell's new
-  // chrome over the old pages or an empty pane between. It names every card
-  // of the arriving deck, so the host can hide everything else at the lift.
-  // A switch onto no painted page is not held: the host hands its departing
-  // views over to the arriving cards' faces, and those faces and the
-  // stand-ins beneath them are already the one picture. Lifted at the
-  // shell's frame, a hold over them showed the evicted cards' panes bare.
-  // The latch runs on every switch, and make-ahead asks for no page until
-  // the switch has settled.
-  releases.push(
-    onSpaceWillSwitch((spaceId, incoming) => {
-      makeAhead.pauseForSwitch(spaceId);
-      noteSwitchStarting(incoming.panes.map((p) => p.activeCardId).filter((id): id is string => typeof id === "string"));
-      const ontoPainted = incoming.panes.some(
-        (p) => typeof p.activeCardId === "string" && bodyCardsStore.stateOf(p.activeCardId) === "painted",
-      );
-      if (ontoPainted) postToHost(switchHoldToHost, { cardIds: incoming.cards.map((c) => c.id) });
-    }),
-  );
+  // The host shows a workspace by cutting its stages, which hold every
+  // workspace's cards already placed and pictured ([P06]). A switch made
+  // here says so in the task before the deck swaps, so the cut reaches the
+  // host ahead of the shell's switched frame; a switch the host made and
+  // told the shell carries its serial back, and moves nothing there. And
+  // make-ahead asks for no page until the switch has settled.
+  deck.onSpaceCut = (spaceId, hostCut) => {
+    makeAhead.pauseForSwitch(spaceId);
+    postToHost(spaceCutToHost, hostCut === undefined ? { spaceId } : { spaceId, cut: hostCut });
+  };
+  releases.push(() => {
+    deck.onSpaceCut = null;
+  });
 
   // A failed card's Reload, from its placard.
   setBodyReloader(askAgain);

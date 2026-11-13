@@ -13,6 +13,7 @@
 import { INVALID, arr, bool, empty, literal, nullable, num, obj, oneOf, optional, rec, str, type Codec } from "../../bus/codec";
 import { definePageCall, defineToHost, defineToPage, noReply } from "../declare";
 import type { MenuCommandGate, MenuStateBodyPayload, MenuStatePayload } from "../../lib/host-menu-state";
+import type { SkeletonPalette } from "../../lib/skeleton-palette";
 
 export const sourceTreeToHost = defineToHost({
   name: "sourceTree",
@@ -51,13 +52,42 @@ export const getSettingsToHost = defineToHost({
   refused: [true],
 });
 
-export const setThemeToHost = defineToHost<{ color: string; canvas?: string; grid?: string }>({
+/**
+ * A theme's ground and skeleton colours, as `readSkeletonPalette` reads them
+ * (`lib/skeleton-palette.ts`): the host keeps one per theme name and draws a
+ * workspace's ground and its cards' skeletons in it.
+ */
+export const skeletonPaletteCodec: Codec<SkeletonPalette> = obj({
+  theme: str,
+  canvas: str,
+  grid: str,
+  surface: str,
+  band: str,
+  ink: str,
+  border: str,
+});
+
+/** A sample palette, shared by the declarations that carry one. */
+export const SAMPLE_PALETTE: SkeletonPalette = {
+  theme: "ironclad",
+  canvas: "#16181d",
+  grid: "#2a2d34",
+  surface: "#1c1e22",
+  band: "#24272d",
+  ink: "#c8ccd4",
+  border: "#30343c",
+};
+
+export const setThemeToHost = defineToHost<{ color: string; palette?: SkeletonPalette }>({
   name: "setTheme",
   from: "shell",
-  // `canvas` and `grid` are the deck's ground as the shell paints it, for the
-  // host's stand-in ground at a workspace switch's cut.
-  codec: obj({ color: str, canvas: optional(str), grid: optional(str) }),
-  samples: [{ color: "#1c1e22" }, { color: "#1c1e22", canvas: "#16181d", grid: "#2a2d34" }],
+  // `palette` is the on-screen theme's skeleton palette, under its name: the
+  // host draws its grounds and skeletons in it.
+  codec: obj({ color: str, palette: optional(skeletonPaletteCodec) }),
+  samples: [
+    { color: "#1c1e22" },
+    { color: "#1c1e22", palette: SAMPLE_PALETTE },
+  ],
   refused: ["#1c1e22", {}, { color: 0x1c1e22 }],
 });
 

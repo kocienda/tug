@@ -133,6 +133,7 @@ import { bodyVisibilityStore } from "./lib/body-visibility-store";
 import { harnessBodyDelays } from "./bus/declarations/deck";
 import { postToHost } from "./host/channel";
 import { bodyDelaysToHost, type BodyDelays } from "./host/declarations/lifecycle";
+import { holdMakeAhead } from "./lib/body-make-ahead";
 import { getCardCloseGuard } from "./lib/card-close-guard";
 import { getSessionLedgerStore } from "./lib/session-ledger-store";
 import {
@@ -649,8 +650,17 @@ import {
  * workspace's theme chosen as its row's swatch chooses it, so a test can
  * move a parked workspace's theme without opening the Workspaces card.
  * Additive; major stays `2`.
+ *
+ * `2.64.0`: adds {@link TugTestSurface.holdMakeAhead}, on the shell: holds
+ * the make-ahead pass, so a workspace nobody has shown keeps its cards
+ * unmade until its switch asks for them. Additive; major stays `2`.
+ *
+ * `2.65.0`: removes `switchFrameDelay`: a switch is the host's stage cut,
+ * which no shell frame holds back, and the tests that made the shell's
+ * frame late judged the hold the cut replaced. Major stays `2`: no harness
+ * reader of it remains.
  */
-export const SURFACE_VERSION = "2.63.0" as const;
+export const SURFACE_VERSION = "2.65.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1937,12 +1947,12 @@ export interface TugTestSurface {
   }): void;
 
   /**
-   * Make every workspace switch's shell frame late by `ms`, or put it back
-   * with null: the switch busy-waits inside the batch that swaps the deck,
-   * so the shell's render and its placement wait together. Shell only
-   * (SURFACE_VERSION 2.62.0).
+   * Hold the make-ahead pass, or let it go again: while held it hands no
+   * parked card off and asks for no page, so a workspace nobody has shown
+   * keeps its cards unmade until its switch asks for them. Shell only
+   * (SURFACE_VERSION 2.64.0).
    */
-  switchFrameDelay(ms: number | null): void;
+  holdMakeAhead(on: boolean): void;
 
   /**
    * Choose `spaceId`'s theme as its row's swatch in the Workspaces card does
@@ -3801,8 +3811,8 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return getCardCloseGuard(cardId)?.needsDecision() ?? null;
     },
 
-    switchFrameDelay(ms: number | null): void {
-      deck.switchFrameDelayMs = ms;
+    holdMakeAhead(on: boolean): void {
+      holdMakeAhead(on);
     },
 
     chooseSpaceTheme(spaceId: string, theme: string): void {

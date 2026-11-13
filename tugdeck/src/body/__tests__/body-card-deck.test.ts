@@ -548,13 +548,20 @@ const DECK_VIEW_EVIDENCE: {
     expect(v.getSpaceDeck("nowhere")).toBeNull();
   },
   activateSpace: async (v, { shellHeard, flush }) => {
-    v.activateSpace("s1");
-    await flush();
-    expect(shellHeard).toEqual([["deck.activateSpace", { spaceId: "s1" }]]);
-  },
-  mountSpaceAhead: (v) => {
-    // Only the shell's deck manager holds the mounted set; a page has none.
-    expect(v.mountSpaceAhead).toBeUndefined();
+    // A page's switch is the host's stage cut, posted to the host, which
+    // tells the shell to follow: nothing goes to the shell from here.
+    const g = globalThis as { webkit?: unknown };
+    const before = g.webkit;
+    const posted: unknown[] = [];
+    g.webkit = { messageHandlers: { spaceCut: { postMessage: (body: string) => posted.push(JSON.parse(body)) } } };
+    try {
+      v.activateSpace("s1");
+      await flush();
+    } finally {
+      g.webkit = before;
+    }
+    expect(posted).toEqual([{ spaceId: "s1" }]);
+    expect(shellHeard).toEqual([]);
   },
   beginPendingSpace: (v) => {
     // Only the shell's deck manager holds a pending workspace; a page has none.

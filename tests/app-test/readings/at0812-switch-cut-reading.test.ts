@@ -2,24 +2,24 @@
  * at0812-switch-cut-reading.test.ts — what each switch between made-ahead
  * workspaces waits on, on a deck shaped like the user's.
  *
- * Five workspaces, each standing its own five rail cards beside its content,
- * 38 cards in all (`_workspace-deck.ts`); the content is Text and unbound
- * Session cards, so nothing spawns. After launch the reading waits until
- * every parked workspace's pages are made ahead, then switches 20 times,
- * cycling the five, with a rest between, under the host's layer sampler and
- * the deck trace. Per switch it notes the host's switch-hold record — how
- * long the picture stood, how it ended, the capture's cost, when the
- * placement and the shell's snapshot answer arrived, whether a hand-over was
- * pending, and each waited page's shown → confirmed time — beside the
- * trace's `space-switch-timing` record (the swap's commit, the session
- * restore, the switch's whole task, and the paint after it), and how many
- * layer rows show a departing card's page un-held after the cut.
+ * Five workspaces under the window's one rail of five cards
+ * (`_workspace-deck.ts`); the content is Text and unbound Session cards, so
+ * nothing spawns. After launch the reading waits until every parked
+ * workspace's pages are made ahead, then switches 20 times, cycling the
+ * five, with a rest between, under the host's layer sampler and the deck
+ * trace. Per switch it notes the host's cut as `stages()` records it — the
+ * door it came through, the gesture to its committed transaction, and the
+ * picture each arriving card stood as at the cut — beside the trace's
+ * `space-switch-timing` record (the swap's commit, the session restore, the
+ * switch's whole task, and the paint after it), and how many layer rows show
+ * a departing content card's page after the cut committed.
  *
  * Three of the switches are also recorded frame by frame
  * (`AT0812_FRAMES_DIR`, else the temp directory), and every frame from the
- * gesture to 400 ms past the held picture's lift is read, per rail and Text
- * card content box of both workspaces (a Session card's picker fills in
- * live), against the frame before the gesture and the switch's settled
+ * gesture to 400 ms past the cut's commit is read, per Text card content
+ * box of both workspaces (a Session card's picker fills in live, and the
+ * rail is the window's, whose Layout and Cards cards follow the arriving
+ * workspace after the cut by design), against the frame before the gesture and the switch's settled
  * frame: a box unlike both, unless its card stands under its own last frame
  * (the host's park cover, which an arriving page that has not confirmed
  * wears), or a frame with some boxes still the departed workspace's and
@@ -32,7 +32,7 @@
  * 20 switches ran, that no recorded frame is mixed, and that make-ahead
  * asked for nothing through a switch.
  *
- * @covers tugapp/Sources/BodyFaceHandOver.swift
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-make-ahead.ts
  * @covers tugdeck/src/lib/cards-selection-store.ts
@@ -45,7 +45,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
-import type { BodyLayerRow, BodyLayersReading, CaptureBurstReading, SwitchHoldRecord } from "../_harness/client";
+import type { BodyLayerRow, BodyLayersReading, CaptureBurstReading, StageCutRecord } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { bodyOf, pollFor, settleFor } from "../body-grounding/_bodies";
@@ -58,7 +58,7 @@ const TEST_TIMEOUT_MS = 300_000;
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 const SWITCHES = 20;
 const REST_MS = 1_500;
-/** How long each switch's layer rows are sampled: inside the rest, past the 300 ms horizon. */
+/** How long each switch's layer rows are sampled: inside the rest. */
 const LAYERS_MS = 800;
 /** How long the parked workspaces have to be made ahead after home has painted. */
 const AHEAD_MS = 90_000;
@@ -67,8 +67,8 @@ const BURST_AT = new Set([5, 11, 17]);
 /** A recorded switch's frames: every 33 ms over 1.2 s, inside the rest. */
 const FRAMES_MS = 1_200;
 const FRAMES_INTERVAL_MS = 33;
-/** How long past the lift a recorded switch's frames are read. */
-const MIXED_AFTER_LIFT_MS = 400;
+/** How long past the cut's commit a recorded switch's frames are read. */
+const MIXED_AFTER_CUT_MS = 400;
 /** How much of a content box may differ from a reference frame and still be that frame. */
 const SAME_SHARE = 0.002;
 
@@ -83,6 +83,8 @@ const SPACES: Space[] = [
 
 /** The cards a workspace's pages are made ahead for: every card but its Session cards, which a reading need not wait on. */
 const aheadOf = (s: Space): string[] => [...s.rail, ...s.content.filter((c) => c.kind === "text").map((c) => c.id)];
+/** A workspace's own Text cards: the boxes a recorded frame is read by, since the rail belongs to no workspace. */
+const framedOf = (s: Space): string[] => s.content.filter((c) => c.kind === "text").map((c) => c.id);
 
 const TRACE_READ = (mark: number): string =>
   `JSON.stringify(window.__deckTrace.since(${mark}).filter(function (e) { return e.kind === "space-switch-timing"; }))`;
@@ -99,9 +101,10 @@ interface SwitchReading {
   index: number;
   from: string;
   to: string;
-  hold: SwitchHoldRecord | null;
+  /** The host's cut onto `to`, or null when none was recorded. */
+  cut: StageCutRecord | null;
   trace: SwitchTiming | null;
-  /** Layer rows after the cut, outside the held picture, that show a departing card's page. */
+  /** Layer rows after the cut committed that show a departing content card's page. */
   departedShown: number;
 }
 
@@ -236,18 +239,15 @@ interface AheadPause {
   asked: number;
 }
 
-/** The guards a hold had not passed when it ended. */
-function unpassed(h: SwitchHoldRecord): string {
-  const out: string[] = [];
-  if (h.shellMs === null || h.shellMs === undefined) out.push("shell");
-  if (h.handoverPending === true) out.push("handover");
-  if (Object.values(h.pages ?? {}).some((v) => v === null)) out.push("pages");
-  return out.length === 0 ? "none" : out.join(",");
+/** How many of a cut's arriving cards stood as each picture. */
+function picturesOf(c: StageCutRecord): string {
+  const all = Object.values(c.pictures);
+  return (["live", "lastFrame", "skeleton"] as const).map((k) => `${k} ${all.filter((p) => p === k).length}`).join(", ");
 }
 
 describe.skipIf(!SHOULD_RUN)("at0812 — what a switch between made-ahead workspaces waits on", () => {
   test(
-    "20 switches on a user-shaped deck, each switch's hold and timing noted",
+    "20 switches on a user-shaped deck, each switch's cut and timing noted",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
@@ -265,20 +265,21 @@ describe.skipIf(!SHOULD_RUN)("at0812 — what a switch between made-ahead worksp
         const homePainted = await made(app, aheadOf(HOME), true, 60_000);
         note(`home: ${homePainted}/${aheadOf(HOME).length} pages painted`);
         const aheadStart = Date.now();
-        const parked = SPACES.slice(1).flatMap(aheadOf);
+        const parked = SPACES.slice(1).flatMap(framedOf);
         const aheadCount = await made(app, parked, false, AHEAD_MS);
         note(`made ahead: ${aheadCount}/${parked.length} parked pages ready and painted in ${Math.round((Date.now() - aheadStart) / 1000)} s`);
 
         const mark = await app.evalJS<number>("(window.__deckTrace.enable(true), window.__deckTrace.mark())");
         const readings: SwitchReading[] = [];
         const framesRoot = process.env.AT0812_FRAMES_DIR ?? join(tmpdir(), "at0812-switch-frames");
-        const recorded: { index: number; to: string; dir: string; letters: string; mixed: string[]; cutAt: number; liftAt: number | null }[] = [];
+        const recorded: { index: number; to: string; dir: string; letters: string; mixed: string[]; gestureAt: number; committedAt: number | null }[] = [];
         const cuts: number[] = [];
         let current = HOME.id;
         for (let i = 0; i < SWITCHES; i++) {
           const to = SPACES[(i + 1) % SPACES.length];
           const from = SPACES.find((s) => s.id === current) as Space;
-          const departing = new Set(cardsOf(from));
+          // The rail is the window's and stays: only the content departs.
+          const departing = new Set(from.content.map((c) => c.id));
           const burst = BURST_AT.has(i);
           const framesDir = join(framesRoot, `switch-${i + 1}`);
           let departedBoxes: [string, Rect][] = [];
@@ -287,7 +288,7 @@ describe.skipIf(!SHOULD_RUN)("at0812 — what a switch between made-ahead worksp
           if (burst) {
             mkdirSync(framesDir, { recursive: true });
             scale = await app.evalJS<number>("window.devicePixelRatio");
-            departedBoxes = await boxesOf(app, aheadOf(from), scale);
+            departedBoxes = await boxesOf(app, framedOf(from), scale);
             departedSessions = await panesOf(app, sessionsOf(from), scale);
             const width = await app.evalJS<number>("window.innerWidth");
             const height = await app.evalJS<number>("window.innerHeight");
@@ -300,28 +301,21 @@ describe.skipIf(!SHOULD_RUN)("at0812 — what a switch between made-ahead worksp
           await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(to.id)} }), null)`);
           await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id === to.id, 5_000);
           await Bun.sleep(REST_MS);
-          const holds = (await app.handOvers()).switchHolds ?? [];
-          const hold = holds.filter((h) => h.fromWall >= cut - 50 && h.toWall !== null).at(-1) ?? null;
+          const record = (await app.stages()).cuts.filter((c) => c.to === to.id && c.gestureWall >= cut - 50).at(-1) ?? null;
+          const committed = record?.committedWall ?? cut;
           const layers = (await settleFor(
             () => app.bodyLayers({ op: "read" }) as Promise<BodyLayersReading>,
             (x) => x.done,
             LAYERS_MS + 5_000,
           )) as BodyLayersReading;
+          // A departing page on screen once the cut has committed is a fault;
+          // before it, the departed workspace is still the one shown.
           const departedShown = layers.rows.filter(
-            (row: BodyLayerRow) => departing.has(row.cardId) && row.wall >= cut && !row.held && !row.hidden && row.opacity > 0,
+            (row: BodyLayerRow) => departing.has(row.cardId) && row.wall > committed && !row.hidden && row.opacity > 0,
           ).length;
-          // Where they fall: before the held picture went up (the departed
-          // workspace still shown, correctly), or after its lift (a fault).
-          const departedWalls = layers.rows
-            .filter((row: BodyLayerRow) => departing.has(row.cardId) && row.wall >= cut && !row.held && !row.hidden && row.opacity > 0)
-            .map((row: BodyLayerRow) => row.wall);
-          const departedWhere =
-            departedWalls.length === 0 || hold === null
-              ? ""
-              : ` (${departedWalls.filter((w) => w < hold.fromWall).length} before the hold, ${departedWalls.filter((w) => hold.toWall !== null && w > hold.toWall).length} after its lift; first ${Math.round(Math.min(...departedWalls) - hold.fromWall)} ms from the hold)`;
           const traces = JSON.parse(await app.evalJS<string>(TRACE_READ(mark))) as SwitchTiming[];
           const trace = traces.filter((t) => t.toSpaceId === to.id).at(-1) ?? null;
-          readings.push({ index: i + 1, from: current, to: to.id, hold, trace, departedShown });
+          readings.push({ index: i + 1, from: current, to: to.id, cut: record, trace, departedShown });
           if (burst) {
             const frames = (await settleFor(
               () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
@@ -330,32 +324,27 @@ describe.skipIf(!SHOULD_RUN)("at0812 — what a switch between made-ahead worksp
             )) as CaptureBurstReading;
             // A departing and an arriving card in the same pane are one region, read once and named for both.
             const boxes: [string, Rect][] = [];
-            for (const [id, box] of [...departedBoxes, ...(await boxesOf(app, aheadOf(to), frames.scale || scale))]) {
+            for (const [id, box] of [...departedBoxes, ...(await boxesOf(app, framedOf(to), frames.scale || scale))]) {
               const same = boxes.findIndex(([, b]) => Math.abs(b.x - box.x) < 4 && Math.abs(b.y - box.y) < 4 && Math.abs(b.width - box.width) < 4 && Math.abs(b.height - box.height) < 4);
               if (same < 0) boxes.push([id, box]);
               else boxes[same] = [`${boxes[same][0]}+${id}`, boxes[same][1]];
             }
             const masks = [...departedSessions, ...(await panesOf(app, sessionsOf(to), frames.scale || scale))];
-            const start = hold?.fromWall ?? cut;
-            const read = readFrames(frames, cut, (hold?.toWall ?? start) + MIXED_AFTER_LIFT_MS, boxes, masks, layers.rows);
+            const read = readFrames(frames, cut, committed + MIXED_AFTER_CUT_MS, boxes, masks, layers.rows);
             const at = (wall: number): number => frames.frames.findIndex((f) => f.wall >= wall);
-            recorded.push({ index: i + 1, to: to.id, dir: framesDir, letters: read.letters, mixed: read.mixed, cutAt: at(cut), liftAt: hold?.toWall == null ? null : at(hold.toWall) });
+            recorded.push({ index: i + 1, to: to.id, dir: framesDir, letters: read.letters, mixed: read.mixed, gestureAt: at(cut), committedAt: record === null ? null : at(committed) });
             note(
-              `switch ${i + 1} frames (${frames.frames.length} in ${framesDir}, gesture at frame ${at(cut)}, lift at frame ${hold?.toWall == null ? "none" : at(hold.toWall)}): ` +
+              `switch ${i + 1} frames (${frames.frames.length} in ${framesDir}, gesture at frame ${at(cut)}, cut committed at frame ${record === null ? "none" : at(committed)}): ` +
                 `${read.letters}; ${read.lastFrames} boxes under their last frame${read.mixed.length > 0 ? ` — mixed: ${read.mixed.join("; ")}` : ""}`,
             );
           }
-          const h = hold;
           note(
             `switch ${i + 1} → ${to.id}: ` +
-              (h === null
-                ? "no hold"
-                : `held ${r(h.heldMs)} ${h.outcome} stale ${h.stale ?? "?"} picture ${r(h.pictureMs)} placement ${r(h.placementMs)} shell ${r(h.shellMs)} ` +
-                  `handover ${h.handoverPending === true ? "yes" : "no"} unpassed ${unpassed(h)} pages ${Object.entries(h.pages ?? {})
-                    .map(([id, v]) => `${id.replace("r812-", "")}:${v === null ? "never" : Math.round(v)}`)
-                    .join(",") || "none"}`) +
+              (record === null
+                ? "no cut recorded"
+                : `cut by ${record.door}, committed ${r(record.committedWall - record.gestureWall)} ms after the gesture; ${picturesOf(record)}`) +
               ` | trace ${trace === null ? "none" : `commit ${r(trace.commitMs)} restore ${r(trace.restoreMs)} total ${r(trace.totalMs)} paint ${r(trace.paintMs)}`}` +
-              ` | departed shown ${departedShown} rows${departedWhere}`,
+              ` | departed shown ${departedShown} rows after the cut`,
           );
           current = to.id;
         }
@@ -370,23 +359,19 @@ describe.skipIf(!SHOULD_RUN)("at0812 — what a switch between made-ahead worksp
           for (const part of read?.parts ?? []) staleParts[part] = (staleParts[part] ?? 0) + 1;
         }
         note(`stale parts, pages naming each: ${Object.entries(staleParts).map(([k, n]) => `${k} ${n}`).join("; ") || "none"}`);
-        const holds = readings.map((x) => x.hold).filter((h): h is SwitchHoldRecord => h !== null);
-        const nums = (f: (h: SwitchHoldRecord) => number | null | undefined): number[] =>
-          holds.map(f).filter((v): v is number => typeof v === "number");
+        const cutRecords = readings.map((x) => x.cut).filter((c): c is StageCutRecord => c !== null);
+        const pictureCount = (kind: string): number[] => cutRecords.map((c) => Object.values(c.pictures).filter((p) => p === kind).length);
         const traces = readings.map((x) => x.trace).filter((t): t is SwitchTiming => t !== null);
-        const deadlines = holds.filter((h) => h.outcome === "horizon");
-        note(`holds: ${holds.length}/${SWITCHES}; horizon ${deadlines.length}; over the bar ${holds.filter((h) => (h.heldMs ?? 0) > (h.barMs ?? Infinity)).length}; stale ${stats(nums((h) => h.stale))}; landed ${holds.filter((h) => h.outcome === "landed").length}`);
-        note(`held_ms ${stats(nums((h) => h.heldMs))}; picture_ms ${stats(nums((h) => h.pictureMs))}; placement_ms ${stats(nums((h) => h.placementMs))}; shell_ms ${stats(nums((h) => h.shellMs))}`);
-        note(`page confirm ms ${stats(holds.flatMap((h) => Object.values(h.pages ?? {}).filter((v): v is number => v !== null)))}`);
-        note(`covered at the lift ${stats(nums((h) => h.covered))}, ${holds.reduce((n, h) => n + (h.covered ?? 0), 0)} last frames stood in all`);
+        note(`cuts: ${cutRecords.length}/${SWITCHES} recorded; doors ${["menu", "page", "shell"].map((d) => `${d} ${cutRecords.filter((c) => c.door === d).length}`).join(", ")}`);
+        note(`cut committed ms ${stats(cutRecords.map((c) => c.committedWall - c.gestureWall))}`);
+        note(`pictures at the cut: live ${stats(pictureCount("live"))}; lastFrame ${stats(pictureCount("lastFrame"))}; skeleton ${stats(pictureCount("skeleton"))}`);
         // The parked account against its budget: what a last frame for every page of this deck costs.
-        const parkCovers = (await app.handOvers()).parkCovers;
-        const perCover = Object.values(parkCovers?.cards ?? {}).map((c) => c.bytes);
+        const parkCovers = (await app.stages()).parkCovers;
+        const perCover = Object.values(parkCovers.cards).map((c) => c.bytes);
         const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(1)} MB`;
-        note(`park covers: ${perCover.length} kept of ${SPACES.flatMap(cardsOf).length} pages; per cover ${perCover.length === 0 ? "none" : `median ${mb([...perCover].sort((a, b) => a - b)[Math.floor(perCover.length / 2)])}, max ${mb(Math.max(...perCover))}`}; total ${mb(parkCovers?.bytes ?? 0)} against a ${mb(parkCovers?.budgetBytes ?? 0)} budget`);
+        note(`park covers: ${perCover.length} kept of ${SPACES.flatMap(cardsOf).length} pages; per cover ${perCover.length === 0 ? "none" : `median ${mb([...perCover].sort((a, b) => a - b)[Math.floor(perCover.length / 2)])}, max ${mb(Math.max(...perCover))}`}; total ${mb(parkCovers.bytes)} against a ${mb(parkCovers.budgetBytes)} budget`);
         note(`trace commit ${stats(traces.map((t) => t.commitMs))}; restore ${stats(traces.map((t) => t.restoreMs))}; total ${stats(traces.map((t) => t.totalMs))}; paint ${stats(traces.map((t) => t.paintMs))}`);
-        note(`horizon switches, guards unpassed: ${deadlines.map((h) => `#${h.serial} ${unpassed(h)}`).join("; ") || "none"}`);
-        note(`switches showing a departed page un-held: ${readings.filter((x) => x.departedShown > 0).length}`);
+        note(`switches showing a departed page after the cut: ${readings.filter((x) => x.departedShown > 0).length}`);
         // Make-ahead through the switches: each paused it, and it asked for nothing while paused.
         const pauses = (await app.evalJS<AheadPause[] | null>("window.__tugMakeAhead ? window.__tugMakeAhead.pauses : null")) ?? [];
         const unpaused = cuts.filter((cut) => !pauses.some((p) => p.pausedAt >= cut - 50 && p.pausedAt <= cut + 1_000)).length;

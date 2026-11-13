@@ -752,10 +752,16 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// The View › Zoom factor the deck is drawn at — stored state, applied by
     /// the deck to its own root. Never `webView.pageZoom`.
     private var zoomFactor: CGFloat = MainWindow.defaultPageZoom
-    /// The deck's ground as the shell last said it paints (`setTheme`), and
-    /// the ground standing now for a switch whose shell frame is late.
-    private var switchGroundColors: (canvas: NSColor, grid: NSColor)?
-    private var switchGround: BodySwitchGround?
+    /// The palettes the host knows, by theme name: the shell's on-screen
+    /// theme's from `setTheme`, each body page's own from `bodySurface`.
+    let palettes: ThemePalettes = {
+        let palettes = ThemePalettes()
+        palettes.onMissing = { theme in TugLog.info("bodies", "stage palette missing", [TugLog.field("theme", theme)]) }
+        return palettes
+    }()
+    /// The deck's ground: beneath the shell's page, above the splash, held
+    /// at opacity 0 until the shell is revealed.
+    private(set) var stageGrounds: StageGroundHostView!
 
     /// The last factor other than 100 % the user chose, or nil if they never
     /// have. Toggle Actual Size (⌥⌘0) goes there from 100 %.
@@ -956,9 +962,18 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         ])
 
         wave.startAnimating()
-        containerView.addSubview(splashView, positioned: .below, relativeTo: webView)
-        // The cards stand over the shell, which paints the deck's canvas and
-        // grid beneath them; the overlay, made later, stands over both.
+        // The deck's ground stands beneath the shell's page, which paints no
+        // canvas of its own, and above the splash; it fades in with the
+        // shell at the reveal.
+        let grounds = StageGroundHostView(frame: containerView.bounds)
+        grounds.autoresizingMask = [.width, .height]
+        grounds.layer?.opacity = 0
+        grounds.setZoom(zoomFactor)
+        containerView.addSubview(grounds, positioned: .below, relativeTo: webView)
+        containerView.addSubview(splashView, positioned: .below, relativeTo: grounds)
+        stageGrounds = grounds
+        // The cards stand over the shell and its ground; the overlay, made
+        // later, stands over both.
         let bodyHost = BodyHostView(frame: containerView.bounds)
         bodyHost.autoresizingMask = [.width, .height]
         containerView.addSubview(bodyHost, positioned: .above, relativeTo: webView)
@@ -1281,6 +1296,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         }
         zoomFactor = clamped
         hostChannel.call(.pageZoomApply(factor: Double(clamped)), in: webView) { _ in
+            // The ground's lattice follows once the deck has painted the
+            // factor, so it moves with the cards standing on it.
+            self.stageGrounds.setZoom(clamped)
             completion?()
         }
         return clamped
@@ -1681,26 +1699,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         devInfoOverlay?.isHidden = false
     }
 
-    /// The shell's page over `rect` (the shell view's points, which are
-    /// viewport points) as the shell's web process next renders it:
-    /// `afterScreenUpdates` makes the answer wait for a rendering update
-    /// that includes every commit made before the call, so the image holds
-    /// what the shell has committed — a switch's stand-ins, in its theme.
-    /// Answers nil on an error or no image. The body controller's hand-over
-    /// retires its faces on this answer; the web view stays private.
-    func snapshotShell(rect: CGRect, completion: @escaping (CGImage?) -> Void) {
-        let configuration = WKSnapshotConfiguration()
-        configuration.rect = rect
-        configuration.afterScreenUpdates = true
-        webView.takeSnapshot(with: configuration) { image, error in
-            if let error {
-                TugLog.warn("bodies", "shell snapshot failed", [TugLog.field("error", error.localizedDescription)])
-            }
-            var proposed = CGRect(origin: .zero, size: image?.size ?? .zero)
-            completion(image?.cgImage(forProposedRect: &proposed, context: nil, hints: nil))
-        }
-    }
-
     /// Capture the window's composite — the shell and every body beneath it —
     /// as one static snapshot over the container, so the user sees a frozen
     /// frame during shutdown instead of disconnect banners, theme flashes, or
@@ -1757,47 +1755,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         ).integral
         guard let cropped = image.cropping(to: crop) else { return nil }
         return NSImage(cgImage: cropped, size: containerView.bounds.size)
-    }
-
-    /// The window's container as it stands now, bodies included, as a view
-    /// above everything in it that answers no point — or nil when the window
-    /// server cannot answer. The caller takes it down.
-    func holdPicture() -> NSView? {
-        guard let composite = containerComposite() else { return nil }
-        let picture = BodyHeldPicture(frame: containerView.bounds)
-        picture.layer?.contents = composite.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        picture.autoresizingMask = [.width, .height]
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        containerView.addSubview(picture, positioned: .above, relativeTo: nil)
-        CATransaction.commit()
-        return picture
-    }
-
-    /// Stand the deck's ground, in the colours the shell last said, over the
-    /// shell's page and beneath every card (`BodySwitchGround`). True when
-    /// one stands on return; false when the shell has said no colours yet.
-    @discardableResult
-    func standSwitchGround() -> Bool {
-        if switchGround != nil { return true }
-        guard let colors = switchGroundColors else { return false }
-        let ground = BodySwitchGround(frame: containerView.bounds, canvas: colors.canvas, grid: colors.grid, zoom: zoomFactor)
-        ground.autoresizingMask = [.width, .height]
-        containerView.addSubview(ground, positioned: .above, relativeTo: webView)
-        switchGround = ground
-        return true
-    }
-
-    /// Take the ground down. True when one stood.
-    @discardableResult
-    func liftSwitchGround() -> Bool {
-        guard let ground = switchGround else { return false }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        ground.removeFromSuperview()
-        CATransaction.commit()
-        switchGround = nil
-        return true
     }
 
     /// Capture the current WebView content as a snapshot overlay so the user
@@ -2205,6 +2162,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         anim.fillMode = .forwards
         webView.layer?.add(anim, forKey: "revealFade")
         webView.layer?.opacity = 1
+        // The deck's ground fades in with the shell it stands beneath.
+        if let grounds = stageGrounds.layer, grounds.opacity == 0 {
+            grounds.add(anim, forKey: "revealFade")
+            grounds.opacity = 1
+        }
         // The cards and the overlay fade in with the shell over the splash
         // rather than covering it before.
         bodies?.shellDidReveal(fade: anim)
@@ -2797,6 +2759,8 @@ extension MainWindow {
             bridgePageZoom()
             revealWebView()
             bridgeDelegate?.bridgeFrontendReady()
+            // A reloaded shell answers no cut it was told before.
+            bodies.shellReloaded()
             // The spare is made a beat after the shell has painted, so the
             // first card the user opens can bind a body already warm.
             bodies.scheduleSpare()
@@ -2830,16 +2794,12 @@ extension MainWindow {
             TugLog.info("launch", "deck lap", fields)
         case .setTheme(let theme):
             bridgeDelegate?.bridgeSetTheme(color: theme.color)
-            // The hexes are sRGB, as the page composites them: said so, the
-            // ground's pixels are the shell's own, not a colour match's.
-            let srgb = { (hex: String?) -> NSColor? in
-                guard let c = hex.flatMap({ NSColor(hexString: $0) }) else { return nil }
-                return NSColor(srgbRed: c.redComponent, green: c.greenComponent, blue: c.blueComponent, alpha: 1)
-            }
-            if let canvas = srgb(theme.canvas), let grid = srgb(theme.grid) {
-                switchGroundColors = (canvas, grid)
-                switchGround?.canvas = canvas
-                switchGround?.grid = grid
+            // The on-screen theme's palette: every stage whose workspace
+            // wears it, or has none known, re-wears its ground and its
+            // skeletons, in sRGB as the page composites it.
+            if let palette = theme.palette {
+                palettes.noteOnScreen(palette)
+                if let bodies { bodies.paletteArrived() } else { stageGrounds.show(palette) }
             }
         case .tooltipDelay(let delay):
             TooltipDelay.apply(milliseconds: delay.delayMs)
@@ -2983,7 +2943,7 @@ extension MainWindow {
         case .painted(let painted):
             // A body's frame has gone to the compositor, its chrome's or its
             // content's: it may be shown. The shell never posts this.
-            if let fromBody { bodies.didPaint(fromBody, content: painted.content) }
+            if let fromBody { bodies.didPaint(fromBody, content: painted.content, theme: painted.theme) }
         case .bodyStale:
             // A hidden body's picture no longer stands for what it would
             // draw: a switch onto it cannot show it as it stands.
@@ -3003,10 +2963,18 @@ extension MainWindow {
         case .placeCards(let placement):
             // The shell's placement of every card's view.
             bodies.placeCards(placement)
-        case .switchHold(let hold):
-            // A switch onto painted pages is starting, before the shell's
-            // switched frame: hold the window's picture over it.
-            bodies.holdSwitch(hold.cardIds)
+        case .spaceCut(let cut):
+            // A workspace switch: a body page's is the host's to make and
+            // tell; the shell's is its own, or its echo of the host's ([P06]).
+            // A page's the host cannot make — before the shell has placed
+            // its workspaces — is the shell's to make, as before the stages.
+            if fromBody != nil {
+                if !bodies.cut(to: cut.spaceId, door: .page) {
+                    bodies.tellShell?("activate-space", ["spaceId": cut.spaceId])
+                }
+            } else {
+                bodies.cut(to: cut.spaceId, door: .shell(serial: cut.cut))
+            }
         case .cardGesture(let begin):
             // A card's page has taken a title-bar or grip press for the host
             // to carry. The shell never posts this.
@@ -3035,7 +3003,7 @@ extension MainWindow {
         case .bodySurface(let surface):
             // A body's page background, for its container to wear behind
             // the web view. The shell never posts this.
-            if let fromBody { bodies.setSurface(fromBody, surface: surface.surface) }
+            if let fromBody { bodies.setSurface(fromBody, surface: surface.surface, palette: surface.palette) }
         }
     }
 }

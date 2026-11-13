@@ -99,6 +99,7 @@ import { askWorkspaceName } from "@/lib/workspace-name-request";
 import { newWorkspaceThroughModal } from "@/lib/new-workspace";
 import { locateSpaceRow, readZoomSource, zoomSourceInWindow } from "@/lib/workspace-name-zoom";
 import { duplicateSpaceName } from "@/spaces";
+import { EMPTY_WINDOW_RAIL, joinRail, lastingRail, splitRail, type WindowRail } from "@/lib/window-rail";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { isBodyKind } from "@/lib/body-handoff";
 import { hostKeepsOverlay } from "@/lib/overlay-shell";
@@ -1568,36 +1569,82 @@ function deriveShownArrangement(
 }
 
 /**
- * A parked deck's arrangement, cached by the record's identity. A parked
- * record is immutable — `parkedDeck` mints one at the switch away and nothing
- * touches it until the workspace returns — so its arrangement is derived once
- * per record per run height, however many times the canvas renders in
- * between.
+ * A parked deck's arrangement, cached by the record's identity and the window
+ * rail's. A parked record is immutable — `parkedDeck` mints one at the switch
+ * away and nothing touches it until the workspace returns — so its
+ * arrangement is derived once per record per rail per run height, however
+ * many times the canvas renders in between.
+ *
+ * A parked deck holds no rail ([B09]), so it is arranged as the deck it will
+ * be once the rail is joined into it: its content stands inset by the window
+ * rail's sides and widths exactly as it will stand when shown. Its layer
+ * renders only its content panes; the rail is drawn once, in its own layer.
  */
 const parkedArrangements = new WeakMap<
   DeckState,
-  { rail: PlaceRuns["rail"]; column: PlaceRuns["column"]; value: LayerArrangement }
+  {
+    windowRail: WindowRail;
+    rail: PlaceRuns["rail"];
+    column: PlaceRuns["column"];
+    value: LayerArrangement;
+  }
 >();
 function arrangementOfParkedDeck(
   deck: DeckState,
+  windowRail: WindowRail,
   placeRuns: PlaceRuns,
 ): LayerArrangement {
   const hit = parkedArrangements.get(deck);
   if (
     hit !== undefined &&
+    hit.windowRail === windowRail &&
     hit.rail === placeRuns.rail &&
     hit.column === placeRuns.column
   ) {
     return hit.value;
   }
-  const value = deriveLayerArrangement(deck, placeRuns);
+  const value = deriveLayerArrangement(joinRail(deck, windowRail), placeRuns);
   parkedArrangements.set(deck, {
+    windowRail,
     rail: placeRuns.rail,
     column: placeRuns.column,
     value,
   });
   return value;
 }
+
+/**
+ * The window rail as the live deck holds it, kept by identity while its
+ * cards, panes and imposition fields are the same objects, so a parked
+ * layer's cached arrangement survives every commit that did not touch the
+ * rail. Session-only fields are left out: a parked layer draws none of them.
+ */
+function useWindowRail(deck: DeckState): WindowRail {
+  const kept = useRef<WindowRail>(EMPTY_WINDOW_RAIL);
+  const next = lastingRail(splitRail(deck).rail);
+  const prev = kept.current;
+  const same =
+    prev.sidebars === next.sidebars &&
+    prev.rails === next.rails &&
+    sameItems(prev.cards, next.cards) &&
+    sameItems(prev.panes, next.panes);
+  if (!same) kept.current = next;
+  return kept.current;
+}
+
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
+/** The rail layer's id on its wrapper, which no workspace id can be. */
+const WINDOW_RAIL_LAYER_ID = "window-rail";
+
+/** The rail layer's shown-ness: the rail is the window's, so always shown. */
+const RAIL_LAYER_SHOWN_SOURCE: SpaceLayerShownSource = {
+  spaceId: null,
+  get: () => true,
+  subscribe: () => () => {},
+};
 
 /**
  * Write the custom properties an arrangement's `calc()` chains resolve
@@ -1845,6 +1892,7 @@ const LayerPanes = memo(function LayerPanes({
   arr,
   store,
   onRevealPane,
+  part,
 }: {
   spaceId: string;
   shown: boolean;
@@ -1852,7 +1900,16 @@ const LayerPanes = memo(function LayerPanes({
   arr: LayerArrangement;
   store: IDeckManagerStore;
   onRevealPane: TugPaneProps["onRevealPane"];
+  /**
+   * Which panes this layer draws: a workspace layer its `content` panes, the
+   * window's rail layer its `rail` panes ([B09]). The rail is drawn once, in
+   * a layer no switch reparents, so its frames and pages stand still across
+   * every cut.
+   */
+  part: "content" | "rail";
 }) {
+  const drawsPane = (paneId: string): boolean =>
+    arr.sidebarPaneIds.has(paneId) === (part === "rail");
   useLayoutEffect(() => {
     if (!deckTrace.isKindEnabled("layer-render")) return;
     deckTrace.record({ kind: "layer-render", spaceId, shown });
@@ -1910,6 +1967,7 @@ const LayerPanes = memo(function LayerPanes({
           active card's componentId is unregistered are skipped with a
           warning. */}
       {arr.sortedStacks.map((stackState) => {
+        if (!drawsPane(stackState.id)) return null;
         const activeCard = arr.cardsById.get(stackState.activeCardId);
         const fallbackCard =
           activeCard ?? arr.cardsById.get(stackState.cardIds[0]);
@@ -2020,7 +2078,7 @@ const LayerPanes = memo(function LayerPanes({
           CardHost; see card-host.tsx. */}
       {deck.cards.map((card) => {
         const hostStackId = arr.hostStackIdByCardId.get(card.id);
-        if (!hostStackId) return null;
+        if (!hostStackId || !drawsPane(hostStackId)) return null;
         const hostStack = deck.panes.find((s) => s.id === hostStackId);
         return (
           <CardHost
@@ -2161,6 +2219,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `placeRuns` is minted per render; its two numbers are the dependency
     [picture, placeRuns.rail, placeRuns.column],
   );
+  // The window's rail as the shown deck holds it, which every parked layer is
+  // arranged against ([B09]).
+  const windowRail = useWindowRail(deckState);
   const {
     sidebarRails,
     flowStrip,
@@ -2770,8 +2831,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // the Workspaces card is not even open, so a handler on that card would
       // make the menu row work only when it happened to be focused ([P11]).
       [TUG_ACTIONS.ACTIVATE_SPACE]: (event: ActionEvent) => {
-        const spaceId = (event.value as { spaceId?: unknown } | undefined)
-          ?.spaceId;
+        const value = event.value as { spaceId?: unknown; cut?: unknown } | undefined;
+        const spaceId = value?.spaceId;
+        // The serial of the host's stage cut this follows, when the host
+        // made the switch and told the shell ([P06]).
+        const cut = typeof value?.cut === "number" ? value.cut : undefined;
         if (typeof spaceId !== "string") {
           console.warn("activate-space: missing or invalid spaceId", event.value);
           return;
@@ -2781,9 +2845,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           .spaces.some((s) => s.id === spaceId);
         if (!known) {
           console.warn(`activate-space: no space with id "${spaceId}"`);
+          // The host's serial is answered all the same.
+          if (cut !== undefined) store.activateSpace(spaceId, cut);
           return;
         }
-        store.activateSpace(spaceId);
+        store.activateSpace(spaceId, cut);
       },
       // The four workspace verbs, answered HERE for the reason `activate-space`
       // above is ([P02]): the Window menu can fire any of them while a Session
@@ -3304,9 +3370,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let seenInitial = false;
+    // The shown deck's re-tune, and every parked one's re-solve beside it,
+    // so each mounted workspace stands where its reveal will.
+    const retune = (): void => {
+      store.retuneSidebarAllocation();
+      store.resolveParkedArrangements?.();
+    };
     const releaseBracket = onHostMessage(windowResizeToPage, ({ phase }) => {
       windowResizingRef.current = phase === "begin";
-      if (phase === "end") store.retuneSidebarAllocation();
+      if (phase === "end") retune();
     });
     const observer = new ResizeObserver(() => {
       if (!seenInitial) {
@@ -3315,12 +3387,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
       if (pageZoomStore.isZooming()) {
         const release = pageZoomStore.hold();
-        store.retuneSidebarAllocation();
+        retune();
         release();
         return;
       }
       if (windowResizingRef.current) return;
-      store.retuneSidebarAllocation();
+      retune();
     });
     observer.observe(el);
     return () => {
@@ -5042,7 +5114,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // switch moves nothing — see `LayerArrangement`.
         const arr = layer.shown
           ? shownArrangement
-          : arrangementOfParkedDeck(layer.deck, placeRuns);
+          : arrangementOfParkedDeck(layer.deck, windowRail, placeRuns);
         return (
           <SpaceLayerWrapper
             key={layer.spaceId}
@@ -5065,11 +5137,35 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               arr={arr}
               store={store}
               onRevealPane={handleRevealPane}
+              part="content"
             />
             </SpaceLayerShownContext.Provider>
           </SpaceLayerWrapper>
         );
       })}
+      {/* The window's rail ([B09]): drawn once, from the shown deck the rail
+          is joined into, in a layer that is always shown and that no switch
+          reparents — so a rail card's frame and page stand still across every
+          cut, and the host places its view outside every stage. */}
+      <SpaceLayerWrapper
+        key={WINDOW_RAIL_LAYER_ID}
+        spaceId={WINDOW_RAIL_LAYER_ID}
+        shown
+        arrangement={shownArrangement}
+        columnRun={placeRuns.column}
+      >
+        <SpaceLayerShownContext.Provider value={RAIL_LAYER_SHOWN_SOURCE}>
+          <LayerPanes
+            spaceId={WINDOW_RAIL_LAYER_ID}
+            shown
+            deck={picture}
+            arr={shownArrangement}
+            store={store}
+            onRevealPane={handleRevealPane}
+            part="rail"
+          />
+        </SpaceLayerShownContext.Provider>
+      </SpaceLayerWrapper>
       </RailWidthGestureContext.Provider>
 
       {/* One seam per gap of every split rail: the boundary between two

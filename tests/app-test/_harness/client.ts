@@ -1454,34 +1454,6 @@ export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
   return caller.rpcCall("bodies", {});
 }
 
-/** One hand-over of a departing view to faces the host draws from the arriving cards' stand-ins, as `handOvers` reports it. */
-export interface HandOverRecord {
-  serial: number;
-  /** Cards on screen at the placement that it does not show. */
-  leaving: string[];
-  /** Leaving cards whose view meets a face. */
-  handedOver: string[];
-  /** The cards a face is drawn for. */
-  faces: string[];
-  /** How long the shell's snapshot took to answer, ms; null until it has. */
-  snapshotMs: number | null;
-  outcome: "landed" | "deadline" | "failed" | "superseded" | "pending";
-  /** Each face's title-band ink share, as the snapshot drew it. */
-  faceInk: Record<string, number>;
-}
-
-/** The host's last hand-overs, oldest first, and the faces standing now (surface `1.23.0`). */
-export interface HandOverAccount {
-  handOvers: HandOverRecord[];
-  standing: string[];
-  /** What the host's reveal sets did: one line per open, hold, follow and landing, wall-clock ms first. */
-  revealLog?: string[];
-  /** The host's held pictures over switches onto painted pages, oldest first: a frame inside one shows the departed workspace. */
-  switchHolds?: SwitchHoldRecord[];
-  /** The parked last frames the host keeps, by card, and what they hold together against their budget, pixel bytes. */
-  parkCovers?: ParkCoverAccount;
-}
-
 /** The host's parked account: each hidden page's last frame kept for the switch that shows it before it confirms. */
 export interface ParkCoverAccount {
   cards: Record<string, { bytes: number; takenAt: number }>;
@@ -1490,38 +1462,67 @@ export interface ParkCoverAccount {
   budgetBytes: number;
 }
 
-/** The host's last 16 hand-overs and the faces on screen now. */
-export function handOvers(caller: HarnessCaller): Promise<HandOverAccount> {
-  return caller.rpcCall("handOvers", {});
+/** What a card shows in its stage: its own page, its last frame, or a skeleton the host draws. */
+export type StagePictureKind = "live" | "lastFrame" | "skeleton";
+
+/** One card of a stage, as `stages` reports it. */
+export interface StageCardRecord {
+  cardId: string;
+  /** Null for a sibling, which shows its pane's active card's picture. */
+  picture: StagePictureKind | null;
+  /** Whether its skeleton's progress wave is running now. */
+  wave: boolean;
+  /** The display frames its skeleton stands before the wave runs; null for a skeleton with none, or no skeleton. */
+  waveDelayFrames: number | null;
+  /** When its skeleton last came on screen, and when its wave then began, wall ms; null before either. */
+  onScreenWall: number | null;
+  waveWall: number | null;
+  /** Whether the host shows it now ([P04]). */
+  visible: boolean;
+  /** Whether it would show were its workspace the shown one. */
+  staged: boolean;
+  hasBody: boolean;
 }
 
-/** One held picture over a switch onto painted pages (`BodySwitchHold`). */
-export interface SwitchHoldRecord {
-  serial: number;
-  cards: string[];
-  /** Wall clock, ms, when the picture went up and came down (null while it stands). */
-  fromWall: number;
-  toWall: number | null;
-  heldMs: number | null;
-  outcome: "holding" | "landed" | "horizon";
-  /** What the hold cost and waited on, as its `switch hold` log line says (ms from the hold's start). */
-  pictureMs?: number;
-  placementMs?: number | null;
-  shellMs?: number | null;
-  handoverPending?: boolean | null;
-  /** Per waited card, shown → painted as shown, or null when it had not confirmed by the lift. */
-  pages?: Record<string, number | null>;
-  /** How many arriving pages shown were not current when the hold began. */
-  stale?: number;
-  /** How many of them the lift stood under their last frame. */
-  covered?: number;
-  /** The bar the cut is measured against, ms. */
-  barMs?: number;
+/** One workspace's stage. */
+export interface StageRecord {
+  id: string;
+  theme: string | null;
+  shown: boolean;
+  /** Whether its ground stands (a palette for its theme, or the on-screen one, is known). */
+  grounded: boolean;
+  cards: StageCardRecord[];
 }
 
-/** Whether a frame captured at `wall` was taken under a held picture. */
-export function underHold(holds: readonly SwitchHoldRecord[] | undefined, wall: number): boolean {
-  return (holds ?? []).some((h) => wall >= h.fromWall && (h.toWall === null || wall <= h.toWall));
+/** One cut from one stage to another. */
+export interface StageCutRecord {
+  /** Null for a cut the shell's placement made. */
+  serial: number | null;
+  from: string | null;
+  to: string;
+  door: "menu" | "page" | "shell";
+  /** Wall ms when the cut was entered, and when its transaction committed. */
+  gestureWall: number;
+  committedWall: number;
+  /** Each arriving card's picture at the cut. */
+  pictures: Record<string, StagePictureKind>;
+}
+
+/** The host's stages (surface `2.2.0`; `parkCovers` since `3.0.0`). */
+export interface StagesAccount {
+  active: string | null;
+  stages: StageRecord[];
+  /** The rail's cards, which stand in no stage. */
+  rail: StageCardRecord[];
+  /** The last 16 cuts, oldest first. */
+  cuts: StageCutRecord[];
+  /** The parked last frames the host keeps, by card, and what they hold together against their budget, pixel bytes. */
+  parkCovers: ParkCoverAccount;
+}
+
+/** The host's stages and its last cuts. */
+export function stages(caller: HarnessCaller): Promise<StagesAccount> {
+  return caller.rpcCall("stages", {});
 }
 
 /** One body's host layers at one host frame, as `bodyLayers` samples them. */
@@ -1536,15 +1537,17 @@ export interface BodyLayerRow {
   hidden: boolean;
   /** The container's presented opacity. */
   opacity: number;
-  /** A host face stands for the card. */
-  faced: boolean;
-  /** A switch's held picture stands over the whole window: nothing beneath it is seen. */
-  held?: boolean;
   /** The host shows it: placed visible and showable. */
   shown: boolean;
   start: "warm" | "cold";
   /** The card stands under its own last frame, a park cover (absent on a host that takes none). */
   lastFrame?: boolean;
+  /** The card's picture in its stage ("none" for a sibling or an unplaced card; absent before surface `2.2.0`). */
+  picture?: StagePictureKind | "none";
+  /** The container's rect in the window, `x,y w×h` from the top left. */
+  frame?: string;
+  /** Its skeleton's bounds and pane within it, when a skeleton stands over it. */
+  pane?: string | null;
 }
 
 /** A `bodyLayers` window's rows so far (surface `1.24.0`). */

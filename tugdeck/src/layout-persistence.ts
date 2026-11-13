@@ -16,6 +16,7 @@
 import type { CardStateBag, DeckState } from "./layout-tree";
 import { buildDefaultLayout, serialize, deserialize } from "./serialization";
 import { MAIN_SPACE_NAME, type SpaceRecord, type SpacesState } from "./spaces";
+import { EMPTY_WINDOW_RAIL, joinRail, migrateToWindowRail } from "./lib/window-rail";
 import { putLayout, putCardState } from "./settings-api";
 import { preloadTheme, type ThemeName } from "./contexts/theme-provider";
 
@@ -101,6 +102,11 @@ export function loadBootLayout(input: BootLayoutInput): BootLayout {
     };
   }
 
+  // The rail is the window's ([B09]). A blob written while each workspace
+  // kept its own is brought onto one here: the active workspace's rail is
+  // kept, and every other copy is dropped, its cards' state with it.
+  if (loaded.rail === undefined) loaded = migrateToWindowRail(loaded);
+  const rail = loaded.rail ?? EMPTY_WINDOW_RAIL;
   const activeIndex = Math.max(
     0,
     loaded.spaces.findIndex((s) => s.id === loaded.activeSpaceId),
@@ -123,7 +129,7 @@ export function loadBootLayout(input: BootLayoutInput): BootLayout {
   return {
     spaces,
     activeSpaceId: spaces[activeIndex].id,
-    deck: filterRegisteredCards(loaded.spaces[activeIndex].deck),
+    deck: filterRegisteredCards(joinRail(loaded.spaces[activeIndex].deck, rail)),
     fresh: false,
   };
 }

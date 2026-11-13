@@ -1,26 +1,19 @@
 /**
  * at0787-skeleton-wave-delay.test.ts — a skeleton shows that it is loading:
- * an arriving card's stand-in wears the deck's progress wave after about two
- * display frames, not before, and keeps it until its page lands; and a body
- * page whose content has not painted wears it on its own lid.
+ * an arriving card's skeleton wears the deck's progress wave after two
+ * display frames on screen, not before, and keeps it until its page lands;
+ * and a body page whose content has not painted wears it on its own lid.
  *
  * Two Text cards on a workspace never shown, both pages made slow by 1.5 s.
- * A recorder in the shell reads every animation frame from before the cut:
- * per card, whether its stand-in wears a visible `TugProgressWave`. The cut
- * is the first frame the away workspace is active. The wave's delay runs
- * from its first rendered frame — a parked workspace's content has no box
- * until its layer shows — and it must be absent for that frame and the next,
- * visible from at most six frames on, and stay through the end of the
- * window, which ends before either page can paint. A stand-in the host's
- * face was drawn from is the exception: the face has shown the wave from the
- * cut, so its stand-in wears it by the frame after its first rendered one —
- * the face is read off that first frame and stands over it (`at0788`) — and
- * the box never goes bare when the face retires.
- * Then each card's own page, loaded and still lidded, must show the wave on
- * its lid. The switch runs with the made-ahead path as it ships, cut as soon
- * as home has painted so the away pages are cold.
+ * The switch is made as soon as home has painted, so the away pages are
+ * cold and each arriving card stands as the host's skeleton in its stage.
+ * The host's `stages` account is read from the switch on: each card's
+ * skeleton schedules its wave after two display frames, starts it no sooner
+ * than two frames and no later than six after it came on screen, and wears
+ * it on every read until the card's own page lands. Then each card's own
+ * page, loaded and still lidded, must show the wave on its lid.
  *
- * @covers tugdeck/src/components/chrome/body-stand-in.tsx
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/components/tugways/internal/tug-progress-wave.tsx
  */
@@ -30,11 +23,10 @@ import { describe, expect, test } from "bun:test";
 import { note } from "./_harness";
 import { settleFor } from "./body-grounding/_bodies";
 import {
-  armStandIns,
   AWAY_SPACE,
   bodyLidWave,
   launchSkeletonDeck,
-  readStandIns,
+  sampleStages,
   SHOULD_RUN,
   slowPages,
   switchTo,
@@ -44,46 +36,45 @@ import {
 
 const CARDS = ["sk787-a", "sk787-b"];
 const SLOW_MS = 1_500;
-/** The recorder's window from its arming: past the cut and well short of the slow pages' paint. */
-const WINDOW_MS = 1_100;
-/** By this many frames after the cut the wave has drawn: its delay and some slack for a busy cut. */
-const WAVE_BY_FRAMES = 6;
+/** How long the account is read from the switch: well short of the slow pages' paint. */
+const WINDOW_MS = 900;
+/** The shortest a display frame runs (120 Hz), and the longest (60 Hz) with a busy cut's slack. */
+const FRAME_MIN_MS = 1000 / 120;
+const WAVE_BY_MS = 6 * (1000 / 60) + 50;
 
 describe.skipIf(!SHOULD_RUN)("at0787 — the skeleton's wave and its delay", () => {
   test(
-    "an arriving stand-in wears the wave after two frames and not before, and a lidded page wears it too",
+    "an arriving skeleton wears the wave after two frames and not before, and a lidded page wears it too",
     async () => {
       const deck = await launchSkeletonDeck("at0787-skeleton-wave-delay", CARDS);
       const { app } = deck;
       try {
         await slowPages(app, Object.fromEntries(CARDS.map((id) => [id, SLOW_MS])));
-        await armStandIns(app, CARDS, WINDOW_MS);
-        await Bun.sleep(50);
         await switchTo(app, AWAY_SPACE);
-        const frames = await readStandIns(app, WINDOW_MS);
-        expect(frames, "the shell's stand-in recorder finished").not.toBeNull();
-        const cutAt = (frames ?? []).findIndex((f) => f.space === AWAY_SPACE);
-        expect(cutAt, "the recorder saw the cut").toBeGreaterThanOrEqual(0);
-        const after = (frames ?? []).slice(cutAt);
+        const samples = await sampleStages(app, CARDS, WINDOW_MS);
         const bad: string[] = [];
         for (const id of CARDS) {
-          const marks = (frames ?? []).map((f, i) => `${i === cutAt ? "|" : ""}${f.cards[id]?.wave ? "W" : f.cards[id]?.boxed ? "b" : f.cards[id]?.standIn ? "s" : "-"}`).join("");
-          const drawn = after.some((f) => f.cards[id]?.drawn === true);
-          note(`${id}: stand-in frames, the cut at | (W wave, b wave rendered and waiting, s stand-in with no rendered wave, - none)${drawn ? ", a face drawn from it" : ""}: ${marks}`);
-          // The delay runs from the wave's first rendered frame: a parked
-          // workspace's content has no box until its layer shows.
-          const boxedAt = after.findIndex((f) => f.cards[id]?.boxed === true);
-          const waveAt = after.findIndex((f) => f.cards[id]?.wave === true);
-          if (boxedAt < 0 || waveAt < 0) {
-            bad.push(`${id}: its stand-in never wore the wave in ${after.length} frames from the cut`);
+          const rows = samples.map((s) => s.cards[id]);
+          note(`${id}: ${rows.map((r) => (r === null ? "-" : r.picture === "skeleton" ? (r.wave ? "W" : "s") : r.picture === "live" ? "L" : "f")).join("")} (W wave, s skeleton waiting, L live, f last frame)`);
+          const skeletons = rows.filter((r) => r?.picture === "skeleton");
+          if (skeletons.length === 0) {
+            bad.push(`${id}: never stood as a skeleton after the switch`);
             continue;
           }
-          const first = waveAt - boxedAt;
-          if (drawn && first > 1) bad.push(`${id}: a face was drawn from its stand-in with the wave, and the stand-in went ${first} frames bare beneath it`);
-          if (!drawn && first < WAVE_DELAY_FRAMES) bad.push(`${id}: its stand-in wore the wave ${first} frames after it was rendered, inside its ${WAVE_DELAY_FRAMES}-frame delay`);
-          if (first > WAVE_BY_FRAMES) bad.push(`${id}: its stand-in first wore the wave ${first} frames after it was rendered, past ${WAVE_BY_FRAMES}`);
-          const gap = after.slice(waveAt).findIndex((f) => f.cards[id]?.wave !== true);
-          if (gap >= 0) bad.push(`${id}: its stand-in's wave dropped at frame ${waveAt + gap} of the cut, before its page could paint`);
+          const delay = skeletons.find((r) => r!.waveDelayFrames !== null)?.waveDelayFrames ?? null;
+          if (delay !== WAVE_DELAY_FRAMES) bad.push(`${id}: its skeleton schedules its wave after ${delay} frames, not ${WAVE_DELAY_FRAMES}`);
+          const timed = skeletons.find((r) => r!.waveWall !== null && r!.onScreenWall !== null);
+          if (timed === undefined) {
+            bad.push(`${id}: its skeleton's wave never began in ${WINDOW_MS} ms`);
+            continue;
+          }
+          const afterMs = timed!.waveWall! - timed!.onScreenWall!;
+          note(`${id}: its wave began ${afterMs.toFixed(1)} ms after its skeleton came on screen`);
+          if (afterMs < WAVE_DELAY_FRAMES * FRAME_MIN_MS - 1) bad.push(`${id}: its wave began ${afterMs.toFixed(1)} ms on, inside its ${WAVE_DELAY_FRAMES}-frame delay`);
+          if (afterMs > WAVE_BY_MS) bad.push(`${id}: its wave began ${afterMs.toFixed(1)} ms on, past six frames`);
+          const firstWave = rows.findIndex((r) => r?.wave === true);
+          const dropped = rows.slice(firstWave).findIndex((r) => r?.picture === "skeleton" && !r.wave);
+          if (firstWave >= 0 && dropped >= 0) bad.push(`${id}: its skeleton's wave dropped on read ${firstWave + dropped} while its page was still loading`);
         }
         // Each page's own lid, once the page is up and still waiting on its content.
         for (const id of CARDS) {

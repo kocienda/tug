@@ -1,77 +1,95 @@
 /**
- * at0790-skeleton-horizon.test.ts — past the set's horizon the cards that
- * have painted land together in one frame, and a straggler keeps its
- * skeleton until its own content paints, then lands alone.
+ * at0790-skeleton-horizon.test.ts — a picture over a page that has painted
+ * before comes down at its horizon, and a skeleton over a page that never
+ * has stays until that page paints.
  *
- * Three Text cards on a workspace never shown; one page is made slow by
- * 3.5 s, well past the 2 s horizon, so its chrome paints with the others and
- * its content long after. The host's layer rows over the switch say when
- * each card first showed its own page. The two that painted must first
- * show within a display frame of each other, at the horizon — which runs
- * from the set's opening at the hand-over, read off the host's reveal log.
- * The straggler
- * must show no page of its own before its content could have painted — the
- * cut plus its delay — so through the horizon it stays the skeleton, and it
- * shows its page after. The switch runs with the made-ahead path as it
- * ships, cut as soon as home has painted so the away pages are cold.
+ * Three workspaces of Text cards, the make-ahead pass held so nothing is
+ * made but what a switch asks for. One card on `away` is shown once and
+ * painted, then parked until it sleeps; its page, shown again, is made to
+ * wait 3.5 s before it says it painted, well past the 2 s horizon. At the
+ * switch back onto it the host stands its last frame or its skeleton, and
+ * that picture must come down at the horizon — between 1.7 s and 3 s after
+ * the cut — not at the slow page's paint: the card is shown as its page
+ * stands rather than as a picture nobody can see past.
  *
- * @covers tugapp/Sources/BodyHandOver.swift
+ * One card on `cold` was never made, its page made slow by 3.5 s: at the
+ * switch onto it the host stands its skeleton, and that skeleton must still
+ * stand 2.5 s on, past the horizon, since its page has nothing to reveal.
+ *
+ * @covers tugapp/Sources/BodyStages.swift
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { note } from "./_harness";
 import { bodyOf, settleFor } from "./body-grounding/_bodies";
-import { SET_FRAME_MS, SET_HORIZON_MS } from "./body-grounding/_row-44";
-import { armLayers, AWAY_SPACE, firstPage, launchSkeletonDeck, readLayers, revealLog, SHOULD_RUN, slowPages, switchTo, TEST_TIMEOUT_MS } from "./skeleton-switch-fixture";
+import {
+  AWAY_SPACE,
+  COLD_SPACE,
+  HOME_SPACE,
+  launchSkeletonDeck,
+  sampleStages,
+  SHOULD_RUN,
+  slowConfirm,
+  slowPages,
+  switchTo,
+  TEST_TIMEOUT_MS,
+} from "./skeleton-switch-fixture";
 
-const PAINTED = ["sk790-a", "sk790-b"];
-const SLOW = "sk790-slow";
-const CARDS = [...PAINTED, SLOW];
+const SEEN = "sk790-seen";
+const COLD = "sk790-cold";
 const SLOW_MS = 3_500;
-const WINDOW_MS = 4_800;
-/** How late after the horizon the painted cards may land: the horizon's own timer and a frame or two. */
-const HORIZON_SLACK_MS = 120;
+/** The host's horizon ([P11]), with a read's slack either side. */
+const HORIZON_EARLIEST_MS = 1_700;
+const HORIZON_LATEST_MS = 3_000;
+const DORMANT_MS = 300;
 
-describe.skipIf(!SHOULD_RUN)("at0790 — the horizon lands the painted cards and leaves the straggler", () => {
+/** One letter per read: L live, F last frame, S skeleton, - unread. */
+const mark = (p: string | null | undefined): string => (p === "live" ? "L" : p === "lastFrame" ? "F" : p === "skeleton" ? "S" : "-");
+
+describe.skipIf(!SHOULD_RUN)("at0790 — a picture over a painted page has a horizon", () => {
   test(
-    "the painted cards land as one at the horizon, and the straggler stays a skeleton until its content paints",
+    "a slept card's picture comes down at the horizon; a never-made card's skeleton stays past it",
     async () => {
-      const deck = await launchSkeletonDeck("at0790-skeleton-horizon", CARDS);
+      const deck = await launchSkeletonDeck("at0790-skeleton-horizon", [SEEN], { cold: [COLD], holdMakeAhead: true });
       const { app } = deck;
       try {
-        await slowPages(app, { [SLOW]: SLOW_MS });
-        await armLayers(app, WINDOW_MS);
-        await Bun.sleep(50);
-        const cut = await switchTo(app, AWAY_SPACE);
-        for (const id of CARDS) await settleFor(() => bodyOf(app, id), (b) => b?.painted === true && b.visible, 10_000);
-        const rows = await readLayers(app, WINDOW_MS);
-        expect(rows, "the host's layer rows finished").not.toBeNull();
-        const shown = firstPage(rows ?? [], CARDS, cut);
-        note(`first page shown: ${CARDS.map((id) => `${id} ${shown[id] === null ? "never" : `${Math.round(shown[id] as number)} ms`}`).join("; ")}`);
-        const log = await revealLog(app, cut);
-        note(`reveal set: ${log.join("; ") || "nothing"}`);
-        // The host's horizon runs from the set's opening, at the hand-over.
-        const opened = log.map((line) => line.match(/^(\d+) ms open/)).find((m) => m !== null);
-        const horizon = (opened === undefined || opened === null ? 0 : Number(opened[1])) + SET_HORIZON_MS;
-        note(`the set opened ${opened?.[1] ?? "?"} ms after the cut; its horizon falls at ${horizon} ms`);
+        // Seen once, painted, then parked until it sleeps.
+        await switchTo(app, AWAY_SPACE);
+        const seen = await settleFor(() => bodyOf(app, SEEN), (b) => b?.painted === true && b.visible, 10_000);
+        expect(seen?.painted, `${SEEN}: shown and painted once`).toBe(true);
+        await app.bodyDelays({ dormantAfterMs: DORMANT_MS, pageDormantAfterMs: DORMANT_MS });
+        await slowConfirm(app, { [SEEN]: SLOW_MS });
+        await slowPages(app, { [COLD]: SLOW_MS });
+        await switchTo(app, HOME_SPACE);
+        await Bun.sleep(DORMANT_MS + 400);
+
+        // Back onto the slept card: its picture comes down at the horizon.
+        const back = await switchTo(app, AWAY_SPACE);
+        const seenRows = await sampleStages(app, [SEEN], HORIZON_LATEST_MS + 200, 50);
+        note(`${SEEN} from the switch back, every 50 ms: ${seenRows.map((r) => mark(r.cards[SEEN]?.picture)).join("")} (L live, F last frame, S skeleton)`);
         const bad: string[] = [];
-        const painted = PAINTED.map((id) => shown[id]);
-        if (painted.some((v) => v === null)) {
-          bad.push(`a painted card never showed its page: ${PAINTED.map((id) => `${id} ${shown[id]}`).join(", ")}`);
+        const firstPicture = seenRows.findIndex((r) => r.cards[SEEN]?.picture === "lastFrame" || r.cards[SEEN]?.picture === "skeleton");
+        if (firstPicture < 0) bad.push(`${SEEN}: no picture stood over it after it slept`);
+        const live = seenRows.slice(Math.max(0, firstPicture)).find((r) => r.cards[SEEN]?.picture === "live");
+        if (live === undefined) {
+          bad.push(`${SEEN}: its picture never came down in ${HORIZON_LATEST_MS} ms`);
         } else {
-          const ts = painted as number[];
-          if (Math.max(...ts) - Math.min(...ts) > SET_FRAME_MS) bad.push(`the painted cards landed across ${Math.round(Math.max(...ts) - Math.min(...ts))} ms, not one frame`);
-          for (const [i, t] of ts.entries()) {
-            if (t < horizon - SET_FRAME_MS || t > horizon + HORIZON_SLACK_MS) {
-              bad.push(`${PAINTED[i]} landed at ${Math.round(t)} ms, not at the horizon at ${horizon} ms`);
-            }
-          }
+          const at = live.wall - back;
+          note(`${SEEN}: shown as its page stands ${at} ms after the switch`);
+          if (at < HORIZON_EARLIEST_MS) bad.push(`${SEEN}: its picture came down at ${at} ms, before the horizon and before its page painted`);
+          if (at > HORIZON_LATEST_MS) bad.push(`${SEEN}: its picture came down at ${at} ms, past the horizon`);
         }
-        const late = shown[SLOW];
-        if (late === null) bad.push(`${SLOW}: its page never showed in the window`);
-        else if (late < SLOW_MS) bad.push(`${SLOW}: its page showed at ${Math.round(late)} ms, before its content could paint at ${SLOW_MS} ms — the horizon took its skeleton down`);
-        expect(bad, "the horizon lands the painted set as one and the straggler keeps its skeleton").toEqual([]);
+
+        // Onto the never-made card: its skeleton stands past the horizon.
+        const cold = await switchTo(app, COLD_SPACE);
+        const coldRows = await sampleStages(app, [COLD], 2_500, 100);
+        note(`${COLD} from its switch, every 100 ms: ${coldRows.map((r) => mark(r.cards[COLD]?.picture)).join("")}`);
+        const last = coldRows.at(-1);
+        if (last === undefined || last.cards[COLD]?.picture !== "skeleton") {
+          bad.push(`${COLD}: ${last === undefined ? "never read" : `read ${last.cards[COLD]?.picture} ${last.wall - cold} ms on`}, not its skeleton past the horizon`);
+        }
+        expect(bad, "a picture over a painted page has a horizon; a skeleton over an unpainted one has none").toEqual([]);
       } finally {
         await deck.close();
       }

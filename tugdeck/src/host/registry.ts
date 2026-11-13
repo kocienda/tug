@@ -18,7 +18,7 @@ import {
   cardGestureToPage,
   cardInsetsToPage,
   placeCardsToHost,
-  switchHoldToHost,
+  spaceCutToHost,
   windowResizeToPage,
 } from "./declarations/geometry";
 import {
@@ -31,6 +31,7 @@ import {
   bodyStateToPage,
   bodySurfaceToHost,
   bodyVisibilityToPage,
+  bodyThemeToPage,
   crossingReadyToHost,
   crossingSolvedToHost,
   frontendLaunchStalledToHost,
@@ -95,7 +96,7 @@ export const TO_HOST: readonly ToHost<unknown>[] = [
   placeCardsToHost,
   cardGestureToHost,
   cardPlanToHost,
-  switchHoldToHost,
+  spaceCutToHost,
   // overlay
   overlayCreateToHost,
   overlayClaimToHost,
@@ -152,6 +153,7 @@ export const TO_PAGE: readonly ToPage<unknown>[] = [
   bodyBindToPage,
   bodyStateToPage,
   bodyVisibilityToPage,
+  bodyThemeToPage,
   planStartedToPage,
   // services
   settingsLoadedToPage,

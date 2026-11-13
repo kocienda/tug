@@ -1,26 +1,26 @@
 /**
  * at0791-skeleton-made-ahead.test.ts — a parked workspace's pages are made
- * ahead, hidden, once the shown workspace has painted, so a switch onto it
- * shows each card's own page, or its last frame, within the cut's bar.
+ * ahead, hidden, once the shown workspace has painted, so the cut onto it
+ * shows each card's own page or its last frame — never a skeleton.
  *
  * Two Text cards on a workspace never shown. After the home workspace has
  * painted, each away card must come to have a page of its own — painted,
- * not visible — without being shown. Then the switch, under the host's
- * layer rows: from the switch's start — its held picture going up, the
- * bar's own origin, else the dispatch — each away card must show its own
- * page or its last frame (a `lastFrame` row) within the bar: the hold's
- * `barMs`, else 100 ms. The made-ahead path runs as it ships; nothing holds
- * it off or asks for it.
+ * not visible — without being shown, and the host must hold a picture for
+ * it in its parked stage that is its page or the last frame taken as the
+ * page went to sleep. Then the switch: the host's record of the cut onto
+ * the away workspace must name each card `live` or `lastFrame`. The
+ * made-ahead path runs as it ships; nothing holds it off or asks for it.
  *
  * Until 2026-11-12 this asserted that no away card was ever faced, the
- * skeletons brief's [B06] "no gaps" rule. That rule is reversed (see the
- * dated note under [B06] in `briefs/workspace-skeletons-brief.md`): a
- * switch onto made-ahead pages cuts at the shell's
- * frame, and a page that has not confirmed by then shows its last frame or
- * its skeleton. So the assertion is now the one above.
+ * skeletons brief's [B06] "no gaps" rule; until the workspace stages it
+ * read each card's page or last frame off the host's layer rows within the
+ * switch hold's bar. A cut is now one transaction that shows whatever each
+ * arriving card's picture already is, chosen by the host's picture policy,
+ * so the claim is the picture at the cut itself.
  *
  * @covers tugapp/Sources/BodyLane.swift
  * @covers tugapp/Sources/BodyLifecycle.swift
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugdeck/src/lib/body-make-ahead.ts
  */
 
@@ -28,25 +28,11 @@ import { describe, expect, test } from "bun:test";
 
 import { note } from "./_harness";
 import { bodyOf, settleFor } from "./body-grounding/_bodies";
-import {
-  armLayers,
-  AWAY_SPACE,
-  firstPage,
-  launchSkeletonDeck,
-  readLayers,
-  SHOULD_RUN,
-  showsLastFrame,
-  showsPage,
-  switchTo,
-  TEST_TIMEOUT_MS,
-} from "./skeleton-switch-fixture";
+import { AWAY_SPACE, cutOnto, launchSkeletonDeck, SHOULD_RUN, stageCards, switchTo, TEST_TIMEOUT_MS } from "./skeleton-switch-fixture";
 
 const CARDS = ["sk791-a", "sk791-b"];
 /** How long after home has painted the parked pages have to be made and painted. */
 const AHEAD_MS = 6_000;
-const WINDOW_MS = 600;
-/** The bar until the host's account carries its own. */
-const DEFAULT_BAR_MS = 100;
 
 describe.skipIf(!SHOULD_RUN)("at0791 — a parked workspace made ahead", () => {
   test(
@@ -67,37 +53,37 @@ describe.skipIf(!SHOULD_RUN)("at0791 — a parked workspace made ahead", () => {
           if (b === null || b.painted !== true) bad.push(`${id}: no page was made ahead for it in ${AHEAD_MS} ms after home painted`);
           else if (b.visible) bad.push(`${id}: its page made ahead was shown before the switch`);
         }
-        await armLayers(app, WINDOW_MS);
-        await Bun.sleep(50);
-        const cut = await switchTo(app, AWAY_SPACE);
-        for (const id of CARDS) await settleFor(() => bodyOf(app, id), (b) => b?.painted === true && b.visible, 10_000);
-        const rows = (await readLayers(app, WINDOW_MS)) ?? [];
-        const shown = firstPage(rows, CARDS, cut);
-        note(`first page shown: ${CARDS.map((id) => `${id} ${shown[id] === null ? "never" : `${Math.round(shown[id] as number)} ms`}`).join("; ")}`);
-        const hold = ((await app.handOvers()).switchHolds ?? []).filter((h) => h.fromWall >= cut - 50).at(-1);
-        note(`switch hold: ${hold === undefined ? "none" : JSON.stringify(hold)}`);
+        // The host's picture for each in its parked stage: its page, or its
+        // last frame once the page has gone to sleep.
+        const parked = await settleFor(
+          () => stageCards(app, CARDS),
+          (all) => CARDS.every((id) => all[id]?.picture === "live" || all[id]?.picture === "lastFrame"),
+          AHEAD_MS,
+        );
+        note(`parked pictures: ${CARDS.map((id) => `${id} ${parked[id]?.picture ?? "none"}`).join("; ")}`);
+        // What a parked page said moved under it, and what the host did with its last frame.
         for (const id of CARDS) {
           const stale = await app
             .body(id)
             .evalJS<{ parts: string[]; at: number } | null>("window.__tugBodyStale ?? null", { timeoutMs: 1_000 })
             .catch(() => null);
-          note(`${id} stale parts: ${stale === null ? "none" : `${stale.parts.join(", ")} at ${Math.round(stale.at - cut)} ms from the switch`}`);
+          note(`${id} stale parts: ${stale === null ? "none" : stale.parts.join(", ")}`);
         }
-        const bar = hold?.barMs ?? DEFAULT_BAR_MS;
-        // The bar runs from the shell's start of the switch, which the held
-        // picture records; the dispatch here leads it by the eval's trip.
-        const start = hold?.fromWall ?? cut;
-        note(`the switch started ${Math.round(start - cut)} ms after the dispatch`);
+        const hostLines = app
+          .tugappLog()
+          .split("\n")
+          .filter((line) => CARDS.some((id) => line.includes(id)) && /stale|park cover|cover dropped|dormant/.test(line));
+        note(`host lines: ${hostLines.map((l) => l.replace(/^.*?bodies\s*/, "")).join(" | ") || "none"}`);
+        const kept = (await app.stages()).parkCovers.cards;
+        note(`last frames kept: ${CARDS.map((id) => `${id} ${kept[id] === undefined ? "none" : `${kept[id].bytes} bytes`}`).join("; ")}`);
+        const cut = await switchTo(app, AWAY_SPACE);
+        const record = await settleFor(() => cutOnto(app, AWAY_SPACE, cut), (c) => c !== null, 5_000);
+        note(`the cut: ${record === null ? "none recorded" : JSON.stringify(record)}`);
         for (const id of CARDS) {
-          const first = rows
-            .filter((r) => r.cardId === id && r.wall >= start && (showsPage(r) || showsLastFrame(r)))
-            .sort((a, b) => a.wall - b.wall)[0];
-          const at = first === undefined ? null : first.wall - start;
-          if (at === null || at > bar) {
-            bad.push(`${id}: its page or last frame showed ${at === null ? "never in the window" : `at ${Math.round(at)} ms`}, past the ${bar} ms bar`);
-          }
+          const picture = record?.pictures[id];
+          if (picture !== "live" && picture !== "lastFrame") bad.push(`${id}: stood as ${picture ?? "nothing"} at the cut, not its page or its last frame`);
         }
-        expect(bad, "a switch onto pages made ahead shows each card's page or last frame within the bar").toEqual([]);
+        expect(bad, "a cut onto pages made ahead shows each card's page or last frame").toEqual([]);
       } finally {
         await deck.close();
       }

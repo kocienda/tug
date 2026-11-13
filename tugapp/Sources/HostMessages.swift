@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The host's twin of the page's host vocabulary (`tugdeck/src/host/`).
 ///
@@ -76,49 +76,6 @@ struct CardInsets: Codable, Equatable {
     var left: Double
 }
 
-/// A card's stand-in read into a short display list (`lib/face-draw.ts`):
-/// what the host draws a face from while it hands a departing view over.
-/// Rects are within the card's view, points; colours are `rgba()`.
-struct FaceDraw: Decodable, Equatable {
-    struct Border: Decodable, Equatable {
-        var width: Double
-        var color: String
-    }
-
-    struct Box: Decodable, Equatable {
-        var rect: PlanRect
-        var fill: String?
-        var border: Border?
-        var radius: Double
-    }
-
-    struct Font: Decodable, Equatable {
-        var family: String
-        var size: Double
-        var weight: Double
-    }
-
-    struct Text: Decodable, Equatable {
-        var rect: PlanRect
-        var text: String
-        var font: Font
-        var color: String
-    }
-
-    struct Image: Decodable, Equatable {
-        var rect: PlanRect
-        /// Standalone SVG markup, every paint written in.
-        var svg: String
-    }
-
-    /// The painted boxes, in paint order.
-    var boxes: [Box]
-    /// The runs of text, in paint order, over every box.
-    var texts: [Text]
-    /// The icons, over every box.
-    var images: [Image]
-}
-
 /// One card in `placeCards`: its pane rect, its view and the pane's insets
 /// within it, whether it shows, and what the hand carries it by.
 struct CardPlacementEntry: Decodable, Equatable {
@@ -134,18 +91,18 @@ struct CardPlacementEntry: Decodable, Equatable {
     /// host keeps for the shell.
     var shell: [PlanRect]
     var visible: Bool
+    /// The card's workspace; absent for a rail member, which stands outside
+    /// every workspace.
+    var spaceId: String?
+    /// Whether the card would show were its workspace the shown one.
+    var staged: Bool
+    /// The card's title and kind (`CardState.title`, `.componentId`).
+    var title: String
+    var kind: String
+    /// Present, and true, when the card's pane wears its folded form.
+    var folded: Bool?
     /// Present, and true, for an inactive card of a pane.
     var sibling: Bool?
-    /// Present, and true, for a card hidden only because its page cannot
-    /// show yet: the shell paints its stand-in, which a hand-over's face
-    /// covers while a departing view goes (`BodyHandOver`).
-    var face: Bool?
-    /// Present, and true, for a parked workspace's card: a never-shown page
-    /// of one sleeps once it has painted (a page made ahead). Never an
-    /// arriving card, which waits hidden on its paint to be shown.
-    var parked: Bool?
-    /// What a face entry's face draws: its stand-in as the shell read it.
-    var faceDraw: FaceDraw?
     /// The pane's computed `z-index`.
     var z: Double
     var grips: [ResizeEdge]
@@ -244,6 +201,19 @@ struct PlaceCards: Decodable, Equatable {
     /// The cards the host is holding while the shell's rail width draft
     /// holds them; the host leaves every body this names where it stands.
     var held: [String]?
+    /// Every workspace, in the list's order.
+    var spaces: [StageSpace]
+    /// The workspace the shell shows. The host seeds its own from the first
+    /// placement only.
+    var activeSpaceId: String
+}
+
+/// One workspace as a placement names it: its theme (nil for none of its
+/// own), and the card that holds its focus.
+struct StageSpace: Decodable, Equatable {
+    var id: String
+    var theme: String?
+    var focusedCardId: String?
 }
 
 /// What a card's gesture is: a drag, a resize, or a rail's edge.
@@ -271,15 +241,47 @@ struct CardGestureBegin: Decodable, Equatable {
     var springMs: Double?
 }
 
+/// A theme's ground and skeleton colours, as the page that wears the theme
+/// read them from its applied CSS (`tugdeck/src/lib/skeleton-palette.ts`):
+/// each an opaque sRGB `#rrggbb`, read over the theme's canvas. Carried by
+/// `setTheme` and `bodySurface`; kept by name in `ThemePalettes`.
+struct SkeletonPalette: Codable, Equatable {
+    var theme: String
+    var canvas: String
+    var grid: String
+    var surface: String
+    var band: String
+    var ink: String
+    var border: String
+
+    /// A hex as an sRGB colour, or nil when it is not one: the page composited
+    /// it in sRGB, so the host draws the same pixels rather than a colour match.
+    static func srgb(_ hex: String) -> NSColor? {
+        var cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("#") { cleaned.removeFirst() }
+        guard cleaned.count == 6, let rgb = UInt32(cleaned, radix: 16) else { return nil }
+        return NSColor(
+            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+}
+
 /// `crossingReady` and `bodySurface`: the page's own surface as sRGB bytes,
 /// or nil when it paints none. Anything but four bytes is refused.
+/// `bodySurface` also carries the skeleton palette of the theme the page
+/// wears, under its name; `crossingReady` never does.
 struct BodySurface: Decodable, Equatable {
     var surface: [Double]?
+    var palette: SkeletonPalette?
 
-    private enum CodingKeys: String, CodingKey { case surface }
+    private enum CodingKeys: String, CodingKey { case surface, palette }
 
-    init(surface: [Double]?) {
+    init(surface: [Double]?, palette: SkeletonPalette? = nil) {
         self.surface = surface
+        self.palette = palette
     }
 
     init(from decoder: Decoder) throws {
@@ -294,6 +296,7 @@ struct BodySurface: Decodable, Equatable {
             )
         }
         surface = bytes
+        palette = try container.decodeIfPresent(SkeletonPalette.self, forKey: .palette)
     }
 }
 
@@ -306,12 +309,14 @@ struct BodyCreate: Decodable, Equatable {
     var guardsClose: Bool?
 }
 
-/// `switchHold`: a workspace switch onto at least one painted page is starting;
-/// `cardIds` is every card of the arriving deck. The host holds the
-/// window's picture until the arriving workspace is on, and its lift hides
-/// every body whose card is not named.
-struct SwitchHold: Decodable, Equatable {
-    var cardIds: [String]
+/// `spaceCut`: show `spaceId`'s stage ([P06]). From the shell, posted in the
+/// task before its deck swaps: `cut` is the serial of the host cut it is
+/// following, or absent for a switch that began in the shell. From a body
+/// page — the Workspaces card — never a serial: the host cuts and tells the
+/// shell.
+struct SpaceCut: Decodable, Equatable {
+    var spaceId: String
+    var cut: Int?
 }
 
 /// `bodyDestroy`: the shell is done with a card's body.
@@ -321,9 +326,11 @@ struct BodyDestroy: Decodable, Equatable {
 }
 
 /// `painted`: a body's frame has gone to the compositor — its chrome's
-/// first, then its content's (`content`).
+/// first, then its content's (`content`). `theme` names the theme it was
+/// drawn in when the page answers an `onBodyTheme`.
 struct BodyPainted: Decodable, Equatable {
     var content: Bool
+    var theme: String?
 }
 
 /// `bodyDelays`: the harness's seam on the host's body clocks, never sent by
@@ -585,6 +592,13 @@ struct BodyVisibility: Codable, Equatable {
     var dormant: Bool
 }
 
+/// `onBodyTheme`: the theme a rail page wears from now on, told at a cut
+/// between workspaces of different themes; the page answers with `painted`
+/// carrying it.
+struct BodyTheme: Codable, Equatable {
+    var theme: String
+}
+
 // MARK: - The host's services
 //
 // The pickers, the clipboard, the OS, the window's settings, the launch's
@@ -622,11 +636,11 @@ struct ChoosePath: Decodable, Equatable {
 /// `setTheme`: the window's background, as the theme's canvas colour, and
 /// with it the deck's ground as the shell paints it now — the canvas and a
 /// grid line over it, each an opaque hex — for the ground the host stands
-/// at a workspace switch's cut (`BodySwitchGround`).
+/// beneath the shell's page (`StageGroundView`), and the on-screen
+/// theme's skeleton palette under its name (`ThemePalettes`).
 struct SetTheme: Decodable, Equatable {
     var color: String
-    var canvas: String?
-    var grid: String?
+    var palette: SkeletonPalette?
 }
 
 /// `tooltipDelay`: how long an OS tooltip waits before it appears, in
@@ -974,7 +988,7 @@ enum ScrollPhaseEdge: String, Codable, Equatable {
 /// names it.
 enum ToHostName: String, CaseIterable {
     // Placement and gestures.
-    case placeCards, cardGesture, cardPlan, switchHold
+    case placeCards, cardGesture, cardPlan, spaceCut
     // The overlay's view.
     case overlayCreate, overlayClaim
     // Page lifecycle.
@@ -994,7 +1008,7 @@ enum ToHostName: String, CaseIterable {
         switch self {
         case .sourceTree, .setTheme, .tooltipDelay, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
              .bodyCreate, .bodyDestroy, .bodyDelays, .bodyFocus, .hostFrames,
-             .cardPlan, .placeCards, .switchHold, .overlayCreate:
+             .cardPlan, .placeCards, .overlayCreate:
             return true
         default:
             return false
@@ -1039,7 +1053,7 @@ enum ToHost {
     case placeCards(PlaceCards)
     case cardGesture(CardGestureBegin)
     case cardPlan(CardPlan)
-    case switchHold(SwitchHold)
+    case spaceCut(SpaceCut)
     case overlayCreate
     case overlayClaim(CardHitRegion.Claim)
     case bodyHello
@@ -1100,7 +1114,7 @@ enum ToHost {
         case .placeCards: return .placeCards(try read(PlaceCards.self))
         case .cardGesture: return .cardGesture(try read(CardGestureBegin.self))
         case .cardPlan: return .cardPlan(try read(CardPlan.self))
-        case .switchHold: return .switchHold(try read(SwitchHold.self))
+        case .spaceCut: return .spaceCut(try read(SpaceCut.self))
         case .overlayCreate: _ = try read(EmptyPayload.self); return .overlayCreate
         case .overlayClaim: return .overlayClaim(try read(CardHitRegion.Claim.self))
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello
@@ -1245,7 +1259,7 @@ enum ToPageMember: String, CaseIterable {
     // Placement and gestures.
     case onCardGesture, onCardInsets, onBodyCrossing, onWindowResize
     // Page lifecycle.
-    case onBodyBind, onBodyState, onBodyVisibility, onPlanStarted
+    case onBodyBind, onBodyState, onBodyVisibility, onBodyTheme, onPlanStarted
     // The host's services.
     case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onSpellingGuesses, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
@@ -1260,6 +1274,7 @@ enum ToPage {
     case bodyBind(BodyBind)
     case bodyState(BodyStateReport)
     case bodyVisibility(BodyVisibility)
+    case bodyTheme(BodyTheme)
     case planStarted(PlanStarted)
     case settingsLoaded(SettingsLoaded)
     case pathChosen(PathChosen)
@@ -1285,6 +1300,7 @@ enum ToPage {
         case .bodyBind: return .onBodyBind
         case .bodyState: return .onBodyState
         case .bodyVisibility: return .onBodyVisibility
+        case .bodyTheme: return .onBodyTheme
         case .planStarted: return .onPlanStarted
         case .settingsLoaded: return .onSettingsLoaded
         case .pathChosen: return .onPathChosen
@@ -1314,6 +1330,7 @@ enum ToPage {
         case .bodyBind(let bind): return try? encoder.encode(bind)
         case .bodyState(let report): return try? encoder.encode(report)
         case .bodyVisibility(let visibility): return try? encoder.encode(visibility)
+        case .bodyTheme(let theme): return try? encoder.encode(theme)
         case .planStarted(let started): return try? encoder.encode(started)
         case .settingsLoaded(let settings): return try? encoder.encode(settings)
         case .pathChosen(let chosen): return try? encoder.encode(chosen)
@@ -1346,6 +1363,7 @@ enum ToPage {
             case .onBodyBind: return .success(.bodyBind(try read(BodyBind.self)))
             case .onBodyState: return .success(.bodyState(try read(BodyStateReport.self)))
             case .onBodyVisibility: return .success(.bodyVisibility(try read(BodyVisibility.self)))
+            case .onBodyTheme: return .success(.bodyTheme(try read(BodyTheme.self)))
             case .onPlanStarted: return .success(.planStarted(try read(PlanStarted.self)))
             case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))
             case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))

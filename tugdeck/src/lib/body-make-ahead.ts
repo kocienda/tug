@@ -6,10 +6,11 @@
  * Once every page the shell has asked for has painted and a moment has
  * passed with nothing moving, the shell takes the next parked workspace —
  * the most recently shown first, then those never shown this run in the
- * list's order — and makes it ahead: mounted unshown, so its panes render in
- * their hidden layer; then, at the next quiet moment, its cards are handed
- * off as the shell hands off the shown deck's, and their pages are asked
- * for at once. The host makes them hidden, through its lane,
+ * list's order — and makes it ahead: its cards are handed off as the shell
+ * hands off the shown deck's, and their pages are asked for at once. Every
+ * workspace is already mounted from launch (`spaces-store.ts`), its panes
+ * rendered in their hidden layer, so this pass mounts nothing; it only
+ * hands pages off. The host makes them hidden, through its lane,
  * behind any card the user can see, and declares each dormant as it paints.
  * One workspace at a time, so a pass never queues more than one
  * workspace's pages in front of the user's next gesture.
@@ -92,8 +93,8 @@ export interface AheadFacts {
   readonly switching: boolean;
 }
 
-/** What a pass does: mount a space ahead, ask for its cards' pages, or nothing. */
-export type AheadAct = { kind: "mount"; spaceId: string } | { kind: "make"; spaceId: string; cardIds: string[] } | null;
+/** What a pass does: ask for a parked space's cards' pages, or nothing. */
+export type AheadAct = { kind: "make"; spaceId: string; cardIds: string[] } | null;
 
 /** The parked spaces in the order they are made ahead. */
 export function aheadOrder(f: Pick<AheadFacts, "activeSpaceId" | "spaceOrder" | "recency">): string[] {
@@ -108,7 +109,7 @@ export function nextAhead(f: AheadFacts): AheadAct {
   if (f.switching) return null;
   if (f.cards.some((c) => c.state === "creating" || c.state === "ready")) return null;
   for (const spaceId of aheadOrder(f)) {
-    if (!f.mounted.has(spaceId)) return { kind: "mount", spaceId };
+    if (!f.mounted.has(spaceId)) continue;
     const cardIds = cardsToMake(f, spaceId);
     if (cardIds.length > 0) return { kind: "make", spaceId, cardIds };
   }
@@ -168,11 +169,23 @@ export interface MakeAhead {
   readonly pauseForSwitch: (spaceId: string) => void;
 }
 
+/**
+ * Whether the harness holds the pass: while held it hands nothing off and
+ * asks for no page, so a workspace nobody has shown keeps its cards unmade
+ * until its switch asks for them. Never set by the product.
+ */
+let held = false;
+const heldMoved = new Set<() => void>();
+
+/** Hold the pass, or let it go again (`__tug.holdMakeAhead`): the harness's seam. */
+export function holdMakeAhead(on: boolean): void {
+  held = on;
+  if (!on) for (const moved of heldMoved) moved();
+}
+
 /** Make parked workspaces ahead from here on. */
 export function installMakeAhead(deps: MakeAheadDeps): MakeAhead {
   const { deck } = deps;
-  const mountAhead = deck.mountSpaceAhead;
-  if (mountAhead === undefined) return { release: () => {}, pauseForSwitch: () => {} };
   const recency: string[] = [deck.getSpacesSnapshot().activeSpaceId];
   let timer: ReturnType<typeof setTimeout> | null = null;
   /** The switch pausing the pass, if one is: the space it shows, and its horizon. */
@@ -206,6 +219,7 @@ export function installMakeAhead(deps: MakeAheadDeps): MakeAhead {
   };
 
   const make = (act: { spaceId: string; cardIds: string[] }): void => {
+    if (held) return;
     if (pause !== null) pause.kept.asked += act.cardIds.length;
     const kinds = new Map((deck.getSpaceDeck(act.spaceId)?.cards ?? []).map((c) => [c.id, c.componentId]));
     for (const cardId of act.cardIds) {
@@ -231,10 +245,6 @@ export function installMakeAhead(deps: MakeAheadDeps): MakeAhead {
     }
     const act = nextAhead(facts());
     if (act === null) return;
-    if (act.kind === "mount") {
-      mountAhead(act.spaceId);
-      return;
-    }
     make(act);
   };
 
@@ -289,6 +299,7 @@ export function installMakeAhead(deps: MakeAheadDeps): MakeAhead {
   }
 
   const unsubscribes = [bodyCardsStore.subscribe(moved), deck.subscribeSpaces(moved)];
+  heldMoved.add(moved);
   moved();
   return {
     release: () => {
@@ -296,6 +307,7 @@ export function installMakeAhead(deps: MakeAheadDeps): MakeAhead {
       if (pause !== null) clearTimeout(pause.horizon);
       pause = null;
       for (const unsubscribe of unsubscribes) unsubscribe();
+      heldMoved.delete(moved);
     },
     pauseForSwitch,
   };

@@ -39,7 +39,6 @@ import { cardActivate, cardAddSibling, cardClose } from "../bus/declarations/ver
 import { NO_CARD_CONTEXT, type CardContextValue, type CardReservationsValue } from "../bus/declarations/card";
 import {
   deckActivateCard,
-  deckActivateSpace,
   deckAddCard,
   deckChooseSpaceTheme,
   deckFlashCard,
@@ -73,6 +72,8 @@ import { applyBagFocus } from "../focus-transfer";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { flushFindReplacementSync } from "../settings-api";
 import { arrangementSnapshot } from "../lib/body-arrangement";
+import { postToHost } from "../host/channel";
+import { spaceCutToHost } from "../host/declarations/geometry";
 
 /** How long a body waits for the shell to say which live sessions it interrupted ([L33]). */
 export const INTERRUPT_LIVE_SESSIONS_HORIZON_MS = 10_000;
@@ -630,7 +631,9 @@ export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementRepl
       if (spaceId === arrangement.spaces.activeSpaceId) return cardDeck.getSnapshot();
       return arrangement.spaces.decks[spaceId] ?? null;
     },
-    activateSpace: (spaceId: string): void => deckActivateSpace.dispatch({ spaceId }),
+    // A switch asked for on this page is the host's stage cut, which tells
+    // the shell to follow ([P06]).
+    activateSpace: (spaceId: string): void => postToHost(spaceCutToHost, { spaceId }),
     renameSpace: (spaceId: string, name: string): void => deckRenameSpace.dispatch({ spaceId, name }),
     chooseSpaceTheme: (spaceId: string, theme: string): void => deckChooseSpaceTheme.dispatch({ spaceId, theme }),
     spaceHoldsLiveSessions: (spaceId: string): number => arrangement?.spaces.liveSessions[spaceId] ?? 0,

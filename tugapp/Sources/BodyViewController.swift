@@ -14,9 +14,14 @@ func bodyPageRequest(_ url: URL) -> URLRequest {
     URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData)
 }
 
-/// The view every body container lives in: flipped, so a container's frame is
-/// the top-left viewport rect the shell measured, filling the window's
-/// container over the shell's web view and beneath the overlay's.
+/// The view every stage lives in: flipped, so a container's frame is the
+/// top-left viewport rect the shell measured, filling the window's container
+/// over the shell's web view and beneath the overlay's. It holds one stage per
+/// workspace — the workspace's ground and its cards' containers, each card
+/// showing its live page, its last frame or a skeleton — of which the host
+/// shows exactly one, and the window's rail cards beside them, outside every
+/// stage ([D230], [D231]). A switch is the host's cut: one transaction that
+/// hides one stage and shows another (`BodyStages.swift`).
 ///
 /// Held at opacity zero until the window reveals the shell, then faded in on
 /// the reveal's own clock: a card shown before the reveal would stand over
@@ -296,6 +301,24 @@ final class BodyViewController {
         /// Whether the page's picture stands for what it would draw now: not
         /// stale, and not slept since it was shown.
         var current: Bool { !stale && !sleptSinceShown }
+        /// Shown while it was not current, and not painted as shown since:
+        /// what its layer holds is behind until its next content paint.
+        var owedPaint = false
+        /// Its content has painted only hidden — a page made ahead for a
+        /// parked or pending workspace — and not yet as shown: what it drew
+        /// was drawn for a workspace nobody was looking at, and settles once
+        /// it is shown, so it is not current until it says it has painted
+        /// as shown, which it does at its first show.
+        var paintedOnlyHidden = false
+        /// When the page last said `bodyStale`, wall-clock ms: a last frame
+        /// taken after it stands for what the page draws now.
+        var staleAt: Double?
+        /// The picture standing over its painted page outlived its horizon
+        /// ([P11]): the page is shown as it stands. Cleared when it is hidden.
+        var pastHorizon = false
+        /// The card's picture while it is not `live`: its skeleton or last
+        /// frame, over its page in its container. Nil while live.
+        var picture: StageCardPicture?
         /// The card draws its pane's chrome in its own page: its container
         /// is the pane's rect outset by the apron, wears no surface, and
         /// answers a point by the card's hit shape. Every placed card is.
@@ -417,6 +440,9 @@ final class BodyViewController {
     /// A tell to tugcast over the app's control socket, set by the app
     /// delegate: how the host declares a body dormant, or withdraws it.
     var tellTugcast: ((String, ControlParams) -> Void)?
+    /// A control for the shell, over the same socket, set by the app
+    /// delegate: how a host cut tells the shell to follow ([P06]).
+    var tellShell: ((String, ControlParams) -> Void)?
     /// Each card the last placement named, with its index in the deck's
     /// reading order: the lane's order after whether a card is shown, and
     /// where a page made from the lane after that placement stands.
@@ -435,27 +461,19 @@ final class BodyViewController {
     private(set) var lifecycle: BodyLifecycle!
     /// The cards waiting for a page, and the spare.
     private(set) var lane: BodyLane!
-    /// The faces standing in for views a placement hands over.
-    private(set) var faceHandOver: BodyFaceHandOver!
-    /// The window's picture held over a switch onto painted pages.
-    private(set) var switchHold: BodySwitchHold!
-    /// The faced cards of the last hand-over whose paints are held to land
-    /// as one set (`BodyRevealSet`), and the paints it holds.
-    private var revealSet: BodyRevealSet?
-    private var heldPaints: [Body] = []
-    /// Cards a set released before their content painted — past its horizon,
-    /// or no longer standing in — each held on its skeleton until its own
-    /// content paints, then landed alone.
-    private var stragglers: Set<String> = []
-    /// A switch's skeletons are waiting on their pages: its set is open, or
-    /// a card it released still loads. The lane widens while they do.
-    var switchSkeletonsWait: Bool { revealSet != nil || !stragglers.isEmpty }
-    /// The set's horizon: past it the painted members land, and each
-    /// straggler lands alone at its content paint.
-    private var revealHorizon: DispatchWorkItem?
-    /// What the reveal sets did, for the harness (`handOvers`): one line per
-    /// open, hold, follow and landing, wall-clock ms first, the last 40 kept.
-    private var revealLog: [String] = []
+    /// Every workspace's stage, and which one is shown.
+    private(set) var stages: StageSet!
+    /// A workspace the shell switched onto before any placement named it —
+    /// one just made — cut onto when a placement first does.
+    private var pendingShellCut: String?
+
+    /// The rail cards re-skinning under a skeleton, by card id, with the
+    /// theme each was told at the cut ([P10]). A card leaves on its page's
+    /// paint carrying that theme, or at the skeleton horizon ([P11]).
+    private var railReskin: [String: String] = [:]
+    /// Cards whose page failed and that have not been asked for since: the
+    /// shell's placard is their face, so no picture stands over them.
+    private var failedCards: Set<String> = []
     /// The host's hand: a card carried, a rail's edge dragged.
     private(set) var carrier: CardGestureCarrier!
     /// The beats a settle carries each card through.
@@ -469,10 +487,11 @@ final class BodyViewController {
         }
         lifecycle = BodyLifecycle(controller: self, window: window)
         lane = BodyLane(controller: self)
-        faceHandOver = BodyFaceHandOver(controller: self, window: window)
-        switchHold = BodySwitchHold(controller: self, window: window)
         carrier = CardGestureCarrier(controller: self, window: window)
         beats = BodyBeatsRunner(controller: self, window: window)
+        stages = StageSet(hostView: hostView, grounds: window.stageGrounds, palettes: window.palettes) { [unowned self] in
+            self.nextSerial()
+        }
     }
 
     // MARK: - Lookup
@@ -619,6 +638,7 @@ final class BodyViewController {
     /// lane for a cold body at `/?body=<cardId>`. A card that already has a
     /// body is re-bound only if it failed.
     func create(cardId: String, componentId: String, intent: JSONObject, guardsClose: Bool = false) {
+        failedCards.remove(cardId)
         if let existing = body(forCard: cardId), existing.state != .failed {
             if existing.life.keptAcrossShellReload {
                 reportKept(existing, cardId: cardId)
@@ -646,6 +666,16 @@ final class BodyViewController {
             lifecycle.standCover(over: spare)
             armDeadline(spare)
             if spare.state == .connected { bind(spare) }
+            // The shell placed the card while it had no page: the page stands
+            // there now, under the card's picture, as a lane-made one does.
+            if let (placed, deckIndex) = placedEntries[cardId] {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                place(spare, placed, deckIndex: deckIndex)
+                reconcileRails()
+                CATransaction.commit()
+                refreshRegion()
+            }
             return
         }
         lane.ask(cardId: cardId, componentId: componentId, intent: intent, guardsClose: guardsClose)
@@ -728,12 +758,6 @@ final class BodyViewController {
               let intent = body.intent, lifecycle.move(body, .bind) else { return }
         body.boundAt = CACurrentMediaTime()
         body.contentPainted = false
-        // A paint the reveal set held is of the page that was: the set waits
-        // on the new one's, and never lands a page that has not drawn.
-        if revealSet != nil {
-            heldPaints.removeAll { $0 === body }
-            revealSet?.rebound(cardId)
-        }
         send(.bodyBind(BodyBind(
             cardId: cardId, componentId: componentId, intent: intent, facts: window.bodyFacts(),
             contentPaintDelayMs: contentPaintDelays[cardId]
@@ -778,96 +802,91 @@ final class BodyViewController {
     }
 
     /// A hidden body's page said `bodyStale`: what it would draw moved while
-    /// it was hidden, so a switch onto it cannot show it as it stands.
+    /// it was hidden, so a switch onto it cannot show it as it stands. Its
+    /// last frame is behind too, and goes: the card stands as a skeleton
+    /// until its page paints as shown. No snapshot is taken for it — a page
+    /// is pictured only when it parks ([B07]).
     func noteStale(_ body: Body) {
         guard let cardId = body.cardId else { return }
+        // A page the host has shown — a cut onto its workspace, made before
+        // the shell moved the deck's keyboard to it — paints as shown in a
+        // moment: what it said stale is drawn there, and it keeps its picture.
+        if body.visible, body.canShow {
+            TugLog.info("bodies", "stale while shown, kept", [TugLog.field("card", cardId)])
+            return
+        }
         if !body.stale {
             body.stale = true
             TugLog.info("bodies", "stale", [TugLog.field("card", cardId)])
         }
-        // Its last frame is behind too, at each move: a fresh one replaces
-        // it when it lands.
-        lifecycle.queueParkCover(body)
+        body.staleAt = Date().timeIntervalSince1970 * 1000
+        lifecycle.covers.dropParked(cardId)
+        refreshPicture(body)
+        // A page made ahead and never shown has not parked yet: its first
+        // picture is still settling (its own title coming back to it), so it
+        // is owed its last frame once more. A page says it is stale once in a
+        // hidden period, so this is one frame more, never a retake per move.
+        if !body.life.shownOnce { lifecycle.queueParkCover(body) }
     }
 
     /// A body posted `painted`: a frame of its chrome, or of its content
     /// (`content`), has gone to the compositor. From here a placement that
     /// names it visible shows it.
-    func didPaint(_ body: Body, content: Bool) {
+    func didPaint(_ body: Body, content: Bool, theme: String? = nil) {
         guard let cardId = body.cardId else { return }
-        if content { body.contentPainted = true }
-        // Its paint as shown draws what it would draw now: a last frame
-        // standing over it comes off, and the one kept for it is stale.
+        // A rail page's paint in the theme it was told at the cut: its
+        // re-skin skeleton comes down ([P10]).
+        if let theme, railReskin[cardId] == theme {
+            railReskin[cardId] = nil
+            refreshPicture(body)
+        }
+        if content {
+            if !body.contentPainted, !body.seen, !body.life.shownOnce { body.paintedOnlyHidden = true }
+            body.contentPainted = true
+        }
+        // Its paint as shown draws what it would draw now: the last frame
+        // kept for it is behind, and goes, and the picture over it with it.
         if content, body.seen {
             body.stale = false
+            body.owedPaint = false
+            body.paintedOnlyHidden = false
             lifecycle.paintTakesDownParkCover(body)
         }
-        // A switch's held picture waits on each arriving page's paint as shown.
-        if content { switchHold.notePaint(cardId) }
-        // One of a switch's faced cards: its paint is held until every
-        // member's content has painted, so the set shows in one frame and
-        // no member shows its chrome before its content.
-        if var set = revealSet, set.waiting.contains(cardId) {
-            if !heldPaints.contains(where: { $0 === body }) { heldPaints.append(body) }
-            guard content else {
-                noteReveal("hold chrome", [cardId])
-                return
-            }
-            let paint = set.painted(cardId)
-            revealSet = set
-            if paint == .complete {
-                noteReveal("complete", [cardId])
-                landRevealSet()
-            } else {
-                noteReveal("hold", [cardId])
-            }
-            return
-        }
-        // A card its set released unpainted keeps its skeleton, the wave on
-        // it, until its content paints, and then lands alone: a loading card
-        // finishing, with nothing around it moving.
-        if stragglers.contains(cardId) {
-            if !heldPaints.contains(where: { $0 === body }) { heldPaints.append(body) }
-            guard content else {
-                noteReveal("hold chrome", [cardId])
-                return
-            }
-            noteReveal("straggler", [cardId])
-            landHeld([cardId])
-            return
-        }
-        // A member whose content already counted, painting again: it lands
-        // with its set.
-        if heldPaints.contains(where: { $0 === body }) { return }
+        // Every paint lands alone: a card whose picture still stands keeps
+        // it, and its page beneath it, until its own content paints ([B05]).
         landPaint(body)
-        // A page made ahead goes to sleep once its content is up, owed the
-        // last frame its first switch stands over it.
+        if content { lifecycle.paintTakesDownCover(body) }
+        // A page made ahead goes to sleep once its content is up: this is its
+        // park, so its last frame is taken now.
         if content, madeAhead(body) {
             applyVisibility(body)
             lifecycle.queueParkCover(body)
         }
+        refreshPicture(body)
     }
 
     /// A page made ahead of its workspace's first visit: never shown, its
-    /// content painted, and its card a parked workspace's (`parked`) — not
-    /// one waiting on its paint to be shown, a face or an arriving card, and
-    /// not a sibling standing for its pane. A card the shell places nowhere
-    /// is in no layer it shows, so it is one made ahead too; an arriving
-    /// card is always placed, in the shown deck, and never `parked`.
+    /// content painted, and its card a workspace's whose stage is not the one
+    /// on screen — not one waiting on its paint to be shown, and not a
+    /// sibling standing for its pane. A card the shell places nowhere is in
+    /// no stage, so it is one made ahead too; a rail card is the window's and
+    /// always shown, and an arriving card is the active stage's by the cut.
     private func madeAhead(_ body: Body) -> Bool {
         guard !body.life.shownOnce, body.contentPainted, !body.visible, !body.sibling,
               let cardId = body.cardId else { return false }
         guard let (entry, _) = placedEntries[cardId] else { return true }
-        return entry.parked == true
+        guard let spaceId = entry.spaceId else { return false }
+        return spaceId != (stages.activeId ?? placedActiveSpaceId)
     }
 
     /// A paint landing: the body is its own page from here, the shell hears
     /// it painted, and a placement that names it visible shows it.
     private func landPaint(_ body: Body) {
         guard let cardId = body.cardId, lifecycle.move(body, .paint, quietly: true) else { return }
-        // A body brought back from an eviction is its own page from here,
-        // its cover off unless a crossing still holds it.
-        lifecycle.paintTakesDownCover(body)
+        // A body brought back from an eviction is its own page once its
+        // content has painted, its cover off unless a crossing still holds
+        // it: its chrome alone is not the card.
+        if body.contentPainted { lifecycle.paintTakesDownCover(body) }
         TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
         notifyShell(BodyStateReport(cardId: cardId, state: .painted))
         // The show and its face's removal land together.
@@ -886,19 +905,21 @@ final class BodyViewController {
 
     // MARK: - Placement
 
-    /// Show a painted body placed visible, at once and in full; hide
-    /// anything else. Nothing here animates.
+    /// Show a body placed visible, at once and in full, when it is painted or
+    /// a picture stands for it over its page; hide anything else. Nothing
+    /// here animates.
     func applyVisibility(_ body: Body) {
-        let showing = body.visible && body.canShow
+        let showing = body.visible && (body.canShow || body.picture != nil)
         guard let layer = body.container.layer else { return }
         defer { reportVisibility(body) }
         if showing {
-            // The card's own page is on screen: its face goes in this same transaction.
-            if let cardId = body.cardId { faceHandOver.removeFace(cardId) }
             let wasHidden = body.container.isHidden
             body.container.isHidden = false
             body.container.passesPointer = false
-            lifecycle.move(body, .show, quietly: true)
+            // A page beneath its picture that has not painted is not shown
+            // yet: hidden again before it paints, it stays a page that runs
+            // its frames, never a hidden one.
+            if body.canShow { lifecycle.move(body, .show, quietly: true) }
             layer.opacity = 1
             // Hiding a view that held the keyboard made AppKit hand it to
             // the window, and nothing in the shell changed for it to hand
@@ -953,10 +974,15 @@ final class BodyViewController {
             lifecycle.armEviction(body)
             lifecycle.armDormancy(body)
             // Shown again: tugcast hears first, so the body's catch-up is
-            // answered on a wire that sends it its session again.
+            // answered on a wire that sends it its session again. A page
+            // shown while it was not current owes a paint before its own
+            // layer is its picture.
             if shown {
+                if !body.current, body.contentPainted { body.owedPaint = true }
                 declareDormant(body, false)
                 body.sleptSinceShown = false
+            } else {
+                body.pastHorizon = false
             }
         }
         tellVisibility(body)
@@ -994,6 +1020,9 @@ final class BodyViewController {
         TugLog.info("bodies", "dormant", [TugLog.field("card", cardId), TugLog.field("dormant", dormant ? "yes" : "no")])
         tellTugcast?("body_dormant", ["card_id": cardId, "dormant": dormant])
         tellVisibility(body)
+        // Asleep, its page may fall behind: its picture is chosen again now,
+        // in its hidden stage, so the stage is right the moment it is shown.
+        if dormant { refreshPicture(body) }
     }
 
     /// Say every standing declaration again, for a tugcast that has just
@@ -1006,8 +1035,6 @@ final class BodyViewController {
     }
 
     func refreshRegion() {
-        // A body shown or hidden: a switch's held picture may lift.
-        switchHold?.check()
         region.visibleFrames = visibleBodies.map(\.frame)
         region.visibleGrips = visibleBodies.map(\.shellControls)
         region.visibleShapes = visibleBodies.map { body in
@@ -1086,9 +1113,6 @@ final class BodyViewController {
         var rect: CGRect
         var visible: Bool
         var sibling: Bool
-        /// The card is hidden only because its page cannot show yet: a
-        /// hand-over draws its face (`BodyHandOver`).
-        var face: Bool
         var z: Int
         var grips: Set<ResizeEdge>
         var free: Bool
@@ -1099,6 +1123,13 @@ final class BodyViewController {
         var rail: RailMembership?
         /// An imposed content card's travel under a rail width change.
         var railTravel: RailTravel?
+        /// The card's workspace; nil for a rail member.
+        var spaceId: String?
+        /// Whether the card would show were its workspace the shown one.
+        var staged: Bool
+        var title: String
+        var kind: String
+        var folded: Bool
     }
 
     /// The cards the last `placeCards` named, by card id. Read by the
@@ -1108,6 +1139,10 @@ final class BodyViewController {
     /// layout is drawn at; nil before the shell has said.
     private(set) var cardCanvas: CGRect?
     private(set) var cardZoom: CGFloat = 1
+    /// Every workspace the last `placeCards` named, in the list's order, and
+    /// the one the shell showed then.
+    private(set) var placedSpaces: [StageSpace] = []
+    private(set) var placedActiveSpaceId: String?
     /// The deck's card gap the last `placeCards` named, layout px.
     private(set) var cardGap: CGFloat = 0
     private(set) var cardApron: CGFloat = CardGeometry.apron
@@ -1131,21 +1166,113 @@ final class BodyViewController {
         carrier.noteLeftButton(down: down, atViewport: point)
     }
 
-    /// A switch onto the deck of `cardIds` is starting: hold the window's
-    /// picture until the arriving workspace is on, and hide everything else
-    /// at its lift (`BodySwitchHold`).
-    func holdSwitch(_ cardIds: [String]) {
-        switchHold.hold(cardIds)
+    // MARK: - The cut
+
+    /// Cut onto `spaceId`'s stage, through `door` ([P06], Spec S04): in one
+    /// transaction the departing stage and its ground hide and the
+    /// arriving ones show, every body's visibility is derived from the stage
+    /// now shown ([P04]), and every picture stands as the policy chose it,
+    /// which it did before the cut ([P05]). After the commit the arriving
+    /// workspace's focused card takes the keyboard if its page is live, a
+    /// cut the host began tells the shell to follow with its serial, and
+    /// each departing card that was live is owed its last frame. False when
+    /// the stage set did not admit the cut, which then moves nothing.
+    @discardableResult
+    func cut(to spaceId: String, door: CutDoor) -> Bool {
+        let gestureWall = Date().timeIntervalSince1970 * 1000
+        let began = CACurrentMediaTime()
+        let serial: Int
+        switch stages.admit(spaceId, door: door) {
+        case .cut(let admitted):
+            serial = admitted
+        case .pending:
+            pendingShellCut = spaceId
+            TugLog.info("bodies", "stage cut pending", [TugLog.field("to", spaceId), TugLog.field("door", door.name)])
+            return false
+        case .ignored(let why):
+            TugLog.info("bodies", "stage cut ignored", [
+                TugLog.field("to", spaceId), TugLog.field("door", door.name), TugLog.field("why", why),
+            ])
+            return false
+        }
+        pendingShellCut = nil
+        let from = stages.activeId
+        let liveBefore = liveCards()
+        // The rail is the window's and follows the arriving workspace's
+        // theme ([B10]): a live page cannot re-skin in the cut's frame, so
+        // each shown rail card stands a skeleton in the arriving palette and
+        // is told the theme, all in this transaction ([P10]).
+        let fromTheme = stages.active?.theme
+        let toTheme = stages.stage(spaceId)?.theme
+        var reskinned: [Body] = []
+        if let toTheme, let fromTheme, toTheme != fromTheme {
+            for body in bodies {
+                guard let cardId = body.cardId, cardPlacements[cardId]?.rail != nil else { continue }
+                guard body.visible, body.picture == nil, body.contentPainted else { continue }
+                railReskin[cardId] = toTheme
+                reskinned.append(body)
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stages.setCutting(true)
+        stages.show(spaceId)
+        for body in reskinned { refreshPicture(body) }
+        for body in bodies {
+            guard let cardId = body.cardId, let placed = cardPlacements[cardId] else { continue }
+            if carrier.isHeld(body) || body === carrier.pressedOutOfBeats { continue }
+            let visible = placedShown(cardId)
+            guard visible != body.visible else { continue }
+            if !visible { beats.cancel(body) }
+            body.visible = visible
+            body.sibling = placed.sibling && visible
+            applyVisibility(body)
+            refreshPicture(body)
+        }
+        refreshAlonePictures()
+        stages.setCutting(false)
+        CATransaction.commit()
+        if let toTheme {
+            for body in reskinned { send(.bodyTheme(BodyTheme(theme: toTheme)), to: body) }
+        }
+        refreshRegion()
+        if let focused = stages.active?.focusedCardId, pictureOf(focused) == .live, body(forCard: focused) != nil {
+            focus(cardId: focused)
+        }
+        if door.hostOriginated {
+            stages.told(serial)
+            tellShell?("activate-space", ["spaceId": spaceId, "cut": serial])
+        }
+        noteCut(serial: serial, from: from, door: door, gestureWall: gestureWall, began: began, liveBefore: liveBefore)
+        return true
+    }
+
+    /// The shell page reloaded: a host cut it was told is answered by
+    /// nothing now, and holds no switch of the shell's back ([P06]).
+    func shellReloaded() {
+        stages.shellReloaded()
+    }
+
+    /// The cards live on screen now: the ones a cut parks are owed a last frame.
+    private func liveCards() -> Set<String> {
+        Set(bodies.compactMap { body -> String? in
+            guard body.visible, body.canShow, body.picture == nil, !body.sibling else { return nil }
+            return body.cardId
+        })
     }
 
     /// `placeCards`: every card's view, whether it shows, how it stacks, and
     /// how the hand holds it. The rect is the pane's, which the gesture
     /// carries; the view is the pane outset by `apron`, grown to whole
     /// points. A body the placement does not name is hidden.
+    ///
+    /// Every workspace the placement names has a stage, and each card's
+    /// visibility is derived from the stage the host shows ([P04]), which a
+    /// placement never moves: only a cut does. The placement's own shown
+    /// workspace seeds the first stage at launch, or after the shown one's
+    /// workspace has gone; and a cut the shell asked for onto a workspace no
+    /// placement had named yet is made once this one names it.
     func placeCards(_ placement: PlaceCards) {
-        // What is on screen before this placement moves anything, which the
-        // hand-over is planned against.
-        let handOverPlan = BodyHandOver.plan(onScreen: onScreenRects(), entries: placement.cards)
         placementHeld = Set(placement.held ?? [])
         cardApron = CGFloat(placement.apron)
         // A canvas the shell does not show leaves the last one standing.
@@ -1153,6 +1280,8 @@ final class BodyViewController {
         if placement.zoom > 0 { cardZoom = CGFloat(placement.zoom) }
         if placement.gap >= 0 { cardGap = CGFloat(placement.gap) }
         railLimits = placement.rails
+        placedSpaces = placement.spaces
+        placedActiveSpaceId = placement.activeSpaceId
         var placements: [String: CardPlacement] = [:]
         // Each named card with where the placement lists it: the deck's
         // reading order, which is the window's VoiceOver order.
@@ -1163,20 +1292,35 @@ final class BodyViewController {
                 rect: entry.rect,
                 visible: entry.visible,
                 sibling: entry.sibling == true,
-                face: entry.face == true,
                 z: Int(entry.z),
                 grips: Set(entry.grips),
                 free: entry.free,
                 min: CGSize(width: entry.min.width, height: entry.min.height),
                 maxHeight: entry.maxHeight.map { CGFloat($0) },
                 rail: entry.rail,
-                railTravel: entry.railTravel
+                railTravel: entry.railTravel,
+                spaceId: entry.spaceId,
+                staged: entry.staged,
+                title: entry.title,
+                kind: entry.kind,
+                folded: entry.folded == true
             )
         }
         cardPlacements = placements
         placedEntries = named
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        stages.setCutting(true)
+        // A workspace gone from the list takes its stage: any body still in
+        // its view goes to the host view first, where its next placement, or
+        // its close, finds it.
+        let listed = Set(placement.spaces.map(\.id))
+        for stage in stages.stages where !listed.contains(stage.id) {
+            for body in bodies where body.container.superview === stage.view { reparent(body, into: hostView) }
+            for picture in stage.alone.values { picture.takeDown() }
+        }
+        stages.sync(placement.spaces)
+        if stages.activeId == nil { stages.show(placement.activeSpaceId) }
         for body in bodies {
             // A card in the host's hand is the host's until its gesture ends:
             // the placement that lands it is the shell's commit, after.
@@ -1188,125 +1332,403 @@ final class BodyViewController {
                 beats.cancel(body)
                 body.visible = false
                 body.sibling = false
+                setPicture(nil, on: body)
                 applyVisibility(body)
                 continue
             }
             place(body, entry, deckIndex: deckIndex)
         }
-        // Each rail's members into its rail view, and the containers in the
-        // panes' order, back to front, moved in place.
+        // Each rail's members into its rail view, each other card into its
+        // stage, and the containers in the panes' order, back to front,
+        // moved in place.
         reconcileRails()
-        // The views it takes down over an arriving card are handed to faces
-        // in this same transaction.
-        faceHandOver.handOver(handOverPlan, placement)
-        openRevealSet(handOverPlan)
+        refreshAlonePictures()
+        stages.setCutting(false)
         CATransaction.commit()
         refreshRegion()
-        switchHold.placementArrived()
+        if let pending = pendingShellCut, stages.stage(pending) != nil { cut(to: pending, door: .shell(serial: nil)) }
         // The lane's order is the placement's: a card waiting on it may go.
         if !lane.isEmpty { lane.drain() }
     }
 
-    // MARK: - Hand-over
-
-    /// The last hand-overs and the faces standing now (`BodyFaceHandOver`).
-    func handOverAccount() -> JSONValue {
-        guard case .object(var account) = faceHandOver.account() else { return faceHandOver.account() }
-        account["revealLog"] = .array(revealLog.map(JSONValue.string))
-        account["switchHolds"] = switchHold.account()
-        let parked = lifecycle.covers.parkedCovers
-        account["parkCovers"] = .object([
-            "cards": .object(parked.mapValues { .object(["bytes": .number(Double($0.bytes)), "takenAt": .number($0.takenAt)]) }),
-            "bytes": .number(Double(lifecycle.covers.parkedBytes)),
-            "budgetBytes": .number(Double(BodyLifecycle.parkCoverBudgetBytes)),
+    /// A cut has committed: its account and its line, and each departing
+    /// card that was live owed its last frame, taken one at a time once the
+    /// cut's quiet has passed.
+    private func noteCut(serial: Int, from: String?, door: CutDoor, gestureWall: Double, began: CFTimeInterval, liveBefore: Set<String>) {
+        guard let to = stages.activeId else { return }
+        var pictures: [String: String] = [:]
+        var counts: [StagePicture: Int] = [:]
+        for (cardId, placed) in cardPlacements where placed.spaceId == to && placed.rail == nil {
+            guard let kind = pictureOf(cardId) else { continue }
+            pictures[cardId] = kind.rawValue
+            counts[kind, default: 0] += 1
+        }
+        let ms = (CACurrentMediaTime() - began) * 1000
+        stages.record(StageSet.Cut(
+            serial: serial, from: from, to: to, door: door.name, gestureWall: gestureWall,
+            committedWall: Date().timeIntervalSince1970 * 1000, pictures: pictures
+        ))
+        TugLog.info("bodies", "stage cut", [
+            TugLog.field("serial", serial),
+            TugLog.field("from", from ?? "none"),
+            TugLog.field("to", to),
+            TugLog.field("door", door.name),
+            TugLog.field("live", counts[.live] ?? 0),
+            TugLog.field("last_frame", counts[.lastFrame] ?? 0),
+            TugLog.field("skeleton", counts[.skeleton] ?? 0),
+            TugLog.field("ms", String(format: "%.1f", ms)),
         ])
-        return .object(account)
+        lifecycle.cutCommitted()
+        for body in bodies {
+            guard let cardId = body.cardId, liveBefore.contains(cardId), !body.visible,
+                  cardPlacements[cardId]?.spaceId == from else { continue }
+            lifecycle.queueParkCover(body)
+        }
     }
 
-    /// One line of what the reveal set did, for the harness.
-    private func noteReveal(_ what: String, _ cards: some Sequence<String>) {
-        let wall = Int((Date().timeIntervalSince1970 * 1000).rounded())
-        revealLog.append("\(wall) \(what) [\(cards.sorted().joined(separator: ", "))]")
-        if revealLog.count > 40 { revealLog.removeFirst(revealLog.count - 40) }
+    // MARK: - Pictures
+
+    /// Whether the last placement names `cardId` and it shows in the stage
+    /// on screen now ([P04]).
+    func placedShown(_ cardId: String) -> Bool {
+        guard let placed = cardPlacements[cardId] else { return false }
+        return StagePicture.visible(
+            staged: placed.staged, rail: placed.rail != nil && placed.spaceId == nil, spaceId: placed.spaceId,
+            activeId: stages.activeId ?? placedActiveSpaceId
+        )
     }
 
-    /// A placement that hands views over to faces opens the set over the
-    /// cards standing in whose pages have not painted. With a set open, a
-    /// placement that hands views over is followed instead, landing the
-    /// paints of the cards no longer standing in — or all of them, once
-    /// nothing standing in still waits. A placement handing nothing over
-    /// only adds to the set: a card whose page the shell asks for after the
-    /// switch's commit, as an unbound Session card's is, joins it at the
-    /// placement that first stands it in.
-    private func openRevealSet(_ plan: HandOverPlan) {
-        guard revealSet != nil || !plan.handedOver.isEmpty else { return }
-        // Every card arriving on its stand-in, a drawn face or not: one the
-        // shell could not read into a face arrives with the rest.
-        let faces = plan.standIns
-        let painted: (String) -> Bool = { [weak self] cardId in
-            guard let self else { return true }
-            return self.body(forCard: cardId)?.contentPainted == true
-        }
-        if var set = revealSet {
-            let before = set
-            var left: Set<String> = []
-            if plan.handedOver.isEmpty {
-                set.join(faces, painted: painted)
-            } else {
-                left = set.follow(faces: faces, painted: painted)
-            }
-            revealSet = set
-            // A placement that moves nothing in the set says nothing.
-            if set != before { noteReveal("follow, waiting", set.waiting) }
-            if set.waiting.isEmpty {
-                landRevealSet()
-            } else {
-                landHeld(left)
-            }
-            return
-        }
-        guard let set = BodyRevealSet.open(faces: faces, painted: painted) else {
-            noteReveal("no set over", faces)
-            return
-        }
-        noteReveal("open, waiting", set.waiting)
-        revealSet = set
-        let horizon = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            TugLog.info("bodies", "reveal set past its horizon", [TugLog.field("waiting", self.revealSet?.waiting.count ?? 0)])
-            self.landRevealSet()
-        }
-        revealHorizon = horizon
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(BodyRevealSet.horizonMs), execute: horizon)
-    }
-
-    /// The set lands: every member whose content has painted, in one
-    /// transaction, and the set closes. A member still to paint its content
-    /// is a straggler from here, held on its skeleton until it does.
-    private func landRevealSet() {
-        revealHorizon?.cancel()
-        revealHorizon = nil
-        if let set = revealSet { stragglers.formUnion(set.waiting) }
-        revealSet = nil
-        landHeld(nil)
-    }
-
-    /// The held paints of `cards` whose content has painted land, in one
-    /// transaction — of every held card when `cards` is nil. A held card
-    /// whose content has not painted stays held, a straggler, and never shows
-    /// its chrome over a blank box.
-    private func landHeld(_ cards: Set<String>?) {
-        let named = heldPaints.filter { body in cards.map { set in body.cardId.map(set.contains) ?? true } ?? true }
-        stragglers.formUnion(named.filter { !$0.contentPainted }.compactMap(\.cardId))
-        let held = named.filter(\.contentPainted)
-        stragglers.subtract(held.compactMap(\.cardId))
-        guard !held.isEmpty else { return }
-        heldPaints.removeAll { body in held.contains { $0 === body } }
-        noteReveal("land", held.compactMap(\.cardId))
+    /// A last frame was kept or let go for `cardId`: what it can show moved.
+    func lastFrameMoved(_ cardId: String) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for body in held { landPaint(body) }
+        if let body = body(forCard: cardId) {
+            refreshPicture(body)
+        } else if cardPlacements[cardId] != nil {
+            refreshAlonePictures()
+        }
         CATransaction.commit()
+    }
+
+    /// The picture `cardId` shows now, or nil for a sibling or a card the
+    /// last placement did not name.
+    func pictureOf(_ cardId: String) -> StagePicture? {
+        guard let placed = cardPlacements[cardId] else { return nil }
+        if let body = body(forCard: cardId) {
+            if placed.sibling { return nil }
+            if let picture = body.picture { return picture.kind }
+            return body.covered ? .lastFrame : .live
+        }
+        if let stage = stageOf(placed), let picture = stage.alone[cardId] { return picture.kind }
+        return StagePicture.choose(pictureFacts(cardId, body: nil, placed: placed))
+    }
+
+    /// The host's facts about `cardId` that its picture is chosen from.
+    private func pictureFacts(_ cardId: String, body: Body?, placed: CardPlacement) -> StagePicture.Facts {
+        var facts = StagePicture.Facts()
+        facts.sibling = placed.sibling
+        let kept = lifecycle.covers.parkedCover(for: cardId) ?? lifecycle.covers.keptCover(for: cardId)
+        facts.hasLastFrame = kept != nil || body?.covered == true
+        if let body {
+            facts.hasBody = true
+            facts.contentPainted = body.contentPainted
+            // Stale since its last frame was taken: that frame is behind too.
+            // A frame taken after the page said so stands for it; its layer
+            // is still behind until it paints as shown.
+            facts.stale = body.stale && (kept.map { cover in (body.staleAt ?? 0) >= cover.takenAt } ?? true)
+            facts.slept = body.sleptSinceShown || body.owedPaint || body.stale || body.paintedOnlyHidden
+            facts.evicted = body.covered
+            facts.pastHorizon = body.pastHorizon
+        }
+        facts.failed = failedCards.contains(cardId) || body?.state == .failed
+        return facts
+    }
+
+    /// The stage `placed` stands in: its workspace's, or nil for a rail member.
+    private func stageOf(_ placed: CardPlacement) -> Stage? {
+        guard placed.rail == nil else { return nil }
+        return stages.stage(placed.spaceId) ?? stages.active
+    }
+
+    /// The palette `placed`'s pictures draw in: its workspace's, or the
+    /// shown stage's for a rail member, which follows the workspace the host
+    /// shows rather than the theme the shell has caught up to ([B10]).
+    private func paletteOf(_ placed: CardPlacement) -> SkeletonPalette? {
+        if let stage = stageOf(placed) ?? stages.active { return stages.palette(of: stage) }
+        return window.palettes.onScreen
+    }
+
+    /// Choose `body`'s picture again from its facts, and stand it.
+    func refreshPicture(_ body: Body) {
+        guard let cardId = body.cardId, let placed = cardPlacements[cardId], let entry = placedEntries[cardId]?.entry else {
+            setPicture(nil, on: body)
+            return
+        }
+        // A picture that stood alone for the card before its body was made
+        // is the body's from here: the same skeleton, its wave running on.
+        var adopted: StageCardPicture?
+        for stage in stages.stages {
+            guard let alone = stage.alone.removeValue(forKey: cardId) else { continue }
+            if adopted == nil, body.picture == nil { adopted = alone } else { alone.takeDown() }
+        }
+        // A rail card re-skinning stands a skeleton in the theme it was told,
+        // with no wave: it covers a re-skin, not a load ([P10]).
+        if let theme = railReskin[cardId] {
+            adopted?.takeDown()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let picture: StageCardPicture
+            if let standing = body.picture, let skeleton = standing.skeleton, skeleton.palette.theme == theme {
+                picture = standing
+            } else {
+                let frame = body.container.bounds
+                let palette = window.palettes.palette(for: theme) ?? paletteOf(placed) ?? SkeletonPalette(
+                    theme: theme, canvas: "#000000", grid: "#000000", surface: "#202020", band: "#2a2a2a", ink: "#cccccc", border: "#3a3a3a"
+                )
+                let content = StageSkeletonView(
+                    frame: CGRect(origin: .zero, size: frame.size), palette: palette, title: placed.title,
+                    insets: entry.insets, folded: placed.folded, zoom: cardZoom, loading: false
+                )
+                picture = StageCardPicture(kind: .skeleton, content: content, frame: frame, serial: nextSerial())
+            }
+            setPicture(picture, on: body)
+            arm(picture, onScreen: body.visible, horizon: true, cardId: cardId)
+            CATransaction.commit()
+            return
+        }
+        let facts = pictureFacts(cardId, body: body, placed: placed)
+        let kind = StagePicture.choose(facts)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        switch kind {
+        case .skeleton?, .lastFrame?:
+            // A card brought back under its eviction cover shows that cover:
+            // it is the card's last frame, standing in its container already.
+            if kind == .lastFrame, body.covered {
+                setPicture(nil, on: body)
+            } else {
+                let frame = body.container.bounds
+                let standing = body.picture ?? adopted
+                let picture = pictureView(kind!, cardId: cardId, placed: placed, entry: entry, facts: facts, frame: frame, standing: standing)
+                if picture !== body.picture { setPicture(picture, on: body) }
+                picture.skeleton?.keepWave()
+            }
+        default:
+            setPicture(nil, on: body)
+        }
+        if let adopted, adopted !== body.picture { adopted.takeDown() }
+        if let picture = body.picture { arm(picture, onScreen: body.visible, horizon: StagePicture.hasHorizon(facts), cardId: cardId) }
+        CATransaction.commit()
+    }
+
+    /// The picture for each placed card that has no body: standing alone in
+    /// its stage — or in the host view, for a rail member — at its view rect
+    /// and order. A card with a body has its picture in its container.
+    private func refreshAlonePictures() {
+        var wanted: [ObjectIdentifier: Set<String>] = [:]
+        for (cardId, placed) in cardPlacements where body(forCard: cardId) == nil {
+            guard let entry = placedEntries[cardId]?.entry else { continue }
+            let parent: NSView = stageOf(placed)?.view ?? hostView
+            let facts = pictureFacts(cardId, body: nil, placed: placed)
+            guard let kind = StagePicture.choose(facts), kind != .live, let stage = stageOf(placed) ?? stages.active else { continue }
+            let standing = stage.alone[cardId]
+            let picture = pictureView(kind, cardId: cardId, placed: placed, entry: entry, facts: facts, frame: entry.view.cgRect, standing: standing)
+            picture.frame = entry.view.cgRect
+            picture.order = Int(entry.z)
+            if picture !== standing {
+                standing?.takeDown()
+                stage.alone[cardId] = picture
+            }
+            if picture.superview !== parent { parent.addSubview(picture) }
+            wanted[ObjectIdentifier(stage), default: []].insert(cardId)
+            // Shown only while its card is: a card its stage does not show,
+            // or a rail of a workspace not shown, stands nothing.
+            let shown = placedShown(cardId)
+            // By opacity, never `isHidden`: AppKit draws no hidden view, so a
+            // skeleton made in a parked stage and unhidden at the cut would
+            // stand empty for the frames before its first draw.
+            picture.isHidden = false
+            picture.layer?.opacity = shown ? 1 : 0
+            arm(picture, onScreen: shown, horizon: false, cardId: cardId)
+        }
+        for stage in stages.stages {
+            let keep = wanted[ObjectIdentifier(stage)] ?? []
+            for (cardId, picture) in stage.alone where !keep.contains(cardId) {
+                picture.takeDown()
+                stage.alone[cardId] = nil
+            }
+        }
+        sortStacking()
+    }
+
+    /// The picture of `kind` for a card, reusing `standing` when it is the
+    /// same picture: a skeleton of the same loading-ness takes the card's
+    /// latest facts in place.
+    private func pictureView(
+        _ kind: StagePicture, cardId: String, placed: CardPlacement, entry: CardPlacementEntry,
+        facts: StagePicture.Facts, frame: CGRect, standing: StageCardPicture?
+    ) -> StageCardPicture {
+        let loading = StagePicture.loading(facts)
+        if let standing, standing.kind == kind {
+            if let skeleton = standing.skeleton, (skeleton.wavesAfterFrames != nil) == loading {
+                if let palette = paletteOf(placed) { skeleton.palette = palette }
+                skeleton.title = placed.title
+                skeleton.insets = entry.insets
+                skeleton.folded = placed.folded
+                skeleton.zoom = cardZoom
+                return standing
+            }
+            if kind == .lastFrame {
+                (standing.content as? BodyCoverView)?.paneInsets = entry.insets
+                return standing
+            }
+        }
+        let bounds = CGRect(origin: .zero, size: frame.size)
+        let content: NSView
+        if kind == .lastFrame, let cover = lifecycle.covers.parkedCover(for: cardId) ?? lifecycle.covers.keptCover(for: cardId) {
+            let view = BodyCoverView(cover: cover, frame: bounds)
+            view.paneInsets = entry.insets
+            content = view
+        } else {
+            let palette = paletteOf(placed) ?? SkeletonPalette(
+                theme: "", canvas: "#000000", grid: "#000000", surface: "#202020", band: "#2a2a2a", ink: "#cccccc", border: "#3a3a3a"
+            )
+            content = StageSkeletonView(
+                frame: bounds, palette: palette, title: placed.title, insets: entry.insets,
+                folded: placed.folded, zoom: cardZoom, loading: loading
+            )
+        }
+        let made = kind == .lastFrame && content is StageSkeletonView ? StagePicture.skeleton : kind
+        return StageCardPicture(kind: made, content: content, frame: frame, serial: nextSerial())
+    }
+
+    /// Stand `picture` over `body`'s page, in its container above everything
+    /// in it, or take down the one standing when nil; the body's visibility
+    /// follows, since a picture shows a container whose page cannot yet.
+    private func setPicture(_ picture: StageCardPicture?, on body: Body) {
+        guard picture !== body.picture else { return }
+        body.picture?.takeDown()
+        body.picture = picture
+        if let picture {
+            // An adopted alone picture may have been hidden while its card
+            // was not shown; in the container, the container's own
+            // visibility is what shows it.
+            picture.isHidden = false
+            picture.layer?.opacity = 1
+            picture.frame = body.container.bounds
+            picture.autoresizingMask = [.width, .height]
+            body.container.addSubview(picture, positioned: .above, relativeTo: nil)
+        }
+        // The picture is the card's face while it stands, and the page
+        // beneath it is not seen: a page still loading paints the deck's
+        // own canvas across its whole view before its body styles apply,
+        // and in its apron that would lie over the neighbouring card. Kept
+        // by opacity, so the page runs its frames and paints all the same.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        body.webView.layer?.opacity = picture == nil ? 1 : 0
+        CATransaction.commit()
+        applyVisibility(body)
+    }
+
+    /// A picture is on screen, or no longer: a loading skeleton's wave runs
+    /// while it is, and a picture over a painted page comes down at its
+    /// horizon if the page has not painted by then ([P11]).
+    private func arm(_ picture: StageCardPicture, onScreen: Bool, horizon: Bool, cardId: String) {
+        let shown = onScreen && picture.superview != nil
+        picture.skeleton?.setOnScreen(shown)
+        guard shown else {
+            picture.horizon?.cancel()
+            picture.horizon = nil
+            picture.onScreenSince = nil
+            return
+        }
+        if picture.onScreenSince == nil { picture.onScreenSince = CACurrentMediaTime() }
+        guard horizon, picture.horizon == nil else { return }
+        let work = DispatchWorkItem { [weak self, weak picture] in
+            guard let self, let picture, let body = self.body(forCard: cardId), body.picture === picture else { return }
+            // A rail re-skin whose paint never came: the page stands as it is.
+            if self.railReskin.removeValue(forKey: cardId) != nil {
+                TugLog.warn("bodies", "rail re-skin past its horizon", [TugLog.field("card", cardId)])
+                self.refreshPicture(body)
+                return
+            }
+            TugLog.warn("bodies", "stage picture past its horizon", [
+                TugLog.field("card", cardId), TugLog.field("kind", picture.kind.rawValue),
+            ])
+            body.pastHorizon = true
+            self.refreshPicture(body)
+        }
+        picture.horizon = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(BodyLifecycle.parkCoverHorizonMs)), execute: work)
+    }
+
+    /// A palette arrived: every stage's ground re-wears its theme's, and so
+    /// does every skeleton standing.
+    func paletteArrived() {
+        stages.paletteArrived()
+        for body in bodies {
+            guard let skeleton = body.picture?.skeleton, let cardId = body.cardId,
+                  let placed = cardPlacements[cardId] else { continue }
+            // A rail card re-skinning wears the theme it was told, once known.
+            if let theme = railReskin[cardId] {
+                if let told = window.palettes.known(theme) { skeleton.palette = told }
+                continue
+            }
+            guard let palette = paletteOf(placed) else { continue }
+            skeleton.palette = palette
+        }
+        for stage in stages.stages {
+            guard let palette = stages.palette(of: stage) else { continue }
+            for picture in stage.alone.values { picture.skeleton?.palette = palette }
+        }
+    }
+
+    /// The stages, for the harness (`stages`): which is shown, each one's
+    /// cards with their pictures, and the last cuts.
+    func stagesAccount() -> JSONValue {
+        let ordered = cardPlacements.sorted { (placedEntries[$0.key]?.deckIndex ?? 0) < (placedEntries[$1.key]?.deckIndex ?? 0) }
+        let rows: [JSONValue] = stages.stages.map { stage in
+            let cards = ordered.filter { $0.value.rail == nil && stageOf($0.value) === stage }.map { cardRecord($0.key, $0.value) }
+            return .object([
+                "id": .string(stage.id),
+                "theme": stage.theme.map(JSONValue.string) ?? .null,
+                "shown": .bool(stage.view.isShown),
+                "grounded": .bool(stage.ground != nil),
+                "cards": .array(cards),
+            ])
+        }
+        return .object([
+            "active": stages.activeId.map(JSONValue.string) ?? .null,
+            "stages": .array(rows),
+            "rail": .array(ordered.filter { $0.value.rail != nil }.map { cardRecord($0.key, $0.value) }),
+            "cuts": .array(stages.cuts.map(\.json)),
+            // The last frames kept for parked workspaces' cards, by card.
+            "parkCovers": .object([
+                "cards": .object(lifecycle.covers.parkedCovers.mapValues {
+                    .object(["bytes": .number(Double($0.bytes)), "takenAt": .number($0.takenAt)])
+                }),
+                "bytes": .number(Double(lifecycle.covers.parkedBytes)),
+                "budgetBytes": .number(Double(BodyLifecycle.parkCoverBudgetBytes)),
+            ]),
+        ])
+    }
+
+    /// One card's record in the `stages` account.
+    private func cardRecord(_ cardId: String, _ placed: CardPlacement) -> JSONValue {
+        let body = self.body(forCard: cardId)
+        let standing = body?.picture ?? stages.stages.lazy.compactMap { $0.alone[cardId] }.first
+        return .object([
+            "cardId": .string(cardId),
+            "picture": pictureOf(cardId).map { .string($0.rawValue) } ?? .null,
+            "wave": .bool(standing?.skeleton?.waveRunning == true),
+            "waveDelayFrames": standing?.skeleton?.wavesAfterFrames.map { .number(Double($0)) } ?? .null,
+            "onScreenWall": standing?.skeleton?.onScreenWall.map(JSONValue.number) ?? .null,
+            "waveWall": standing?.skeleton?.waveWall.map(JSONValue.number) ?? .null,
+            "visible": .bool(body?.visible ?? placedShown(cardId)),
+            "staged": .bool(placed.staged),
+            "hasBody": .bool(body != nil),
+        ])
     }
 
     // MARK: - Layers, tick by tick
@@ -1350,15 +1772,21 @@ final class BodyViewController {
         layerLink = nil
     }
 
+    /// A rect as `x,y w×h` in whole points, flipped to a top-left origin
+    /// within `window` when one is given.
+    private static func rectText(_ r: CGRect, in window: NSWindow?) -> String {
+        let y = window.map { ($0.contentView?.bounds.height ?? 0) - r.maxY } ?? r.minY
+        return "\(Int(r.minX.rounded())),\(Int(y.rounded())) \(Int(r.width.rounded()))×\(Int(r.height.rounded()))"
+    }
+
     /// One row per bound body: its state, whether it has painted, stands
     /// under a cover, and is hidden; its container's presented opacity;
-    /// whether a face stands for it; and whether the host shows it.
+    /// whether the host shows it; the picture standing for it; and where
+    /// its container and its skeleton's pane stand.
     private func sampleLayers() {
         let wall = Date().timeIntervalSince1970 * 1000
-        var sampled = Set<String>()
         for body in bodies {
             guard let cardId = body.cardId else { continue }
-            sampled.insert(cardId)
             let layer = body.container.layer
             layerRows.append(.object([
                 "wall": .number(wall),
@@ -1368,52 +1796,31 @@ final class BodyViewController {
                 "covered": .bool(body.covered),
                 "hidden": .bool(body.container.isHidden),
                 "opacity": .number(Double(layer?.presentation()?.opacity ?? layer?.opacity ?? 0)),
-                "faced": .bool(faceHandOver.isStanding(cardId)),
-                "held": .bool(switchHold.isHolding),
                 "shown": .bool(body.visible && body.canShow),
                 "start": .string(body.warm ? "warm" : "cold"),
-                "lastFrame": .bool(body.stand?.kinds.contains(.parked) == true),
+                "lastFrame": .bool(body.picture?.kind == .lastFrame),
+                "picture": .string(pictureOf(cardId)?.rawValue ?? "none"),
+                // Where the container stands in the window, top-left origin,
+                // and the pane its picture's skeleton draws within it.
+                "frame": .string(Self.rectText(body.container.convert(body.container.bounds, to: nil), in: window)),
+                "pane": body.picture?.skeleton.map { .string("\(Self.rectText($0.bounds, in: nil)) pane \(Self.rectText($0.paneRect, in: nil))") } ?? .null,
             ]))
         }
-        // A face for a card whose page is not made yet: the card has no
-        // layers of its own to read, but the face is on screen for it.
-        for cardId in faceHandOver.standing where !sampled.contains(cardId) {
-            layerRows.append(.object([
-                "wall": .number(wall),
-                "cardId": .string(cardId),
-                "state": .string("unmade"),
-                "painted": .bool(false),
-                "covered": .bool(false),
-                "hidden": .bool(true),
-                "opacity": .number(0),
-                "faced": .bool(true),
-                "held": .bool(switchHold.isHolding),
-                "shown": .bool(false),
-                "start": .string("cold"),
-            ]))
-        }
-    }
-
-    /// Every body the user can see now — its container on screen and its
-    /// placement showing it — by card, at its view rect.
-    private func onScreenRects() -> [String: CGRect] {
-        var out: [String: CGRect] = [:]
-        for body in bodies {
-            guard let cardId = body.cardId, !body.container.isHidden,
-                  (body.container.layer?.opacity ?? 0) > 0, body.visible, body.canShow else { continue }
-            out[cardId] = body.frame
-        }
-        return out
     }
 
     /// Stand `body` where its placement entry puts it.
     func place(_ body: Body, _ entry: CardPlacementEntry, deckIndex: Int) {
         let frame = entry.view.cgRect
-        // A departing card a switch's lift hid stays hidden until the shell
-        // posts it hidden too.
-        let visible = body.cardId.map { switchHold.admits($0, visible: entry.visible) } ?? entry.visible
+        // Shown when its workspace's stage is the one on screen and it would
+        // show there ([P04]): the host's own answer, never the shell's
+        // `visible`, which follows the host's cut.
+        // A rail card names no workspace: it is the window's, and shows
+        // whichever stage is on screen.
+        let visible = StagePicture.visible(
+            staged: entry.staged, rail: entry.rail != nil && entry.spaceId == nil, spaceId: entry.spaceId,
+            activeId: stages.activeId ?? placedActiveSpaceId
+        )
         setWhole(body, true)
-        // Nor is it kept as a sibling while it is held hidden.
         body.sibling = entry.sibling == true && (visible || !entry.visible)
         if entry.insets != body.insets {
             body.insets = entry.insets
@@ -1436,6 +1843,7 @@ final class BodyViewController {
         body.container.order = body.z
         body.deckIndex = deckIndex
         applyVisibility(body)
+        refreshPicture(body)
     }
 
     /// Stand every rail member's container in its rail's view and every other
@@ -1448,8 +1856,15 @@ final class BodyViewController {
     func reconcileRails() {
         for body in bodies {
             if body.beats != nil || body === carrier.pressedOutOfBeats || carrier.isHeld(body) { continue }
-            let side = body.cardId.flatMap { cardPlacements[$0]?.rail?.side }
-            let target: NSView = side.map(railView(for:)) ?? hostView
+            let placed = body.cardId.flatMap { cardPlacements[$0] }
+            let target: NSView
+            if let side = placed?.rail?.side {
+                target = railView(for: side)
+            } else if let placed, let stage = stageOf(placed) {
+                target = stage.view
+            } else {
+                target = hostView
+            }
             if body.container.superview !== target { reparent(body, into: target) }
         }
         for (side, view) in rails where view.members.isEmpty {
@@ -1489,10 +1904,12 @@ final class BodyViewController {
         if held, let responder, window.firstResponder !== responder { window.makeFirstResponder(responder) }
     }
 
-    /// The host view's containers and rail views in the panes' order, and
-    /// each rail's members in theirs, moved in place.
+    /// The host view's stage views beneath its rail views and cards, each
+    /// stage's containers and pictures in the panes' order, and each rail's
+    /// members in theirs, moved in place.
     func sortStacking() {
         sortStacked(in: hostView)
+        for stage in stages.stages { sortStacked(in: stage.view) }
         for view in rails.values { sortStacked(in: view) }
     }
 
@@ -1532,8 +1949,14 @@ final class BodyViewController {
 
     /// `bodySurface`: the page's background as sRGB bytes, posted when it
     /// paints and whenever its theme changes. The container wears it behind
-    /// the web view for as long as the body stands.
-    func setSurface(_ body: Body, surface: [Double]?) {
+    /// the web view for as long as the body stands. The page's theme's
+    /// skeleton palette goes to the window's store by its theme's name.
+    func setSurface(_ body: Body, surface: [Double]?, palette: SkeletonPalette? = nil) {
+        if let palette {
+            let known = window.palettes.known(palette.theme) == palette
+            window.palettes.note(palette)
+            if !known { paletteArrived() }
+        }
         guard let surface else { return }
         body.surface = Self.color(surface)
         if !body.whole { body.container.surface = body.surface }
@@ -1608,20 +2031,20 @@ final class BodyViewController {
     /// its ready deadline reports nothing, and a page that does not answer
     /// the save within `saveDeadline` is removed all the same.
     func destroy(cardId: String, save: Bool) {
-        faceHandOver.removeFace(cardId)
         lifecycle.covers.drop(cardId)
         lifecycle.covers.dropParked(cardId)
         // A card still waiting in the lane has no page to save.
         lane.forget(cardId: cardId)
-        // Nor is it waited on any more: a set member or straggler closed
-        // before its page was made would hold the lane wide for good.
-        stragglers.remove(cardId)
-        if var set = revealSet, set.faces.contains(cardId) {
-            set.forget(cardId)
-            revealSet = set
-            if set.waiting.isEmpty { landRevealSet() }
+        failedCards.remove(cardId)
+        // The card is gone: no picture stands for it, alone or over its page,
+        // before the shell's next placement says so.
+        cardPlacements[cardId] = nil
+        placedEntries[cardId] = nil
+        for stage in stages.stages {
+            stage.alone.removeValue(forKey: cardId)?.takeDown()
         }
         guard let body = body(forCard: cardId) else { return }
+        setPicture(nil, on: body)
         lifecycle.move(body, .close)
         body.deadline?.cancel()
         body.deadline = nil
@@ -1646,15 +2069,11 @@ final class BodyViewController {
     func destroyAll() {
         lane.clear()
         stopBodyLayers()
-        // A hand-over in flight ends with the window: its answer, horizon
-        // and retirement find a serial moved on.
-        faceHandOver.endAll()
-        revealHorizon?.cancel()
-        revealHorizon = nil
-        revealSet = nil
-        heldPaints = []
-        stragglers = []
         lifecycle.covers.clear()
+        for stage in stages.stages {
+            for picture in stage.alone.values { picture.takeDown() }
+            stage.alone = [:]
+        }
         for body in bodies { remove(body) }
         // After the removals, which leave the lane idle and would ask for a
         // spare the window going away has no use for.
@@ -1709,9 +2128,8 @@ final class BodyViewController {
         // drag takes its ghost away, or commits the spring the hand released.
         carrier.letGo(of: body)
         bodies.removeAll { $0 === body }
-        // A paint held for a set goes with its page, and so does its wait.
-        heldPaints.removeAll { $0 === body }
-        if let cardId = body.cardId { stragglers.remove(cardId) }
+        body.picture?.takeDown()
+        body.picture = nil
         if let cardId = body.cardId, let stand = body.stand { lifecycle.covers.release(stand, for: cardId) }
         // A body that held the keyboard takes it with it; AppKit hands it to
         // the window, so give it to whoever the shell names — another card's
@@ -1732,6 +2150,14 @@ final class BodyViewController {
             window.bodyDidGoAway(cardId: cardId)
         }
         refreshRegion()
+        // A card still placed with no page — evicted, or its process gone —
+        // stands alone in its stage, as its last frame or its skeleton.
+        if let cardId = body.cardId, cardPlacements[cardId] != nil, self.body(forCard: cardId) == nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            refreshAlonePictures()
+            CATransaction.commit()
+        }
         // A page gone, failed at its deadline or destroyed, has left the lane.
         if !lane.isEmpty { lane.drain() }
         // The last page to leave the lane may have left it by failing, with
@@ -1836,6 +2262,9 @@ final class BodyViewController {
             TugLog.field("card", cardId ?? "spare"),
             TugLog.field("cause", cause),
         ])
+        // No picture stands over a failed card: the shell's placard saying
+        // it needs reloading is its face, until the card is asked for again.
+        if let cardId { failedCards.insert(cardId) }
         remove(body)
         if let cardId {
             notifyShell(BodyStateReport(cardId: cardId, state: .failed, cause: cause))

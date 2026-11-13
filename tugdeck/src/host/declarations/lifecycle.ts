@@ -12,6 +12,8 @@ import { arr, bool, empty, literal, nullable, num, obj, opaque, optional, rec, s
 import { defineToHost, definePageCall, defineToPage, noReply } from "../declare";
 import type { TerminationVerdict } from "../../teardown";
 import type { CrossingAnchor, CrossingBand } from "../../lib/crossing-band";
+import type { SkeletonPalette } from "../../lib/skeleton-palette";
+import { SAMPLE_PALETTE, skeletonPaletteCodec } from "./services";
 
 /** A JSON object carried as is: a body's intent, which `parseBodyIntent` reads in the body. */
 const jsonObject: Codec<Record<string, unknown>> = opaque(
@@ -41,14 +43,30 @@ export const bodyHelloToHost = defineToHost({
  * A body's frame has gone to the compositor: first its chrome's, then its
  * content's (`content`). The host may show it from the first; a switch's
  * faced set waits on each member's content, so the set never shows a card's
- * chrome before its content.
+ * chrome before its content. `theme` names the theme the frame was drawn in
+ * when the page is answering a {@link bodyThemeToPage}: the host takes a rail
+ * card's re-skin skeleton down on the paint carrying the theme it asked for.
  */
-export const paintedToHost = defineToHost<{ content: boolean }>({
+export const paintedToHost = defineToHost<{ content: boolean; theme?: string }>({
   name: "painted",
   from: "body",
-  codec: obj({ content: bool }),
-  samples: [{ content: true }, { content: false }],
-  refused: [true, {}],
+  codec: obj({ content: bool, theme: optional(str) }),
+  samples: [{ content: true }, { content: false }, { content: true, theme: "sloop" }],
+  refused: [true, {}, { content: true, theme: 3 }],
+});
+
+/**
+ * The theme a rail page wears from now on, told by the host in a cut between
+ * workspaces of different themes ([B10]): the page applies it as it applies
+ * the shell's `cardTheme`, and two frames later says `painted` with it. The
+ * shell's own push of the same theme that follows is then a no-op.
+ */
+export const bodyThemeToPage = defineToPage<{ theme: string }>({
+  member: "onBodyTheme",
+  to: "body",
+  codec: obj({ theme: str }),
+  samples: [{ theme: "sloop" }],
+  refused: ["sloop", {}, { theme: 3 }],
 });
 
 /**
@@ -225,11 +243,16 @@ export const planStartedToPage = defineToPage<PlanStarted>({
   refused: [7, { planId: 7, startWallMs: 0, solveMs: 0 }, { planId: "7", startWallMs: 0, solveMs: 0, timedOut: false }],
 });
 
-export const bodySurfaceToHost = defineToHost<BodySurface>({
+/** The page's surface, and the skeleton palette of the theme the page wears, under its name. */
+export interface BodySurfaceReport extends BodySurface {
+  readonly palette?: SkeletonPalette;
+}
+
+export const bodySurfaceToHost = defineToHost<BodySurfaceReport>({
   name: "bodySurface",
   from: "body",
-  codec: bodySurfaceCodec,
-  samples: [{ surface: [28, 30, 34, 255] }, { surface: null }],
+  codec: obj({ surface: nullable(rgbaBytes), palette: optional(skeletonPaletteCodec) }),
+  samples: [{ surface: [28, 30, 34, 255] }, { surface: null }, { surface: [28, 30, 34, 255], palette: SAMPLE_PALETTE }],
   refused: [[28, 30, 34, 255], { surface: [28, 30, 34, 256] }],
 });
 

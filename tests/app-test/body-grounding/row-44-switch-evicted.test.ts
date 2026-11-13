@@ -9,16 +9,15 @@
  * the Session cards'; past the host's eviction delay, shortened here, both
  * Session bodies are evicted by the clock. Then the Session workspace is
  * shown again and read frame by frame until both new bodies have painted.
- * Each card comes back under the face the shell stands in for it, which
- * already stands in the parked workspace so the first switched frame shows
- * it, and under the last frame the host kept at its eviction where that has
- * not aged out: the host drops a cover older than the eviction delay, which the
- * row shortens, so either may be what stands. The Text card's view stood
- * across both panes, and the host hides it in the transaction that stands
- * its own face for each Session card, drawn from the shell's stand-in, so
- * the first switched frame shows those faces where the Text card stood; the
- * switch's hand-over lands, and no face is left standing once both pages
- * have painted.
+ * Each card comes back as the picture the host already stands for it in the
+ * parked workspace's stage, so the first switched frame shows it: the last
+ * frame it kept at the eviction where that has not aged out, else the
+ * card's skeleton — the host drops a cover older than the eviction delay,
+ * which the row shortens, so either may be what stands. The Text card's
+ * view stood across both panes, and the cut hides it in the transaction
+ * that shows the Session cards' stage, so the first switched frame shows
+ * their pictures where the Text card stood, and no picture is left standing
+ * once both pages have painted.
  *
  * @family row-44-switch
  * @motion
@@ -26,9 +25,7 @@
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/lib/body-stand-in-store.ts
  * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugapp/Sources/BodyHandOver.swift
- * @covers tugapp/Sources/BodyFaceHandOver.swift
- * @covers tugdeck/src/lib/face-draw.ts
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugdeck/src/body/body-chrome.ts

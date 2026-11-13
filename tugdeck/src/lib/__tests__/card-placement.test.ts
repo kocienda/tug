@@ -13,23 +13,20 @@ import type { IDeckManagerStore } from "../../deck-manager-store";
 import { bodyCardsStore } from "../body-cards-store";
 import {
   bodyVisible,
-  createSwitchLatch,
-  faceToCarry,
   heldForThePaint,
-  heldUnlessSwitching,
   hiddenSince,
   inReadingOrder,
   LANDING_GUARD_MS,
   landDrifts,
   landingHorizonMs,
-  meetsAFace,
+  meetsAPicture,
   namePlans,
   placeCardsOf,
   PlacementPoster,
   samePlacement,
   shownFactsOf,
-  SWITCH_LATCH_HORIZON_MS,
-  wantsFace,
+  stagedOf,
+  wantsPicture,
   type BodyPlacement,
   type BodyShownFacts,
   type CardFacts,
@@ -38,7 +35,6 @@ import {
 } from "../card-placement";
 import { CARD_APRON_PX } from "../chrome-placement";
 import { SOLVE_GUARD_MS } from "../card-plan";
-import { firstFamily, rgbaOf, rgbaOfBytes, svgPaintOf, withinView, type FaceDraw } from "../face-draw";
 
 const SHOWN: BodyShownFacts = {
   painted: true,
@@ -49,12 +45,8 @@ const SHOWN: BodyShownFacts = {
 
 const APRON = { top: CARD_APRON_PX, right: CARD_APRON_PX, bottom: CARD_APRON_PX, left: CARD_APRON_PX };
 
-const NO_DRAW: FaceDraw = { boxes: [], texts: [], images: [] };
-
 function view(cardId: string, x: number, y: number, over: Partial<BodyPlacement> = {}): BodyPlacement {
-  // A card that wants a face carries the display list the host draws it from.
-  const drawn = over.face === true && !("faceDraw" in over) ? { faceDraw: NO_DRAW } : {};
-  return { cardId, x, y, width: 300, height: 200, visible: true, z: 0, shell: [], insets: APRON, ...drawn, ...over };
+  return { cardId, x, y, width: 300, height: 200, visible: true, z: 0, shell: [], insets: APRON, spaceId: "s1", staged: true, title: cardId, kind: "text", ...over };
 }
 
 describe("bodyVisible", () => {
@@ -72,11 +64,11 @@ describe("bodyVisible", () => {
   }
 });
 
-describe("wantsFace", () => {
+describe("wantsPicture", () => {
   const UNPAINTED: BodyShownFacts = { ...SHOWN, painted: false };
 
-  test("a card hidden only for want of its first paint wants a face", () => {
-    expect(wantsFace(UNPAINTED, false)).toBe(true);
+  test("a card hidden only for want of its first paint stands as the host's picture", () => {
+    expect(wantsPicture(UNPAINTED, false)).toBe(true);
   });
 
   const cases: Array<[string, Partial<BodyShownFacts>]> = [
@@ -86,20 +78,19 @@ describe("wantsFace", () => {
   ];
   for (const [name, over] of cases) {
     test(`${name} wants none`, () => {
-      expect(wantsFace({ ...UNPAINTED, ...over }, false)).toBe(false);
+      expect(wantsPicture({ ...UNPAINTED, ...over }, false)).toBe(false);
     });
   }
 
   test("a card placed visible, or in no pane, wants none", () => {
-    expect(wantsFace(SHOWN, true)).toBe(false);
-    expect(wantsFace(null, false)).toBe(false);
+    expect(wantsPicture(SHOWN, true)).toBe(false);
+    expect(wantsPicture(null, false)).toBe(false);
   });
 
-  test("a placement that changes only a face is news", () => {
+  test("a placement that changes only whether the host pictures a card is not news: the host derives it", () => {
     const plain: Placement = { bodies: [view("a", 0, 40, { visible: false })] };
-    const faced: Placement = { bodies: [view("a", 0, 40, { visible: false, face: true })] };
-    expect(samePlacement(plain, faced)).toBe(false);
-    expect(samePlacement(faced, faced)).toBe(true);
+    const pictured: Placement = { bodies: [view("a", 0, 40, { visible: false, pictured: true })] };
+    expect(samePlacement(plain, pictured)).toBe(true);
   });
 });
 
@@ -119,14 +110,21 @@ describe("placeCardsOf", () => {
     byCard: new Map([["a", { grips: ["e", "s"], free: true, min: { width: 240, height: 160 }, maxHeight: 820 }]]),
     rails: {},
     band: { band: 900, flow: null },
+    spaces: [
+      { id: "s1", theme: "ironclad", focusedCardId: "a" },
+      { id: "s2", theme: null, focusedCardId: null },
+    ],
+    activeSpaceId: "s1",
   };
 
-  test("carries each card's pane, its view and insets, the shell's controls over it, and its stand-in's facts", () => {
+  test("carries each card's pane, its view and insets, the shell's controls over it, its stage facts, and its stand-in's facts", () => {
     const seam = { x: 300, y: 40, width: 8, height: 200 };
     const cards = placeCardsOf({ bodies: [view("a", 0, 40, { z: 3, shell: [seam], insets: { ...APRON, right: 10.5 } })] }, facts);
     expect(cards.apron).toBe(CARD_APRON_PX);
     expect(cards.canvas).toEqual(facts.canvas);
     expect(cards.zoom).toBe(1.25);
+    expect(cards.spaces).toEqual(facts.spaces);
+    expect(cards.activeSpaceId).toBe("s1");
     expect(cards.cards).toEqual([
       {
         cardId: "a",
@@ -138,6 +136,10 @@ describe("placeCardsOf", () => {
         insets: { ...APRON, right: 10.5 },
         shell: [seam],
         visible: true,
+        spaceId: "s1",
+        staged: true,
+        title: "a",
+        kind: "text",
         z: 3,
         grips: ["e", "s"],
         free: true,
@@ -158,6 +160,65 @@ describe("placeCardsOf", () => {
     expect([card.grips, card.free, card.min, card.maxHeight]).toEqual([[], false, { width: 0, height: 0 }, undefined]);
   });
 
+  test("a parked workspace's card carries its workspace, its title and kind, and its fold, hidden but staged", () => {
+    const parked = view("p", 0, 40, { visible: false, spaceId: "s2", title: "Notes", kind: "text", folded: true });
+    const card = placeCardsOf({ bodies: [parked] }, facts).cards[0];
+    expect([card.spaceId, card.staged, card.visible, card.title, card.kind, card.folded]).toEqual(["s2", true, false, "Notes", "text", true]);
+  });
+
+  test("a placement that changes only a card's stage facts is news", () => {
+    const a: Placement = { bodies: [view("a", 0, 40)] };
+    const changes: Partial<BodyPlacement>[] = [{ spaceId: "s2" }, { staged: false }, { title: "Renamed" }, { kind: "session" }, { folded: true }];
+    for (const over of changes) {
+      expect(samePlacement(a, { bodies: [view("a", 0, 40, over)] })).toBe(false);
+    }
+    expect(samePlacement(a, { bodies: [view("a", 0, 40)] })).toBe(true);
+  });
+
+  describe("a parked workspace's cards", () => {
+    afterEach(() => bodyCardsStore._reset());
+
+    /** The shown deck holds `a`; the parked workspace `two`'s pane holds `b` (active) and `c`. */
+    const parkedDeck = {
+      panes: [{ id: "p2", cardIds: ["b", "c"], activeCardId: "b" }],
+      cards: [
+        { id: "b", componentId: "text", title: "B" },
+        { id: "c", componentId: "text", title: "C" },
+      ],
+      arriving: {},
+    };
+    const deck = {
+      getSnapshot: () => ({ panes: [{ id: "p1", cardIds: ["a"], activeCardId: "a" }], cards: [{ id: "a", componentId: "text" }], arriving: {} }),
+      spaceOf: (cardId: string) => (cardId === "a" ? "one" : "two"),
+      getSpacesSnapshot: () => ({ activeSpaceId: "one", mountedDecks: new Map([["two", parkedDeck]]) }),
+    } as unknown as IDeckManagerStore;
+
+    test("are read in their own workspace's deck: the pane's active card is active, in a layer not shown", () => {
+      expect(shownFactsOf(deck, "b")).toEqual({ painted: false, active: true, arriving: false, layerShown: false });
+      expect(shownFactsOf(deck, "c")?.active).toBe(false);
+    });
+
+    test("a parked active card is staged and not visible; its sibling is not staged", () => {
+      for (const cardId of ["b", "c"]) {
+        bodyCardsStore.mark(cardId);
+        bodyCardsStore.setState(cardId, "painted");
+      }
+      const b = shownFactsOf(deck, "b");
+      const c = shownFactsOf(deck, "c");
+      expect([bodyVisible(b!), stagedOf(b)]).toEqual([false, true]);
+      expect([bodyVisible(c!), stagedOf(c)]).toEqual([false, false]);
+      expect(stagedOf(null)).toBe(false);
+    });
+
+    test("a card whose page has not painted is staged: its picture is the host's to stand", () => {
+      bodyCardsStore.mark("b");
+      bodyCardsStore.setState("b", "creating");
+      const b = shownFactsOf(deck, "b");
+      expect(b?.painted).toBe(false);
+      expect(stagedOf(b)).toBe(true);
+    });
+  });
+
   test("a card a plan is carrying names its plan; one no plan carries names none", () => {
     const carried = placeCardsOf({ bodies: [view("a", 0, 40, { planId: 7 })] }, facts).cards[0];
     expect(carried.planId).toBe(7);
@@ -165,11 +226,9 @@ describe("placeCardsOf", () => {
     expect("planId" in rest).toBe(false);
   });
 
-  test("a card that wants a face says so; one that does not says nothing", () => {
-    const faced = placeCardsOf({ bodies: [view("a", 0, 40, { visible: false, face: true })] }, facts).cards[0];
-    expect(faced.face).toBe(true);
-    const plain = placeCardsOf({ bodies: [view("a", 0, 40, { visible: false })] }, facts).cards[0];
-    expect("face" in plain).toBe(false);
+  test("whether the host pictures a card is the shell's own, never posted", () => {
+    const card = placeCardsOf({ bodies: [view("a", 0, 40, { visible: false, pictured: true })] }, facts).cards[0];
+    expect(Object.keys(card).filter((k) => ["pictured", "face", "faceDraw", "parked"].includes(k))).toEqual([]);
   });
 });
 
@@ -389,19 +448,19 @@ describe("heldForThePaint", () => {
     expect(hold?.releasing.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40, { visible: false })]);
   });
 
-  test("a view over a card that wants a face is not held: the host hands it over", () => {
+  test("a view over a card the host pictures is not held: the host takes it down as the picture stands", () => {
     const last = { bodies: [view("home", 40, 40), view("w1", 60, 60, { visible: false })] };
-    const next = { bodies: [view("home", 40, 40, { visible: false }), view("w1", 60, 60, { visible: false, face: true })] };
+    const next = { bodies: [view("home", 40, 40, { visible: false }), view("w1", 60, 60, { visible: false, pictured: true })] };
     expect(heldForThePaint(last, next)).toBeNull();
   });
 
-  test("a view over no face keeps its paint, beside one handed over", () => {
+  test("a view over no picture keeps its paint, beside one taken down", () => {
     const last = { bodies: [view("over", 0, 0), view("clear", 1000, 0)] };
     const next = {
       bodies: [
         view("over", 0, 0, { visible: false }),
         view("clear", 1000, 0, { visible: false }),
-        view("w1", 100, 100, { visible: false, face: true }),
+        view("w1", 100, 100, { visible: false, pictured: true }),
       ],
     };
     const hold = heldForThePaint(last, next);
@@ -409,171 +468,22 @@ describe("heldForThePaint", () => {
     expect(hold?.releasing.bodies.find((b) => b.cardId === "over")?.visible).toBe(false);
   });
 
-  test("a tab put behind a card that cannot show yet is handed over, not held", () => {
+  test("a tab put behind a card that cannot show yet is taken down, not held", () => {
     const last = { bodies: [view("a", 0, 0), view("b", 0, 0, { visible: false })] };
-    const next = { bodies: [view("a", 0, 0, { visible: false }), view("b", 0, 0, { visible: false, face: true })] };
-    expect(meetsAFace(last.bodies[0], next)).toBe(true);
+    const next = { bodies: [view("a", 0, 0, { visible: false }), view("b", 0, 0, { visible: false, pictured: true })] };
+    expect(meetsAPicture(last.bodies[0], next)).toBe(true);
     expect(heldForThePaint(last, next)).toBeNull();
   });
 });
 
-describe("the switch latch", () => {
-  /** A latch whose horizon fires only when the test says so. */
-  function latchUnderTest() {
-    let fire: (() => void) | null = null;
-    let armedMs: number | null = null;
-    const latch = createSwitchLatch((f, ms) => {
-      fire = f;
-      armedMs = ms;
-      return () => {
-        fire = null;
-      };
-    });
-    return { latch, horizon: () => fire?.(), armedMs: () => armedMs };
-  }
-
-  // Home's one view across the window; the away deck's two views side by
-  // side take neither its rect nor wear a face — the shape the paint hold keeps.
-  const last = { bodies: [view("home", 0, 0, { width: 600 }), view("a", 0, 0, { visible: false }), view("b", 300, 0, { visible: false })] };
-  const next = { bodies: [view("home", 0, 0, { width: 600, visible: false }), view("a", 0, 0), view("b", 300, 0)] };
-
-  const AB = new Set(["a", "b"]);
-
-  test("under the latch, onto cards that all show at once, a departing view that meets no face is posted hidden in the first placement", () => {
-    expect(heldUnlessSwitching(true, last, next, AB)).toBeNull();
+describe("meetsAPicture", () => {
+  test("a view sharing area with a pictured card meets it", () => {
+    expect(meetsAPicture(view("a", 0, 0), { bodies: [view("f", 299, 199, { visible: false, pictured: true })] })).toBe(true);
   });
 
-  test("without it the two-paint hold is unchanged", () => {
-    expect(heldUnlessSwitching(false, last, next, AB)).toEqual(heldForThePaint(last, next));
-    expect(heldUnlessSwitching(false, last, next, AB)?.held.bodies.find((b) => b.cardId === "home")?.visible).toBe(true);
-  });
-
-  test("under the latch, onto a card that cannot show yet, the departing view keeps its paint for the hand-over", () => {
-    // One arriving card hidden — still arriving, or its page not painted.
-    const oneCold = { bodies: [view("home", 0, 0, { width: 600, visible: false }), view("a", 0, 0, { visible: false }), view("b", 300, 0)] };
-    expect(heldUnlessSwitching(true, last, oneCold, AB)?.held.bodies.find((b) => b.cardId === "home")?.visible).toBe(true);
-    // One arriving card not in the measurement at all — a first visit, its page not yet asked for.
-    const oneAbsent = { bodies: [view("home", 0, 0, { width: 600, visible: false }), view("b", 300, 0)] };
-    expect(heldUnlessSwitching(true, last, oneAbsent, AB)?.held.bodies.find((b) => b.cardId === "home")?.visible).toBe(true);
-    // A latch naming no arriving card holds as a deck at rest does.
-    expect(heldUnlessSwitching(true, last, next, new Set())).toEqual(heldForThePaint(last, next));
-  });
-
-  test("a hide posted before the switch's measurement leaves the latch standing; the measurement clears it", () => {
-    const { latch } = latchUnderTest();
-    expect(latch.standing).toBe(false);
-    latch.set(["a"]);
-    // A set-up's `hideWhatLeft` posts through the poster and touches the
-    // latch not at all: only a completed measurement clears it.
-    expect(latch.standing).toBe(true);
-    expect([...latch.arriving]).toEqual(["a"]);
-    latch.measured();
-    expect(latch.standing).toBe(false);
-    expect(latch.arriving.size).toBe(0);
-  });
-
-  test("with no measurement it clears at its horizon", () => {
-    const { latch, horizon, armedMs } = latchUnderTest();
-    latch.set(["a"]);
-    expect(armedMs()).toBe(SWITCH_LATCH_HORIZON_MS);
-    horizon();
-    expect(latch.standing).toBe(false);
-  });
-
-  test("a measurement cancels the horizon, and a measurement with no switch is nothing", () => {
-    const { latch, horizon } = latchUnderTest();
-    latch.measured();
-    expect(latch.standing).toBe(false);
-    latch.set(["a"]);
-    latch.measured();
-    latch.set(["a"]);
-    horizon();
-    expect(latch.standing).toBe(false);
-  });
-});
-
-describe("meetsAFace", () => {
-  test("a view sharing area with a face meets it", () => {
-    expect(meetsAFace(view("a", 0, 0), { bodies: [view("f", 299, 199, { visible: false, face: true })] })).toBe(true);
-  });
-
-  test("an edge in common, a card not marked face, and the card itself do not", () => {
-    expect(meetsAFace(view("a", 0, 0), { bodies: [view("f", 300, 0, { visible: false, face: true })] })).toBe(false);
-    expect(meetsAFace(view("a", 0, 0), { bodies: [view("f", 10, 10, { visible: false })] })).toBe(false);
-    expect(meetsAFace(view("a", 0, 0), { bodies: [view("a", 0, 0, { visible: false, face: true })] })).toBe(false);
-  });
-
-  test("a face the host has no list to draw from is not met, so the view over it keeps its paint", () => {
-    const undrawn = { bodies: [view("f", 10, 10, { visible: false, face: true, faceDraw: undefined })] };
-    expect(meetsAFace(view("a", 0, 0), undrawn)).toBe(false);
-    expect(heldForThePaint({ bodies: [view("a", 0, 0)] }, { bodies: [view("a", 0, 0, { visible: false }), ...undrawn.bodies] })).not.toBeNull();
-  });
-});
-
-describe("faceToCarry", () => {
-  const DRAWN: FaceDraw = { boxes: [], texts: [{ rect: { x: 0, y: 0, width: 10, height: 10 }, text: "Old", font: { family: "Inter", size: 12, weight: 400 }, color: "rgba(0, 0, 0, 1)" }], images: [] };
-  const FRESH: FaceDraw = { boxes: [], texts: [], images: [] };
-
-  test("a card becoming a face reads its stand-in, under the stand-in's key", () => {
-    expect(faceToCarry(undefined, "k1", () => FRESH)).toEqual({ draw: FRESH, key: "k1" });
-  });
-
-  test("a face whose stand-in's facts stand carries its list, read nothing", () => {
-    const carried = { draw: DRAWN, key: "k1" };
-    let reads = 0;
-    expect(faceToCarry(carried, "k1", () => ((reads += 1), FRESH))).toBe(carried);
-    expect(reads).toBe(0);
-  });
-
-  test("a face whose stand-in's facts moved — a masthead, a name, the theme — is read again", () => {
-    const next = faceToCarry({ draw: DRAWN, key: "k1" }, "k2", () => FRESH);
-    expect(next).toEqual({ draw: FRESH, key: "k2" });
-  });
-
-  test("with no stand-in to read, a carried list stands and an uncarried face has none", () => {
-    const carried = { draw: DRAWN, key: "k1" };
-    expect(faceToCarry(carried, null, () => FRESH)).toBe(carried);
-    expect(faceToCarry(undefined, null, () => FRESH)).toBeNull();
-  });
-});
-
-describe("a face's display list, its pure parts", () => {
-  test("computed rgb and rgba colours are written rgba, and a transparent one is nothing", () => {
-    expect(rgbaOf("rgb(46, 48, 54)")).toBe("rgba(46, 48, 54, 1)");
-    expect(rgbaOf("rgba(255, 255, 255, 0.06)")).toBe("rgba(255, 255, 255, 0.06)");
-    expect(rgbaOf("rgb(10 20 30 / 50%)")).toBe("rgba(10, 20, 30, 0.5)");
-    expect(rgbaOf("rgba(0, 0, 0, 0)")).toBeNull();
-    expect(rgbaOf("oklch(1 0 0 / 0.06)")).toBeNull();
-  });
-
-  test("a canvas's pixel bytes are written rgba, and a clear one is nothing", () => {
-    expect(rgbaOfBytes(46, 48, 54, 255)).toBe("rgba(46, 48, 54, 1)");
-    expect(rgbaOfBytes(255, 255, 255, 51)).toBe("rgba(255, 255, 255, 0.2)");
-    expect(rgbaOfBytes(0, 0, 0, 0)).toBeNull();
-  });
-
-  test("an icon's paint is written rgb with its alpha apart, which AppKit's SVG reader draws", () => {
-    expect(svgPaintOf("rgba(190, 196, 210, 0.5)")).toEqual({ color: "rgb(190, 196, 210)", alpha: 0.5 });
-    expect(svgPaintOf("rgba(0, 0, 0, 1)")).toEqual({ color: "rgb(0, 0, 0)", alpha: 1 });
-    expect(svgPaintOf(null)).toEqual({ color: "none", alpha: 1 });
-  });
-
-  test("a rect is taken into its view's coordinates", () => {
-    expect(withinView({ x: 70, y: 52, width: 100, height: 20 }, { x: 55, y: 47, width: 710, height: 510 })).toEqual({
-      x: 15,
-      y: 5,
-      width: 100,
-      height: 20,
-    });
-  });
-
-  test("a font family list names its first family, unquoted", () => {
-    expect(firstFamily('"IBM Plex Sans", system-ui, sans-serif')).toBe("IBM Plex Sans");
-    expect(firstFamily("Menlo")).toBe("Menlo");
-  });
-
-  test("a font family list skips the key-symbol faces, which set no letters", () => {
-    expect(firstFamily('"Tug Keys", "IBM Plex Sans", system-ui')).toBe("IBM Plex Sans");
-    expect(firstFamily('"Tug Keys Mono", "IBM Plex Mono", monospace')).toBe("IBM Plex Mono");
+  test("an edge in common, a card not pictured, and the card itself do not", () => {
+    expect(meetsAPicture(view("a", 0, 0), { bodies: [view("f", 300, 0, { visible: false, pictured: true })] })).toBe(false);
+    expect(meetsAPicture(view("a", 0, 0), { bodies: [view("f", 10, 10, { visible: false })] })).toBe(false);
+    expect(meetsAPicture(view("a", 0, 0), { bodies: [view("a", 0, 0, { visible: false, pictured: true })] })).toBe(false);
   });
 });

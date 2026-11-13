@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DeckFactsValue } from "../../bus/declarations/deck";
-import { drawnSignature, movedParts, staleAfter, type DrawnValues } from "../body-staleness";
+import { drawnParts, drawnSignature, movedParts, staleAfter, type DrawnValues } from "../body-staleness";
 
 const FACTS: DeckFactsValue = {
   theme: "ironclad",
@@ -29,17 +29,14 @@ const BASE: DrawnValues = {
   deckCards: { me: { title: "Me" }, other: { title: "Other" } },
   deckFacts: FACTS,
   arrangement: null,
-  cardsList: { anchor: null, cursor: null },
 };
 
 const sig = (values: DrawnValues, rendersOthers = false) => drawnSignature("me", values, rendersOthers);
 
 describe("the Workspaces list", () => {
-  test("a move in the list's anchor or cursor is stale, whatever the kind", () => {
-    const hidden = sig(BASE);
-    expect(staleAfter(hidden, sig({ ...BASE, cardsList: { anchor: { rowId: "a", offset: 12 }, cursor: null } }))).toBe(true);
-    expect(staleAfter(hidden, sig({ ...BASE, cardsList: { anchor: null, cursor: "a" } }))).toBe(true);
-    expect(movedParts(hidden, sig({ ...BASE, cardsList: { anchor: null, cursor: "a" } }))).toEqual(["cardsList"]);
+  test("its anchor and cursor are not drawn parts: a hidden page's list position never makes it stale", () => {
+    expect(Object.keys(drawnParts("me", BASE, true))).not.toContain("cardsList");
+    expect(Object.keys(drawnParts("me", BASE, false))).not.toContain("cardsList");
   });
 });
 

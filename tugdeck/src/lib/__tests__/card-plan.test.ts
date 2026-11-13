@@ -42,7 +42,7 @@ function view(r: Rect): Rect {
 }
 
 function placed(cardId: string, r: Rect, visible = true): BodyPlacement {
-  return { cardId, x: r.x, y: r.y, width: r.width, height: r.height, visible, z: 1, shell: [], insets: APRON };
+  return { cardId, x: r.x, y: r.y, width: r.width, height: r.height, visible, z: 1, shell: [], insets: APRON, staged: true, title: cardId, kind: "text" };
 }
 
 function moveBeat(dx: number, dy: number, delayMs = 0, durationMs = 300): FrameBeat {

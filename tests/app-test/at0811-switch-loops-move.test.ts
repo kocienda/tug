@@ -13,12 +13,14 @@
  * content (`contentPaintDelayMs`). Once the made-ahead path has asked for its
  * page (it has a body, loading or loaded, not failed), but before it has
  * painted, switch away and read the wave the card wears twice, 200 ms
- * apart — the shell's stand-in's while the shell stands in for it, else the
- * page's own lid's, once a made page shows its chrome: one of its
- * animations must be running, its `currentTime` advanced between the reads.
+ * apart — the host's skeleton's while it stands for the card (its wave
+ * running at both reads), else the page's own lid's once its page shows:
+ * one of the lid's animations running, its `currentTime` advanced between
+ * the reads.
  *
  * @covers tugdeck/src/body/body-dormancy.ts
  * @covers tugdeck/src/components/chrome/space-layer-loops.ts
+ * @covers tugapp/Sources/BodyStages.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -32,6 +34,7 @@ import {
   SHOULD_RUN,
   slowCatchUp,
   slowPages,
+  stageCards,
   switchTo,
   TEST_TIMEOUT_MS,
 } from "./skeleton-switch-fixture";
@@ -41,8 +44,9 @@ const CATCH_UP_MS = 1_500;
 const PAINT_DELAY_MS = 3_000;
 
 interface WaveClocks {
-  /** Where the wave was found: the shell's stand-in, or the page's own lid. */
-  at: "stand-in" | "lid";
+  /** Where the wave was found: the host's skeleton, or the page's own lid. */
+  at: "skeleton" | "lid";
+  /** The lid's animations; for the skeleton, one entry whose state is the host's wave. */
   clocks: { state: string; t: number | null }[];
 }
 
@@ -55,18 +59,14 @@ const CLOCKS_JS = `function (w) {
 
 /**
  * The wave the card wears while its content has not painted, wherever it is
- * drawn: the shell's stand-in while the shell stands in for it, else the
- * page's own lid, once its page is made and showing its chrome. Null when
- * neither wears one.
+ * drawn: the host's skeleton while it stands for the card, else the page's
+ * own lid, once its page shows. Null when neither wears one.
  */
 async function waveClocks(app: App, cardId: string): Promise<WaveClocks | null> {
-  const shell = await app.evalJS<WaveClocks["clocks"] | null>(
-    `(function () {
-      var w = document.querySelector('[data-body-placeholder][data-card-id="${cardId}"] [data-body-stand-in] [data-slot="tug-progress-wave"]');
-      return w === null ? null : (${CLOCKS_JS})(w);
-    })()`,
-  );
-  if (shell !== null) return { at: "stand-in", clocks: shell };
+  const staged = (await stageCards(app, [cardId]))[cardId];
+  if (staged?.picture === "skeleton") {
+    return staged.wave ? { at: "skeleton", clocks: [{ state: "running", t: staged.waveWall }] } : null;
+  }
   const lid = await app
     .body(cardId)
     .evalJS<WaveClocks["clocks"] | null>(
@@ -117,7 +117,7 @@ describe.skipIf(!SHOULD_RUN)("at0811 — the waves move on a switched-to workspa
   );
 
   test(
-    "a stand-in wave over a page still being made animates on the switch",
+    "a skeleton's wave over a page still being made runs on the switch",
     async () => {
       const id = "sk811-b";
       const deck = await launchSkeletonDeck("at0811-switch-loops-move-stand-in", [id]);
@@ -134,19 +134,22 @@ describe.skipIf(!SHOULD_RUN)("at0811 — the waves move on a switched-to workspa
         let earlier = first;
         let second = await waveClocks(app, id);
         // The page may take the card over between the reads, its own lid's
-        // wave in place of the stand-in's: read the one now worn again.
+        // wave in place of the skeleton's: read the one now worn again.
         if (second !== null && second.at !== first?.at) {
           earlier = second;
           await Bun.sleep(200);
           second = await waveClocks(app, id);
         }
         note(`wave clocks: ${JSON.stringify(first)}${earlier === first ? "" : ` then ${JSON.stringify(earlier)}`} then ${JSON.stringify(second)}`);
-        expect(first, "the card wears a wave, on the shell's stand-in or on its page's lid").not.toBeNull();
-        const moved = (earlier?.clocks ?? []).some((a, i) => {
-          const b = second?.at === earlier?.at ? second?.clocks[i] : undefined;
-          return b !== undefined && b.state === "running" && a.t !== null && b.t !== null && b.t > a.t;
-        });
-        expect(moved, "the wave is running and its clock advanced").toBe(true);
+        expect(first, "the card wears a wave, on the host's skeleton or on its page's lid").not.toBeNull();
+        const moved =
+          second?.at === "skeleton" && earlier?.at === "skeleton"
+            ? second.clocks[0]?.state === "running" && earlier.clocks[0]?.state === "running"
+            : (earlier?.clocks ?? []).some((a, i) => {
+                const b = second?.at === earlier?.at ? second?.clocks[i] : undefined;
+                return b !== undefined && b.state === "running" && a.t !== null && b.t !== null && b.t > a.t;
+              });
+        expect(moved, "the wave is running at both reads, and a lid's clock advanced").toBe(true);
       } finally {
         await deck.close();
       }

@@ -413,6 +413,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.bodies?.tellTugcast = { [weak processManager] action, params in
             processManager?.sendControl(action, params: params)
         }
+        // A host cut tells the shell to follow over the same socket ([P06]).
+        window.bodies?.tellShell = { [weak processManager] action, params in
+            processManager?.sendControl(action, params: params)
+        }
         // The splash went up in `MainWindow.init`; the deadline is armed
         // here because the screen it mounts asks the delegate which stage
         // stalled, and this is the line that makes the delegate exist.
@@ -1310,6 +1314,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func activateSpaceFromMenu(_ sender: NSMenuItem) {
         guard let spaceId = sender.representedObject as? String else { return }
+        // The host cuts first and tells the shell to follow ([P06]). A cut
+        // it cannot make — no stage yet, before the shell has placed its
+        // workspaces — is the shell's to make, as before the stages.
+        if window.bodies?.cut(to: spaceId, door: .menu) == true { return }
         sendControl("activate-space", params: ["spaceId": spaceId])
     }
 

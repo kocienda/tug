@@ -16,12 +16,6 @@
  * drawn it runs: the indicator's own default is `stopped`, motion being
  * opt-in, and a still wave on a card that is loading reads as stuck.
  *
- * The host's face for an arriving card is read off the stand-in
- * (`lib/face-draw.ts`), at the cut, inside the delay: the wrapper carries
- * {@link FACE_REST_ATTRIBUTE}, so the face draws the wave as it will stand
- * rather than as the delay hides it, and the face and the stand-in beneath it
- * show the same picture.
- *
  * Laws: [L06] whether it shows is the stylesheet's, keyed on an attribute
  * written to the DOM, never React state; [L13] the pulse is the wave's own
  * CSS animation, and the two frames move nothing; [L20] the wave keeps its own
@@ -35,7 +29,6 @@ import "./content-lid-wave.css";
 
 import React, { useLayoutEffect, useRef } from "react";
 
-import { FACE_REST_ATTRIBUTE } from "@/lib/face-draw";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 
 /** The wave's bar height on a lid, px. */
@@ -65,7 +58,7 @@ export function ContentLidWave(): React.ReactElement {
     return () => cancelAnimationFrame(frame);
   }, []);
   return (
-    <div ref={ref} className="tug-content-lid-wave" {...{ [FACE_REST_ATTRIBUTE]: "" }} aria-hidden="true">
+    <div ref={ref} className="tug-content-lid-wave" aria-hidden="true">
       <TugProgressIndicator variant="wave" size={LID_WAVE_SIZE} state="running" tone="inherit" aria-hidden />
     </div>
   );

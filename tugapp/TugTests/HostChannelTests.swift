@@ -208,10 +208,10 @@ final class HostChannelTests: XCTestCase {
     /// millisecond. The reading is the measure block's average over 1,000
     /// decodes, so one decode is that over 1,000.
     func testPlaceCardsDecodeCost() throws {
-        let card = #"{"cardId":"CARD","x":121,"y":96,"width":398,"height":483,"view":{"x":111,"y":86,"width":418,"height":503},"insets":{"top":10,"right":10,"bottom":10,"left":10},"shell":[{"x":117,"y":96,"width":8,"height":483}],"visible":true,"z":1,"grips":["e","s","se"],"free":true,"min":{"width":240,"height":160}}"#
+        let card = #"{"cardId":"CARD","x":121,"y":96,"width":398,"height":483,"view":{"x":111,"y":86,"width":418,"height":503},"insets":{"top":10,"right":10,"bottom":10,"left":10},"shell":[{"x":117,"y":96,"width":8,"height":483}],"visible":true,"spaceId":"s1","staged":true,"title":"Text","kind":"text","z":1,"grips":["e","s","se"],"free":true,"min":{"width":240,"height":160}}"#
         let cards = (0..<40).map { card.replacingOccurrences(of: "CARD", with: "c\($0)") }.joined(separator: ",")
         let head = #"{"apron":10,"canvas":{"x":0,"y":28,"width":1440,"height":872},"zoom":1,"gap":15,"cards":["#
-        let tail = #"],"rails":{"left":{"min":240,"max":675}},"band":{"band":980,"flow":null}}"#
+        let tail = #"],"rails":{"left":{"min":240,"max":675}},"band":{"band":980,"flow":null},"spaces":[{"id":"s1","theme":null,"focusedCardId":null}],"activeSpaceId":"s1"}"#
         let data = Data((head + cards + tail).utf8)
         guard case .success(.placeCards(let placement)) = ToHost.decode(name: "placeCards", data: data) else {
             return XCTFail("the placement does not decode")

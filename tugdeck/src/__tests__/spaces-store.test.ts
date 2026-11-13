@@ -84,15 +84,15 @@ describe("SpacesStore snapshot identity", () => {
 });
 
 describe("SpacesStore mounting and the live deck", () => {
-  test("only the active space is mounted at boot, and its deck is not in the snapshot", () => {
+  test("every space is mounted at boot, and the active one's deck is not in the snapshot", () => {
     const { store } = seeded();
     const snap = store.getSnapshot();
     expect(snap.activeSpaceId).toBe("a");
-    expect(snap.mountedSpaceIds).toEqual(["a"]);
-    expect(snap.mountedDecks.size).toBe(0);
+    expect(snap.mountedSpaceIds).toEqual(["a", "b"]);
+    expect([...snap.mountedDecks.keys()]).toEqual(["b"]);
   });
 
-  test("activate mounts the space for good; a parked mounted deck is carried", () => {
+  test("activate keeps every space mounted; a parked deck is carried", () => {
     const { store } = seeded();
     // The manager parks the outgoing deck and clears the incoming one first.
     store.find("a")!.deck = deck("ca");
@@ -112,7 +112,7 @@ describe("SpacesStore mounting and the live deck", () => {
     expect(store.spaceOf("nobody", live)).toBeNull();
     expect(store.deckOf("a", live)).toBe(live);
     expect([...store.allCardIds(live)].sort()).toEqual(["cb", "live"]);
-    expect(store.persistable(live).spaces[0].deck).toBe(live);
+    expect(store.persistable(live).spaces[0].deck).toEqual(live);
   });
 
   test("reorder keeps unnamed spaces at the end; remove unmounts", () => {
@@ -122,16 +122,14 @@ describe("SpacesStore mounting and the live deck", () => {
     expect(store.list.map((s) => s.id)).toEqual(["c", "a", "b"]);
     store.remove("c");
     expect(store.list.map((s) => s.id)).toEqual(["a", "b"]);
-    expect(store.getSnapshot().mountedSpaceIds).toEqual(["a"]);
+    expect(store.getSnapshot().mountedSpaceIds).toEqual(["a", "b"]);
   });
 });
 
 describe("SpacesStore parked workspaces", () => {
-  test("a parked workspace nobody has shown is not mounted, and its first visit mounts it", () => {
+  test("a parked workspace nobody has shown is mounted, its deck carried", () => {
     const { store } = seeded();
-    expect(store.getSnapshot().mountedSpaceIds).toEqual(["a"]);
-    expect([...store.getSnapshot().mountedDecks.keys()]).toEqual([]);
-    store.activate("b");
     expect(store.getSnapshot().mountedSpaceIds).toEqual(["a", "b"]);
+    expect([...store.getSnapshot().mountedDecks.keys()]).toEqual(["b"]);
   });
 });

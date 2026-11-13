@@ -19,6 +19,7 @@
 import { Subscribable } from "./lib/subscribable";
 import type { DeckState } from "./layout-tree";
 import { activeSpaceTheme, type SpaceRecord, type SpacesSnapshot, type SpacesState } from "./spaces";
+import { lastingRail, splitRail } from "./lib/window-rail";
 import { preloadTheme } from "./contexts/theme-provider";
 
 export class SpacesStore extends Subscribable {
@@ -34,21 +35,6 @@ export class SpacesStore extends Subscribable {
 
   /** Which entry in {@link records} is rendered. */
   private activeId = "";
-
-  /**
-   * The workspaces React is holding mounted ([P01], [B06]).
-   *
-   * A workspace joins on its first activation, or earlier when its cards are
-   * made ahead ({@link mountAhead}), and never leaves except by
-   * being deleted: a switch hides and shows rather than unmounting, so the
-   * cost of returning to a workspace the user has already visited is a style
-   * change rather than a rebuild of every card in it. The boot workspace is
-   * seeded here because it is mounted without anybody activating it.
-   *
-   * There is deliberately no eviction policy: [B07] deferred one, and a
-   * budget nobody has measured a need for is a guess with a knob on it.
-   */
-  private mounted: Set<string> = new Set();
 
   /**
    * The workspace being made while the naming modal asks for its name, or
@@ -85,17 +71,19 @@ export class SpacesStore extends Subscribable {
       const pending = this.pendingRecord;
       // The pending workspace goes first: it is adopted at the top of the
       // list, so its layer does not move when it joins.
-      const mountedSpaceIds = [
-        ...(pending !== null ? [pending.id] : []),
-        ...this.records.filter((s) => this.mounted.has(s.id)).map((s) => s.id),
-      ];
+      // Every listed workspace is mounted, from the first snapshot on: each
+      // one's panes render in their hidden layer from launch, so every card
+      // has a rect before its workspace is first shown. A switch hides and
+      // shows rather than mounting, and a workspace leaves only by being
+      // deleted. There is deliberately no eviction policy: a budget nobody
+      // has measured a need for is a guess with a knob on it.
+      const mountedSpaceIds = [...(pending !== null ? [pending.id] : []), ...this.records.map((s) => s.id)];
       const mountedDecks = new Map<string, DeckState>();
       if (pending?.deck != null) mountedDecks.set(pending.id, pending.deck);
       for (const space of this.records) {
         // The active space's deck is the live one and is not cached here —
         // see {@link SpacesSnapshot}.
         if (space.deck === null) continue;
-        if (!this.mounted.has(space.id)) continue;
         mountedDecks.set(space.id, space.deck);
       }
       this.snapshotCache = {
@@ -103,6 +91,7 @@ export class SpacesStore extends Subscribable {
           id: s.id,
           name: s.name,
           ...(s.theme !== undefined ? { theme: s.theme } : {}),
+          ...(s.focusedCardId !== undefined ? { focusedCardId: s.focusedCardId } : {}),
         })),
         activeSpaceId: this.activeId,
         mountedSpaceIds,
@@ -190,14 +179,17 @@ export class SpacesStore extends Subscribable {
 
   /**
    * Every space as a persistable record, with the active one's `deck` taken
-   * from `liveDeck` — the one place it lives.
+   * from `liveDeck` — the one place it lives — and the window's rail split out
+   * of it, so no space's deck carries a rail card ([B09]).
    */
   persistable(liveDeck: DeckState): SpacesState {
+    const { deck: activeDeck, rail } = splitRail(liveDeck);
     return {
+      rail: lastingRail(rail),
       spaces: this.records.map((space) => ({
         id: space.id,
         name: space.name,
-        deck: space.deck ?? liveDeck,
+        deck: space.deck ?? activeDeck,
         ...(space.focusedCardId !== undefined
           ? { focusedCardId: space.focusedCardId }
           : {}),
@@ -209,11 +201,10 @@ export class SpacesStore extends Subscribable {
 
   // ---- Mutations ----
 
-  /** Seed the list from the boot layout; the active space is the one mounted. */
+  /** Seed the list from the boot layout; every space in it is mounted. */
   seed(records: SpaceRecord[], activeSpaceId: string): void {
     this.records = records;
     this.activeId = activeSpaceId;
-    this.mounted = new Set([activeSpaceId]);
     this.pendingRecord = null;
     this.notify();
   }
@@ -251,31 +242,17 @@ export class SpacesStore extends Subscribable {
     if (record === null) return null;
     this.pendingRecord = null;
     this.records.splice(index, 0, record);
-    this.mounted.add(record.id);
     this.notify();
     return record;
   }
 
   /**
-   * Make `spaceId` the active space and mount it ([P01]). The caller has
+   * Make `spaceId` the active space. The caller has
    * already parked the outgoing deck and cleared the incoming one; this
    * notifies, so it runs inside the caller's commit.
    */
   activate(spaceId: string): void {
     this.activeId = spaceId;
-    this.mounted.add(spaceId);
-    this.notify();
-  }
-
-  /**
-   * Mount `spaceId` without showing it, so its cards are made ahead of a
-   * first visit: its panes render in their hidden layer, and their cards
-   * become body cards whose pages the shell may make while the lane is idle.
-   * A no-op for a space already mounted or not in the list.
-   */
-  mountAhead(spaceId: string): void {
-    if (this.mounted.has(spaceId) || this.indexOf(spaceId) === -1) return;
-    this.mounted.add(spaceId);
     this.notify();
   }
 
@@ -285,12 +262,11 @@ export class SpacesStore extends Subscribable {
     this.notify();
   }
 
-  /** Remove `spaceId` from the list and from the mounted set. */
+  /** Remove `spaceId` from the list, unmounting it. */
   remove(spaceId: string): void {
     const index = this.indexOf(spaceId);
     if (index === -1) return;
     this.records.splice(index, 1);
-    this.mounted.delete(spaceId);
     this.notify();
   }
 

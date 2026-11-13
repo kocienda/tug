@@ -6,18 +6,16 @@
  * The app launches on two workspaces: one Text card's, shown, and two Text
  * cards side by side, never shown, so they have no pages and the host holds
  * no last frame for either. Their workspace is shown and read frame by frame
- * until both new pages have painted. For those frames each card's face is
- * the one the shell stands in for it: its own chrome, drawn from the facts
- * the shell sends its page, and its content box in the pane's surface. Its
- * title is its page's to compute — a Text card with no file names itself —
- * so it lands with the page; what the bar holds is that no frame shows the
- * canvas where a card stands, in its title band, or in its box beyond what
- * the settled frame shows. The home card's view stood over both panes, and
- * the host hides it in the transaction that stands its own face for each
- * arriving card, drawn from the shell's stand-in, so the first switched
- * frame shows those faces where the home card stood; the switch's
- * hand-over lands, and no face is left standing once both pages have
- * painted.
+ * until both new pages have painted. For those frames each card stands as
+ * the skeleton the host draws in its workspace's stage: its pane, its title
+ * band and its content box in its workspace's palette, wearing the progress
+ * wave. Its title is its page's to compute — a Text card with no file names
+ * itself — so it lands with the page; what the bar holds is that no frame
+ * shows the canvas where a card stands, in its title band, or in its box
+ * beyond what the settled frame shows. The home card's view stood over both
+ * panes, and the cut hides it in the transaction that shows the arriving
+ * stage, so the first switched frame shows the skeletons where the home
+ * card stood, and no skeleton is left standing once both pages have painted.
  *
  * @family row-44-switch
  * @motion
@@ -26,9 +24,7 @@
  * @covers tugdeck/src/components/chrome/card-host.tsx
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugapp/Sources/BodyHandOver.swift
- * @covers tugapp/Sources/BodyFaceHandOver.swift
- * @covers tugdeck/src/lib/face-draw.ts
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugapp/Sources/MainWindow.swift
  */
 

@@ -56,6 +56,7 @@ import { CASCADE_ORIGIN, nextCascadePosition, type CascadeInsets } from "./casca
 import { composeDeparting, type DepartingEntry } from "./lib/departing";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./lib/after-paint";
 import { SpaceSwitchMark, switchMarkDeadlineMs } from "./lib/space-switch-mark";
+import { joinRail, splitRail } from "./lib/window-rail";
 import {
   duplicatedDeck,
   duplicateSpaceName,
@@ -279,7 +280,6 @@ import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
-import { spaceWillSwitch } from "@/lib/space-switch-signal";
 import {
   mayDeferCommit,
   reactivateCurrentFocusDestination,
@@ -993,12 +993,14 @@ export class DeckManager implements IDeckManagerStore {
   public getSpaceSwitchStartedAt = (): number | null => this.spaceSwitchStartedAt;
 
   /**
-   * The harness's seam on a switch's shell frame, never written by the
-   * product: when set, a switch busy-waits this many ms inside the batch
-   * that swaps the deck, so the shell's render and its placement are both
-   * late (`__tug.switchFrameDelay`). Null in the product, which does nothing.
+   * Told of every switch in the task that makes it, before the deck swaps —
+   * `hostCut` the serial of the host's cut it follows — and of every host
+   * cut onto the workspace already shown, so each serial the host told is
+   * answered ([P06]). One listener, the body shell's, which posts
+   * `spaceCut` to the host: it reaches the host's main thread ahead of the
+   * layer-tree commit that carries the shell's switched frame.
    */
-  public switchFrameDelayMs: number | null = null;
+  public onSpaceCut: ((spaceId: string, hostCut: number | undefined) => void) | null = null;
 
   /** When the last committing {@link setPaneFolded} began — see the store
    *  interface. */
@@ -1315,11 +1317,6 @@ export class DeckManager implements IDeckManagerStore {
   public getSpaceDeck = (spaceId: string): DeckState | null =>
     this.spacesStore.deckOf(spaceId, this.getSnapshot());
 
-  /** Mount a parked space unshown, its cards to be made ahead — see the store interface. */
-  public mountSpaceAhead = (spaceId: string): void => {
-    this.spacesStore.mountAhead(spaceId);
-  };
-
   /**
    * Every card id this instance holds, across every space.
    *
@@ -1376,26 +1373,37 @@ export class DeckManager implements IDeckManagerStore {
    * only being looked away from buys nothing. What stays behind is this
    * record-writing, which persistence and the Workspaces card read.
    */
-  public activateSpace = (spaceId: string): void => {
-    // (1) Already there.
-    if (spaceId === this.spacesStore.activeSpaceId) return;
+  public activateSpace = (spaceId: string, hostCut?: number): void => {
+    // (1) Already there. A host cut onto it is answered all the same: the
+    // host holds its serial outstanding until the shell echoes it.
+    if (spaceId === this.spacesStore.activeSpaceId) {
+      if (hostCut !== undefined) this.onSpaceCut?.(spaceId, hostCut);
+      return;
+    }
     const incoming = this.spacesStore.find(spaceId);
     if (incoming === undefined || incoming.deck === null) {
       console.warn(`activateSpace: no parked space with id "${spaceId}"`);
+      if (hostCut !== undefined) this.onSpaceCut?.(spaceId, hostCut);
       return;
     }
     const outgoing = this.spacesStore.active();
     if (outgoing === undefined) {
       console.warn(`activateSpace: no active space to leave`);
+      if (hostCut !== undefined) this.onSpaceCut?.(spaceId, hostCut);
       return;
     }
     // A departing pane belongs to the deck being left; composed into the
     // incoming one it would stand in a workspace it was never part of.
     this._reapDepartures();
-    const incomingDeck = incoming.deck;
-    // Before the swap, in this task: the body shell asks the host to hold
-    // the window's picture over a switch onto pages that have painted.
-    spaceWillSwitch(spaceId, incomingDeck);
+    // The rail is the window's ([B09]): it leaves the deck being parked and
+    // joins the one arriving, its cards, panes and pages untouched. The rail
+    // pane that was the leaving deck's active pane is not the arriving one's.
+    const { deck: leavingDeck, rail } = splitRail(this.deckState);
+    const { activePaneId: _railActive, ...carriedRail } = rail;
+    const incomingDeck = joinRail(incoming.deck, carriedRail);
+    // Before the swap, in this task: the host cuts its stages onto the
+    // arriving workspace, or hears the shell follow the cut it made.
+    this.onSpaceCut?.(spaceId, hostCut);
 
     // The switch instrument ([P09]). Every reading below is a delta from
     // `t0`, so the phases are separable and `totalMs` is the whole
@@ -1430,7 +1438,7 @@ export class DeckManager implements IDeckManagerStore {
     // returns a new object and `this.deckState` is untouched, so every
     // transient mark the shown tree still needs is still on it.
     outgoing.focusedCardId = this.getFirstResponderCardId() ?? undefined;
-    outgoing.deck = parkedDeck(this.deckState);
+    outgoing.deck = parkedDeck(leavingDeck);
 
     // (4) Where focus lands in this workspace: where the user left it,
     // falling back to the active pane's card. A space that names a card no
@@ -1471,7 +1479,9 @@ export class DeckManager implements IDeckManagerStore {
         // window may have been resized since; this writes `deckState` again
         // with no notify of its own, so the single `notify` below carries the
         // arrangement already correct and `arm` still finds nothing to move.
-        this._resolveShownArrangement();
+        // The rail's widths are the window's ([B09]): the arriving content
+        // is solved around them, and the rail does not move at the cut.
+        this._resolveShownArrangement({ holdRail: true });
         incoming.deck = null;
         // This workspace is mounted from here on ([P01]). Inside the commit
         // so the invalidation below carries it, and before it so the one
@@ -1548,14 +1558,6 @@ export class DeckManager implements IDeckManagerStore {
         // and inherits the `"cut"` correctly, for the same reason — the
         // neighbour's frames are likewise already where the swap puts them.
         this.notify("activateSpace", "cut");
-        // The harness's late shell frame: before the batch closes, so its
-        // subscribers, the commit and the commit's measurement all wait.
-        if (this.switchFrameDelayMs !== null) {
-          const until = performance.now() + this.switchFrameDelayMs;
-          while (performance.now() < until) {
-            // busy: the delay stands for shell work on the switch's path
-          }
-        }
         this.scheduleSave();
       },
       "activateSpace",
@@ -1617,20 +1619,10 @@ export class DeckManager implements IDeckManagerStore {
    * Add a workspace, put the user in it, and stand its doors up ([P05]).
    *
    * Creating and activating are one gesture because the user asked for a place
-   * to work, not for a row in a list. And the new deck is inserted with its
-   * factory rail already standing rather than through
-   * {@link factoryRailPending} — that latch waits for a first card, and a
-   * workspace whose Workspaces card is not standing has no door back except
-   * ⌃⌘W and the Window menu.
-   *
-   * The rail is in the record before the activation, not committed after it,
-   * so the gesture is one cut onto the finished arrangement. Activating an
-   * empty deck and standing the rail behind it was two pictures: the cut
-   * landed on a layer with no panes, so the departing cards' views met no
-   * face and were held over bare canvas, and the rail then arrived as a
-   * second commit. Built whole, the cut lands five panes under the four-up
-   * slim imposition with a stand-in face for each, and the departing views
-   * hand over to those faces in one host transaction, as a switch's do.
+   * to work, not for a row in a list. The new deck holds no rail card: the
+   * rail is the window's ([B09]), and the activation joins it into the new
+   * deck as it joins it into any arriving one, so the Workspaces card that is
+   * the door back is the one already standing.
    *
    * `name` is the caller's when it has one, and otherwise
    * {@link nextSpaceName}'s. The workspace goes at the end of the list.
@@ -1651,47 +1643,29 @@ export class DeckManager implements IDeckManagerStore {
         : nextSpaceName(this.spacesStore.list.map((s) => s.name));
     const record = this._newSpaceRecord(chosen);
     this.spacesStore.insert(record);
-    // The latch would otherwise stand a SECOND rail the first time a card
-    // opened here: it is armed at boot by an empty boot deck, and is still
-    // waiting when this deck arrives with a rail it did not ask for.
-    this.factoryRailPending = false;
     this.activateSpace(record.id);
     return record.id;
   };
 
   /**
-   * A new workspace's record, built whole: its factory rail standing, under
-   * the four-up slim imposition, wearing the theme of the workspace being
-   * left so that creating one never changes what is on screen. What
-   * {@link createSpace} inserts and {@link beginPendingSpace} holds.
+   * A new workspace's record: no cards, under the four-up slim imposition,
+   * wearing the theme of the workspace being left so that creating one never
+   * changes what is on screen. It mints no rail card — the rail is the
+   * window's ([B09]). What {@link createSpace} inserts and
+   * {@link beginPendingSpace} holds.
    */
   private _newSpaceRecord(name: string): SpaceRecord {
     // The new workspace wears the theme of the one being left, so creating
     // one never changes what is on screen.
     const theme = this.spacesStore.activeTheme();
-    const rail = this.factoryRailSeats();
     const base = buildDefaultLayout();
-    const front = rail.length > 0 ? rail[rail.length - 1] : undefined;
     return {
       id: crypto.randomUUID(),
       name,
-      deck: {
-        ...base,
-        cards: rail.map((seat) => seat.card),
-        panes: rail.map((seat) => seat.pane),
-        ...(front !== undefined ? { activePaneId: front.pane.id } : {}),
-        imposition: factoryDeckImposition(base.imposition),
-      },
-      ...(front !== undefined ? { focusedCardId: front.card.id } : {}),
+      deck: splitRail({ ...base, imposition: factoryDeckImposition(base.imposition) }).deck,
       ...(theme !== undefined ? { theme } : {}),
     };
   }
-
-  /**
-   * The boot latch's value when {@link beginPendingSpace} cleared it, so a
-   * discard puts it back; `null` with no workspace pending.
-   */
-  private pendingSpaceLatch: boolean | null = null;
 
   /**
    * Build a new workspace whole, exactly as {@link createSpace} does, and hold
@@ -1711,10 +1685,6 @@ export class DeckManager implements IDeckManagerStore {
   public beginPendingSpace = (): { id: string; name: string } => {
     this.discardPendingSpace();
     const record = this._newSpaceRecord(nextSpaceName(this.spacesStore.list.map((s) => s.name)));
-    // Cleared for the reason createSpace clears it, and remembered, so a
-    // discard leaves the latch as it found it.
-    this.pendingSpaceLatch = this.factoryRailPending;
-    this.factoryRailPending = false;
     this.spacesStore.setPending(record);
     return { id: record.id, name: record.name };
   };
@@ -1742,8 +1712,6 @@ export class DeckManager implements IDeckManagerStore {
       this.discardComponentStatePreservationRegistry(card.id);
       this.cardStates.delete(card.id);
     }
-    if (this.pendingSpaceLatch !== null) this.factoryRailPending = this.pendingSpaceLatch;
-    this.pendingSpaceLatch = null;
   };
 
   /**
@@ -1760,7 +1728,6 @@ export class DeckManager implements IDeckManagerStore {
     if (record === null) return null;
     const trimmed = name?.trim();
     if (trimmed !== undefined && trimmed.length > 0) record.name = trimmed;
-    this.pendingSpaceLatch = null;
     this.spacesStore.adoptPending(0);
     this.activateSpace(record.id);
     return record.id;
@@ -1795,10 +1762,7 @@ export class DeckManager implements IDeckManagerStore {
       return null;
     }
     const source = this.spacesStore.list[index];
-    const deck = duplicatedDeck(
-      source.deck ?? this.deckState,
-      () => crypto.randomUUID(),
-    );
+    const deck = duplicatedDeck(source.deck ?? splitRail(this.deckState).deck);
     if (isDevEnv()) {
       validateDeckState(deck);
     }
@@ -4429,9 +4393,15 @@ export class DeckManager implements IDeckManagerStore {
    * frames arrive at their solved size and a card that measures its own box
    * sees one size, once.
    */
-  private _resolveShownArrangement(): void {
+  private _resolveShownArrangement(opts?: { holdRail?: boolean }): void {
     const imposition = this.deckState.imposition;
-    const panes = this._railSolvedPanes(this.deckState.panes, imposition);
+    // A switch holds the rail at the widths it stands at: the rail is the
+    // window's, and re-allocating it against the arriving content would move
+    // it under the cut ([B09]).
+    const panes =
+      opts?.holdRail === true
+        ? this.deckState.panes
+        : this._railSolvedPanes(this.deckState.panes, imposition);
     this._lastPlaceRuns = {
       rail: this._placeRunHeight("rail"),
       column: this._placeRunHeight("column"),
@@ -4444,6 +4414,47 @@ export class DeckManager implements IDeckManagerStore {
       ...this._railRetuneTerms(panes, imposition),
     };
   }
+
+  /**
+   * Re-solve every parked workspace's deck — and a pending one's — against
+   * the canvas as it stands now, the arithmetic
+   * {@link _resolveShownArrangement} runs for the incoming deck at a switch,
+   * and write each record whose arrangement moved, with one notify for all
+   * of them. Every workspace is mounted, its layer laid out from its record,
+   * so without this a window resized while a workspace was parked would show
+   * that workspace at the old canvas's arrangement until its switch re-solved
+   * it. The swap commit's own re-solve stays, and finds nothing to move.
+   *
+   * Each parked deck is solved as the live one is: swapped into `deckState`
+   * with its own gap preset live, then both put back, so the shown deck, its
+   * last place runs and the gap it wears are as they were. The gap's CSS
+   * properties are not written: only the numeric value the geometry reads.
+   */
+  public resolveParkedArrangements = (): void => {
+    const live = this.deckState;
+    const liveRuns = this._lastPlaceRuns;
+    const pending = this.spacesStore.pending();
+    const records = pending === null ? [...this.spacesStore.list] : [...this.spacesStore.list, pending];
+    let wrote = false;
+    try {
+      for (const record of records) {
+        const parked = record.deck;
+        if (parked === null) continue;
+        setImpositionGap(GAP_PX[impositionGapOf(parked.imposition)]);
+        this.deckState = parked;
+        this._resolveShownArrangement();
+        if (JSON.stringify(this.deckState) !== JSON.stringify(parked)) {
+          record.deck = this.deckState;
+          wrote = true;
+        }
+      }
+    } finally {
+      this.deckState = live;
+      this._lastPlaceRuns = liveRuns;
+      setImpositionGap(GAP_PX[impositionGapOf(live.imposition)]);
+    }
+    if (wrote) this.spacesStore.notify();
+  };
 
   /**
    * Commit a new imposition record, moving every pane whose geometry it

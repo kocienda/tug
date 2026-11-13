@@ -29,5 +29,9 @@ if (query.has("overlay")) {
 } else if (page !== null && page.length > 0) {
   void import("./body/body-main");
 } else {
+  // The deck's own document: it paints no canvas, grid or margin caps,
+  // because the host's ground stands beneath it (`globals.css`). Marked here,
+  // before any of its styles apply, since every page loads the same sheet.
+  document.documentElement.setAttribute("data-shell-page", "");
   void import("./main");
 }

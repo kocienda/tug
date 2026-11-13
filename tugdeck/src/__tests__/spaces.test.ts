@@ -241,92 +241,25 @@ describe("duplicatedDeck ([P06])", () => {
     hasFocus: true,
   };
 
-  /** A counter, so the copy's ids are readable rather than random. */
-  function counter(): () => string {
-    let n = 0;
-    return () => `new-${(n += 1)}`;
-  }
+  test("copies the layout and none of the cards, the rail's included", () => {
+    const copy = duplicatedDeck(source);
 
-  test("copies the sidebar panes and none of the content", () => {
-    const copy = duplicatedDeck(source, counter());
-
-    expect(copy.panes).toHaveLength(2);
-    expect(copy.cards.map((c) => c.componentId)).toEqual(["cards", "arcs"]);
     // The Session card is the whole reason this copies so little: a fresh-id
-    // copy of it would mount on the project picker.
-    expect(copy.cards.some((c) => c.componentId === "session")).toBe(false);
-    expect(copy.cards.some((c) => c.componentId === "text")).toBe(false);
-  });
-
-  test("mints a fresh id for every card and pane it copies", () => {
-    const copy = duplicatedDeck(source, counter());
-
-    const sourceIds = new Set([
-      ...source.cards.map((c) => c.id),
-      ...source.panes.map((p) => p.id),
-    ]);
-    for (const card of copy.cards) expect(sourceIds.has(card.id)).toBe(false);
-    for (const pane of copy.panes) expect(sourceIds.has(pane.id)).toBe(false);
-    // Each pane's activeCardId names a card that is actually in it.
-    for (const pane of copy.panes) {
-      expect(pane.cardIds).toContain(pane.activeCardId);
-      expect(copy.cards.some((c) => c.id === pane.activeCardId)).toBe(true);
-    }
-  });
-
-  test("keeps each copied pane's title, geometry and componentId", () => {
-    const copy = duplicatedDeck(source, counter());
-
-    const cardsPane = copy.panes.find((p) => p.title === "Cards");
-    expect(cardsPane).toBeDefined();
-    expect(cardsPane!.size).toEqual({ width: 320, height: 800 });
-    const seat = copy.cards.find((c) => c.id === cardsPane!.activeCardId);
-    expect(seat!.componentId).toBe("cards");
-    expect(seat!.title).toBe("Cards");
-  });
-
-  test("drops imposition.columns and keeps the rest", () => {
-    const copy = duplicatedDeck(source, counter());
-
-    // `columns` names PANE ids, and every pane id here is freshly minted, so a
-    // copied record would name nothing that exists.
-    expect(copy.imposition.columns).toBeUndefined();
-    expect(copy.imposition.kind).toBe("two-up");
-    expect(copy.imposition.contentWidth).toBe("comfy");
-    expect(copy.imposition.sidebars).toEqual(source.imposition.sidebars);
-    expect(copy.imposition.rails).toEqual(source.imposition.rails);
-  });
-
-  test("carries no slot on a copied sidebar pane", () => {
-    const slotted: DeckState = {
-      ...source,
-      panes: source.panes.map((p) =>
-        p.id === "rail-cards" ? { ...p, slot: 1 } : p,
-      ),
-    };
-    const copy = duplicatedDeck(slotted, counter());
-
-    for (const pane of copy.panes) expect(pane.slot).toBeUndefined();
-  });
-
-  test("falls back to the frontmost copied pane when the active one is content", () => {
-    const copy = duplicatedDeck(source, counter());
-
-    // The source's active pane held the Session card, which is not here.
-    expect(copy.activePaneId).toBe(copy.panes[copy.panes.length - 1].id);
-  });
-
-  test("a deck with no sidebar panes duplicates to an empty deck", () => {
-    const contentOnly: DeckState = {
-      ...source,
-      imposition: { ...source.imposition, sidebars: {} },
-    };
-    const copy = duplicatedDeck(contentOnly, counter());
-
+    // copy of it would mount on the project picker. The rail is the window's.
     expect(copy.cards).toEqual([]);
     expect(copy.panes).toEqual([]);
     expect(copy.activePaneId).toBeUndefined();
     expect(copy.hasFocus).toBe(true);
+  });
+
+  test("drops imposition.columns and the rail's fields, and keeps the rest", () => {
+    const copy = duplicatedDeck(source);
+
+    expect(copy.imposition.columns).toBeUndefined();
+    expect(copy.imposition.rails).toBeUndefined();
+    expect(copy.imposition.sidebars).toEqual({});
+    expect(copy.imposition.kind).toBe("two-up");
+    expect(copy.imposition.contentWidth).toBe("comfy");
   });
 });
 

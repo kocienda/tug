@@ -58,7 +58,7 @@ describe("SpacesStore's pending workspace", () => {
     const snapshot = store.getSnapshot();
     expect(snapshot.spaces.map((s) => s.id)).toEqual(["a", "b"]);
     expect(snapshot.pendingSpaceId).toBe("n");
-    expect(snapshot.mountedSpaceIds).toEqual(["n", "a"]);
+    expect(snapshot.mountedSpaceIds).toEqual(["n", "a", "b"]);
     expect(snapshot.mountedDecks.get("n")?.cards[0].id).toBe("cn");
     expect(store.persistable(deck("ca")).spaces.map((s) => s.id)).toEqual(["a", "b"]);
     // Its cards answer to it, and the orphan sweep sees them.
@@ -89,14 +89,14 @@ describe("SpacesStore's pending workspace", () => {
     const snapshot = store.getSnapshot();
     expect(snapshot.spaces.map((s) => s.id)).toEqual(["n", "a", "b"]);
     expect(snapshot.pendingSpaceId).toBeUndefined();
-    expect(snapshot.mountedSpaceIds).toEqual(["n", "a"]);
+    expect(snapshot.mountedSpaceIds).toEqual(["n", "a", "b"]);
     expect(store.persistable(deck("ca")).spaces.map((s) => s.id)).toEqual(["n", "a", "b"]);
   });
 });
 
 describe("DeckManager's pending workspace", () => {
-  // The rail a new workspace is built with: registered here, for this file
-  // alone, so the pending deck carries its five cards.
+  // The rail's kinds, registered here for this file alone, so a new workspace
+  // is built as it is in the app — and so its holding none of them is read.
   const registered: string[] = [];
   beforeAll(() => {
     for (const componentId of FACTORY_RAIL_ORDER) {
@@ -132,7 +132,8 @@ describe("DeckManager's pending workspace", () => {
     expect(spaces.activeSpaceId).toBe(home);
     expect(spaces.pendingSpaceId).toBe(id);
     expect(spaces.mountedSpaceIds).toContain(id);
-    expect(manager.getSpaceDeck(id)?.cards.map((c) => c.componentId).sort()).toEqual([...FACTORY_RAIL_ORDER].sort());
+    // The rail is the window's: a new workspace mints no rail card of its own.
+    expect(manager.getSpaceDeck(id)?.cards).toEqual([]);
     expect(manager.getSnapshot()).toBe(picture);
   });
 
@@ -141,36 +142,11 @@ describe("DeckManager's pending workspace", () => {
     const ids = manager.allSpaceCardIds();
     const picture = manager.getSnapshot();
     const { id } = manager.beginPendingSpace();
-    const pendingCards = manager.getSpaceDeck(id)?.cards.map((c) => c.id) ?? [];
-    expect(pendingCards.length).toBe(FACTORY_RAIL_ORDER.length);
     manager.discardPendingSpace();
     expect(manager.getSpacesSnapshot()).toEqual(before);
     expect(manager.allSpaceCardIds()).toEqual(ids);
     expect(manager.getSnapshot()).toBe(picture);
     expect(manager.getSpaceDeck(id)).toBeNull();
-    for (const cardId of pendingCards) expect(manager.spaceOf(cardId)).toBeNull();
-  });
-
-  test("discarded, is gone before any of its cards hears its destruction", () => {
-    // A card of a workspace still pending is one the make-ahead makes a page
-    // for; heard destroyed while still pending, its dropped page is asked for
-    // again, and that page's own destruction observer joins the destruction
-    // in progress — a loop.
-    const { id } = manager.beginPendingSpace();
-    const pendingCards = manager.getSpaceDeck(id)?.cards.map((c) => c.id) ?? [];
-    const heard: Array<{ cardId: string; pending: string | undefined; space: string | null }> = [];
-    const releases = pendingCards.map((cardId) =>
-      manager.observeCardWillBeginDestruction(cardId, () => {
-        heard.push({ cardId, pending: manager.getSpacesSnapshot().pendingSpaceId, space: manager.spaceOf(cardId) });
-      }),
-    );
-    manager.discardPendingSpace();
-    for (const release of releases) release();
-    expect(heard.map((h) => h.cardId)).toEqual(pendingCards);
-    for (const h of heard) {
-      expect(h.pending, `${h.cardId} heard its destruction with its workspace still pending`).toBeUndefined();
-      expect(h.space).toBeNull();
-    }
   });
 
   test("adopted, is named, first in the list, and shown", () => {

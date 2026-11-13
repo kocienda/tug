@@ -118,6 +118,14 @@ export interface IDeckManagerStore extends DeckView {
   getSpaceSwitchStartedAt: () => number | null;
 
   /**
+   * Told of every switch in the task that makes it, before the deck swaps,
+   * with the serial of the host cut it follows; and of every host cut onto
+   * the workspace already shown ([P06]). The body shell's, which tells the
+   * host; null with no shell installed.
+   */
+  onSpaceCut: ((spaceId: string, hostCut: number | undefined) => void) | null;
+
+  /**
    * The `performance.now()` at which the most recent COMMITTING imposition
    * gesture was entered, or `null` before any. It is the origin the settle's
    * frame record measures its first paint from: the GESTURE, not the arm.
@@ -272,6 +280,15 @@ export interface IDeckManagerStore extends DeckView {
    * no arrangement is active, or when the answer is the widths already showing.
    */
   retuneSidebarAllocation: () => void;
+
+  /**
+   * Re-solve every parked workspace's arrangement against the canvas as it
+   * stands now, writing each parked record that moves, so every mounted
+   * layer stands where its reveal will. Run when the canvas comes to rest at
+   * a new size: a window resize's end, a View › Zoom step, a display change.
+   * Optional: only the deck manager holds parked workspaces.
+   */
+  resolveParkedArrangements?: () => void;
 
   /**
    * Set a side's height weights — the seam drag's commit. Weights are per

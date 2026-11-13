@@ -2,23 +2,24 @@
  * at0815-switch-under-streams-reading.test.ts — what running sessions cost a
  * workspace switch.
  *
- * A user-shaped deck of four workspaces, each with its five rail cards: two
+ * A user-shaped deck of four workspaces under the window's one rail: two
  * hold Text cards only, two hold two Session cards and a Text card. The four
  * Session cards bind to stubbed sessions (`streaming-stub-fixture.ts`) whose
  * tugcode replays one long turn at a token cadence through tugcast's real
  * feed.
  *
- * The same round of switches is driven twice: with every session bound and
- * idle, then with all four streaming. Each switch notes its hold (`held_ms`,
- * `outcome`), how long the host's ground stood and why it lifted (the
- * shell's own frame, or the horizon), the longest gap on the shell page's
- * main thread and between its animation frames in the three seconds after
- * the gesture, and how many hidden pages the host marked stale and retook a
- * last frame of in that window. Asserts only that both rounds ran: the
- * comparison is the product.
+ * The same round of switches is driven three times: with every session bound and
+ * idle, then with all four streaming, and once more with a theme per
+ * workspace. Each switch notes the host's cut as `stages()` records it —
+ * the gesture to its committed transaction, and the picture each arriving
+ * card stood as at the cut (`live`, `lastFrame`, `skeleton`) — the longest
+ * gap on the shell page's main thread and between its animation frames in
+ * the seconds after the gesture, and how many hidden pages the host marked
+ * stale and how many last frames it retook in that window. Asserts only that
+ * the rounds ran: the comparison is the product.
  *
  * @covers tests/app-test/streaming-stub-fixture.ts
- * @covers tugapp/Sources/BodyFaceHandOver.swift
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugapp/Sources/BodyCovers.swift
  * @covers tugdeck/src/body/body-staleness.ts
  */
@@ -26,7 +27,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "../_harness";
-import type { SwitchHoldRecord } from "../_harness/client";
+import type { StageCutRecord } from "../_harness/client";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { bodyOf, pollFor, settleFor } from "../body-grounding/_bodies";
 import { bindStreamingStubs, startStreams, STUB_TRANSCRIPT_DIR_ENV, stubDirectory, type StubCard } from "../streaming-stub-fixture";
@@ -36,7 +37,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 600_000;
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 const SWITCHES = 12;
-/** Longer than the host ground's horizon, so every switch's lift is in the log before the next. */
+/** Long enough for each switch's pages to land and their stale marks to reach the log before the next. */
 const REST_MS = 3_600;
 const AHEAD_MS = 90_000;
 
@@ -62,10 +63,12 @@ const READ_LAG = "JSON.stringify({ task: Math.round(window.__g815.task), frame: 
 
 interface Row {
   to: string;
-  held: number | null;
-  outcome: string;
-  ground: string;
-  groundMs: number | null;
+  /** The cut's gesture to its committed transaction, ms; null when no cut was recorded. */
+  cutMs: number | null;
+  /** How many arriving cards stood as each picture at the cut. */
+  live: number;
+  lastFrame: number;
+  skeleton: number;
   task: number;
   frame: number;
   frames: number;
@@ -130,18 +133,16 @@ describe.skipIf(!SHOULD_RUN)("at0815 — a switch with sessions streaming", () =
             const lag = JSON.parse(await app.evalJS<string>(READ_LAG, { timeoutMs: 15_000 })) as { task: number; frame: number; frames: number };
             await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id === to.id, 5_000);
             current = to.id;
-            const hold: SwitchHoldRecord | null =
-              ((await app.handOvers()).switchHolds ?? []).filter((h) => h.fromWall >= cut - 50 && h.toWall !== null).at(-1) ?? null;
+            const record: StageCutRecord | null =
+              (await app.stages()).cuts.filter((c) => c.to === to.id && c.gestureWall >= cut - 50).at(-1) ?? null;
+            const pictures = Object.values(record?.pictures ?? {});
             const log = app.tugappLog().slice(logAt).split("\n");
-            const lift = log.filter((l) => l.includes("switch ground lifted")).at(-1) ?? "";
-            const why = /why=(\S+)/.exec(lift)?.[1] ?? "no ground";
-            const stood = /stood_until_ms=(\d+)/.exec(lift)?.[1];
             const row: Row = {
               to: to.id.replace(/g815-|-space/g, ""),
-              held: hold?.heldMs ?? null,
-              outcome: hold?.outcome ?? "no hold",
-              ground: why,
-              groundMs: stood === undefined ? null : Number(stood),
+              cutMs: record === null ? null : record.committedWall - record.gestureWall,
+              live: pictures.filter((p) => p === "live").length,
+              lastFrame: pictures.filter((p) => p === "lastFrame").length,
+              skeleton: pictures.filter((p) => p === "skeleton").length,
               task: lag.task,
               frame: lag.frame,
               frames: lag.frames,
@@ -150,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)("at0815 — a switch with sessions streaming", () =
             };
             rows.push(row);
             note(
-              `${label} ${String(i + 1).padStart(2)} → ${row.to.padEnd(4)}: held ${r(row.held)} ${row.outcome}; ground ${row.ground} ${r(row.groundMs)}; ` +
+              `${label} ${String(i + 1).padStart(2)} → ${row.to.padEnd(4)}: cut ${r(row.cutMs)} ms, live ${row.live} lastFrame ${row.lastFrame} skeleton ${row.skeleton}; ` +
                 `shell longest task gap ${row.task}, frame gap ${row.frame}, frames ${row.frames}; stale ${row.stale}, retakes ${row.covers}`,
             );
           }
@@ -173,10 +174,9 @@ describe.skipIf(!SHOULD_RUN)("at0815 — a switch with sessions streaming", () =
         await Bun.sleep(3_000);
         const themed = await run("themed");
         for (const [label, rows] of [["idle", idle], ["streaming", streaming], ["themed", themed]] as const) {
-          const stood = rows.map((x) => x.groundMs).filter((x): x is number => x !== null);
           note(
-            `${label}: held ${stats(rows.map((x) => x.held).filter((x): x is number => x !== null))}; ` +
-              `ground stood ${rows.filter((x) => x.groundMs !== null).length}/${rows.length}, ${stats(stood)}, ${rows.filter((x) => x.ground === "horizon").length} to the horizon; ` +
+            `${label}: cut ${stats(rows.map((x) => x.cutMs).filter((x): x is number => x !== null))} over ${rows.filter((x) => x.cutMs !== null).length}/${rows.length} recorded; ` +
+              `pictures live ${stats(rows.map((x) => x.live))}, lastFrame ${stats(rows.map((x) => x.lastFrame))}, skeleton ${stats(rows.map((x) => x.skeleton))}; ` +
               `shell task gap ${stats(rows.map((x) => x.task))}, frame gap ${stats(rows.map((x) => x.frame))}; ` +
               `stale ${stats(rows.map((x) => x.stale))}, retakes ${stats(rows.map((x) => x.covers))}`,
           );

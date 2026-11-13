@@ -1,17 +1,23 @@
 /**
- * floor-host.test.ts — the canvas beneath the cards is the shell's own, pixel for pixel.
+ * floor-host.test.ts — the canvas beneath the cards is the host's.
  *
- * The shell's page lies beneath every card and paints the deck's canvas
- * itself: the canvas colour on `body` and the grid on the deck root, which
- * View › Zoom scales. Nothing the host draws stands between it and the
- * window. So at each of View › Zoom 0.8, 1.0 and 1.25 a crop of bare canvas
- * is read from the composite and held to what the page paints: the canvas
- * colour within the composite tolerance the other rows use, and every grid
- * line within one device pixel of a line on the page's own lattice — the
+ * The host draws the deck's ground — the canvas colour and its grid —
+ * beneath the shell's page, in the palette the shell reports, and the shell's
+ * document paints no canvas, grid or margin caps of its own. (This reverses
+ * the earlier guarantee, that the canvas was the shell's own paint with
+ * nothing of the host's between it and the window.) So before each reading
+ * the shell's ground tokens are set to a sentinel the theme never uses: were
+ * the shell still painting the ground, the sentinel would show. At each of
+ * View › Zoom 0.8, 1.0 and 1.25 a crop of bare canvas is read from the
+ * composite: no pixel of it is the sentinel, its colour is the theme's
+ * canvas within the composite tolerance the other rows use, and every grid
+ * line lies within one device pixel of a line on the deck's lattice — the
  * deck root's corner plus whole 24 px cells at the deck's zoom — none extra,
  * and none of the lattice's lines inside the crop missing.
  *
  * @covers tugdeck/src/globals.css
+ * @covers tugdeck/src/entry.ts
+ * @covers tugapp/Sources/BodyStages.swift
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -36,6 +42,14 @@ const TOLERANCE = 8;
 const GRID_REACH = 44;
 /** The grid's cell, layout px (`globals.css`). */
 const CELL_PX = 24;
+/** A colour no theme paints, set on the shell's ground tokens. */
+const SENTINEL: Rgb = { r: 255, g: 0, b: 255 };
+const SENTINEL_JS = `(function () {
+  var s = document.body.style;
+  s.setProperty('--tug7-surface-global-primary-normal-canvas-rest', '#ff00ff');
+  s.setProperty('--tug7-surface-global-primary-normal-grid-rest', '#ff00ff');
+  return true;
+})()`;
 
 /** A crop of bare canvas, in viewport points. */
 interface Crop {
@@ -45,12 +59,13 @@ interface Crop {
   height: number;
 }
 
-/** What one zoom read: the canvas colour, the lines' centres in device px of the crop, and the crop's scale. */
+/** What one zoom read: the canvas colour, the lines' centres in device px of the crop, the crop's scale, and its sentinel pixels. */
 interface CanvasReading {
   canvas: Rgb;
   columns: number[];
   rows: number[];
   scale: number;
+  sentinel: number;
 }
 
 function emptyDeck(): Record<string, unknown> {
@@ -85,10 +100,12 @@ async function readCanvas(app: App, crop: Crop): Promise<CanvasReading> {
   const png = decodePngFile(frame.path);
   const columnHits = new Array<number>(png.width).fill(0);
   const rowHits = new Array<number>(png.height).fill(0);
+  let sentinel = 0;
   for (let y = 0; y < png.height; y++) {
     for (let x = 0; x < png.width; x++) {
       const i = (y * png.width + x) * 4;
       const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
+      if (near(p, SENTINEL, GRID_REACH)) sentinel += 1;
       if (near(p, canvas, TOLERANCE) || !near(p, canvas, GRID_REACH)) continue;
       columnHits[x] += 1;
       rowHits[y] += 1;
@@ -99,6 +116,7 @@ async function readCanvas(app: App, crop: Crop): Promise<CanvasReading> {
     columns: lineCentres(columnHits.map((n) => n / png.height)),
     rows: lineCentres(rowHits.map((n) => n / png.width)),
     scale: png.width / crop.width,
+    sentinel,
   };
 }
 
@@ -138,14 +156,14 @@ function onLattice(want: number[], got: number[]): { ok: boolean; worst: number 
   return { ok: found && worst <= 1, worst };
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding: the canvas beneath the cards is the shell's own", () => {
+describe.skipIf(!SHOULD_RUN)("body-grounding: the canvas beneath the cards is the host's", () => {
   test(
-    "at zoom 0.8, 1.0 and 1.25 the composite's canvas colour and grid are the page's to the device pixel",
+    "at zoom 0.8, 1.0 and 1.25 the composite's canvas is the theme's colour and lattice, none of it the shell's paint",
     async () => {
       const app = await launchTugApp({ testName: TEST_NAME });
       try {
         await app.seedDeckState({ state: emptyDeck() });
-        // card-dom: shell — the canvas and its grid are the shell page's paint.
+        // card-dom: shell — the theme's canvas token, read before the sentinel replaces it.
         const token = await app.evalJS<string>(
           asRgbJs("getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')"),
         );
@@ -154,6 +172,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: the canvas beneath the cards is th
           return { r, g, b };
         })();
         const crop = await bareCrop(app);
+        await app.evalJS<boolean>(SENTINEL_JS);
         for (const zoom of ZOOMS) {
           const took = await app.setPageZoom(zoom);
           expect(took, `View › Zoom took ${zoom}`).toBeCloseTo(zoom, 3);
@@ -168,11 +187,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: the canvas beneath the cards is th
           const cols = onLattice(wantColumns, reading.columns);
           const rows = onLattice(wantRows, reading.rows);
           note(
-            `@ ${zoom}: canvas ${JSON.stringify(reading.canvas)} want ${token}; ` +
+            `@ ${zoom}: canvas ${JSON.stringify(reading.canvas)} want ${token}; sentinel px ${reading.sentinel}; ` +
               `columns ${reading.columns.length} (lattice ${wantColumns.length}) worst ${cols.worst}; ` +
               `rows ${reading.rows.length} (lattice ${wantRows.length}) worst ${rows.worst}`,
           );
           expect(wantColumns.length, `@ ${zoom}: the page's lattice crosses the crop`).toBeGreaterThan(2);
+          expect(reading.sentinel, `@ ${zoom}: none of the shell's ground paint shows`).toBe(0);
           expect(near(reading.canvas, expected, TOLERANCE), `@ ${zoom}: the composite's canvas is the page's colour`).toBe(true);
           expect(cols.ok, `@ ${zoom}: every vertical line on the page's lattice within one device pixel, none missing or extra`).toBe(true);
           expect(rows.ok, `@ ${zoom}: every horizontal line on the page's lattice within one device pixel, none missing or extra`).toBe(true);

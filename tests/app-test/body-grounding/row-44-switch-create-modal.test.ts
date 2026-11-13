@@ -20,7 +20,7 @@
  *      `"cut"`, and no factory rail standing behind it as a second commit.
  *   3. **A finished rail from the cut.** From the first host tick that puts
  *      any rail card on screen, every rail card is on screen with its own
- *      painted page: no host face, no shell stand-in (the lid), and no frame
+ *      painted page or its last frame: no host skeleton, no shell stand-in, and no frame
  *      after the scrim has gone showing the canvas through a rail pane.
  *   4. **Nothing moves after the cut.** Every pane rect the shell reads at the
  *      cut is the one it reads at the end, and the canvas arms no settle that
@@ -47,6 +47,7 @@
  * @covers tugdeck/src/spaces-store.ts
  * @covers tugdeck/src/components/tugways/app-gates.tsx
  * @covers tugdeck/src/lib/body-make-ahead.ts
+ * @covers tugapp/Sources/BodyStages.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -186,7 +187,9 @@ function differsOutside(a: CaptureBurstFrame, b: CaptureBurstFrame, mask: FrameR
 const rowAt = (rows: readonly BodyLayerRow[], cardId: string, wall: number): BodyLayerRow | undefined =>
   rows.filter((r) => r.cardId === cardId && r.wall <= wall).at(-1);
 
-const onScreen = (r: BodyLayerRow): boolean => !r.hidden && r.opacity > 0 && r.held !== true;
+const onScreen = (r: BodyLayerRow): boolean => !r.hidden && r.opacity > 0;
+/** The host shows the card's skeleton over its page: a picture of a card still loading, not of its painted page. */
+const pictured = (r: BodyLayerRow): boolean => r.picture === "skeleton" && onScreen(r);
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace through its naming modal", () => {
   test(
@@ -318,12 +321,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace through its n
         );
         for (const id of rail) {
           const own = layers.rows.filter((r) => r.cardId === id && r.wall >= gestureWall);
-          const facedRows = own.filter((r) => r.faced);
-          const firstOn = own.find((r) => onScreen(r) || r.faced);
-          const firstPage = own.find((r) => onScreen(r) && !r.faced && r.painted);
+          const facedRows = own.filter(pictured);
+          const firstOn = own.find((r) => onScreen(r) || pictured(r));
+          const firstPage = own.find((r) => onScreen(r) && !pictured(r) && r.painted);
           note(
-            `row-44-switch-create-modal: ${id} first on screen ${firstOn === undefined ? "never" : `${at(firstOn.wall)} (${firstOn.faced ? "face" : firstOn.painted ? "page" : "unpainted"})`}, ` +
-              `faced ${facedRows.length === 0 ? "never" : `${at(facedRows[0].wall)}–${at(facedRows[facedRows.length - 1].wall)}`}, ` +
+            `row-44-switch-create-modal: ${id} first on screen ${firstOn === undefined ? "never" : `${at(firstOn.wall)} (${pictured(firstOn) ? (firstOn.picture ?? "face") : firstOn.painted ? "page" : "unpainted"})`}, ` +
+              `pictured ${facedRows.length === 0 ? "never" : `${at(facedRows[0].wall)}–${at(facedRows[facedRows.length - 1].wall)}`}, ` +
               `page first shown ${firstPage === undefined ? "never" : at(firstPage.wall)}`,
           );
         }
@@ -365,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace through its n
 
         // 3. A finished rail from the cut.
         const railRows = layers.rows.filter((r) => rail.includes(r.cardId) && r.wall >= gestureWall);
-        const hostCut = railRows.find((r) => onScreen(r) || r.faced)?.wall ?? null;
+        const hostCut = railRows.find((r) => onScreen(r) || pictured(r))?.wall ?? null;
         if (hostCut === null && rail.length > 0) {
           bad.push("the host never put a rail card on screen in the window");
         } else if (hostCut !== null) {
@@ -376,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace through its n
               if (unfinished.has(id)) continue;
               const row = rowAt(layers.rows, id, wall);
               if (row === undefined) unfinished.set(id, `${id} had no host row at ${at(wall)}`);
-              else if (row.faced) unfinished.set(id, `${id} stood a host face at ${at(wall)}`);
+              else if (pictured(row)) unfinished.set(id, `${id} stood a host ${row.picture ?? "face"} at ${at(wall)}`);
               else if (!onScreen(row)) unfinished.set(id, `${id} was off screen at ${at(wall)} while the rail showed`);
               else if (!row.painted) unfinished.set(id, `${id} was on screen unpainted at ${at(wall)}`);
             }

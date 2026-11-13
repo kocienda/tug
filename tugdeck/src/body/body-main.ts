@@ -132,6 +132,7 @@ import {
   frontendReadyToHost,
   bodyBindToPage,
   bodyVisibilityToPage,
+  bodyThemeToPage,
   paintedToHost,
   bodyStaleToHost,
   type BodyBind,
@@ -177,8 +178,6 @@ import {
   arrangementSpaces,
   cardFollowed,
   cardsLedgerBindings,
-  cardsListAnchor,
-  cardsListCursor,
   cardsSpaceVerb,
 } from "../bus/declarations/arrangement";
 import { spaceBindingsLedgerStore } from "../lib/space-bindings-ledger-store";
@@ -194,6 +193,7 @@ import { BODY_CHROME_FRAME_CLASS } from "./body-chrome-frame";
 import { installBodyPublisher, type InstalledBodyPublisher } from "./body-publisher";
 import { parseBodyIntent, replayBodyIntent, type BodyIntent } from "./body-intent";
 import { answerBodyVerbs } from "./body-verbs";
+import { readSkeletonPalette } from "../lib/skeleton-palette";
 
 /**
  * The kinds that list other cards' sessions — the Cards card's rows, the
@@ -234,10 +234,14 @@ function backgroundRgba(el: Element): number[] | null {
 /**
  * Tell the host the page's surface, for the container to wear behind the
  * web view, which draws no background of its own: a sliver of the view the
- * layout viewport does not reach reads the pane's colour, not white.
+ * layout viewport does not reach reads the pane's colour, not white. With it,
+ * the skeleton palette of the theme the page wears, under that theme's name:
+ * every workspace with a bound card reports its theme's palette this way,
+ * without the shell ever flipping a theme to read one.
  */
 function postSurface(): void {
-  postToHost(bodySurfaceToHost, { surface: pageSurfaceRgba() });
+  const palette = readSkeletonPalette(getOnScreenTheme());
+  postToHost(bodySurfaceToHost, { surface: pageSurfaceRgba(), ...(palette === null ? {} : { palette }) });
 }
 
 installDomForensics();
@@ -376,9 +380,10 @@ const SHOWN_STILL_MS = 300;
  * A page shown again after being parked says `painted` once more when it
  * has drawn as shown: once its deck has held still for a few frames, so what
  * the shell commits for the workspace just shown — its imposition, its
- * replicas — is drawn first. A switch's held picture waits on that word, and
- * lifts onto a page drawn for the workspace now shown. Until a moment after
- * it, nothing on the page transitions (`body-page.css`).
+ * replicas — is drawn first. The host's picture over the page, its last
+ * frame, comes down on that word onto a page drawn for the workspace now
+ * shown. Until a moment after it, nothing on the page transitions
+ * (`body-page.css`).
  */
 function sayDrawnWhenQuiet(): void {
   const root = document.documentElement;
@@ -418,13 +423,14 @@ let sleptHidden = false;
 
 /**
  * A store this page draws from applied a value: while hidden, say `bodyStale`
- * if what it would draw moved, and again at each later move, since each one
- * makes the host's last frame of it behind.
+ * if what it would draw moved — once in the hidden period, never again until
+ * the page is next hidden. The host drops the card's last frame at the first
+ * and takes no other ([B07]), so a later move tells it nothing.
  */
 function noteDrawnStoreApplied(): void {
-  if (drawnAtHide === null || signatureNow === null) return;
+  if (drawnAtHide === null || signatureNow === null || staleSaid !== null) return;
   const now = signatureNow();
-  if (!staleAfter(drawnAtHide, now) || now === staleSaid) return;
+  if (!staleAfter(drawnAtHide, now)) return;
   staleSaid = now;
   // What moved, for a reading: the last stale period's parts, on the page.
   (window as { __tugBodyStale?: { parts: string[]; at: number } }).__tugBodyStale = {
@@ -446,14 +452,11 @@ function followDrawnStores(cardId: string, rendersOthers: boolean): void {
         deckCards: deckCards.getSnapshot(),
         deckFacts: deckFacts.getSnapshot(),
         arrangement: rendersOthers ? { deck: arrangementDeck.getSnapshot(), spaces: arrangementSpaces.getSnapshot() } : null,
-        cardsList: { anchor: cardsListAnchor.getSnapshot(), cursor: cardsListCursor.getSnapshot() },
       },
       rendersOthers,
     );
   const stores: { subscribe(listener: () => void): unknown }[] = [cardTheme, paneChrome, cardContext, deckCards, deckFacts];
   if (rendersOthers) stores.push(arrangementDeck, arrangementSpaces);
-  // Heard only by a Workspaces card's page, whose parked scroller follows them.
-  stores.push(cardsListAnchor, cardsListCursor);
   for (const store of stores) store.subscribe(noteDrawnStoreApplied);
 }
 
@@ -1100,6 +1103,19 @@ async function bindBody(bind: BodyBind): Promise<void> {
   onHostMessage(bodyBindToPage, (bind) => {
     void bindBody(bind);
   });
+  // A rail page told the arriving workspace's theme by the host at a cut
+  // ([B10]): applied as the shell's `cardTheme` is, and said painted in it
+  // two frames on, so the host can take down the skeleton it stood over the
+  // re-skin. Said even when the theme was already on, so no skeleton waits
+  // on a paint that will not come.
+  onHostMessage(bodyThemeToPage, ({ theme }) => {
+    void applyCardTheme(theme).then(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => postToHost(paintedToHost, { content: true, theme }));
+      });
+    });
+  });
+
   // Whether the host has this body shown; hidden long enough, it goes dormant.
   // Shown again after being hidden, a page that has painted its content says
   // so once more: at once when it is current — nothing it draws moved while

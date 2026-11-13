@@ -131,3 +131,13 @@
     0,
     calc(-1 * mod(var(--tug-viewport-width, 100vw) - var(--tugx-margin-cap-width, 0px), 24px));
 }
+
+/* The shell's own caps paint nothing. They stand beneath every card's page,
+ * so they cover nothing, and the ground they would repeat is the host's,
+ * drawn beneath the shell (`globals.css`). They still take the press and
+ * still read as bare canvas. The caps that are seen are the overlay's
+ * (`overlay-margin-caps.tsx`), above every card, which keep the rule above. */
+:root[data-shell-page] .tug-margin-cap {
+  background-color: transparent;
+  background-image: none;
+}

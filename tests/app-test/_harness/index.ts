@@ -261,8 +261,16 @@ export type {
  * `2.1.0`: `captureBurst` adds `{op: "mark", name}`, an `outDir` on `arm`
  * under which the host writes the frames and a `reading.json`, and a 30 s
  * cap. Additive; major stays `2`.
+ *
+ * `2.2.0`: adds `stages` — the host's stages, each card's picture in its
+ * stage, and the last cuts ({@link App.stages}). Additive; major stays `2`.
+ *
+ * `3.0.0`: REMOVES `handOvers` — with the stages there are no faces,
+ * hand-overs, reveal sets or switch holds — and `bodyLayers` rows drop
+ * `faced` and `held`; `stages` carries the park covers (`parkCovers`). A
+ * removal is breaking, hence the major.
  */
-export const EXPECTED_SURFACE_VERSION = "2.1.0" as const;
+export const EXPECTED_SURFACE_VERSION = "3.0.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1095,13 +1103,12 @@ export class App {
   }
 
   /**
-   * The host's last hand-overs of a departing view to faces it draws from
-   * each arriving card's stand-in, oldest first — what each planned, how
-   * long the shell's snapshot took to say the faces may retire, how it
-   * ended, the title ink beneath each face — and the faces standing now.
+   * The host's stages: which workspace's is shown, each one's cards with the
+   * picture each shows — its live page, its last frame, or a skeleton — and
+   * the last cuts, each with its arriving cards' pictures at the cut.
    */
-  handOvers(): Promise<client.HandOverAccount> {
-    return client.handOvers(this as HarnessCaller);
+  stages(): Promise<client.StagesAccount> {
+    return client.stages(this as HarnessCaller);
   }
 
   /** The host's per-frame layer sampler — see `client.bodyLayers`. */
@@ -1144,15 +1151,6 @@ export class App {
     catchUpDelayMs?: Record<string, number> | null;
   }): Promise<null> {
     return this.evalJS<null>(`(window.__tug.bodyDelays(${JSON.stringify(delays)}), null)`);
-  }
-
-  /**
-   * Make every workspace switch's shell frame late by `ms` (null puts it
-   * back): the switch busy-waits inside the batch that swaps the deck, so
-   * the shell's render and its placement are late together.
-   */
-  switchFrameDelay(ms: number | null): Promise<null> {
-    return this.evalJS<null>(`(window.__tug.switchFrameDelay(${JSON.stringify(ms)}), null)`);
   }
 
   /** The window's accessibility reading order: `shell`, body card ids, then `overlay`. */

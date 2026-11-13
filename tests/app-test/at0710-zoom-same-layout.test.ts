@@ -10,7 +10,7 @@
  * | Z2 cells at every zoom | a mechanism that reflows the strip (`pageZoom`'s  |
  * |                        | 9px font floor grew the cells below 90 %)        |
  * | type scales            | a zoom that stops shrinking the face at 90 %     |
- * | grid scales with deck  | a 1× grid under a scaled deck                    |
+ * | shell paints no grid   | a second, unscaled lattice over the host's       |
  * | readout names factor   | a chord with no feedback, the wrong number, or a |
  * |                        | readout that never lets go                       |
  *
@@ -195,9 +195,11 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
         const baseline = await read(app, 1);
         expect(baseline.shown.length).toBe(5);
         expect(baseline.rootTransform).toBe("none");
-        // The grid scales with the deck: it is painted on the root.
-        expect(baseline.rootGrid, "the grid is painted on the root").toBe(true);
-        expect(baseline.bodyGrid, "and not on body, where it would stay 1×").toBe(false);
+        // The grid is the host's ground beneath the shell, scaled by the
+        // factor (`body-grounding/floor-host.test.ts` holds its lattice at
+        // each zoom); the shell paints none of its own.
+        expect(baseline.rootGrid, "the shell's root paints no grid").toBe(false);
+        expect(baseline.bodyGrid, "nor does its body").toBe(false);
 
         const readings: Record<string, ZoomReading> = { "1": baseline };
         for (const zoom of ZOOM_FACTORS) {

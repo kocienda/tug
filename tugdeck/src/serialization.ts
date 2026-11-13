@@ -3,13 +3,20 @@
  *
  * **Current wire format:** `version: 5` — a list of named SPACES, each holding
  * one deck, with on-disk keys `{ version: 5, activeSpaceId, spaces: [{ id,
- * name, focusedCardId?, theme?, deck }] }`. Each `deck` is the v4 BODY verbatim:
+ * name, focusedCardId?, theme?, deck }], rail? }`. Each `deck` is the v4 BODY verbatim:
  * `{ cards, panes, activePaneId?, imposition }`, with `panes[]` carrying the
  * additive-optional `slot?` and `imposition` carrying `{ kind?, sidebars, … }`.
  * `imposition` was a bare kind string in earlier v4 blobs and both shapes
  * parse — the widening is additive, so no version bump. `focusedCardId` now
  * rides its space rather than the separate `dev.tugapp.deck.state` row, which
  * is read once for a migrated deck and never written again.
+ *
+ * **The window rail.** `rail`, when present, is the window's one set of
+ * sidebar cards ([B09]), written as a v4 deck body holding only the rail's
+ * cards, its panes and an imposition carrying `sidebars` and `rails`; no
+ * space's deck then holds a sidebar card. A blob without it was written while
+ * each workspace kept its own rail, and `migrateToWindowRail` brings it onto
+ * one at boot. The field is additive, so no version bump.
  *
  * **The number 5 is shared.** A historical single-table blob also carries
  * `version: 5` and no `spaces` array, so the v5 branch is selected by SHAPE —
@@ -48,6 +55,7 @@ import {
   withFallbackTheme,
   wrapAsMainSpace,
 } from "./spaces";
+import { lastingRail, splitRail, type WindowRail } from "./lib/window-rail";
 import {
   clampSlot,
   isImpositionKind,
@@ -205,6 +213,19 @@ export function serialize(spaces: SpacesState): object {
       ...(space.theme !== undefined ? { theme: space.theme } : {}),
       deck: serializeDeckBody(space.deck),
     })),
+    ...(spaces.rail !== undefined ? { rail: serializeRail(spaces.rail) } : {}),
+  };
+}
+
+/** The window rail as a v4 deck body: its cards, its panes, and its imposition fields. */
+function serializeRail(rail: WindowRail): object {
+  return {
+    cards: rail.cards,
+    panes: rail.panes,
+    imposition: {
+      sidebars: rail.sidebars,
+      ...(rail.rails !== undefined ? { rails: rail.rails } : {}),
+    },
   };
 }
 
@@ -340,7 +361,16 @@ function parseSpaces(
     typeof rawActive === "string" && seen.has(rawActive)
       ? rawActive
       : spaces[0].id;
-  return { spaces, activeSpaceId };
+  const rawRail = raw["rail"];
+  if (!rawRail || typeof rawRail !== "object") return { spaces, activeSpaceId };
+  // Read through the same deck parse every space takes, so a rail pane is
+  // swept and fitted as any pane is; only what the parse calls a rail is kept.
+  const railDeck = parseOneDeck(
+    JSON.stringify({ version: 4, ...(rawRail as Record<string, unknown>) }),
+    canvasWidth,
+    canvasHeight,
+  );
+  return { spaces, activeSpaceId, rail: lastingRail(splitRail(railDeck).rail) };
 }
 
 function parseDeckState(

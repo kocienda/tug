@@ -286,11 +286,13 @@ describe("the funnel's edges", () => {
   // shell forwarded in that window goes back to the shell, which answers
   // it, rather than being dropped with nobody asked.
   test("a body whose chain has not mounted hands a chain command to the shell", async () => {
+    // FOCUS_PANE rather than ACTIVATE_SPACE: a page's workspace switch is the
+    // host's cut and goes to the host, not back to the shell.
     const { sent } = await asBody();
-    expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" })).toBe(true);
-    expect(await sent()).toEqual([{ id: TUG_ACTIONS.ACTIVATE_SPACE, payload: { spaceId: "s1" } }]);
+    expect(dispatchCommand(TUG_ACTIONS.FOCUS_PANE, { paneId: "p1" })).toBe(true);
+    expect(await sent()).toEqual([{ id: TUG_ACTIONS.FOCUS_PANE, payload: { paneId: "p1" } }]);
     // A local dispatch is the shell's own answer, and never goes back.
-    expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" }, { local: true })).toBe(false);
+    expect(dispatchCommand(TUG_ACTIONS.FOCUS_PANE, { paneId: "p1" }, { local: true })).toBe(false);
     expect(await sent()).toHaveLength(1);
   });
 

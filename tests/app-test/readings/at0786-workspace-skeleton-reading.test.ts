@@ -5,10 +5,10 @@
  *
  * The workspace-skeletons brief picks the set's horizon, the lane's switch
  * width and whether every parked workspace may be made ahead from these
- * numbers. The deck is shaped like the user's: every workspace stands its
- * own five rail cards (Dashes, Jots and Overview on the left, Cards and
- * Layout on the right) beside its content panes, and the content is Text and
- * Session cards — eight arriving cards in each workspace away from home. The
+ * numbers. The deck is shaped like the user's: the window stands one rail
+ * of five cards (Dashes, Jots and Overview on the left, Cards and Layout on
+ * the right) beside each workspace's content panes, and the content is Text
+ * and Session cards. The
  * Session cards are unbound, so their pages carry no transcript: the memory
  * read here is a page's floor.
  *
@@ -18,8 +18,9 @@
  *   painted, before the made-ahead pass's quiet second has passed, under a
  *   window capture burst kept on disk (`AT0786_FRAMES_DIR`, else the temp
  *   directory) and the host's layer rows. Per card, the cut to its first
- *   shown page and how it started; the hand-over; the reveal set's log, which
- *   says when the set landed and whether by its last paint or its horizon.
+ *   shown page and how it started; and the host's cut as `stages()` records
+ *   it — gesture to committed transaction, and the picture each arriving
+ *   card stood as at the cut.
  * - *Made-ahead switch*: back home, ten seconds of rest, then to a workspace
  *   never shown whose pages the pass has made, under a second burst
  *   (`AT0786_AHEAD_FRAMES_DIR`, else the temp directory). Every frame in the
@@ -41,7 +42,7 @@
  *
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/BodyLane.swift
- * @covers tugapp/Sources/BodyHandOver.swift
+ * @covers tugapp/Sources/BodyStages.swift
  */
 
 import { mkdirSync } from "node:fs";
@@ -64,7 +65,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
 
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
-/** How long a switch's layer rows are read: past the set's 2000 ms horizon and the slowest cold page the user's log records. */
+/** How long a switch's layer rows are read: past the slowest cold page the user's log records. */
 const LAYERS_MS = 4_500;
 /** The cold switch's frames: every 33 ms over the first three seconds. */
 const FRAMES_MS = 3_000;
@@ -151,14 +152,14 @@ function memory(): { kb: number; count: number } {
   return { kb: ps.reduce((s, p) => s + p.rssKb, 0), count: ps.length };
 }
 
-/** Each card's first row from `cutWall` on that shows its own page: painted, unfaced, unhidden, opaque. */
+/** Each card's first row from `cutWall` on that shows its own page: painted, unhidden, opaque, no picture over it. */
 function firstVisible(rows: readonly BodyLayerRow[], ids: readonly string[], cutWall: number): Record<string, number | null> {
   const out: Record<string, number | null> = {};
   for (const id of ids) {
     const row = rows
       .filter((r) => r.cardId === id && r.wall >= cutWall)
       .sort((a, b) => a.wall - b.wall)
-      .find((r) => r.painted && !r.faced && !r.hidden && r.opacity > 0);
+      .find((r) => r.painted && !r.hidden && r.opacity > 0 && (r.picture === undefined || r.picture === "live"));
     out[id] = row === undefined ? null : row.wall - cutWall;
   }
   return out;
@@ -167,8 +168,8 @@ function firstVisible(rows: readonly BodyLayerRow[], ids: readonly string[], cut
 interface Switched {
   cutWall: number;
   rows: BodyLayerRow[];
-  revealLog: string[];
-  handOver: string;
+  /** The host's cut onto the workspace, as `stages()` recorded it. */
+  cut: string;
   frames: CaptureBurstReading | null;
 }
 
@@ -180,8 +181,6 @@ async function readSwitchTo(app: App, spaceId: string, ids: readonly string[], f
     await app.captureBurst({ op: "arm", durationMs: FRAMES_MS, intervalMs: FRAMES_INTERVAL_MS, crop: { x: 0, y: 0, width, height }, outDir: framesDir });
   }
   await app.bodyLayers({ op: "arm", windowMs: LAYERS_MS });
-  const before = (await app.handOvers()).handOvers;
-  const serialBefore = before.length > 0 ? before[before.length - 1].serial : 0;
   await Bun.sleep(50);
   const cutWall = Date.now();
   await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(spaceId)} }), null)`);
@@ -196,19 +195,17 @@ async function readSwitchTo(app: App, spaceId: string, ids: readonly string[], f
     framesDir === undefined
       ? null
       : ((await settleFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, FRAMES_MS + 10_000)) as CaptureBurstReading);
-  const account = await app.handOvers();
-  const h = account.handOvers.find((r) => r.serial > serialBefore) ?? null;
+  const record = (await app.stages()).cuts.filter((c) => c.to === spaceId && c.gestureWall >= cutWall - 50).at(-1) ?? null;
+  const pictures = Object.values(record?.pictures ?? {});
+  const count = (kind: string): number => pictures.filter((p) => p === kind).length;
   return {
     cutWall,
     rows: layers.rows,
-    revealLog: (account.revealLog ?? [])
-      .map((line) => line.split(" "))
-      .filter(([wall]) => Number(wall) >= cutWall)
-      .map(([wall, ...rest]) => `${Number(wall) - cutWall} ms ${rest.join(" ")}`),
-    handOver:
-      h === null
-        ? "none planned"
-        : `${h.outcome}, snapshot ${h.snapshotMs === null ? "?" : h.snapshotMs.toFixed(1)} ms, faces ${h.faces.length}, handed over ${h.handedOver.length}`,
+    cut:
+      record === null
+        ? "none recorded"
+        : `${record.door}, committed ${Math.round(record.committedWall - record.gestureWall)} ms after the gesture; ` +
+          `live ${count("live")}, lastFrame ${count("lastFrame")}, skeleton ${count("skeleton")}`,
     frames,
   };
 }
@@ -241,8 +238,7 @@ describe.skipIf(!SHOULD_RUN)("at0786 — a workspace switch's skeleton time, and
         const cold = await readSwitchTo(app, AWAY.id, cardsOf(AWAY), framesDir);
         const coldVisible = firstVisible(cold.rows, cardsOf(AWAY), cold.cutWall);
         const coldStart = Object.fromEntries(cardsOf(AWAY).map((id) => [id, cold.rows.find((r) => r.cardId === id && r.wall >= cold.cutWall)?.start ?? "?"]));
-        note(`cold switch: hand-over ${cold.handOver}`);
-        note(`cold switch: reveal set ${cold.revealLog.join("; ") || "did nothing"}`);
+        note(`cold switch: the cut ${cold.cut}`);
         note(`cold switch per card (first shown page / start): ${cardsOf(AWAY).map((id) => `${id} ${ms(coldVisible[id])} / ${coldStart[id]}`).join("; ")}`);
         const visibles = Object.values(coldVisible).filter((v): v is number => v !== null);
         note(
@@ -261,10 +257,7 @@ describe.skipIf(!SHOULD_RUN)("at0786 — a workspace switch's skeleton time, and
         note(`made-ahead switch: ${ahead}/${cardsOf(THIRD).length} of its cards painted before the cut`);
         const made = await readSwitchTo(app, THIRD.id, cardsOf(THIRD), aheadDir);
         const mv = Object.values(firstVisible(made.rows, cardsOf(THIRD), made.cutWall)).filter((x): x is number => x !== null);
-        note(`made-ahead switch: hand-over ${made.handOver}; reveal set ${made.revealLog.join("; ") || "did nothing"}`);
-        const holds = ((await app.handOvers()) as unknown as { switchHolds?: { cards: string[]; heldMs: number | null; outcome: string }[] }).switchHolds ?? [];
-        const hold = holds.at(-1);
-        note(`made-ahead switch: the host's held picture ${hold === undefined ? "never stood" : `${hold.outcome}, held ${hold.heldMs === null ? "?" : Math.round(hold.heldMs)} ms over ${hold.cards.length} cards`}`);
+        note(`made-ahead switch: the cut ${made.cut}`);
         const torn = await tornFrames(app, made, [...THIRD.rail, ...THIRD.content.filter((c) => c.kind === "text").map((c) => c.id)]);
         note(`made-ahead switch: frames that are neither workspace — ${torn.length === 0 ? "none" : torn.join("; ")}`);
         note(
@@ -279,14 +272,14 @@ describe.skipIf(!SHOULD_RUN)("at0786 — a workspace switch's skeleton time, and
         const warm = await readSwitchTo(app, AWAY.id, cardsOf(AWAY));
         const warmVisible = firstVisible(warm.rows, cardsOf(AWAY), warm.cutWall);
         const wv = Object.values(warmVisible).filter((v): v is number => v !== null);
-        note(`warm switch: hand-over ${warm.handOver}; reveal set ${warm.revealLog.join("; ") || "did nothing"}`);
+        note(`warm switch: the cut ${warm.cut}`);
         note(`warm switch summary: slowest ${ms(wv.length > 0 ? Math.max(...wv) : null)}, median ${ms(median(wv))}, ${wv.length}/${cardsOf(AWAY).length} shown`);
 
         // ---- Memory, every workspace ----
         for (const s of [FOURTH]) {
           const visit = await readSwitchTo(app, s.id, cardsOf(s));
           const v = Object.values(firstVisible(visit.rows, cardsOf(s), visit.cutWall)).filter((x): x is number => x !== null);
-          note(`visit ${s.id}: last shown ${ms(v.length > 0 ? Math.max(...v) : null)}, ${v.length}/${cardsOf(s).length} shown; hand-over ${visit.handOver}; reveal set ${visit.revealLog.join("; ") || "did nothing"}`);
+          note(`visit ${s.id}: last shown ${ms(v.length > 0 ? Math.max(...v) : null)}, ${v.length}/${cardsOf(s).length} shown; the cut ${visit.cut}`);
         }
         await readSwitchTo(app, HOME.id, cardsOf(HOME));
         await Bun.sleep(REST_MS);

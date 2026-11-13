@@ -196,7 +196,18 @@ final class TestHarnessConnection {
     /// `marks` — an `outDir` on `arm`, under which the host writes the frames
     /// and a `reading.json` into that directory, and a 30 s cap. Additive;
     /// major stays `2`.
-    static let surfaceVersion = "2.1.0"
+    ///
+    /// `2.2.0`: adds `stages` — the host's stages: which is shown, each one's
+    /// cards with the picture each shows (`live`, `lastFrame`, `skeleton`)
+    /// and whether its skeleton's wave runs, and the last 16 cuts with each
+    /// arriving card's picture at the cut. Additive; major stays `2`.
+    ///
+    /// `3.0.0`: REMOVES `handOvers`. The host's stages took the switch, so
+    /// there are no faces, hand-overs, reveal sets or switch holds to
+    /// report; `stages` answers what a switch shows, and carries the park
+    /// covers (`parkCovers`) `handOvers` used to. `bodyLayers` rows drop
+    /// `faced` and `held`. A removal is breaking, hence the major.
+    static let surfaceVersion = "3.0.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -395,8 +406,8 @@ final class TestHarnessConnection {
             dispatchSpikeBody(id: id, verbObj: obj)
         case "bodies":
             dispatchBodies(id: id)
-        case "handOvers":
-            dispatchHandOvers(id: id)
+        case "stages":
+            dispatchStages(id: id)
         case "bodyLayers":
             dispatchBodyLayers(id: id, verbObj: obj)
         case "accessibilityOrder":
@@ -447,16 +458,16 @@ final class TestHarnessConnection {
         }
     }
 
-    /// `handOvers` → `{handOvers, standing}`: the body controller's last 16
-    /// hand-overs, oldest first, and the faces on screen now.
-    private func dispatchHandOvers(id: Int) {
+    /// `stages` → `{active, stages, rail, cuts, parkCovers}`: the host's
+    /// stages, the window's rail, its last cuts and the park covers kept.
+    private func dispatchStages(id: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard let mainWindow = self.webView?.window as? MainWindow, let bodies = mainWindow.bodies else {
                 self.respondError(id: id, name: "WindowError", message: "no window")
                 return
             }
-            self.respond(id: id, ok: true, payload: ["value": bodies.handOverAccount().foundation])
+            self.respond(id: id, ok: true, payload: ["value": bodies.stagesAccount().foundation])
         }
     }
 

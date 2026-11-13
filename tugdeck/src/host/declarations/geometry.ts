@@ -16,7 +16,6 @@ import { INVALID, arr, bool, literal, nullable, num, obj, oneOf, opaque, optiona
 import type { ResizeEdge } from "../../bus/declarations/pane";
 import type { CardPlan } from "../../lib/card-plan";
 import type { CardInsets, PlaceCards } from "../../lib/card-placement";
-import type { FaceDraw } from "../../lib/face-draw";
 import type { CardGestureReport } from "../../lib/host-card-gesture";
 import type { RailTravel, RailWidthLimits } from "../../lib/rail-width";
 import { defineToHost, defineToPage } from "../declare";
@@ -49,13 +48,6 @@ const railTravelCodec: Codec<RailTravel> = oneOf(
 );
 
 const railLimits: Codec<RailWidthLimits> = obj({ min: num, max: num });
-
-/** A face's display list (`lib/face-draw.ts`), checked to the shape `FaceDraw` decodes in the host. */
-const faceDrawCodec: Codec<FaceDraw> = obj({
-  boxes: arr(obj({ rect, fill: nullable(str), border: nullable(obj({ width: num, color: str })), radius: num })),
-  texts: arr(obj({ rect, text: str, font: obj({ family: str, size: num, weight: num }), color: str })),
-  images: arr(obj({ rect, svg: str })),
-});
 
 const cardPlanCodec: Codec<CardPlan> = obj({
   planId: num,
@@ -99,10 +91,12 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
       insets: cardInsets,
       shell: arr(rect),
       visible: bool,
+      spaceId: optional(str),
+      staged: bool,
+      title: str,
+      kind: str,
+      folded: trueFlag,
       sibling: trueFlag,
-      face: trueFlag,
-      parked: trueFlag,
-      faceDraw: optional(faceDrawCodec),
       z: num,
       grips: arr(edge),
       free: bool,
@@ -116,6 +110,8 @@ const placeCardsCodec: Codec<PlaceCards> = obj({
   rails: obj({ left: optional(railLimits), right: optional(railLimits) }),
   band: obj({ band: num, flow: nullable(obj({ offset: num, strip: num })) }),
   held: optional(arr(str)),
+  spaces: arr(obj({ id: str, theme: nullable(str), focusedCardId: nullable(str) })),
+  activeSpaceId: str,
 });
 
 /** A card's page has taken a title-bar or grip press for the host to carry (`body-chrome.ts`). */
@@ -147,6 +143,18 @@ const cardGestureBeginCodec: Codec<CardGestureBegin> = obj({
 
 const SAMPLE_RECT = { x: 121, y: 96, width: 398, height: 483 };
 
+/** A sample card's stage facts: a rail member (`c1`) names no workspace; `c5` is the parked workspace's. */
+function sampleStage(cardId: string): { spaceId?: string; staged: boolean; title: string; kind: string; folded?: true } {
+  if (cardId === "c1") return { staged: true, title: "Files", kind: "files" };
+  if (cardId === "c5") return { spaceId: "s2", staged: true, title: "Notes", kind: "text", folded: true };
+  return { spaceId: "s1", staged: cardId !== "c2", title: "Session", kind: "session" };
+}
+
+const SAMPLE_SPACES = [
+  { id: "s1", theme: "ironclad", focusedCardId: "c3" },
+  { id: "s2", theme: null, focusedCardId: null },
+];
+
 export const placeCardsToHost = defineToHost<PlaceCards>({
   name: "placeCards",
   from: "shell",
@@ -161,6 +169,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         {
           cardId: "c1",
           ...SAMPLE_RECT,
+          ...sampleStage("c1"),
           view: { x: 111, y: 86, width: 418, height: 503 },
           insets: { top: 10, right: 10, bottom: 10, left: 10 },
           shell: [{ x: 117, y: 96, width: 8, height: 483 }],
@@ -174,6 +183,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         {
           cardId: "c3",
           ...SAMPLE_RECT,
+          ...sampleStage("c3"),
           view: { x: 111, y: 86, width: 419, height: 503 },
           insets: { top: 10, right: 10.5, bottom: 10, left: 10 },
           shell: [],
@@ -189,6 +199,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         {
           cardId: "c2",
           ...SAMPLE_RECT,
+          ...sampleStage("c2"),
           view: { x: 111, y: 86, width: 418, height: 503 },
           insets: { top: 10, right: 10, bottom: 10, left: 10 },
           shell: [],
@@ -203,11 +214,11 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         {
           cardId: "c5",
           ...SAMPLE_RECT,
+          ...sampleStage("c5"),
           view: { x: 111, y: 86, width: 418, height: 503 },
           insets: { top: 10, right: 10, bottom: 10, left: 10 },
           shell: [],
           visible: false,
-          parked: true,
           z: 0,
           grips: [],
           free: false,
@@ -216,21 +227,11 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         {
           cardId: "c4",
           ...SAMPLE_RECT,
+          ...sampleStage("c4"),
           view: { x: 111, y: 86, width: 418, height: 503 },
           insets: { top: 10, right: 10, bottom: 10, left: 10 },
           shell: [],
           visible: false,
-          face: true,
-          faceDraw: {
-            boxes: [
-              { rect: { x: 10, y: 10, width: 398, height: 483 }, fill: "rgba(30, 32, 36, 1)", border: { width: 1, color: "rgba(80, 84, 90, 0.6)" }, radius: 6 },
-              { rect: { x: 10, y: 10, width: 398, height: 28 }, fill: null, border: null, radius: 0 },
-            ],
-            texts: [
-              { rect: { x: 40, y: 17, width: 120, height: 14 }, text: "Session", font: { family: "Inter", size: 12, weight: 600 }, color: "rgba(220, 222, 226, 1)" },
-            ],
-            images: [{ rect: { x: 18, y: 17, width: 14, height: 14 }, svg: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"></svg>' }],
-          },
           z: 3,
           grips: [],
           free: false,
@@ -240,8 +241,10 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
       rails: { left: { min: 320, max: 675 } },
       band: { band: 980, flow: null },
       held: ["c1"],
+      spaces: SAMPLE_SPACES,
+      activeSpaceId: "s1",
     },
-    { apron: 10, canvas: null, zoom: 1.25, gap: 5, cards: [], rails: {}, band: { band: 0, flow: null } },
+    { apron: 10, canvas: null, zoom: 1.25, gap: 5, cards: [], rails: {}, band: { band: 0, flow: null }, spaces: [], activeSpaceId: "" },
   ],
   refused: [
     [{ cardId: "c1" }],
@@ -254,6 +257,7 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
         {
           cardId: "c1",
           ...SAMPLE_RECT,
+          ...sampleStage("c1"),
           view: SAMPLE_RECT,
           insets: { top: 0, right: 0, bottom: 0, left: 0 },
           shell: [],
@@ -264,31 +268,6 @@ export const placeCardsToHost = defineToHost<PlaceCards>({
           min: { width: 0, height: 0 },
         },
       ],
-    },
-    // A face whose text run names no font: the host could not draw it.
-    {
-      apron: 10,
-      canvas: null,
-      zoom: 1,
-      gap: 5,
-      cards: [
-        {
-          cardId: "c4",
-          ...SAMPLE_RECT,
-          view: SAMPLE_RECT,
-          insets: { top: 0, right: 0, bottom: 0, left: 0 },
-          shell: [],
-          visible: false,
-          face: true,
-          faceDraw: { boxes: [], texts: [{ rect: SAMPLE_RECT, text: "Session", color: "rgba(0, 0, 0, 1)" }], images: [] },
-          z: 1,
-          grips: [],
-          free: false,
-          min: { width: 0, height: 0 },
-        },
-      ],
-      rails: {},
-      band: { band: 0, flow: null },
     },
   ],
 });
@@ -309,26 +288,28 @@ export const cardGestureToHost = defineToHost<CardGestureBegin>({
   ],
 });
 
-/** `switchHold`: a workspace switch is starting onto this deck, at least one of whose shown pages has painted. */
-export interface SwitchHold {
-  /** Every card of the arriving workspace's deck, shown or not, painted or not. */
-  readonly cardIds: readonly string[];
+/** `spaceCut`: show this workspace's stage. */
+export interface SpaceCut {
+  readonly spaceId: string;
+  /** The serial of the host cut the shell is following; absent for a switch that began in the shell, and always from a page. */
+  readonly cut?: number;
 }
 
 /**
- * A workspace switch onto at least one painted page is starting, sent in the task that
- * swaps the deck, before the shell renders the switched frame. The host
- * holds a picture of the window as it stands until the shell's switched
- * frame has rendered and the arriving pages shown are on, then lifts it in
- * one transaction that also hides every body whose card is not named here,
- * so nothing of the departed workspace is shown beneath it.
+ * A workspace switch, which the host makes: its stages cut in one native
+ * transaction, before any page renders the switch. The shell posts it in the
+ * task that swaps its deck, before the swap — carrying the serial of the host
+ * cut it is following, which the host ignores, or none for a switch that
+ * began in the shell, which the host cuts on. A body page posts it in place
+ * of a deck command (the Workspaces card): the host cuts and tells the shell
+ * to follow.
  */
-export const switchHoldToHost = defineToHost<SwitchHold>({
-  name: "switchHold",
-  from: "shell",
-  codec: obj({ cardIds: arr(str) }),
-  samples: [{ cardIds: ["c1", "c2"] }],
-  refused: [null, { cardIds: "c1" }],
+export const spaceCutToHost = defineToHost<SpaceCut>({
+  name: "spaceCut",
+  from: "any",
+  codec: obj({ spaceId: str, cut: optional(num) }),
+  samples: [{ spaceId: "s1" }, { spaceId: "s2", cut: 3 }],
+  refused: [null, { spaceId: 1 }, { spaceId: "s1", cut: "3" }],
 });
 
 /**

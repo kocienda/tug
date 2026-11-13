@@ -50,8 +50,8 @@ describe("body-make-ahead", () => {
     expect(nextAhead({ ...base, cards: [{ cardId: "h1", spaceId: "home", state: "ready", timeEvicted: false }] })).toBeNull();
   });
 
-  test("an unmounted parked space is mounted first", () => {
-    expect(nextAhead(base)).toEqual({ kind: "mount", spaceId: "a" });
+  test("the pass mounts nothing: a parked space not mounted is passed over", () => {
+    expect(nextAhead({ ...base, unhanded: [{ cardId: "a0", spaceId: "a" }] })).toBeNull();
   });
 
   test("a mounted space's unmade cards are made, and one the host's clock evicted", () => {
@@ -83,8 +83,10 @@ describe("body-make-ahead", () => {
       ...base,
       mounted: new Set(["home", "a"]),
       cards: [...base.cards, { cardId: "a1", spaceId: "a", state: "evicted", timeEvicted: false }],
+      unhanded: [{ cardId: "b0", spaceId: "b" }],
     };
-    expect(nextAhead(f)).toEqual({ kind: "mount", spaceId: "b" });
+    const g: AheadFacts = { ...f, mounted: new Set(["home", "a", "b"]) };
+    expect(nextAhead(g)).toEqual({ kind: "make", spaceId: "b", cardIds: ["b0"] });
   });
 
   test("with every space made, nothing", () => {
@@ -92,8 +94,9 @@ describe("body-make-ahead", () => {
   });
 
   test("a switch that has not settled makes nothing ahead", () => {
-    expect(nextAhead(base)).toEqual({ kind: "mount", spaceId: "a" });
-    expect(nextAhead({ ...base, switching: true })).toBeNull();
+    const f: AheadFacts = { ...base, mounted: new Set(["home", "a"]), unhanded: [{ cardId: "a0", spaceId: "a" }] };
+    expect(nextAhead(f)).toEqual({ kind: "make", spaceId: "a", cardIds: ["a0"] });
+    expect(nextAhead({ ...f, switching: true })).toBeNull();
   });
 
   test("a switch settles once none of the arriving workspace's pages is loading", () => {

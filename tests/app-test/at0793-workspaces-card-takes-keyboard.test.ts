@@ -202,7 +202,9 @@ describe.skipIf(!SHOULD_RUN)("at0793 — the Workspaces card takes the keyboard"
       /** The three doors, from the Text card, onto workspace `i`'s Workspaces card. */
       const doors = async (i: number): Promise<Record<string, DoorResult>> => {
         const text = `T${i}`;
-        const card = `C${i}`;
+        // The rail is the window's: the layout below boots onto one
+        // Workspaces card, the first workspace's, which every workspace shows.
+        const card = "C0";
         await awayTo(text);
         const blankTarget = await cards.evalJS<string>(
           `(function () {
@@ -260,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)("at0793 — the Workspaces card takes the keyboard"
         ).toEqual(allWork);
         expect(
           switched,
-          "and in the Workspaces card of a workspace reached by a switch",
+          "and in the same Workspaces card once a switch has reached the other workspace",
         ).toEqual(allWork);
       } finally {
         await app.close().catch(() => undefined);

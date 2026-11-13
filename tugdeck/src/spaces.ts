@@ -13,8 +13,9 @@
  * and nothing about persistence beyond the shape `serialization.ts` writes.
  */
 
-import type { CardState, DeckState, TugPaneState } from "./layout-tree";
+import type { DeckState, TugPaneState } from "./layout-tree";
 import { isSidebarCard } from "./card-registry";
+import type { WindowRail } from "./lib/window-rail";
 import { columnMembersOf } from "./deck-store-selectors";
 import {
   clampSlot,
@@ -71,6 +72,14 @@ export interface SpaceState {
 export interface SpacesState {
   spaces: readonly SpaceState[];
   activeSpaceId: string;
+  /**
+   * The window's rail ([B09]): the one set of sidebar cards every workspace
+   * shares. Present, no space's deck holds a rail card — the active deck has
+   * it joined only while it is live. Absent on a state read from a blob
+   * written while each workspace kept its own rail, which
+   * `migrateToWindowRail` brings onto one.
+   */
+  rail?: WindowRail;
 }
 
 /**
@@ -92,13 +101,13 @@ export interface SpacesState {
  * names beside them.
  */
 export interface SpacesSnapshot {
-  spaces: readonly { id: string; name: string; theme?: string }[];
+  /** `focusedCardId` is a parked space's, as it was when it was left; the active space's is the deck's first responder. */
+  spaces: readonly { id: string; name: string; theme?: string; focusedCardId?: string }[];
   activeSpaceId: string;
   /**
-   * The workspaces React is holding mounted — the active one and every one
-   * the user has visited this run ([P01]). A workspace nobody has shown is
-   * not mounted, so its cards become bodies on its first visit. In the
-   * list's order.
+   * The workspaces React is holding mounted: every one in the list, from
+   * the first snapshot on, so each card has a rect before its workspace is
+   * first shown. In the list's order.
    */
   mountedSpaceIds: readonly string[];
   /**
@@ -258,80 +267,27 @@ export function duplicateSpaceName(sourceName: string): string {
 }
 
 /**
- * The deck a duplicated workspace opens on: the source's layout and its
- * sidebars, and none of its content ([P06]).
+ * The deck a duplicated workspace opens on: the source's layout and none of
+ * its content ([P06]).
  *
  * **A session cannot be in two places**, which is the whole of why this copies
  * so little. A fresh-id copy of a Session card is a card with no binding and
  * no ledger row, so it would mount on the project picker — a workspace full of
- * pickers is not a copy of anything. The sidebar cards have no such identity
- * to divide: a Cards card is the same Cards card wherever it stands, and a
- * fresh id for it is a fresh instance rather than a claim on somebody's
- * session.
- *
- * What a pane counts as a sidebar pane is read from `imposition.sidebars`,
- * which is keyed by `componentId` precisely because a sidebar card is a
- * singleton of its type. That keeps this helper pure: it needs no registry,
- * and the deck it is handed already carries the fact.
+ * pickers is not a copy of anything. The sidebar cards are not copied either:
+ * the rail is the window's ([B09]), so the copy is shown with the one rail
+ * every workspace shares.
  *
  * `imposition.columns` is dropped rather than copied — its members are named
- * by PANE id, and every pane id here is freshly minted, so a copied record
- * would name nothing that exists. `rails` and `sidebars` survive, being keyed
- * by side and by componentId.
- *
- * `mintId` is the caller's id source, so a test can hand it a counter and read
- * the result.
+ * by PANE id, and the copy has no panes, so a copied record would name
+ * nothing that exists. The rail's own fields are the window's and are not
+ * the copy's to hold.
  */
-export function duplicatedDeck(
-  source: DeckState,
-  mintId: () => string,
-): DeckState {
-  const { columns: _columns, ...imposition } = source.imposition;
-  const sidebars = imposition.sidebars ?? {};
-
-  const cards: CardState[] = [];
-  const panes: TugPaneState[] = [];
-  let activePaneId: string | undefined;
-
-  for (const pane of source.panes) {
-    const seats = pane.cardIds
-      .map((id) => source.cards.find((c) => c.id === id))
-      .filter(
-        (card): card is CardState =>
-          card !== undefined && sidebars[card.componentId] !== undefined,
-      );
-    if (seats.length === 0) continue;
-
-    const copies = seats.map((card) => ({ ...card, id: mintId() }));
-    cards.push(...copies);
-
-    // A sidebar pane is pinned from `imposition.sidebars` at render, never
-    // slotted — `validateDeckState` rejects a rail pane carrying a slot — so
-    // the source's `slot` does not come along even when it had one.
-    const { slot: _slot, ...rest } = pane;
-    const activeIndex = seats.findIndex((c) => c.id === pane.activeCardId);
-    const copiedPane: TugPaneState = {
-      ...rest,
-      id: mintId(),
-      cardIds: copies.map((c) => c.id),
-      activeCardId: copies[activeIndex === -1 ? 0 : activeIndex].id,
-    };
-    panes.push(copiedPane);
-    if (pane.id === source.activePaneId) activePaneId = copiedPane.id;
-  }
-
-  // The source's active pane may have been a content pane, which is not here.
-  // Fall back to the frontmost copied pane rather than leaving the deck with
-  // no active pane at all.
-  if (activePaneId === undefined && panes.length > 0) {
-    activePaneId = panes[panes.length - 1].id;
-  }
-
+export function duplicatedDeck(source: DeckState): DeckState {
+  const { columns: _columns, rails: _rails, ...imposition } = source.imposition;
   return {
-    cards,
-    panes,
-    ...(activePaneId !== undefined ? { activePaneId } : {}),
-    imposition,
+    cards: [],
+    panes: [],
+    imposition: { ...imposition, sidebars: {} },
     hasFocus: true,
   };
 }

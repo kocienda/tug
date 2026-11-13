@@ -731,15 +731,12 @@ export interface DeckView extends CardDeck {
    * session in the outgoing workspace keeps its binding and its process
    * ([B05]). The outgoing cards' state bags are captured on the way out and
    * replayed when the workspace returns.
+   *
+   * `hostCut` is the serial of the host's stage cut this switch follows
+   * ([P06]): the host has already shown the workspace, and hears its serial
+   * back.
    */
-  activateSpace: (spaceId: string) => void;
-
-  /**
-   * Mount that space without showing it, so its cards are made ahead of its
-   * first visit. A no-op on a space already mounted. Optional: only the deck
-   * manager holds the mounted set.
-   */
-  mountSpaceAhead?: (spaceId: string) => void;
+  activateSpace: (spaceId: string, hostCut?: number) => void;
 
   /**
    * Build a new workspace whole but hold it pending: mounted unshown, its

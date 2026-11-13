@@ -69,3 +69,15 @@ body {
   background-size: 100% calc(100% + 24px), calc(100% + 24px) 100%;
   background-repeat: no-repeat;
 }
+
+/* The shell's document paints no ground. The host draws the canvas and its
+ * grid beneath the shell's page (`StageGroundView` in `BodyStages.swift`),
+ * from the palette every document reports (`lib/skeleton-palette.ts`), so
+ * the shell is transparent wherever a card or chrome does not stand. Only
+ * the shell's: a body page loads this same sheet and keeps its own
+ * background. `--tugx-canvas-grid-line` stays declared above. */
+:root[data-shell-page] body,
+:root[data-shell-page] #deck-container {
+  background-color: transparent;
+  background-image: none;
+}

@@ -20,16 +20,21 @@
  * form — and stays shown at the folded rect. Everything else posts
  * `visible: false`, and the host hides it.
  *
- * **The cards stand over the shell.** The shell's page lies beneath every
- * card and paints the canvas and its grid itself; a card's view is opaque
- * over its pane, so nothing the shell paints shows through a card and
- * nothing is cut for a card to show through. A card that stops showing is
- * hidden on the far side of the paint of the commit that hid it, so the
- * shell's frame and the host's hide land together — unless its view meets a
- * card whose page has not painted (`face`), whose stand-in it would stand
- * over: that view is posted hidden at once, and the host hides it in the same
- * transaction that stands a face it draws for each such card, from the
- * stand-in's own display list ({@link FaceDraw}).
+ * **The cards stand in the host's stages.** The host keeps one stage per
+ * workspace and draws its ground — the canvas and its grid — itself
+ * ([D230]); the shell's page paints nothing a card stands over. Each card
+ * shows, in its workspace's stage, its live page, its last frame, or a
+ * skeleton the host draws from the card's placement entry, so the shell
+ * posts each card's facts (`spaceId`, `staged`, `title`, `kind`) and never
+ * a picture of its own. Which stage is on screen is the host's to know: it
+ * cuts on the gesture, and every body's visibility derives from its own
+ * active stage and `staged`. The window's rail stands outside every stage
+ * and names no workspace ([D231]). A card that stops showing is hidden on
+ * the far side of the paint of the commit that hid it, so the shell's frame
+ * and the host's hide land together — unless its view meets a card the host
+ * pictures while its page cannot show ({@link wantsPicture}): that view is
+ * posted hidden at once, and the host takes it down in the same transaction
+ * that stands that card's picture.
  *
  * **When it measures.** After every deck commit, from a beacon at the deck
  * root, and on what moves a placeholder without one — a window resize, a zoom
@@ -90,13 +95,19 @@
  */
 
 import type { IDeckManagerStore } from "../deck-manager-store";
+import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
 import { bodyCardsStore } from "./body-cards-store";
+import { cardTitleStore } from "./card-title-store";
 import { hostCapabilitiesStore } from "./body-handoff";
 import { onHostMessage, postToHost } from "../host/channel";
 import { placeCardsToHost } from "../host/declarations/geometry";
 import { planStartedToPage } from "../host/declarations/lifecycle";
 import { cardArrivingOf, railMembersOf } from "../deck-store-selectors";
+import { getRegistration, isSidebarCard } from "../card-registry";
+import { composePaneTitleBarText } from "./pane-title";
+import { cardSessionBindingStore } from "./card-session-binding-store";
+import { sessionDisplayTitleForBinding } from "./session-identity";
 import {
   RAIL_TRAVEL_ATTR,
   parseRailTravel,
@@ -134,7 +145,6 @@ import { CARD_APRON_PX } from "./chrome-placement";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "./pane-frame-selectors";
 import { paneStandingOf } from "./pane-chrome-projection";
 import { overlaySurfaceBook } from "./overlay-surfaces";
-import { faceDrawOf, type FaceDraw } from "./face-draw";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 // ---------------------------------------------------------------------------
@@ -161,14 +171,26 @@ export function bodyVisible(facts: BodyShownFacts): boolean {
 }
 
 /**
- * Whether a body placed `visible` with these facts wants a face: it is
- * hidden only because its page cannot show yet — it would show were it
- * painted. The shell paints its stand-in meanwhile, and a host hand-over
- * covers that stand-in with a face drawn from it ({@link FaceDraw}). Never a sibling,
- * whose facts are not active, and never a card in no pane.
+ * Whether a body placed hidden with these facts stands as the host's
+ * picture: it is hidden only because its page cannot show yet — it would
+ * show were it painted. The host stands the card's skeleton or last frame
+ * meanwhile. Never a sibling, whose facts are not active, and never a card
+ * in no pane.
  */
-export function wantsFace(facts: BodyShownFacts | null, visible: boolean): boolean {
+export function wantsPicture(facts: BodyShownFacts | null, visible: boolean): boolean {
   return facts !== null && !visible && bodyVisible({ ...facts, painted: true });
+}
+
+/**
+ * Whether a body with these facts would show were its workspace the shown
+ * one and its page painted: {@link bodyVisible} with `layerShown` and
+ * `painted` true. Whether its page can show is the host's to know, and a card
+ * whose page has not painted stands as its skeleton or last frame in its
+ * stage. False for a card in no pane. A parked workspace's active card is
+ * staged; its sibling is not.
+ */
+export function stagedOf(facts: BodyShownFacts | null): boolean {
+  return facts !== null && bodyVisible({ ...facts, layerShown: true, painted: true });
 }
 
 /** One card's view in a placement: its viewport rect and whether it shows. */
@@ -186,6 +208,20 @@ export interface BodyPlacement {
    * so the host keeps these for the shell.
    */
   readonly shell: readonly Rect[];
+  /** The card's workspace (`DeckManager.spaceOf`); absent for a card in none. */
+  readonly spaceId?: string;
+  /**
+   * Whether the card would show were its workspace the shown one:
+   * {@link bodyVisible} with `layerShown` true. The host derives each body's
+   * visibility from its own shown workspace and this.
+   */
+  readonly staged: boolean;
+  /** The card's title (`CardState.title`). */
+  readonly title: string;
+  /** The card's kind (`CardState.componentId`). */
+  readonly kind: string;
+  /** The card's pane wears its folded form (`TugPaneState.folded`). */
+  readonly folded?: true;
   /**
    * The pane's stacking order, its computed `z-index`: the host stacks the
    * views in the same order, so where two panes overlap the card in front
@@ -195,26 +231,11 @@ export interface BodyPlacement {
   /** An inactive card of a pane: placed at the pane, hidden by opacity so it keeps painting. */
   readonly sibling?: true;
   /**
-   * The card is hidden only because its page cannot show yet ({@link wantsFace}):
-   * the host may stand a face for it while it hands a departing view over.
+   * The card is hidden only because its page cannot show yet
+   * ({@link wantsPicture}), so the host stands its picture: the shell's own,
+   * never posted — the host derives the same from `staged` and its stage.
    */
-  readonly face?: true;
-  /**
-   * A card of a workspace not shown: in no pane of the shown deck, or in a
-   * layer the deck has parked. Its page, never shown, is one the host may
-   * put to sleep once it has painted (a page made ahead). Never an arriving
-   * card, which is hidden until its arrival and must not sleep before it.
-   */
-  readonly parked?: true;
-  /**
-   * What the host draws the card's face from: its stand-in read into a
-   * display list, on a `face` card only. Read when the card becomes a face,
-   * and carried by every later placement that still marks it until the
-   * stand-in's facts move ({@link faceKey}), when it is read again.
-   */
-  readonly faceDraw?: FaceDraw;
-  /** The stand-in's `data-face-key` that {@link faceDraw} was read under; the shell's own, never posted. */
-  readonly faceKey?: string;
+  readonly pictured?: true;
   /**
    * The card's pane, inset within its view: the apron plus whatever the
    * view's growth to whole points added on each side. The card's page lays
@@ -261,13 +282,18 @@ export interface CardPlacementEntry {
   /** The shell's controls over the view ({@link BodyPlacement.shell}). */
   readonly shell: readonly Rect[];
   readonly visible: boolean;
+  /**
+   * The card's workspace ({@link BodyPlacement.spaceId}). A rail card names
+   * none: the rail is the window's ([B09]), so the host places it outside
+   * every stage and no cut moves it.
+   */
+  readonly spaceId?: string;
+  /** Shown were its workspace shown ({@link BodyPlacement.staged}). */
+  readonly staged: boolean;
+  readonly title: string;
+  readonly kind: string;
+  readonly folded?: true;
   readonly sibling?: true;
-  /** The card wants a face ({@link BodyPlacement.face}). */
-  readonly face?: true;
-  /** The card is a parked workspace's ({@link BodyPlacement.parked}). */
-  readonly parked?: true;
-  /** What its face draws ({@link BodyPlacement.faceDraw}). */
-  readonly faceDraw?: FaceDraw;
   readonly z: number;
   /** The edges the arrangement lets the hand resize the pane from. */
   readonly grips: readonly string[];
@@ -330,6 +356,18 @@ export interface PlaceCards {
    *  ({@link holdCardsForHost}); absent otherwise. Their entries are the last
    *  ones posted before the hold, and the host skips every body this names. */
   readonly held?: readonly string[];
+  /** Every workspace, in the list's order ({@link StageSpace}). */
+  readonly spaces: readonly StageSpace[];
+  /** The workspace the shell shows. The host seeds its own from the first placement only. */
+  readonly activeSpaceId: string;
+}
+
+/** One workspace as a placement names it: its theme, and the card that holds its focus. */
+export interface StageSpace {
+  readonly id: string;
+  readonly theme: string | null;
+  /** The shown workspace's first responder; a parked one's, as it was when it was left. */
+  readonly focusedCardId: string | null;
 }
 
 /** What a card's stand-in frame says of it, read at a measurement: the part of its entry no hide changes. */
@@ -343,6 +381,8 @@ export interface CardFacts {
   readonly byCard: ReadonlyMap<string, CardFrameFacts>;
   readonly rails: RailLimitsBySide;
   readonly band: RailTravelBand;
+  readonly spaces: readonly StageSpace[];
+  readonly activeSpaceId: string;
 }
 
 /**
@@ -397,6 +437,7 @@ export function readCardFacts(
   }
   const canvasEl = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
   const c = canvasEl?.getBoundingClientRect();
+  const spacesSnapshot = deck.getSpacesSnapshot();
   return {
     canvas: c === undefined ? null : { x: c.x, y: c.y, width: c.width, height: c.height },
     zoom: pageZoomStore.getFactor(),
@@ -404,6 +445,12 @@ export function readCardFacts(
     byCard,
     rails,
     band: { band: deck.getBandSpan(), flow: readFlow() },
+    spaces: spacesSnapshot.spaces.map((s) => ({
+      id: s.id,
+      theme: s.theme ?? null,
+      focusedCardId: s.id === spacesSnapshot.activeSpaceId ? deck.getFirstResponderCardId() : (s.focusedCardId ?? null),
+    })),
+    activeSpaceId: spacesSnapshot.activeSpaceId,
   };
 }
 
@@ -421,6 +468,8 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
     gap: facts.gap,
     rails: facts.rails,
     band: facts.band,
+    spaces: facts.spaces,
+    activeSpaceId: facts.activeSpaceId,
     cards: placement.bodies.map((b) => {
       const f = facts.byCard.get(b.cardId) ?? none;
       return {
@@ -430,10 +479,13 @@ export function placeCardsOf(placement: Placement, facts: CardFacts): PlaceCards
         insets: b.insets,
         shell: b.shell,
         visible: b.visible,
+        // A rail card names no workspace: the rail is the window's.
+        ...(b.spaceId !== undefined ? { spaceId: b.spaceId } : {}),
+        staged: b.staged,
+        title: b.title,
+        kind: b.kind,
+        ...(b.folded === true ? { folded: true as const } : {}),
         ...(b.sibling === true ? { sibling: true as const } : {}),
-        ...(b.face === true ? { face: true as const } : {}),
-        ...(b.parked === true ? { parked: true as const } : {}),
-        ...(b.faceDraw !== undefined ? { faceDraw: b.faceDraw } : {}),
         z: b.z,
         grips: f.grips,
         free: f.free,
@@ -461,12 +513,13 @@ export function samePlacement(a: Placement | null, b: Placement): boolean {
       p.width !== q.width ||
       p.height !== q.height ||
       p.visible !== q.visible ||
+      p.spaceId !== q.spaceId ||
+      p.staged !== q.staged ||
+      p.title !== q.title ||
+      p.kind !== q.kind ||
+      p.folded !== q.folded ||
       p.z !== q.z ||
       p.sibling !== q.sibling ||
-      p.face !== q.face ||
-      p.parked !== q.parked ||
-      // By reference: a carried list is not news.
-      p.faceDraw !== q.faceDraw ||
       p.planId !== q.planId ||
       !sameInsets(p.insets, q.insets) ||
       !sameRects(p.shell, q.shell)
@@ -711,15 +764,63 @@ function paintedNow(cardId: string): boolean {
   return bodyCardsStore.stateOf(cardId) === "painted" || bodyCardsStore.chromeShown(cardId) || bodyCardsStore.revivedNow(cardId);
 }
 
+/** Where `cardId` stands: the deck that holds it — the shown one, or its parked workspace's — its pane there, and its state. */
+interface CardSeat {
+  readonly state: DeckState;
+  readonly pane: TugPaneState;
+  readonly card: CardState | undefined;
+  readonly spaceId: string | null;
+}
+
+/**
+ * The title `cardId`'s chrome draws in its title bar: a masthead's lead line
+ * where the card wears one — a Session card's session, a document card's
+ * name — and otherwise as the pane's chrome composes it (`paneChromeFor`):
+ * its kind's own title, or the live one its card published, after the pane's
+ * group name when the pane holds tabs. The host's skeleton draws it, so its
+ * band reads as the card's own.
+ */
+function titleBarTextOf(cardId: string, seat: CardSeat | null): string {
+  const masthead = cardTitleStore.getMasthead(cardId);
+  // A card bound to a session wears it as its masthead, whether or not its
+  // page — which publishes the masthead — is there to say so.
+  if (masthead === null || masthead.kind === "session-masthead") {
+    const binding = cardSessionBindingStore.getBinding(cardId);
+    if (binding !== undefined && binding !== null) return sessionDisplayTitleForBinding(binding);
+  } else if (masthead.kind === "card-masthead" && masthead.title.length > 0) {
+    return masthead.title;
+  }
+  const componentId = seat?.card?.componentId;
+  const metaTitle = componentId === undefined ? "" : (getRegistration(componentId)?.defaultMeta.title ?? "");
+  return composePaneTitleBarText({
+    metaTitle,
+    paneTitle: seat !== null && seat.pane.cardIds.length > 1 ? seat.pane.title : undefined,
+    titleOverride: cardTitleStore.get(cardId),
+  });
+}
+
+/** `cardId`'s {@link CardSeat}, or null when it is in no pane of the shown deck or of its own parked workspace's. */
+function seatOf(deck: IDeckManagerStore, cardId: string): CardSeat | null {
+  const spaceId = deck.spaceOf(cardId);
+  const live = deck.getSnapshot();
+  const inLive = live.panes.find((p) => p.cardIds.includes(cardId));
+  if (inLive !== undefined) return { state: live, pane: inLive, card: live.cards.find((c) => c.id === cardId), spaceId };
+  const parked = spaceId === null ? undefined : deck.getSpacesSnapshot().mountedDecks.get(spaceId);
+  const pane = parked?.panes.find((p) => p.cardIds.includes(cardId));
+  if (parked === undefined || pane === undefined) return null;
+  return { state: parked, pane, card: parked.cards.find((c) => c.id === cardId), spaceId };
+}
+
 /**
  * The facts that decide whether `cardId`'s body shows, read from the deck
  * and the body store alone — no DOM — or null when the card is in no pane.
+ * A parked workspace's card is read in its own workspace's deck, so whether
+ * it is its pane's active card, and arriving, are true facts for it too.
  */
 export function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts | null {
-  const state = deck.getSnapshot();
-  const pane = state.panes.find((p) => p.cardIds.includes(cardId));
-  if (pane === undefined) return null;
-  const spaceId = deck.spaceOf(cardId);
+  const seat = seatOf(deck, cardId);
+  if (seat === null) return null;
+  const { state, pane, spaceId } = seat;
   const activeSpaceId = deck.getSpacesSnapshot().activeSpaceId;
   return {
     // A card shows at its first chrome frame, its content lidded in its own
@@ -756,57 +857,28 @@ export function inReadingOrder(bodies: readonly BodyPlacement[]): BodyPlacement[
 }
 
 /**
- * The display list a `face` card posts, and the stand-in facts it was read
- * under: the list `carried` from the last placement while the stand-in's
- * `data-face-key` (`standInKey`) is the one it was read under, or while no
- * stand-in stands to read again (null); otherwise a fresh `read()`. Null
- * when there is neither.
- */
-export function faceToCarry(
-  carried: { readonly draw: FaceDraw; readonly key: string } | undefined,
-  standInKey: string | null,
-  read: () => FaceDraw | undefined,
-): { readonly draw: FaceDraw; readonly key: string } | null {
-  if (carried !== undefined && (standInKey === null || carried.key === standInKey)) return carried;
-  if (standInKey === null) return null;
-  const draw = read();
-  return draw === undefined ? null : { draw, key: standInKey };
-}
-
-/**
- * Read every card's stand-in under `root` once, and decide each one's
+ * Read every card's placeholder under `root` once, and decide each one's
  * visibility from the deck. The cards are posted in reading order
- * (`inReadingOrder`).
- *
- * A card that becomes a face — `face` here and not in `last` — has its
- * stand-in read into its face's display list ({@link faceDrawOf}); a card
- * `last` already faced carries the list it was read with, while its
- * stand-in's facts (`data-face-key`) are the ones that list was read under.
+ * (`inReadingOrder`). What a card shows while its page cannot — its last
+ * frame or its skeleton — is the host's to draw from these facts; nothing
+ * of the shell's stand-in is read.
  */
-export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, last: Placement | null = null): Placement {
+export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Placement {
   const bodies: BodyPlacement[] = [];
-  const lastFaced = new Map(
-    (last?.bodies ?? []).flatMap((b) =>
-      b.face === true && b.faceDraw !== undefined ? [[b.cardId, { draw: b.faceDraw, key: b.faceKey ?? "" }] as const] : [],
-    ),
-  );
+  // Every card's placeholder, handed off or not: a card in a workspace whose
+  // pages are not made yet still stands in its stage, as its skeleton.
   for (const el of root.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
     const cardId = el.dataset.cardId;
-    if (cardId === undefined || !bodyCardsStore.has(cardId)) continue;
+    if (cardId === undefined) continue;
     const frame = el.closest<HTMLElement>(".tug-pane");
     if (frame === null) continue;
     const facts = shownFactsOf(deck, cardId);
+    const seat = seatOf(deck, cardId);
     const measured = measuredRectOf(frame);
     const rect = wholePoints(measured);
     const z = parseInt(getComputedStyle(frame).zIndex, 10);
     const visible = facts !== null && bodyVisible(facts);
-    const face = wantsFace(facts, visible);
-    const standIn = face ? el.querySelector("[data-body-stand-in]") : null;
-    const drawn = face
-      ? faceToCarry(lastFaced.get(cardId), standIn === null ? null : (standIn.getAttribute("data-face-key") ?? ""), () =>
-          standIn === null ? undefined : faceDrawOf(standIn, rect, pageZoomStore.getFactor()),
-        )
-      : null;
+    const pictured = wantsPicture(facts, visible);
     bodies.push({
       cardId,
       x: rect.x,
@@ -817,6 +889,11 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, las
       // A card in no pane of the shown deck — a parked workspace's card —
       // is a view to hide.
       visible,
+      ...(seat?.spaceId != null && !isSidebarCard(seat.card?.componentId ?? "") ? { spaceId: seat.spaceId } : {}),
+      staged: stagedOf(facts),
+      title: titleBarTextOf(cardId, seat),
+      kind: seat?.card?.componentId ?? "",
+      ...(seat?.pane.folded === true ? { folded: true as const } : {}),
       z: Number.isFinite(z) ? z : 0,
       insets: insetsOf(paneRectOf(measured), rect),
       // An inactive card of a pane that would show were it the active one:
@@ -825,11 +902,8 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, las
       ...(!visible && facts !== null && !facts.active && bodyVisible({ ...facts, active: true })
         ? { sibling: true as const }
         : {}),
-      // A card hidden only for want of its first paint: the host may face it.
-      ...(face ? { face: true as const } : {}),
-      // A parked workspace's card: a page the host may sleep once painted.
-      ...(facts === null || !facts.layerShown ? { parked: true as const } : {}),
-      ...(drawn !== null ? { faceDraw: drawn.draw, faceKey: drawn.key } : {}),
+      // A card hidden only for want of its first paint: the host pictures it.
+      ...(pictured ? { pictured: true as const } : {}),
     });
   }
   return { bodies: inReadingOrder(bodies) };
@@ -878,16 +952,12 @@ export function hiddenSince(
  * on a workspace switch is the canvas, before the switch's own stand-ins
  * have composited. Held one paint, the old view stands until they have.
  *
- * A view that meets a card `next` marks `face` ({@link meetsAFace}) is not
- * held either: it goes in `next` hidden, and the host hides it in the same
- * transaction that stands that card's face, which covers the stand-in the
- * held view would have stood over. The rule is the placement's shape, not
- * the gesture: a switch and a tab put behind a card that cannot show yet are
- * handed over alike. A view that meets no face — a close, a switch onto
- * cards that all show at once — keeps its paint, save during a switch onto
- * cards that all show at once: there the host holds the window's picture
- * over the shell's frame, so while {@link noteSwitchStarting}'s latch stands
- * the placer holds nothing ({@link heldUnlessSwitching}).
+ * A view that meets a card `next` marks `pictured` ({@link meetsAPicture})
+ * is not held either: it goes in `next` hidden, and the host takes it down
+ * in the same transaction that stands that card's picture. The rule is the
+ * placement's shape, not the gesture: a tab put behind a card that cannot
+ * show yet and any other such placement go alike. A view that meets no
+ * picture — a close, a tab onto a card that shows at once — keeps its paint.
  */
 export function heldForThePaint(
   last: Placement | null,
@@ -898,7 +968,7 @@ export function heldForThePaint(
   const shown = new Set(shownNext.map((b) => b.cardId));
   const takenBy = (b: BodyPlacement): boolean =>
     shownNext.some((s) => s.x === b.x && s.y === b.y && s.width === b.width && s.height === b.height);
-  const leaving = last.bodies.filter((b) => b.visible && !shown.has(b.cardId) && !takenBy(b) && !meetsAFace(b, next));
+  const leaving = last.bodies.filter((b) => b.visible && !shown.has(b.cardId) && !takenBy(b) && !meetsAPicture(b, next));
   if (leaving.length === 0) return null;
   const leavingIds = new Set(leaving.map((b) => b.cardId));
   const kept = next.bodies.filter((b) => !leavingIds.has(b.cardId));
@@ -910,118 +980,15 @@ export function heldForThePaint(
 }
 
 /**
- * {@link heldForThePaint}, unless a switch's latch stands and every card the
- * arriving panes show (`arrivingShown`) is placed visible in `next`: such a
- * switch has nothing to hand over, the host's held picture covers the
- * shell's frame, and its lift hides every departing view in one
- * transaction, so a departing view goes in the placement hidden at once
- * rather than standing two paints over bare canvas the picture already
- * hides. A switch onto any card that cannot show yet keeps the hold: the
- * host hands a departing view over to the arriving cards' faces only while
- * that view is on screen, at the measurement that marks them for faces —
- * a later one than the switch's first, which reads them still arriving, or
- * not yet asked for at all — and that hand-over is what stands the faces
- * and opens the reveal set of a cold switch.
- */
-export function heldUnlessSwitching(
-  switching: boolean,
-  last: Placement | null,
-  next: Placement,
-  arrivingShown: ReadonlySet<string>,
-): { held: Placement; releasing: Placement } | null {
-  if (switching && arrivingShown.size > 0 && [...arrivingShown].every((id) => next.bodies.some((b) => b.cardId === id && b.visible))) {
-    return null;
-  }
-  return heldForThePaint(last, next);
-}
-
-/** How long a switch's latch stands with no measurement completing ([L33]). */
-export const SWITCH_LATCH_HORIZON_MS = 300;
-
-/**
- * The placer's switch latch: set when a switch starts, cleared at the end of
- * the first measurement that completes after it — one that reached
- * `postCards`, not one a set-up or a settle declined — or at its horizon with
- * none. A hide posted ahead of that measurement (a set-up's `hideWhatLeft`)
- * leaves it standing, since it is the switch's own measurement the latch is
- * for. Pure state: the timer is passed in, so a test drives it without a DOM.
- */
-export interface SwitchLatch {
-  readonly standing: boolean;
-  /** The card each arriving pane shows, while it stands; empty otherwise. */
-  readonly arriving: ReadonlySet<string>;
-  /** A switch onto panes showing `arriving` is starting. */
-  set(arriving: Iterable<string>): void;
-  /** A measurement completed. */
-  measured(): void;
-}
-
-/** A {@link SwitchLatch} whose horizon is armed with `arm` (a `setTimeout` by default). */
-export function createSwitchLatch(
-  arm: (fire: () => void, ms: number) => () => void = (fire, ms) => {
-    const t = setTimeout(fire, ms);
-    return () => clearTimeout(t);
-  },
-): SwitchLatch {
-  let standing = false;
-  let arriving: ReadonlySet<string> = new Set();
-  let cancel: (() => void) | null = null;
-  const clear = (): void => {
-    standing = false;
-    arriving = new Set();
-    cancel?.();
-    cancel = null;
-  };
-  return {
-    get standing() {
-      return standing;
-    },
-    get arriving() {
-      return arriving;
-    },
-    set(cards) {
-      cancel?.();
-      standing = true;
-      arriving = new Set(cards);
-      cancel = arm(() => {
-        cancel = null;
-        standing = false;
-        arriving = new Set();
-      }, SWITCH_LATCH_HORIZON_MS);
-    },
-    measured() {
-      if (standing) clear();
-    },
-  };
-}
-
-/** The shell's one switch latch ({@link noteSwitchStarting}). */
-const switchLatch = createSwitchLatch();
-
-/**
- * A workspace switch onto panes showing `arriving` is starting: until the
- * placer's next completed measurement, or {@link SWITCH_LATCH_HORIZON_MS}, a
- * departing view is posted hidden at once, never held for the paint, when
- * every one of them shows at once ({@link heldUnlessSwitching}). Called from the
- * shell's `onSpaceWillSwitch`, beside the host's `switchHold`.
- */
-export function noteSwitchStarting(arriving: Iterable<string>): void {
-  switchLatch.set(arriving);
-}
-
-/**
  * Whether `body`'s view shares some area with the view of a card `next`
- * marks `face` and carries a display list for: the host hands such a view
- * over to the faces, so the shell does not hold it. A face with no list —
- * its stand-in not mounted when the card was measured — is one the host
- * cannot draw, so a view over it keeps its paint. An edge in common is not
- * a meeting.
+ * marks `pictured`: the host stands that card's picture from its placement
+ * in the same transaction that hides the view, so the shell does not hold
+ * it. An edge in common is not a meeting.
  */
-export function meetsAFace(body: BodyPlacement, next: Placement): boolean {
+export function meetsAPicture(body: BodyPlacement, next: Placement): boolean {
   return next.bodies.some(
     (f) =>
-      f.face === true &&
-      f.faceDraw !== undefined &&
+      f.pictured === true &&
       f.cardId !== body.cardId &&
       Math.min(body.x + body.width, f.x + f.width) > Math.max(body.x, f.x) &&
       Math.min(body.y + body.height, f.y + f.height) > Math.max(body.y, f.y),
@@ -1081,12 +1048,11 @@ export interface ArrangementWrites {
  * the whole of how a gesture moves a stand-in without a commit, so it is the
  * one wake the placer needs for all of them ([B06]). A write of the value
  * already standing queues a record too; the measurement it wakes posts
- * nothing new, and posts nothing. A stand-in's `data-face-key` wakes it
- * too: a face whose facts moved is read again.
+ * nothing new, and posts nothing.
  */
 export function watchArrangementWrites(container: HTMLElement, wake: () => void): ArrangementWrites {
   const observer = new MutationObserver(() => wake());
-  observer.observe(container, { subtree: true, attributes: true, attributeFilter: ["style", "data-face-key"] });
+  observer.observe(container, { subtree: true, attributes: true, attributeFilter: ["style"] });
   return {
     release: () => observer.disconnect(),
     drop: () => {
@@ -1237,7 +1203,7 @@ export class CardPlacer {
     for (const cardId of this.inFlight.keys()) overlaySurfaceBook.hold(cardId, "plan");
     // A card a plan is carrying to the rect this measurement reads names its
     // plan, so the host leaves the plan's beats to land it ([B11]).
-    const placement = namePlans(measurePlacements(this.deck, container, this.poster.lastPosted), this.inFlight);
+    const placement = namePlans(measurePlacements(this.deck, container), this.inFlight);
     this.paneBoxes = this.readPaneBoxes(container);
     const state = this.deck.getSnapshot();
     const run = this.deck.getColumnRunHeight();
@@ -1253,10 +1219,8 @@ export class CardPlacer {
     const landed = this.landReleased(placement);
     this.checkLandDrift(landed);
     // A view this measurement takes down stands one paint more, so the host
-    // never shows what lies beneath it before the commit has composited —
-    // save during a switch, whose held picture covers the commit's frame.
-    const switching = switchLatch.standing;
-    const hold = heldUnlessSwitching(switching, this.poster.lastPosted, landed, switchLatch.arriving);
+    // never shows what lies beneath it before the commit has composited.
+    const hold = heldForThePaint(this.poster.lastPosted, landed);
     const offered = hold?.held ?? landed;
     this.poster.offer(offered);
     // The stand-ins' facts can move with no rect moving (a slot taking a
@@ -1267,7 +1231,6 @@ export class CardPlacer {
     for (const b of landed.bodies) if (b.visible) this.hiding.delete(b.cardId);
     if (hold !== null) this.hideNow(hold.releasing);
     this.observePlaceholders(container);
-    if (switching) switchLatch.measured();
   };
 
   /**
@@ -1347,12 +1310,9 @@ export class CardPlacer {
    * screen by then, so a view the host takes down never leaves what lies
    * beneath it on show for a frame before the commit's stand-ins composite —
    * against whatever was posted by then, so a measurement in between is not
-   * overwritten with these rects. Coalesces. A switch keeps the hops too:
-   * the host hands a departing view over to the arriving cards' faces only
-   * while it is still on screen at the switch's own measurement, so a hide
-   * posted ahead of it (a set-up's {@link hideWhatLeft}) would leave the
-   * host nothing to hand over; and the held picture covers the frames
-   * either way, its lift hiding whatever is still shown of the departed deck.
+   * overwritten with these rects. Coalesces. A switch keeps the hops too,
+   * though the host's cut has already hidden the departed workspace's views
+   * by its own stage, whatever is posted of them.
    */
   private hideNow(next: Placement): void {
     const last = this.poster.lastPosted;
@@ -1490,7 +1450,10 @@ export class CardPlacer {
                   height: r.height,
                   ...(pane === undefined ? {} : { insets: insetsOf(pane, r) }),
                   planId,
-                  ...(arrived.has(b.cardId) ? { visible: true } : {}),
+                  // Shown by its plan, and so staged: the host derives a
+                  // body's visibility from `staged`, and a card it hid here
+                  // would be taken off the beats carrying it in.
+                  ...(arrived.has(b.cardId) ? { visible: true, staged: true } : {}),
                 };
           const shell = shellControlRects(placed);
           return sameRects(shell, placed.shell) ? placed : { ...placed, shell };
@@ -1801,6 +1764,10 @@ export class CardPlacer {
     const releaseZoom = pageZoomStore.subscribe(this.schedule);
     const releaseBodies = bodyCardsStore.subscribe(this.schedule);
     const releaseTheme = subscribeOnScreenTheme(this.schedule);
+    // The title a card's skeleton draws moves with its masthead and its
+    // session, which move no stand-in's geometry.
+    const releaseTitles = cardTitleStore.subscribe(this.schedule);
+    const releaseBindings = cardSessionBindingStore.subscribe(this.schedule);
     return () => {
       container.removeEventListener(IMPOSER_SETTLE_END, this.measure);
       window.removeEventListener("resize", this.schedule);
@@ -1808,6 +1775,8 @@ export class CardPlacer {
       releaseZoom();
       releaseBodies();
       releaseTheme();
+      releaseTitles();
+      releaseBindings();
       this.resizes?.disconnect();
       this.resizes = null;
       this.writes?.release();

@@ -29,6 +29,8 @@ import { commandForCard, commandForShell } from "./declarations/verbs";
 import { layoutSelectionStands } from "./declarations/arrangement";
 import { TAB_CONSUME_ATTRIBUTE } from "../lib/tab-consume-attribute";
 import { page } from "./page";
+import { postToHost } from "../host/channel";
+import { spaceCutToHost } from "../host/declarations/geometry";
 
 /** Who runs a command: the shell, the key card (in its body when it is one), or AppKit. */
 export type CommandOwner = "shell" | "key-card" | "here";
@@ -123,6 +125,7 @@ export function forwardToShell(
   payload: Record<string, unknown> | undefined,
 ): boolean {
   if (!page.isBody || page.cardId === null) return false;
+  if (entry.id === TUG_ACTIONS.ACTIVATE_SPACE) return cutFromPage(payload);
   const route = bodyUnhandledRoute(entry.id, layoutSelectionStands.getSnapshot(), focusedEditorOwnsEscape());
   if (route === "decline") return false;
   commandForShell.dispatch({ id: entry.id, ...(payload !== undefined ? { payload } : {}) });
@@ -140,6 +143,22 @@ export function forwardUnansweredTarget(event: { action: string; value?: unknown
   if (!page.isBody || page.cardId === null) return false;
   const entry = COMMANDS_BY_ID.get(event.action);
   if (entry === undefined || entry.id === TUG_ACTIONS.CANCEL_DIALOG) return false;
+  if (entry.id === TUG_ACTIONS.ACTIVATE_SPACE) return cutFromPage(event.value);
   commandForShell.dispatch({ id: entry.id, ...(event.value !== undefined ? { payload: { value: event.value } } : {}) });
+  return true;
+}
+
+/**
+ * A workspace switch asked for on a body page — the Workspaces card's row —
+ * is the host's to make: its stages cut at once and it tells the shell to
+ * follow ([P06]), so the page posts the cut to the host rather than the
+ * command to the shell. `value` carries the `spaceId`, as the command's
+ * payload or nested as its `value`.
+ */
+function cutFromPage(value: unknown): boolean {
+  const carried = value as { spaceId?: unknown; value?: { spaceId?: unknown } } | undefined;
+  const spaceId = carried?.spaceId ?? carried?.value?.spaceId;
+  if (typeof spaceId !== "string") return false;
+  postToHost(spaceCutToHost, { spaceId });
   return true;
 }

@@ -2343,6 +2343,63 @@ describe("the v5 layout blob", () => {
     );
   });
 
+  test("the window rail rides the envelope and round-trips beside bare decks ([B09])", () => {
+    const railDeck: DeckState = {
+      cards: [{ id: "r1", componentId: "dashes", title: "Arcs", closable: true }],
+      panes: [
+        {
+          id: "p-r1",
+          position: { x: 0, y: 0 },
+          size: { width: 280, height: 600 },
+          cardIds: ["r1"],
+          activeCardId: "r1",
+          title: "Arcs",
+          acceptsFamilies: [],
+        },
+      ],
+      imposition: {
+        sidebars: { dashes: { side: "left" } },
+        rails: { left: { order: ["dashes"] } },
+      },
+      hasFocus: true,
+    };
+    const rail = {
+      cards: railDeck.cards,
+      panes: railDeck.panes,
+      sidebars: railDeck.imposition.sidebars,
+      rails: railDeck.imposition.rails,
+    };
+    const bare = { ...deckWith("a"), imposition: { sidebars: {} } };
+    const out = serialize({
+      spaces: [{ id: "s1", name: "Main", deck: bare }],
+      activeSpaceId: "s1",
+      rail,
+    }) as Record<string, unknown>;
+    expect(Object.keys(out).sort()).toEqual(["activeSpaceId", "rail", "spaces", "version"]);
+    expect(Object.keys(out["rail"] as object).sort()).toEqual(["cards", "imposition", "panes"]);
+
+    const restored = deserialize(JSON.stringify(out), 1920, 1080);
+    expect(restored.rail?.cards.map((c) => c.id)).toEqual(["r1"]);
+    expect(restored.rail?.panes.map((p) => p.id)).toEqual(["p-r1"]);
+    expect(restored.rail?.sidebars).toEqual({ dashes: { side: "left" } });
+    expect(restored.rail?.rails).toEqual({ left: { order: ["dashes"] } });
+    expect(restored.spaces[0].deck.cards.map((c) => c.id)).toEqual(["a"]);
+  });
+
+  test("an empty window rail reads back empty, and a blob without one reads none", () => {
+    const empty = serialize({
+      spaces: [{ id: "s1", name: "Main", deck: deckWith("a") }],
+      activeSpaceId: "s1",
+      rail: { cards: [], panes: [], sidebars: {} },
+    });
+    const restored = deserialize(JSON.stringify(empty), 1920, 1080);
+    expect(restored.rail?.cards).toEqual([]);
+    expect(restored.rail?.panes).toEqual([]);
+
+    const without = deserialize(JSON.stringify(serialize(wrapAsMainSpace(deckWith("a")))), 1920, 1080);
+    expect(without.rail).toBeUndefined();
+  });
+
   test("a v5 blob with no spaces array is the HISTORICAL single-table shape, not this one", () => {
     // The number 5 was spent before workspaces existed. A blob wearing it with
     // a `cards[].tabs` structure must still take the legacy migration — reading

@@ -19,7 +19,7 @@ import { CARD_APRON_PX } from "../chrome-placement";
 const APRON = { top: CARD_APRON_PX, right: CARD_APRON_PX, bottom: CARD_APRON_PX, left: CARD_APRON_PX };
 
 function view(cardId: string, x: number, y: number): BodyPlacement {
-  return { cardId, x, y, width: 300, height: 200, visible: true, z: 0, shell: [], insets: APRON };
+  return { cardId, x, y, width: 300, height: 200, visible: true, z: 0, shell: [], insets: APRON, spaceId: "s1", staged: true, title: cardId, kind: "text" };
 }
 
 const base = { grips: [], free: false, min: { width: 0, height: 0 } };
@@ -35,6 +35,8 @@ const facts: CardFacts = {
   ]),
   rails: { left: { min: 240, max: 675 } },
   band: { band: 980, flow: { offset: 12, strip: 1600 } },
+  spaces: [{ id: "s1", theme: null, focusedCardId: null }],
+  activeSpaceId: "s1",
 };
 
 describe("placeCardsOf names the rails", () => {

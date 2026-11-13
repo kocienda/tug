@@ -20,8 +20,9 @@
  * The fold is a crossing that covers a whole card, and the body already
  * stands under a cover. The host stands one: the crossing takes the frame
  * the card came back under rather than snapshotting a page that has shown
- * nothing, and that cover comes off at the later of the page's paint and the
- * fold's land. A page not yet bound cannot solve the crossing, and the host
+ * nothing, and that cover comes off at the later of the page's content paint
+ * and the fold's land: its chrome alone is not the card, so a first paint of
+ * chrome leaves the frame up. A page not yet bound cannot solve the crossing, and the host
  * does not ask it to or wait on it: whenever the plan starts — on every
  * other card's answer, or at its guard — it is not waiting on this one. The
  * crossing's account names where its cover came from and whether the plan
@@ -117,6 +118,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a revived card folded befor
 
         // ---- Shown again; the first card standing covered and unpainted is folded ----
         await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SESSION_SPACE)} }), null)`);
+        // The host's cut shows the revived cards at once, under their kept
+        // frames, inside the switch's epoch, when the deck runs no motion at
+        // all: a fold made there settles with no crossing to take a cover.
+        // The row's fold is a motion, so it waits for the epoch to close.
+        await pollFor(
+          () => app.evalJS<boolean>(`document.querySelector("[data-space-switching]") !== null`),
+          (switching) => !switching,
+          5_000,
+        );
         const waiting = (b: BodyViewSnapshot): boolean => (b.cardId === A || b.cardId === B) && b.covered && b.visible && !b.painted;
         const until = Date.now() + 5_000;
         let target: BodyViewSnapshot | undefined;
@@ -139,8 +149,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: a revived card folded befor
         const landed = (await settleFor(
           () => bodyOf(app, card) as Promise<CrossingSnapshot | null>,
           // A plan that waits on no unready page lands, and the page paints
-          // its first frame, before a cold page is ready: wait for all three.
-          (b) => b !== null && b.state === "ready" && b.painted && b.crossing?.restored === true && b.beatsPlanId === null,
+          // its first frame, before a cold page is ready, and its content
+          // after that: wait for all of them, the cover's coming off last.
+          (b) => b !== null && b.state === "ready" && b.painted && b.crossing?.restored === true && b.beatsPlanId === null && !b.covered,
           10_000,
         )) as CrossingSnapshot | null;
         note(`crossing ${JSON.stringify(landed?.crossing ?? null)}; covered ${landed?.covered}, wasCovered ${landed?.wasCovered}, start ${landed?.start}`);

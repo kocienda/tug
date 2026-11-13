@@ -43,8 +43,15 @@ const PROBES = [
   { id: "right-313", side: "right", width: 313 },
 ] as const;
 
-/** A canvas-wide host inside the root, holding the cap-classed probes. */
+/**
+ * A canvas-wide host inside the root, holding the cap-classed probes. The
+ * shell's own caps paint nothing (`margin-cap.css`); the caps that paint are
+ * the overlay's, which wear the same classes in a document with no
+ * `data-shell-page` mark. So the probe clears the shell's mark, and the
+ * classes paint here as they do there.
+ */
 const PROBE_JS = `(function () {
+  document.documentElement.removeAttribute('data-shell-page');
   var old = document.getElementById('at0714-host');
   if (old !== null) old.remove();
   var host = document.createElement('div');

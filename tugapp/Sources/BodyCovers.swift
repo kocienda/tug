@@ -232,6 +232,9 @@ final class BodyCovers {
         if standing[cardId] === stand { standing.removeValue(forKey: cardId) }
     }
 
+    /// `cardId`'s kept eviction cover, if one waits for its next body.
+    func keptCover(for cardId: String) -> BodyCover? { held[cardId] }
+
     /// Let `cardId`'s kept cover go: its card is closed.
     func drop(_ cardId: String) { held.removeValue(forKey: cardId) }
 

@@ -1,26 +1,22 @@
 /**
  * row-44-switch-create.test.ts — New Workspace is one cut onto the finished
- * arrangement: the rail stands in the first switched frame, faced, and
- * nothing of the canvas or the departing card shows over it.
+ * arrangement: the window's rail stands in every frame of it, and nothing of
+ * the canvas or the departing card shows over it.
  *
- * A create is a switch onto cards that have never had a page — the new
- * workspace's factory rail, five cards on its two sides — so it is read by
- * row 44's judge (`readGesture`), with the cards' ids taken from the deck
- * once the gesture has made them. The app launches on one workspace holding
- * one Text card, shown; the create is performed through the deck's direct
- * `createSpace` verb, and every frame is read until each rail card's page
- * has painted.
+ * The rail is the window's, so a new workspace mints no rail of its own: the
+ * create cuts onto an empty workspace beside the rail already standing. It is
+ * read by row 44's judge (`readGesture`) over the rail's five cards. The app
+ * launches on one workspace holding one Text card beside the window rail,
+ * every page painted; the create is performed through the deck's direct
+ * `createSpace` verb, and every frame is read from the gesture on.
  *
- * The direct verb, not New Workspace's control action: New now asks the
- * name in an app-modal over a workspace built pending, its pages made
- * hidden, so it cuts onto painted pages and never reaches this hand-over
- * (`row-44-switch-create-modal.test.ts` judges that gesture). A create onto
- * cards with no page yet is still the deck's to land in one cut, faced, and
- * `createSpace` is the verb that lands it.
+ * The direct verb, not New Workspace's control action: New asks the name in
+ * an app-modal first (`row-44-switch-create-modal.test.ts` judges that
+ * gesture). A create with no modal is still the deck's to land in one cut,
+ * and `createSpace` is the verb that lands it.
  *
- * The departing card's view must hand over to the arriving cards' faces in
- * the switch's one host transaction, and no rail pane's box or title band
- * may show the canvas.
+ * No rail pane's box or title band may show the canvas in any frame: the
+ * cut leaves the rail's pages where they stand.
  *
  * Beside the frames, the deck's own trace: the gesture commits the
  * arrangement once — one `store-notify` from the activation, spelled
@@ -34,8 +30,7 @@
  * @covers tugdeck/src/lib/card-placement.ts
  * @covers tugdeck/src/components/chrome/body-stand-in.tsx
  * @covers tugdeck/src/body/body-chrome-frame.tsx
- * @covers tugapp/Sources/BodyHandOver.swift
- * @covers tugapp/Sources/BodyFaceHandOver.swift
+ * @covers tugapp/Sources/BodyStages.swift
  */
 
 import { describe, expect, test } from "bun:test";
@@ -44,22 +39,22 @@ import { launchTugApp, note } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "../_harness/tugbank-helpers";
 import { bodyOf, settleFor } from "./_bodies";
 import { ACTIVE_SPACE, readGesture, SHOULD_RUN, TEST_TIMEOUT_MS, textDeck } from "./_row-44";
+import { railOf, space } from "../readings/_workspace-deck";
 
 const H = "r44c-home";
 const HOME = "r44c-home-space";
+/** The window's rail: five cards on its two sides, every workspace's. */
+const RAIL_SPACE = space("r44c", "home", ["text"]);
 
 const LAYOUT = {
   version: 5,
   activeSpaceId: HOME,
   spaces: [{ id: HOME, name: "Home", deck: textDeck([H]) }],
+  rail: railOf(RAIL_SPACE),
 };
 
-/**
- * Five cold rail pages, two at a time through the host's lane, paint inside
- * about a second; the burst reads past the last of them. Two display frames
- * apart, since every frame is judged once per rail card.
- */
-const BURST = { burstMs: 1_600, intervalMs: 33 };
+/** Two display frames apart, since every frame is judged once per rail card. */
+const BURST = { burstMs: 1_000, intervalMs: 33 };
 
 interface TraceRow {
   kind: string;
@@ -72,7 +67,7 @@ interface TraceRow {
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
   test(
-    "the new workspace lands in one cut, its rail faced from the first switched frame",
+    "the new workspace lands in one cut, its rail pictured from the first switched frame",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
@@ -86,13 +81,17 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
       try {
         const home = await settleFor(() => bodyOf(app, H), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
         expect(home?.visible, "the shown workspace's card is a body, shown").toBe(true);
+        for (const id of RAIL_SPACE.rail) {
+          const b = await settleFor(() => bodyOf(app, id), (x) => x?.state === "ready" && x.painted && x.visible, 30_000);
+          expect(b?.painted, `${id}: the window rail's card is painted before the create`).toBe(true);
+        }
 
         const mark = await app.evalJS<number>("(window.__deckTrace.enable(true), window.__deckTrace.mark())");
         // The stand-ins standing once the gesture has run. The create is called with no dwell after
         // it, so the read lands while the rail's pages are still being made.
         let standIns = { faces: -1 };
-        // The faces the host was posted.
-        let posted: string[] = [];
+        // The rail cards the host stood a picture for.
+        let pictured: string[] = [];
         const bad = await readGesture(
           app,
           () => app.evalJS<null>(`(window.tugdeck.lab.createSpace(), null)`),
@@ -100,16 +99,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
             standIns = await app.evalJS<{ faces: number }>(
               `({ faces: document.querySelectorAll('[data-body-stand-in]').length })`,
             );
-            posted = await app.evalJS<string[]>(
-              `(window.tugdeck.diag.getBodyPlacement()?.lastPosted?.bodies ?? []).filter(function (b) {
-                 return b.face === true && b.faceDraw !== undefined;
-               }).map(function (b) {
-                 return b.cardId;
-               })`,
-            );
+            pictured = (await app.stages()).rail
+              .filter((c) => c.picture === "skeleton" || c.picture === "lastFrame")
+              .map((c) => c.cardId);
             const active = await app.evalJS<string>(ACTIVE_SPACE);
             if (active === HOME) return [];
-            return app.evalJS<string[]>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.id; })");
+            return [...RAIL_SPACE.rail];
           },
           "row-44-switch-create",
           "chrome",
@@ -136,11 +131,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 44: New Workspace", () => {
         const signatures = new Set(arms.map((e) => e.signature));
 
         note(`row-44-switch-create: ${standIns.faces} stand-ins standing after the gesture`);
-        note(`row-44-switch-create: host faces posted ${posted.join("; ") || "none"}`);
+        note(`row-44-switch-create: host pictures over the rail ${pictured.join("; ") || "none"}`);
 
-        expect(bad, "every frame from the cut shows each rail card's chrome, none shows the floor through a pane, and the departing card hands over").toEqual([]);
-        expect(standIns.faces, "a rail page is still being made once the gesture has run").toBeGreaterThan(0);
-        expect(posted.length, "the host was posted a face for the rail's cards").toBeGreaterThan(0);
+        expect(bad, "every frame from the cut shows each rail card's chrome, and none shows the floor through a pane").toEqual([]);
+        expect(pictured, "the rail's pages stand live across the create: no picture stood over them").toEqual([]);
+        const created = await app.evalJS<string[]>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.id; })");
+        expect([...created].sort(), "the new workspace holds no card of its own: only the window's rail").toEqual([...RAIL_SPACE.rail].sort());
         expect(activations.map((e) => e.landing), "the activation commits once, spelled a cut").toEqual(["cut"]);
         expect(rails.map((e) => e.caller), "no rail stands behind the cut as a second commit").toEqual([]);
         expect(carried.length, "no settle carries a pane after the cut").toBe(0);

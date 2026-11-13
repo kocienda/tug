@@ -41,7 +41,7 @@
 import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
-import { underHold, type BodyViewSnapshot, type CaptureBurstReading } from "../_harness/client";
+import type { BodyLayersReading, BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, settleFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
@@ -171,6 +171,9 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
     }
   }
   await armSampler(app, leg.watch);
+  // The host's layer rows across the switch: which picture stands for each
+  // card, so a frame under its skeleton or last frame is not read as its view.
+  await app.bodyLayers({ op: "arm", windowMs: BURST_MS });
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${leg.label}: the burst armed`).toBe(true);
   const gestureWall = Date.now();
@@ -241,7 +244,21 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   const pngOf = (path: string) => pngs.get(path) ?? pngs.set(path, decodePngFile(path)).get(path)!;
   const blankFrames: string[] = [];
   const unhid: string[] = [];
-  const holds = (await app.handOvers()).switchHolds;
+  const layers = ((await settleFor(() => app.bodyLayers({ op: "read" }) as Promise<BodyLayersReading>, (r) => r.done, BURST_MS + 5_000)) as BodyLayersReading).rows;
+  note(
+    `${leg.label}: the host's picture of each arriving card from the gesture — ` +
+      leg.arriving
+        .map((id) => {
+          const runs: string[] = [];
+          for (const r of layers) {
+            if (r.cardId !== id || r.wall < gestureWall || r.picture === undefined) continue;
+            const at = `${r.picture} from ${Math.round(r.wall - gestureWall)} ms`;
+            if (!runs.at(-1)?.startsWith(`${r.picture} `)) runs.push(at);
+          }
+          return `${id} ${runs.length === 0 ? "no rows" : runs.join(", ")}`;
+        })
+        .join("; "),
+  );
   for (const [id, pane] of panes) {
     const content = px(contentOf(pane));
     const settledInk = inkShare(settled, content);
@@ -251,11 +268,12 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
     let span: [number, number] | null = null;
     for (const f of reading.frames) {
       if (f.wall < gestureWall) continue;
-      // A frame under the host's held picture shows the departed workspace,
-      // not this card's view, whatever the host's sample says of it.
-      if (underHold(holds, f.wall)) continue;
       const sample = host.filter((s) => s.wall <= f.wall).at(-1);
       if (sample === undefined || !sample.bodies.some((b) => b.cardId === id && b.visible)) continue;
+      // Under the host's picture of the card — its skeleton or last frame —
+      // the frame shows that picture, not the card's view.
+      const picture = layers.filter((r) => r.cardId === id && r.wall <= f.wall).at(-1)?.picture;
+      if (picture !== undefined && picture !== "live") continue;
       const ink = inkShare(pngOf(f.path), content);
       const ms = f.wall - gestureWall;
       first ??= `${id} at ${ms} ms: content ink ${(ink * 100).toFixed(2)}% against settled ${(settledInk * 100).toFixed(2)}%`;

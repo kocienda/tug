@@ -192,47 +192,6 @@ export const layoutSelectionStands = defineSharedStore<boolean>({
   initial: false,
 });
 
-/**
- * Where the reader is in the Workspaces list: a row and its offset from the
- * top of the card that showed it, or null before anyone has scrolled or
- * clicked. One fact for the deck, because every workspace's Workspaces card
- * shows the same list ([B04] retires per-workspace list memory). The shell
- * holds it so it outlives any one card; the card the reader is in proposes
- * each change, and a card coming on screen places its scroller from it
- * (`lib/cards-list-anchor.ts`).
- */
-export interface CardsListAnchorValue {
-  rowId: string;
-  offset: number;
-}
-
-export const cardsListAnchor = defineSharedStore<CardsListAnchorValue | null, CardsListAnchorValue>({
-  key: "cards.listAnchor",
-  owner: "shell",
-  scope: { kinds: isCardsCard },
-  codec: nullable(obj({ rowId: str, offset: num })),
-  initial: null,
-  proposals: obj({ rowId: str, offset: num }),
-});
-
-/**
- * The Workspaces list's one cursor: the row the keyboard stands on, or null
- * before any card has had one. One fact for the deck, beside the anchor,
- * because every workspace's Workspaces card shows the same list and the
- * keyboard has one position in it. A click makes the clicked row both the
- * anchor and the cursor; an arrow moves the cursor alone. A card coming on
- * screen adopts it as it places its scroller, with no reveal
- * (`lib/cards-list-anchor.ts`), so no card keeps a cursor of its own.
- */
-export const cardsListCursor = defineSharedStore<string | null, string>({
-  key: "cards.listCursor",
-  owner: "shell",
-  scope: { kinds: isCardsCard },
-  codec: nullable(str),
-  initial: null,
-  proposals: str,
-});
-
 // ---- A following card, and the About card ----
 
 /**

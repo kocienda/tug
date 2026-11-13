@@ -25,17 +25,6 @@ final class BodyLane {
     /// is the same either way; the width decides how soon the first cards
     /// are live. Read against the launch's `deck-populated` lap.
     static let width = 2
-    /// How many load at once while a switch's skeletons wait on their
-    /// pages, from when its hand-over has landed. The switch's set lands as
-    /// one picture when its last page has painted, so how soon the first
-    /// ones are live buys nothing there, and the whole is what the user
-    /// waits on. Not before the hand-over lands: pages made beside the
-    /// shell's switched frame slow that frame, and it is the cut the user
-    /// sees first. Read on a user-shaped deck's cold
-    /// switches onto eight cards (`at0786`): the set landed at 1.39 s two at a
-    /// time, 1.15–1.17 s six at a time, and 0.96 s all eight at once from the
-    /// hand-over's landing.
-    static let switchWidth = 8
     /// How long a card asked for before the shell has placed it waits for
     /// that placement, which says whether it is shown and where it reads,
     /// before the lane takes it in the order it was asked for.
@@ -114,28 +103,22 @@ final class BodyLane {
     /// A card the shell has not placed yet reads as hidden and last.
     private func next() -> Int? {
         func key(_ entry: Entry) -> (Int, Int, Int) {
-            let shown = controller.cardPlacements[entry.cardId]?.visible == true ? 0 : 1
+            let shown = controller.placedShown(entry.cardId) ? 0 : 1
             return (shown, controller.placedEntries[entry.cardId]?.deckIndex ?? Int.max, entry.serial)
         }
         return lane.indices.min { key(lane[$0]) < key(lane[$1]) }
     }
 
-    /// Make pages for waiting cards while fewer than `width` are loading —
-    /// `switchWidth` for a shown card while a switch's skeletons wait and
-    /// its hand-over has landed. A parked card never takes the widened lane:
-    /// the pick stops at it until fewer than `width` load.
+    /// Make pages for waiting cards while fewer than `width` are loading.
+    /// Each card's skeleton comes down at its own page's paint, so how soon
+    /// the first ones are live is what a switch onto cold cards shows.
     /// Run when a card is asked for, when a placement lands, and when a page
     /// leaves the lane: ready, failed at its deadline, or gone.
     func drain() {
         pendingDrain?.cancel()
         pendingDrain = nil
-        let widened = controller.switchSkeletonsWait && !controller.faceHandOver.isPending
         while let index = next() {
-            let shown = controller.cardPlacements[lane[index].cardId]?.visible == true
-            guard BodyLaneWidth.admits(
-                inFlight: inFlight, widened: widened, shown: shown,
-                width: BodyLane.width, switchWidth: BodyLane.switchWidth
-            ) else { break }
+            guard inFlight < BodyLane.width else { break }
             let entry = lane.remove(at: index)
             make(entry)
         }
