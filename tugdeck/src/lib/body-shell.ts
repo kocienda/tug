@@ -129,6 +129,7 @@ import {
   cardPlanCancelled,
   cardPlanLanded,
   cardPlacementDiag,
+  noteSwitchStarting,
   shownFactsOf,
   wantsBodyShown,
 } from "./card-placement";
@@ -1836,42 +1837,50 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   // ---- Parked workspaces, made ahead while the lane is idle ----
 
-  releases.push(
-    installMakeAhead({
-      deck,
-      // What the shell hands off for the shown deck, it hands off ahead: a
-      // mount kind, and a Session card with no binding to restore. A parked
-      // workspace's bindings are not in the binding store until its restore
-      // pass runs at its first visit, so a Session card is unbound only when
-      // the ledger has answered and binds it to nothing; one the ledger binds
-      // is that pass's to make, and a page made ahead of it would spawn a
-      // second session.
-      handable: (cardId, componentId) =>
-        isMountBodyKind(componentId) ||
-        (sessionCardToHandOff(cardId, componentId) &&
-          !keptBody(cardId) &&
-          spaceBindingsLedgerStore.loaded() &&
-          spaceBindingsLedgerStore.get(cardId) === undefined),
-      handOff: (cardId, componentId) =>
-        void handOffToBody(cardId, () => (isMountBodyKind(componentId) ? { kind: "mount" } : { kind: "restore" })),
-      release: (cardId) => void releaseDeferredBody(cardId),
-      askAgain,
-      timeEvicted,
-    }),
-  );
+  const makeAhead = installMakeAhead({
+    deck,
+    // What the shell hands off for the shown deck, it hands off ahead: a
+    // mount kind, and a Session card with no binding to restore. A parked
+    // workspace's bindings are not in the binding store until its restore
+    // pass runs at its first visit, so a Session card is unbound only when
+    // the ledger has answered and binds it to nothing; one the ledger binds
+    // is that pass's to make, and a page made ahead of it would spawn a
+    // second session.
+    handable: (cardId, componentId) =>
+      isMountBodyKind(componentId) ||
+      (sessionCardToHandOff(cardId, componentId) &&
+        !keptBody(cardId) &&
+        spaceBindingsLedgerStore.loaded() &&
+        spaceBindingsLedgerStore.get(cardId) === undefined),
+    handOff: (cardId, componentId) =>
+      void handOffToBody(cardId, () => (isMountBodyKind(componentId) ? { kind: "mount" } : { kind: "restore" })),
+    release: (cardId) => void releaseDeferredBody(cardId),
+    askAgain,
+    timeEvicted,
+  });
+  releases.push(makeAhead.release);
 
   // ---- A switch onto painted pages is held as one picture ----
 
   // The host holds the window's picture from before the shell renders the
-  // switched frame until every arriving page named here is on, so the
-  // switch shows the departed workspace and then the finished one, never
-  // the shell's new chrome over the old pages or an empty pane between.
+  // switched frame until the arriving workspace is on, so the switch shows
+  // the departed workspace and then the arriving one, never the shell's new
+  // chrome over the old pages or an empty pane between. It names every card
+  // of the arriving deck, so the host can hide everything else at the lift.
+  // A switch onto no painted page is not held: the host hands its departing
+  // views over to the arriving cards' faces, and those faces and the
+  // stand-ins beneath them are already the one picture. Lifted at the
+  // shell's frame, a hold over them showed the evicted cards' panes bare.
+  // The latch runs on every switch, and make-ahead asks for no page until
+  // the switch has settled.
   releases.push(
-    onSpaceWillSwitch((_spaceId, incoming) => {
-      const cardIds = incoming.panes
-        .map((p) => p.activeCardId)
-        .filter((id): id is string => typeof id === "string" && bodyCardsStore.stateOf(id) === "painted");
-      if (cardIds.length > 0) postToHost(switchHoldToHost, { cardIds });
+    onSpaceWillSwitch((spaceId, incoming) => {
+      makeAhead.pauseForSwitch(spaceId);
+      noteSwitchStarting(incoming.panes.map((p) => p.activeCardId).filter((id): id is string => typeof id === "string"));
+      const ontoPainted = incoming.panes.some(
+        (p) => typeof p.activeCardId === "string" && bodyCardsStore.stateOf(p.activeCardId) === "painted",
+      );
+      if (ontoPainted) postToHost(switchHoldToHost, { cardIds: incoming.cards.map((c) => c.id) });
     }),
   );
 

@@ -58,6 +58,7 @@ import { bodyOf, pollFor, settleFor } from "../body-grounding/_bodies";
 import { framesDiffer } from "../body-grounding/_frames";
 import { contentOf, paneRect, type Rect } from "../body-grounding/_row-44";
 import { webContentProcesses } from "../session-body-fixture";
+import { cardsOf, layoutOf, space as deckSpace } from "./_workspace-deck";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -71,28 +72,7 @@ const FRAMES_INTERVAL_MS = 33;
 const REST_MS = 10_000;
 const PAINT_MS = 30_000;
 
-/** The rail kinds every workspace on the user's deck stands, and their sides. */
-const RAIL = [
-  { kind: "dashes", side: "left" },
-  { kind: "jots", side: "left" },
-  { kind: "overview", side: "left" },
-  { kind: "cards", side: "right" },
-  { kind: "layout", side: "right" },
-] as const;
-
-interface Space {
-  id: string;
-  rail: string[];
-  content: { id: string; kind: "text" | "session" }[];
-}
-
-function space(tag: string, content: ("text" | "session")[]): Space {
-  return {
-    id: `r786-${tag}-space`,
-    rail: RAIL.map((r) => `r786-${tag}-${r.kind}`),
-    content: content.map((kind, i) => ({ id: `r786-${tag}-${kind}${i}`, kind })),
-  };
-}
+const space = (tag: string, content: ("text" | "session")[]) => deckSpace("r786", tag, content);
 
 const HOME = space("home", ["text"]);
 const AWAY = space("away", ["text", "text", "session"]);
@@ -100,46 +80,7 @@ const THIRD = space("third", ["session", "text", "session"]);
 const FOURTH = space("fourth", ["text", "session", "session"]);
 const SPACES = [HOME, AWAY, THIRD, FOURTH];
 
-const cardsOf = (s: Space): string[] => [...s.rail, ...s.content.map((c) => c.id)];
-
-/** A workspace's deck: its rail panes, then one content pane per card, imposed side by side. */
-function deckOf(s: Space): Record<string, unknown> {
-  const pane = (id: string, title: string, slot?: number) => ({
-    id: `${id}-pane`,
-    position: { x: 60, y: 60 },
-    size: { width: 600, height: 700 },
-    cardIds: [id],
-    activeCardId: id,
-    title,
-    acceptsFamilies: slot === undefined ? ([] as string[]) : ["standard"],
-    ...(slot === undefined ? {} : { slot }),
-  });
-  const kinds = ["one-up", "one-up", "two-up", "three-up"] as const;
-  return {
-    cards: [
-      ...RAIL.map((r, i) => ({ id: s.rail[i], componentId: r.kind, title: r.kind, closable: true })),
-      ...s.content.map((c) => ({ id: c.id, componentId: c.kind, title: c.id, closable: true })),
-    ],
-    panes: [...RAIL.map((r, i) => pane(s.rail[i], r.kind)), ...s.content.map((c, slot) => pane(c.id, c.id, slot))],
-    activePaneId: `${s.content[0].id}-pane`,
-    imposition: {
-      kind: kinds[Math.min(s.content.length, 3)],
-      layout: "fit",
-      sidebars: Object.fromEntries(RAIL.map((r) => [r.kind, { side: r.side }])),
-      rails: {
-        left: { order: RAIL.filter((r) => r.side === "left").map((r) => r.kind) },
-        right: { order: RAIL.filter((r) => r.side === "right").map((r) => r.kind) },
-      },
-    },
-    hasFocus: true,
-  };
-}
-
-const LAYOUT = {
-  version: 5,
-  activeSpaceId: HOME.id,
-  spaces: SPACES.map((s, i) => ({ id: s.id, name: `Space ${i + 1}`, deck: deckOf(s) })),
-};
+const LAYOUT = layoutOf(SPACES);
 
 const mb = (kb: number): string => (kb / 1024).toFixed(0);
 const ms = (v: number | null | undefined): string => (v === null || v === undefined ? "never" : `${Math.round(v)} ms`);

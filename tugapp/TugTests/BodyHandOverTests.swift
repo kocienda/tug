@@ -283,4 +283,74 @@ final class BodyHandOverTests: XCTestCase {
         check("a is held", set.painted("a") == .hold, "not held")
         check("b completes it", set.painted("b") == .complete, "not complete")
     }
+
+    func testTheHoldLineCarriesItsFieldsInOrder() {
+        let line = BodySwitchCut.holdLine(
+            serial: 7, heldMs: 212.4, outcome: "landed", pictureMs: 3.6,
+            placementMs: 41.5, shellMs: 180.2, handoverPending: false,
+            pages: [BodySwitchCut.Page(cardId: "a", ms: 22.2), BodySwitchCut.Page(cardId: "b", ms: 9)],
+            stale: 1, covered: 1, barMs: 100
+        )
+        let keys = line.map(\.0)
+        check("fields in order", keys == ["serial", "held_ms", "outcome", "picture_ms", "placement_ms", "shell_ms", "handover_pending", "pages", "stale", "covered", "over_bar"], "\(keys)")
+        let values = line.map(\.1)
+        check("values rounded", values == ["7", "212", "landed", "4", "42", "180", "no", "a:22,b:9", "1", "1", "yes"], "\(values)")
+    }
+
+    func testTheHoldLineWritesNoneForAbsentTimesAndNeverForUnconfirmedPages() {
+        let line = Dictionary(uniqueKeysWithValues: BodySwitchCut.holdLine(
+            serial: 1, heldMs: 300, outcome: "horizon", pictureMs: 2,
+            placementMs: nil, shellMs: nil, handoverPending: true,
+            pages: [BodySwitchCut.Page(cardId: "a", ms: nil), BodySwitchCut.Page(cardId: "b", ms: 14)],
+            stale: 0, barMs: 100
+        ))
+        check("no placement", line["placement_ms"] == "none", "\(line)")
+        check("no shell answer", line["shell_ms"] == "none", "\(line)")
+        check("hand-over pending", line["handover_pending"] == "yes", "\(line)")
+        check("unconfirmed page", line["pages"] == "a:never,b:14", "\(line)")
+        let empty = Dictionary(uniqueKeysWithValues: BodySwitchCut.holdLine(
+            serial: 2, heldMs: 90, outcome: "landed", pictureMs: 2,
+            placementMs: 10, shellMs: 60, handoverPending: false, pages: [],
+            stale: 0, barMs: 100
+        ))
+        check("no pages waited on", empty["pages"] == "none", "\(empty)")
+        check("within the bar", empty["over_bar"] == "no", "\(empty)")
+    }
+
+    func testTheLiftHidesEveryShownBodyTheArrivingDeckDoesNotName() {
+        let hidden = BodySwitchCut.toHide(
+            bodies: [
+                (cardId: "home", shown: true),          // the departing pane's shown view
+                (cardId: "home-tab", shown: true),      // its sibling, at opacity 0
+                (cardId: "a", shown: true),             // arriving
+                (cardId: "a-tab", shown: true),         // a sibling of an arriving pane
+                (cardId: nil, shown: true),             // the spare
+                (cardId: "parked", shown: false),       // already hidden
+                (cardId: "b", shown: false),            // arriving, not yet shown
+            ],
+            arriving: ["a", "a-tab", "b"]
+        )
+        check("departing views and their siblings are hidden, nothing else", hidden == ["home", "home-tab"], "\(hidden)")
+        check("nothing shown, nothing hidden", BodySwitchCut.toHide(bodies: [], arriving: ["a"]).isEmpty, "")
+    }
+
+    func testAShownCardTakesTheSwitchWidthAndAParkedCardTheBaseWidth() {
+        func admits(_ inFlight: Int, widened: Bool, shown: Bool) -> Bool {
+            BodyLaneWidth.admits(inFlight: inFlight, widened: widened, shown: shown, width: 2, switchWidth: 8)
+        }
+        XCTAssertTrue(admits(5, widened: true, shown: true))
+        XCTAssertFalse(admits(8, widened: true, shown: true))
+        XCTAssertFalse(admits(2, widened: true, shown: false))
+        XCTAssertTrue(admits(1, widened: true, shown: false))
+        XCTAssertFalse(admits(2, widened: false, shown: true))
+        XCTAssertTrue(admits(1, widened: false, shown: true))
+    }
+
+    func testADepartingCardTheLiftHidStaysHiddenUntilTheShellPostsItHidden() {
+        var forced: Set<String> = ["home"]
+        check("a re-posted shown view stays hidden", !BodySwitchCut.admits("home", visible: true, forced: &forced), "\(forced)")
+        check("another card shows", BodySwitchCut.admits("a", visible: true, forced: &forced), "\(forced)")
+        check("the shell posts it hidden", !BodySwitchCut.admits("home", visible: false, forced: &forced), "\(forced)")
+        check("and it is free again", forced.isEmpty && BodySwitchCut.admits("home", visible: true, forced: &forced), "\(forced)")
+    }
 }

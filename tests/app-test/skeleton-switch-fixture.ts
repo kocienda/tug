@@ -18,7 +18,7 @@
  */
 
 import { launchTugApp, type App } from "./_harness";
-import type { BodyLayerRow, BodyLayersReading } from "./_harness/client";
+import type { BodyLayerRow, BodyLayersReading, SwitchHoldRecord } from "./_harness/client";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankWrite } from "./_harness/tugbank-helpers";
 import { bodyOf, pollFor, settleFor } from "./body-grounding/_bodies";
 import { ACTIVE_SPACE, textDeck } from "./body-grounding/_row-44";
@@ -41,15 +41,24 @@ export interface SkeletonDeck {
   close(): Promise<void>;
 }
 
-/** Launch on a home workspace of one Text card, with `away` Text cards on a second workspace never shown. */
-export async function launchSkeletonDeck(label: string, away: readonly string[]): Promise<SkeletonDeck> {
+/**
+ * Launch on a home workspace of Text cards — one, {@link HOME_CARD}, unless
+ * `opts.home` names them — with `away` Text cards on a second workspace
+ * never shown.
+ */
+export async function launchSkeletonDeck(
+  label: string,
+  away: readonly string[],
+  opts: { home?: readonly string[] } = {},
+): Promise<SkeletonDeck> {
+  const home = opts.home ?? [HOME_CARD];
   const tugbankPath = mkTempTugbank();
   seedTugbankForLaunch(tugbankPath);
   const layout = {
     version: 5,
     activeSpaceId: HOME_SPACE,
     spaces: [
-      { id: HOME_SPACE, name: "Home", deck: textDeck([HOME_CARD]) },
+      { id: HOME_SPACE, name: "Home", deck: textDeck(home) },
       { id: AWAY_SPACE, name: "Away", deck: textDeck(away) },
     ],
   };
@@ -65,7 +74,7 @@ export async function launchSkeletonDeck(label: string, away: readonly string[])
     rmTempTugbank(tugbankPath);
   };
   try {
-    await settleFor(() => bodyOf(app, HOME_CARD), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
+    await settleFor(() => bodyOf(app, home[0]), (b) => b?.state === "ready" && b.painted && b.visible, 30_000);
   } catch (e) {
     await close();
     throw e;
@@ -77,6 +86,52 @@ export async function launchSkeletonDeck(label: string, away: readonly string[])
 export function slowPages(app: App, delays: Record<string, number>): Promise<null> {
   return app.bodyDelays({ contentPaintDelayMs: delays });
 }
+
+/** Make every workspace switch's shell frame late by `ms` (null puts it back). */
+export function setSwitchFrameDelay(app: App, ms: number | null): Promise<null> {
+  return app.switchFrameDelay(ms);
+}
+
+/** Make the named cards' pages, shown again, wait `ms` each before they say `painted`. */
+export function slowConfirm(app: App, delays: Record<string, number>): Promise<null> {
+  return app.bodyDelays({ shownPaintDelayMs: delays });
+}
+
+/** Hold the named cards' catch-ups open `ms` each past their end. */
+export function slowCatchUp(app: App, delays: Record<string, number>): Promise<null> {
+  return app.bodyDelays({ catchUpDelayMs: delays });
+}
+
+/** Choose a workspace's theme as its row's swatch would: a parked one's record moves and nothing repaints. */
+export function chooseSpaceTheme(app: App, spaceId: string, theme: string): Promise<null> {
+  return app.evalJS<null>(`(window.__tug.chooseSpaceTheme(${JSON.stringify(spaceId)}, ${JSON.stringify(theme)}), null)`);
+}
+
+/** Wait until each card in `ids` has a page made ahead — ready, painted and hidden; true when all have. */
+export async function madeAhead(app: App, ids: readonly string[], timeoutMs = 10_000): Promise<boolean> {
+  const all = await settleFor(
+    () => Promise.all(ids.map((id) => bodyOf(app, id))),
+    (bs) => bs.every((b) => b?.state === "ready" && b.painted === true && b.visible === false),
+    timeoutMs,
+  );
+  return all.every((b) => b?.state === "ready" && b.painted === true && b.visible === false);
+}
+
+/** The switch hold that began at or after `cut`, ended or not, or null when none stood. */
+export async function holdFrom(app: App, cut: number): Promise<SwitchHoldRecord | null> {
+  const holds = (await app.handOvers()).switchHolds ?? [];
+  return holds.filter((h) => h.fromWall >= cut - 50).at(-1) ?? null;
+}
+
+/**
+ * A row that shows a departing card's page: its card is one of `departing`,
+ * no held picture stands over it, and its container is on screen.
+ */
+export const showsDeparted = (r: BodyLayerRow, departing: ReadonlySet<string>): boolean =>
+  departing.has(r.cardId) && r.held !== true && !r.hidden && r.opacity > 0;
+
+/** A row whose card stands under its own last frame, a park cover. */
+export const showsLastFrame = (r: BodyLayerRow): boolean => r.lastFrame === true && r.held !== true && !r.hidden;
 
 /** Switch to `spaceId`, answering the wall clock at the dispatch. */
 export async function switchTo(app: App, spaceId: string): Promise<number> {

@@ -992,6 +992,14 @@ export class DeckManager implements IDeckManagerStore {
 
   public getSpaceSwitchStartedAt = (): number | null => this.spaceSwitchStartedAt;
 
+  /**
+   * The harness's seam on a switch's shell frame, never written by the
+   * product: when set, a switch busy-waits this many ms inside the batch
+   * that swaps the deck, so the shell's render and its placement are both
+   * late (`__tug.switchFrameDelay`). Null in the product, which does nothing.
+   */
+  public switchFrameDelayMs: number | null = null;
+
   /** When the last committing {@link setPaneFolded} began — see the store
    *  interface. */
   private impositionGestureAt: number | null = null;
@@ -1540,6 +1548,14 @@ export class DeckManager implements IDeckManagerStore {
         // and inherits the `"cut"` correctly, for the same reason — the
         // neighbour's frames are likewise already where the swap puts them.
         this.notify("activateSpace", "cut");
+        // The harness's late shell frame: before the batch closes, so its
+        // subscribers, the commit and the commit's measurement all wait.
+        if (this.switchFrameDelayMs !== null) {
+          const until = performance.now() + this.switchFrameDelayMs;
+          while (performance.now() < until) {
+            // busy: the delay stands for shell work on the switch's path
+          }
+        }
         this.scheduleSave();
       },
       "activateSpace",

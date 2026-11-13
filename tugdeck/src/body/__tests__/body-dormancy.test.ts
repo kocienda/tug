@@ -140,8 +140,9 @@ describe("installBodyDormancy", () => {
     closeCatchUp();
     expect(installed.asleep).toBe(false);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(1);
-    // The ask is written before the subscription is restored.
-    expect(log.slice(5)).toEqual(["catchUp", "rescope", "stillLoops false", "withholdSurface false"]);
+    // The loops run from the show, before the ask; the ask is written
+    // before the subscription is restored; the surface waits for the wake.
+    expect(log.slice(5)).toEqual(["stillLoops false", "catchUp", "rescope", "withholdSurface false"]);
     store.apply({ shown: false, since: clock.now() });
     clock.advance(500);
     expect(log.filter((e) => e === "saveBag")).toHaveLength(2);
@@ -167,7 +168,7 @@ describe("installBodyDormancy", () => {
     clock.advance(500);
     store.apply({ shown: true, since: clock.now() });
     expect(installed.asleep).toBe(false);
-    expect(log.slice(5)).toEqual(["catchUp", "stillLoops false", "withholdSurface false", "rescope"]);
+    expect(log.slice(5)).toEqual(["stillLoops false", "catchUp", "withholdSurface false", "rescope"]);
     installed.release();
   });
 });

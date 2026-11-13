@@ -133,6 +133,7 @@ import {
   bodyBindToPage,
   bodyVisibilityToPage,
   paintedToHost,
+  bodyStaleToHost,
   type BodyBind,
   prepareForTerminationCall,
   reauthenticateCall,
@@ -144,6 +145,8 @@ import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-epis
 import { landRecorder } from "../lib/land-frame-record";
 import { CARD_FOLD_ATTR } from "../lib/folded-body";
 import { runCrossingSolve } from "./crossing-solve";
+import { drawnSignature, movedParts, staleAfter } from "./body-staleness";
+import { paneChrome } from "../bus/declarations/pane";
 import { flushOwedReflows, reflowOwed } from "../lib/owed-reflow";
 import { readCrossingAnchor, readCrossingBand } from "../lib/crossing-band";
 import { deckTrace } from "../deck-trace";
@@ -346,6 +349,20 @@ function follow<T>(store: SharedStore<T>, apply: (value: T) => void): void {
 
 /** The bound card's deck, which a page shown again watches for quiet. */
 let boundDeck: BodyCardDeck | null = null;
+/** The card this page is bound to, which the harness's per-card delays are read by. */
+let boundCardId: string | null = null;
+
+/** The harness's delay for this page's card under `key`, ms, or 0 (`harnessBodyDelays`). */
+function harnessDelay(key: "shownPaintDelayMs" | "catchUpDelayMs", cardId: string | null): number {
+  if (cardId === null) return 0;
+  return harnessBodyDelays.getSnapshot()[key][cardId] ?? 0;
+}
+
+/** Run `act` now, or `ms` later when the harness has delayed it. */
+function afterHarnessDelay(ms: number, act: () => void): void {
+  if (ms > 0) window.setTimeout(act, ms);
+  else act();
+}
 /** How many frames running the deck must hold still before a page shown again says it is drawn. */
 const SHOWN_QUIET_FRAMES = 3;
 /** How long a page shown again waits for its deck to hold still at most ([L33]). */
@@ -376,10 +393,84 @@ function sayDrawnWhenQuiet(): void {
       return;
     }
     unsubscribe();
-    postToHost(paintedToHost, { content: true });
-    setTimeout(() => root.removeAttribute("data-body-catching-up"), SHOWN_STILL_MS);
+    afterHarnessDelay(harnessDelay("shownPaintDelayMs", boundCardId), () => {
+      postToHost(paintedToHost, { content: true });
+      setTimeout(() => root.removeAttribute("data-body-catching-up"), SHOWN_STILL_MS);
+    });
   };
   requestAnimationFrame(tick);
+}
+
+/**
+ * Whether this page's picture still stands for what it would draw
+ * (`body-staleness.ts`): the signature of what it drew when it was hidden,
+ * whether it has said `bodyStale` since, and whether it slept. A page shown
+ * again that is current says `painted` at once; one that is not keeps the
+ * quiet wait. Set at bind: before it, nothing is drawn.
+ */
+let signatureNow: (() => string) | null = null;
+let drawnAtHide: string | null = null;
+/** The signature this page last said `bodyStale` for while hidden, or null when it has said none. */
+let staleSaid: string | null = null;
+let sleptHidden = false;
+
+/**
+ * A store this page draws from applied a value: while hidden, say `bodyStale`
+ * if what it would draw moved, and again at each later move, since each one
+ * makes the host's last frame of it behind.
+ */
+function noteDrawnStoreApplied(): void {
+  if (drawnAtHide === null || signatureNow === null) return;
+  const now = signatureNow();
+  if (!staleAfter(drawnAtHide, now) || now === staleSaid) return;
+  staleSaid = now;
+  // What moved, for a reading: the last stale period's parts, on the page.
+  (window as { __tugBodyStale?: { parts: string[]; at: number } }).__tugBodyStale = {
+    parts: movedParts(drawnAtHide, signatureNow()),
+    at: Date.now(),
+  };
+  postToHost(bodyStaleToHost, {});
+}
+
+/** Follow every store this page bound to `cardId` draws from, for its staleness. */
+function followDrawnStores(cardId: string, rendersOthers: boolean): void {
+  signatureNow = () =>
+    drawnSignature(
+      cardId,
+      {
+        cardTheme: cardTheme.getSnapshot(),
+        paneChrome: paneChrome.getSnapshot(),
+        cardContext: cardContext.getSnapshot(),
+        deckCards: deckCards.getSnapshot(),
+        deckFacts: deckFacts.getSnapshot(),
+        arrangement: rendersOthers ? { deck: arrangementDeck.getSnapshot(), spaces: arrangementSpaces.getSnapshot() } : null,
+      },
+      rendersOthers,
+    );
+  const stores: { subscribe(listener: () => void): unknown }[] = [cardTheme, paneChrome, cardContext, deckCards, deckFacts];
+  if (rendersOthers) stores.push(arrangementDeck, arrangementSpaces);
+  for (const store of stores) store.subscribe(noteDrawnStoreApplied);
+}
+
+/**
+ * A page made ahead paints its first picture hidden, and that picture is
+ * what its first show puts on screen: so its signature is taken here, as a
+ * hidden edge's is, and a page nothing moved under since says `painted` at
+ * its first show as at any later one.
+ */
+function notePaintedHidden(): void {
+  if (bodyVisibilityStore.getSnapshot().shown || drawnAtHide !== null) return;
+  drawnAtHide = signatureNow?.() ?? null;
+  staleSaid = null;
+}
+
+/** A current page shown again: what it shows is what it would draw, so it says so on the next frame. */
+function sayDrawnNow(): void {
+  requestAnimationFrame(() => {
+    afterHarnessDelay(harnessDelay("shownPaintDelayMs", boundCardId), () => {
+      postToHost(paintedToHost, { content: true });
+    });
+  });
 }
 
 /**
@@ -406,7 +497,10 @@ function applyMotion(): void {
  * also follows the card's services and ends when the store it asked is no
  * longer the card's. Returns the release for the wait.
  */
-function catchUpCard(cardId: string, done: () => void): () => void {
+function catchUpCard(cardId: string, doneNow: () => void): () => void {
+  // The harness may hold the catch-up's end open (`catchUpDelayMs`), on
+  // every branch below, the one that ends at once included.
+  const done = (): void => afterHarnessDelay(harnessDelay("catchUpDelayMs", cardId), doneNow);
   const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
   if (store === null) {
     done();
@@ -574,6 +668,7 @@ function signalReadyWhenQuiet(
           postToHost(paintedToHost, { content: true });
           publisher.painted();
           cardPainted.set(true);
+          notePaintedHidden();
         });
       });
     });
@@ -633,6 +728,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   }
   const componentId = bind.componentId;
   if (isSpare && !(await bindSpare(cardId))) return;
+  boundCardId = cardId;
   bindPageCard(cardId, componentId);
   const intent: BodyIntent = parseBodyIntent(bind.intent) ?? { kind: "restore" };
 
@@ -790,6 +886,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
       ? createDeckView(deck, { deck: arrangementDeck, spaces: arrangementSpaces })
       : null;
   if (view !== null) registerDeckView(view);
+  // Whether a page hidden by a switch can be shown as it stands.
+  followDrawnStores(cardId, registration?.bodyDeck === "arrangement");
   // The card a following card follows, which only the shell's focus manager knows.
   if (registration?.bodyFollows === true) follow(cardFollowed, (followed) => deck.applyFollowed(followed?.cardId ?? null));
   // The app's identity the host sent the shell, for the About card.
@@ -999,13 +1097,28 @@ async function bindBody(bind: BodyBind): Promise<void> {
   });
   // Whether the host has this body shown; hidden long enough, it goes dormant.
   // Shown again after being hidden, a page that has painted its content says
-  // so once more when it has drawn as shown (`sayDrawnWhenQuiet`).
+  // so once more: at once when it is current — nothing it draws moved while
+  // it was hidden, and it never slept — else when it has drawn as shown
+  // (`sayDrawnWhenQuiet`).
   let shownNow = false;
   onHostMessage(bodyVisibilityToPage, (visibility) => {
     bodyVisibilityStore.apply(visibility);
     const shownAgain = visibility.shown && !shownNow;
+    if (!visibility.shown && shownNow) {
+      drawnAtHide = signatureNow?.() ?? null;
+      staleSaid = null;
+      sleptHidden = false;
+    }
+    if (!visibility.shown && visibility.dormant) sleptHidden = true;
     shownNow = visibility.shown;
-    if (shownAgain && cardPainted.getSnapshot()) sayDrawnWhenQuiet();
+    if (shownAgain) {
+      const current = drawnAtHide !== null && staleSaid === null && !sleptHidden;
+      drawnAtHide = null;
+      if (cardPainted.getSnapshot()) {
+        if (current) sayDrawnNow();
+        else sayDrawnWhenQuiet();
+      }
+    }
   });
   // The host is about to carry this card's box to a new size: pin every
   // preserve scroller across it, as the shell's own crossing does for an

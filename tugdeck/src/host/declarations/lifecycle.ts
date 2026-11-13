@@ -51,6 +51,20 @@ export const paintedToHost = defineToHost<{ content: boolean }>({
   refused: [true, {}],
 });
 
+/**
+ * A hidden page's picture no longer stands for what it would draw: a value
+ * it draws from moved while it was hidden (`body/body-staleness.ts`). Said
+ * at each move while hidden, so the host knows the page is not current, a
+ * switch onto it cannot show it as it stands, and its last frame is behind.
+ */
+export const bodyStaleToHost = defineToHost<Record<string, never>>({
+  name: "bodyStale",
+  from: "body",
+  codec: obj({}),
+  samples: [{}],
+  refused: [null],
+});
+
 /** The shell's ready reveals the window; a body's says it has painted its card. */
 export const frontendReadyToHost = defineToHost({
   name: "frontendReady",

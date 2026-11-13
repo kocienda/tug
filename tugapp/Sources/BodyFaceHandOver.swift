@@ -408,19 +408,31 @@ final class BodyHeldPicture: NSView {
 /// shell's switched frame. The host takes the window's picture as it stands
 /// — the departed workspace — and holds it above everything while the shell
 /// switches and the host trades the pages beneath, then lifts it in one
-/// transaction two host frames after every named page is on. Public API
-/// only: the window server's picture of the host's own window.
+/// transaction two host frames after the shell's switched frame has
+/// rendered, waiting on no page: an arriving page that has not confirmed
+/// shows as it stands, or its skeleton. It stands on every switch onto at
+/// least one painted page — a switch onto none is the face hand-over's,
+/// whose faces and the stand-ins beneath them are already one picture —
+/// and its lift corrects:
+/// the same transaction hides every body whose card the arriving deck does
+/// not name, so nothing of the departed workspace is shown beneath it,
+/// whatever the shell last posted. Public API only: the window server's
+/// picture of the host's own window.
 final class BodySwitchHold {
     /// How long a picture is held at most ([L33]): a page that never comes
     /// on holds nothing for ever.
     static let deadlineMs = 300
+    /// What a switch's cut is measured against: spaceWillSwitch to the lift.
+    /// The line reports `over_bar` against it; it lifts nothing early.
+    static let barMs = 100
     /// How many host frames the picture stands past the last page coming on:
     /// that page's frame, presented.
     static let liftFrames = 2
     private static let accountLength = 16
 
     /// One hold, for the harness: when it stood, on the wall clock the
-    /// burst's frames carry, how long, and how it ended.
+    /// burst's frames carry, how long, how it ended, and what it waited on
+    /// — the `switch hold` log line's fields.
     private struct Record {
         let serial: Int
         let cards: [String]
@@ -428,6 +440,13 @@ final class BodySwitchHold {
         var toWall: Double?
         var heldMs: Double?
         var outcome: String
+        var pictureMs: Double = 0
+        var placementMs: Double?
+        var shellMs: Double?
+        var handoverPending: Bool?
+        var pages: [BodySwitchCut.Page] = []
+        var stale = 0
+        var covered = 0
 
         var json: JSONValue {
             .object([
@@ -437,6 +456,14 @@ final class BodySwitchHold {
                 "toWall": toWall.map(JSONValue.number) ?? .null,
                 "heldMs": heldMs.map(JSONValue.number) ?? .null,
                 "outcome": .string(outcome),
+                "pictureMs": .number(pictureMs),
+                "placementMs": placementMs.map(JSONValue.number) ?? .null,
+                "shellMs": shellMs.map(JSONValue.number) ?? .null,
+                "handoverPending": handoverPending.map(JSONValue.bool) ?? .null,
+                "pages": .object(Dictionary(uniqueKeysWithValues: pages.map { ($0.cardId, $0.ms.map(JSONValue.number) ?? .null) })),
+                "stale": .number(Double(stale)),
+                "covered": .number(Double(covered)),
+                "barMs": .number(Double(BodySwitchHold.barMs)),
             ])
         }
     }
@@ -445,13 +472,26 @@ final class BodySwitchHold {
     private unowned let window: MainWindow
     private var picture: NSView?
     private var since: CFTimeInterval = 0
-    private var waiting: Set<String> = []
+    /// Every card of the arriving deck, as the shell named it.
+    private var arriving: Set<String> = []
     /// The cards whose pages have painted since the hold began.
     private var repainted: Set<String> = []
     /// Whether the shell's switched frame has rendered: its snapshot, asked
     /// at the first placement after the hold began, has answered.
     private var shellRendered = false
     private var shellAsked = false
+    /// What the hold's line reports, each relative to `since`: the picture's
+    /// cost, the first placement, the shell's snapshot answer, and per card
+    /// the hold waited on when its page was first on (visible and showable)
+    /// and when it painted as shown.
+    private var pictureMs: Double = 0
+    private var placementMs: Double?
+    private var shellMs: Double?
+    private var named: Set<String> = []
+    /// The arriving cards whose pages were not current when the hold began.
+    private var notCurrent: Set<String> = []
+    private var shownAt: [String: Double] = [:]
+    private var paintedAt: [String: Double] = [:]
     private var serial = 0
     private var liftLink: CADisplayLink?
     private var records: [Record] = []
@@ -469,24 +509,44 @@ final class BodySwitchHold {
     /// Whether a picture stands over the window now.
     var isHolding: Bool { picture != nil }
 
-    /// Hold the window's picture until `cardIds`' pages are on and have each
-    /// painted as shown. A hold already standing keeps its picture — the
-    /// departed workspace — and waits on these cards instead.
+    /// The departing cards the last lift hid, kept hidden until the shell
+    /// posts each hidden itself or the next switch begins
+    /// (`BodySwitchCut.admits`).
+    private var forcedHidden: Set<String> = []
+
+    /// Whether a placement naming `cardId` `visible` may show it.
+    func admits(_ cardId: String, visible: Bool) -> Bool {
+        BodySwitchCut.admits(cardId, visible: visible, forced: &forcedHidden)
+    }
+
+    /// Hold the window's picture over a switch onto the deck of `cardIds`
+    /// until the shell's switched frame has rendered. A hold already standing
+    /// keeps its picture — the departed workspace — and takes this deck
+    /// instead.
     func hold(_ cardIds: [String]) {
         serial += 1
         let mine = serial
         if picture == nil {
+            let before = CACurrentMediaTime()
             picture = window.holdPicture()
             since = CACurrentMediaTime()
+            pictureMs = (since - before) * 1000
         }
         guard picture != nil else {
             TugLog.warn("bodies", "switch hold has no picture", [TugLog.field("serial", mine)])
             return
         }
-        waiting = Set(cardIds)
+        arriving = Set(cardIds)
+        forcedHidden = []
+        notCurrent = Set(cardIds.filter { controller.body(forCard: $0).map { !$0.current } ?? false })
         repainted = []
         shellRendered = false
         shellAsked = false
+        placementMs = nil
+        shellMs = nil
+        named = []
+        shownAt = [:]
+        paintedAt = [:]
         liftLink?.invalidate()
         liftLink = nil
         records.append(Record(
@@ -497,9 +557,10 @@ final class BodySwitchHold {
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.deadlineMs)) { [weak self] in
             guard let self, self.serial == mine, self.picture != nil else { return }
             TugLog.warn("bodies", "switch hold past its horizon", [
-                TugLog.field("serial", mine), TugLog.field("waiting", self.waiting.sorted().joined(separator: ",")),
+                TugLog.field("serial", mine), TugLog.field("waiting", self.pagesWaited().joined(separator: ",")),
+                TugLog.field("unpassed", self.shellRendered ? "none" : "shell"),
             ])
-            self.lift("deadline")
+            self.lift("horizon")
         }
         check()
     }
@@ -510,34 +571,35 @@ final class BodySwitchHold {
     func placementArrived() {
         guard picture != nil, !shellAsked else { return }
         shellAsked = true
+        placementMs = elapsedMs()
         let mine = serial
         window.snapshotShell(rect: CGRect(x: 0, y: 0, width: 1, height: 1)) { [weak self] _ in
             guard let self, self.serial == mine else { return }
             self.shellRendered = true
+            self.shellMs = self.elapsedMs()
             self.check()
         }
     }
 
-    /// A page the hold may wait on has painted: a page made ahead or parked
-    /// draws for the workspace now shown only once it is shown, and says so
-    /// with a paint (`body-main.ts`).
+    /// An arriving page has painted: a page made ahead or parked draws for
+    /// the workspace now shown only once it is shown, and says so with a
+    /// paint (`body-main.ts`).
     func notePaint(_ cardId: String) {
-        guard picture != nil, waiting.contains(cardId) else { return }
+        guard picture != nil, arriving.contains(cardId) else { return }
         repainted.insert(cardId)
+        if paintedAt[cardId] == nil { paintedAt[cardId] = elapsedMs() }
         check()
     }
 
-    /// A body was shown or hidden, or painted: once the shell's switched
-    /// frame has rendered, no hand-over waits on it, and every page the hold
-    /// waits on is on and has painted as shown, lift the picture two host
-    /// frames later. A card with no body any more is waited on no longer.
+    /// A body was shown or hidden, or painted, or the shell's snapshot
+    /// answered: once the shell's switched frame has rendered, lift the
+    /// picture two host frames later. No page and no hand-over is waited on:
+    /// the faces and the pages beneath stand for the arriving workspace.
     func check() {
-        guard picture != nil, liftLink == nil, shellRendered, !controller.faceHandOver.isPending else { return }
-        waiting = waiting.filter { cardId in
-            guard let body = controller.body(forCard: cardId) else { return false }
-            return !(body.visible && body.canShow && repainted.contains(cardId))
-        }
-        guard waiting.isEmpty else { return }
+        guard picture != nil else { return }
+        _ = pagesOn()
+        noteShown()
+        guard liftLink == nil, shellRendered else { return }
         let mine = serial
         var frames = 0
         let tick = RailSpringTick { [weak self] link in
@@ -553,16 +615,79 @@ final class BodySwitchHold {
         liftLink = link
     }
 
+    /// The arriving cards still to confirm now, for the line: each whose
+    /// page is painted and placed visible, and is not yet on and painted as
+    /// shown. The lift waits on none of them; a cold card, with nothing
+    /// painted to show, is the reveal set's.
+    private func pagesWaited() -> [String] {
+        arriving.sorted().filter { cardId in
+            guard let body = controller.body(forCard: cardId), body.painted, body.visible else { return false }
+            return !(body.canShow && repainted.contains(cardId))
+        }
+    }
+
+    /// Whether every arriving page shown has confirmed; each that is still to goes in the line's pages.
+    private func pagesOn() -> Bool {
+        let waited = pagesWaited()
+        named.formUnion(waited)
+        return waited.isEmpty
+    }
+
+    /// Stamp each card the hold waited on the first time its page is on.
+    private func noteShown() {
+        for cardId in named.sorted() where shownAt[cardId] == nil {
+            guard let body = controller.body(forCard: cardId), body.visible, body.canShow else { continue }
+            shownAt[cardId] = elapsedMs()
+        }
+    }
+
+    private func elapsedMs() -> Double { (CACurrentMediaTime() - since) * 1000 }
+
     private func lift(_ outcome: String) {
         liftLink?.invalidate()
         liftLink = nil
         guard let picture else { return }
+        _ = pagesOn()
+        noteShown()
+        let handoverPending = controller.faceHandOver.isPending
+        // Of the arriving pages shown, those that were not current when the hold began.
+        let stale = named.intersection(notCurrent).count
+        let pages = named.sorted().map { cardId -> BodySwitchCut.Page in
+            guard let shown = shownAt[cardId], let painted = paintedAt[cardId] else {
+                return BodySwitchCut.Page(cardId: cardId, ms: nil)
+            }
+            return BodySwitchCut.Page(cardId: cardId, ms: max(0, painted - shown))
+        }
+        // The hold is over before the bodies move, so a check their hiding
+        // runs arms no second lift.
+        self.picture = nil
+        let bodies = controller.bodies
+        let hiding = Set(BodySwitchCut.toHide(
+            bodies: bodies.map { (cardId: $0.cardId, shown: $0.visible || $0.sibling) },
+            arriving: arriving
+        ))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        for body in bodies {
+            guard let cardId = body.cardId, hiding.contains(cardId) else { continue }
+            body.visible = false
+            body.sibling = false
+            controller.applyVisibility(body)
+        }
+        // An arriving page that was not current when the hold began, and
+        // has not painted as shown since, stands under its last frame until
+        // it does: the cut never waits on it, and never shows it stale.
+        var covered = 0
+        for body in bodies {
+            guard let cardId = body.cardId, arriving.contains(cardId), notCurrent.contains(cardId),
+                  body.visible, body.painted else { continue }
+            if controller.lifecycle.standParkCover(over: body) { covered += 1 }
+        }
         picture.removeFromSuperview()
         CATransaction.commit()
-        self.picture = nil
-        waiting = []
+        controller.lifecycle.switchHoldEnded(hid: bodies.filter { $0.cardId.map(hiding.contains) == true })
+        arriving = []
+        forcedHidden = hiding
         repainted = []
         shellRendered = false
         shellAsked = false
@@ -571,7 +696,27 @@ final class BodySwitchHold {
             records[index].heldMs = ms
             records[index].toWall = Date().timeIntervalSince1970 * 1000
             records[index].outcome = outcome
+            records[index].pictureMs = pictureMs
+            records[index].placementMs = placementMs
+            records[index].shellMs = shellMs
+            records[index].handoverPending = handoverPending
+            records[index].pages = pages
+            records[index].stale = stale
+            records[index].covered = covered
         }
-        TugLog.info("bodies", "switch hold", [TugLog.field("serial", serial), TugLog.field("held_ms", Int(ms.rounded())), TugLog.field("outcome", outcome)])
+        let line = BodySwitchCut.holdLine(
+            serial: serial, heldMs: ms, outcome: outcome, pictureMs: pictureMs,
+            placementMs: placementMs, shellMs: shellMs, handoverPending: handoverPending, pages: pages,
+            stale: stale, covered: covered, barMs: Double(Self.barMs)
+        )
+        TugLog.info("bodies", "switch hold", line.map { TugLog.field($0.0, $0.1) })
+        if !hiding.isEmpty {
+            TugLog.info("bodies", "switch hold hid departing", [
+                TugLog.field("serial", serial), TugLog.field("cards", hiding.sorted().joined(separator: ",")),
+            ])
+        }
+        named = []
+        shownAt = [:]
+        paintedAt = [:]
     }
 }

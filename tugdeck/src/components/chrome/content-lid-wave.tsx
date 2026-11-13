@@ -12,7 +12,9 @@
  * the stylesheet reads. Counting frames rather than milliseconds is the
  * point — a switch's first frame with the lid in it can come long after the
  * lid is made, and a delay in milliseconds runs out before anyone sees it.
- * Nothing animates on the frames: they only gate the attribute.
+ * Nothing animates on the frames: they only gate the attribute. Once
+ * drawn it runs: the indicator's own default is `stopped`, motion being
+ * opt-in, and a still wave on a card that is loading reads as stuck.
  *
  * The host's face for an arriving card is read off the stand-in
  * (`lib/face-draw.ts`), at the cut, inside the delay: the wrapper carries
@@ -64,7 +66,7 @@ export function ContentLidWave(): React.ReactElement {
   }, []);
   return (
     <div ref={ref} className="tug-content-lid-wave" {...{ [FACE_REST_ATTRIBUTE]: "" }} aria-hidden="true">
-      <TugProgressIndicator variant="wave" size={LID_WAVE_SIZE} aria-hidden />
+      <TugProgressIndicator variant="wave" size={LID_WAVE_SIZE} state="running" aria-hidden />
     </div>
   );
 }

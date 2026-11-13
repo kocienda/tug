@@ -43,6 +43,13 @@ struct BodyCover {
 /// and the cover comes off at whichever of its ends is later. A standing
 /// cover is on screen, so neither the budget nor a clear takes it; its bytes
 /// still count, and a kept cover gives way to them.
+///
+/// **Parked**: a hidden page's last frame, kept for the switch that shows it
+/// again before it has confirmed, under a budget of its own. The two budgets
+/// do not mix: the eviction budget counts the kept covers and those standing
+/// for an eviction or a crossing alone, and the parked budget counts the
+/// parked covers kept and those standing as one, so a parked cover never
+/// pushes an eviction cover out, nor the reverse.
 final class BodyCovers {
     /// Why the map let a cover go on its own.
     enum Drop: String {
@@ -59,6 +66,9 @@ final class BodyCovers {
         static let eviction = Kinds(rawValue: 1)
         /// Carried through a crossing: off when its track lands.
         static let crossing = Kinds(rawValue: 2)
+        /// A parked page's last frame, stood over it at a switch's cut: off
+        /// when the page paints as shown, or at its horizon.
+        static let parked = Kinds(rawValue: 4)
     }
 
     /// The cover standing over one card's body, and why it stands. The body
@@ -83,29 +93,73 @@ final class BodyCovers {
         case keepsPage
     }
 
-    /// What the covers may hold together, kept and standing, in pixel bytes.
+    /// What the eviction and crossing covers may hold together, kept and standing, in pixel bytes.
     let budgetBytes: Int
+    /// What the parked covers may hold together, kept and standing, in pixel bytes.
+    let parkedBudgetBytes: Int
     /// Told of each cover the map lets go on its own: its card and why.
     var onDrop: ((String, Drop) -> Void)?
+    /// Told of each parked cover the parked budget lets go: its card.
+    var onParkedDrop: ((String) -> Void)?
     /// Bumped by every clear: a cover taken in an earlier generation is refused.
     private(set) var generation = 0
     private var held: [String: BodyCover] = [:]
     private var standing: [String: Stand] = [:]
+    private var parked: [String: BodyCover] = [:]
     /// Runs the work after the delay in ms: the main queue in the app.
     private let after: (Double, @escaping () -> Void) -> Void
 
     init(
         budgetBytes: Int,
+        parkedBudgetBytes: Int = Int.max,
         after: @escaping (Double, @escaping () -> Void) -> Void = { ms, work in
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(ms.rounded())), execute: work)
         }
     ) {
         self.budgetBytes = budgetBytes
+        self.parkedBudgetBytes = parkedBudgetBytes
         self.after = after
     }
 
-    /// The pixel bytes the covers hold together, kept and standing.
-    var bytes: Int { held.values.reduce(0) { $0 + $1.bytes } + standing.values.reduce(0) { $0 + $1.cover.bytes } }
+    /// The pixel bytes the eviction budget counts: kept covers, and those
+    /// standing for an eviction or a crossing and not over a parked page.
+    var bytes: Int {
+        held.values.reduce(0) { $0 + $1.bytes }
+            + standing.values.filter { !$0.kinds.contains(.parked) }.reduce(0) { $0 + $1.cover.bytes }
+    }
+
+    /// The pixel bytes the parked budget counts: parked covers kept, and those standing.
+    var parkedBytes: Int {
+        parked.values.reduce(0) { $0 + $1.bytes }
+            + standing.values.filter { $0.kinds.contains(.parked) }.reduce(0) { $0 + $1.cover.bytes }
+    }
+
+    /// Each parked cover kept, by card: what the harness reads of the parked account.
+    var parkedCovers: [String: BodyCover] { parked }
+
+    /// Keep `cover` as `cardId`'s parked last frame, replacing any older one,
+    /// unless the map was cleared since it was taken in `generation`: past
+    /// the parked budget the oldest parked covers go first. False when the
+    /// cover was refused.
+    @discardableResult
+    func keepParked(_ cover: BodyCover, for cardId: String, takenIn generation: Int) -> Bool {
+        guard generation == self.generation else { return false }
+        parked[cardId] = cover
+        var total = parkedBytes
+        while total > parkedBudgetBytes, let oldest = parked.min(by: { $0.value.takenAt < $1.value.takenAt }) {
+            parked.removeValue(forKey: oldest.key)
+            total -= oldest.value.bytes
+            onParkedDrop?(oldest.key)
+        }
+        return parked[cardId] != nil
+    }
+
+    /// `cardId`'s parked last frame, if one is kept.
+    func parkedCover(for cardId: String) -> BodyCover? { parked[cardId] }
+
+    /// Let `cardId`'s parked cover go: its card closed, its page confirmed
+    /// as shown, or its body evicted.
+    func dropParked(_ cardId: String) { parked.removeValue(forKey: cardId) }
 
     /// Hold `cover` for `cardId`'s next body, unless the map was cleared
     /// since it was taken in `generation`: the oldest covers go first past
@@ -146,7 +200,8 @@ final class BodyCovers {
             stand.kinds.insert(kind)
             return stand
         }
-        guard let cover = fresh ?? held.removeValue(forKey: cardId) else { return nil }
+        guard let cover = fresh ?? (kind == .parked ? parked.removeValue(forKey: cardId) : held.removeValue(forKey: cardId))
+        else { return nil }
         let stand = Stand(cover: cover, kinds: kind)
         standing[cardId] = stand
         return stand
@@ -180,10 +235,11 @@ final class BodyCovers {
     /// Let `cardId`'s kept cover go: its card is closed.
     func drop(_ cardId: String) { held.removeValue(forKey: cardId) }
 
-    /// Let every kept cover go, and refuse any taken before now. A cover
-    /// standing over a body is on screen, and stays.
+    /// Let every kept and parked cover go, and refuse any taken before now. A
+    /// cover standing over a body is on screen, and stays.
     func clear() {
         held.removeAll()
+        parked.removeAll()
         generation += 1
     }
 }

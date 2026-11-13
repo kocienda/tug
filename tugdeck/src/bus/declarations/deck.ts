@@ -181,11 +181,21 @@ export const deckCards = defineSharedStore<Record<string, DeckCardFacts>>({
  * or null for its own constant (`DORMANT_AFTER_MS`). The app-tests shorten
  * it through `__tug.bodyDelays` (`test-surface.ts`); every body reads it,
  * a page made later included, since it is replicated at hello.
+ *
+ * Two per-card page delays ride beside it, each by card id: how long a page
+ * shown again waits before it says `painted` (`shownPaintDelayMs`), and how
+ * long its catch-up holds its end open (`catchUpDelayMs`). They are here and
+ * not in the host's bind because a made-ahead page is bound before a test
+ * can know its order, and this store reaches every page live.
  */
-export const harnessBodyDelays = defineSharedStore<{ readonly dormantAfterMs: number | null }>({
+export const harnessBodyDelays = defineSharedStore<{
+  readonly dormantAfterMs: number | null;
+  readonly shownPaintDelayMs: Readonly<Record<string, number>>;
+  readonly catchUpDelayMs: Readonly<Record<string, number>>;
+}>({
   key: "harness.bodyDelays",
   owner: "shell",
   scope: { deck: true },
-  codec: obj({ dormantAfterMs: nullable(num) }),
-  initial: { dormantAfterMs: null },
+  codec: obj({ dormantAfterMs: nullable(num), shownPaintDelayMs: rec(num), catchUpDelayMs: rec(num) }),
+  initial: { dormantAfterMs: null, shownPaintDelayMs: {}, catchUpDelayMs: {} },
 });

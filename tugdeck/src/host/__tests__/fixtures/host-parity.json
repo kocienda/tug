@@ -656,6 +656,16 @@
       ]
     },
     {
+      "name": "bodyStale",
+      "from": "body",
+      "samples": [
+        {}
+      ],
+      "refused": [
+        null
+      ]
+    },
+    {
       "name": "frontendReady",
       "from": "any",
       "samples": [

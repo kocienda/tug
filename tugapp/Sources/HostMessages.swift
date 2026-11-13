@@ -306,8 +306,10 @@ struct BodyCreate: Decodable, Equatable {
     var guardsClose: Bool?
 }
 
-/// `switchHold`: a workspace switch is starting onto these cards' painted
-/// pages; the host holds the window's picture until they are on.
+/// `switchHold`: a workspace switch onto at least one painted page is starting;
+/// `cardIds` is every card of the arriving deck. The host holds the
+/// window's picture until the arriving workspace is on, and its lift hides
+/// every body whose card is not named.
 struct SwitchHold: Decodable, Equatable {
     var cardIds: [String]
 }
@@ -971,7 +973,7 @@ enum ToHostName: String, CaseIterable {
     // The overlay's view.
     case overlayCreate, overlayClaim
     // Page lifecycle.
-    case bodyHello, painted, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
+    case bodyHello, painted, bodyStale, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
     case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme, tooltipDelay
@@ -1037,6 +1039,7 @@ enum ToHost {
     case overlayClaim(CardHitRegion.Claim)
     case bodyHello
     case painted(BodyPainted)
+    case bodyStale
     case frontendReady
     case frontendLaunchStalled(FrontendLaunchStalled)
     case quitConfirmed
@@ -1097,6 +1100,7 @@ enum ToHost {
         case .overlayClaim: return .overlayClaim(try read(CardHitRegion.Claim.self))
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello
         case .painted: return .painted(try read(BodyPainted.self))
+        case .bodyStale: _ = try read(EmptyPayload.self); return .bodyStale
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
         case .crossingReady: return .crossingReady(try read(BodySurface.self))
         case .crossingSolved: return .crossingSolved(try read(CrossingSolved.self))

@@ -121,16 +121,21 @@ final class BodyLane {
     }
 
     /// Make pages for waiting cards while fewer than `width` are loading —
-    /// `switchWidth` while a switch's skeletons wait and its hand-over has
-    /// landed.
+    /// `switchWidth` for a shown card while a switch's skeletons wait and
+    /// its hand-over has landed. A parked card never takes the widened lane:
+    /// the pick stops at it until fewer than `width` load.
     /// Run when a card is asked for, when a placement lands, and when a page
     /// leaves the lane: ready, failed at its deadline, or gone.
     func drain() {
         pendingDrain?.cancel()
         pendingDrain = nil
         let widened = controller.switchSkeletonsWait && !controller.faceHandOver.isPending
-        let width = widened ? BodyLane.switchWidth : BodyLane.width
-        while inFlight < width, let index = next() {
+        while let index = next() {
+            let shown = controller.cardPlacements[lane[index].cardId]?.visible == true
+            guard BodyLaneWidth.admits(
+                inFlight: inFlight, widened: widened, shown: shown,
+                width: BodyLane.width, switchWidth: BodyLane.switchWidth
+            ) else { break }
             let entry = lane.remove(at: index)
             make(entry)
         }

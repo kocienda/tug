@@ -41,6 +41,7 @@ import {
   hmrUpdateToHost,
   pageFaultToHost,
   paintedToHost,
+  bodyStaleToHost,
   planStartedToPage,
   prepareForTerminationCall,
   requestQuitCall,
@@ -101,6 +102,7 @@ export const TO_HOST: readonly ToHost<unknown>[] = [
   // lifecycle
   bodyHelloToHost,
   paintedToHost,
+  bodyStaleToHost,
   frontendReadyToHost,
   frontendLaunchStalledToHost,
   quitConfirmedToHost,

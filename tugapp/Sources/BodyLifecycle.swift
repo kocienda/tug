@@ -44,9 +44,14 @@ final class BodyLifecycle {
     /// pressure takes no cover, drops every kept one, and refuses any
     /// snapshot still answering.
     private(set) lazy var covers: BodyCovers = {
-        let covers = BodyCovers(budgetBytes: BodyLifecycle.coverBudgetBytes)
+        let covers = BodyCovers(budgetBytes: BodyLifecycle.coverBudgetBytes, parkedBudgetBytes: BodyLifecycle.parkCoverBudgetBytes)
         covers.onDrop = { cardId, why in
             TugLog.info("bodies", "cover dropped", [TugLog.field("card", cardId), TugLog.field("why", why.rawValue)])
+        }
+        covers.onParkedDrop = { cardId in
+            TugLog.info("bodies", "cover dropped", [
+                TugLog.field("card", cardId), TugLog.field("why", "budget"), TugLog.field("kind", "parked"),
+            ])
         }
         return covers
     }()
@@ -59,6 +64,20 @@ final class BodyLifecycle {
     /// A crossing's cover is taken at the backing's scale, and while it
     /// stands it leaves that much less room for the kept ones.
     static let coverBudgetBytes = 32 << 20
+    /// What the parked covers may hold together, kept and standing, in pixel
+    /// bytes: each hidden page's last frame at the backing's scale, kept for
+    /// the switch that shows it again before it confirms. Past it the oldest
+    /// goes, and its page is shown live at the cut. Read on a five-workspace
+    /// deck of 38 cards at the backing's two: covers ran 2.9 MB at the median
+    /// and 11.2 MB at the most, 5.7 MB on average, so a last frame for every
+    /// page is about 216 MB, and this holds them all.
+    static let parkCoverBudgetBytes = 256 << 20
+    /// How long a parked cover may stand over a page that does not paint as
+    /// shown, ms: past it the cover comes off onto the live page beneath.
+    static let parkCoverHorizonMs: Double = 2000
+    /// How long after a switch's hold ends before a parked cover is taken,
+    /// ms: the snapshots wait out the switch's own work.
+    static let parkCoverQuietMs: Double = 1000
     /// How long a body may stay hidden before it gives up its process, ms:
     /// two hours. This is the quiet machine's backstop, not its guard: memory
     /// pressure is the guard, and on a machine that is short a warning takes
@@ -161,6 +180,116 @@ final class BodyLifecycle {
     func paintTakesDownCover(_ body: Body) {
         guard let cardId = body.cardId, let stand = body.stand,
               covers.takeDown(stand, kind: .eviction, for: cardId) else { return }
+        body.cover?.removeFromSuperview()
+        body.cover = nil
+        body.stand = nil
+    }
+
+    // MARK: - Park covers
+
+    /// The cards whose last frames are owed, oldest first, each once.
+    private var parkQueue: [String] = []
+    /// A park cover's snapshot is answering: the queue takes one at a time.
+    private var parkTaking = false
+    /// When the last switch's hold ended, wall-clock ms.
+    private var lastHoldEndedAt: Double = 0
+    /// The queue's next look, when it is waiting out a hold's quiet.
+    private var parkDrainDue: DispatchWorkItem?
+
+    /// Owe `body`'s card a fresh last frame: hidden by a cut, made ahead, or
+    /// stale while hidden. A card already owed one keeps its place.
+    func queueParkCover(_ body: Body) {
+        guard let cardId = body.cardId else { return }
+        if !parkQueue.contains(cardId) { parkQueue.append(cardId) }
+        drainParkCovers()
+    }
+
+    /// A switch's hold ended, having hidden `hid`: each is owed a last
+    /// frame, taken once the switch's quiet has passed.
+    func switchHoldEnded(hid: [Body]) {
+        lastHoldEndedAt = Date().timeIntervalSince1970 * 1000
+        for body in hid { queueParkCover(body) }
+        drainParkCovers()
+    }
+
+    /// Take the next owed last frame: one at a time, never under a hold, and
+    /// not before `parkCoverQuietMs` has passed since the last one ended. A
+    /// card no longer hidden, painted and ready is passed over; it is owed
+    /// one again when it is next hidden.
+    private func drainParkCovers() {
+        guard !parkTaking, !parkQueue.isEmpty, pressure != .critical else { return }
+        let wait = BodyLifecycle.parkCoverQuietMs - (Date().timeIntervalSince1970 * 1000 - lastHoldEndedAt)
+        if controller.switchHold.isHolding || wait > 0 {
+            parkDrainDue?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.parkDrainDue = nil
+                self?.drainParkCovers()
+            }
+            parkDrainDue = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(max(wait, 50).rounded())), execute: work)
+            return
+        }
+        let cardId = parkQueue.removeFirst()
+        guard let body = controller.body(forCard: cardId), body.state == .ready, body.contentPainted,
+              !body.visible, !body.sibling, body.shown?.value == false else {
+            drainParkCovers()
+            return
+        }
+        parkTaking = true
+        let size = body.container.bounds.size
+        let surface = body.surface
+        let insets = body.insets
+        let generation = covers.generation
+        controller.snapshotFrame(
+            of: body, cardId: cardId, size: size, scale: window.backingScaleFactor,
+            deadline: BodyLifecycle.saveDeadline, purpose: "a parked card's last frame"
+        ) { [weak self, weak body] frame in
+            guard let self else { return }
+            self.parkTaking = false
+            // A page shown while its snapshot answered is its own picture.
+            if let frame, let body, body.cardId == cardId, body.shown?.value == false {
+                let cover = BodyCover(image: frame, size: size, surface: surface, insets: insets, takenAt: Date().timeIntervalSince1970 * 1000)
+                if self.covers.keepParked(cover, for: cardId, takenIn: generation) {
+                    TugLog.info("bodies", "park cover", [TugLog.field("card", cardId), TugLog.field("bytes", "\(cover.bytes)")])
+                }
+            }
+            self.drainParkCovers()
+        }
+    }
+
+    /// Stand `body`'s parked last frame over it, at a switch's lift: until
+    /// its page paints as shown, or `parkCoverHorizonMs` passes. False when
+    /// its card has none kept, or a cover stands over it already.
+    @discardableResult
+    func standParkCover(over body: Body) -> Bool {
+        guard let cardId = body.cardId, body.stand == nil,
+              let stand = covers.standCover(for: cardId, kind: .parked) else { return false }
+        let cover = BodyCoverView(cover: stand.cover, frame: body.container.bounds)
+        if let insets = body.insets { cover.paneInsets = insets }
+        cover.autoresizingMask = [.width, .height]
+        body.container.addSubview(cover, positioned: .above, relativeTo: body.webView)
+        body.cover = cover
+        body.stand = stand
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(BodyLifecycle.parkCoverHorizonMs))) { [weak self, weak body] in
+            guard let self, let body, body.stand === stand else { return }
+            TugLog.warn("bodies", "park cover past its horizon", [TugLog.field("card", cardId)])
+            self.takeDownParkCover(body)
+        }
+        return true
+    }
+
+    /// The page has painted as shown: what it shows is what it would draw,
+    /// so a parked cover over it comes off, and the last frame kept for it
+    /// is stale and goes.
+    func paintTakesDownParkCover(_ body: Body) {
+        guard let cardId = body.cardId else { return }
+        covers.dropParked(cardId)
+        takeDownParkCover(body)
+    }
+
+    private func takeDownParkCover(_ body: Body) {
+        guard let cardId = body.cardId, let stand = body.stand else { return }
+        guard covers.takeDown(stand, kind: .parked, for: cardId) else { return }
         body.cover?.removeFromSuperview()
         body.cover = nil
         body.stand = nil
@@ -380,6 +509,8 @@ final class BodyLifecycle {
                     self.decline(body, cardId: cardId, why: "shown")
                     return
                 }
+                // The eviction's cover replaces the parked one.
+                self.covers.dropParked(cardId)
                 if let cover { self.covers.keep(cover, for: cardId, takenIn: generation, agesAfterMs: self.evictAfterMs) }
                 self.controller.remove(body)
                 TugLog.info("bodies", "evicted", [

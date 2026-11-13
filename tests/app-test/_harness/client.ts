@@ -1478,6 +1478,16 @@ export interface HandOverAccount {
   revealLog?: string[];
   /** The host's held pictures over switches onto painted pages, oldest first: a frame inside one shows the departed workspace. */
   switchHolds?: SwitchHoldRecord[];
+  /** The parked last frames the host keeps, by card, and what they hold together against their budget, pixel bytes. */
+  parkCovers?: ParkCoverAccount;
+}
+
+/** The host's parked account: each hidden page's last frame kept for the switch that shows it before it confirms. */
+export interface ParkCoverAccount {
+  cards: Record<string, { bytes: number; takenAt: number }>;
+  /** Kept and standing together. */
+  bytes: number;
+  budgetBytes: number;
 }
 
 /** The host's last 16 hand-overs and the faces on screen now. */
@@ -1493,7 +1503,20 @@ export interface SwitchHoldRecord {
   fromWall: number;
   toWall: number | null;
   heldMs: number | null;
-  outcome: "holding" | "landed" | "deadline";
+  outcome: "holding" | "landed" | "horizon";
+  /** What the hold cost and waited on, as its `switch hold` log line says (ms from the hold's start). */
+  pictureMs?: number;
+  placementMs?: number | null;
+  shellMs?: number | null;
+  handoverPending?: boolean | null;
+  /** Per waited card, shown → painted as shown, or null when it had not confirmed by the lift. */
+  pages?: Record<string, number | null>;
+  /** How many arriving pages shown were not current when the hold began. */
+  stale?: number;
+  /** How many of them the lift stood under their last frame. */
+  covered?: number;
+  /** The bar the cut is measured against, ms. */
+  barMs?: number;
 }
 
 /** Whether a frame captured at `wall` was taken under a held picture. */
@@ -1520,6 +1543,8 @@ export interface BodyLayerRow {
   /** The host shows it: placed visible and showable. */
   shown: boolean;
   start: "warm" | "cold";
+  /** The card stands under its own last frame, a park cover (absent on a host that takes none). */
+  lastFrame?: boolean;
 }
 
 /** A `bodyLayers` window's rows so far (surface `1.24.0`). */

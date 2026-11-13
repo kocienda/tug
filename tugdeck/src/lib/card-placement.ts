@@ -706,6 +706,11 @@ export function landDrifts(
   return out;
 }
 
+/** Whether `cardId`'s body can show now: {@link BodyShownFacts.painted}, read from the bodies alone. */
+function paintedNow(cardId: string): boolean {
+  return bodyCardsStore.stateOf(cardId) === "painted" || bodyCardsStore.chromeShown(cardId) || bodyCardsStore.revivedNow(cardId);
+}
+
 /**
  * The facts that decide whether `cardId`'s body shows, read from the deck
  * and the body store alone — no DOM — or null when the card is in no pane.
@@ -722,9 +727,7 @@ export function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShown
     // `covered`, under the cover of its last frame the host stands until
     // then. A revived card with no cover waits for its paint like any other.
     painted:
-      bodyCardsStore.stateOf(cardId) === "painted" ||
-      bodyCardsStore.chromeShown(cardId) ||
-      bodyCardsStore.revivedNow(cardId),
+      paintedNow(cardId),
     active: pane.activeCardId === cardId,
     arriving: cardArrivingOf(state, cardId),
     layerShown: spaceId === null || spaceId === activeSpaceId,
@@ -881,7 +884,10 @@ export function hiddenSince(
  * held view would have stood over. The rule is the placement's shape, not
  * the gesture: a switch and a tab put behind a card that cannot show yet are
  * handed over alike. A view that meets no face — a close, a switch onto
- * cards that all show at once — keeps its paint.
+ * cards that all show at once — keeps its paint, save during a switch onto
+ * cards that all show at once: there the host holds the window's picture
+ * over the shell's frame, so while {@link noteSwitchStarting}'s latch stands
+ * the placer holds nothing ({@link heldUnlessSwitching}).
  */
 export function heldForThePaint(
   last: Placement | null,
@@ -901,6 +907,106 @@ export function heldForThePaint(
     held: { bodies: [...kept, ...leaving] },
     releasing: { bodies: [...kept, ...leaving.map((b) => nextOf.get(b.cardId) ?? { ...b, visible: false })] },
   };
+}
+
+/**
+ * {@link heldForThePaint}, unless a switch's latch stands and every card the
+ * arriving panes show (`arrivingShown`) is placed visible in `next`: such a
+ * switch has nothing to hand over, the host's held picture covers the
+ * shell's frame, and its lift hides every departing view in one
+ * transaction, so a departing view goes in the placement hidden at once
+ * rather than standing two paints over bare canvas the picture already
+ * hides. A switch onto any card that cannot show yet keeps the hold: the
+ * host hands a departing view over to the arriving cards' faces only while
+ * that view is on screen, at the measurement that marks them for faces —
+ * a later one than the switch's first, which reads them still arriving, or
+ * not yet asked for at all — and that hand-over is what stands the faces
+ * and opens the reveal set of a cold switch.
+ */
+export function heldUnlessSwitching(
+  switching: boolean,
+  last: Placement | null,
+  next: Placement,
+  arrivingShown: ReadonlySet<string>,
+): { held: Placement; releasing: Placement } | null {
+  if (switching && arrivingShown.size > 0 && [...arrivingShown].every((id) => next.bodies.some((b) => b.cardId === id && b.visible))) {
+    return null;
+  }
+  return heldForThePaint(last, next);
+}
+
+/** How long a switch's latch stands with no measurement completing ([L33]). */
+export const SWITCH_LATCH_HORIZON_MS = 300;
+
+/**
+ * The placer's switch latch: set when a switch starts, cleared at the end of
+ * the first measurement that completes after it — one that reached
+ * `postCards`, not one a set-up or a settle declined — or at its horizon with
+ * none. A hide posted ahead of that measurement (a set-up's `hideWhatLeft`)
+ * leaves it standing, since it is the switch's own measurement the latch is
+ * for. Pure state: the timer is passed in, so a test drives it without a DOM.
+ */
+export interface SwitchLatch {
+  readonly standing: boolean;
+  /** The card each arriving pane shows, while it stands; empty otherwise. */
+  readonly arriving: ReadonlySet<string>;
+  /** A switch onto panes showing `arriving` is starting. */
+  set(arriving: Iterable<string>): void;
+  /** A measurement completed. */
+  measured(): void;
+}
+
+/** A {@link SwitchLatch} whose horizon is armed with `arm` (a `setTimeout` by default). */
+export function createSwitchLatch(
+  arm: (fire: () => void, ms: number) => () => void = (fire, ms) => {
+    const t = setTimeout(fire, ms);
+    return () => clearTimeout(t);
+  },
+): SwitchLatch {
+  let standing = false;
+  let arriving: ReadonlySet<string> = new Set();
+  let cancel: (() => void) | null = null;
+  const clear = (): void => {
+    standing = false;
+    arriving = new Set();
+    cancel?.();
+    cancel = null;
+  };
+  return {
+    get standing() {
+      return standing;
+    },
+    get arriving() {
+      return arriving;
+    },
+    set(cards) {
+      cancel?.();
+      standing = true;
+      arriving = new Set(cards);
+      cancel = arm(() => {
+        cancel = null;
+        standing = false;
+        arriving = new Set();
+      }, SWITCH_LATCH_HORIZON_MS);
+    },
+    measured() {
+      if (standing) clear();
+    },
+  };
+}
+
+/** The shell's one switch latch ({@link noteSwitchStarting}). */
+const switchLatch = createSwitchLatch();
+
+/**
+ * A workspace switch onto panes showing `arriving` is starting: until the
+ * placer's next completed measurement, or {@link SWITCH_LATCH_HORIZON_MS}, a
+ * departing view is posted hidden at once, never held for the paint, when
+ * every one of them shows at once ({@link heldUnlessSwitching}). Called from the
+ * shell's `onSpaceWillSwitch`, beside the host's `switchHold`.
+ */
+export function noteSwitchStarting(arriving: Iterable<string>): void {
+  switchLatch.set(arriving);
 }
 
 /**
@@ -1147,8 +1253,10 @@ export class CardPlacer {
     const landed = this.landReleased(placement);
     this.checkLandDrift(landed);
     // A view this measurement takes down stands one paint more, so the host
-    // never shows what lies beneath it before the commit has composited.
-    const hold = heldForThePaint(this.poster.lastPosted, landed);
+    // never shows what lies beneath it before the commit has composited —
+    // save during a switch, whose held picture covers the commit's frame.
+    const switching = switchLatch.standing;
+    const hold = heldUnlessSwitching(switching, this.poster.lastPosted, landed, switchLatch.arriving);
     const offered = hold?.held ?? landed;
     this.poster.offer(offered);
     // The stand-ins' facts can move with no rect moving (a slot taking a
@@ -1159,6 +1267,7 @@ export class CardPlacer {
     for (const b of landed.bodies) if (b.visible) this.hiding.delete(b.cardId);
     if (hold !== null) this.hideNow(hold.releasing);
     this.observePlaceholders(container);
+    if (switching) switchLatch.measured();
   };
 
   /**
@@ -1238,7 +1347,12 @@ export class CardPlacer {
    * screen by then, so a view the host takes down never leaves what lies
    * beneath it on show for a frame before the commit's stand-ins composite —
    * against whatever was posted by then, so a measurement in between is not
-   * overwritten with these rects. Coalesces.
+   * overwritten with these rects. Coalesces. A switch keeps the hops too:
+   * the host hands a departing view over to the arriving cards' faces only
+   * while it is still on screen at the switch's own measurement, so a hide
+   * posted ahead of it (a set-up's {@link hideWhatLeft}) would leave the
+   * host nothing to hand over; and the held picture covers the frames
+   * either way, its lift hiding whatever is still shown of the departed deck.
    */
   private hideNow(next: Placement): void {
     const last = this.poster.lastPosted;
@@ -1248,14 +1362,19 @@ export class CardPlacer {
     this.cancelHidePost ??= scheduleAfterPaint(() => {
       this.cancelHidePost = scheduleAfterPaint(() => {
         this.cancelHidePost = null;
-        const posted = this.poster.lastPosted;
-        if (posted !== null && this.hiding.size > 0) {
-          const bodies = posted.bodies.map((b) => (b.visible && this.hiding.has(b.cardId) ? { ...b, visible: false } : b));
-          this.poster.offer({ bodies });
-        }
-        this.hiding.clear();
+        this.postHiding();
       });
     });
+  }
+
+  /** Post the last placement with every card {@link hiding} names hidden, and forget them. */
+  private postHiding(): void {
+    const posted = this.poster.lastPosted;
+    if (posted !== null && this.hiding.size > 0) {
+      const bodies = posted.bodies.map((b) => (b.visible && this.hiding.has(b.cardId) ? { ...b, visible: false } : b));
+      this.poster.offer({ bodies });
+    }
+    this.hiding.clear();
   }
 
   /**

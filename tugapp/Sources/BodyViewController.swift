@@ -286,6 +286,16 @@ final class BodyViewController {
         /// The page has said its content painted, not only its chrome: what a
         /// switch's faced set waits on. Cleared when the page is bound afresh.
         var contentPainted = false
+        /// The page has said `bodyStale` since it was hidden: a value it draws
+        /// moved while it was, so its picture is not what it would draw.
+        /// Cleared at its next paint as shown.
+        var stale = false
+        /// The page was declared dormant since it was last shown: asleep, it
+        /// heard nothing, so its picture may be behind. Cleared when shown.
+        var sleptSinceShown = false
+        /// Whether the page's picture stands for what it would draw now: not
+        /// stale, and not slept since it was shown.
+        var current: Bool { !stale && !sleptSinceShown }
         /// The card draws its pane's chrome in its own page: its container
         /// is the pane's rect outset by the apron, wears no surface, and
         /// answers a point by the card's hit shape. Every placed card is.
@@ -767,12 +777,31 @@ final class BodyViewController {
         scheduleSpare()
     }
 
+    /// A hidden body's page said `bodyStale`: what it would draw moved while
+    /// it was hidden, so a switch onto it cannot show it as it stands.
+    func noteStale(_ body: Body) {
+        guard let cardId = body.cardId else { return }
+        if !body.stale {
+            body.stale = true
+            TugLog.info("bodies", "stale", [TugLog.field("card", cardId)])
+        }
+        // Its last frame is behind too, at each move: a fresh one replaces
+        // it when it lands.
+        lifecycle.queueParkCover(body)
+    }
+
     /// A body posted `painted`: a frame of its chrome, or of its content
     /// (`content`), has gone to the compositor. From here a placement that
     /// names it visible shows it.
     func didPaint(_ body: Body, content: Bool) {
         guard let cardId = body.cardId else { return }
         if content { body.contentPainted = true }
+        // Its paint as shown draws what it would draw now: a last frame
+        // standing over it comes off, and the one kept for it is stale.
+        if content, body.seen {
+            body.stale = false
+            lifecycle.paintTakesDownParkCover(body)
+        }
         // A switch's held picture waits on each arriving page's paint as shown.
         if content { switchHold.notePaint(cardId) }
         // One of a switch's faced cards: its paint is held until every
@@ -811,8 +840,12 @@ final class BodyViewController {
         // with its set.
         if heldPaints.contains(where: { $0 === body }) { return }
         landPaint(body)
-        // A page made ahead goes to sleep once its content is up.
-        if content, madeAhead(body) { applyVisibility(body) }
+        // A page made ahead goes to sleep once its content is up, owed the
+        // last frame its first switch stands over it.
+        if content, madeAhead(body) {
+            applyVisibility(body)
+            lifecycle.queueParkCover(body)
+        }
     }
 
     /// A page made ahead of its workspace's first visit: never shown, its
@@ -921,7 +954,10 @@ final class BodyViewController {
             lifecycle.armDormancy(body)
             // Shown again: tugcast hears first, so the body's catch-up is
             // answered on a wire that sends it its session again.
-            if shown { declareDormant(body, false) }
+            if shown {
+                declareDormant(body, false)
+                body.sleptSinceShown = false
+            }
         }
         tellVisibility(body)
     }
@@ -954,6 +990,7 @@ final class BodyViewController {
     func declareDormant(_ body: Body, _ dormant: Bool) {
         guard body.declaredDormant != dormant, let cardId = body.cardId else { return }
         body.declaredDormant = dormant
+        if dormant { body.sleptSinceShown = true }
         TugLog.info("bodies", "dormant", [TugLog.field("card", cardId), TugLog.field("dormant", dormant ? "yes" : "no")])
         tellTugcast?("body_dormant", ["card_id": cardId, "dormant": dormant])
         tellVisibility(body)
@@ -1094,8 +1131,9 @@ final class BodyViewController {
         carrier.noteLeftButton(down: down, atViewport: point)
     }
 
-    /// A switch onto `cardIds`' painted pages is starting: hold the window's
-    /// picture until each of them is on (`BodySwitchHold`).
+    /// A switch onto the deck of `cardIds` is starting: hold the window's
+    /// picture until the arriving workspace is on, and hide everything else
+    /// at its lift (`BodySwitchHold`).
     func holdSwitch(_ cardIds: [String]) {
         switchHold.hold(cardIds)
     }
@@ -1176,6 +1214,12 @@ final class BodyViewController {
         guard case .object(var account) = faceHandOver.account() else { return faceHandOver.account() }
         account["revealLog"] = .array(revealLog.map(JSONValue.string))
         account["switchHolds"] = switchHold.account()
+        let parked = lifecycle.covers.parkedCovers
+        account["parkCovers"] = .object([
+            "cards": .object(parked.mapValues { .object(["bytes": .number(Double($0.bytes)), "takenAt": .number($0.takenAt)]) }),
+            "bytes": .number(Double(lifecycle.covers.parkedBytes)),
+            "budgetBytes": .number(Double(BodyLifecycle.parkCoverBudgetBytes)),
+        ])
         return .object(account)
     }
 
@@ -1328,6 +1372,7 @@ final class BodyViewController {
                 "held": .bool(switchHold.isHolding),
                 "shown": .bool(body.visible && body.canShow),
                 "start": .string(body.warm ? "warm" : "cold"),
+                "lastFrame": .bool(body.stand?.kinds.contains(.parked) == true),
             ]))
         }
         // A face for a card whose page is not made yet: the card has no
@@ -1364,9 +1409,12 @@ final class BodyViewController {
     /// Stand `body` where its placement entry puts it.
     func place(_ body: Body, _ entry: CardPlacementEntry, deckIndex: Int) {
         let frame = entry.view.cgRect
-        let visible = entry.visible
+        // A departing card a switch's lift hid stays hidden until the shell
+        // posts it hidden too.
+        let visible = body.cardId.map { switchHold.admits($0, visible: entry.visible) } ?? entry.visible
         setWhole(body, true)
-        body.sibling = entry.sibling == true
+        // Nor is it kept as a sibling while it is held hidden.
+        body.sibling = entry.sibling == true && (visible || !entry.visible)
         if entry.insets != body.insets {
             body.insets = entry.insets
             send(.cardInsets(entry.insets), to: body)
@@ -1562,6 +1610,7 @@ final class BodyViewController {
     func destroy(cardId: String, save: Bool) {
         faceHandOver.removeFace(cardId)
         lifecycle.covers.drop(cardId)
+        lifecycle.covers.dropParked(cardId)
         // A card still waiting in the lane has no page to save.
         lane.forget(cardId: cardId)
         // Nor is it waited on any more: a set member or straggler closed

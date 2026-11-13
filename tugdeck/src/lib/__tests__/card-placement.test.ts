@@ -13,8 +13,10 @@ import type { IDeckManagerStore } from "../../deck-manager-store";
 import { bodyCardsStore } from "../body-cards-store";
 import {
   bodyVisible,
+  createSwitchLatch,
   faceToCarry,
   heldForThePaint,
+  heldUnlessSwitching,
   hiddenSince,
   inReadingOrder,
   LANDING_GUARD_MS,
@@ -26,6 +28,7 @@ import {
   PlacementPoster,
   samePlacement,
   shownFactsOf,
+  SWITCH_LATCH_HORIZON_MS,
   wantsFace,
   type BodyPlacement,
   type BodyShownFacts,
@@ -411,6 +414,81 @@ describe("heldForThePaint", () => {
     const next = { bodies: [view("a", 0, 0, { visible: false }), view("b", 0, 0, { visible: false, face: true })] };
     expect(meetsAFace(last.bodies[0], next)).toBe(true);
     expect(heldForThePaint(last, next)).toBeNull();
+  });
+});
+
+describe("the switch latch", () => {
+  /** A latch whose horizon fires only when the test says so. */
+  function latchUnderTest() {
+    let fire: (() => void) | null = null;
+    let armedMs: number | null = null;
+    const latch = createSwitchLatch((f, ms) => {
+      fire = f;
+      armedMs = ms;
+      return () => {
+        fire = null;
+      };
+    });
+    return { latch, horizon: () => fire?.(), armedMs: () => armedMs };
+  }
+
+  // Home's one view across the window; the away deck's two views side by
+  // side take neither its rect nor wear a face — the shape the paint hold keeps.
+  const last = { bodies: [view("home", 0, 0, { width: 600 }), view("a", 0, 0, { visible: false }), view("b", 300, 0, { visible: false })] };
+  const next = { bodies: [view("home", 0, 0, { width: 600, visible: false }), view("a", 0, 0), view("b", 300, 0)] };
+
+  const AB = new Set(["a", "b"]);
+
+  test("under the latch, onto cards that all show at once, a departing view that meets no face is posted hidden in the first placement", () => {
+    expect(heldUnlessSwitching(true, last, next, AB)).toBeNull();
+  });
+
+  test("without it the two-paint hold is unchanged", () => {
+    expect(heldUnlessSwitching(false, last, next, AB)).toEqual(heldForThePaint(last, next));
+    expect(heldUnlessSwitching(false, last, next, AB)?.held.bodies.find((b) => b.cardId === "home")?.visible).toBe(true);
+  });
+
+  test("under the latch, onto a card that cannot show yet, the departing view keeps its paint for the hand-over", () => {
+    // One arriving card hidden — still arriving, or its page not painted.
+    const oneCold = { bodies: [view("home", 0, 0, { width: 600, visible: false }), view("a", 0, 0, { visible: false }), view("b", 300, 0)] };
+    expect(heldUnlessSwitching(true, last, oneCold, AB)?.held.bodies.find((b) => b.cardId === "home")?.visible).toBe(true);
+    // One arriving card not in the measurement at all — a first visit, its page not yet asked for.
+    const oneAbsent = { bodies: [view("home", 0, 0, { width: 600, visible: false }), view("b", 300, 0)] };
+    expect(heldUnlessSwitching(true, last, oneAbsent, AB)?.held.bodies.find((b) => b.cardId === "home")?.visible).toBe(true);
+    // A latch naming no arriving card holds as a deck at rest does.
+    expect(heldUnlessSwitching(true, last, next, new Set())).toEqual(heldForThePaint(last, next));
+  });
+
+  test("a hide posted before the switch's measurement leaves the latch standing; the measurement clears it", () => {
+    const { latch } = latchUnderTest();
+    expect(latch.standing).toBe(false);
+    latch.set(["a"]);
+    // A set-up's `hideWhatLeft` posts through the poster and touches the
+    // latch not at all: only a completed measurement clears it.
+    expect(latch.standing).toBe(true);
+    expect([...latch.arriving]).toEqual(["a"]);
+    latch.measured();
+    expect(latch.standing).toBe(false);
+    expect(latch.arriving.size).toBe(0);
+  });
+
+  test("with no measurement it clears at its horizon", () => {
+    const { latch, horizon, armedMs } = latchUnderTest();
+    latch.set(["a"]);
+    expect(armedMs()).toBe(SWITCH_LATCH_HORIZON_MS);
+    horizon();
+    expect(latch.standing).toBe(false);
+  });
+
+  test("a measurement cancels the horizon, and a measurement with no switch is nothing", () => {
+    const { latch, horizon } = latchUnderTest();
+    latch.measured();
+    expect(latch.standing).toBe(false);
+    latch.set(["a"]);
+    latch.measured();
+    latch.set(["a"]);
+    horizon();
+    expect(latch.standing).toBe(false);
   });
 });
 

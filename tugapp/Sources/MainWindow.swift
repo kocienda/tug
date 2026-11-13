@@ -2943,6 +2943,10 @@ extension MainWindow {
             // A body's frame has gone to the compositor, its chrome's or its
             // content's: it may be shown. The shell never posts this.
             if let fromBody { bodies.didPaint(fromBody, content: painted.content) }
+        case .bodyStale:
+            // A hidden body's picture no longer stands for what it would
+            // draw: a switch onto it cannot show it as it stands.
+            if let fromBody { bodies.noteStale(fromBody) }
         case .bodyCreate(let create):
             // The shell always names the kind: a body is bound to mount it.
             guard !create.componentId.isEmpty else {

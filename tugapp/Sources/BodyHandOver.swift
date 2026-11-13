@@ -282,3 +282,86 @@ struct BodyRevealSet: Equatable {
         waiting.formUnion(arrived)
     }
 }
+
+/// The lane's width rule: how many pages may load before the next one.
+enum BodyLaneWidth {
+    /// Whether the lane may start one more page with `inFlight` loading. A
+    /// switch's skeletons widen the lane (`widened`) only for a card placed
+    /// shown: a parked card's page, made ahead, never rides the widened lane,
+    /// so a make-ahead asked before a switch does not load eight at a time
+    /// through it.
+    static func admits(inFlight: Int, widened: Bool, shown: Bool, width: Int, switchWidth: Int) -> Bool {
+        inFlight < (widened && shown ? switchWidth : width)
+    }
+}
+
+/// The switch cut's pure decisions: what a switch hold's ending says.
+enum BodySwitchCut {
+    /// One page a switch hold waited on: shown → painted as shown, in ms,
+    /// or nil when it had not confirmed by the lift.
+    struct Page: Equatable {
+        var cardId: String
+        var ms: Double?
+    }
+
+    /// The fields of the `switch hold` log line, in the order the line
+    /// carries them: why a hold ended, what stood when it did, and whether
+    /// it ran past the bar. A time that never came is `none`; a page that had
+    /// not confirmed by the lift is `card:never`; `stale` counts the arriving
+    /// pages shown that were not current.
+    static func holdLine(
+        serial: Int,
+        heldMs: Double,
+        outcome: String,
+        pictureMs: Double,
+        placementMs: Double?,
+        shellMs: Double?,
+        handoverPending: Bool,
+        pages: [Page],
+        stale: Int,
+        covered: Int = 0,
+        barMs: Double
+    ) -> [(String, String)] {
+        [
+            ("serial", "\(serial)"),
+            ("held_ms", ms(heldMs)),
+            ("outcome", outcome),
+            ("picture_ms", ms(pictureMs)),
+            ("placement_ms", placementMs.map(ms) ?? "none"),
+            ("shell_ms", shellMs.map(ms) ?? "none"),
+            ("handover_pending", handoverPending ? "yes" : "no"),
+            ("pages", pages.isEmpty ? "none" : pages.map { "\($0.cardId):\($0.ms.map(ms) ?? "never")" }.joined(separator: ",")),
+            ("stale", "\(stale)"),
+            ("covered", "\(covered)"),
+            ("over_bar", heldMs > barMs ? "yes" : "no"),
+        ]
+    }
+
+    /// The cards a switch's lift hides, in the order given: every shown body
+    /// whose card the arriving deck does not name. `shown` is the caller's
+    /// `visible || sibling` — a departing pane's sibling, at opacity 0, is a
+    /// shown body for this rule. A body with no card (the spare) is left
+    /// alone, and so is one already hidden.
+    static func toHide(bodies: [(cardId: String?, shown: Bool)], arriving: Set<String>) -> [String] {
+        bodies.compactMap { body in
+            guard let cardId = body.cardId, body.shown, !arriving.contains(cardId) else { return nil }
+            return cardId
+        }
+    }
+
+    /// Whether a placement naming `cardId` `visible` may show it, against
+    /// `forced`: the departing cards a switch's lift hid. Such a card stays
+    /// hidden while the shell's placements still name it shown — a view the
+    /// placer held for its paint, re-posted after the lift — and leaves
+    /// `forced` at the first placement that names it hidden, when the shell's
+    /// posted state has caught up with the host's.
+    static func admits(_ cardId: String, visible: Bool, forced: inout Set<String>) -> Bool {
+        guard visible else {
+            forced.remove(cardId)
+            return false
+        }
+        return !forced.contains(cardId)
+    }
+
+    private static func ms(_ value: Double) -> String { "\(Int(value.rounded()))" }
+}

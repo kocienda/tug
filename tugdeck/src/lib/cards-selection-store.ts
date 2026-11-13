@@ -434,6 +434,13 @@ export function shareLayoutSelection(
  * arriving workspace's own card in the same task, and when that workspace
  * had a set to restore that activation does not collapse it: the reader went
  * to a workspace, they did not front a card.
+ *
+ * Both of a switch's writes — the restored set, or, with none, the pick of
+ * the card the switch fronts — are made in the switch's own task, not after
+ * the paint. A switch is a cut, held as one picture until the arriving
+ * workspace is drawn, and the selection is part of that drawing: a Cards
+ * page written a frame late shows the arriving workspace without its
+ * selection for a frame after the picture lifts.
  */
 export function attachLayoutSelectionToDeck(
   deck: CardDeck & { getSpacesSnapshot?: () => { readonly activeSpaceId: string } },
@@ -443,12 +450,11 @@ export function attachLayoutSelectionToDeck(
   const activeSpace = (): string | null =>
     deck.getSpacesSnapshot?.().activeSpaceId ?? null;
   let lastSpace = activeSpace();
-  // The restored set waiting for its frame, which a collapse test in the same
-  // frame reads as the selection, as it reads a pending pick.
-  let pendingRestore: LensSelectionSnapshot | null = null;
-  let cancelRestore: CancelAfterPaint | null = null;
   // Set by a switch that restored a set, until the task that made it ends.
   let arriving = false;
+  // Set by any switch, until the task that made it ends: its writes are
+  // made at once, inside the cut.
+  let switching = false;
   let lastFirstResponder = deck.getFirstResponderCardId();
   // The coalesced deferral's one slot. Non-null means a write is scheduled
   // and has not run; a later transition replaces the id rather than queueing
@@ -477,14 +483,12 @@ export function attachLayoutSelectionToDeck(
       const standing: LensSelectionSnapshot =
         pendingPick !== null
           ? { ids: [pendingPick], anchorId: pendingPick }
-          : (pendingRestore ?? selection.getSnapshot());
+          : selection.getSnapshot();
       cancelPick?.();
       cancelPrune?.();
-      cancelRestore?.();
-      cancelPick = cancelPrune = cancelRestore = null;
+      cancelPick = cancelPrune = null;
       pendingPick = null;
       pendingPrune = null;
-      pendingRestore = null;
       if (departing !== null) {
         selection.park(departing, {
           ids: standing.ids.filter((id) => lastLive.has(id)),
@@ -493,20 +497,12 @@ export function attachLayoutSelectionToDeck(
       }
       const restored = (space === null ? null : selection.unpark(space, liveIds)) ?? EMPTY;
       arriving = restored.ids.length > 0;
-      if (arriving) queueMicrotask(() => {
+      switching = true;
+      queueMicrotask(() => {
         arriving = false;
+        switching = false;
       });
-      if (!isTugMotionEnabled()) {
-        selection.replace(restored);
-      } else {
-        pendingRestore = restored;
-        cancelRestore = scheduleAfterPaint(() => {
-          cancelRestore = null;
-          const next = pendingRestore;
-          pendingRestore = null;
-          if (next !== null) selection.replace(next);
-        });
-      }
+      selection.replace(restored);
     }
     lastLive = liveIds;
     if (!isTugMotionEnabled()) {
@@ -542,14 +538,15 @@ export function attachLayoutSelectionToDeck(
     const standing =
       pendingPick !== null
         ? [pendingPick]
-        : (pendingRestore ?? selection.getSnapshot()).ids;
+        : selection.getSnapshot().ids;
     if (standing.includes(fr)) return;
     if (suppressed) return;
     // The switch's own activation of the workspace it restored a set for.
     if (arriving) return;
     // Reduced motion stands down: there is no tween whose first frame the
     // React commit could land in, so the write costs nothing where it is.
-    if (!isTugMotionEnabled()) {
+    // Nor does a switch, whose fronted card is picked inside the cut.
+    if (!isTugMotionEnabled() || switching) {
       selection.pickOnly(fr);
       return;
     }
@@ -572,11 +569,9 @@ export function attachLayoutSelectionToDeck(
   return () => {
     cancelPick?.();
     cancelPrune?.();
-    cancelRestore?.();
-    cancelPick = cancelPrune = cancelRestore = null;
+    cancelPick = cancelPrune = null;
     pendingPick = null;
     pendingPrune = null;
-    pendingRestore = null;
     unsubscribe();
   };
 }

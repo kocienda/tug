@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { aheadOrder, nextAhead, pendingAhead, type AheadFacts } from "../body-make-ahead";
+import { aheadOrder, nextAhead, pendingAhead, switchSettled, type AheadFacts } from "../body-make-ahead";
 
 const base: AheadFacts = {
   activeSpaceId: "home",
@@ -9,6 +9,7 @@ const base: AheadFacts = {
   mounted: new Set(["home"]),
   cards: [{ cardId: "h1", spaceId: "home", state: "painted", timeEvicted: false }],
   unhanded: [],
+  switching: false,
 };
 
 describe("body-make-ahead", () => {
@@ -88,5 +89,28 @@ describe("body-make-ahead", () => {
 
   test("with every space made, nothing", () => {
     expect(nextAhead({ ...base, mounted: new Set(["home", "a", "b", "c"]) })).toBeNull();
+  });
+
+  test("a switch that has not settled makes nothing ahead", () => {
+    expect(nextAhead(base)).toEqual({ kind: "mount", spaceId: "a" });
+    expect(nextAhead({ ...base, switching: true })).toBeNull();
+  });
+
+  test("a switch settles once none of the arriving workspace's pages is loading", () => {
+    const at = (state: NonNullable<AheadFacts["cards"][number]["state"]>) =>
+      switchSettled({ activeSpaceId: "a", cards: [
+        { cardId: "a1", spaceId: "a", state, timeEvicted: false },
+        { cardId: "a2", spaceId: "a", state: "painted", timeEvicted: false },
+      ] });
+    expect(at("creating")).toBe(false);
+    expect(at("ready")).toBe(false);
+    for (const state of ["painted", "failed", "evicted", "unmade"] as const) expect(at(state)).toBe(true);
+  });
+
+  test("a parked workspace's loading page does not hold a switch", () => {
+    expect(switchSettled({ activeSpaceId: "a", cards: [
+      { cardId: "a1", spaceId: "a", state: "painted", timeEvicted: false },
+      { cardId: "b1", spaceId: "b", state: "creating", timeEvicted: false },
+    ] })).toBe(true);
   });
 });

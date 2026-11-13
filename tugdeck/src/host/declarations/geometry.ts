@@ -309,18 +309,19 @@ export const cardGestureToHost = defineToHost<CardGestureBegin>({
   ],
 });
 
-/** `switchHold`: a workspace switch is starting onto these cards' painted pages. */
+/** `switchHold`: a workspace switch is starting onto this deck, at least one of whose shown pages has painted. */
 export interface SwitchHold {
-  /** The arriving workspace's shown cards whose pages have painted. */
+  /** Every card of the arriving workspace's deck, shown or not, painted or not. */
   readonly cardIds: readonly string[];
 }
 
 /**
- * A workspace switch onto pages that have already painted is starting, sent
- * in the task that swaps the deck, before the shell renders the switched
- * frame. The host holds a picture of the window as it stands until the
- * shell's switched frame has rendered and every named card's page is on,
- * then lifts it in one transaction ([B05] of the workspace-skeletons brief).
+ * A workspace switch onto at least one painted page is starting, sent in the task that
+ * swaps the deck, before the shell renders the switched frame. The host
+ * holds a picture of the window as it stands until the shell's switched
+ * frame has rendered and the arriving pages shown are on, then lifts it in
+ * one transaction that also hides every body whose card is not named here,
+ * so nothing of the departed workspace is shown beneath it.
  */
 export const switchHoldToHost = defineToHost<SwitchHold>({
   name: "switchHold",

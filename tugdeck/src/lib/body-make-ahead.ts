@@ -38,8 +38,17 @@
  * restore pass passes over it and hands it no second decision; its page
  * reads the ledger and resumes the session tugcast already holds.
  *
+ * A switch pauses the pass. From the moment a switch begins it asks for no
+ * page, until the arriving workspace has no page `creating` or `ready` — a
+ * page that painted, failed or was evicted holds nothing — or until
+ * {@link MAKE_AHEAD_SWITCH_HORIZON_MS} after the pause began, and then the
+ * usual quiet moment; so a user who switches during launch gets that
+ * workspace's pages first and the parked ones after. Each pause and resume
+ * is kept on `window.__tugMakeAhead`, the last few, for a reader of a run.
+ *
  * Laws: [L02] the stores are read by subscription; [L33] nothing waits on
- * a page made ahead, and a pass that finds nothing to do does nothing.
+ * a page made ahead, a pass that finds nothing to do does nothing, and a
+ * switch's pause ends at its horizon whatever its pages do.
  *
  * @module lib/body-make-ahead
  */
@@ -49,6 +58,22 @@ import type { IDeckManagerStore } from "../deck-manager-store";
 
 /** How long nothing must move before a pass makes anything ahead, ms. */
 export const MAKE_AHEAD_QUIET_MS = 1_000;
+
+/** The longest a switch pauses the pass, ms: a page that never paints does not stop it for the run. */
+export const MAKE_AHEAD_SWITCH_HORIZON_MS = 10_000;
+
+/** How many pauses `window.__tugMakeAhead` keeps. */
+const PAUSES_KEPT = 20;
+
+/** One switch's pause, as kept for a reader: wall ms, and how it ended. */
+export interface MakeAheadPause {
+  spaceId: string;
+  pausedAt: number;
+  resumedAt: number | null;
+  why: "settled" | "horizon" | null;
+  /** Pages asked for while it stood: a pending workspace's only, which waits for nothing. */
+  asked: number;
+}
 
 /** What a pass reads. */
 export interface AheadFacts {
@@ -63,6 +88,8 @@ export interface AheadFacts {
   readonly cards: readonly { cardId: string; spaceId: string | null; state: BodyCardState | null; timeEvicted: boolean }[];
   /** Parked cards not yet body cards that the shell may hand off itself: a mount kind, or an unbound Session card. */
   readonly unhanded: readonly { cardId: string; spaceId: string }[];
+  /** A switch has begun and has not yet settled: nothing is asked for. */
+  readonly switching: boolean;
 }
 
 /** What a pass does: mount a space ahead, ask for its cards' pages, or nothing. */
@@ -78,6 +105,7 @@ export function aheadOrder(f: Pick<AheadFacts, "activeSpaceId" | "spaceOrder" | 
 
 /** The next thing to make ahead, or null while a page is loading or nothing is left. */
 export function nextAhead(f: AheadFacts): AheadAct {
+  if (f.switching) return null;
   if (f.cards.some((c) => c.state === "creating" || c.state === "ready")) return null;
   for (const spaceId of aheadOrder(f)) {
     if (!f.mounted.has(spaceId)) return { kind: "mount", spaceId };
@@ -85,6 +113,15 @@ export function nextAhead(f: AheadFacts): AheadAct {
     if (cardIds.length > 0) return { kind: "make", spaceId, cardIds };
   }
   return null;
+}
+
+/**
+ * Whether a switch onto the active workspace has settled for the pass: none
+ * of that workspace's pages is `creating` or `ready`. A parked workspace's
+ * loading page does not hold it.
+ */
+export function switchSettled(f: Pick<AheadFacts, "activeSpaceId" | "cards">): boolean {
+  return !f.cards.some((c) => c.spaceId === f.activeSpaceId && (c.state === "creating" || c.state === "ready"));
 }
 
 /**
@@ -123,13 +160,25 @@ export interface MakeAheadDeps {
   readonly timeEvicted: Set<string>;
 }
 
-/** Make parked workspaces ahead from here on. Returns the uninstall. */
-export function installMakeAhead(deps: MakeAheadDeps): () => void {
+/** What {@link installMakeAhead} returns. */
+export interface MakeAhead {
+  /** Stop making pages ahead: the deck is uninstalling. */
+  readonly release: () => void;
+  /** A switch onto `spaceId` begins: ask for nothing until it settles. */
+  readonly pauseForSwitch: (spaceId: string) => void;
+}
+
+/** Make parked workspaces ahead from here on. */
+export function installMakeAhead(deps: MakeAheadDeps): MakeAhead {
   const { deck } = deps;
   const mountAhead = deck.mountSpaceAhead;
-  if (mountAhead === undefined) return () => {};
+  if (mountAhead === undefined) return { release: () => {}, pauseForSwitch: () => {} };
   const recency: string[] = [deck.getSpacesSnapshot().activeSpaceId];
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** The switch pausing the pass, if one is: the space it shows, and its horizon. */
+  let pause: { spaceId: string; horizon: ReturnType<typeof setTimeout>; kept: MakeAheadPause } | null = null;
+  const kept: MakeAheadPause[] = [];
+  (window as { __tugMakeAhead?: { pauses: MakeAheadPause[] } }).__tugMakeAhead = { pauses: kept };
 
   const facts = (): AheadFacts => {
     const spaces = deck.getSpacesSnapshot();
@@ -152,10 +201,12 @@ export function installMakeAhead(deps: MakeAheadDeps): () => void {
         timeEvicted: deps.timeEvicted.has(cardId),
       })),
       unhanded,
+      switching: pause !== null,
     };
   };
 
   const make = (act: { spaceId: string; cardIds: string[] }): void => {
+    if (pause !== null) pause.kept.asked += act.cardIds.length;
     const kinds = new Map((deck.getSpaceDeck(act.spaceId)?.cards ?? []).map((c) => [c.id, c.componentId]));
     for (const cardId of act.cardIds) {
       if (!bodyCardsStore.has(cardId)) {
@@ -187,10 +238,42 @@ export function installMakeAhead(deps: MakeAheadDeps): () => void {
     make(act);
   };
 
+  const resume = (why: "settled" | "horizon"): void => {
+    if (pause === null) return;
+    clearTimeout(pause.horizon);
+    pause.kept.resumedAt = Date.now();
+    pause.kept.why = why;
+    console.info(`make ahead resumed space=${pause.spaceId} why=${why} pausedMs=${pause.kept.resumedAt - pause.kept.pausedAt}`);
+    pause = null;
+  };
+
+  const pauseForSwitch = (spaceId: string): void => {
+    if (pause !== null) clearTimeout(pause.horizon);
+    const record: MakeAheadPause = pause?.kept ?? { spaceId, pausedAt: Date.now(), resumedAt: null, why: null, asked: 0 };
+    record.spaceId = spaceId;
+    if (pause === null) {
+      kept.push(record);
+      if (kept.length > PAUSES_KEPT) kept.splice(0, kept.length - PAUSES_KEPT);
+      console.info(`make ahead paused space=${spaceId}`);
+    }
+    pause = {
+      spaceId,
+      kept: record,
+      horizon: setTimeout(() => {
+        resume("horizon");
+        moved();
+      }, MAKE_AHEAD_SWITCH_HORIZON_MS),
+    };
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+
   /** Anything moved: the pass waits for a quiet moment again. */
-  const moved = (): void => {
+  function moved(): void {
     const spaces = deck.getSpacesSnapshot();
     const active = spaces.activeSpaceId;
+    // The switch has landed and its pages are no longer loading.
+    if (pause !== null && active === pause.spaceId && switchSettled(facts())) resume("settled");
     if (recency[0] !== active) {
       const at = recency.indexOf(active);
       if (at >= 0) recency.splice(at, 1);
@@ -203,12 +286,17 @@ export function installMakeAhead(deps: MakeAheadDeps): () => void {
     }
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(pass, MAKE_AHEAD_QUIET_MS);
-  };
+  }
 
   const unsubscribes = [bodyCardsStore.subscribe(moved), deck.subscribeSpaces(moved)];
   moved();
-  return () => {
-    if (timer !== null) clearTimeout(timer);
-    for (const unsubscribe of unsubscribes) unsubscribe();
+  return {
+    release: () => {
+      if (timer !== null) clearTimeout(timer);
+      if (pause !== null) clearTimeout(pause.horizon);
+      pause = null;
+      for (const unsubscribe of unsubscribes) unsubscribe();
+    },
+    pauseForSwitch,
   };
 }

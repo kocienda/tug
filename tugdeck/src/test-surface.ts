@@ -636,8 +636,21 @@ import {
  * over, by the hold its page publishes to the restore gate, so a test can
  * make its first gesture after the gate has risen and come down rather than
  * under it. Additive; major stays `2`.
+ *
+ * `2.62.0`: adds {@link TugTestSurface.switchFrameDelay}, on the shell: a
+ * workspace switch busy-waits that long inside the batch that swaps the
+ * deck, so the shell's switched frame and its placement are late; and
+ * `shownPaintDelayMs` and `catchUpDelayMs` to
+ * {@link TugTestSurface.bodyDelays}: named cards' pages, shown again, wait
+ * that long before they say `painted`, and hold their catch-up open that
+ * long. Additive; major stays `2`.
+ *
+ * `2.63.0`: adds {@link TugTestSurface.chooseSpaceTheme}, on the shell: a
+ * workspace's theme chosen as its row's swatch chooses it, so a test can
+ * move a parked workspace's theme without opening the Workspaces card.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.61.0" as const;
+export const SURFACE_VERSION = "2.63.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1906,6 +1919,12 @@ export interface TugTestSurface {
    * that long, its content quiet and its lid down, before it says it is
    * ready and paints its content — told to the host, which tells each page
    * bound from then on in its bind (SURFACE_VERSION 2.59.0).
+   *
+   * `shownPaintDelayMs` and `catchUpDelayMs` are per card too, and reach
+   * every page live through `harnessBodyDelays`, a page made ahead
+   * included: a page shown again waits `shownPaintDelayMs` before it says
+   * `painted`, and its catch-up ends `catchUpDelayMs` late
+   * (SURFACE_VERSION 2.62.0).
    */
   bodyDelays(delays: {
     dormantAfterMs?: number | null;
@@ -1913,7 +1932,24 @@ export interface TugTestSurface {
     evictAfterMs?: number | null;
     readyDeadlineMs?: number | null;
     contentPaintDelayMs?: Record<string, number> | null;
+    shownPaintDelayMs?: Record<string, number> | null;
+    catchUpDelayMs?: Record<string, number> | null;
   }): void;
+
+  /**
+   * Make every workspace switch's shell frame late by `ms`, or put it back
+   * with null: the switch busy-waits inside the batch that swaps the deck,
+   * so the shell's render and its placement wait together. Shell only
+   * (SURFACE_VERSION 2.62.0).
+   */
+  switchFrameDelay(ms: number | null): void;
+
+  /**
+   * Choose `spaceId`'s theme as its row's swatch in the Workspaces card does
+   * (`DeckManager.chooseSpaceTheme`): a parked workspace's record moves and
+   * nothing repaints until it is shown. Shell only (SURFACE_VERSION 2.63.0).
+   */
+  chooseSpaceTheme(spaceId: string, theme: string): void;
 
   /**
    * Whether `cardId`'s close guard, as this page holds it, would ask: null
@@ -3736,11 +3772,17 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // The dormant delay rides both clocks: the host's, which declares a
       // hidden body dormant, and the page's own, which agrees with it.
       if (delays.dormantAfterMs !== undefined) {
-        harnessBodyDelays.set({ dormantAfterMs: delays.dormantAfterMs });
+        harnessBodyDelays.set({ ...harnessBodyDelays.getSnapshot(), dormantAfterMs: delays.dormantAfterMs });
         hostBodyDelays.dormantAfterMs = delays.dormantAfterMs;
       }
       if (delays.pageDormantAfterMs !== undefined) {
-        harnessBodyDelays.set({ dormantAfterMs: delays.pageDormantAfterMs });
+        harnessBodyDelays.set({ ...harnessBodyDelays.getSnapshot(), dormantAfterMs: delays.pageDormantAfterMs });
+      }
+      if (delays.shownPaintDelayMs !== undefined) {
+        harnessBodyDelays.set({ ...harnessBodyDelays.getSnapshot(), shownPaintDelayMs: delays.shownPaintDelayMs ?? {} });
+      }
+      if (delays.catchUpDelayMs !== undefined) {
+        harnessBodyDelays.set({ ...harnessBodyDelays.getSnapshot(), catchUpDelayMs: delays.catchUpDelayMs ?? {} });
       }
       if (delays.evictAfterMs !== undefined) hostBodyDelays.evictAfterMs = delays.evictAfterMs;
       if (delays.readyDeadlineMs !== undefined) hostBodyDelays.readyDeadlineMs = delays.readyDeadlineMs;
@@ -3757,6 +3799,14 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     closeAsks(cardId: string): boolean | null {
       return getCardCloseGuard(cardId)?.needsDecision() ?? null;
+    },
+
+    switchFrameDelay(ms: number | null): void {
+      deck.switchFrameDelayMs = ms;
+    },
+
+    chooseSpaceTheme(spaceId: string, theme: string): void {
+      deck.chooseSpaceTheme(spaceId, theme);
     },
 
     /**

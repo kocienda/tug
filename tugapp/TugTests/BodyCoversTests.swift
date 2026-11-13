@@ -213,6 +213,60 @@ final class BodyCoversTests: XCTestCase {
         XCTAssertEqual(map.bytes, bytes, "the new body keeps its cover")
         XCTAssertEqual(freed["new"], false)
     }
+
+    /// Keep a fresh parked cover for `cardId` in `map`, holding no reference to it here.
+    private func keepParked(_ tag: String, in map: BodyCovers, for cardId: String, width: Int = 64, takenAt: Double = 1) {
+        autoreleasepool {
+            _ = map.keepParked(cover(tag, width: width, takenAt: takenAt), for: cardId, takenIn: map.generation)
+        }
+    }
+
+    func testTheParkedAccountKeepsReplacesDropsTheOldestPastItsBudgetAndClears() {
+        // Each cover is 64 × 4 × 4 = 1024 bytes; the parked budget holds two.
+        let map = BodyCovers(budgetBytes: 1 << 20, parkedBudgetBytes: 2048) { _, _ in }
+        var drops: [String] = []
+        map.onParkedDrop = { drops.append($0) }
+        keepParked("old", in: map, for: "c1", takenAt: 1)
+        keepParked("mid", in: map, for: "c2", takenAt: 2)
+        XCTAssertEqual(map.parkedBytes, 2048)
+        keepParked("fresh-mid", in: map, for: "c2", takenAt: 3)
+        XCTAssertEqual(freed["mid"], true, "a fresh last frame replaces the old one")
+        XCTAssertEqual(drops, [], "a replacement drops nothing for the budget")
+        keepParked("new", in: map, for: "c3", takenAt: 4)
+        XCTAssertEqual(drops, ["c1"], "past the budget the oldest goes")
+        XCTAssertEqual(freed["old"], true)
+        XCTAssertNil(map.parkedCover(for: "c1"))
+        XCTAssertNotNil(map.parkedCover(for: "c3"))
+        map.clear()
+        XCTAssertEqual(map.parkedBytes, 0)
+        XCTAssertEqual(freed["fresh-mid"], true)
+        XCTAssertEqual(freed["new"], true)
+        XCTAssertFalse(map.keepParked(cover("late"), for: "c4", takenIn: map.generation - 1), "a frame taken before the clear is refused")
+    }
+
+    func testTheParkedAndEvictionBudgetsDoNotMix() {
+        // The eviction budget holds one 1024-byte cover; the parked budget, one.
+        let map = BodyCovers(budgetBytes: 1024, parkedBudgetBytes: 1024) { _, _ in }
+        var drops: [String] = []
+        map.onDrop = { cardId, why in drops.append("\(cardId):\(why.rawValue)") }
+        map.onParkedDrop = { drops.append("\($0):parked") }
+        autoreleasepool {
+            XCTAssertTrue(map.keep(cover("evicted", width: 64), for: "e1", takenIn: map.generation, agesAfterMs: nil))
+        }
+        keepParked("parked", in: map, for: "p1")
+        XCTAssertEqual(drops, [], "a parked cover pushes no eviction cover out, nor the reverse")
+        XCTAssertEqual(map.bytes, 1024, "the eviction budget counts no parked cover")
+        XCTAssertEqual(map.parkedBytes, 1024, "the parked budget counts no eviction cover")
+
+        // Standing, each stays in its own account.
+        XCTAssertNotNil(map.standCover(for: "p1", kind: .parked))
+        XCTAssertNil(map.parkedCover(for: "p1"), "standing takes it out of the kept parked map")
+        XCTAssertEqual(map.parkedBytes, 1024, "a standing parked cover still counts against the parked budget")
+        XCTAssertEqual(map.bytes, 1024, "and never against the eviction one")
+        XCTAssertNotNil(map.standCover(for: "e1", kind: .eviction))
+        XCTAssertEqual(map.parkedBytes, 1024, "a standing eviction cover counts nothing parked")
+        XCTAssertEqual(map.bytes, 1024)
+    }
 }
 
 /// Fires once when the image whose bytes it was tagged to is freed.

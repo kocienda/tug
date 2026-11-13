@@ -521,6 +521,22 @@ describe("the prune behind the after-paint door", () => {
     detach();
   });
 
+  test("a switch writes its selection inside its own task, before any paint", () => {
+    const selection = new CardsSelectionStore();
+    const { deck, switchTo } = fakeSpaces({ w0: ["a", "b", "c"], w1: ["x", "y"] }, "w0");
+    const detach = attachLayoutSelectionToDeck(deck, selection);
+    selection.toggle("a");
+    selection.toggle("b");
+
+    switchTo("w1", "x");
+    expect(selection.getSnapshot().ids, "no set to restore: the fronted card is picked in the switch's task").toEqual(["x"]);
+
+    switchTo("w0", "c");
+    expect(selection.getSnapshot().ids, "a set to restore is written in the switch's task").toEqual(["a", "b"]);
+
+    detach();
+  });
+
   test("a card fronted after the switch's task is the reader moving on, and collapses the set", async () => {
     const selection = new CardsSelectionStore();
     const { deck, commit, switchTo } = fakeSpaces({ w0: ["a", "b", "c"], w1: ["x"] }, "w0");

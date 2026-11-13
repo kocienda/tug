@@ -1130,6 +1130,9 @@ export class App {
    * `contentPaintDelayMs` makes the named cards' pages slow: each waits that
    * long, its content quiet and its lid down, before it says it is ready and
    * paints its content.
+   * `shownPaintDelayMs` makes the named cards' pages, shown again, wait that
+   * long before they say `painted`; `catchUpDelayMs` holds their catch-up's
+   * end open that long. Both reach every page live, made-ahead ones included.
    */
   bodyDelays(delays: {
     dormantAfterMs?: number | null;
@@ -1137,8 +1140,19 @@ export class App {
     evictAfterMs?: number | null;
     readyDeadlineMs?: number | null;
     contentPaintDelayMs?: Record<string, number> | null;
+    shownPaintDelayMs?: Record<string, number> | null;
+    catchUpDelayMs?: Record<string, number> | null;
   }): Promise<null> {
     return this.evalJS<null>(`(window.__tug.bodyDelays(${JSON.stringify(delays)}), null)`);
+  }
+
+  /**
+   * Make every workspace switch's shell frame late by `ms` (null puts it
+   * back): the switch busy-waits inside the batch that swaps the deck, so
+   * the shell's render and its placement are late together.
+   */
+  switchFrameDelay(ms: number | null): Promise<null> {
+    return this.evalJS<null>(`(window.__tug.switchFrameDelay(${JSON.stringify(ms)}), null)`);
   }
 
   /** The window's accessibility reading order: `shell`, body card ids, then `overlay`. */

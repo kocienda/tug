@@ -14,9 +14,10 @@
  * Shown again, it asks its session for what it missed
  * (`CodeSessionStore.catchUp`) and then re-scopes its subscription; a card
  * whose session the ledger shows closed or failed has nothing to ask, and
- * wakes at once. It stays dormant — loops still,
- * surface withheld, `card.facts` saying so — until that catch-up's bracket
- * closes, and then wakes.
+ * wakes at once. Its loops run again from the moment it is shown, before
+ * the ask: a page the user is looking at moves, whether or not its session
+ * has answered. The rest of it stays dormant — surface withheld, `card.facts`
+ * saying so — until that catch-up's bracket closes, and then wakes.
  *
  * Its content box is never lidded for any of this. A revealed body shows
  * what it had, and the catch-up lands in place a few display periods later,
@@ -139,9 +140,12 @@ export function installBodyDormancy(
         effects.rescope();
         return;
       case "catch-up":
-        // The ask first, then the subscription: a body scoped to nothing
+        // The loops first: the page is on screen, and what moves on it
+        // moves now, not when its session has answered. Then the ask, then
+        // the subscription: a body scoped to nothing
         // hears no acknowledgement, and the store sets aside whatever the
         // session says between the two until the bracket that answers opens.
+        effects.stillLoops(false);
         releaseWait = effects.catchUp(() => {
           releaseWait = null;
           act(caughtUp(state));
@@ -149,10 +153,9 @@ export function installBodyDormancy(
         effects.rescope();
         return;
       case "wake":
-        // The loops and the surface first: waking re-arms the store's clock,
-        // and a body hidden again past its delay goes back to sleep inside
-        // `wake()`, which must be the last word.
-        effects.stillLoops(false);
+        // The surface first (the loops ran from the catch-up): waking
+        // re-arms the store's clock, and a body hidden again past its delay
+        // goes back to sleep inside `wake()`, which must be the last word.
         effects.withholdSurface(false);
         store.wake();
         return;
