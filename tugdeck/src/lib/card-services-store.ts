@@ -36,7 +36,9 @@ import { CodeSessionStore, SETTLE_WAIT_BUDGET_MS } from "./code-session-store";
 import { EditorSettingsStore } from "./editor-settings-store";
 import { TranscriptSettingsStore } from "./transcript-settings-store";
 import { SessionMetadataStore } from "./session-metadata-store";
-import { FileTreeStore } from "./filetree-store";
+import { FileTreeStore, workspaceFeedFilter } from "./filetree-store";
+import { SessionFileCompletion } from "./session-file-completion";
+import { acquireWorkspace, getWorkspace, subscribeWorkspaces } from "./default-workspace-store";
 import { ChangesRouteController } from "./changes-route-controller";
 import { SkillsInventoryStore } from "./skills-inventory-store";
 import { HooksInventoryStore } from "./hooks-inventory-store";
@@ -160,11 +162,16 @@ export interface CardServices {
   readonly pendingContextStore: PendingContextStore;
   /**
    * The `@` file-completion provider. Captured once at construction
-   * because each call to `FileTreeStore.getFileCompletionProvider()`
-   * creates a new closure with its own dedup state — re-deriving it
-   * per render would break query deduplication.
+   * because each call to `SessionFileCompletion.getProvider()` creates a
+   * new closure with its own carry-over state — re-deriving it per render
+   * would lose it.
    */
   readonly fileCompletionProvider: CompletionProvider;
+  /**
+   * The source behind {@link fileCompletionProvider}: the project's files
+   * and every folder the session was granted (`/add-dir`), merged.
+   */
+  readonly sessionFileCompletion: SessionFileCompletion;
 }
 
 /** The dev transcript's scroll region key — matches `TugListView`'s
@@ -656,7 +663,32 @@ class CardServicesStore {
       FeedId.FILETREE,
       binding.projectDir,
     );
-    const fileCompletionProvider = fileTreeStore.getFileCompletionProvider();
+    // `@` completes across the project and every folder the session holds
+    // beyond it: each added folder gets a browse hold and its own FILETREE
+    // store on its own workspace filter, and the answers merge by score.
+    const sessionFileCompletion = new SessionFileCompletion({
+      project: fileTreeStore,
+      projectKey: binding.workspaceKey,
+      folders: sessionMetadataStore,
+      holds: { acquire: (path) => acquireWorkspace(path), get: getWorkspace, subscribe: subscribeWorkspaces },
+      makeStore: (held) => {
+        const feed = new FeedStore(
+          connection,
+          [FeedId.FILETREE],
+          undefined,
+          workspaceFeedFilter(held.workspaceKey),
+        );
+        const store = new FileTreeStore(feed, FeedId.FILETREE, held.projectDir);
+        return {
+          store,
+          dispose: () => {
+            store.dispose();
+            feed.dispose();
+          },
+        };
+      },
+    });
+    const fileCompletionProvider = sessionFileCompletion.getProvider();
 
     // No per-card GIT_DIFF feed: every diff surface sources its own store off
     // the shared unfiltered feed in `changeset-diff-store` (the Changes list's
@@ -853,6 +885,7 @@ class CardServicesStore {
       changesController,
       pendingContextStore,
       fileCompletionProvider,
+      sessionFileCompletion,
     };
     this._restoreWindows.set(services, restoreWindowTurns);
     return services;
@@ -971,6 +1004,7 @@ class CardServicesStore {
     services.sessionMetadataFeedStore.dispose();
     services.fileTreeStore.dispose();
     services.fileTreeFeedStore.dispose();
+    services.sessionFileCompletion.dispose();
     services.skillsInventoryStore.dispose();
     services.hooksInventoryStore.dispose();
     services.sideQuestionStore.dispose();
