@@ -14,7 +14,9 @@
  *   most recent sessions and the newest commits, which is how a bare `@`
  *   shows that the two kinds are there to be had.
  * - **`session:` and `commit:` narrow to one kind, uncapped.** The fragment
- *   after the colon is the query; an empty one browses that kind.
+ *   after the colon is the query; an empty one browses that kind. `@@` and
+ *   `@#` are the same two narrowings in one keystroke, and a bare `@` says so
+ *   in the popup's hint line.
  *
  * `subscribe` forwards from every source that has one ([L22]), so an answer
  * arriving for any group re-queries the popup. Dropping an answer the user
@@ -25,7 +27,7 @@
  */
 
 import type { CompletionItem, CompletionProvider } from "@/lib/tug-text-types";
-import { splitMentionKind } from "@/lib/mention-kinds";
+import { MENTION_SIGIL_HINT, splitMentionKind } from "@/lib/mention-kinds";
 
 /** How many sessions, and how many commits, follow the files. */
 export const MENTION_GROUP_CAP = 3;
@@ -60,6 +62,11 @@ export function mergeMentionProviders(
       for (const release of releases) release();
     };
   };
+
+  // Only a bare `@` carries the hint: that is the moment of looking, and a
+  // popup already being typed into has its rows to read.
+  provider.hint = (query: string): string | null =>
+    query.length === 0 ? MENTION_SIGIL_HINT : null;
 
   return provider;
 }

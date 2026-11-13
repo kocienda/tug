@@ -162,6 +162,17 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+   Hint — a provider's muted word beneath the rows on what else can be typed
+   --------------------------------------------------------------------------- */
+
+.tug-completion-menu-hint {
+  padding: 5px 10px 3px;
+  color: var(--tugx-completion-desc-fg);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
    Match highlight — marks matched characters in fuzzy-scored results
    --------------------------------------------------------------------------- */
 

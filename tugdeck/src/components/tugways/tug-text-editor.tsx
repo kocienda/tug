@@ -3727,6 +3727,12 @@ function paintCompletionPopup(
   // ---- Item rendering (synchronous, no DOM measurement needed) ----
   const items = popup.querySelectorAll(".tug-completion-menu-item");
   let same = items.length === state.filtered.length;
+  // The provider's hint line, if it has one for this query. It is the last
+  // child, after every row, so a row's index is still its child index.
+  const hint = state.provider?.hint?.(state.query) ?? null;
+  if ((popup.querySelector(".tug-completion-menu-hint")?.textContent ?? null) !== hint) {
+    same = false;
+  }
   if (same) {
     for (let k = 0; k < state.filtered.length; k++) {
       const label = items[k]?.querySelector(".tug-completion-menu-label");
@@ -3821,6 +3827,12 @@ function paintCompletionPopup(
       });
       popup.appendChild(div);
     });
+    if (hint !== null) {
+      const hintLine = document.createElement("div");
+      hintLine.className = "tug-completion-menu-hint";
+      hintLine.textContent = hint;
+      popup.appendChild(hintLine);
+    }
     revealCompletionRow(
       popup,
       popup.children[state.selectedIndex] as HTMLElement | undefined,

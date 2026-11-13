@@ -121,6 +121,25 @@ describe("the prefixes", () => {
     expect(types(provider("sessions:x")).slice(0, 4)).toEqual(Array(4).fill("file"));
     expect(files.queries).toEqual(["session", "sessions:x"]);
   });
+
+  test("@@ and @# are the same narrowings in one character", () => {
+    const { provider, files, sessions, commits } = merged();
+    expect(types(provider("@fa"))).toEqual(Array(5).fill("session"));
+    expect(types(provider("#b0ab"))).toEqual(Array(5).fill("commit"));
+    // Alone, each browses its kind.
+    expect(provider("@")).toHaveLength(5);
+    expect(provider("#")).toHaveLength(5);
+    expect(sessions.queries).toEqual(["fa", ""]);
+    expect(commits.queries).toEqual(["b0ab", ""]);
+    expect(files.queries).toEqual([]);
+  });
+
+  test("only a bare @ carries the hint that names the sigils", () => {
+    const { provider } = merged();
+    expect(provider.hint?.("")).toBe("@@ sessions · @# commits");
+    expect(provider.hint?.("fa")).toBeNull();
+    expect(provider.hint?.("@")).toBeNull();
+  });
 });
 
 describe("subscribe", () => {

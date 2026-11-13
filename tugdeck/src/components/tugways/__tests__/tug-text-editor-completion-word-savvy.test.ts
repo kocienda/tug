@@ -272,6 +272,27 @@ describe("trailing punctuation is trimmed from the query", () => {
     expect(field.query).toBe("session:");
   });
 
+  test("a second @ or a # joins the open session's query, opening no new one", () => {
+    for (const sigil of ["@", "#"]) {
+      let state = makeState("", 0).update({
+        changes: { from: 0, insert: "@" },
+        selection: EditorSelection.cursor(1),
+        userEvent: "input.type",
+      }).state;
+      for (const [at, ch] of [[1, sigil], [2, "f"]] as const) {
+        state = state.update({
+          changes: { from: at, insert: ch },
+          selection: EditorSelection.cursor(at + 1),
+          userEvent: "input.type",
+        }).state;
+      }
+      const field = state.field(completionField);
+      expect(field.active).toBe(true);
+      expect(field.anchorOffset).toBe(0);
+      expect(field.query).toBe(`${sigil}f`);
+    }
+  });
+
   test("a mention written mid-sentence queries the path, not the clause", () => {
     // The reported flow: "@arc/overview-plan.md; Phase F …". The token
     // ends at whitespace, so without the trim the query carries the

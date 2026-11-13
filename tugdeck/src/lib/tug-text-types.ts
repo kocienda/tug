@@ -56,6 +56,11 @@ export interface CompletionItem {
  */
 export type CompletionProvider = ((query: string) => CompletionItem[]) & {
   subscribe?: (listener: () => void) => () => void;
+  /**
+   * A muted line the popup shows beneath its rows for `query`, or `null`
+   * for none — a provider's own word on what else can be typed.
+   */
+  hint?: (query: string) => string | null;
 };
 
 // ---------------------------------------------------------------------------
