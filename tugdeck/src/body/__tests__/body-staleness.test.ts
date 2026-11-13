@@ -29,9 +29,19 @@ const BASE: DrawnValues = {
   deckCards: { me: { title: "Me" }, other: { title: "Other" } },
   deckFacts: FACTS,
   arrangement: null,
+  cardsList: { anchor: null, cursor: null },
 };
 
 const sig = (values: DrawnValues, rendersOthers = false) => drawnSignature("me", values, rendersOthers);
+
+describe("the Workspaces list", () => {
+  test("a move in the list's anchor or cursor is stale, whatever the kind", () => {
+    const hidden = sig(BASE);
+    expect(staleAfter(hidden, sig({ ...BASE, cardsList: { anchor: { rowId: "a", offset: 12 }, cursor: null } }))).toBe(true);
+    expect(staleAfter(hidden, sig({ ...BASE, cardsList: { anchor: null, cursor: "a" } }))).toBe(true);
+    expect(movedParts(hidden, sig({ ...BASE, cardsList: { anchor: null, cursor: "a" } }))).toEqual(["cardsList"]);
+  });
+});
 
 describe("drawnSignature", () => {
   test("a card theme or pane chrome move is stale", () => {

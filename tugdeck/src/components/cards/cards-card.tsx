@@ -909,10 +909,15 @@ const GESTURE_TAIL_MS = 500;
  *   scroll would otherwise rewrite the shared truth for every card after it,
  *   and an arriving card has had no gesture, so nothing that lands in it
  *   during a switch proposes.
- * - **Read** at mount and each time the card comes on screen, and when the
- *   anchor arrives in a card on screen that the reader has not touched — so
- *   a card standing up for a workspace places itself from where the reader
- *   was in whichever card they left.
+ * - **Read** at mount, each time the card comes on screen, and whenever the
+ *   anchor moves in a card the reader has not touched — on screen or
+ *   parked. A parked card follows it as it moves, because a page shown again
+ *   puts up the picture it last drew before it hears it is shown: placed
+ *   only at the show, its first frames are the old position, and the list
+ *   jumps. Placed while parked, its scroller is already where the reader
+ *   left the list, and the move marks its page stale (`body-staleness.ts`)
+ *   so the host retakes its last frame and holds the page until it has
+ *   drawn as shown.
  * - **Given room** when it is taller than the card the reader left: a row
  *   anchored low near the list's end asks for a `scrollTop` past a taller
  *   card's range, so the placement stands that much room below the list
@@ -1002,6 +1007,10 @@ function useSharedListAnchor(
         scrollHeight: natural.scrollHeight + room,
       });
       if (top === null) return;
+      // A parked card placed itself as the anchor moved, so the placement
+      // at its show usually finds the scroller already there: writing the
+      // same value again is a second write to a scroller that is not moving.
+      if (Math.abs(root.scrollTop - top) < 0.5) return;
       root.scrollTop = top;
       placedTop = root.scrollTop;
     };
@@ -1083,16 +1092,16 @@ function useSharedListAnchor(
       wasShown = shown;
     });
     const releaseAnchor = cardsListAnchor.subscribe(() => {
-      // A hidden card is placed when it comes on screen, so only a card on
-      // screen that the reader has not touched follows the anchor's arrival.
-      if (!touched && shownSource.get()) place();
+      // Every card the reader has not touched follows the anchor's arrival,
+      // a parked one included: placed only when it comes on screen, it would
+      // show its old position first and jump.
+      if (!touched) place();
     });
     const releaseCursor = cardsListCursor.subscribe(() => {
       // The card the reader is in is where the cursor came from, and an echo
-      // arriving behind a second arrow would set it back a row. A hidden card
-      // adopts it when it is next placed, so a parked card does no work on
-      // every arrow the reader presses somewhere else.
-      if (!touched && shownSource.get()) adopt();
+      // arriving behind a second arrow would set it back a row. A parked card
+      // adopts it too, so it shows the cursor where it is from its first frame.
+      if (!touched) adopt();
     });
     const content = root.querySelector<HTMLElement>(".cards-card-content");
     const rowsArrived = new ResizeObserver(() => {

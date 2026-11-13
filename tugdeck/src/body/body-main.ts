@@ -177,6 +177,8 @@ import {
   arrangementSpaces,
   cardFollowed,
   cardsLedgerBindings,
+  cardsListAnchor,
+  cardsListCursor,
   cardsSpaceVerb,
 } from "../bus/declarations/arrangement";
 import { spaceBindingsLedgerStore } from "../lib/space-bindings-ledger-store";
@@ -444,11 +446,14 @@ function followDrawnStores(cardId: string, rendersOthers: boolean): void {
         deckCards: deckCards.getSnapshot(),
         deckFacts: deckFacts.getSnapshot(),
         arrangement: rendersOthers ? { deck: arrangementDeck.getSnapshot(), spaces: arrangementSpaces.getSnapshot() } : null,
+        cardsList: { anchor: cardsListAnchor.getSnapshot(), cursor: cardsListCursor.getSnapshot() },
       },
       rendersOthers,
     );
   const stores: { subscribe(listener: () => void): unknown }[] = [cardTheme, paneChrome, cardContext, deckCards, deckFacts];
   if (rendersOthers) stores.push(arrangementDeck, arrangementSpaces);
+  // Heard only by a Workspaces card's page, whose parked scroller follows them.
+  stores.push(cardsListAnchor, cardsListCursor);
   for (const store of stores) store.subscribe(noteDrawnStoreApplied);
 }
 

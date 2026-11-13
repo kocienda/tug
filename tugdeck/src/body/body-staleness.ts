@@ -36,6 +36,14 @@ export interface DrawnValues {
   readonly deckFacts: DeckFactsValue | null;
   /** The arrangement stores, for a kind that lists or moves the whole deck; null for any other. */
   readonly arrangement: { readonly deck: unknown; readonly spaces: unknown } | null;
+  /**
+   * The Workspaces list's anchor and cursor (`cards.listAnchor`,
+   * `cards.listCursor`). Only a Workspaces card's page hears them — the
+   * stores are scoped to that kind — so for any other page both stand null
+   * and never move. A parked Workspaces card places its scroller from the
+   * anchor as it moves, so its last frame is behind each time it does.
+   */
+  readonly cardsList: { readonly anchor: unknown; readonly cursor: unknown };
 }
 
 /**
@@ -62,6 +70,7 @@ export function drawnParts(cardId: string, values: DrawnValues, rendersOthers: b
     ...(rendersOthers ? { deckCards: JSON.stringify(values.deckCards ?? null) } : fieldParts("deckCards", values.deckCards?.[cardId] ?? null)),
     deckFacts: JSON.stringify(facts === null ? null : [facts.zoom, facts.keyboardAccess, facts.motionDemoted]),
     arrangement: JSON.stringify(rendersOthers ? (values.arrangement ?? null) : null),
+    cardsList: JSON.stringify(values.cardsList),
   };
 }
 
