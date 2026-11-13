@@ -1,78 +1,89 @@
 /**
  * @tug-pairings
- * | Element                                       | Surface                                           | Role    | Context                                                       |
- * |-----------------------------------------------|---------------------------------------------------|---------|---------------------------------------------------------------|
- * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__instruction-lead                          |
- * | --tug7-element-field-text-normal-label-rest   | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__instruction-more, field labels, .session-share-view__rendering |
+ * | Element                                     | Surface                                           | Role    | Context                                                                 |
+ * |---------------------------------------------|---------------------------------------------------|---------|-------------------------------------------------------------------------|
+ * | --tug7-element-field-text-normal-label-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__label, __count, .session-share-view__rendering      |
  */
 
-/* The Share shade's content ([P01]): a header strip (the BlockStrip, styled by
-   its own contract), then the choices, then the actions row. The shade itself
-   — its surface, its borders, its rise from the slot's bottom edge — is
-   `TugSheetContent presentation="shade"`; this sheet only lays out what sits
-   inside it. The shade's surface is `--tugx-shade-bg`, which resolves to the
-   content surface named in the pairings above. */
+/* The Share shade's content ([P01]). The shade itself — its surface, its
+   borders, its rise from the slot's bottom edge — is `TugSheetContent
+   presentation="shade"`; this sheet only lays out what sits inside it.
 
+   The header is the modal header convention (`styles/tugx-header.css`), drawn
+   with the sheet's own `.tug-sheet-*` classes, so the title and the
+   instruction are the type every sheet and alert wears and nothing here
+   styles them. What this sheet adds is spacing and the form's grid. The
+   shade's surface is `--tugx-shade-bg`, which resolves to the content surface
+   named in the pairings above. */
 .session-share-view {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The sheet's own margins, since the shade wears a sheet's header. */
+  padding: var(--tugx-sheet-space-b);
+  gap: var(--tugx-sheet-space-a);
 }
 
-/* The choices: how tool calls appear, and the format. One row that wraps on a
-   narrow card rather than clipping a control. */
-.session-share-view__fields {
+/* The header's bottom margin is the sheet's header-to-body gap; here the
+   column's own `gap` separates it from the form, so the two do not add. */
+.session-share-view__header {
+  margin-bottom: 0;
+}
+
+/* Mark All and Clear All, in their own row directly under the description,
+   with the count beside them. Inside the heading column, so the row starts
+   at the instruction's left edge. */
+.session-share-view__marks {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--tug-space-sm) var(--tug-space-xl);
-  padding: var(--tug-space-sm) var(--tug-space-md) 0;
-}
-
-.session-share-view__field {
-  display: inline-flex;
-  align-items: center;
   gap: var(--tug-space-sm);
+  margin-top: var(--tugx-sheet-space-a);
+  /* A little air before the form, beyond the column's own gap. */
+  margin-bottom: var(--tug-space-sm);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-share-view__field-label {
+.session-share-view__count {
+  margin-inline-start: var(--tug-space-xs);
   color: var(--tug7-element-field-text-normal-label-rest);
-  font-size: 12px;
+  font-size: var(--tugx-header-desc-size);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* The first thing the shade says, directly under its header: where the
-   checks are and how to use them. The lead is full-strength text at the
-   transcript's own size, in the weight of an identifier, so it is read
-   before any control; the follow-on is the quieter how-to of a range. */
-.session-share-view__instruction {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tug-space-2xs);
-  padding: var(--tug-space-md) var(--tug-space-md) var(--tug-space-xs);
+/* The form: Turns, Format, Action. The label column is exactly the header's
+   icon column and its gap, so the three controls start on the same left edge
+   as the title, the description and the Mark All row above them, and the
+   labels sit in the icon's column, under the icon. */
+.session-share-view__form {
+  display: grid;
+  grid-template-columns: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two)) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0;
+  row-gap: var(--tug-space-sm);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-share-view__instruction-lead {
-  color: var(--tug7-element-global-text-normal-default-rest);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-share-view__instruction-more {
+.session-share-view__label {
   color: var(--tug7-element-field-text-normal-label-rest);
-  font-size: 12px;
+  font-size: var(--tugx-header-desc-size);
+  white-space: nowrap;
 }
 
-/* The actions row is a sheet footer (`.tug-sheet-actions`: right-aligned,
-   sheet spacing), inset from the shade's edges as History's footer is. The
-   "Rendering…" status holds its leading edge. */
+/* The control keeps its own width at the column's left edge. */
+.session-share-view__control {
+  display: flex;
+  justify-self: start;
+  min-width: 0;
+}
+
+/* The two buttons — `.tug-sheet-actions`: right-aligned, sheet spacing. The
+   "Rendering…" status holds the row's leading edge. */
 .session-share-view__actions {
   align-items: center;
-  padding: 0 var(--tugx-sheet-space-b) var(--tugx-sheet-space-b);
+  margin-top: 0;
 }
 
 .session-share-view__spacer {
@@ -86,6 +97,6 @@
   align-items: center;
   gap: var(--tug-space-xs);
   color: var(--tug7-element-field-text-normal-label-rest);
-  font-size: 12px;
+  font-size: var(--tugx-header-desc-size);
   white-space: nowrap;
 }

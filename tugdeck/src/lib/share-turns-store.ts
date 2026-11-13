@@ -43,6 +43,9 @@ export interface ShareArtifact {
   html: string;
 }
 
+/** What the shade's one action button does: the choice of its Action menu. */
+export type ShareAction = "preview" | "copy" | "save" | "share";
+
 /** The share mode as React reads it. */
 export interface ShareTurnsSnapshot {
   active: boolean;
@@ -50,6 +53,8 @@ export interface ShareTurnsSnapshot {
   anchor: string | null;
   toolMode: ShareToolMode;
   format: ShareFormat;
+  /** The action the shade's button performs. Kept across visits, like the format. */
+  action: ShareAction;
   /** The signature {@link lastArtifact} was previewed for, or `null`. */
   previewed: string | null;
   /** True while a preview is being prepared — the scrub and the render. */
@@ -67,6 +72,7 @@ const INITIAL: ShareTurnsSnapshot = {
   anchor: null,
   toolMode: "summaries",
   format: "pdf",
+  action: "preview",
   previewed: null,
   rendering: false,
   lastArtifact: null,
@@ -146,6 +152,10 @@ export class ShareTurnsStore extends Subscribable {
 
   setFormat(format: ShareFormat): void {
     if (this.snapshot.format !== format) this.set({ format });
+  }
+
+  setAction(action: ShareAction): void {
+    if (this.snapshot.action !== action) this.set({ action });
   }
 
   setRendering(rendering: boolean): void {

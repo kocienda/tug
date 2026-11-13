@@ -4543,7 +4543,7 @@ function pageStoreSurfaceMethods() {
       if (services === null) return null;
       const store = services.shareTurnsStore;
       const artifact = store.getSnapshot().lastArtifact;
-      const button = document.querySelector('[data-testid="session-share-share"]');
+      const button = document.querySelector('[data-testid="session-share-go"]');
       if (!store.canSend() || artifact === null || button === null) return null;
       const rect = button.getBoundingClientRect();
       return sharePick(

@@ -43,10 +43,8 @@ import { existsSync, rmSync, statSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  COPY,
-  SAVE,
+  GO,
   SHADE,
-  SHARE,
   chooseFormat,
   enabledJs,
   openSeededCard,
@@ -114,16 +112,14 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
         expect(existsSync(imagePath), "the previewed image is on disk").toBe(true);
         expect(previewed.lastArtifact!.markdownLength, "the plain-text flavour rides with it").toBeGreaterThan(0);
         expect(previewed.canSend, "the gate stands open for the image").toBe(true);
-        expect(await card.evalJS<boolean>(enabledJs(SAVE)), "Save… is open").toBe(true);
-        expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy is open").toBe(true);
-        expect(await card.evalJS<boolean>(enabledJs(SHARE)), "Share… is open").toBe(true);
+        expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button is open").toBe(true);
 
         // ── B. PDF moves the signature; Save… stays open ───────────────────
         await chooseFormat(app, "pdf");
         await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === false`, {
           timeoutMs: 4_000,
         });
-        expect(await card.evalJS<boolean>(enabledJs(SAVE)), "Save… stays open").toBe(true);
+        expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button stays open").toBe(true);
 
         // ── C. A very tall image previews like any other ───────────────────
         await chooseFormat(app, "png");
@@ -148,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
             .split("\n")
             .some((line) => line.includes("save panel shown") && line.includes("Save Shared Turns"));
         expect(panelShown(), "no save panel before the press").toBe(false);
-        await pressThroughPreview(app, SAVE, 15_000);
+        await pressThroughPreview(app, "save", 15_000);
         const panelDeadline = Date.now() + 5_000;
         while (!panelShown() && Date.now() < panelDeadline) await Bun.sleep(100);
         expect(panelShown(), "Save… raised the share's save panel").toBe(true);

@@ -28,10 +28,16 @@ export const SHADE = `${CARD} [data-slot="session-share-view"]`;
 export const COUNT = `${CARD} [data-testid="session-share-count"]`;
 export const MARK_ALL = `${CARD} [data-testid="session-share-mark-all"]`;
 export const CLEAR = `${CARD} [data-testid="session-share-clear"]`;
-export const PREVIEW = `${CARD} [data-testid="session-share-preview"]`;
-export const COPY = `${CARD} [data-testid="session-share-copy"]`;
-export const SAVE = `${CARD} [data-testid="session-share-save"]`;
-export const SHARE = `${CARD} [data-testid="session-share-share"]`;
+/** The shade's one action button, which performs what its Action menu names. */
+export const GO = `${CARD} [data-testid="session-share-go"]`;
+export const CANCEL = `${CARD} [data-testid="session-share-cancel"]`;
+/** The Action menu's trigger, and its open menu (portaled, so not under the card). */
+export const ACTION_TRIGGER = `${CARD} [data-testid="session-share-action"] button`;
+export const ACTION_MENU = '[data-testid="session-share-action-menu"]';
+
+/** The shade's actions, in the Action menu's order. */
+export type ShareActionName = "preview" | "copy" | "save" | "share";
+const ACTION_ORDER: readonly ShareActionName[] = ["preview", "copy", "save", "share"];
 export const RENDERING = `${CARD} [data-testid="session-share-rendering"]`;
 export const BULLETIN = ".tug-pane-bulletin";
 
@@ -142,17 +148,40 @@ export async function chooseFormat(app: App, value: "pdf" | "png" | "markdown"):
 }
 
 /**
- * Press `button` — Preview…, or Copy, Save… or Share… on a selection not yet
- * previewed — wait for the preview sheet to take the keyboard from the
+ * Choose `action` in the shade's Action menu with trusted clicks — the
+ * trigger, then the item — and wait for the action button to wear it. A no-op
+ * when it already does.
+ */
+export async function chooseAction(app: App, action: ShareActionName): Promise<void> {
+  const card = app.body("A");
+  const wears = `document.querySelector(${JSON.stringify(GO)})?.getAttribute("data-share-action") === ${JSON.stringify(action)}`;
+  if (await card.evalJS<boolean>(wears)) return;
+  await card.nativeClickAtElement(ACTION_TRIGGER);
+  const item = `${ACTION_MENU} [data-item-id="${ACTION_ORDER.indexOf(action)}"]`;
+  await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(item)})`, { timeoutMs: 4_000 });
+  await card.nativeClickAtElement(item);
+  await card.waitForCondition<boolean>(wears, { timeoutMs: 4_000 });
+}
+
+/** Choose `action` and press the action button. */
+export async function pressAction(app: App, action: ShareActionName): Promise<void> {
+  await chooseAction(app, action);
+  await app.body("A").nativeClickAtElement(GO);
+}
+
+/**
+ * Perform `action` — Preview…, or Copy, Save… or Share… on a selection not yet
+ * previewed — and wait for the preview sheet to take the keyboard from the
  * window that held it, then press the sheet's default button (its Return
  * key): Done after Preview…, the action's own button otherwise. `timeoutMs`
  * bounds the wait for the sheet, which a rendered format reaches only after
  * the host's render.
  */
-export async function pressThroughPreview(app: App, button: string, timeoutMs = 10_000): Promise<void> {
+export async function pressThroughPreview(app: App, action: ShareActionName, timeoutMs = 10_000): Promise<void> {
+  await chooseAction(app, action);
   const before = await app.windowState();
   expect(before.isKeyWindow, "the card's window holds the keyboard before the preview").toBe(true);
-  await app.body("A").nativeClickAtElement(button);
+  await app.body("A").nativeClickAtElement(GO);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const state = await app.windowState();
@@ -174,7 +203,7 @@ export async function pressThroughPreview(app: App, button: string, timeoutMs = 
 
 /** Press Preview… and the preview sheet's Done. */
 export function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<void> {
-  return pressThroughPreview(app, PREVIEW, timeoutMs);
+  return pressThroughPreview(app, "preview", timeoutMs);
 }
 
 /** The marks' turn keys in transcript order, and which are checked. */

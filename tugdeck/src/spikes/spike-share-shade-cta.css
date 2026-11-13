@@ -1,0 +1,216 @@
+/**
+ * spike-share-shade-cta.css — the stage each drawing of the Share shade
+ * stands on, the working design's layout, and the little the reference
+ * candidates need that is not a shipping component's own.
+ *
+ * Every header drawn here is a shipping one — `.tug-sheet-header`, the
+ * `BlockStrip`, `TugInlineDialog` — styled by its own stylesheet. Nothing here
+ * reaches into them.
+ *
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role          | Context                                              |
+ * |------------------------------------------------|---------------------------------------------------|---------------|------------------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest | informational | .sp-ssc-note, .sp-ssc-scale, .sp-ssc-z2              |
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | content       | .sp-ssc-strip-description, .sp-ssc-shipped-lead      |
+ * | --tug7-element-field-text-normal-label-rest    | --tug7-surface-global-primary-normal-content-rest | content       | .sp-ssc-field-label, .sp-ssc-count, .sp-ssc-shipped-more |
+ */
+
+/* Where the grammar ships, and its measured scale, above each mock. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ssc-note {
+  margin: 0;
+  max-width: 46rem;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ssc-scale {
+  margin: 0;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The stage: a Session card's working width, the shade on its own surface
+   with its own edges, resting on a stand-in for the Z2 status bar. */
+.sp-ssc-stage {
+  max-width: 46rem;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+.sp-ssc-shade {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--tugx-shade-bg);
+  border-bottom: 1px solid var(--tugx-shade-border);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ssc-z2 {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  font-size: var(--tug-font-size-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* ---- The working design ------------------------------------------------- */
+
+/* The sheet's own margins, since the shade wears a sheet's header. */
+.sp-ssc-working {
+  display: flex;
+  flex-direction: column;
+  padding: var(--tugx-sheet-space-b);
+  gap: var(--tugx-sheet-space-a);
+}
+
+/* The column's `gap` separates the header from the form; the header's own
+   header-to-body margin would add to it. */
+.sp-ssc-working-header {
+  margin-bottom: 0;
+}
+
+/* Note 1: Mark All and Clear All, their own row directly under the
+   description, inside the heading column so the row starts at the
+   instruction's left edge. */
+.sp-ssc-marks {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  margin-top: var(--tugx-sheet-space-a);
+  /* A little air before the form, beyond the column's own gap. */
+  margin-bottom: var(--tug-space-sm);
+}
+
+/* Notes 2 and 3: the label column is exactly the header's icon column and
+   its gap, so Turns, Format and Action start on the same left edge as the
+   title, the description and the Mark All row above them. The labels sit in
+   the icon's column, under the icon. */
+.sp-ssc-form {
+  display: grid;
+  grid-template-columns: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two)) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0;
+  row-gap: var(--tug-space-sm);
+}
+
+.sp-ssc-control {
+  display: flex;
+  justify-self: start;
+  min-width: 0;
+}
+
+/* The working design's labels and count sit in the header family's
+   description scale, not the candidates' 12px. */
+.sp-ssc-working .sp-ssc-field-label,
+.sp-ssc-working .sp-ssc-count {
+  font-size: var(--tugx-header-desc-size);
+}
+
+.sp-ssc-working .sp-ssc-count {
+  margin-inline-start: var(--tug-space-xs);
+}
+
+/* Note 4: two buttons — `.tug-sheet-actions`, right-aligned. */
+.sp-ssc-working-actions {
+  align-items: center;
+  margin-top: 0;
+}
+
+/* ---- The reference candidates ------------------------------------------- */
+
+/* Candidate A: the sheet header stands on the sheet's own spacing. */
+.sp-ssc-pad {
+  padding: var(--tugx-sheet-space-b) var(--tugx-sheet-space-b) 0;
+}
+
+.sp-ssc-pad .sp-ssc-fields {
+  padding-inline: 0;
+}
+
+/* Candidate C: the inline dialog seated as the Changes notice band seats its
+   own — plain padding around the primitive, nothing reaching into it. The
+   primitive caps its own width for transcript flow; as a shade's bar it spans
+   the shade, through the token it publishes for exactly this. */
+.sp-ssc-idialog {
+  padding: var(--tug-space-sm) var(--tug-space-sm) 0;
+  --tugx-idialog-max-width: none;
+}
+
+/* Candidate B: the instruction in the header family's description scale —
+   the same size, leading and 80% strength a sheet's description has. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ssc-strip-description {
+  margin: 0;
+  padding: var(--tug-space-md) var(--tug-space-md) var(--tug-space-xs);
+  font-size: var(--tugx-header-desc-size);
+  line-height: var(--tugx-header-desc-lh);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  opacity: 0.8;
+}
+
+/* As first shipped: the style this spike exists to replace. */
+.sp-ssc-shipped-instruction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  padding: var(--tug-space-md) var(--tug-space-md) var(--tug-space-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ssc-shipped-lead {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ssc-shipped-more {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 12px;
+}
+
+/* The candidates' choices row. */
+.sp-ssc-fields {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-xl);
+  padding: var(--tug-space-sm) var(--tug-space-md) 0;
+}
+
+.sp-ssc-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ssc-field-label {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The candidates' actions row — `.tug-sheet-actions`, with a leading slot. */
+.sp-ssc-actions {
+  align-items: center;
+  padding: 0 var(--tugx-sheet-space-b) var(--tugx-sheet-space-b);
+}
+
+.sp-ssc-spacer {
+  flex: 1 1 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ssc-count {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

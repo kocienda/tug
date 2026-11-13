@@ -17,14 +17,15 @@
  *      3, so 1, 3 and 4 are marked. Each check sits at the right of its
  *      turn's header, after the turn address, and the participant icon still
  *      draws in its seat.
- *   C. Copy acts at once: with Markdown chosen (a share starts as a PDF), a
- *      press on a selection not yet previewed shows the preview first, with a
- *      Copy button, and Return on it copies.
+ *   C. The shade has one action button, which wears what the Action menu
+ *      names. With Markdown chosen (a share starts as a PDF) and Copy chosen
+ *      in the menu, a press on a selection not yet previewed shows the
+ *      preview first, with a Copy button, and Return on it copies.
  *   D. Copy writes Markdown that carries `[secret]` where the key was and
  *      `~/` where the home was, holds neither the key nor the raw home, and
  *      holds nothing of the unmarked turn 2.
- *   E. Marking turn 2 moves the selection off the preview: Copy stays open,
- *      and the next press would preview again.
+ *   E. Marking turn 2 moves the selection off the preview: the action button
+ *      stays open, and the next press would preview again.
  *   E2. Mark All marks all four turns; Clear unmarks them, leaving the mode on.
  *   F. Escape leaves share mode, and the composer's draft is intact.
  *
@@ -46,10 +47,11 @@ import { rmSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
+  ACTION_TRIGGER,
   CLEAR,
-  COPY,
   COUNT,
   ENTRY_REGION,
+  GO,
   HOME,
   MARK,
   MARK_ALL,
@@ -125,6 +127,27 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
           return Math.abs(panel.getBoundingClientRect().bottom - z2.getBoundingClientRect().top);
         })()`;
         await card.waitForCondition<boolean>(`(${restJs}) !== null && (${restJs}) <= 2`, { timeoutMs: 4_000 });
+        // The three controls — Turns, Format, Action — share a left edge with
+        // the title, the description and the Mark All row above them, and
+        // with nothing marked the action button has nothing to act on.
+        const lefts = await card.evalJS<number[]>(`[
+          '[data-card-id="A"] [data-slot="session-share-view"] .tug-sheet-title',
+          '[data-card-id="A"] [data-testid="session-share-instruction"]',
+          '[data-card-id="A"] [data-testid="session-share-mark-all"]',
+          '[data-card-id="A"] [data-testid="session-share-tool-mode"]',
+          '[data-card-id="A"] [data-testid="session-share-format"]',
+          ${JSON.stringify(ACTION_TRIGGER)},
+        ].map(function (s) { return Math.round(document.querySelector(s).getBoundingClientRect().left); })`);
+        note(`at0819 left edges (title, description, Mark All, Turns, Format, Action): ${JSON.stringify(lefts)}`);
+        expect(
+          Math.max(...lefts) - Math.min(...lefts),
+          `the header's text and the three controls share a left edge: ${JSON.stringify(lefts)}`,
+        ).toBeLessThanOrEqual(1);
+        expect(await card.evalJS<boolean>(enabledJs(GO)), "nothing marked, nothing to do").toBe(false);
+        expect(
+          await card.evalJS<string>(`document.querySelector(${JSON.stringify(GO)}).textContent || ""`),
+          "the action button wears the menu's choice",
+        ).toBe("Preview…");
 
         const marks = await card.evalJS<Mark[]>(marksJs());
         note(`at0819 marks: ${JSON.stringify(marks)}`);
@@ -140,11 +163,11 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             { timeoutMs: 4_000 },
           );
         await clickMark(app, k1);
-        await countIs("1 turn");
+        await countIs("1 turn marked");
         await clickMark(app, k3);
-        await countIs("2 turns");
+        await countIs("2 turns marked");
         await clickMark(app, k4, true);
-        await countIs("3 turns");
+        await countIs("3 turns marked");
         const checked = (await card.evalJS<Mark[]>(marksJs())).map((m) => m.checked);
         expect(checked, "1, 3 and 4 are marked").toEqual([true, false, true, true]);
         const seat = await card.evalJS<{ icons: number; marks: number; rightOfAddress: boolean }>(`(function(){
@@ -165,10 +188,14 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(seat.rightOfAddress, "each check sits right of its turn address").toBe(true);
 
         // ── C. Copy previews first, then copies on its own button ──────────
-        expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy is open once a turn is marked").toBe(true);
+        expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button is open once a turn is marked").toBe(true);
         await chooseFormat(app, "markdown");
         setPasteboard(SENTINEL);
-        await pressThroughPreview(app, COPY);
+        await pressThroughPreview(app, "copy");
+        expect(
+          await card.evalJS<string>(`document.querySelector(${JSON.stringify(GO)}).textContent || ""`),
+          "the action button wears Copy",
+        ).toBe("Copy");
 
         // ── D. Copy writes the scrubbed Markdown ───────────────────────────
         const deadline = Date.now() + 5_000;
@@ -193,11 +220,11 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === false`, {
           timeoutMs: 4_000,
         });
-        expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy stays open").toBe(true);
+        expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button stays open").toBe(true);
 
         // ── E2. Mark All, then Clear ───────────────────────────────────────
         await card.nativeClickAtElement(MARK_ALL);
-        await countIs("4 turns");
+        await countIs("4 turns marked");
         expect((await card.evalJS<Mark[]>(marksJs())).every((m) => m.checked), "every turn is marked").toBe(true);
         await card.nativeClickAtElement(CLEAR);
         await countIs("No turns marked");

@@ -30,11 +30,10 @@ import { rmSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  COPY,
   SHADE,
   chooseFormat,
-  enabledJs,
   openSeededCard,
+  pressAction,
   previewAndDismiss,
   readPasteboard,
   setPasteboard,
@@ -108,9 +107,8 @@ describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", ()
           { timeoutMs: 4_000 },
         );
         paths.push(await artifactPath());
-        await card.waitForCondition<boolean>(enabledJs(COPY), { timeoutMs: 4_000 });
         setPasteboard(SENTINEL);
-        await card.nativeClickAtElement(COPY);
+        await pressAction(app, "copy");
         const pdfDeadline = Date.now() + 4_000;
         while (readPasteboard() === SENTINEL && Date.now() < pdfDeadline) await Bun.sleep(100);
         const pdf = await readFacts();
@@ -128,9 +126,8 @@ describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", ()
           { timeoutMs: 4_000 },
         );
         paths.push(await artifactPath());
-        await card.waitForCondition<boolean>(enabledJs(COPY), { timeoutMs: 4_000 });
         setPasteboard(SENTINEL);
-        await card.nativeClickAtElement(COPY);
+        await pressAction(app, "copy");
         const pngDeadline = Date.now() + 4_000;
         while (!clipboardInfo().includes("PNGf") && Date.now() < pngDeadline) await Bun.sleep(100);
         const info = clipboardInfo();
