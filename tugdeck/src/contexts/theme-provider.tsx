@@ -79,11 +79,49 @@ export function readHostCanvasColorFromAppliedCss(): string | null {
   return normalizeColorToHex(fromRoot);
 }
 
-/** Post a normalized canvas background hex string to the Swift bridge. */
+/**
+ * The deck's ground as the applied CSS paints it: the canvas colour, and a
+ * grid line as it reads over that canvas, each an opaque hex. Read by
+ * painting both onto one pixel, so whatever space the tokens are written in
+ * (oklch, a mix, an alpha) comes back as the sRGB the screen shows. Null
+ * where the deck root or a 2D canvas is not to be had.
+ */
+export function readGroundFromAppliedCss(): { canvas: string; grid: string } | null {
+  try {
+    const root = document.getElementById("deck-container");
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    if (root === null || ctx === null) return null;
+    const probe = document.createElement("span");
+    probe.style.color = "var(--tugx-canvas-grid-line)";
+    root.appendChild(probe);
+    const gridColor = getComputedStyle(probe).color;
+    const canvasColor = getComputedStyle(root).backgroundColor;
+    probe.remove();
+    const read = (): string => {
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      return `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+    };
+    ctx.fillStyle = canvasColor;
+    ctx.fillRect(0, 0, 1, 1);
+    const canvas = read();
+    ctx.fillStyle = gridColor;
+    ctx.fillRect(0, 0, 1, 1);
+    return { canvas, grid: read() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Post a normalized canvas background hex string to the Swift bridge, and
+ * with it the deck's ground as it paints now ({@link readGroundFromAppliedCss}):
+ * the host stands that ground beneath the cards when a workspace switch's
+ * cut lands before the shell's switched frame has (`BodySwitchGround`).
+ */
 export function sendCanvasColor(hex: string): void {
   const normalized = normalizeColorToHex(hex);
   if (!normalized) return;
-  postToHost(setThemeToHost, { color: normalized });
+  postToHost(setThemeToHost, { color: normalized, ...(readGroundFromAppliedCss() ?? {}) });
 }
 
 // ---------------------------------------------------------------------------

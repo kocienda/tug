@@ -393,6 +393,55 @@ final class BodyHeldPicture: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// The deck's ground, drawn by the host: the canvas colour and its grid, as
+/// the shell paints them (`globals.css`), standing over the shell's page and
+/// beneath every card. It stands only from a workspace switch's cut until
+/// the shell's switched frame has rendered: the canvas is the shell's own,
+/// and when that frame is late the shell still shows the departed
+/// workspace's canvas around the arriving cards. The grid is the shell's
+/// lattice — a line every 24 layout px from the deck root's corner, one
+/// layout px wide, scaled by View › Zoom. Answers no point.
+final class BodySwitchGround: NSView {
+    /// The grid's cell, layout px (`globals.css`).
+    static let cell: CGFloat = 24
+    var canvas: NSColor { didSet { needsDisplay = true } }
+    var grid: NSColor { didSet { needsDisplay = true } }
+    var zoom: CGFloat { didSet { needsDisplay = true } }
+    override var isFlipped: Bool { true }
+
+    init(frame: NSRect, canvas: NSColor, grid: NSColor, zoom: CGFloat) {
+        self.canvas = canvas
+        self.grid = grid
+        self.zoom = zoom
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .duringViewResize
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        canvas.setFill()
+        bounds.fill()
+        grid.setFill()
+        let pitch = Self.cell * zoom
+        guard pitch > 0 else { return }
+        var x: CGFloat = 0
+        while x < bounds.width {
+            NSRect(x: x, y: 0, width: zoom, height: bounds.height).fill()
+            x += pitch
+        }
+        var y: CGFloat = 0
+        while y < bounds.height {
+            NSRect(x: 0, y: y, width: bounds.width, height: zoom).fill()
+            y += pitch
+        }
+    }
+}
+
 /// The switch hold: a workspace switch onto pages that have painted shows
 /// the departed workspace and then the finished one, and nothing between
 /// ([B05] of the workspace-skeletons brief).
@@ -409,7 +458,10 @@ final class BodyHeldPicture: NSView {
 /// — the departed workspace — and holds it above everything while the shell
 /// switches and the host trades the pages beneath, then lifts it in one
 /// transaction two host frames after the shell's switched frame has
-/// rendered, waiting on no page: an arriving page that has not confirmed
+/// rendered — or, past the bar, as soon as the switch's placement is in,
+/// onto the host's own ground (`BodySwitchGround`), which stands for the
+/// arriving canvas until the shell's frame lands — waiting on no page: an
+/// arriving page that has not confirmed
 /// shows as it stands, or its skeleton. It stands on every switch onto at
 /// least one painted page — a switch onto none is the face hand-over's,
 /// whose faces and the stand-ins beneath them are already one picture —
@@ -423,8 +475,12 @@ final class BodySwitchHold {
     /// on holds nothing for ever.
     static let deadlineMs = 300
     /// What a switch's cut is measured against: spaceWillSwitch to the lift.
-    /// The line reports `over_bar` against it; it lifts nothing early.
+    /// The line reports `over_bar` against it. Past it the hold stops
+    /// waiting on the shell's frame: once the switch's placement is in it
+    /// lifts onto the host's ground.
     static let barMs = 100
+    /// How long the host's ground stands at most with no shell frame ([L33]).
+    static let groundHorizonMs = 3000
     /// How many host frames the picture stands past the last page coming on:
     /// that page's frame, presented.
     static let liftFrames = 2
@@ -480,6 +536,9 @@ final class BodySwitchHold {
     /// at the first placement after the hold began, has answered.
     private var shellRendered = false
     private var shellAsked = false
+    /// The bar has passed with the picture still up: the lift no longer
+    /// waits on the shell's frame, only on the switch's placement.
+    private var barPassed = false
     /// What the hold's line reports, each relative to `since`: the picture's
     /// cost, the first placement, the shell's snapshot answer, and per card
     /// the hold waited on when its page was first on (visible and showable)
@@ -542,6 +601,7 @@ final class BodySwitchHold {
         repainted = []
         shellRendered = false
         shellAsked = false
+        barPassed = false
         placementMs = nil
         shellMs = nil
         named = []
@@ -562,6 +622,11 @@ final class BodySwitchHold {
             ])
             self.lift("horizon")
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.barMs)) { [weak self] in
+            guard let self, self.serial == mine, self.picture != nil else { return }
+            self.barPassed = true
+            self.check()
+        }
         check()
     }
 
@@ -570,15 +635,58 @@ final class BodySwitchHold {
     /// frame, stand-ins and all, has rendered.
     func placementArrived() {
         guard picture != nil, !shellAsked else { return }
-        shellAsked = true
         placementMs = elapsedMs()
+        askShell()
+        check()
+    }
+
+    /// Ask the shell for a snapshot, once a hold: its answer says the
+    /// shell's switched frame has rendered. An answer after the lift takes
+    /// down the ground the lift stood for it.
+    private func askShell() {
+        guard !shellAsked else { return }
+        shellAsked = true
         let mine = serial
         window.snapshotShell(rect: CGRect(x: 0, y: 0, width: 1, height: 1)) { [weak self] _ in
             guard let self, self.serial == mine else { return }
+            guard self.picture != nil else {
+                self.liftGroundWhenPresented(mine)
+                return
+            }
             self.shellRendered = true
             self.shellMs = self.elapsedMs()
             self.check()
         }
+    }
+
+    /// The shell's snapshot answered after the lift: its switched frame has
+    /// rendered, and is on screen `liftFrames` host frames on, as the
+    /// picture's own lift counts them. The ground goes then, never on the
+    /// answer, which leads the frame it answers for.
+    private func liftGroundWhenPresented(_ mine: Int) {
+        let shellMs = Int(elapsedMs().rounded())
+        var frames = 0
+        var link: CADisplayLink?
+        let tick = RailSpringTick { [weak self] fired in
+            frames += 1
+            guard frames >= Self.liftFrames else { return }
+            fired.invalidate()
+            link = nil
+            guard let self, self.serial == mine, self.picture == nil else { return }
+            self.liftGround(mine, why: "shell", shellMs: shellMs)
+        }
+        link = controller.hostView.displayLink(target: tick, selector: #selector(RailSpringTick.fire(_:)))
+        link?.add(to: .main, forMode: .common)
+    }
+
+    /// Take the host's ground down, if `serial`'s lift stood one.
+    private func liftGround(_ serial: Int, why: String, shellMs: Int? = nil) {
+        guard window.liftSwitchGround() else { return }
+        TugLog.info("bodies", "switch ground lifted", [
+            TugLog.field("serial", serial), TugLog.field("why", why),
+            TugLog.field("shell_ms", shellMs.map { "\($0)" } ?? "none"),
+            TugLog.field("stood_until_ms", Int(elapsedMs().rounded())),
+        ])
     }
 
     /// An arriving page has painted: a page made ahead or parked draws for
@@ -599,7 +707,7 @@ final class BodySwitchHold {
         guard picture != nil else { return }
         _ = pagesOn()
         noteShown()
-        guard liftLink == nil, shellRendered else { return }
+        guard liftLink == nil, shellRendered || (barPassed && placementMs != nil) else { return }
         let mine = serial
         var frames = 0
         let tick = RailSpringTick { [weak self] link in
@@ -608,7 +716,7 @@ final class BodySwitchHold {
                 return
             }
             frames += 1
-            if frames >= Self.liftFrames { self.lift("landed") }
+            if frames >= Self.liftFrames { self.lift(self.shellRendered ? "landed" : "ground") }
         }
         let link = controller.hostView.displayLink(target: tick, selector: #selector(RailSpringTick.fire(_:)))
         link.add(to: .main, forMode: .common)
@@ -683,8 +791,23 @@ final class BodySwitchHold {
                   body.visible, body.painted else { continue }
             if controller.lifecycle.standParkCover(over: body) { covered += 1 }
         }
+        // The shell's switched frame has not rendered: what it shows is the
+        // departed workspace's canvas, so the host's ground stands for the
+        // arriving one until it has. A ground left by an earlier switch
+        // goes when this one's shell frame is already up.
+        let rendered = shellRendered
+        let grounded = rendered ? false : window.standSwitchGround()
+        if rendered { window.liftSwitchGround() }
         picture.removeFromSuperview()
         CATransaction.commit()
+        if grounded {
+            let mine = serial
+            askShell()
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.groundHorizonMs)) { [weak self] in
+                guard let self, self.serial == mine else { return }
+                self.liftGround(mine, why: "horizon")
+            }
+        }
         controller.lifecycle.switchHoldEnded(hid: bodies.filter { $0.cardId.map(hiding.contains) == true })
         arriving = []
         forcedHidden = hiding

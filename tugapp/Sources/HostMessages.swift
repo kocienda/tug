@@ -619,9 +619,14 @@ struct ChoosePath: Decodable, Equatable {
     }
 }
 
-/// `setTheme`: the window's background, as the theme's canvas colour.
+/// `setTheme`: the window's background, as the theme's canvas colour, and
+/// with it the deck's ground as the shell paints it now — the canvas and a
+/// grid line over it, each an opaque hex — for the ground the host stands
+/// at a workspace switch's cut (`BodySwitchGround`).
 struct SetTheme: Decodable, Equatable {
     var color: String
+    var canvas: String?
+    var grid: String?
 }
 
 /// `tooltipDelay`: how long an OS tooltip waits before it appears, in

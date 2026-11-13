@@ -752,6 +752,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// The View › Zoom factor the deck is drawn at — stored state, applied by
     /// the deck to its own root. Never `webView.pageZoom`.
     private var zoomFactor: CGFloat = MainWindow.defaultPageZoom
+    /// The deck's ground as the shell last said it paints (`setTheme`), and
+    /// the ground standing now for a switch whose shell frame is late.
+    private var switchGroundColors: (canvas: NSColor, grid: NSColor)?
+    private var switchGround: BodySwitchGround?
 
     /// The last factor other than 100 % the user chose, or nil if they never
     /// have. Toggle Actual Size (⌥⌘0) goes there from 100 %.
@@ -1768,6 +1772,32 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         containerView.addSubview(picture, positioned: .above, relativeTo: nil)
         CATransaction.commit()
         return picture
+    }
+
+    /// Stand the deck's ground, in the colours the shell last said, over the
+    /// shell's page and beneath every card (`BodySwitchGround`). True when
+    /// one stands on return; false when the shell has said no colours yet.
+    @discardableResult
+    func standSwitchGround() -> Bool {
+        if switchGround != nil { return true }
+        guard let colors = switchGroundColors else { return false }
+        let ground = BodySwitchGround(frame: containerView.bounds, canvas: colors.canvas, grid: colors.grid, zoom: zoomFactor)
+        ground.autoresizingMask = [.width, .height]
+        containerView.addSubview(ground, positioned: .above, relativeTo: webView)
+        switchGround = ground
+        return true
+    }
+
+    /// Take the ground down. True when one stood.
+    @discardableResult
+    func liftSwitchGround() -> Bool {
+        guard let ground = switchGround else { return false }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        ground.removeFromSuperview()
+        CATransaction.commit()
+        switchGround = nil
+        return true
     }
 
     /// Capture the current WebView content as a snapshot overlay so the user
@@ -2800,6 +2830,17 @@ extension MainWindow {
             TugLog.info("launch", "deck lap", fields)
         case .setTheme(let theme):
             bridgeDelegate?.bridgeSetTheme(color: theme.color)
+            // The hexes are sRGB, as the page composites them: said so, the
+            // ground's pixels are the shell's own, not a colour match's.
+            let srgb = { (hex: String?) -> NSColor? in
+                guard let c = hex.flatMap({ NSColor(hexString: $0) }) else { return nil }
+                return NSColor(srgbRed: c.redComponent, green: c.greenComponent, blue: c.blueComponent, alpha: 1)
+            }
+            if let canvas = srgb(theme.canvas), let grid = srgb(theme.grid) {
+                switchGroundColors = (canvas, grid)
+                switchGround?.canvas = canvas
+                switchGround?.grid = grid
+            }
         case .tooltipDelay(let delay):
             TooltipDelay.apply(milliseconds: delay.delayMs)
         case .pageZoom(let zoom):

@@ -51,11 +51,13 @@ export const getSettingsToHost = defineToHost({
   refused: [true],
 });
 
-export const setThemeToHost = defineToHost({
+export const setThemeToHost = defineToHost<{ color: string; canvas?: string; grid?: string }>({
   name: "setTheme",
   from: "shell",
-  codec: obj({ color: str }),
-  samples: [{ color: "#1c1e22" }],
+  // `canvas` and `grid` are the deck's ground as the shell paints it, for the
+  // host's stand-in ground at a workspace switch's cut.
+  codec: obj({ color: str, canvas: optional(str), grid: optional(str) }),
+  samples: [{ color: "#1c1e22" }, { color: "#1c1e22", canvas: "#16181d", grid: "#2a2d34" }],
   refused: ["#1c1e22", {}, { color: 0x1c1e22 }],
 });
 

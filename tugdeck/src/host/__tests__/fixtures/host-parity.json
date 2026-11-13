@@ -1074,6 +1074,11 @@
       "samples": [
         {
           "color": "#1c1e22"
+        },
+        {
+          "color": "#1c1e22",
+          "canvas": "#16181d",
+          "grid": "#2a2d34"
         }
       ],
       "refused": [
