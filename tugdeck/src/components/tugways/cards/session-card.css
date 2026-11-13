@@ -50,11 +50,15 @@
 
 /* Entry pane wrapper — a TugBox rendered plain + inset={false}.
    TugBox's default width:fit-content would collapse the box to content
-   width; `width: 100%` makes it span the entry region. Height is
+   width; `width: 100%` makes it span the entry region. The selector carries
+   `.tug-box` so it outranks that default by specificity, not stylesheet
+   order: two one-class rules tie, the later sheet wins, and a body page that
+   loaded `tug-box.css` last drew an empty draft's composer at its
+   placeholder's width with the card's ground beside it. Height is
    content-sized (no `height: 100%`) so the auto-height editor drives the
    region's height. The fieldset element is otherwise already reset by
    tug-box.css (no border, no margin, no padding when plain + inset={false}). */
-.session-card-entry-pane {
+.tug-box.session-card-entry-pane {
   display: flex;
   flex-direction: column;
   width: 100%;

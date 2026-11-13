@@ -40,7 +40,9 @@
    the auto-height editor drives the region's height. The fieldset element is
    otherwise already reset by tug-box.css (no border, no margin, no padding
    when plain + inset={false}). */
-.gallery-prompt-entry-entry-pane {
+/* `.tug-box` in the selector outranks TugBox's `width: fit-content` by
+   specificity, not by stylesheet order (see `.session-card-entry-pane`). */
+.tug-box.gallery-prompt-entry-entry-pane {
   display: flex;
   flex-direction: column;
   width: 100%;
