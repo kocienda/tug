@@ -4,10 +4,9 @@
  *
  * `claude -p "/usage"` emits the whole panel as plain text: a plan line, the
  * limit windows (each `Label: N% used · resets …`), then a "What's contributing
- * to your limits usage?" section with one or more time periods (`Last 24h`,
- * `Last 7d`), each carrying request/session counts, independent usage
- * characteristics (`N% of your usage was at >150k context`, `… came from
- * subagent-heavy sessions`), and top skills / subagents / plugins tables. This
+ * to your usage?" section with one or more time periods (`Last 24h`,
+ * `Last 7d`), each carrying request/session counts, percent-led
+ * characteristics, and top skills / subagents / plugins tables. This
  * module turns that text into {@link UsageData} with pure, unit-testable
  * functions — no store, DOM, or React.
  *
@@ -28,10 +27,14 @@ export interface UsageWindow {
   resetText: string;
 }
 
-/** One independent usage characteristic, e.g. "was at >150k context". */
+/**
+ * One percent-led line under a period. Claude Code ≤ 2.1.2xx printed usage
+ * characteristics (`91% of your usage was at >150k context`); 2.1.3xx prints
+ * tips (`79%  Start fresh when you switch tasks · run /clear`). Both parse here.
+ */
 export interface UsageCharacteristic {
   percent: number;
-  /** The clause after the percent, e.g. "of your usage was at >150k context". */
+  /** The clause after the percent, e.g. "Start fresh when you switch tasks · run /clear". */
   text: string;
 }
 
@@ -58,14 +61,18 @@ export interface UsageData {
   /** The lead plan line, e.g. "You are currently using your subscription…". */
   planLine: string | null;
   windows: UsageWindow[];
-  /** "Approximate, based on local sessions…" caveat, if present. */
+  /**
+   * The "Approximate…" caveat, if present — "Approximate, based on local
+   * sessions…" before 2.1.3xx, "Approximate · sessions on this machine only ·
+   * shares overlap" since.
+   */
   contributingCaveat: string | null;
   periods: UsagePeriod[];
 }
 
 const WINDOW_RE = /^(.+?):\s+(\d+)%\s+used\s+·\s+(.+)$/;
 const PERIOD_RE = /^Last\s+(\S+)\s+·\s+([\d,]+)\s+requests?\s+·\s+([\d,]+)\s+sessions?/i;
-const CHARACTERISTIC_RE = /^(\d+)%\s+(of your usage\s+.+)$/i;
+const CHARACTERISTIC_RE = /^(\d+)%\s+(.+)$/;
 const TOP_RE = /^Top\s+(skills|subagents|plugins):\s+(.+)$/i;
 
 /** Parse `"12,345"` / `"77"` → number, or null. */
@@ -120,7 +127,7 @@ export function parseUsageText(text: string): UsageData {
       continue;
     }
 
-    if (/^Approximate, based on local sessions/i.test(line)) {
+    if (period === null && /^Approximate\b/i.test(line)) {
       data.contributingCaveat = line;
       continue;
     }

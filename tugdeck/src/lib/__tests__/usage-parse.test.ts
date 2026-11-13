@@ -91,6 +91,57 @@ describe("parseUsageText", () => {
   });
 });
 
+/**
+ * Verbatim Claude Code 2.1.322 output. The windows are unchanged in form; the
+ * session window is absent because the CLI prints a window only while the API
+ * reports it. The contributing section now carries percent-led tips and a
+ * shorter caveat.
+ */
+const SAMPLE_2_1_322 = [
+  "You are currently using your subscription to power your Claude Code usage",
+  "",
+  "Current week (all models): 2% used · resets Nov 16 at 1:59am (America/Los_Angeles)",
+  "Current week (Fable): 2% used · resets Nov 16 at 1:59am (America/Los_Angeles)",
+  "",
+  "What's contributing to your usage?",
+  "Approximate · sessions on this machine only · shares overlap",
+  "",
+  "Last 24h · 8048 requests · 217 sessions",
+  "  79%  Start fresh when you switch tasks · run /clear",
+  "  19%  Trim ~/Mounts/u/src/tug/CLAUDE.md · 7k tokens per request",
+  "  Top skills: /tugplug:arc-implement 52%, /tugplug:arc-audit 8%",
+  "  Top subagents: general-purpose 1%",
+  "  Top plugins: tugplug 66%",
+].join("\n");
+
+describe("parseUsageText on 2.1.322 output", () => {
+  const data = parseUsageText(SAMPLE_2_1_322);
+
+  test("parses the windows the CLI printed, with no session window", () => {
+    expect(data.windows.map((w) => w.label)).toEqual([
+      "Current week (all models)",
+      "Current week (Fable)",
+    ]);
+  });
+
+  test("captures the shorter caveat", () => {
+    expect(data.contributingCaveat).toBe(
+      "Approximate · sessions on this machine only · shares overlap",
+    );
+  });
+
+  test("parses tips as characteristics and keeps the tables", () => {
+    const p = data.periods[0];
+    expect(p.requests).toBe(8048);
+    expect(p.characteristics).toEqual([
+      { percent: 79, text: "Start fresh when you switch tasks · run /clear" },
+      { percent: 19, text: "Trim ~/Mounts/u/src/tug/CLAUDE.md · 7k tokens per request" },
+    ]);
+    expect(p.skills).toHaveLength(2);
+    expect(p.plugins).toEqual([{ name: "tugplug", percent: 66 }]);
+  });
+});
+
 describe("parseTopEntries", () => {
   test("splits `name N%` segments, keeping hyphenated names intact", () => {
     expect(parseTopEntries("Explore 2%, general-purpose 1%")).toEqual([

@@ -163,7 +163,8 @@ function isSessionWindow(w: UsageWindow): boolean {
 /**
  * Trim a characteristic clause for a gauge label so the readout reads
  * naturally after the percent: "of your usage was at >150k context" →
- * "at >150k context" (the gauge renders "91% at >150k context").
+ * "at >150k context" (the gauge renders "91% at >150k context"). A tip
+ * ("Start fresh when you switch tasks · run /clear") passes through as is.
  */
 function characteristicLabel(text: string): string {
   return text

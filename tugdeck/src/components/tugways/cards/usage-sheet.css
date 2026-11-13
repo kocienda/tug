@@ -229,7 +229,9 @@
 }
 
 /* One characteristic: a showcased label on its own line over a full-width
-   gauge, so every characteristic bar is the same length regardless of label. */
+   gauge, so every characteristic bar is the same length regardless of label.
+   The label keeps its case: since Claude Code 2.1.3xx a characteristic is a
+   tip that names a command or a path (`run /clear`, `~/…/CLAUDE.md`). */
 .usage-sheet-char {
   display: flex;
   flex-direction: column;
@@ -240,8 +242,6 @@
 .usage-sheet-char-label {
   color: var(--tug7-element-global-text-normal-muted-rest);
   font-size: var(--tug-font-size-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .usage-sheet-tables {
