@@ -1,5 +1,7 @@
 import AppKit
+import ImageIO
 import PDFKit
+import UniformTypeIdentifiers
 import WebKit
 
 /// Renders shared turns to a file: one hidden web view per render, loading
@@ -35,39 +37,28 @@ import WebKit
 /// the window — so the host keeps nothing between renders. The requesting
 /// page is held weakly: an answer to a page that has gone is dropped.
 ///
-/// **The image** is a snapshot of the whole document at the view's backing
-/// scale. A document taller than `ShareRenderOutput.maxImageHeight` answers
-/// `tooTall` without a snapshot.
+/// **The image** is the whole document, however tall. One WebKit snapshot of
+/// a very tall rect is the unreliable part, so the document is photographed
+/// in tiles of `tileHeight` points, top to bottom, and each is drawn into one
+/// bitmap at `ShareRenderOutput.imageScale` — the view's backing scale while
+/// the bitmap stays inside the pixel budget, 1× past it — which is then
+/// written as a single PNG. There is no height cap: a document too large for
+/// even a 1× bitmap fails to allocate and answers `failed`.
 ///
-/// **The PDF** is a print operation saved to the file: no panels, zero
-/// margins, the column fitted to a page of the column's width and a letter
-/// page's proportion, paginated down its length, with the theme's ground
-/// printed. A result PDFKit reads as no pages, or whose first page's corner
-/// is transparent (printed without its ground), is replaced by one tall page
-/// from `createPDF`, logged once.
+/// **The PDF** is one continuous page, the column's width and the document's
+/// height, from `createPDF`: no page breaks, so no row, fence or line is ever
+/// cut across a boundary, and the theme's ground runs edge to edge. It reads
+/// as the card does — scrolled, not paged.
 ///
 /// **Readings**, 2026-11-13, an app-test instance at 2× in the default dark
 /// theme, turns of a prompt and a reply carrying a code fence, a list and a
-/// paragraph, request to answer:
-///
-/// - 10 turns: PDF 2.4 s (5 pages), image 2.4 s (5009 px);
-/// - 50 turns: PDF 2.7 s (22 pages), image `tooTall` at 24,565 px;
-/// - 200 turns: PDF 4.0–4.4 s (85 pages), image `tooTall` at 97,897 px.
-///
-/// About 2 s of every render is the share page's bounded wait on fonts that
-/// never load (`share-main.ts`, `FACE_HORIZON_MS`), so the cost of a large
-/// selection is small: neither threshold — a 200-turn PDF over 30 s, an
-/// 8000-pixel snapshot failing — tripped, and the cap and the deadline stand.
-/// The hidden view painted for the snapshot and for the print operation alike.
-/// The dark ground prints to every page edge, so a recipient sees the card's
-/// look; the print operation never fell back to `createPDF`. Pages after the
-/// first start flush at the page's top edge with no inset of their own beyond
-/// a row's gap, and a row may break across a page boundary — read as a
-/// continuation, and accepted. The page's HTML runs about 37 KB a turn
-/// (7.5 MB at 200), the size of every element's look written inline.
-///
-/// The print operation calls its did-run selector on its own thread; the
-/// handler moves to the main queue before touching the job or the view.
+/// paragraph: 10 turns laid out at 5,009 px, 50 at 24,565 px and 200 at
+/// 97,897 px, each rendered in 2.4–4.4 s. About 2 s of every render is the
+/// share page's bounded wait on fonts that never load (`share-main.ts`,
+/// `FACE_HORIZON_MS`), so the cost of a large selection is small. The hidden
+/// view paints for the snapshot and for the PDF alike. The page's HTML runs
+/// about 37 KB a turn (7.5 MB at 200), the size of every element's look
+/// written inline.
 final class ShareRenderer: NSObject, WKNavigationDelegate {
     /// How long one render may take, end to end.
     static let deadline: DispatchTimeInterval = .seconds(60)
@@ -104,8 +95,6 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
 
     private weak var window: MainWindow?
     private var jobs: [String: Job] = [:]
-    /// The job each running print operation saves, by the operation.
-    private var printing: [ObjectIdentifier: String] = [:]
 
     init(window: MainWindow) {
         self.window = window
@@ -181,13 +170,6 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         job.height = contentHeight
         switch job.format {
         case .png:
-            if ShareRenderOutput.isTooTallForImage(height: Double(contentHeight)) {
-                TugLog.info("share", "too tall for an image", [TugLog.field("id", id), TugLog.field("height", String(height))])
-                job.answer?.answer(ShareRendered(
-                    id: id, result: .tooTall, path: "", height: Double(contentHeight), pages: 0, html: ""
-                ))
-                return
-            }
             size(job)
             snapshotPNG(job, height: contentHeight)
         case .pdf:
@@ -196,12 +178,12 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// The share page in `view` answered with its inline-styled HTML: print
+    /// The share page in `view` answered with its inline-styled HTML: write
     /// the PDF, which carries it to the requester.
     func html(id: String, html: String, from view: WKWebView) {
         guard let job = jobs[id], job.view === view, job.ready, job.format == .pdf, !job.hasHtml else { return }
         job.hasHtml = true
-        printPDF(job, html: html)
+        writePDF(job, html: html)
     }
 
     /// Size the view, and the holder it stands in, to the laid-out document.
@@ -210,87 +192,20 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         job.view.setFrameSize(NSSize(width: Self.width, height: job.height))
     }
 
-    /// A page of the column's width in a letter page's proportion.
-    private static let pageSize = NSSize(width: width, height: (width * 11 / 8.5).rounded())
-
-    private func printPDF(_ job: Job, html: String) {
-        guard let window else { return }
+    /// One continuous page of the whole document: the column's width, the
+    /// document's height, no page breaks.
+    private func writePDF(_ job: Job, html: String) {
         let id = job.id
         let url = ShareRenderOutput.outputURL(id: id, format: .pdf)
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
-        } catch {
-            TugLog.warn("share", "write failed", [TugLog.field("id", id), TugLog.field("error", error.localizedDescription)])
-            job.answer?.answer(.failed(id: id))
-            return
-        }
-        let info = NSPrintInfo()
-        info.dictionary().setObject(url, forKey: NSPrintInfo.AttributeKey.jobSavingURL as NSCopying)
-        info.jobDisposition = .save
-        info.paperSize = Self.pageSize
-        info.topMargin = 0
-        info.bottomMargin = 0
-        info.leftMargin = 0
-        info.rightMargin = 0
-        info.horizontalPagination = .fit
-        info.verticalPagination = .automatic
-        info.isHorizontallyCentered = false
-        info.isVerticallyCentered = false
-        let operation = job.view.printOperation(with: info)
-        operation.showsPrintPanel = false
-        operation.showsProgressPanel = false
-        // WebKit's print view starts at a zero frame, which prints blank.
-        operation.view?.frame = job.view.bounds
-        printing[ObjectIdentifier(operation)] = id
-        jobHtml[id] = html
-        operation.runModal(
-            for: window,
-            delegate: self,
-            didRun: #selector(printOperationDidRun(_:success:contextInfo:)),
-            contextInfo: nil
-        )
-    }
-
-    /// The HTML each PDF job's page returned, carried to its answer.
-    private var jobHtml: [String: String] = [:]
-
-    /// AppKit calls this on the print operation's own thread, not the main
-    /// one: everything it does — the jobs, the view's teardown, the reply —
-    /// is main-thread work, so it moves there first.
-    @objc private func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
-        let key = ObjectIdentifier(operation)
-        DispatchQueue.main.async { [weak self] in
-            self?.printed(key, success: success)
-        }
-    }
-
-    private func printed(_ key: ObjectIdentifier, success: Bool) {
-        guard let id = printing.removeValue(forKey: key), let job = jobs[id] else { return }
-        let url = ShareRenderOutput.outputURL(id: id, format: .pdf)
-        let html = jobHtml[id] ?? ""
-        if success, let pages = Self.paintedPageCount(url) {
-            job.answer?.answer(ShareRendered(
-                id: id, result: .ok, path: url.path, height: Double(job.height), pages: pages, html: html
-            ))
-            return
-        }
-        TugLog.warn("share", "printed PDF is blank; rendering one tall page", [
-            TugLog.field("id", id), TugLog.field("printed", String(success)),
-        ])
-        createPDF(job, url: url, html: html)
-    }
-
-    /// One tall page of the whole document, when the print operation printed
-    /// nothing or printed without its ground.
-    private func createPDF(_ job: Job, url: URL, html: String) {
-        let id = job.id
         let config = WKPDFConfiguration()
         config.rect = CGRect(x: 0, y: 0, width: Self.width, height: job.height)
         job.view.createPDF(configuration: config) { [weak self] result in
             guard let self, let job = self.jobs[id] else { return }
             do {
                 let data = try result.get()
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+                )
                 try data.write(to: url, options: .atomic)
                 job.answer?.answer(ShareRendered(
                     id: id, result: .ok, path: url.path, height: Double(job.height),
@@ -303,59 +218,101 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// The page count of the PDF at `url` when its first page painted its
-    /// ground — a pixel near its top-left corner, drawn over transparency,
-    /// is opaque — or `nil` for a file with no pages or a blank first page.
-    static func paintedPageCount(_ url: URL) -> Int? {
-        guard let document = PDFDocument(url: url), document.pageCount > 0,
-              let page = document.page(at: 0) else { return nil }
-        let bounds = page.bounds(for: .mediaBox)
-        let w = max(1, Int(bounds.width.rounded())), h = max(1, Int(bounds.height.rounded()))
+    /// How tall one snapshot tile is, in points. Well inside what one WebKit
+    /// snapshot returns reliably at 2×.
+    private static let tileHeight: CGFloat = 4096
+
+    /// Photograph the whole document, a tile at a time, into one bitmap, and
+    /// write it as a PNG.
+    private func snapshotPNG(_ job: Job, height: CGFloat) {
+        let id = job.id
+        let backing = Double(job.view.window?.backingScaleFactor ?? 2)
+        let scale = CGFloat(ShareRenderOutput.imageScale(height: Double(height), width: Double(Self.width), backing: backing))
+        let pixelsWide = Int((Self.width * scale).rounded())
+        let pixelsHigh = Int((height * scale).rounded())
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
-                data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                data: nil, width: pixelsWide, height: pixelsHigh, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ) else { return nil }
-        context.clear(CGRect(x: 0, y: 0, width: w, height: h))
-        page.draw(with: .mediaBox, to: context)
-        guard let data = context.data else { return nil }
-        // Row 4 from the top, column 4: inside the page's corner, outside any
-        // row's ink.
-        let alpha = data.load(fromByteOffset: (4 * w + 4) * 4 + 3, as: UInt8.self)
-        return alpha == 0 ? nil : document.pageCount
+              ) else {
+            TugLog.warn("share", "image too large to allocate", [
+                TugLog.field("id", id), TugLog.field("pixels", "\(pixelsWide)x\(pixelsHigh)"),
+            ])
+            job.answer?.answer(.failed(id: id))
+            return
+        }
+        snapshotTile(id: id, into: context, from: 0, height: height, scale: scale)
     }
 
-    private func snapshotPNG(_ job: Job, height: CGFloat) {
+    /// Photograph the tile starting `y` points down and draw it into
+    /// `context`, then go on to the next; past the last, write the PNG.
+    private func snapshotTile(id: String, into context: CGContext, from y: CGFloat, height: CGFloat, scale: CGFloat) {
+        guard let job = jobs[id] else { return }
+        guard y < height else {
+            writePNG(id: id, from: context, height: height, scale: scale)
+            return
+        }
+        let tile = min(Self.tileHeight, height - y)
         let config = WKSnapshotConfiguration()
-        config.rect = CGRect(x: 0, y: 0, width: Self.width, height: height)
+        config.rect = CGRect(x: 0, y: y, width: Self.width, height: tile)
         config.afterScreenUpdates = true
-        let id = job.id
         job.view.takeSnapshot(with: config) { [weak self] image, error in
             guard let self, let job = self.jobs[id] else { return }
-            guard let image,
-                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-                  let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]) else {
+            guard let image, let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 TugLog.warn("share", "snapshot failed", [
                     TugLog.field("id", id),
+                    TugLog.field("y", String(Int(y))),
                     TugLog.field("error", error?.localizedDescription ?? "no image"),
                 ])
                 job.answer?.answer(.failed(id: id))
                 return
             }
-            let url = ShareRenderOutput.outputURL(id: id, format: .png)
-            do {
-                try FileManager.default.createDirectory(
-                    at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-                )
-                try data.write(to: url, options: .atomic)
-            } catch {
-                TugLog.warn("share", "write failed", [TugLog.field("id", id), TugLog.field("error", error.localizedDescription)])
-                job.answer?.answer(.failed(id: id))
-                return
-            }
-            job.answer?.answer(ShareRendered(
-                id: id, result: .ok, path: url.path, height: Double(height), pages: 1, html: ""
+            // The bitmap's origin is its bottom-left; the document's is its top.
+            context.draw(cgImage, in: CGRect(
+                x: 0, y: (height - y - tile) * scale, width: Self.width * scale, height: tile * scale
             ))
+            self.snapshotTile(id: id, into: context, from: y + tile, height: height, scale: scale)
+        }
+    }
+
+    /// Write the stitched bitmap as one PNG, tagged with its pixel density so
+    /// a viewer shows it at the column's own size.
+    private func writePNG(id: String, from context: CGContext, height: CGFloat, scale: CGFloat) {
+        guard let job = jobs[id] else { return }
+        let url = ShareRenderOutput.outputURL(id: id, format: .png)
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+        } catch {
+            TugLog.warn("share", "write failed", [TugLog.field("id", id), TugLog.field("error", error.localizedDescription)])
+            job.answer?.answer(.failed(id: id))
+            return
+        }
+        let dpi = 72 * Double(scale)
+        let properties: [CFString: Any] = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi]
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+            TugLog.warn("share", "write failed", [TugLog.field("id", id), TugLog.field("error", "no image destination")])
+            job.answer?.answer(.failed(id: id))
+            return
+        }
+        // Compressing a very tall image takes seconds: off the main thread,
+        // so the app stays live, then back on it to answer.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+            let written = CGImageDestinationFinalize(destination)
+            DispatchQueue.main.async {
+                guard let self, let job = self.jobs[id] else { return }
+                guard written else {
+                    TugLog.warn("share", "write failed", [TugLog.field("id", id), TugLog.field("error", "the PNG did not finalize")])
+                    job.answer?.answer(.failed(id: id))
+                    return
+                }
+                job.answer?.answer(ShareRendered(
+                    id: id, result: .ok, path: url.path, height: Double(height), pages: 1, html: ""
+                ))
+            }
         }
     }
 
@@ -399,7 +356,6 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
     /// Answer the requester, if it is still there, and take the view down.
     private func finish(id: String, with outcome: ShareRendered) {
         guard let job = jobs.removeValue(forKey: id) else { return }
-        jobHtml.removeValue(forKey: id)
         TugLog.info("share", "render finished", [
             TugLog.field("id", id),
             TugLog.field("result", outcome.result.rawValue),

@@ -982,7 +982,7 @@ struct ShareHtmlRequest: Codable, Equatable {
 /// PDF.
 struct ShareRendered: Codable, Equatable {
     enum Result: String, Codable, Equatable {
-        case ok, failed, tooTall
+        case ok, failed
     }
 
     var id: String

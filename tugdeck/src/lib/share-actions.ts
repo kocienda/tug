@@ -7,8 +7,8 @@
  * string they show through tugcast's scrub (secrets out, `$HOME` to `~`), and
  * writes the Markdown with its header. For a PDF or an image it then has the
  * host render the scrubbed slice through the card's own cells
- * (`shareRender`): an image past the host's height cap is refused, and the
- * format moves to PDF with a bulletin rather than previewing anything.
+ * (`shareRender`): a PDF of one continuous page, or an image of the whole
+ * selection, however tall.
  *
  * Nothing leaves the machine unseen, and every action acts:
  *
@@ -73,8 +73,6 @@ export interface ShareActionContext {
 export const SCRUB_FAILED_TEXT = "Couldn't check the text for secrets";
 /** The bulletin an action outside the app reads. */
 export const SHARE_NEEDS_APP_TEXT = "Sharing needs the Tug app";
-/** The bulletin an image past the host's height cap reads; the format moves to PDF. */
-export const TOO_TALL_TEXT = "Too tall for an image — switched to PDF";
 /** The bulletin a render that failed reads. */
 export const RENDER_FAILED_TEXT = "Couldn't render the turns";
 /** The bulletin a press with nothing marked reads. */
@@ -90,8 +88,8 @@ interface MadeArtifact {
  * Make the marked turns' artifact in the store's format: scrubbed Markdown,
  * or a PDF or image the host rendered from it. `null` when nothing is marked,
  * a private session's confirmation is declined, the scrub or the render fails,
- * an image is too tall, or share mode was left meanwhile — each said in the
- * bulletin where the user needs to hear it.
+ * or share mode was left meanwhile — each said in the bulletin where the user
+ * needs to hear it.
  */
 async function makeArtifact(ctx: ShareActionContext): Promise<MadeArtifact | null> {
   const { store, codeSessionStore } = ctx;
@@ -151,11 +149,6 @@ async function makeArtifact(ctx: ShareActionContext): Promise<MadeArtifact | nul
     });
     const outcome = await shareRender(format, JSON.stringify(renderDocument));
     if (!store.getSnapshot().active) return null;
-    if (outcome.result === "tooTall") {
-      store.setFormat("pdf");
-      ctx.notify()?.caution(TOO_TALL_TEXT);
-      return null;
-    }
     if (outcome.result !== "ok") {
       ctx.notify()?.caution(RENDER_FAILED_TEXT);
       return null;

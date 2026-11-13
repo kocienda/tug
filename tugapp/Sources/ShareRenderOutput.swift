@@ -14,15 +14,19 @@ import Foundation
 ///
 /// Pure paths and file operations, no window: compiled into the tests too.
 enum ShareRenderOutput {
-    /// The tallest document rendered as an image, in CSS pixels: about ten
-    /// phone screens, still scrollable in a message thread, and 16,000 device
-    /// pixels at 2×, inside WebKit's snapshot limits. A taller image answers
-    /// `tooTall` and the share offers PDF instead.
-    static let maxImageHeight: Double = 8000
+    /// The most pixels an image is rendered with at the display's own scale:
+    /// 250 million, a gigabyte of bitmap. An image has no height cap; this
+    /// only decides how sharp a very tall one is.
+    static let imagePixelBudget: Double = 250_000_000
 
-    /// Whether a document `height` CSS pixels tall is too tall for an image.
-    static func isTooTallForImage(height: Double) -> Bool {
-        height > maxImageHeight
+    /// The scale an image `width` by `height` CSS pixels is rendered at:
+    /// `backing` (the display's, 2 on a Retina screen) while the bitmap stays
+    /// inside `imagePixelBudget`, and 1 past it — a very tall share is drawn
+    /// at one pixel per point rather than refused. At 720 wide and 2× that is
+    /// every image up to about 86,800 pixels tall.
+    static func imageScale(height: Double, width: Double, backing: Double) -> Double {
+        let scale = max(1, backing)
+        return width * scale * height * scale <= imagePixelBudget ? scale : 1
     }
 
     /// `NSTemporaryDirectory()/tug-share/`.

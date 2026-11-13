@@ -17,11 +17,14 @@
  *      window's backing scale, whose corner is the card's own surface.
  *   B. The same turns with tool calls in full render taller: the tool mode
  *      reaches the cells (a summary is a collapsed block, full an open one).
- *   C. The same turns as a PDF answer `ok` with a `%PDF` file of at least one
- *      page, and the page's inline-styled HTML — the rich flavour a PDF's
- *      Copy writes — carrying the first prompt's text.
- *   D. A document whose header runs past 8000 pixels answers `tooTall` as an
- *      image, and writes nothing.
+ *   C. The same turns as a PDF answer `ok` with a `%PDF` file of exactly one
+ *      page — a PDF is one continuous page, never broken across pages — and
+ *      the page's inline-styled HTML — the rich flavour a PDF's Copy writes —
+ *      carrying the first prompt's text.
+ *   D. A document whose header runs past 10,000 pixels still renders as an
+ *      image: there is no height cap. It is photographed in tiles and
+ *      stitched, so the PNG is the document's full height, and its left
+ *      margin is the card's surface in every tile's band, top to bottom.
  *
  * A document that does not decode is refused by `decodeShareRenderDocument`'s
  * pure test; waiting out the host's 60 s deadline would not fit a file's
@@ -62,7 +65,7 @@ const TURNS: SeedTurn[] = [
 ];
 
 interface Rendered {
-  result: "ok" | "failed" | "tooTall";
+  result: "ok" | "failed";
   path: string;
   height: number;
   pages: number;
@@ -158,19 +161,32 @@ describe.skipIf(!SHOULD_RUN)("AT0821: share turns rendered to an image and a PDF
         expect(pdf.result, "the PDF render answers ok").toBe("ok");
         expect(pdf.path.endsWith(".pdf")).toBe(true);
         expect(readFileSync(pdf.path).subarray(0, 4).toString("latin1"), "the file is a PDF").toBe("%PDF");
-        expect(pdf.pages).toBeGreaterThanOrEqual(1);
+        expect(pdf.pages, "one continuous page").toBe(1);
         expect(pdf.html, "the HTML carries its look inline").toContain('style="');
         expect(pdf.html, "the HTML carries the first prompt").toContain(TURNS[0]!.prompt);
         expect(pdf.html.length, "the HTML writes only what differs from what the paste inherits").toBeLessThan(100_000);
 
-        // ── D. An image past the cap is refused ───────────────────────────
+        // ── D. A very tall image is still an image ────────────────────────
         const tall = await render(app, "png", "summaries", `"tall ".repeat(6000)`);
         note(`at0821 tall: ${JSON.stringify({ ...tall, html: undefined })}`);
-        expect(tall.result, "an image past 8000 pixels is too tall").toBe("tooTall");
-        expect(tall.height).toBeGreaterThan(8000);
-        expect(tall.path).toBe("");
+        expect(tall.result, "a tall image renders").toBe("ok");
+        expect(tall.height, "taller than two snapshot tiles").toBeGreaterThan(8192);
+        const tallPng = decodePngFile(tall.path);
+        expect(tallPng.width).toBe(Math.round(720 * scale));
+        expect(tallPng.height, "the PNG is the document's whole height").toBe(Math.round(tall.height * scale));
+        // The left margin is ground in every tile's band: a tile that came
+        // back blank, or was drawn at the wrong place, would not be.
+        const bands = [2, Math.round(4096 * scale) - 3, Math.round(4096 * scale) + 3, Math.round(8192 * scale) + 3, tallPng.height - 3];
+        for (const y of bands) {
+          const at = (y * tallPng.width + 2) * 4;
+          const ground = [tallPng.rgba[at]!, tallPng.rgba[at + 1]!, tallPng.rgba[at + 2]!];
+          expect(
+            ground.every((v, i) => Math.abs(v - surface[i]!) <= NEAR),
+            `row ${y} of the tall image is the card's surface, not ${JSON.stringify(ground)}`,
+          ).toBe(true);
+        }
 
-        for (const path of [summaries.path, full.path, pdf.path]) rmSync(path, { force: true });
+        for (const path of [summaries.path, full.path, pdf.path, tall.path]) rmSync(path, { force: true });
       } catch (err) {
         // A render that never answers leaves its reason in the app's log —
         // the renderer's lines and the share page's faults — which goes with

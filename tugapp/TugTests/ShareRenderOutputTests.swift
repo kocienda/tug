@@ -43,11 +43,17 @@ final class ShareRenderOutputTests: XCTestCase {
         XCTAssertFalse(ShareRenderOutput.isRenderedArtifact(path: "", pid: 4242))
     }
 
-    func testAnImageIsTooTallOnlyPastEightThousandPixels() {
-        XCTAssertFalse(ShareRenderOutput.isTooTallForImage(height: 1840))
-        XCTAssertFalse(ShareRenderOutput.isTooTallForImage(height: 8000))
-        XCTAssertTrue(ShareRenderOutput.isTooTallForImage(height: 8000.5))
-        XCTAssertTrue(ShareRenderOutput.isTooTallForImage(height: 9000))
+    func testAnImageKeepsTheDisplaysScaleUntilThePixelBudgetAndIsNeverRefused() {
+        // Short and tall alike render at the display's scale inside the budget.
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 1840, width: 720, backing: 2), 2)
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 24_565, width: 720, backing: 2), 2)
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 86_000, width: 720, backing: 2), 2)
+        // Past it, one pixel per point: still an image.
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 97_897, width: 720, backing: 2), 1)
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 1_000_000, width: 720, backing: 2), 1)
+        // A 1× display is 1× throughout, and a nonsense backing is too.
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 1840, width: 720, backing: 1), 1)
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 1840, width: 720, backing: 0), 1)
     }
 
     func testTheSweepTakesEndedProcessesAndLeavesLiveOnes() throws {

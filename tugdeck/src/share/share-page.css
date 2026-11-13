@@ -1,14 +1,11 @@
 /* The share page: the shared turns in one 720-pixel column, on the surface a
    Session card's transcript sits on — the pane's own, `--tugx-pane-bg` — run
-   to the page's edge, so an image or a PDF page is the card's ground with the
-   card's rows on it. Nothing here defines a colour, a font or a size of its
+   to the page's edge, so an image or the PDF's one continuous page is the
+   card's ground with the card's rows on it. Neither output is paginated, so
+   nothing here speaks of pages. Nothing here defines a colour, a font or a size of its
    own: every value is a token the live card already resolves, and the theme
    is the requester's, applied by name. The theme's tokens are declared on
    `body`, so `body` paints, and its background propagates to the canvas. */
-
-@page {
-  margin: 0;
-}
 
 /* A page every other mode clips to its viewport (`globals.css`) grows here to
    its content: the host sizes the view to the height this page reports. */
@@ -62,14 +59,7 @@ html[data-share-page] .session-share-transcript {
 }
 
 /* An entry's header pins to its scroller's top in a live card; a page has no
-   scroller, and a printed page must not repeat it. It stays with what it
-   heads. */
+   scroller, so it sits in flow, heading what it heads. */
 html[data-share-page] .tug-transcript-entry__pin {
   position: static;
-  break-inside: avoid;
-  break-after: avoid;
-}
-
-html[data-share-page] .session-share-transcript__row {
-  break-inside: auto;
 }

@@ -1,7 +1,7 @@
 /**
  * at0822-share-turns-bar-render.test.ts — the Share shade's rendered outputs:
- * an image previewed from the shade, Save… acting on a selection nobody has
- * previewed yet, and the refusal of an image too tall to read in a message.
+ * an image previewed from the shade, a very tall image previewed like any
+ * other, and Save… acting on a selection nobody has previewed yet.
  *
  * ## What this gates
  *
@@ -9,17 +9,18 @@
  * `at0819`'s. What only the whole shade has is the wiring between them: the
  * Format choice reaching the store, Preview… rendering the scrubbed slice
  * through the host and showing the file in the preview sheet, the artifact
- * held for the outward actions, Save… going through the preview to the save
- * panel, and the cap's refusal turned into a format change and a bulletin.
+ * held for the outward actions, and Save… going through the preview to the
+ * save panel.
  *
  *   A. Two short turns marked, Image chosen, Preview… renders them and shows
  *      the sheet; on its Done the store holds a `png` artifact whose file is
  *      on disk, and the gate stands open for it.
  *   B. Choosing PDF moves the signature off the preview; Save… stays open.
- *   C. With the tall third turn marked too, Image and Preview… show
- *      "Rendering…" while the host renders, then refuse: no sheet, the
- *      format is PDF again, and the bulletin says why.
- *   D. Save… on that unpreviewed PDF renders it and shows the preview with a
+ *   C. With the tall third turn marked too, Image and Preview… render and
+ *      show it as they did the short one: an image has no height cap, the
+ *      format stays Image, and the store holds a `png` taller than the two
+ *      short turns' was.
+ *   D. PDF chosen again, Save… on that unpreviewed PDF renders it and shows the preview with a
  *      Save… button, and Return on it raises the share's save panel. The
  *      panel is the system's remote view, out of the app's process, so no
  *      window state shows it: the host logs each panel it raises, and the
@@ -38,20 +39,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, statSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  BULLETIN,
   COPY,
-  PREVIEW,
-  RENDERING,
   SAVE,
   SHADE,
   SHARE,
   chooseFormat,
   enabledJs,
-  formatChoice,
   openSeededCard,
   previewAndDismiss,
   pressThroughPreview,
@@ -86,11 +83,12 @@ interface ShareState {
 
 describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () => {
   test(
-    "an image previews from the shade, Save… on an unpreviewed PDF goes through the preview to the save panel, and a tall image is refused for PDF",
+    "an image previews from the shade, a very tall one does too, and Save… on an unpreviewed PDF goes through the preview to the save panel",
     async () => {
       const app = await launchTugApp({ testName: "at0822-share-turns-bar-render" });
       let projectDir = "";
       let imagePath = "";
+      let tallPath = "";
       try {
         projectDir = await openSeededCard(app, SID, TURNS, false);
         const card = app.body("A");
@@ -127,29 +125,21 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
         });
         expect(await card.evalJS<boolean>(enabledJs(SAVE)), "Save… stays open").toBe(true);
 
-        // ── C. A tall image is refused for PDF ──────────────────────────────
+        // ── C. A very tall image previews like any other ───────────────────
         await chooseFormat(app, "png");
         expect(await card.evalJS<number>(`window.__tug.shareMark("A", [2])`)).toBe(3);
-        await card.nativeClickAtElement(PREVIEW);
-        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RENDERING)})`, {
+        await previewAndDismiss(app, 20_000);
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === true`, {
           timeoutMs: 4_000,
         });
-        await card.waitForCondition<boolean>(
-          `Array.from(document.querySelectorAll(${JSON.stringify(BULLETIN)})).some(function (el) { return (el.textContent || "").indexOf("Too tall for an image") >= 0; })`,
-          { timeoutMs: 15_000 },
-        );
-        const refused = await state();
-        note(`at0822 refused: ${JSON.stringify(refused)}`);
-        expect(refused.format, "the shade moved to PDF").toBe("pdf");
-        expect(refused.rendering).toBe(false);
-        expect(refused.canSend, "nothing new was previewed").toBe(false);
-        expect(
-          await card.evalJS<string | null>(
-            `document.querySelector(${JSON.stringify(formatChoice("pdf"))})?.getAttribute("aria-checked") ?? null`,
-          ),
-          "the Format choice shows PDF",
-        ).toBe("true");
-        expect((await app.windowState()).isKeyWindow, "no preview sheet opened").toBe(true);
+        const tall = await state();
+        note(`at0822 tall: ${JSON.stringify(tall)}`);
+        expect(tall.format, "the format stays Image").toBe("png");
+        expect(tall.lastArtifact?.format).toBe("png");
+        tallPath = tall.lastArtifact!.path;
+        expect(tallPath, "a new image, not the short one").not.toBe(imagePath);
+        expect(statSync(tallPath).size, "the tall image is the larger file").toBeGreaterThan(statSync(imagePath).size);
+        await chooseFormat(app, "pdf");
 
         // ── D. Save… goes through the preview to the save panel ────────────
         const panelShown = (): boolean =>
@@ -168,6 +158,7 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
       } finally {
         await app.close();
         if (imagePath !== "") rmSync(imagePath, { force: true });
+        if (tallPath !== "") rmSync(tallPath, { force: true });
         if (projectDir !== "") rmSync(projectDir, { recursive: true, force: true });
       }
     },

@@ -653,15 +653,15 @@ export const shareHtmlRequestToPage = defineToPage({
 
 /**
  * How a render ended: `ok` with the file at `path`, its height in CSS pixels
- * and its page count; `tooTall` for an image past the cap; `failed` otherwise.
- * `html` is `""` except for an `ok` PDF.
+ * and its page count (one: a PDF is a single continuous page, and an image
+ * has no height cap); `failed` otherwise. `html` is `""` except for an `ok` PDF.
  */
 export const shareRenderedToPage = defineToPage({
   member: "onShareRendered",
   to: "any",
   codec: obj({
     id: str,
-    result: literal("ok", "failed", "tooTall"),
+    result: literal("ok", "failed"),
     path: str,
     height: num,
     pages: num,
@@ -670,11 +670,11 @@ export const shareRenderedToPage = defineToPage({
   samples: [
     { id: "share-render-1", result: "ok", path: "/tmp/tug-share/share-render-1.png", height: 1840, pages: 1, html: "" },
     { id: "share-render-2", result: "failed", path: "", height: 0, pages: 0, html: "" },
-    { id: "share-render-3", result: "tooTall", path: "", height: 9100, pages: 0, html: "" },
   ],
   refused: [
     "ok",
     { id: "share-render-1", result: "done", path: "", height: 0, pages: 0, html: "" },
+    { id: "share-render-1", result: "tooTall", path: "", height: 9100, pages: 0, html: "" },
     { id: "share-render-1", result: "ok", path: "", height: 0, pages: 0 },
   ],
 });

@@ -38,7 +38,9 @@ Three things are missing today. Nothing selects a range of turns. Nothing produc
 
 **[B01] The rendering wears the user's current theme, and there is no other look.** The user ruled this directly: "I don't want to do a design exercise to figure out a new way for session transcripts to look. They should export *with the current theme*." There is no "paper" rendering, no theme chooser in the share bar, and no export-only stylesheet. What the recipient sees is what the card shows.
 
-**[B02] PNG is an output, capped by height.** The user confirmed it. It is the one output that reads inline in a text thread. Past the cap the image is refused and PDF is offered in its place, because a very tall image is unreadable in Messages and expensive to produce.
+**[B02] PNG is an output, with no height cap, and the PDF is one continuous page.** The image is the one output that reads inline in a text thread, and it is as tall as the selection is. The host photographs the document in tiles and stitches them into one PNG, at the display's scale while the bitmap stays inside a pixel budget and at 1× past it, so a very tall share is drawn less sharply rather than refused. The PDF has no page breaks: it is a single page of the column's width and the document's height, so no row, code fence or line is ever cut across a boundary.
+
+*Revised 2026-11-13, by the user:* the first build capped the image at 8000 pixels, refusing a taller one and switching the format to PDF, and printed the PDF onto letter-proportioned pages. The user rejected both on sight: a line cut in half at a page break, and "why can't we make an image as tall as we want?" The cap and the pagination are gone.
 
 **[B03] The unit of selection is the turn.** A turn is the user's prompt and the whole reply to it, the same `TurnEntry` the transcript renders and `/export` serializes ([F02]). Selecting part of a reply is what text selection and Copy are already for.
 
@@ -67,10 +69,10 @@ Every action acts. Copy, Save… and Share… are enabled whenever a turn is mar
 ## Open Questions {#open-questions}
 
 - **How does the hidden view behave on a large selection?** Unwindowed mounting is the shape that stalled the deck before ([F08]). The hidden view is a separate web process, so the deck should stay live, but the selection size at which rendering needs a progress state, or a refusal, is unmeasured. A reading of render time against turn count on an aged session settles it.
-- **Where is the PNG height cap?** [B02] fixes that there is one. The number depends on what `takeSnapshot` produces reliably and what Messages displays legibly, and neither was measured.
+- **Where is the PNG height cap?** *Closed 2026-11-13:* there is none ([B02]).
 - **Does the hidden view paint?** Body views are hidden by opacity and never `isHidden` so that they keep painting, per the comments in `tugapp/Sources/BodyViewController.swift`. Whether a body that is never shown at all paints its full height for `createPDF` and `takeSnapshot` is untested, and a covered harness window is known to suspend `requestAnimationFrame`.
 - **Where does the per-turn door sit?** [F07] found no row menu. It is either a new affordance on the row or a door that exists only at the card level.
-- **Does the current theme's dark ground print acceptably as a PDF?** [B01] settles that the theme is used. Whether page breaks, margins and the ground colour need any treatment for paged output is a rendering question that prose cannot answer; it wants one look at a real PDF from a dark theme.
+- **Does the current theme's dark ground print acceptably as a PDF?** *Closed 2026-11-13:* the PDF is not paged at all ([B02]); its one page carries the theme's ground edge to edge, read from a rendered file.
 
 ---
 

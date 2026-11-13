@@ -128,12 +128,12 @@ export function sharePick(artifact: ShareArtifactRef, anchor: ShareAnchor): Prom
 
 /** How a render ended, as the host answers it ([P09]). */
 export interface ShareRenderOutcome {
-  result: "ok" | "failed" | "tooTall";
+  result: "ok" | "failed";
   /** The rendered file, for `ok`; `""` otherwise. */
   path: string;
   /** The document's height in CSS pixels; `0` when nothing was laid out. */
   height: number;
-  /** The PDF's page count, `1` for an image, `0` when nothing was written. */
+  /** `1` for a PDF (one continuous page) or an image, `0` when nothing was written. */
   pages: number;
   /** The inline-styled HTML of an `ok` PDF; `""` otherwise. */
   html: string;
