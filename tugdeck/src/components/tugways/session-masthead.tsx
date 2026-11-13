@@ -74,7 +74,11 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
 import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
-import { FolderOpenDot, Pencil, Summary, X } from "lucide-react";
+import { FolderOpenDot, FolderPlus, Pencil, Summary, X } from "lucide-react";
+
+import { dispatchCommand } from "@/command-dispatch";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
 
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
@@ -1191,6 +1195,28 @@ export const SessionMasthead = React.memo(function SessionMasthead({
       </TugPopover>
       </span>
       </TugTooltip>
+      {/* Add Project Directory, the Session menu's item as a button: it
+          runs the same command, a bare `/add-dir`, so it opens the folder
+          picker and asks the same question. Like Rename it activates its
+          card (no `data-no-activate`), because the command goes to the key
+          card and the sheet it raises takes that card's keyboard. The turn
+          guard is the command's own, so a press mid-turn is refused with the
+          same bulletin the menu item's would get. */}
+      {projectDir.length > 0 && (
+        <TugActionTooltip
+          action={`${TUG_ACTIONS.RUN_SLASH_COMMAND}:add-dir`}
+          content="Add Project Directory…"
+        >
+          <TugIconButton
+            size="sm"
+            icon={<FolderPlus />}
+            data-slot="session-masthead-add-dir"
+            tabIndex={-1}
+            aria-label="Add project directory"
+            onClick={() => dispatchCommand(`${TUG_ACTIONS.RUN_SLASH_COMMAND}:add-dir`)}
+          />
+        </TugActionTooltip>
+      )}
       {/*
         Open the session's project directory in the Finder. The gesture used to
         live on the Z4B project chip; the title-bar rework took that row away,

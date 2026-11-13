@@ -45,6 +45,10 @@
  *      session doesn't hold, it is a caution saying so; bare, it opens the
  *      Session Summary.
  *
+ *   G. **The masthead's folder-plus button is Add Project Directory.** It
+ *      runs a bare `/add-dir` on its card, so the host is asked for a
+ *      directory picker.
+ *
  * The command runs through `run-card-command`, the menu's door and the same
  * body typing it would reach; the frames tugcode would write are injected,
  * since a harness bind has no tugcode. tugcode's half — the live
@@ -255,6 +259,32 @@ async function captureOpenPath(app: App): Promise<void> {
     })()`,
   );
   if (!installed) throw new Error("[at0808] the openPath capture did not take in the Session card's page");
+}
+
+/**
+ * Record what the Session card's page posts to the host's `choosePath`
+ * bridge, without calling through: a real open panel would take the focus
+ * the harness depends on. Installed the way {@link captureOpenPath} is, over
+ * whatever handlers the page holds by then.
+ */
+async function captureChoosePath(app: App): Promise<void> {
+  const installed = await app.body("S").evalJS<boolean>(
+    `(function(){
+      window.__at0808ChoosePath = [];
+      var recorder = function(payload){ window.__at0808ChoosePath.push(typeof payload === "string" ? JSON.parse(payload) : payload); };
+      var ns = window.webkit;
+      var real = ns.messageHandlers;
+      var handler = real.choosePath;
+      window.__at0808ChoosePins = { ns: ns, real: real, handler: handler };
+      try {
+        var handlers = new Proxy({}, { get: function(_t, name){ return name === "choosePath" ? { postMessage: recorder } : real[name]; } });
+        Object.defineProperty(ns, "messageHandlers", { configurable: true, value: handlers });
+      } catch (e) {}
+      try { handler.postMessage = recorder; } catch (e) {}
+      try { return window.webkit.messageHandlers.choosePath.postMessage === recorder; } catch (e) { return false; }
+    })()`,
+  );
+  if (!installed) throw new Error("[at0808] the choosePath capture did not take in the Session card's page");
 }
 
 /** What the dialog showed: its buttons, its checkbox's label and whether it opened checked. */
@@ -518,6 +548,19 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
             `document.querySelector(${JSON.stringify(PANEL)}) === null`,
             { timeoutMs: 8_000 },
           );
+
+          // ---- G. The masthead's folder-plus button asks for the picker. ---
+          await captureChoosePath(app);
+          await app.body("S").revealPaneControls(".body-chrome-frame");
+          await app.body("S").nativeClickAtElement('[data-slot="session-masthead-add-dir"]');
+          await app.body("S").waitForCondition<boolean>(
+            `window.__at0808ChoosePath.length > 0`,
+            { timeoutMs: 8_000 },
+          );
+          expect(
+            (await app.body("S").evalJS<Array<{ kind: string }>>(`window.__at0808ChoosePath`)).map((p) => p.kind),
+            "the button opens a directory picker",
+          ).toEqual(["directory"]);
         } finally {
           rmSync(scratch, { recursive: true, force: true });
         }
