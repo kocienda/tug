@@ -230,6 +230,15 @@ describe.skipIf(!SHOULD_RUN)("at0810 — the masthead's name is edited in place"
         // Seeded with the name, the whole of it selected so typing replaces it.
         expect(opened.value).toBe(NAME);
         expect(opened.selected).toBe(NAME.length);
+        // And the selection is painted. The title bar blanks `::selection`
+        // for its chrome, which once reached into the field and left the
+        // selected name looking unselected.
+        const paint = await body.evalJS<string>(
+          `getComputedStyle(document.querySelector(${JSON.stringify(EDITOR)}), "::selection").backgroundColor`,
+        );
+        note("at0810 selection paint", paint);
+        expect(paint).not.toBe("rgba(0, 0, 0, 0)");
+        expect(paint).not.toBe("transparent");
 
         await app.nativeType("discarded");
         await body.waitForCondition<boolean>(

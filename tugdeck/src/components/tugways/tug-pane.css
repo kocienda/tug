@@ -1143,6 +1143,15 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   color: inherit;
 }
 
+/* A text field that stands in the title bar — the Session masthead's name
+   editor — is the one place in it where a selection is the user's own, and a
+   field that opens with its text selected has to show it. So a field gets
+   back the selection the cards' content wears. */
+.tug-pane-title-bar .tug-input::selection {
+  background-color: var(--tug7-surface-selection-primary-normal-plain-rest);
+  color: var(--tug7-element-selection-text-normal-plain-rest);
+}
+
 /*
  * When the pane is focused (active), the title bar background switches to the
  * active color. `pane-focus-controller.ts` writes data-focused="true" on the
