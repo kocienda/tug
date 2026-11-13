@@ -457,7 +457,18 @@ impl ChildSpawner for TugcodeSpawner {
             // Keep this list in sync with `AUTH_ENV_VARS` in
             // `tugrust/crates/tugcast/tests/common/catalog.rs` and the
             // destructure in `tugcode/src/session.ts::spawnClaude`.
-            let mut child = Command::new(&cmd)
+            let mut command = Command::new(&cmd);
+            // tugcode and the claude under it live as long as the session.
+            // Sealed, they inherit nothing but their own three pipes: a
+            // stray pipe end carried into them is held until the session
+            // ends, and whoever reads that pipe waits as long.
+            unsafe {
+                command.pre_exec(|| {
+                    tugcore::child_fds::seal_above_stdio();
+                    Ok(())
+                });
+            }
+            let mut child = command
                 .args(&args)
                 .env_remove("ANTHROPIC_API_KEY")
                 .env_remove("ANTHROPIC_AUTH_TOKEN")

@@ -931,6 +931,14 @@ impl AgentWorkerSpawner for ClaudeAgentWorkerSpawner {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        // The worker stays for the life of the process: it inherits nothing
+        // but its own three pipes (see `tugcore::child_fds`).
+        unsafe {
+            cmd.pre_exec(|| {
+                tugcore::child_fds::seal_above_stdio();
+                Ok(())
+            });
+        }
 
         let mut child = cmd.spawn().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

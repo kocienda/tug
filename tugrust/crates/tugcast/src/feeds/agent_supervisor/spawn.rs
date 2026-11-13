@@ -5,6 +5,12 @@
 
 use super::*;
 
+/// How long `spawn_session` waits on the terminal-liveness registry before
+/// resuming without its answer. The read is a directory walk and a kernel
+/// query per live entry, milliseconds in practice; the bound is here because
+/// the caller is a client's loop, and a loop that waits sends no heartbeat.
+const TERMINAL_GATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// What a resume does with a bridge the card already holds ([B03]).
 enum HeldBridge {
     /// The bridge is running the conversation asked for: re-hold it.
@@ -829,16 +835,30 @@ impl AgentSupervisor {
         // gate placed inside the `!inserted` reconnect branch above
         // would miss it entirely. Only resume mode is gated — a `new`
         // session has a fresh id no other process can hold. The
-        // registry read shells out to `ps` and walks a directory, so
-        // it runs on a blocking thread.
+        // registry read walks a directory, so it runs on a blocking
+        // thread, and it is bounded: this call is awaited inside the
+        // client's own loop, which sends no heartbeat while it waits.
+        // A read that has not answered in `TERMINAL_GATE_TIMEOUT` is
+        // taken as "not held", the same way every other unreadable
+        // registry state is.
         if effective_session_mode == SessionMode::Resume {
             let registry_root = self.terminal_registry_root();
             let sid = tug_session_id.as_str().to_owned();
-            let held = tokio::task::spawn_blocking(move || {
+            let read = tokio::task::spawn_blocking(move || {
                 Self::read_terminal_live_sessions(registry_root.as_deref()).contains_key(&sid)
-            })
-            .await
-            .unwrap_or(false);
+            });
+            let held = match tokio::time::timeout(TERMINAL_GATE_TIMEOUT, read).await {
+                Ok(joined) => joined.unwrap_or(false),
+                Err(_) => {
+                    warn!(
+                        card_id,
+                        session = %tug_session_id,
+                        timeout_ms = TERMINAL_GATE_TIMEOUT.as_millis() as u64,
+                        "spawn_session: terminal-liveness read did not answer; resuming without it"
+                    );
+                    false
+                }
+            };
             if held {
                 // Undo this call's bookkeeping. A fresh insert takes
                 // its just-minted Idle entry and the Phase-0 workspace

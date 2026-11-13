@@ -63,7 +63,16 @@ impl EmbedderSpawner for HelperSpawner {
 /// another keeps its stderr drained into the log; the pipes' guard is what tells
 /// the first to end it.
 fn spawn_helper(path: &Path) -> std::io::Result<EmbedderPipes> {
-    let mut child = tokio::process::Command::new(path)
+    let mut command = tokio::process::Command::new(path);
+    // The helper stays for the life of the process: it inherits nothing but
+    // its own three pipes (see `tugcore::child_fds`).
+    unsafe {
+        command.pre_exec(|| {
+            tugcore::child_fds::seal_above_stdio();
+            Ok(())
+        });
+    }
+    let mut child = command
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

@@ -747,6 +747,9 @@ async fn spawn_shell_child(
     unsafe {
         cmd.pre_exec(|| {
             libc::setsid();
+            // A shell lives as long as its card: it inherits nothing but its
+            // own three pipes (see `tugcore::child_fds`).
+            tugcore::child_fds::seal_above_stdio();
             Ok(())
         });
     }

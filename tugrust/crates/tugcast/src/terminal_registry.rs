@@ -29,16 +29,21 @@
 //!
 //! 1. `kill(pid, 0)` says the process exists (`ESRCH` → stale crash
 //!    leftover, skipped), and
-//! 2. when the entry carries `procStart` and `ps -p <pid> -o lstart=`
+//! 2. when the entry carries `procStart` and the process's start time
 //!    resolves, the two match after whitespace normalization — a
 //!    mismatch means the pid was reused by an unrelated process since
 //!    the entry was written, so the entry is treated as stale.
+//!
+//! The start time is read from the kernel and written the way
+//! `ps -o lstart=` writes it. No `ps` is run: this read sits on the
+//! `spawn_session` path, and a subprocess read through a pipe there can
+//! wait on an unrelated child for as long as that child lives (see
+//! `tugcore::child_fds`).
 
 #![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Deserialize;
 
@@ -132,24 +137,37 @@ fn is_pid_alive(pid: i32) -> bool {
 }
 
 /// Resolve the actual start time of `pid` as `ps` formats it
-/// (`lstart`, e.g. `Thu Jun 11 21:53:36 2026`). `None` when `ps`
-/// fails or returns nothing — callers treat that as "cannot verify"
-/// and accept the entry (fail-open).
+/// (`lstart`, e.g. `Thu Jun 11 21:53:36 2026`, in local time). `None`
+/// when the process cannot be read — callers treat that as "cannot
+/// verify" and accept the entry (fail-open).
 fn actual_proc_start(pid: i32) -> Option<String> {
-    let output = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "lstart="])
-        .output()
-        .ok()?;
-    if !output.status.success() {
+    let pid = u32::try_from(pid).ok()?;
+    let secs = crate::feeds::activity::resource::process_start_time(pid)?;
+    format_lstart(secs)
+}
+
+/// Epoch seconds as `ps -o lstart=` prints them: `%a %b %e %H:%M:%S %Y`
+/// in the local time zone, whitespace-normalized.
+fn format_lstart(epoch_secs: u64) -> Option<String> {
+    let when = libc::time_t::try_from(epoch_secs).ok()?;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    if unsafe { libc::localtime_r(&when, &mut tm) }.is_null() {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let normalized = normalize_whitespace(&text);
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(normalized)
+    let mut buf = [0u8; 64];
+    let len = unsafe {
+        libc::strftime(
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.len(),
+            c"%a %b %e %H:%M:%S %Y".as_ptr(),
+            &tm,
+        )
+    };
+    if len == 0 {
+        return None;
     }
+    let normalized = normalize_whitespace(std::str::from_utf8(&buf[..len]).ok()?);
+    (!normalized.is_empty()).then_some(normalized)
 }
 
 /// Collapse runs of whitespace to single spaces and trim — `ps` pads
@@ -248,7 +266,21 @@ mod tests {
     }
 
     fn own_proc_start() -> String {
-        actual_proc_start(own_pid()).expect("test process has a ps-resolvable start time")
+        actual_proc_start(own_pid()).expect("test process has a resolvable start time")
+    }
+
+    /// The reader no longer runs `ps`, so what it writes has to be what
+    /// `ps` would have: the registry's `procStart` is compared against it.
+    #[test]
+    fn start_time_reads_as_ps_lstart_writes_it() {
+        let out = std::process::Command::new("ps")
+            .args(["-p", &own_pid().to_string(), "-o", "lstart="])
+            .env("LC_ALL", "C")
+            .output()
+            .expect("ps runs");
+        let from_ps = normalize_whitespace(&String::from_utf8_lossy(&out.stdout));
+        assert!(!from_ps.is_empty(), "ps printed a start time");
+        assert_eq!(own_proc_start(), from_ps);
     }
 
     fn write_entry(dir: &Path, file_stem: &str, json: &str) {
