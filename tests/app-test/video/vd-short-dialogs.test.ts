@@ -83,7 +83,7 @@ type Beat =
 const BEATS: readonly Beat[] = [
   // "Here's a small detail I loved putting into Tug: its dialog buttons." The composer covers this with its classic
   // frame and fades to the dialog under "I brought back the classic Mac double ring".
-  { at: 0.1, open: "Send Feedback" },
+  { at: 0.1, open: "Replace File" },
   // "It marks the default button: the one I get if I just hit Return." The composer pushes in on the buttons and back.
   { at: 9.6, key: "Return", caps: ["return"], next: "Delete Card" },
   // "And in Tug, I can move the double ring with the arrow keys."
@@ -93,9 +93,9 @@ const BEATS: readonly Beat[] = [
   { at: 16.5, key: "ArrowLeft", caps: ["left"] },
   { at: 17.8, key: "Return", caps: ["return"], next: "Discard Changes" },
   // "Escape dismisses a dialog, of course."
-  { at: 21.4, key: "Escape", caps: ["esc"], next: "Replace File" },
+  { at: 21.4, key: "Escape", caps: ["esc"], next: "Send Feedback" },
   // "And so does Command-period, in true Mac style."
-  { at: 25.2, key: ".", mods: ["cmd"], caps: ["cmd", "period"], next: "Send Feedback" },
+  { at: 25.2, key: ".", mods: ["cmd"], caps: ["cmd", "period"], next: "Replace File" },
   // "Tug is all about bringing pleasant little details like this to AI coding."
   { at: 27.6, key: "ArrowLeft", caps: ["left"] },
   { at: 28.6, key: "ArrowRight", caps: ["right"] },
@@ -214,7 +214,7 @@ describe.skipIf(!RUNS)("video shot: the dialog-keyboard Short", () => {
             .catch(() => null);
 
         // A rehearsal, off the record: raise one alert to learn which page it is in and where it rests, then dismiss it.
-        await open("Send Feedback");
+        await open("Replace File");
         let page: Page = app;
         let where = "shell";
         const rect = await pollFor(

@@ -2467,14 +2467,6 @@
           "height": 0,
           "pages": 0,
           "html": ""
-        },
-        {
-          "id": "share-render-3",
-          "result": "tooTall",
-          "path": "",
-          "height": 9100,
-          "pages": 0,
-          "html": ""
         }
       ],
       "refused": [
@@ -2484,6 +2476,14 @@
           "result": "done",
           "path": "",
           "height": 0,
+          "pages": 0,
+          "html": ""
+        },
+        {
+          "id": "share-render-1",
+          "result": "tooTall",
+          "path": "",
+          "height": 9100,
           "pages": 0,
           "html": ""
         },
