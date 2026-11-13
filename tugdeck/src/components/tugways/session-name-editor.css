@@ -1,9 +1,11 @@
 /**
  * The Session card masthead's inline name editor, and the pencil that opens it.
  *
- * No colour is set here. The field is a `TugInput` and the pencil a
- * `TugIconButton`; each keeps its own tokens ([L20]), so this file states only
- * where they sit and what type the field speaks in.
+ * No colour is set here. The field is a `TugInput` and keeps its own tokens
+ * ([L20]); the pencil is a `TugIconButton` at the title-bar cluster's size,
+ * painted by the cluster's own rules in `tug-pane.css` through the
+ * `.tug-pane-title-bar-inline-control` class its wrapper wears. So this file
+ * states only where they sit and what type the field speaks in.
  */
 
 /* ── The field ────────────────────────────────────────────────────────────
@@ -40,11 +42,18 @@
    and a reserved gap there would stand on every masthead to hold a control
    most readers never reach for. The gap before the glyph is padding, not
    margin, so the pencil's box abuts the name and the pointer crosses from one
-   to the other without leaving both. */
+   to the other without leaving both.
+
+   The button is the cluster's size, which is taller than the title line. The
+   wrapper stays one line tall and centers the button, which overhangs it
+   evenly above and below, so revealing the pencil never changes the line's
+   height. */
 .session-name-rename {
   display: inline-flex;
   align-self: center;
+  align-items: center;
   flex: none;
+  block-size: 1lh;
   inline-size: 0;
   overflow: hidden;
   opacity: 0;
@@ -56,4 +65,17 @@
   padding-inline-start: 0.25em;
   overflow: visible;
   opacity: 1;
+  /* The overhang below the line lies over the description line's box, which
+     comes later and would otherwise take the pointer along the button's
+     bottom edge. */
+  position: relative;
+  z-index: 1;
+}
+
+/* The title's text box elides by clipping, and a clip on both axes would cut
+   the pencil's overhang off above and below the line. On the masthead it
+   clips along the line only, which is all the eliding needs. */
+.session-masthead-row .tug-session-row-name-line .tug-list-row-title .tug-label-text {
+  overflow-x: clip;
+  overflow-y: visible;
 }

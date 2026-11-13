@@ -1394,21 +1394,26 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
    `currentColor` and keeps its outline by drawing it, which is what lets these
    selectors address the whole row without qualification. [L20] */
 
+/* A control that stands in the title line rather than in the cluster — the
+   Session masthead's rename pencil — wears `.tug-pane-title-bar-inline-control`
+   on its wrapper and is addressed by the same rules, so it cannot drift from
+   the row it is read beside. */
+
 /* Pane title bar control buttons — focused pane (plain role) */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button {
+.tug-pane[data-focused="true"] :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button {
   color: var(--tugx-pane-control-on-fg-rest);
   background-color: var(--tugx-pane-control-on-bg-rest);
   border-color: var(--tugx-pane-control-on-border-rest);
 }
 
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
+.tug-pane[data-focused="true"] :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button:hover:not(:disabled) {
   color: var(--tugx-pane-control-on-fg-hover);
   background-color: var(--tugx-pane-control-on-bg-hover);
   border-color: var(--tugx-pane-control-on-border-hover);
 }
 
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
+.tug-pane[data-focused="true"] :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button:active:not(:disabled) {
   color: var(--tugx-pane-control-on-fg-active);
   background-color: var(--tugx-pane-control-on-bg-active);
   border-color: var(--tugx-pane-control-on-border-active);
@@ -1416,25 +1421,25 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
 
 /* Pane title bar control buttons — unfocused pane (muted role) */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button {
+.tug-pane:not([data-focused="true"]) :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button {
   color: var(--tugx-pane-control-off-fg-rest);
   background-color: var(--tugx-pane-control-off-bg-rest);
   border-color: var(--tugx-pane-control-off-border-rest);
 }
 
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
+.tug-pane:not([data-focused="true"]) :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button:hover:not(:disabled) {
   color: var(--tugx-pane-control-off-fg-hover);
   background-color: var(--tugx-pane-control-off-bg-hover);
   border-color: var(--tugx-pane-control-off-border-hover);
 }
 
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
+.tug-pane:not([data-focused="true"]) :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button:active:not(:disabled) {
   color: var(--tugx-pane-control-off-fg-active);
   background-color: var(--tugx-pane-control-off-bg-active);
   border-color: var(--tugx-pane-control-off-border-active);
 }
 
-.tug-pane-title-bar-controls .tug-button svg {
+:is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button svg {
   color: inherit;
 }
 
@@ -1750,8 +1755,8 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
  * outranks the rest-state inherit above (and reads dark on light themes), so
  * re-assert inherit at a higher specificity for the interactive states.
  */
-.tug-pane .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) svg,
-.tug-pane .tug-pane-title-bar-controls .tug-button:active:not(:disabled) svg {
+.tug-pane :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button:hover:not(:disabled) svg,
+.tug-pane :is(.tug-pane-title-bar-controls, .tug-pane-title-bar-inline-control) .tug-button:active:not(:disabled) svg {
   color: inherit;
 }
 

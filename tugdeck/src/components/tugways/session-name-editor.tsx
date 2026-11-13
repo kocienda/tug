@@ -288,9 +288,17 @@ export function SessionNameRenameButton({
     };
   }, []);
   return (
-    <span ref={spanRef} className="session-name-rename" data-slot="session-name-rename">
+    <span
+      ref={spanRef}
+      // The second class is the pane's: it puts the pencil under the title-bar
+      // cluster's own palette, so it reads as one of the bar's controls.
+      className="session-name-rename tug-pane-title-bar-inline-control"
+      data-slot="session-name-rename"
+    >
       <TugIconButton
-        size="2xs"
+        // The cluster's own size, so the glyph matches the controls at the
+        // bar's right.
+        size="sm"
         icon={<Pencil />}
         // Chrome, like the masthead's other buttons — never a Tab stop.
         tabIndex={-1}
