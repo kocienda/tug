@@ -8,6 +8,10 @@
   justify-content: center;
   pointer-events: none;
   z-index: 2147483001;
+  /* The wave is the card's text colour, not the Key: a loading lid is
+     content waiting, not a control at work. The indicator's `inherit`
+     tone draws its bars in `currentColor`. */
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 /* Clear until armed, two painted frames after it mounts

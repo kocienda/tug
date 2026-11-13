@@ -66,7 +66,7 @@ export function ContentLidWave(): React.ReactElement {
   }, []);
   return (
     <div ref={ref} className="tug-content-lid-wave" {...{ [FACE_REST_ATTRIBUTE]: "" }} aria-hidden="true">
-      <TugProgressIndicator variant="wave" size={LID_WAVE_SIZE} state="running" aria-hidden />
+      <TugProgressIndicator variant="wave" size={LID_WAVE_SIZE} state="running" tone="inherit" aria-hidden />
     </div>
   );
 }
