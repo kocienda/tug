@@ -40,7 +40,7 @@ What remains is everything a person does not read directly: type names, action i
 
 **[B04] Only the slot sense is renamed.** Real columns stay columns ([F05]): table columns, SQL columns, text positions, CSS flex direction, the Session card's top column, and Rust in general. The rename is selected by meaning, never by a blanket substitution. A mechanical `sub /column/slot/` across the tree is ruled out.
 
-**[B05] File, class, attribute and test names follow the code.** `tug-column-badge` becomes `tug-slot-badge` and the other files in [F02] move the same way. The DOM names (`data-column-*`, `tug-column-*`) and the app-test selectors that read them ([F06]) move together, in the same change, so no selector points at a name that is gone.
+**[B05] File, class, attribute and test names follow the code.** The arrangement badge becomes `tug-slot-badge` (`TugSlotBadge`, `lib/slot-badge.ts`, `TugSlotBadgeKind`, `slotBadgeCharacter`), its Cards-row form becomes `cards-slot-badge`, and the other files in [F02] move the same way. It sits beside the existing position badge `card-slot-badge` without colliding (the name is unused today): `card-slot-badge` says *which* slot a card stands in, and `tug-slot-badge` says how that slot is *arranged*, stacked or split. The DOM names (`data-column-*`, `tug-column-*`) and the app-test selectors that read them ([F06]) move together, in the same change, so no selector points at a name that is gone.
 
 **[B06] The laws are rewritten to say slot, but decision records keep their history.** Prose in `tuglaws/` that uses column for a slot is corrected. Identifiers quoted in the prose follow the code. A design decision's text in `design-decisions.md` is corrected for the term without being renumbered or re-argued ([F07]).
 
@@ -48,7 +48,6 @@ What remains is everything a person does not read directly: type names, action i
 
 ## Open Questions {#open-questions}
 
-- **What does `card-slot-badge.tsx` become when `tug-column-badge` is renamed?** `card-slot-badge.tsx` already exists: it is the *position* badge ("In position N — move this card"). The stack/split glyph badge (`tug-column-badge`) is a different object, and naming both "slot badge" collides. Settle this by reading both components and choosing a name for the arrangement badge that says what it shows (for example `slot-arrangement-badge`). It is a naming call for whoever walks the rename, not a user decision, unless the two can't be told apart.
 - **Does the shipped `TUG_ACTIONS` vocabulary appear anywhere outside this checkout — `tugplug`, help docs, a recorded corpus?** Nothing was found in `tugplug/` or `docs/`, but `tests/app-test/corpus/snapshots/*.jsonl` mentions the word. Grep the corpus for the four ids before renaming, and leave recorded transcripts as recorded.
 
 ---
@@ -69,7 +68,7 @@ What remains is everything a person does not read directly: type names, action i
 1. **The persisted key first** ([B03]): `DeckImposition.columns` → `slots`, with the `columns` read fallback, and its serialization tests. This is the only step with a user-visible failure mode, so it lands alone.
 2. **The action ids and their two Swift senders** ([B02]), with the keymap and registry tests that name them, and the regenerated `tuglaws/menus.md` tables (`TUG_WRITE_MENUS_DOC=1` on `menus-doc.test.ts`).
 3. **Types, selectors, facts and stores** ([F01]): `ColumnMode`, `DeckColumn`, `columnMoveOrder`, `CommandMenuFacts.column`, `deck.menu.column`, `PlaceRuns.column` and the rest. This is TypeScript-only and checked by `tsc` plus the unit suites.
-4. **Files, components, CSS and DOM names, with the app-test selectors that read them** ([B05], [F06]), resolving the badge-name question first. The `@covers` lines move with the files, and `just app-test-covers-check` is the guard.
+4. **Files, components, CSS and DOM names, with the app-test selectors that read them** ([B05], [F06]). The `@covers` lines move with the files, and `just app-test-covers-check` is the guard.
 5. **The laws prose** ([B06]).
 
 The verdict for steps 4 and 5 is `just app-test-changed` over the moved selectors.
