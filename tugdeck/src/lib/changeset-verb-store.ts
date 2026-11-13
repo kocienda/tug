@@ -330,6 +330,28 @@ export interface ArcNote {
 }
 
 /**
+ * One write of the engine's re-audit row, as its frame announced it.
+ *
+ * A re-audit is one ledger row the server rewrites as it waits, runs and
+ * ends; each rewrite sends a frame with the same `receiptId`, and the card
+ * upserts the turn by it. Like {@link ArcNote} these are a sequence, and
+ * `seq` is what a card reads to append only what arrived after it began
+ * watching.
+ */
+export interface ArcReaudit {
+  /** The arc the re-audit is of. */
+  arc: string;
+  /** The server-formatted row — the one source both copies read. */
+  summary: string;
+  /** The persisted ledger row's id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
+  /** The row's first write's clock, so every rewrite keeps the row's seat. */
+  startedAtMs: number | null;
+  /** This store's arrival order. Strictly increasing, never reused. */
+  seq: number;
+}
+
+/**
  * One arc-replay round trip's state, keyed by the initiating card entry.
  *
  * `outcome` is the server's own word — `current`, `replayed`, `recorded`,
@@ -396,6 +418,9 @@ const ARC_NOTE_CAP = 500;
 
 /** The shared empty answer, so a session with no notes allocates nothing. */
 const EMPTY_ARC_NOTES: readonly ArcNote[] = Object.freeze([]);
+
+/** The shared empty answer for a session with no re-audit frames. */
+const EMPTY_ARC_REAUDITS: readonly ArcReaudit[] = Object.freeze([]);
 
 export interface JoinArgs {
   preview: boolean;
@@ -474,6 +499,10 @@ export class ChangesetVerbStore extends Subscribable {
   private _arcNotes = new Map<string, ArcNote[]>();
   /** The monotonic arrival counter behind {@link ArcNote.seq}. */
   private _arcNoteSeq = 0;
+  /** tug session id → the re-audit row writes announced for it, in arrival order. */
+  private _arcReaudits = new Map<string, ArcReaudit[]>();
+  /** The monotonic arrival counter behind {@link ArcReaudit.seq}. */
+  private _arcReauditSeq = 0;
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -661,6 +690,26 @@ export class ChangesetVerbStore extends Subscribable {
       // because a card consumes on every frame.
       if (notes.length > ARC_NOTE_CAP) notes.splice(0, notes.length - ARC_NOTE_CAP);
       this._arcNotes.set(session, notes);
+      this.notify();
+    } else if (body.action === "arc_reaudit") {
+      // The engine's re-audit row, written at each of its transitions. No
+      // client asked for it, so like `arc_note` it is recorded under the
+      // session it names; the card upserts by the receipt id, so a rewrite
+      // replaces its turn rather than adding one.
+      const session = typeof body.tug_session_id === "string" ? body.tug_session_id : "";
+      const summary = typeof body.summary === "string" ? body.summary : "";
+      if (session.length === 0 || summary.length === 0) return;
+      const writes = this._arcReaudits.get(session) ?? [];
+      this._arcReauditSeq += 1;
+      writes.push({
+        arc: typeof body.arc === "string" ? body.arc : "",
+        summary,
+        receiptId: receiptIdOf(body),
+        startedAtMs: startedAtMsOf(body),
+        seq: this._arcReauditSeq,
+      });
+      if (writes.length > ARC_NOTE_CAP) writes.splice(0, writes.length - ARC_NOTE_CAP);
+      this._arcReaudits.set(session, writes);
       this.notify();
     } else if (body.action === "changeset_join_ok") {
       const arc = typeof body.arc === "string" ? body.arc : null;
@@ -1280,6 +1329,11 @@ export class ChangesetVerbStore extends Subscribable {
   /** Every arc gesture announced for `tugSessionId`, oldest first. */
   arcNotes(tugSessionId: string): readonly ArcNote[] {
     return this._arcNotes.get(tugSessionId) ?? EMPTY_ARC_NOTES;
+  }
+
+  /** Every re-audit row write announced for `tugSessionId`, oldest first. */
+  arcReaudits(tugSessionId: string): readonly ArcReaudit[] {
+    return this._arcReaudits.get(tugSessionId) ?? EMPTY_ARC_REAUDITS;
   }
 
   dispose(): void {

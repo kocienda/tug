@@ -17,6 +17,7 @@ import {
   ARC_JOIN_READY_WORD,
   arcJoinReadyLine,
   arcJoinRegister,
+  staleAuditFacts,
 } from "../arc-join-register";
 import type { ArcJoinStateWire } from "../changeset-types";
 
@@ -673,20 +674,64 @@ describe("a stale audit takes the offer down and says where the re-audit is", ()
     expect(named?.line).toBe("imposer2's audit is stale — re-auditing on odd-kiln");
   });
 
-  test("the quiet re-stamp running: the machine is answering, no card needed", () => {
+  test("the engine's re-audit running: the machine is answering, no card needed", () => {
     for (const bound of [true, false]) {
       const restamping = reg(reconciled(), {
         ...stale,
         run: { stage: "audit", done: true },
         bound,
         restampRunning: true,
+        restampTrigger: { sha: "9ac1e0f2aa", subject: "Draw the lid", arc: "lid" },
       });
       expect(restamping?.phase).toBe("in_flight");
-      expect(restamping?.word).toBe("re-stamping");
+      expect(restamping?.word).toBe("re-auditing");
       expect(restamping?.line).toBe(
-        "imposer2's audit is stale — re-stamping it onto the moved base",
+        "imposer2's audit is stale — re-auditing it on main 9ac1e0f (after lid joined)",
       );
     }
+    // A plain commit names no joined arc, and a horizon closes the line.
+    const plain = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit", done: true },
+      restampRunning: true,
+      restampTrigger: { sha: "9ac1e0f2aa", subject: "Fix a typo" },
+      restampDeadline: "2026-10-29T10:30:00Z",
+    });
+    expect(plain?.line?.startsWith("imposer2's audit is stale — re-auditing it on main 9ac1e0f, ends by ")).toBe(
+      true,
+    );
+  });
+
+  test("the engine's re-audit waiting: the wait's own sentence", () => {
+    const waiting = reg(reconciled(), {
+      ...stale,
+      run: { stage: "audit", done: true },
+      restampWaiting: "waiting for the arc's worktree to be clean",
+    });
+    expect(waiting?.phase).toBe("in_flight");
+    expect(waiting?.word).toBe("waiting");
+    expect(waiting?.line).toBe(
+      "imposer2's audit is stale — the re-audit is waiting for the arc's worktree to be clean",
+    );
+  });
+
+  test("the stale facts read a wait and a run off the entry", () => {
+    const waiting = staleAuditFacts({
+      restamp: { phase: "waiting", waiting: "waiting for x", run_id: "r" },
+    });
+    expect(waiting.restampWaiting).toBe("waiting for x");
+    expect(waiting.restampRunning).toBe(false);
+    const running = staleAuditFacts({
+      restamp: {
+        running_since: "2026-10-29T10:00:00Z",
+        deadline: "2026-10-29T10:30:00Z",
+        trigger: { sha: "abc", subject: "s" },
+      },
+    });
+    expect(running.restampRunning).toBe(true);
+    expect(running.restampWaiting).toBeNull();
+    expect(running.restampDeadline).toBe("2026-10-29T10:30:00Z");
+    expect(running.restampTrigger?.sha).toBe("abc");
   });
 
   test("a re-audit stopped with a question reads as the question", () => {

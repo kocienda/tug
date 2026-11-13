@@ -3229,6 +3229,83 @@ impl AgentSupervisor {
         send_control(&self.control_tx, body);
     }
 
+    /// Write or rewrite a re-audit's one transcript row on `segment`'s card,
+    /// and announce it live.
+    ///
+    /// A re-audit is one story told over several writes — it waits, it runs,
+    /// it ends — and the card shows it as one turn. So the first write records
+    /// a fresh `/arc-reaudit <arc>` row through the landing-receipt gateway,
+    /// keyed to the session ledger's line so a rotation carries it, and every
+    /// later write (`prior` set) rewrites that same row's output. Either way
+    /// the `arc_reaudit` frame carries the row's id and its **first** write's
+    /// clock, so the deck upserts one turn that keeps its seat.
+    ///
+    /// A `prior` is `(receipt_id, started_at_ms, card)`: it is rewritten only
+    /// when `segment` resolves to that same card, so a card whose segment
+    /// moved mid-story keeps its one row and a different card gets its own.
+    /// A `prior` whose row has gone (evicted, or a ledger rebuilt under it)
+    /// writes a fresh row rather than announcing one nothing can replay.
+    /// Answers `(receipt_id, started_at_ms, card)` for the caller to keep, or
+    /// `None` when there is no ledger to write to.
+    ///
+    /// The command stays out of the told set, so the line's model is never
+    /// told of the row: it is ink for the user, and no turn is spent on it.
+    pub async fn record_reaudit_ink(
+        &self,
+        segment: &str,
+        arc: &str,
+        project_dir: &str,
+        output: &str,
+        prior: Option<(i64, i64, String)>,
+    ) -> Option<(i64, i64, String)> {
+        let session = match self.card_entry_for_segment(segment).await {
+            Some((card, _)) => card.as_str().to_string(),
+            None => segment.to_string(),
+        };
+        let now = crate::session_ledger::now_millis();
+        let prior = prior
+            .filter(|(_, _, card)| *card == session)
+            .map(|(id, started, _)| (id, started));
+        let rewritten = match (prior, self.shell_ledger.clone()) {
+            (Some((id, started)), Some(shell)) => {
+                let text = output.to_string();
+                let moved = crate::ledger_handle::offload(move || {
+                    shell.update_exchange_output(id, &text, now).ok()
+                })
+                .await
+                .unwrap_or(0);
+                (moved > 0).then_some((id, started))
+            }
+            _ => None,
+        };
+        let (receipt_id, started_at_ms) = match rewritten {
+            Some(written) => written,
+            None => {
+                let id = self
+                    .record_landing_receipt_off_worker_at(
+                        Some(&session),
+                        &format!("/arc-reaudit {arc}"),
+                        output,
+                        project_dir,
+                        now,
+                    )
+                    .await?;
+                (id, now)
+            }
+        };
+        let body = serde_json::json!({
+            "action": "arc_reaudit",
+            "project_dir": project_dir,
+            "arc": arc,
+            "tug_session_id": session,
+            "receipt_id": receipt_id,
+            "summary": output,
+            "started_at_ms": started_at_ms,
+        });
+        send_control(&self.control_tx, body);
+        Some((receipt_id, started_at_ms, session))
+    }
+
     /// [`Self::record_landing_receipt`] on the blocking pool, stamped now: the
     /// receipt is a shell-ledger write keyed by the session ledger's line, and
     /// both are synchronous.

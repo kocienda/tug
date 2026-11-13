@@ -27,6 +27,13 @@
  * seeded at mount — a card that opens *after* an arc ended already replayed
  * that row from the ledger, and must not paint a second copy of it.
  *
+ * The engine's re-audit rides it as well, and is the one row here that is
+ * written more than once: the server rewrites a re-audit's single ledger row
+ * as it waits, runs and ends, and announces each write with the same receipt
+ * id. Each write is appended under that id, so the turn it paints is upserted
+ * in place — one row for the story, never one per write. Seeded at mount like
+ * the notes, so a card opening mid-story appends only what arrives after.
+ *
  * Laws: [L22] store→store wiring observes the verb store's own subscription
  * directly (no useSyncExternalStore → useEffect round-trip).
  *
@@ -95,6 +102,10 @@ export function useLandingReceipts(
     // only what arrives from here — the earlier rows are its restore's.
     const seeded = verbStore.arcNotes(tugSessionId);
     let prevNoteSeq: number = seeded.length === 0 ? 0 : seeded[seeded.length - 1].seq;
+    // The re-audit's row writes, seeded the same way.
+    const seededReaudits = verbStore.arcReaudits(tugSessionId);
+    let prevReauditSeq: number =
+      seededReaudits.length === 0 ? 0 : seededReaudits[seededReaudits.length - 1].seq;
 
     /**
      * Append one landing's summary as a shell-exchange row ([D111]), under the
@@ -184,6 +195,19 @@ export function useLandingReceipts(
           timestamp: arcNote.startedAtMs ?? Date.now(),
         });
         prevNoteSeq = arcNote.seq;
+      }
+
+      // The engine's re-audit (no turn spent on it): each write of its one
+      // row, upserted under the row's receipt id at its first write's clock.
+      for (const reaudit of verbStore.arcReaudits(tugSessionId)) {
+        if (reaudit.seq <= prevReauditSeq) continue;
+        append(
+          `/arc-reaudit ${reaudit.arc}`,
+          reaudit.summary,
+          reaudit.receiptId,
+          reaudit.startedAtMs,
+        );
+        prevReauditSeq = reaudit.seq;
       }
     };
 

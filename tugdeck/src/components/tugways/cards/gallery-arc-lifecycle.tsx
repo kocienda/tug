@@ -646,6 +646,7 @@ function factFor(m: Moment): ArcSessionFact {
     timeline: e.timeline ?? null,
     hasDraft: e.draft !== undefined,
     branch: m.branched ? arcBranchFacts(e) : null,
+    restamp: e.restamp ?? null,
   };
 }
 

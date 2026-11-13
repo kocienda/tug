@@ -609,3 +609,60 @@ fn a_wait_that_never_holds_fails_at_its_deadline_naming_the_last_probe() {
     );
     assert!(out.stdout.is_empty());
 }
+
+/// `report rewrite` in a project declaring a runner: the command it reads on
+/// stdin.
+fn rewrite(cwd: &Path, command: &str) -> (String, bool) {
+    let mut child = tugtool()
+        .args(["report", "rewrite", "--cwd"])
+        .arg(cwd)
+        .args(["--call", "reaudit_x"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("tugtool spawns");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(command.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (String::from_utf8(out.stdout).unwrap(), out.status.success())
+}
+
+fn project_declaring_a_runner() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(tmp.path().join(".tugtool")).unwrap();
+    std::fs::write(
+        tmp.path().join(".tugtool/config.toml"),
+        "[[tugtool.report.runner]]\nmatch = \"sh run-checks.sh\"\nkind = \"lines\"\nsuite = \"checks\"\n\
+         item = '^(?P<status>PASS|FAIL) (?P<name>\\S+)'\n",
+    )
+    .unwrap();
+    tmp
+}
+
+/// The engine's re-audit runs its checks through this verb, so a check the
+/// project's runner table knows is wrapped exactly as the hook would wrap a
+/// Bash call from the same directory, behind the engine's own call mark.
+#[test]
+fn report_rewrite_wraps_a_declared_runner_behind_the_call_mark() {
+    let tmp = project_declaring_a_runner();
+    let (out, ok) = rewrite(tmp.path(), "sh run-checks.sh");
+    assert!(ok);
+    assert!(out.starts_with("# tug-call: reaudit_x"), "{out}");
+    assert!(out.contains("test run --suite"), "{out}");
+    assert!(out.ends_with("sh run-checks.sh"), "{out}");
+}
+
+/// A command no row knows comes back as it went in, behind the mark alone.
+#[test]
+fn report_rewrite_leaves_an_unknown_command_behind_the_mark() {
+    let tmp = project_declaring_a_runner();
+    let (out, ok) = rewrite(tmp.path(), "echo hello");
+    assert!(ok);
+    let mark = out.strip_suffix("echo hello").expect("the command is kept");
+    assert!(mark.starts_with("# tug-call: reaudit_x"), "{out}");
+    assert!(!mark.contains("test run"), "{out}");
+}

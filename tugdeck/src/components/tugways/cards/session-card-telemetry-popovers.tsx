@@ -169,6 +169,8 @@ import {
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
+import { reauditViewFromWire } from "@/lib/reaudit-row";
+import { ReauditRows } from "@/components/tugways/reaudit-rows";
 import {
   formatReportLine,
   type ReportStore,
@@ -2325,6 +2327,9 @@ export function ArcPopoverContent({
   // through and no second derivation to disagree with the Arcs card's row.
   const steps = fact.steps;
   const model = fact.track;
+  // The engine's re-audit, while it holds or waits on the arc: the same model
+  // the transcript block draws from the wire, so the two faces say one thing.
+  const reaudit = reauditViewFromWire(fact.restamp, fact.name, fact.branch?.base ?? "");
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   // The list below is the ledger when there is one and the task list when
   // there is not, so the row to reveal is read off whichever is rendered.
@@ -2365,6 +2370,21 @@ export function ArcPopoverContent({
             worker over the track. The steps below are the plan's rows; this
             is the arc. */}
         <ArcPopoverHead fact={fact} />
+        {reaudit !== null ? (
+          <div
+            className="session-arc-popover-reaudit"
+            data-slot="session-arc-popover-reaudit"
+            data-state={reaudit.state}
+          >
+            <p className="session-arc-popover-reaudit-headline">
+              {reaudit.statusWord} · {reaudit.headline}
+            </p>
+            {reaudit.phaseLine !== null ? (
+              <p className="session-arc-popover-reaudit-phase">{reaudit.phaseLine}</p>
+            ) : null}
+            <ReauditRows surfaces={reaudit.surfaces} />
+          </div>
+        ) : null}
         {steps.length > 0 ? (
           <ArcStepItems steps={steps} live={model.live} />
         ) : tasks.length > 0 ? (

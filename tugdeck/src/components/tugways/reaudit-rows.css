@@ -1,0 +1,85 @@
+/* ============================================================================
+   Re-audit rows
+   ========================================================================= */
+
+/**
+ * One row per surface of the engine's re-audit: a status mark, the surface's
+ * name, its `passed/total`, its time, and on a red row the first failure.
+ * The status rides `data-status`; its colour is set here and nowhere else.
+ *
+ * @module components/tugways/reaudit-rows
+ */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tug7-element-global-text-normal-default-rest (element-global-text-normal-default-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .reaudit-row-name (color)            |
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .reaudit-row-counts, .reaudit-row-time, pending/skipped mark (color) |
+ * | --tug7-element-global-text-normal-success-rest (element-global-text-normal-success-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | success      | [data-status="pass"] mark (color)    |
+ * | --tug7-element-global-text-normal-danger-rest (element-global-text-normal-danger-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | danger       | [data-status="fail"] mark, failure (color) |
+ */
+
+.reaudit-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content) auto auto 1fr;
+  column-gap: var(--tug-space-sm);
+  row-gap: var(--tug-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--tugx-toolheader-name-size);
+}
+
+.reaudit-row {
+  display: contents;
+}
+
+.reaudit-row-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  font-family: var(--tug-font-family-mono);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-row-name {
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-row-counts,
+.reaudit-row-time {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-row[data-status="pending"] .reaudit-row-mark,
+.reaudit-row[data-status="skipped"] .reaudit-row-mark {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-row[data-status="pass"] .reaudit-row-mark {
+  color: var(--tug7-element-global-text-normal-success-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-row[data-status="fail"] .reaudit-row-mark {
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+/* A red row's first failure runs under the row it belongs to, the full
+   width of the grid. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-row-failure {
+  grid-column: 2 / -1;
+  color: var(--tug7-element-global-text-normal-danger-rest);
+  overflow-wrap: anywhere;
+}

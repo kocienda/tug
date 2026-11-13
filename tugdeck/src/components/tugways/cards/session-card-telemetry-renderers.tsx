@@ -132,6 +132,7 @@ import {
   arcCellWord,
 } from "@/components/tugways/tug-arc-track";
 import { useArcForSession } from "@/lib/arc-session-index";
+import { arcCellReadingWord, reauditCellReading } from "@/lib/reaudit-row";
 import { useSessionGaps } from "@/lib/report-gaps-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -1284,6 +1285,17 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // too — otherwise the one state that is asking for the user is the one state
   // the label does not name.
   const arcReadyLabel = joinReady ? ", ready to join" : "";
+  // The engine's re-audit of a finished arc after its base moved. It runs no
+  // turn, so nothing else on the row would say the arc is held; the cell reads
+  // `Re-auditing` or `Waiting` over a running dot, and a stop or a standing
+  // join offer keeps its own reading.
+  const reaudit = arcFact === null ? null : reauditCellReading(arcFact.restamp);
+  const reauditHeld = reaudit !== null && arcModel?.stopped == null && !joinReady;
+  const arcReauditLabel = !reauditHeld
+    ? ""
+    : reaudit.word === "Waiting"
+      ? ", re-audit waiting"
+      : ", re-auditing";
   // The two rest forms the cell shortens to fit — `Review`, `Audit` — say
   // their whole clause here ([B04]). The cut is a cut on the glyph alone: a
   // reader who HEARS the cell would otherwise be told the arc's name and
@@ -1297,8 +1309,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     arcFact === null
       ? ""
       : arcFraction === null
-        ? `arc ${arcFact.name}${arcRestLabel}${arcReadyLabel}${arcRunLabel}`
-        : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcReadyLabel}${arcRunLabel}`;
+        ? `arc ${arcFact.name}${arcRestLabel}${arcReadyLabel}${arcReauditLabel}${arcRunLabel}`
+        : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcReadyLabel}${arcReauditLabel}${arcRunLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about an arc already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -1474,10 +1486,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // The ARC reading's flanking dots: a stopped arc paints danger, a
   // wheel-driven one runs across turn ends, and only a hand-run arc takes
   // the TASKS idle demotion. The pose function owns all four.
-  const arcIndicatorState: TugProgressIndicatorState = arcCellPose(
-    { stage: arcFact?.stage ?? null, wheel: arcFact?.arc ?? null },
-    isIdle,
-  );
+  // A re-audit the engine holds runs the dots whatever the session is doing.
+  const arcIndicatorState: TugProgressIndicatorState = reauditHeld
+    ? reaudit.pose
+    : arcCellPose(
+        { stage: arcFact?.stage ?? null, wheel: arcFact?.arc ?? null },
+        isIdle,
+      );
   // **Numbers only while steps are being walked.** The declared selection
   // first — the pair somebody asked for — and the plan's own pair when none
   // was declared, but only through `arcCellNumerals`' gate: the wheel's stage
@@ -1501,11 +1516,16 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         // it is what the arc did, and what the reader needs is what the arc
         // wants, which is them. The condition is the one `joinReady` the dot
         // beside it reads, so the cell and the dot cannot disagree.
-        joinReady
-        ? ARC_JOIN_READY_CELL_WORD
-        : arcFraction !== null
-          ? `${arcFraction.current}/${arcFraction.total}`
-          : arcCellWord(arcModel);
+        // A re-audit the engine holds reads next, over the fraction: the
+        // steps are finished and the arc is not idle.
+        arcCellReadingWord({
+          stopped: arcModel.stopped !== null,
+          joinReady,
+          joinWord: ARC_JOIN_READY_CELL_WORD,
+          reaudit,
+          fraction: arcFraction,
+          word: arcCellWord(arcModel),
+        });
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);

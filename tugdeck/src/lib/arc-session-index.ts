@@ -35,6 +35,7 @@ import {
 import type {
   ArcRunState,
   ArcDocuments,
+  ArcRestampWire,
   ArcStep,
   ArcTimeline,
   WorkspacesChangesetSnapshot,
@@ -125,6 +126,11 @@ export interface ArcSessionFact {
   /** The arc's standing against its base, or null for an arc that is
    *  documents alone — what the verb row's Replay and Diff read. */
   readonly branch: ArcBranchFacts | null;
+  /** The engine's re-audit on the arc — the run going on, its wait, or the
+   *  run that last ended — or null when it has nothing to say. What the
+   *  card's re-audit block reads live. Always null for an arc that is
+   *  documents alone: the engine re-audits only a branched arc. */
+  readonly restamp: ArcRestampWire | null;
 }
 
 /**
@@ -187,6 +193,7 @@ export function buildArcSessionIndex(
         timeline: entry.timeline ?? null,
         hasDraft: entry.draft !== undefined,
         branch: arcBranchFacts(entry),
+        restamp: entry.restamp ?? null,
       };
       claim(boundSession, fact);
     }
@@ -225,6 +232,7 @@ export function buildArcSessionIndex(
         timeline: null,
         hasDraft: false,
         branch: null,
+        restamp: null,
       };
       claim(boundSession, fact);
     }

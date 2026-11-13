@@ -23,6 +23,7 @@ import {
 } from "../tug-arc-track";
 import { arcPhaseWord } from "@/components/tugways/arc-phase-mark";
 import { ARC_JOIN_READY_CELL_WORD } from "@/lib/arc-join-register";
+import { reauditCellReading } from "@/lib/reaudit-row";
 import { PLANNED_KIND_SENTENCE } from "@/lib/arc-meta-facts";
 
 const PLAN = { brief: "/b", plan: "/p" };
@@ -575,10 +576,17 @@ describe("the Z2 cell's word", () => {
     readings.add(arcCellWord(face({ stopped: "needs a decision", stoppedWhy: "why" })));
     readings.add(arcCellWord(face({ direct: true, planned: false, steps: null })));
     readings.add(ARC_JOIN_READY_CELL_WORD);
+    // The engine's re-audit readings, a run and a wait.
+    for (const restamp of [{ running_since: "t", phase: "verifying" }, { phase: "waiting" }]) {
+      const reading = reauditCellReading(restamp);
+      if (reading !== null) readings.add(reading.word);
+    }
     expect(readings).toContain("Stopped");
     expect(readings).toContain("Cut");
     expect(readings).toContain("Review");
     expect(readings).toContain("Audit");
+    expect(readings).toContain("Reviewing");
+    expect(readings).toContain("Waiting");
     expect(readings).toContain(ARC_CELL_WIDEST_WORD);
     for (const word of readings) {
       expect(word.length, `${word} is wider than ${ARC_CELL_WIDEST_WORD}`).toBeLessThanOrEqual(

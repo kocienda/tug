@@ -152,7 +152,7 @@ describe("the first slot across an arc's life ([B04])", () => {
     expect(next?.refusal).toBeNull();
   });
 
-  it("refuses Re-audit while the quiet re-stamp holds the arc", () => {
+  it("refuses Re-audit while the engine's re-audit holds the arc", () => {
     // The server refuses the same press; the button says so before it is
     // pressed, and the job's horizon is when it opens again.
     const next = arcVerbs(
@@ -168,8 +168,8 @@ describe("the first slot across an arc's life ([B04])", () => {
       }),
     ).next;
     expect(next?.word).toBe("Re-audit");
-    expect(next?.refusal?.startsWith("a quiet re-stamp is running — it ends by ")).toBe(true);
-    expect(next?.label.startsWith("Re-audit arc demo — a quiet re-stamp is running")).toBe(true);
+    expect(next?.refusal?.startsWith("the re-audit is already running — it ends by ")).toBe(true);
+    expect(next?.label.startsWith("Re-audit arc demo — the re-audit is already running")).toBe(true);
 
     // A job that seated the audit is over: the press is open.
     const seated = arcVerbs(

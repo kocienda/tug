@@ -1180,50 +1180,20 @@ pub(crate) fn verify_wrapper(worktree: &std::path::Path) -> impl Fn(&str) -> Str
 }
 
 /// The reader a verify asks after each check exits: what the wrapped child
-/// recorded, read from the test ledger under this call's id. The runs under
-/// the call are read in order and each check is credited with the ones
-/// recorded since the last ask, so a check whose runner wrote two records
-/// carries both. With no call id, or no ledger, every answer is `None` and
-/// the row falls back to the check and its exit code. The read is
-/// telemetry-grade: a ledger that cannot be opened or read never fails the
-/// verify.
+/// recorded, read from the test ledger under this call's id by the shared
+/// reader the base-motion engine's re-audit asks too, and carried onto the
+/// verify's own row type. With no call id, or no ledger, every answer is
+/// `None` and the row falls back to the check and its exit code.
 fn verify_verdicts() -> impl FnMut(&str) -> Option<tugarc_core::surfaces::ChildVerdict> + use<> {
-    use tugtool_core::test_ledger::{default_path, open_ledger, runs_for_call};
-    let call = crate::report::tool_use_id();
-    let conn = call.as_ref().and_then(|_| open_ledger(default_path()).ok());
-    let mut seen = match (&conn, &call) {
-        (Some(conn), Some(call)) => runs_for_call(conn, call, None)
-            .map(|r| r.len())
-            .unwrap_or(0),
-        _ => 0,
-    };
-    move |_command: &str| {
-        let (conn, call) = (conn.as_ref()?, call.as_deref()?);
-        let runs = runs_for_call(conn, call, None).ok()?;
-        let fresh = runs.get(seen..).unwrap_or(&[]);
-        seen = runs.len();
-        verdict_of_runs(fresh)
+    let mut verdicts = tugtool_core::test_ledger::call_verdicts(crate::report::tool_use_id());
+    move |command: &str| {
+        verdicts(command).map(|v| tugarc_core::surfaces::ChildVerdict {
+            passed: v.passed,
+            total: v.total,
+            title: v.title,
+            message: v.message,
+        })
     }
-}
-
-/// One check's verdict from the runs its child recorded: tests passed of
-/// total when any run counted tests, and the first failure's name and message
-/// across them. `None` when no run was recorded.
-pub(crate) fn verdict_of_runs(
-    runs: &[tugtool_core::test_ledger::SuiteRun],
-) -> Option<tugarc_core::surfaces::ChildVerdict> {
-    if runs.is_empty() {
-        return None;
-    }
-    let total: i64 = runs.iter().map(|r| r.tests).sum();
-    let failed: i64 = runs.iter().map(|r| r.failed).sum();
-    let first = runs.iter().find_map(|r| r.failures.first());
-    Some(tugarc_core::surfaces::ChildVerdict {
-        passed: (total > 0).then(|| (total - failed).max(0) as u64),
-        total: (total > 0).then_some(total as u64),
-        title: first.map(|f| f.name.clone()),
-        message: first.map(|f| f.message.clone()).filter(|m| !m.is_empty()),
-    })
 }
 
 fn print_verify(report: &tugarc_core::surfaces::VerifyReport) {

@@ -31,6 +31,8 @@
  * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-overlay-rest | content | .session-state-log-time etc. (color)        |
  * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest | content | .session-state-log-phase etc. (color)       |
  * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-overlay-rest | content | .session-context-popover-grid-divider (border) |
+ * | --tug7-element-global-text-normal-default-rest    | --tug7-surface-global-primary-normal-overlay-rest | content | .session-arc-popover-reaudit-headline (color) |
+ * | --tug7-element-global-text-normal-muted-rest      | --tug7-surface-global-primary-normal-overlay-rest | content | .session-arc-popover-reaudit-phase (color)    |
  *
  * @module components/tugways/cards/session-card-telemetry-popovers
  */
@@ -691,6 +693,30 @@
   display: flex;
   min-width: 0;
   padding: var(--tug-space-md) var(--tug-space-sm);
+}
+
+/* The engine's re-audit, under the head while it holds or waits on the arc:
+   its status and what moved the base, the phase, and one row per surface. */
+.session-arc-popover-reaudit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+  padding: 0 var(--tug-space-sm) var(--tug-space-md);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
+.session-arc-popover-reaudit-headline {
+  margin: 0;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow-wrap: anywhere;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
+.session-arc-popover-reaudit-phase {
+  margin: 0;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  overflow-wrap: anywhere;
 }
 
 [data-slot="session-arc-popover-body"] .tug-popup-list-item-lead {

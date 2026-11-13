@@ -195,12 +195,14 @@
    The fourth cell reads ARC while the bound session drives one, and its
    reading is a fraction while a step is in hand and a WORD otherwise —
    `Briefed`, `Devising`, `Reviewing` / `Review`, `Executing`, `Auditing` /
-   `Audit`, `Finished`, `Stopped`, `Cut`, `Ready` — flanked by the same pair
+   `Audit`, `Finished`, `Stopped`, `Cut`, `Ready`, and the engine's re-audit
+   readings `Re-auditing` / `Waiting` — flanked by the same pair
    of dots STATE carries, under STATE's own `space-between` layout. The set
    is closed and its widest members are declared beside the tables in
-   `tug-arc-track.tsx` as `ARC_CELL_WIDEST_WORD` (`Reviewing`, the widest the
-   face RENDERS — `Executing` ties it on letters and falls 2.69px short of it
-   in pixels) and `ARC_CELL_WIDEST_FRACTION` (`00/00`);
+   `tug-arc-track.tsx` as `ARC_CELL_WIDEST_WORD` (`Re-auditing`, eleven
+   letters; among the lifecycle's words `Reviewing` is the widest the face
+   RENDERS — `Executing` ties it on letters and falls 2.69px short of it in
+   pixels) and `ARC_CELL_WIDEST_FRACTION` (`00/00`);
    the value span renders both as hidden sizing faces, so the box is the
    same at `Reviewing` as at `Executing` as at `2/4` and no reading moves it.
 

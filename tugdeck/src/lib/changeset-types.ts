@@ -488,15 +488,54 @@ export interface ArcFitWire {
   base_moved?: boolean;
 }
 
-/** The quiet re-stamp's state — {@link ArcChangesetEntry.restamp}. A job
- *  that is running carries `running_since` and `deadline` (RFC 3339); one
- *  that handed the arc to its audit stage carries `seated_why`. */
+/** The engine's re-audit — {@link ArcChangesetEntry.restamp}. A run that is
+ *  going carries `running_since` and `deadline` (RFC 3339), its `run_id`,
+ *  `phase`, `trigger` and one row per planned surface; one that handed the
+ *  arc to its audit stage carries `seated_why`; `last_run_id` names the run
+ *  that most recently ended. */
 export interface ArcRestampWire {
   running_since?: string;
   /** When the running job's horizon falls: its verify is killed there, and
    *  past it a Re-audit press takes the arc back. */
   deadline?: string;
   seated_why?: string;
+  /** The re-audit's identity, shared by the transcript row that tells it. */
+  run_id?: string;
+  /** `waiting` | `replaying` | `verifying` | `marking` | `seating`. */
+  phase?: string;
+  /** The wait's sentence while `phase` is `waiting`. */
+  waiting?: string;
+  /** When the wait began, RFC 3339. */
+  waiting_since?: string;
+  /** What moved the base. */
+  trigger?: ArcRestampTriggerWire;
+  /** One row per surface the verify planned, in plan order. */
+  surfaces?: ArcRestampSurfaceWire[];
+  /** The run that most recently ended on this arc. */
+  last_run_id?: string;
+}
+
+/** What moved the base under a re-audit — {@link ArcRestampWire.trigger}. */
+export interface ArcRestampTriggerWire {
+  sha: string;
+  subject: string;
+  /** The arc the tip joined, when the tip is a join's squash. */
+  arc?: string;
+}
+
+/** One surface of a re-audit's verify — {@link ArcRestampWire.surfaces}. */
+export interface ArcRestampSurfaceWire {
+  name: string;
+  /** `pending` | `running` | `pass` | `fail` | `skipped`. */
+  status: string;
+  passed?: number;
+  total?: number;
+  /** Wall time in whole milliseconds, once it lands. */
+  ms?: number;
+  /** When the surface started, RFC 3339. */
+  started_at?: string;
+  title?: string;
+  message?: string;
 }
 
 /** One reason a join would be refused right now. */
@@ -759,11 +798,50 @@ function isOptionalArcRestamp(
 ): value is ArcRestampWire | undefined {
   if (value === undefined) return true;
   if (!isRecord(value)) return false;
+  const optString = (v: unknown) => v === undefined || typeof v === "string";
+  const optNumber = (v: unknown) => v === undefined || typeof v === "number";
+  const trigger = value.trigger;
+  if (
+    trigger !== undefined &&
+    !(
+      isRecord(trigger) &&
+      typeof trigger.sha === "string" &&
+      typeof trigger.subject === "string" &&
+      optString(trigger.arc)
+    )
+  ) {
+    return false;
+  }
+  const surfaces = value.surfaces;
+  if (
+    surfaces !== undefined &&
+    !(
+      Array.isArray(surfaces) &&
+      surfaces.every(
+        (s) =>
+          isRecord(s) &&
+          typeof s.name === "string" &&
+          typeof s.status === "string" &&
+          optNumber(s.passed) &&
+          optNumber(s.total) &&
+          optNumber(s.ms) &&
+          optString(s.started_at) &&
+          optString(s.title) &&
+          optString(s.message),
+      )
+    )
+  ) {
+    return false;
+  }
   return (
-    (value.running_since === undefined ||
-      typeof value.running_since === "string") &&
-    (value.deadline === undefined || typeof value.deadline === "string") &&
-    (value.seated_why === undefined || typeof value.seated_why === "string")
+    optString(value.running_since) &&
+    optString(value.deadline) &&
+    optString(value.seated_why) &&
+    optString(value.run_id) &&
+    optString(value.phase) &&
+    optString(value.waiting) &&
+    optString(value.waiting_since) &&
+    optString(value.last_run_id)
   );
 }
 

@@ -588,30 +588,21 @@ pub fn verify_in(
     )
 }
 
-/// [`verify_in`] over the arc's own range, with a horizon: a check still
+/// [`verify_watched`] over the arc's own range, with a horizon: a check still
 /// running at `deadline` is killed, nothing after it runs, and the report's
-/// verdict is `timed-out`. This is the verify a caller nobody is watching
-/// runs — the base-motion engine's quiet re-stamp — for which a wedged check
-/// would otherwise be a wait with no end.
+/// verdict is `timed-out`. This is the verify the base-motion engine's re-audit
+/// runs, for which a wedged check would otherwise be a wait with no end; the
+/// caller's [`VerifyHooks`] wrap its checks, read what their children
+/// recorded, and watch each surface as it goes, exactly as they do for
+/// [`verify_watched`].
 pub fn verify_by(
     paths: &Paths,
     repo_root: &Path,
     name: &str,
     deadline: Instant,
+    hooks: VerifyHooks<'_>,
 ) -> Result<VerifyReport, ArcError> {
-    verify_run(
-        paths,
-        repo_root,
-        name,
-        None,
-        None,
-        VerifyHooks {
-            wrap: &|command| command.to_string(),
-            verdict: &mut |_| None,
-            watch: &mut |_| {},
-        },
-        Some(deadline),
-    )
+    verify_run(paths, repo_root, name, None, None, hooks, Some(deadline))
 }
 
 /// [`verify_in`] with the caller's [`VerifyHooks`]: each check passes through
@@ -1408,6 +1399,11 @@ mod fit_tests {
             &root,
             "demo",
             started + std::time::Duration::from_millis(300),
+            VerifyHooks {
+                wrap: &|command| command.to_string(),
+                verdict: &mut |_| None,
+                watch: &mut |_| {},
+            },
         )
         .expect("the verify runs");
         // The verdict is the deadline's, not the check's: a check that ran to

@@ -53,6 +53,39 @@
         "conflicts": [
           "tugrust/crates/tugtool/src/commands/arc.rs"
         ]
+      },
+      "restamp": {
+        "running_since": "2026-11-12T10:00:00+00:00",
+        "deadline": "2026-11-12T10:30:00+00:00",
+        "run_id": "0f3c1e5a9b7d4e21a8c6f0b2d4e6a8c0",
+        "phase": "verifying",
+        "trigger": {
+          "sha": "9ac1e0f2aa0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d",
+          "subject": "Draw the lid wave in card text color",
+          "arc": "content-lid-wave"
+        },
+        "surfaces": [
+          {
+            "name": "rust",
+            "status": "pass",
+            "passed": 1307,
+            "total": 1307,
+            "ms": 30782,
+            "started_at": "2026-11-12T10:00:02+00:00"
+          },
+          {
+            "name": "deck",
+            "status": "running",
+            "started_at": "2026-11-12T10:00:33+00:00"
+          },
+          {
+            "name": "docs",
+            "status": "fail",
+            "title": "just lint",
+            "message": "exit 1"
+          }
+        ],
+        "last_run_id": "7b2d"
       }
     }
   ],

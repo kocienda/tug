@@ -42,7 +42,7 @@ import {
   type ArcRestampWire,
   type ArcRunState,
 } from "@/lib/changeset-types";
-import { JOINABLE_STAGES, restampRunning } from "@/lib/arc-join-register";
+import { JOINABLE_STAGES, restampEndsBy, restampRunning } from "@/lib/arc-join-register";
 import {
   deriveJoinOutcome,
   evaluateJoinGate,
@@ -170,7 +170,7 @@ export interface ArcVerbInput {
   /** The arc's derived stage word (`ready`, `built`, `audited`, …). */
   stage: string | undefined;
   /**
-   * The engine's quiet re-stamp on this arc, off the feed's `restamp`, or
+   * The engine's re-audit on this arc, off the feed's `restamp`, or
    * absent. A job running refuses the Re-audit press, as the server does:
    * the machine is already answering the stale audit.
    */
@@ -281,7 +281,7 @@ function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
   // door, named for what it does.
   const reaudit = face === "resume" && auditStale && input.run?.done === true;
   const word = reaudit ? "Re-audit" : TRANSPORT_WORD[face];
-  // …and refused while the quiet re-stamp holds the arc, in the server's own
+  // …and refused while the engine's re-audit holds the arc, in the server's own
   // terms: a press then would seat a second answer beside the machine's.
   const refusal =
     reaudit && restampRunning(input)
@@ -297,18 +297,13 @@ function nextVerb(input: ArcVerbInput): ArcVerbSet["next"] {
 }
 
 /**
- * Why Re-audit is refused while the quiet re-stamp runs: the job is the
+ * Why Re-audit is refused while the engine's re-audit runs: the job is the
  * answer already under way, and its horizon is when the press opens again.
  */
 export function restampRefusal(deadline: string | undefined): string {
-  const at = deadline === undefined ? Number.NaN : Date.parse(deadline);
-  if (Number.isNaN(at)) return "a quiet re-stamp is running";
-  const by = new Date(at).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  return `a quiet re-stamp is running — it ends by ${by}`;
+  const by = restampEndsBy(deadline);
+  if (by === null) return "the re-audit is already running";
+  return `the re-audit is already running — it ends by ${by}`;
 }
 
 /** The view slot ([B06]): Changes on the Arcs card and the popover, Diff in

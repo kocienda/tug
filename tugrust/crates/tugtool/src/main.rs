@@ -281,6 +281,25 @@ fn main() -> ExitCode {
             changes::finish("report runners", json, runners::run_runners(json))
         }
 
+        // The hook's rewrite of one command on stdin. A filter, exits 0.
+        Some(Commands::Report(cli::ReportCommands::Rewrite { cwd, call })) => {
+            use std::io::{Read, Write};
+            let mut command = String::new();
+            let _ = std::io::stdin().read_to_string(&mut command);
+            let rewritten = commands::hook::rewrite_command(
+                &command,
+                Some(&cwd),
+                call.as_deref(),
+                &commands::hook::hook_binary(),
+                &runners::for_cwd(Some(&cwd)),
+            )
+            .unwrap_or(command);
+            let mut out = std::io::stdout();
+            let _ = out.write_all(rewritten.as_bytes());
+            let _ = out.flush();
+            ExitCode::SUCCESS
+        }
+
         // The record of long calls that reported nothing. A reader, exits 0.
         Some(Commands::Report(cli::ReportCommands::Gaps)) => {
             report::run_report_gaps(json);

@@ -1485,10 +1485,47 @@ fn wire_restamp(
     fact: crate::feeds::base_motion::QuietFact,
 ) -> Option<tugcast_core::types::ArcRestamp> {
     let stamp = |at: std::time::SystemTime| chrono::DateTime::<chrono::Utc>::from(at).to_rfc3339();
+    let run = fact.running.as_ref();
+    // A wait speaks only while nothing runs; a run that starts takes it over.
+    let wait = fact.waiting.as_ref().filter(|_| run.is_none());
+    let trigger = run
+        .map(|run| &run.trigger)
+        .or(wait.map(|wait| &wait.trigger));
     let restamp = tugcast_core::types::ArcRestamp {
-        running_since: fact.running.as_ref().map(|run| stamp(run.since)),
-        deadline: fact.running.as_ref().map(|run| stamp(run.deadline)),
+        running_since: run.map(|run| stamp(run.since)),
+        deadline: run.map(|run| stamp(run.deadline)),
         seated_why: fact.seated_why,
+        run_id: run
+            .map(|run| run.run_id.clone())
+            .or(wait.map(|wait| wait.run_id.clone())),
+        phase: run
+            .map(|run| run.phase.as_str().to_string())
+            .or(wait.map(|_| "waiting".to_string())),
+        waiting: wait.map(|wait| wait.why.clone()),
+        waiting_since: wait.map(|wait| stamp(wait.since)),
+        trigger: trigger.map(|trigger| tugcast_core::types::ArcRestampTrigger {
+            sha: trigger.sha.clone(),
+            subject: trigger.subject.clone(),
+            arc: trigger.arc.clone(),
+        }),
+        surfaces: run
+            .map(|run| {
+                run.surfaces
+                    .iter()
+                    .map(|row| tugcast_core::types::ArcRestampSurface {
+                        name: row.name.clone(),
+                        status: row.status.to_string(),
+                        passed: row.passed,
+                        total: row.total,
+                        ms: row.ms,
+                        started_at: row.started.map(stamp),
+                        title: row.title.clone(),
+                        message: row.message.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        last_run_id: fact.last.as_ref().map(|last| last.run_id.clone()),
     };
     (restamp != tugcast_core::types::ArcRestamp::default()).then_some(restamp)
 }
@@ -2633,6 +2670,111 @@ mod tests {
     use super::*;
     use crate::session_ledger::FileEventRow;
     use std::path::PathBuf;
+
+    /// **The re-audit's fact on the wire.** Every field the board holds is
+    /// carried — the run, its phase and trigger, each surface with its clock,
+    /// and the run that last ended — and a board with nothing to say puts
+    /// nothing on the entry.
+    #[test]
+    fn wire_restamp_carries_the_whole_run() {
+        use crate::feeds::base_motion::{
+            EndedRun, QuietFact, ReauditPhase, ReauditTrigger, RestampRun, SurfaceRow,
+        };
+        let since = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        let trigger = ReauditTrigger {
+            sha: "9ac1e0f2aa".to_string(),
+            subject: "Draw the lid".to_string(),
+            arc: Some("lid".to_string()),
+        };
+        let row = SurfaceRow {
+            name: "rust".to_string(),
+            status: "pass",
+            passed: Some(3),
+            total: Some(4),
+            ms: Some(1500),
+            started: Some(since),
+            title: Some("t".to_string()),
+            message: Some("m".to_string()),
+        };
+        let fact = QuietFact {
+            running: Some(RestampRun::for_test(
+                since,
+                "run-2",
+                ReauditPhase::Verifying,
+                trigger.clone(),
+                vec![row.clone()],
+            )),
+            waiting: None,
+            seated_why: None,
+            last: Some(EndedRun {
+                run_id: "run-1".to_string(),
+                trigger,
+                surfaces: vec![row],
+                since,
+                ended: since,
+                state: "verified",
+                why: None,
+            }),
+            ink: None,
+        };
+        let wire = wire_restamp(fact).expect("a running fact is said");
+        assert_eq!(wire.run_id.as_deref(), Some("run-2"));
+        assert_eq!(wire.phase.as_deref(), Some("verifying"));
+        assert!(wire.running_since.is_some() && wire.deadline.is_some());
+        let trigger = wire.trigger.expect("the trigger");
+        assert_eq!(
+            (
+                trigger.sha.as_str(),
+                trigger.subject.as_str(),
+                trigger.arc.as_deref()
+            ),
+            ("9ac1e0f2aa", "Draw the lid", Some("lid"))
+        );
+        assert_eq!(wire.surfaces.len(), 1);
+        let surface = &wire.surfaces[0];
+        assert_eq!(surface.name, "rust");
+        assert_eq!(surface.status, "pass");
+        assert_eq!(
+            (surface.passed, surface.total, surface.ms),
+            (Some(3), Some(4), Some(1500))
+        );
+        assert!(
+            surface
+                .started_at
+                .as_deref()
+                .is_some_and(|at| at.starts_with("2027-"))
+        );
+        assert_eq!(surface.title.as_deref(), Some("t"));
+        assert_eq!(surface.message.as_deref(), Some("m"));
+        assert_eq!(wire.last_run_id.as_deref(), Some("run-1"));
+
+        assert_eq!(wire_restamp(QuietFact::default()), None);
+
+        // A wait, with nothing running, says what it waits on under the run
+        // id the run will take.
+        let waiting = QuietFact {
+            waiting: Some(crate::feeds::base_motion::QuietWait {
+                run_id: "run-3".to_string(),
+                since,
+                why: "waiting for the arc's worktree to be clean".to_string(),
+                trigger: ReauditTrigger {
+                    sha: "abc".to_string(),
+                    ..ReauditTrigger::default()
+                },
+            }),
+            ..QuietFact::default()
+        };
+        let wire = wire_restamp(waiting).expect("a wait is said");
+        assert_eq!(wire.phase.as_deref(), Some("waiting"));
+        assert_eq!(wire.run_id.as_deref(), Some("run-3"));
+        assert_eq!(
+            wire.waiting.as_deref(),
+            Some("waiting for the arc's worktree to be clean")
+        );
+        assert!(wire.waiting_since.is_some());
+        assert!(wire.running_since.is_none());
+        assert_eq!(wire.trigger.map(|t| t.sha).as_deref(), Some("abc"));
+    }
 
     use tugcore::test_fixtures::git::{GitFixture, git};
 

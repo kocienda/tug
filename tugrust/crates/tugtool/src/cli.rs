@@ -372,6 +372,21 @@ pub enum ReportCommands {
     /// from. A config that does not load is refused here, by name; the hook
     /// itself falls back to the built-ins in silence.
     Runners,
+    /// The hook's rewrite of one command read on stdin, for a process that
+    /// runs checks itself (the base-motion engine): the same runner table and
+    /// the same wrap a Bash call from `--cwd` would get, printed with no
+    /// added newline. A command the table does not know is printed as it
+    /// came, behind the call mark when `--call` names one. Always exits 0.
+    Rewrite {
+        /// The directory the command will run in; its project's runner rows
+        /// are read from here.
+        #[arg(long)]
+        cwd: String,
+        /// The call id the command's runs record under, written as the
+        /// command's `# tug-call:` mark.
+        #[arg(long)]
+        call: Option<String>,
+    },
     /// The long Bash calls that ended with no progress report, by command
     /// head: how many, and how long they ran in all. Where the next report
     /// is due.

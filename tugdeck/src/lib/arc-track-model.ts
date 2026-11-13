@@ -370,8 +370,16 @@ const ARC_CELL_REST_WORDS = { review: "Review", audit: "Audit" } as const;
  * fails the unit test over every reading; one that outgrows it by pixels
  * alone fails `at0484-arc-z2-instrument`, which walks the tie in a rendered
  * box.
+ *
+ * **`Re-auditing` is wider than all of them, so it is the declaration.** The
+ * cell reads it while the engine re-audits a finished arc whose base moved,
+ * a reading no turn drives and so one the cell must hold without growing.
+ * At eleven letters against `Reviewing`'s nine it widens the ARC cell for
+ * every arc, not only one being re-audited, since the cell reserves its box
+ * from this word; it still fits the cell between its two dots. `Waiting`, the
+ * re-audit's other reading, is shorter on both counts.
  */
-export const ARC_CELL_WIDEST_WORD = "Reviewing";
+export const ARC_CELL_WIDEST_WORD = "Re-auditing";
 
 /**
  * The widest fraction shape the same cell can show while a step is in hand.

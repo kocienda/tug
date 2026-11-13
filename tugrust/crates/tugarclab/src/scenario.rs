@@ -939,7 +939,7 @@ fn press_during_restamp_refuses() -> LabScenario {
             Act::Expect(Probe::process(HUNG_CHECK)),
             Act::ReauditRefused {
                 arc: "rb",
-                says: "re-stamping its audit",
+                says: "already re-auditing",
             },
             Act::Expect(Probe::reaudit("rb")),
             Act::Stop("rb"),

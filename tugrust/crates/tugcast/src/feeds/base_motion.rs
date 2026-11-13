@@ -443,18 +443,31 @@ pub struct ConflictBoard {
     generation: AtomicU64,
 }
 
-/// The quiet re-stamp's state on one arc, as the wire reads it.
+/// The re-audit's state on one arc, as the wire reads it: the run going now,
+/// the one that last ended, and why the last one handed the arc to its audit
+/// stage. Every face that shows the engine's re-audit reads this one fact.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QuietFact {
     /// The job running now.
     pub running: Option<RestampRun>,
+    /// The re-audit that would run and is waiting on something first.
+    pub waiting: Option<QuietWait>,
     /// Why the last quiet job could not re-stamp and handed the arc to its
     /// audit stage. Kept while the arc reads `audit-stale`.
     pub seated_why: Option<String>,
+    /// The run that most recently ended here, as it ended — kept until the
+    /// arc stops reading stale, so a card that binds after the ending can
+    /// still be told it.
+    pub last: Option<EndedRun>,
+    /// The transcript row the current story is written to, once one is.
+    /// Kept past the run's end, so a run that goes back to waiting keeps
+    /// writing the same row.
+    pub ink: Option<ReauditInk>,
 }
 
-/// One running quiet job: when it began, and the horizon past which nothing
-/// it is waiting on is worth waiting for.
+/// One running quiet job: when it began, the horizon past which nothing it is
+/// waiting on is worth waiting for, what moved the base under it, which phase
+/// it is in, and one row per surface its verify planned.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestampRun {
     pub since: SystemTime,
@@ -464,6 +477,363 @@ pub struct RestampRun {
     /// here to its end a press cannot release it, so the record is written by
     /// the job or by the press and never by both.
     committing: bool,
+    /// The re-audit's identity, minted when it starts.
+    pub run_id: String,
+    pub phase: ReauditPhase,
+    pub trigger: ReauditTrigger,
+    /// One row per planned surface, in plan order; empty until the verify
+    /// plans.
+    pub surfaces: Vec<SurfaceRow>,
+}
+
+#[cfg(test)]
+impl RestampRun {
+    /// A run as a reader of the board meets one, for a test of that reader.
+    pub(crate) fn for_test(
+        since: SystemTime,
+        run_id: &str,
+        phase: ReauditPhase,
+        trigger: ReauditTrigger,
+        surfaces: Vec<SurfaceRow>,
+    ) -> Self {
+        RestampRun {
+            since,
+            deadline: since + Duration::from_secs(60),
+            generation: 1,
+            committing: false,
+            run_id: run_id.to_string(),
+            phase,
+            trigger,
+            surfaces,
+        }
+    }
+}
+
+/// A re-audit the quiet path would run and cannot yet: why, since when, and
+/// what moved the base. Its run id is the one the run takes when it starts,
+/// so the story is one transcript row from the wait to the verdict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuietWait {
+    pub run_id: String,
+    pub since: SystemTime,
+    pub why: String,
+    pub trigger: ReauditTrigger,
+}
+
+/// What a re-audit is waiting on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuietWaitReason {
+    /// The bound session is mid-turn, or holds a job still running.
+    SessionBusy,
+    /// The arc's worktree has uncommitted changes.
+    DirtyWorktree,
+    /// A join is in flight for the arc.
+    JoinJournal,
+    /// The replay was deferred by one of its own gates; the detail says which.
+    Deferred(String),
+    /// The replay could not run at all.
+    ReplayFailed,
+}
+
+/// Whether this wake's decision leaves a re-audit waiting, and on what. Only
+/// the quiet path's waits are published: the audit went stale on the base
+/// alone and the quiet path has not already failed at this tip, so the
+/// re-audit is the engine's to run, and the decision skipped it for a reason
+/// a later wake will clear.
+pub fn quiet_wait(inputs: &ArcInputs, decision: &Decision) -> Option<QuietWaitReason> {
+    if !(inputs.audit_stale_done && inputs.audit_base_only && !inputs.quiet_failed) {
+        return None;
+    }
+    match decision {
+        Decision::Skip("session-busy") => Some(QuietWaitReason::SessionBusy),
+        Decision::Skip("dirty-worktree") => Some(QuietWaitReason::DirtyWorktree),
+        Decision::Skip("join-journal") => Some(QuietWaitReason::JoinJournal),
+        _ => None,
+    }
+}
+
+/// The wait's sentence, as every face shows it. `callsign` names the bound
+/// card when the ledger knows it.
+pub fn wait_sentence(reason: &QuietWaitReason, callsign: Option<&str>) -> String {
+    match reason {
+        QuietWaitReason::SessionBusy => {
+            format!(
+                "waiting for {}'s turn to end",
+                callsign.unwrap_or("its card")
+            )
+        }
+        QuietWaitReason::DirtyWorktree => "waiting for the arc's worktree to be clean".to_string(),
+        QuietWaitReason::JoinJournal => "waiting for a join in flight to finish".to_string(),
+        QuietWaitReason::Deferred(detail) => format!("waiting to try again: {detail}"),
+        QuietWaitReason::ReplayFailed => {
+            "waiting to try again: the replay could not run".to_string()
+        }
+    }
+}
+
+/// Where a running re-audit is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReauditPhase {
+    Replaying,
+    Verifying,
+    Marking,
+    Seating,
+}
+
+impl ReauditPhase {
+    /// The wire's word for the phase.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReauditPhase::Replaying => "replaying",
+            ReauditPhase::Verifying => "verifying",
+            ReauditPhase::Marking => "marking",
+            ReauditPhase::Seating => "seating",
+        }
+    }
+}
+
+/// What moved the base: the new tip, its subject, and the arc it joined when
+/// the tip is a join's squash.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReauditTrigger {
+    pub sha: String,
+    pub subject: String,
+    pub arc: Option<String>,
+}
+
+/// One surface of a re-audit's verify, as it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SurfaceRow {
+    pub name: String,
+    /// `pending`, `running`, `pass`, `fail` or `skipped`.
+    pub status: &'static str,
+    pub passed: Option<u64>,
+    pub total: Option<u64>,
+    /// The surface's wall time in whole milliseconds, once it lands.
+    pub ms: Option<u64>,
+    pub started: Option<SystemTime>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+}
+
+impl SurfaceRow {
+    fn pending(name: &str) -> Self {
+        SurfaceRow {
+            name: name.to_string(),
+            status: "pending",
+            passed: None,
+            total: None,
+            ms: None,
+            started: None,
+            title: None,
+            message: None,
+        }
+    }
+}
+
+/// The sentence a surface carries when the horizon ended it.
+const HORIZON_MESSAGE: &str = "stopped at the horizon";
+
+/// A re-audit that has ended, as it ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndedRun {
+    pub run_id: String,
+    pub trigger: ReauditTrigger,
+    pub surfaces: Vec<SurfaceRow>,
+    pub since: SystemTime,
+    pub ended: SystemTime,
+    /// `verified`, `seated` or `released`.
+    pub state: &'static str,
+    pub why: Option<String>,
+}
+
+/// How a running re-audit ends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnding {
+    /// The fit verified and the audit mark was written.
+    Verified,
+    /// The arc goes back to its audit stage, for this reason.
+    Seated(String),
+    /// The replay deferred or failed: a later wake tries again, and the run
+    /// becomes a wait under its own run id, with this sentence.
+    Wait(String),
+}
+
+/// The transcript row a re-audit's story is written to: which run, on whose
+/// card, and the row's id and first-write clock the deck upserts it by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReauditInk {
+    pub run_id: String,
+    pub session: String,
+    pub receipt_id: i64,
+    pub started_at_ms: i64,
+}
+
+/// One re-audit as its transcript row records it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReauditRecord {
+    pub arc: String,
+    pub run_id: String,
+    pub base_branch: String,
+    pub trigger: ReauditTrigger,
+    /// `waiting`, `running`, `verified`, `seated`, `released` or `answered`.
+    pub state: &'static str,
+    pub why: Option<String>,
+    pub started: SystemTime,
+    pub ended: Option<SystemTime>,
+    /// Recorded only at the terminal write; a live row reads the wire.
+    pub surfaces: Vec<SurfaceRow>,
+}
+
+impl ReauditRecord {
+    /// The row of a run that has ended.
+    fn of_ended(arc: &str, base_branch: &str, run: &EndedRun) -> Self {
+        ReauditRecord {
+            arc: arc.to_string(),
+            run_id: run.run_id.clone(),
+            base_branch: base_branch.to_string(),
+            trigger: run.trigger.clone(),
+            state: run.state,
+            why: run.why.clone(),
+            started: run.since,
+            ended: Some(run.ended),
+            surfaces: run.surfaces.clone(),
+        }
+    }
+
+    /// The row of a wait that ended with no run taking it.
+    fn answered(arc: &str, base_branch: &str, wait: &QuietWait, ended: SystemTime) -> Self {
+        ReauditRecord {
+            arc: arc.to_string(),
+            run_id: wait.run_id.clone(),
+            base_branch: base_branch.to_string(),
+            trigger: wait.trigger.clone(),
+            state: "answered",
+            why: Some(ANSWERED_WHY.to_string()),
+            started: wait.since,
+            ended: Some(ended),
+            surfaces: Vec::new(),
+        }
+    }
+}
+
+/// The sentence a wait closes on when the audit was answered without it.
+const ANSWERED_WHY: &str = "the audit was answered another way before the re-audit could start";
+
+/// A field as one line of the row holds it: tabs and line breaks become
+/// spaces, so neither can split a line or a surface's columns.
+fn scrub(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if matches!(c, '\t' | '\n' | '\r') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// The re-audit's transcript row: one `key: value` line per fact, then one
+/// tab-separated `surface:` line per surface in plan order. The deck parses
+/// it back; a field it has no value for is left empty.
+pub(crate) fn format_reaudit_row(record: &ReauditRecord) -> String {
+    use std::fmt::Write as _;
+    let stamp = |at: SystemTime| chrono::DateTime::<chrono::Utc>::from(at).to_rfc3339();
+    let num = |n: Option<u64>| n.map(|n| n.to_string()).unwrap_or_default();
+    let text = |s: &Option<String>| s.as_deref().map(scrub).unwrap_or_default();
+    let mut out = String::new();
+    let _ = writeln!(out, "arc: {}", scrub(&record.arc));
+    let _ = writeln!(out, "run: {}", scrub(&record.run_id));
+    let _ = writeln!(
+        out,
+        "base: {} {}",
+        scrub(&record.base_branch),
+        scrub(&record.trigger.sha)
+    );
+    let _ = writeln!(out, "subject: {}", scrub(&record.trigger.subject));
+    if let Some(arc) = record.trigger.arc.as_deref() {
+        let _ = writeln!(out, "joined: {}", scrub(arc));
+    }
+    let _ = writeln!(out, "state: {}", record.state);
+    if let Some(why) = record.why.as_deref() {
+        let _ = writeln!(out, "why: {}", scrub(why));
+    }
+    let _ = writeln!(out, "started: {}", stamp(record.started));
+    if let Some(ended) = record.ended {
+        let _ = writeln!(out, "ended: {}", stamp(ended));
+    }
+    for row in &record.surfaces {
+        let _ = writeln!(
+            out,
+            "surface: {}\t{}\t{}\t{}\t{}\t{}\t{}",
+            scrub(&row.name),
+            row.status,
+            num(row.passed),
+            num(row.total),
+            num(row.ms),
+            text(&row.title),
+            text(&row.message),
+        );
+    }
+    out
+}
+
+/// One landed surface as its row reads it: a check the horizon stopped (or
+/// never let start) is `fail` with the horizon's sentence, ahead of an
+/// ordinary red; a red names the first red check's child title or its
+/// command, and the child's message or its exit; a surface with no checks is
+/// claimed and unchecked; anything else passed. Counts are the children's
+/// tests when they recorded, otherwise the checks.
+fn landed_row(
+    row: &mut SurfaceRow,
+    result: &tugarc_core::surfaces::SurfaceResult,
+    now: SystemTime,
+) {
+    let checks = result.commands.len() as u64;
+    let checks_passed = result
+        .commands
+        .iter()
+        .filter(|c| c.status == "already-run" || c.exit_code == Some(0))
+        .count() as u64;
+    let horizon = result
+        .commands
+        .iter()
+        .any(|c| c.status == "timed-out" || c.status == "not-started")
+        || (!result.red
+            && !result.commands.is_empty()
+            && result.commands.iter().all(|c| c.status == "not-reached"));
+    let red = result
+        .commands
+        .iter()
+        .find(|c| c.exit_code.is_some_and(|code| code != 0));
+    row.ms = row
+        .started
+        .and_then(|at| now.duration_since(at).ok())
+        .map(|d| d.as_millis() as u64);
+    row.passed = Some(result.passed.unwrap_or(checks_passed));
+    row.total = Some(result.total.unwrap_or(checks));
+    (row.status, row.title, row.message) = if horizon {
+        ("fail", None, Some(HORIZON_MESSAGE.to_string()))
+    } else if let Some(c) = red {
+        (
+            "fail",
+            Some(c.title.clone().unwrap_or_else(|| c.command.clone())),
+            Some(
+                c.message
+                    .clone()
+                    .unwrap_or_else(|| format!("exit {}", c.exit_code.unwrap_or(-1))),
+            ),
+        )
+    } else if checks == 0 {
+        ("skipped", None, Some("claimed, unchecked".to_string()))
+    } else {
+        ("pass", None, None)
+    };
+    if checks == 0 {
+        row.passed = None;
+        row.total = None;
+    }
 }
 
 /// What a press on the Re-audit door finds about the quiet job.
@@ -495,8 +865,14 @@ impl ConflictBoard {
     }
 
     /// Take the arc for a quiet job and publish it as running, answering the
-    /// job's generation — or `None` when a quiet job already holds the arc.
-    fn begin_restamp(&self, owner_key: &str, horizon: Duration) -> Option<u64> {
+    /// job's generation and its run id — or `None` when a quiet job already
+    /// holds the arc. The run starts replaying, under `trigger`.
+    fn begin_restamp(
+        &self,
+        owner_key: &str,
+        horizon: Duration,
+        trigger: ReauditTrigger,
+    ) -> Option<(u64, String)> {
         let mut quiet = self.quiet.lock();
         let fact = quiet.entry(owner_key.to_string()).or_default();
         if fact.running.is_some() {
@@ -504,14 +880,137 @@ impl ConflictBoard {
         }
         let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
         let since = SystemTime::now();
+        // A run that starts out of a wait is the wait's story going on: it
+        // keeps the wait's run id, and its trigger when this wake read none.
+        let (run_id, trigger) = match fact.waiting.take() {
+            Some(wait) => {
+                let trigger = if trigger.sha.is_empty() {
+                    wait.trigger
+                } else {
+                    trigger
+                };
+                (wait.run_id, trigger)
+            }
+            None => (mint_run_id(), trigger),
+        };
         fact.running = Some(RestampRun {
             since,
             deadline: since + horizon,
             generation,
             committing: false,
+            run_id: run_id.clone(),
+            phase: ReauditPhase::Replaying,
+            trigger,
+            surfaces: Vec::new(),
         });
         fact.seated_why = None;
-        Some(generation)
+        Some((generation, run_id))
+    }
+
+    /// Publish a re-audit as waiting, on `why`, under `trigger`, answering its
+    /// run id and whether the published fact changed. A wait already standing
+    /// keeps its run id and its start and takes the new sentence and trigger;
+    /// otherwise a run id is minted. A running job takes precedence and the
+    /// board is left alone.
+    fn begin_wait(&self, owner_key: &str, why: String, trigger: ReauditTrigger) -> (String, bool) {
+        let mut quiet = self.quiet.lock();
+        let fact = quiet.entry(owner_key.to_string()).or_default();
+        if let Some(run) = fact.running.as_ref() {
+            return (run.run_id.clone(), false);
+        }
+        match fact.waiting.as_mut() {
+            Some(wait) => {
+                let changed = wait.why != why || wait.trigger != trigger;
+                wait.why = why;
+                wait.trigger = trigger;
+                (wait.run_id.clone(), changed)
+            }
+            None => {
+                let run_id = mint_run_id();
+                fact.waiting = Some(QuietWait {
+                    run_id: run_id.clone(),
+                    since: SystemTime::now(),
+                    why,
+                    trigger,
+                });
+                (run_id, true)
+            }
+        }
+    }
+
+    /// Take down the arc's wait, answering it when one stood.
+    fn clear_wait(&self, owner_key: &str) -> Option<QuietWait> {
+        let mut quiet = self.quiet.lock();
+        let fact = quiet.get_mut(owner_key)?;
+        let wait = fact.waiting.take();
+        if *fact == QuietFact::default() {
+            quiet.remove(owner_key);
+        }
+        wait
+    }
+
+    /// The arc's wait stands.
+    fn waiting(&self, owner_key: &str) -> bool {
+        self.quiet
+            .lock()
+            .get(owner_key)
+            .is_some_and(|fact| fact.waiting.is_some())
+    }
+
+    /// The running job `generation` started, when it still holds the arc.
+    fn held_run<'a>(
+        quiet: &'a mut HashMap<String, QuietFact>,
+        owner_key: &str,
+        generation: u64,
+    ) -> Option<&'a mut RestampRun> {
+        quiet
+            .get_mut(owner_key)
+            .and_then(|fact| fact.running.as_mut())
+            .filter(|run| run.generation == generation)
+    }
+
+    /// Move the job `generation` started into `phase`.
+    fn set_phase(&self, owner_key: &str, generation: u64, phase: ReauditPhase) {
+        let mut quiet = self.quiet.lock();
+        if let Some(run) = Self::held_run(&mut quiet, owner_key, generation) {
+            run.phase = phase;
+        }
+    }
+
+    /// Write one verify event onto the rows of the job `generation` started:
+    /// the plan lays every surface out pending, a start runs one, a landing
+    /// settles it.
+    fn verify_event(
+        &self,
+        owner_key: &str,
+        generation: u64,
+        event: &tugarc_core::surfaces::VerifyEvent<'_>,
+    ) {
+        use tugarc_core::surfaces::VerifyEvent;
+        let now = SystemTime::now();
+        let mut quiet = self.quiet.lock();
+        let Some(run) = Self::held_run(&mut quiet, owner_key, generation) else {
+            return;
+        };
+        match event {
+            VerifyEvent::Planned(planned) => {
+                run.surfaces = planned
+                    .iter()
+                    .map(|(name, _)| SurfaceRow::pending(name))
+                    .collect();
+            }
+            VerifyEvent::Started(name) => {
+                if let Some(row) = run.surfaces.iter_mut().find(|r| r.name == *name) {
+                    row.status = "running";
+                    row.started = Some(now);
+                }
+            }
+            VerifyEvent::Finished(result) => {
+                if let Some(row) = run.surfaces.iter_mut().find(|r| r.name == result.name) {
+                    landed_row(row, result, now);
+                }
+            }
+        }
     }
 
     /// A quiet job holds the arc.
@@ -552,10 +1051,13 @@ impl ConflictBoard {
         }
     }
 
-    /// End the job `generation` started, recording why it seated the audit
-    /// when it did. Answers false, and changes nothing, when a press already
-    /// released that job.
-    fn end_restamp(&self, owner_key: &str, generation: u64, seated_why: Option<String>) -> bool {
+    /// End the job `generation` started as `ending` says: a verified or
+    /// seated run becomes the arc's `last`, and a seated one records why; a
+    /// run that goes back to waiting becomes a wait under its own run id and
+    /// trigger, in the same lock, so no wake can decide between the two.
+    /// Answers false, and changes nothing, when a press already released that
+    /// job.
+    fn end_restamp(&self, owner_key: &str, generation: u64, ending: RunEnding) -> bool {
         let mut quiet = self.quiet.lock();
         let Some(fact) = quiet.get_mut(owner_key) else {
             return false;
@@ -563,8 +1065,25 @@ impl ConflictBoard {
         if fact.running.as_ref().map(|run| run.generation) != Some(generation) {
             return false;
         }
-        fact.running = None;
-        fact.seated_why = seated_why;
+        let Some(run) = fact.running.take() else {
+            return false;
+        };
+        let (state, why) = match ending {
+            RunEnding::Verified => ("verified", None),
+            RunEnding::Seated(why) => ("seated", Some(why)),
+            RunEnding::Wait(why) => {
+                fact.seated_why = None;
+                fact.waiting = Some(QuietWait {
+                    run_id: run.run_id,
+                    since: SystemTime::now(),
+                    why,
+                    trigger: run.trigger,
+                });
+                return true;
+            }
+        };
+        fact.seated_why = why.clone();
+        fact.last = Some(ended_run(run, state, why, SystemTime::now()));
         true
     }
 
@@ -583,27 +1102,261 @@ impl ConflictBoard {
                 deadline: run.deadline,
             },
             Some(_) => {
-                fact.running = None;
-                fact.seated_why =
-                    Some("the quiet re-stamp ran past its deadline and was released".to_string());
+                let why = "the re-audit ran past its horizon and was released".to_string();
+                if let Some(run) = fact.running.take() {
+                    fact.last = Some(ended_run(run, "released", Some(why.clone()), now));
+                }
+                fact.seated_why = Some(why);
                 RestampRelease::Released
             }
         }
     }
 
-    /// Drop the seat reason of an arc that no longer reads `audit-stale`.
+    /// Drop the seat reason and the ended run of an arc that no longer reads
+    /// `audit-stale`, and the whole fact when nothing runs or waits on it.
     fn forget_seated(&self, owner_key: &str) {
         let mut quiet = self.quiet.lock();
         if let Some(fact) = quiet.get_mut(owner_key) {
             fact.seated_why = None;
-            if fact.running.is_none() {
+            fact.last = None;
+            if fact.running.is_none() && fact.waiting.is_none() {
                 quiet.remove(owner_key);
             }
         }
     }
 
+    /// The row already written for `run_id`, when there is one.
+    fn ink_of(&self, owner_key: &str, run_id: &str) -> Option<ReauditInk> {
+        self.quiet
+            .lock()
+            .get(owner_key)
+            .and_then(|fact| fact.ink.clone())
+            .filter(|ink| ink.run_id == run_id)
+    }
+
+    /// Remember the row the arc's story is written to.
+    fn set_ink(&self, owner_key: &str, ink: ReauditInk) {
+        self.quiet
+            .lock()
+            .entry(owner_key.to_string())
+            .or_default()
+            .ink = Some(ink);
+    }
+
+    /// Forget `run_id`'s row once its story has closed, and the whole fact
+    /// when that leaves it empty.
+    fn forget_ink(&self, owner_key: &str, run_id: &str) {
+        let mut quiet = self.quiet.lock();
+        if let Some(fact) = quiet.get_mut(owner_key) {
+            if fact.ink.as_ref().is_some_and(|ink| ink.run_id == run_id) {
+                fact.ink = None;
+            }
+            if *fact == QuietFact::default() {
+                quiet.remove(owner_key);
+            }
+        }
+    }
+
+    /// The story going on now, as its row records it: the running job, or
+    /// else the wait.
+    fn live_record(&self, owner_key: &str, arc: &str, base_branch: &str) -> Option<ReauditRecord> {
+        let quiet = self.quiet.lock();
+        let fact = quiet.get(owner_key)?;
+        let (run_id, trigger, state, why, started) = match (&fact.running, &fact.waiting) {
+            (Some(run), _) => (&run.run_id, &run.trigger, "running", None, run.since),
+            (None, Some(wait)) => (
+                &wait.run_id,
+                &wait.trigger,
+                "waiting",
+                Some(wait.why.clone()),
+                wait.since,
+            ),
+            (None, None) => return None,
+        };
+        Some(ReauditRecord {
+            arc: arc.to_string(),
+            run_id: run_id.clone(),
+            base_branch: base_branch.to_string(),
+            trigger: trigger.clone(),
+            state,
+            why,
+            started,
+            ended: None,
+            surfaces: Vec::new(),
+        })
+    }
+
+    /// The job `generation` started as it is about to end, so its row can
+    /// close before the board takes the run down.
+    fn ending_record(
+        &self,
+        owner_key: &str,
+        generation: u64,
+        arc: &str,
+        base_branch: &str,
+        state: &'static str,
+        why: Option<String>,
+    ) -> Option<ReauditRecord> {
+        let mut quiet = self.quiet.lock();
+        let run = Self::held_run(&mut quiet, owner_key, generation)?.clone();
+        let ended = ended_run(run, state, why, SystemTime::now());
+        Some(ReauditRecord::of_ended(arc, base_branch, &ended))
+    }
+
+    /// The run that last ended here, as its row records it.
+    fn last_record(&self, owner_key: &str, arc: &str, base_branch: &str) -> Option<ReauditRecord> {
+        let quiet = self.quiet.lock();
+        let last = quiet.get(owner_key)?.last.as_ref()?;
+        Some(ReauditRecord::of_ended(arc, base_branch, last))
+    }
+
     fn quiet_fact(&self, owner_key: &str) -> Option<QuietFact> {
         self.quiet.lock().get(owner_key).cloned()
+    }
+}
+
+/// A fresh re-audit's identity.
+fn mint_run_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// A run as it ended: its rows as they stood, any still pending or running
+/// settled as the horizon's, since nothing more will land on them.
+fn ended_run(
+    run: RestampRun,
+    state: &'static str,
+    why: Option<String>,
+    ended: SystemTime,
+) -> EndedRun {
+    let surfaces = run
+        .surfaces
+        .into_iter()
+        .map(|mut row| {
+            if row.status == "pending" || row.status == "running" {
+                row.status = "fail";
+                row.message = Some(HORIZON_MESSAGE.to_string());
+            }
+            row
+        })
+        .collect();
+    EndedRun {
+        run_id: run.run_id,
+        trigger: run.trigger,
+        surfaces,
+        since: run.since,
+        ended,
+        state,
+        why,
+    }
+}
+
+/// Where one arc's re-audit row is written: the supervisor that owns the
+/// ledgers and the frame, and the arc the row speaks for.
+#[derive(Clone)]
+struct InkWriter {
+    supervisor: Option<Arc<super::agent_supervisor::AgentSupervisor>>,
+    project_dir: PathBuf,
+    arc: String,
+    base_branch: String,
+}
+
+/// One row write as a test reads it: the card, the row, and whether the arc's
+/// record already read its audit seated when the row was written.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) struct InkLogged {
+    pub session: String,
+    pub output: String,
+    pub audit_seated: bool,
+}
+
+/// What would have been written, for an engine run with no supervisor.
+#[cfg(test)]
+static INK_LOG: Mutex<Vec<InkLogged>> = Mutex::new(Vec::new());
+
+/// Row writes go one at a time, so a wake and a job that both mean to write
+/// a story's first row write one row between them.
+static INK_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Write the row `compose` reads off the board, on `session`'s card, or on
+/// the card already holding the story's row when `session` is `None` — and
+/// with neither, write nothing, since nobody holds the arc to be told. A
+/// `fresh_only` write is skipped when the story already has its row. A row
+/// already written is rewritten in place on the same card; a different card
+/// gets a row of its own. Sameness is the card's, never the segment's: the
+/// ink keeps the card id the supervisor resolved, and the supervisor resolves
+/// the segment it is handed before it compares, so a card whose session
+/// segment moved mid-story still rewrites its one row.
+async fn write_ink(
+    writer: &InkWriter,
+    board: &ConflictBoard,
+    owner_key: &str,
+    session: Option<&str>,
+    fresh_only: bool,
+    compose: impl FnOnce(&ConflictBoard, &InkWriter) -> Option<ReauditRecord>,
+) {
+    let _gate = INK_GATE.lock().await;
+    let Some(record) = compose(board, writer) else {
+        return;
+    };
+    let prior = board.ink_of(owner_key, &record.run_id);
+    if fresh_only && prior.is_some() {
+        return;
+    }
+    let Some(session) = session
+        .map(str::to_string)
+        .or_else(|| prior.as_ref().map(|ink| ink.session.clone()))
+    else {
+        return;
+    };
+    let output = format_reaudit_row(&record);
+    let Some(supervisor) = writer.supervisor.as_ref() else {
+        #[cfg(test)]
+        {
+            let audit_seated =
+                tugarc_core::read_arc(&Paths::from_env(), &writer.project_dir, &writer.arc)
+                    .is_some_and(|run| run.resume == Some(tugarc_core::ArcStage::Audit));
+            INK_LOG.lock().push(InkLogged {
+                session: session.clone(),
+                output,
+                audit_seated,
+            });
+            // No supervisor resolves a card here, so the session is the card.
+            let (receipt_id, started_at_ms) = prior
+                .filter(|ink| ink.session == session)
+                .map(|ink| (ink.receipt_id, ink.started_at_ms))
+                .unwrap_or((0, 0));
+            board.set_ink(
+                owner_key,
+                ReauditInk {
+                    run_id: record.run_id,
+                    session,
+                    receipt_id,
+                    started_at_ms,
+                },
+            );
+        }
+        return;
+    };
+    let written = supervisor
+        .record_reaudit_ink(
+            &session,
+            &writer.arc,
+            &writer.project_dir.to_string_lossy(),
+            &output,
+            prior.map(|ink| (ink.receipt_id, ink.started_at_ms, ink.session)),
+        )
+        .await;
+    if let Some((receipt_id, started_at_ms, card)) = written {
+        board.set_ink(
+            owner_key,
+            ReauditInk {
+                run_id: record.run_id,
+                session: card,
+                receipt_id,
+                started_at_ms,
+            },
+        );
     }
 }
 
@@ -645,8 +1398,9 @@ pub fn release_restamp(owner_key: &str) -> RestampRelease {
 pub(crate) fn hold_restamp_for_test(owner_key: &str, horizon: Duration) -> u64 {
     BOARD
         .get_or_init(|| Arc::new(ConflictBoard::default()))
-        .begin_restamp(owner_key, horizon)
+        .begin_restamp(owner_key, horizon, ReauditTrigger::default())
         .expect("no quiet job already holds the arc")
+        .0
 }
 
 /// Publish a conflicted replay's paths on `owner_key` (empty clears them), for
@@ -662,7 +1416,7 @@ pub(crate) fn publish_conflicts_for_test(owner_key: &str, paths: Vec<String>) {
 #[cfg(test)]
 pub(crate) fn end_restamp_for_test(owner_key: &str, generation: u64) {
     if let Some(board) = BOARD.get() {
-        board.end_restamp(owner_key, generation, None);
+        board.end_restamp(owner_key, generation, RunEnding::Verified);
         board.forget_seated(owner_key);
     }
 }
@@ -818,6 +1572,9 @@ pub struct BaseMotionContext {
     /// The supervisor's CODE_OUTPUT feed, for the opener that makes an injected
     /// turn visible.
     pub code_output: Option<SessionScopedFeed>,
+    /// The supervisor a re-audit's transcript row is written through; `None`
+    /// in tests, which read what would have been written instead.
+    pub supervisor: Option<Arc<super::agent_supervisor::AgentSupervisor>>,
     pub cancel: CancellationToken,
 }
 
@@ -1008,8 +1765,87 @@ async fn evaluate_workspace(
         };
 
         let decision = decide_for_arc(&inputs);
+        let ink = InkWriter {
+            supervisor: ctx.supervisor.clone(),
+            project_dir: repo_dir.clone(),
+            arc: detail.name.clone(),
+            base_branch: detail.base.clone(),
+        };
+        let mut wait_changed = false;
+        // A stale audit's re-audit is never silent: one the quiet path would
+        // run and cannot yet is published as a wait, from the wake that finds
+        // it, and the run that ends the wait takes its run id.
+        match quiet_wait(&inputs, &decision) {
+            Some(reason) => {
+                let callsign = inputs.session.as_ref().and_then(|session| {
+                    ctx.session_ledger
+                        .as_ref()?
+                        .get(&session.id)
+                        .ok()
+                        .flatten()?
+                        .tag
+                });
+                let why = wait_sentence(&reason, callsign.as_deref());
+                let (dir, tip) = (repo_dir.clone(), reading.base_tip.clone());
+                let trigger = tokio::task::spawn_blocking(move || read_trigger(&dir, &tip))
+                    .await
+                    .unwrap_or_default();
+                if board.begin_wait(&owner_key, why, trigger).1 {
+                    wait_changed = true;
+                    ctx.bump.notify_one();
+                }
+            }
+            // Not on the wake that ends the wait — a `Restamp` whose job has
+            // not adopted it yet — and not while a job holds the arc: either
+            // way the wait is about to become the run.
+            None if !matches!(decision, Decision::Restamp(_) | Decision::Skip("in-flight"))
+                && board.waiting(&owner_key) =>
+            {
+                // A wait that ends with no run taking it closes its row.
+                if let Some(wait) = board.clear_wait(&owner_key) {
+                    let ended = SystemTime::now();
+                    write_ink(&ink, board, &owner_key, None, false, |_, w| {
+                        Some(ReauditRecord::answered(
+                            &w.arc,
+                            &w.base_branch,
+                            &wait,
+                            ended,
+                        ))
+                    })
+                    .await;
+                    board.forget_ink(&owner_key, &wait.run_id);
+                }
+                ctx.bump.notify_one();
+            }
+            None => {}
+        }
+        // The card holding the arc carries the story from the moment it holds
+        // it: a wait's first row, a wait whose sentence or trigger moved, and
+        // a card that bound while a run or a wait was already under way.
+        if (board.restamping(&owner_key) || board.waiting(&owner_key))
+            && (wait_changed || inputs.session.is_some())
+        {
+            write_ink(
+                &ink,
+                board,
+                &owner_key,
+                inputs.session.as_ref().map(|s| s.id.as_str()),
+                !wait_changed,
+                |b, w| b.live_record(&owner_key, &w.arc, &w.base_branch),
+            )
+            .await;
+        }
         match &decision {
             Decision::SeatAudit(session) => {
+                // A card that bound after a red fit no card held is told it,
+                // before the audit stage it is handed to opens.
+                if inputs.quiet_failed {
+                    write_ink(&ink, board, &owner_key, Some(session), true, |b, w| {
+                        b.last_record(&owner_key, &w.arc, &w.base_branch)
+                            .filter(|record| record.state == "seated")
+                    })
+                    .await;
+                }
                 let (dir, name) = (repo_dir.clone(), detail.name.clone());
                 let reopened = tokio::task::spawn_blocking(move || {
                     tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), &dir, &name)
@@ -1055,6 +1891,15 @@ async fn evaluate_workspace(
                 );
             }
             Decision::Replay | Decision::ReplayThenNotify(_) | Decision::Restamp(_) => {
+                let trigger = match &decision {
+                    Decision::Restamp(_) => {
+                        let (dir, tip) = (repo_dir.clone(), reading.base_tip.clone());
+                        tokio::task::spawn_blocking(move || read_trigger(&dir, &tip))
+                            .await
+                            .unwrap_or_default()
+                    }
+                    _ => ReauditTrigger::default(),
+                };
                 let (notify, quiet) = match &decision {
                     Decision::ReplayThenNotify(id) => (Some(id.clone()), None),
                     Decision::Restamp(seat) => (
@@ -1062,6 +1907,7 @@ async fn evaluate_workspace(
                         Some(QuietJob {
                             seat: seat.clone(),
                             base_tip: reading.base_tip.clone(),
+                            trigger,
                             horizon: tugtool_core::config::Config::load_from_project(&repo_dir)
                                 .map(|config| config.tugtool.arc.restamp_horizon())
                                 .unwrap_or(QUIET_HORIZON),
@@ -1120,6 +1966,8 @@ struct QuietJob {
     seat: Option<String>,
     /// The base tip the wake read, which a failure is latched against.
     base_tip: String,
+    /// What moved the base to that tip.
+    trigger: ReauditTrigger,
     /// How long the job may run before its verify is killed and a Re-audit
     /// press may take the arc back from it.
     horizon: Duration,
@@ -1153,10 +2001,14 @@ fn spawn_replay(
         }
     }
     let quiet_run = match job.quiet.as_ref() {
-        Some(quiet) => match board.begin_restamp(&job.owner_key, quiet.horizon) {
-            Some(generation) => Some((generation, Instant::now() + quiet.horizon)),
-            None => return,
-        },
+        Some(quiet) => {
+            match board.begin_restamp(&job.owner_key, quiet.horizon, quiet.trigger.clone()) {
+                Some((generation, run_id)) => {
+                    Some((generation, run_id, Instant::now() + quiet.horizon))
+                }
+                None => return,
+            }
+        }
         None => {
             state
                 .lock()
@@ -1174,6 +2026,12 @@ fn spawn_replay(
     let board = Arc::clone(board);
     let state = Arc::clone(state);
     let bump = Arc::clone(&ctx.bump);
+    let ink = InkWriter {
+        supervisor: ctx.supervisor.clone(),
+        project_dir: job.repo_dir.clone(),
+        arc: job.name.clone(),
+        base_branch: job.base_branch.clone(),
+    };
     let inject = InjectHandles {
         code_input_tx: ctx.code_input_tx.clone(),
         code_output: ctx.code_output.clone(),
@@ -1181,6 +2039,17 @@ fn spawn_replay(
 
     tokio::spawn(async move {
         let arc = job.name.clone();
+        // The card the run is seated on is told it has started — the same
+        // row a wait it grew out of was already written to.
+        if let (Some(seat), Some(_)) = (
+            job.quiet.as_ref().and_then(|quiet| quiet.seat.as_deref()),
+            quiet_run.as_ref(),
+        ) {
+            write_ink(&ink, &board, &job.owner_key, Some(seat), false, |b, w| {
+                b.live_record(&job.owner_key, &w.arc, &w.base_branch)
+            })
+            .await;
+        }
         let outcome = {
             let repo = job.repo_dir.clone();
             let name = job.name.clone();
@@ -1203,6 +2072,8 @@ fn spawn_replay(
         // What to say, decided under the lock; saying it happens after, because
         // the channel send is async and the state mutex is not.
         let mut notice: Option<Notice> = None;
+        // A deferral's detail, which a quiet job's wait sentence carries.
+        let mut deferred: Option<String> = None;
         let (mut refresh, replay, stop_why) = {
             let mut map = state.lock();
             let entry = map.entry(job.owner_key.clone()).or_default();
@@ -1269,6 +2140,7 @@ fn spawn_replay(
                 }
                 Ok(Ok(tugarc_core::ReplayOutcome::Deferred { reason, detail })) => {
                     debug!(arc = %arc, reason = %reason, detail = %detail, "base-motion: deferred");
+                    deferred = Some(detail);
                     (false, QuietReplay::Deferred, None)
                 }
                 Ok(Err(err)) => {
@@ -1287,18 +2159,54 @@ fn spawn_replay(
             inject.send(session, &text, Some(&facts)).await;
         }
 
-        if let (Some(quiet), Some((generation, deadline))) = (job.quiet.as_ref(), quiet_run) {
+        if let (Some(quiet), Some((generation, run_id, deadline))) = (job.quiet.as_ref(), quiet_run)
+        {
             let held = QuietHold {
-                board: &board,
+                board: Arc::clone(&board),
+                bump: Arc::clone(&bump),
                 generation,
+                run_id: run_id.clone(),
                 deadline,
+                ink: ink.clone(),
             };
             let (_, end, seated_why) = finish_quiet(&job, quiet, replay, stop_why, &held).await;
+            let ending = match end {
+                QuietEnd::Restamp => RunEnding::Verified,
+                QuietEnd::Seat => RunEnding::Seated(seated_why.unwrap_or_default()),
+                // A later wake tries again, so the run waits under its own
+                // run id. A job a press released also comes back as `Leave`,
+                // and `end_restamp` answers false for it below.
+                QuietEnd::Leave => RunEnding::Wait(wait_sentence(
+                    &match deferred.take() {
+                        Some(detail) => QuietWaitReason::Deferred(detail),
+                        None => QuietWaitReason::ReplayFailed,
+                    },
+                    None,
+                )),
+            };
             // A job a press released ends nothing: the arc is no longer its.
-            if board.end_restamp(&job.owner_key, generation, seated_why) {
-                let mut map = state.lock();
-                let entry = map.entry(job.owner_key.clone()).or_default();
-                entry.quiet_failed_tip = (end == QuietEnd::Seat).then(|| quiet.base_tip.clone());
+            let gone_back = matches!(ending, RunEnding::Wait(_));
+            if board.end_restamp(&job.owner_key, generation, ending) {
+                {
+                    let mut map = state.lock();
+                    let entry = map.entry(job.owner_key.clone()).or_default();
+                    entry.quiet_failed_tip =
+                        (end == QuietEnd::Seat).then(|| quiet.base_tip.clone());
+                }
+                // A run that goes back to waiting says so on the same row.
+                if gone_back {
+                    write_ink(&ink, &board, &job.owner_key, None, false, |b, w| {
+                        b.live_record(&job.owner_key, &w.arc, &w.base_branch)
+                    })
+                    .await;
+                }
+            } else {
+                // A press took the arc back: the row closes on the release.
+                write_ink(&ink, &board, &job.owner_key, None, false, |b, w| {
+                    b.last_record(&job.owner_key, &w.arc, &w.base_branch)
+                        .filter(|record| record.run_id == run_id && record.state == "released")
+                })
+                .await;
             }
             // The running fact came down, so the wire moved whether or not
             // the record did.
@@ -1325,15 +2233,46 @@ async fn finish_quiet(
     quiet: &QuietJob,
     replay: QuietReplay,
     stop_why: Option<String>,
-    held: &QuietHold<'_>,
+    held: &QuietHold,
 ) -> (bool, QuietEnd, Option<String>) {
     let (repo, name) = (job.repo_dir.clone(), job.name.clone());
     let deadline = held.deadline;
     let (verdict, verify_why) = match replay {
         QuietReplay::Clean => {
+            held.phase(&job.owner_key, ReauditPhase::Verifying);
             let (repo, name) = (repo.clone(), name.clone());
+            let worktree = tugarc_core::ops::worktree_path(&repo, &name);
+            let call_id = format!("reaudit_{}", held.run_id);
+            let (board, bump, owner, generation) = (
+                Arc::clone(&held.board),
+                Arc::clone(&held.bump),
+                job.owner_key.clone(),
+                held.generation,
+            );
             let report = tokio::task::spawn_blocking(move || {
-                tugarc_core::surfaces::verify_by(&Paths::from_env(), &repo, &name, deadline)
+                let wrap = engine_wrapper(&worktree, &call_id);
+                let mut verdicts = tugtool_core::test_ledger::call_verdicts(Some(call_id));
+                tugarc_core::surfaces::verify_by(
+                    &Paths::from_env(),
+                    &repo,
+                    &name,
+                    deadline,
+                    tugarc_core::surfaces::VerifyHooks {
+                        wrap: &wrap,
+                        verdict: &mut |command| {
+                            verdicts(command).map(|v| tugarc_core::surfaces::ChildVerdict {
+                                passed: v.passed,
+                                total: v.total,
+                                title: v.title,
+                                message: v.message,
+                            })
+                        },
+                        watch: &mut |event| {
+                            board.verify_event(&owner, generation, &event);
+                            bump.notify_one();
+                        },
+                    },
+                )
             })
             .await;
             match report {
@@ -1381,16 +2320,27 @@ async fn finish_quiet(
     let wrote = match end {
         QuietEnd::Leave => return (false, end, None),
         QuietEnd::Restamp => {
-            tokio::task::spawn_blocking(move || {
+            held.phase(&job.owner_key, ReauditPhase::Marking);
+            let marked = tokio::task::spawn_blocking(move || {
                 tugarc_core::ops::restamp_audit(&Paths::from_env(), &repo, &name)
             })
-            .await
+            .await;
+            // The row closes before the board takes the run down, so a deck
+            // that reads the wire first already finds the run ended.
+            held.close_row(&job.owner_key, "verified", None).await;
+            marked
         }
         QuietEnd::Seat => {
+            // The card holding the story is told the run went back to its
+            // audit stage before that stage opens; with no card, the bind
+            // that brings one tells it.
+            held.close_row(&job.owner_key, "seated", seated_why.clone())
+                .await;
             if quiet.seat.is_none() {
                 debug!(arc = %job.name, "base-motion: audit stale, waiting for a card");
                 return (false, end, seated_why);
             }
+            held.phase(&job.owner_key, ReauditPhase::Seating);
             tokio::task::spawn_blocking(move || {
                 tugarc_core::ops::reopen_stale_audit(&Paths::from_env(), &repo, &name)
             })
@@ -1420,11 +2370,34 @@ async fn finish_quiet(
 }
 
 /// A quiet job's hold on its arc: the board that publishes it, the
-/// generation it was minted, and the deadline its verify runs to.
-struct QuietHold<'a> {
-    board: &'a ConflictBoard,
+/// generation and run id it was minted, the signal that puts each move on
+/// the wire, and the deadline its verify runs to.
+struct QuietHold {
+    board: Arc<ConflictBoard>,
+    bump: Arc<Notify>,
     generation: u64,
+    run_id: String,
     deadline: Instant,
+    /// Where the run's transcript row is written.
+    ink: InkWriter,
+}
+
+impl QuietHold {
+    /// Move the run into `phase` and put the move on the wire.
+    fn phase(&self, owner_key: &str, phase: ReauditPhase) {
+        self.board.set_phase(owner_key, self.generation, phase);
+        self.bump.notify_one();
+    }
+
+    /// Write the run's row as it is about to end, on the card already
+    /// holding it; with no row written, there is no card to tell.
+    async fn close_row(&self, owner_key: &str, state: &'static str, why: Option<String>) {
+        let generation = self.generation;
+        write_ink(&self.ink, &self.board, owner_key, None, false, |b, w| {
+            b.ending_record(owner_key, generation, &w.arc, &w.base_branch, state, why)
+        })
+        .await;
+    }
 }
 
 /// A clean replay under a live plan run, as the notice tells it.
@@ -1627,6 +2600,91 @@ fn read_autoreplay(repo_dir: &Path) -> bool {
     }
 }
 
+/// What moved the base, from the tip's commit as git records it: `raw` is
+/// `<subject>\x1f<Tug-Arc values, \x1e-separated>`. A join's squash names its
+/// arc as `tugarc/<name> onto <base>`, and the trigger carries `<name>`.
+pub fn parse_trigger(sha: &str, raw: &str) -> ReauditTrigger {
+    let (subject, trailers) = raw.split_once('\x1f').unwrap_or((raw, ""));
+    let arc = trailers
+        .split('\x1e')
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(|value| {
+            let branch = value.split(" onto ").next().unwrap_or(value).trim();
+            branch.strip_prefix("tugarc/").unwrap_or(branch).to_string()
+        })
+        .filter(|name| !name.is_empty());
+    ReauditTrigger {
+        sha: sha.to_string(),
+        subject: subject.trim().to_string(),
+        arc,
+    }
+}
+
+/// [`parse_trigger`] over the tip's commit, read from git. Any failure reads
+/// as the sha alone, with no subject and no arc.
+fn read_trigger(repo: &Path, tip: &str) -> ReauditTrigger {
+    let output = tugcore::git_command()
+        .current_dir(repo)
+        .args([
+            "log",
+            "-1",
+            "--format=%s%x1f%(trailers:key=Tug-Arc,valueonly,separator=%x1e)",
+            tip,
+        ])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => parse_trigger(
+            tip,
+            String::from_utf8_lossy(&out.stdout).trim_end_matches('\n'),
+        ),
+        _ => ReauditTrigger {
+            sha: tip.to_string(),
+            ..ReauditTrigger::default()
+        },
+    }
+}
+
+/// The wrap a re-audit's checks run through: the sibling `tugtool`'s
+/// `report rewrite`, which is the hook's own rewrite over the worktree's
+/// runner table, behind the engine's call mark. A missing or failing
+/// `tugtool` leaves the call mark alone in front of the command, so a check
+/// that reports for itself still records under the call.
+fn engine_wrapper(worktree: &Path, call_id: &str) -> impl Fn(&str) -> String + use<> {
+    let tugtool = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("tugtool")))
+        .filter(|path| path.exists());
+    let (worktree, call_id) = (worktree.to_path_buf(), call_id.to_string());
+    move |command: &str| {
+        let fallback = || format!("{}{command}", tugcore::call_id::call_mark(&call_id));
+        let Some(tugtool) = tugtool.as_ref() else {
+            return fallback();
+        };
+        let child = std::process::Command::new(tugtool)
+            .args(["report", "rewrite", "--cwd"])
+            .arg(&worktree)
+            .args(["--call", &call_id])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        let Ok(mut child) = child else {
+            return fallback();
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            let _ = stdin.write_all(command.as_bytes());
+        }
+        match child.wait_with_output() {
+            Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+                String::from_utf8_lossy(&out.stdout).into_owned()
+            }
+            _ => fallback(),
+        }
+    }
+}
+
 fn short(sha: &str) -> &str {
     &sha[..sha.len().min(9)]
 }
@@ -1761,11 +2819,9 @@ mod tests {
             board.release_restamp("a", SystemTime::now()),
             RestampRelease::NotRunning
         );
-        let first = board
-            .begin_restamp("a", Duration::from_secs(60))
-            .expect("the arc is free");
+        let first = begin(&board, "a");
         assert_eq!(
-            board.begin_restamp("a", Duration::from_secs(60)),
+            board.begin_restamp("a", Duration::from_secs(60), ReauditTrigger::default()),
             None,
             "one quiet job per arc"
         );
@@ -1776,19 +2832,31 @@ mod tests {
             board
                 .quiet_fact("a")
                 .and_then(|fact| fact.seated_why)
-                .is_some_and(|why| why.contains("deadline"))
+                .is_some_and(|why| why.contains("ran past its horizon"))
         );
+        let last = board
+            .quiet_fact("a")
+            .and_then(|fact| fact.last)
+            .expect("the released run is kept as it ended");
+        assert_eq!(last.state, "released");
+        assert!(last.why.is_some_and(|why| why.contains("ran past its horizon")));
 
-        let second = board
-            .begin_restamp("a", Duration::from_secs(60))
-            .expect("a released arc is free again");
+        let second = begin(&board, "a");
         assert!(
-            !board.end_restamp("a", first, Some("stale".to_string())),
+            !board.end_restamp("a", first, RunEnding::Seated("stale".to_string())),
             "the released job ends nothing"
         );
         assert!(board.holds("a", second));
-        assert!(board.end_restamp("a", second, None));
+        assert!(board.end_restamp("a", second, RunEnding::Verified));
         assert!(!board.restamping("a"));
+    }
+
+    /// Take the arc for a quiet job with no trigger, answering its generation.
+    fn begin(board: &ConflictBoard, owner: &str) -> u64 {
+        board
+            .begin_restamp(owner, Duration::from_secs(60), ReauditTrigger::default())
+            .expect("the arc is free")
+            .0
     }
 
     /// A job that has claimed its write cannot be released, however late it
@@ -1799,21 +2867,240 @@ mod tests {
         let board = ConflictBoard::default();
         let late = SystemTime::now() + Duration::from_secs(61);
 
-        let first = board.begin_restamp("a", Duration::from_secs(60)).unwrap();
+        let first = begin(&board, "a");
         assert!(board.claim_write("a", first), "the holding job claims");
         assert_eq!(
             board.release_restamp("a", late),
             RestampRelease::Finishing,
             "past the horizon, a claimed write still finishes"
         );
-        assert!(board.end_restamp("a", first, None));
+        assert!(board.end_restamp("a", first, RunEnding::Verified));
 
-        let second = board.begin_restamp("a", Duration::from_secs(60)).unwrap();
+        let second = begin(&board, "a");
         assert_eq!(board.release_restamp("a", late), RestampRelease::Released);
         assert!(
             !board.claim_write("a", second),
             "a released job writes nothing"
         );
+    }
+
+    fn command(status: &str, exit_code: Option<i32>) -> tugarc_core::surfaces::CommandResult {
+        tugarc_core::surfaces::CommandResult {
+            command: "just check".to_string(),
+            declared_by: "s".to_string(),
+            status: status.to_string(),
+            exit_code,
+            already_run_for: None,
+            passed: None,
+            total: None,
+            title: None,
+            message: None,
+        }
+    }
+
+    fn landed(
+        name: &str,
+        red: bool,
+        commands: Vec<tugarc_core::surfaces::CommandResult>,
+    ) -> tugarc_core::surfaces::SurfaceResult {
+        tugarc_core::surfaces::SurfaceResult {
+            name: name.to_string(),
+            paths: Vec::new(),
+            commands,
+            borrowed_from: Vec::new(),
+            red,
+            passed: None,
+            total: None,
+            title: None,
+            message: None,
+        }
+    }
+
+    fn rows(board: &ConflictBoard) -> Vec<SurfaceRow> {
+        board
+            .quiet_fact("a")
+            .and_then(|fact| fact.running)
+            .map(|run| run.surfaces)
+            .unwrap_or_default()
+    }
+
+    /// **The verify's rows on the board.** The plan lays every surface out
+    /// pending, a start runs one, and a landing settles it: a red names its
+    /// command and exit, a check the horizon stopped says so ahead of its
+    /// exit, a surface with no checks is claimed and unchecked, and a green
+    /// one passes with its checks counted. A stale generation writes nothing.
+    #[test]
+    fn the_verify_writes_one_row_per_surface_onto_the_board() {
+        use tugarc_core::surfaces::VerifyEvent;
+        let board = ConflictBoard::default();
+        let generation = begin(&board, "a");
+        let planned: Vec<(String, usize)> = ["red", "slow", "bare", "green"]
+            .iter()
+            .map(|n| (n.to_string(), 1))
+            .collect();
+        board.verify_event("a", generation, &VerifyEvent::Planned(&planned));
+        assert!(rows(&board).iter().all(|r| r.status == "pending"));
+        assert_eq!(rows(&board).len(), 4);
+
+        board.verify_event("a", generation, &VerifyEvent::Started("red"));
+        assert_eq!(rows(&board)[0].status, "running");
+        assert!(rows(&board)[0].started.is_some());
+        let red = landed("red", true, vec![command("ran", Some(2))]);
+        board.verify_event("a", generation, &VerifyEvent::Finished(&red));
+        let row = &rows(&board)[0];
+        assert_eq!(row.status, "fail");
+        assert_eq!(row.title.as_deref(), Some("just check"));
+        assert_eq!(row.message.as_deref(), Some("exit 2"));
+        assert_eq!((row.passed, row.total), (Some(0), Some(1)));
+        assert!(row.ms.is_some());
+
+        let slow = landed("slow", true, vec![command("timed-out", Some(-1))]);
+        board.verify_event("a", generation, &VerifyEvent::Finished(&slow));
+        assert_eq!(rows(&board)[1].status, "fail");
+        assert_eq!(rows(&board)[1].message.as_deref(), Some(HORIZON_MESSAGE));
+
+        let bare = landed("bare", false, Vec::new());
+        board.verify_event("a", generation, &VerifyEvent::Finished(&bare));
+        assert_eq!(rows(&board)[2].status, "skipped");
+        assert_eq!(
+            rows(&board)[2].message.as_deref(),
+            Some("claimed, unchecked")
+        );
+
+        let green = landed("green", false, vec![command("ran", Some(0))]);
+        board.verify_event("a", generation, &VerifyEvent::Finished(&green));
+        assert_eq!(rows(&board)[3].status, "pass");
+        assert_eq!(
+            (rows(&board)[3].passed, rows(&board)[3].total),
+            (Some(1), Some(1))
+        );
+
+        let before = rows(&board);
+        board.verify_event("a", generation + 1, &VerifyEvent::Planned(&[]));
+        board.set_phase("a", generation + 1, ReauditPhase::Marking);
+        assert_eq!(rows(&board), before, "a stale generation changes nothing");
+        assert_eq!(
+            board
+                .quiet_fact("a")
+                .and_then(|f| f.running)
+                .map(|r| r.phase),
+            Some(ReauditPhase::Replaying)
+        );
+    }
+
+    /// A run that ends with surfaces the horizon never let land keeps them as
+    /// the horizon's, since nothing more will land on them.
+    #[test]
+    fn an_ended_run_settles_the_rows_nothing_landed_on() {
+        use tugarc_core::surfaces::VerifyEvent;
+        let board = ConflictBoard::default();
+        let generation = begin(&board, "a");
+        let planned = vec![("a".to_string(), 1), ("b".to_string(), 1)];
+        board.verify_event("a", generation, &VerifyEvent::Planned(&planned));
+        board.verify_event("a", generation, &VerifyEvent::Started("a"));
+        assert!(board.end_restamp("a", generation, RunEnding::Seated("why".to_string())));
+        let last = board.quiet_fact("a").and_then(|f| f.last).unwrap();
+        assert_eq!(last.state, "seated");
+        assert!(
+            last.surfaces
+                .iter()
+                .all(|r| r.status == "fail" && r.message.as_deref() == Some(HORIZON_MESSAGE))
+        );
+    }
+
+    /// The row's headline lines: a join's trigger names the arc it joined,
+    /// and a plain commit's carries its subject alone.
+    #[test]
+    fn the_row_names_a_joined_arc_only_when_the_trigger_carries_one() {
+        let joined = format_reaudit_row(&record_for_test(ReauditTrigger {
+            sha: "9ac1e0f2aa".to_string(),
+            subject: "Draw the lid".to_string(),
+            arc: Some("lid".to_string()),
+        }));
+        assert_eq!(
+            joined,
+            "arc: demo\nrun: run-1\nbase: main 9ac1e0f2aa\nsubject: Draw the lid\n\
+             joined: lid\nstate: running\nstarted: 2027-01-15T08:00:00+00:00\n"
+        );
+        let plain = format_reaudit_row(&record_for_test(ReauditTrigger {
+            sha: "abc".to_string(),
+            subject: "Fix a typo".to_string(),
+            arc: None,
+        }));
+        assert!(!plain.contains("joined:"), "{plain}");
+        assert!(plain.contains("subject: Fix a typo\n"), "{plain}");
+    }
+
+    #[test]
+    fn a_terminal_row_writes_its_ending_and_its_surfaces_in_plan_order() {
+        let mut record = record_for_test(ReauditTrigger {
+            sha: "abc".to_string(),
+            subject: "one\ttwo\nthree".to_string(),
+            arc: None,
+        });
+        record.state = "seated";
+        record.why = Some("the fit did not verify".to_string());
+        record.ended = Some(record.started + Duration::from_secs(31));
+        let mut docs = SurfaceRow::pending("docs");
+        docs.status = "fail";
+        docs.title = Some("just\tlint".to_string());
+        docs.message = Some("exit 1".to_string());
+        let mut rust = SurfaceRow::pending("rust");
+        rust.status = "pass";
+        (rust.passed, rust.total, rust.ms) = (Some(1307), Some(1307), Some(30782));
+        record.surfaces = vec![rust, docs];
+        let row = format_reaudit_row(&record);
+        let lines: Vec<&str> = row.lines().collect();
+        assert!(lines.contains(&"subject: one two three"), "{row}");
+        assert!(lines.contains(&"state: seated"), "{row}");
+        assert!(lines.contains(&"why: the fit did not verify"), "{row}");
+        assert!(lines.contains(&"ended: 2027-01-15T08:00:31+00:00"), "{row}");
+        let surfaces: Vec<&str> = lines
+            .iter()
+            .filter_map(|line| line.strip_prefix("surface: "))
+            .collect();
+        assert_eq!(
+            surfaces,
+            [
+                "rust\tpass\t1307\t1307\t30782\t\t",
+                "docs\tfail\t\t\t\tjust lint\texit 1",
+            ]
+        );
+    }
+
+    /// A running record on the fixture arc, under `trigger`.
+    fn record_for_test(trigger: ReauditTrigger) -> ReauditRecord {
+        let since = std::time::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        ReauditRecord {
+            arc: "demo".to_string(),
+            run_id: "run-1".to_string(),
+            base_branch: "main".to_string(),
+            trigger,
+            state: "running",
+            why: None,
+            started: since,
+            ended: None,
+            surfaces: Vec::new(),
+        }
+    }
+
+    /// The trigger is what moved the base: a join's squash names its arc,
+    /// any other commit is its subject, and two trailer values take the
+    /// first.
+    #[test]
+    fn the_trigger_names_the_joined_arc_or_the_subject() {
+        let join = parse_trigger("abc", "Draw the lid\x1ftugarc/wsr onto main");
+        assert_eq!(join.arc.as_deref(), Some("wsr"));
+        assert_eq!(join.subject, "Draw the lid");
+        assert_eq!(join.sha, "abc");
+
+        let plain = parse_trigger("abc", "Fix a typo\x1f");
+        assert_eq!(plain.arc, None);
+        assert_eq!(plain.subject, "Fix a typo");
+        assert_eq!(parse_trigger("abc", "Bare").subject, "Bare");
+
+        let two = parse_trigger("abc", "s\x1ftugarc/one onto main\x1etugarc/two onto main");
+        assert_eq!(two.arc.as_deref(), Some("one"));
     }
 
     /// The quiet path's verdict: a clean replay with a green fit re-stamps; a
@@ -1860,6 +3147,135 @@ mod tests {
             decide_for_arc(&dirty(false)),
             Decision::SeatAudit("s1".to_string())
         );
+    }
+
+    /// **Which waits are published.** Only the quiet path's: a base-only
+    /// stale audit the decision skipped for a busy card, a dirty tree or a
+    /// join in flight. A head-moved stale audit is the audit stage's, a
+    /// latched failure seats, and a decision to run is no wait at all.
+    #[test]
+    fn only_the_quiet_paths_skips_are_published_as_waits() {
+        let stale = |audit_base_only| ArcInputs {
+            audit_stale_done: true,
+            audit_base_only,
+            ..behind()
+        };
+        let held = ArcInputs {
+            session: Some(busy("s1")),
+            ..stale(true)
+        };
+        assert_eq!(
+            quiet_wait(&held, &decide_for_arc(&held)),
+            Some(QuietWaitReason::SessionBusy)
+        );
+        let dirty = ArcInputs {
+            worktree_dirty: true,
+            ..stale(true)
+        };
+        assert_eq!(
+            quiet_wait(&dirty, &decide_for_arc(&dirty)),
+            Some(QuietWaitReason::DirtyWorktree)
+        );
+        let journal = ArcInputs {
+            join_journal: true,
+            ..stale(true)
+        };
+        assert_eq!(
+            quiet_wait(&journal, &decide_for_arc(&journal)),
+            Some(QuietWaitReason::JoinJournal)
+        );
+        let head_moved = ArcInputs {
+            session: Some(busy("s1")),
+            ..stale(false)
+        };
+        assert_eq!(quiet_wait(&head_moved, &decide_for_arc(&head_moved)), None);
+        let failed = ArcInputs {
+            quiet_failed: true,
+            ..held.clone()
+        };
+        assert_eq!(quiet_wait(&failed, &Decision::Skip("session-busy")), None);
+        let clean = stale(true);
+        assert_eq!(decide_for_arc(&clean), Decision::Restamp(None));
+        assert_eq!(quiet_wait(&clean, &Decision::Restamp(None)), None);
+    }
+
+    /// The wait sentences, each naming what the re-audit waits on.
+    #[test]
+    fn the_wait_sentences_say_what_is_waited_on() {
+        assert_eq!(
+            wait_sentence(&QuietWaitReason::SessionBusy, Some("odd-kiln")),
+            "waiting for odd-kiln's turn to end"
+        );
+        assert_eq!(
+            wait_sentence(&QuietWaitReason::SessionBusy, None),
+            "waiting for its card's turn to end"
+        );
+        assert!(wait_sentence(&QuietWaitReason::DirtyWorktree, None).contains("worktree"));
+        assert!(wait_sentence(&QuietWaitReason::JoinJournal, None).contains("join"));
+        assert_eq!(
+            wait_sentence(
+                &QuietWaitReason::Deferred("the head moved".to_string()),
+                None
+            ),
+            "waiting to try again: the head moved"
+        );
+        assert!(wait_sentence(&QuietWaitReason::ReplayFailed, None).contains("could not run"));
+    }
+
+    /// **One story, one run id.** A wait the run starts out of keeps its run
+    /// id; a second wait with a new trigger keeps the run id and takes the
+    /// trigger; a run that goes back to waiting waits under its own run id;
+    /// and a released job installs no wait.
+    #[test]
+    fn a_wait_and_the_run_it_becomes_share_a_run_id() {
+        let board = ConflictBoard::default();
+        let trigger = |sha: &str| ReauditTrigger {
+            sha: sha.to_string(),
+            ..ReauditTrigger::default()
+        };
+        let (id, changed) = board.begin_wait("a", "dirty".to_string(), trigger("t1"));
+        assert!(changed);
+        let (again, changed) = board.begin_wait("a", "dirty".to_string(), trigger("t2"));
+        assert_eq!(again, id, "a standing wait keeps its run id");
+        assert!(changed, "a new trigger is a change");
+        assert_eq!(
+            board
+                .quiet_fact("a")
+                .and_then(|f| f.waiting)
+                .map(|w| w.trigger.sha),
+            Some("t2".to_string())
+        );
+        assert!(!board.begin_wait("a", "dirty".to_string(), trigger("t2")).1);
+
+        let (generation, run_id) = board
+            .begin_restamp("a", Duration::from_secs(60), ReauditTrigger::default())
+            .unwrap();
+        assert_eq!(run_id, id, "the run takes the wait's run id");
+        let fact = board.quiet_fact("a").unwrap();
+        assert!(fact.waiting.is_none(), "the run takes the wait down");
+        assert_eq!(fact.running.map(|r| r.trigger.sha), Some("t2".to_string()));
+
+        assert!(board.end_restamp("a", generation, RunEnding::Wait("again".to_string())));
+        let wait = board.quiet_fact("a").and_then(|f| f.waiting).unwrap();
+        assert_eq!(
+            wait.run_id, id,
+            "a run that goes back to waiting keeps its id"
+        );
+        assert_eq!(wait.why, "again");
+        board.forget_seated("a");
+        assert!(
+            board.waiting("a"),
+            "a fact that still waits is not forgotten"
+        );
+
+        let (released, _) = board
+            .begin_restamp("a", Duration::from_secs(60), ReauditTrigger::default())
+            .unwrap();
+        let late = SystemTime::now() + Duration::from_secs(61);
+        assert_eq!(board.release_restamp("a", late), RestampRelease::Released);
+        assert!(!board.end_restamp("a", released, RunEnding::Wait("w".to_string())));
+        assert!(!board.waiting("a"), "a released job installs no wait");
+        assert!(board.clear_wait("a").is_none());
     }
 
     /// The bind wake keeps its permit: a bind while the engine is busy is
@@ -2256,6 +3672,7 @@ mod tests {
             bump: Arc::clone(bump),
             code_input_tx: None,
             code_output: None,
+            supervisor: None,
             cancel: cancel.clone(),
         }
     }
@@ -2312,13 +3729,21 @@ mod tests {
                 seat: Some("sess-1".to_string()),
                 base_tip: repo.tip("main"),
                 horizon: QUIET_HORIZON,
+                trigger: ReauditTrigger::default(),
             }),
             ..demo_job(repo)
         }
     }
 
     /// Run one quiet-path job to its end, and read back the arc's record.
-    async fn run_quiet(repo: &Repo) -> (Arc<Mutex<HashMap<String, ArcState>>>, ArcRecordView) {
+    async fn run_quiet(
+        repo: &Repo,
+    ) -> (
+        Arc<Mutex<HashMap<String, ArcState>>>,
+        ArcRecordView,
+        Option<QuietFact>,
+    ) {
+        INK_LOG.lock().clear();
         let cancel = CancellationToken::new();
         let registry = Arc::new(WorkspaceRegistry::new_for_test());
         let bump = Arc::new(Notify::new());
@@ -2345,6 +3770,7 @@ mod tests {
                 reaudit: record.resume == Some(tugarc_core::ArcStage::Audit),
                 audit_current: current,
             },
+            board.quiet_fact("tugarc/demo"),
         )
     }
 
@@ -2353,6 +3779,50 @@ mod tests {
         done: bool,
         reaudit: bool,
         audit_current: bool,
+    }
+
+    /// The rows the engine would have written, in order.
+    fn ink_log() -> Vec<InkLogged> {
+        INK_LOG.lock().clone()
+    }
+
+    /// One `key: value` line of a written row.
+    fn row_line<'a>(output: &'a str, key: &str) -> Option<&'a str> {
+        output
+            .lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
+    }
+
+    /// `test_context`, with the fixture arc bound to `sess-1` in a session
+    /// ledger, so a wake finds the card that holds it. With no supervisor
+    /// entry for `sess-1`, the card reads idle.
+    fn bound_context(
+        registry: &Arc<WorkspaceRegistry>,
+        bump: &Arc<Notify>,
+        cancel: &CancellationToken,
+        repo: &Repo,
+    ) -> BaseMotionContext {
+        let ledger = SessionLedger::open_in_memory().expect("an in-memory ledger");
+        ledger
+            .record_spawn(
+                "sess-1",
+                "ws",
+                &repo.path().to_string_lossy(),
+                "card-1",
+                crate::session_ledger::now_millis(),
+                "line-1",
+                None,
+            )
+            .unwrap();
+        assert!(
+            ledger
+                .set_arc_binding("sess-1", Some(("tugarc/demo", "demo")))
+                .unwrap()
+        );
+        BaseMotionContext {
+            session_ledger: Some(Arc::new(ledger)),
+            ..test_context(registry, bump, cancel)
+        }
     }
 
     /// The fixture arc's replay job, with nobody to tell about the outcome.
@@ -2770,11 +4240,35 @@ mod tests {
     async fn a_clean_green_base_move_restamps_the_audit() {
         let repo = repo_with_a_stale_audit("true", false);
         let before = repo.tip("tugarc/demo");
-        let (state, arc) = run_quiet(&repo).await;
+        let (state, arc, fact) = run_quiet(&repo).await;
         assert_ne!(repo.tip("tugarc/demo"), before, "the arc was replayed");
         assert!(arc.audit_current, "the re-stamp stands on the live tips");
         assert!(arc.done && !arc.reaudit, "no turn was spent");
         assert!(state.lock()["tugarc/demo"].quiet_failed_tip.is_none());
+        // The board keeps the run as it ended: one surface, green.
+        let last = fact.and_then(|f| f.last).expect("the ended run is kept");
+        assert!(!last.run_id.is_empty());
+        assert_eq!(last.state, "verified");
+        assert_eq!(last.surfaces.len(), 1);
+        assert_eq!(last.surfaces[0].name, "all");
+        assert_eq!(last.surfaces[0].status, "pass");
+        // The seated card's row: started, then verified, one run.
+        let rows = ink_log();
+        let states: Vec<_> = rows
+            .iter()
+            .map(|r| row_line(&r.output, "state").unwrap_or_default())
+            .collect();
+        assert_eq!(states, ["running", "verified"], "{rows:?}");
+        assert!(rows.iter().all(|r| r.session == "sess-1"));
+        assert!(
+            rows.iter()
+                .all(|r| row_line(&r.output, "run") == Some(last.run_id.as_str()))
+        );
+        assert!(
+            rows[1].output.contains("surface: all\tpass\t"),
+            "{}",
+            rows[1].output
+        );
     }
 
     /// **The conflicted re-seat.** A replay that cannot merge moves nothing
@@ -2785,7 +4279,7 @@ mod tests {
     async fn a_conflicted_base_move_seats_the_audit() {
         let repo = repo_with_a_stale_audit("true", true);
         let before = repo.tip("tugarc/demo");
-        let (state, arc) = run_quiet(&repo).await;
+        let (state, arc, _) = run_quiet(&repo).await;
         assert_eq!(repo.tip("tugarc/demo"), before, "a conflict moves nothing");
         assert!(!arc.done && arc.reaudit, "the audit is seated");
         assert!(!arc.audit_current);
@@ -2802,7 +4296,7 @@ mod tests {
     async fn a_red_fit_after_a_clean_replay_seats_the_audit() {
         let repo = repo_with_a_stale_audit("false", false);
         let before = repo.tip("tugarc/demo");
-        let (state, arc) = run_quiet(&repo).await;
+        let (state, arc, fact) = run_quiet(&repo).await;
         assert_ne!(
             repo.tip("tugarc/demo"),
             before,
@@ -2814,6 +4308,159 @@ mod tests {
             state.lock()["tugarc/demo"].quiet_failed_tip,
             Some(repo.tip("main"))
         );
+        let fact = fact.expect("the board keeps the seat");
+        let last = fact.last.expect("the ended run is kept");
+        assert_eq!(last.state, "seated");
+        // The row closed as seated before the audit stage was handed it.
+        let rows = ink_log();
+        let states: Vec<_> = rows
+            .iter()
+            .map(|r| row_line(&r.output, "state").unwrap_or_default())
+            .collect();
+        assert_eq!(states, ["running", "seated"], "{rows:?}");
+        assert!(
+            row_line(&rows[1].output, "why")
+                .is_some_and(|w| w.starts_with("the fit did not verify")),
+            "{}",
+            rows[1].output
+        );
+        assert!(!rows[1].audit_seated, "the row is written before the seat");
+        assert!(
+            rows.iter()
+                .all(|r| row_line(&r.output, "run") == Some(last.run_id.as_str()))
+        );
+        assert_eq!(last.why, fact.seated_why);
+        assert_eq!(last.surfaces.len(), 1);
+        assert_eq!(last.surfaces[0].name, "all");
+        assert_eq!(last.surfaces[0].status, "fail");
+        assert!(
+            last.surfaces[0]
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("exit")),
+            "{:?}",
+            last.surfaces[0]
+        );
+    }
+
+    /// **A wait turns into the run on the same run id.** The base moved
+    /// under a finished arc whose worktree is dirty: the wake publishes a
+    /// wait saying so, and once the tree is clean the next wake starts the
+    /// re-audit under the wait's own run id — which only the run adopting
+    /// the wait can give it, so the wake did not clear the wait first.
+    #[tokio::test]
+    #[serial]
+    async fn a_dirty_tree_waits_and_the_clean_wake_runs_under_the_waits_id() {
+        let repo = repo_with_a_stale_audit("true", false);
+        INK_LOG.lock().clear();
+        let scratch = repo.worktree().join("scratch.txt");
+        std::fs::write(&scratch, "not committed\n").unwrap();
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        register(&registry, repo.path(), &cancel);
+        let bump = Arc::new(Notify::new());
+        let ctx = bound_context(&registry, &bump, &cancel, &repo);
+        let board = Arc::new(ConflictBoard::default());
+        let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        evaluate_workspace(&ctx, &board, &state, repo.path().to_path_buf()).await;
+        let wait = board
+            .quiet_fact("tugarc/demo")
+            .and_then(|fact| fact.waiting)
+            .expect("the dirty tree is published as a wait");
+        assert!(wait.why.contains("worktree"), "{}", wait.why);
+        assert!(!board.restamping("tugarc/demo"), "nothing runs over dirt");
+        let rows = ink_log();
+        assert_eq!(rows.len(), 1, "the wait is written from the wake: {rows:?}");
+        assert_eq!(row_line(&rows[0].output, "state"), Some("waiting"));
+        assert_eq!(rows[0].session, "sess-1");
+
+        std::fs::remove_file(&scratch).unwrap();
+        evaluate_workspace(&ctx, &board, &state, repo.path().to_path_buf()).await;
+        assert!(
+            settles(|| board
+                .quiet_fact("tugarc/demo")
+                .and_then(|fact| fact.last)
+                .is_some())
+            .await,
+            "the clean wake runs the re-audit to its end"
+        );
+        let fact = board.quiet_fact("tugarc/demo").unwrap();
+        assert!(fact.waiting.is_none());
+        let last = fact.last.unwrap();
+        assert_eq!(last.run_id, wait.run_id, "the run took the wait's run id");
+        assert_eq!(last.state, "verified");
+        // One story on one row: it waited, it ran, it verified.
+        let rows = ink_log();
+        let states: Vec<_> = rows
+            .iter()
+            .map(|r| row_line(&r.output, "state").unwrap_or_default())
+            .collect();
+        assert_eq!(states, ["waiting", "running", "verified"], "{rows:?}");
+        assert!(
+            rows.iter()
+                .all(|r| row_line(&r.output, "run") == Some(wait.run_id.as_str()))
+        );
+        cancel.cancel();
+    }
+
+    /// **A card that binds after a red fit is told it.** The quiet path ran
+    /// with no card to seat on, so nothing was written; the wake that finds a
+    /// card bound writes the ended run's row as seated — its run id and its
+    /// surface — before the audit stage is handed to that card.
+    #[tokio::test]
+    #[serial]
+    async fn a_red_fit_with_no_card_is_written_when_a_card_binds() {
+        let repo = repo_with_a_stale_audit("false", false);
+        INK_LOG.lock().clear();
+        let cancel = CancellationToken::new();
+        let registry = Arc::new(WorkspaceRegistry::new_for_test());
+        register(&registry, repo.path(), &cancel);
+        let bump = Arc::new(Notify::new());
+        let board = Arc::new(ConflictBoard::default());
+        let state: Arc<Mutex<HashMap<String, ArcState>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let unbound = test_context(&registry, &bump, &cancel);
+        let mut job = quiet_job(&repo);
+        if let Some(quiet) = job.quiet.as_mut() {
+            quiet.seat = None;
+        }
+        spawn_replay(&unbound, &board, &state, job);
+        assert!(
+            settles(|| !board.restamping("tugarc/demo")).await,
+            "the quiet path runs to its end"
+        );
+        assert!(ink_log().is_empty(), "no card, no row: {:?}", ink_log());
+        let last = board
+            .quiet_fact("tugarc/demo")
+            .and_then(|fact| fact.last)
+            .expect("the ended run is kept");
+        assert_eq!(last.state, "seated");
+
+        let bound = bound_context(&registry, &bump, &cancel, &repo);
+        evaluate_workspace(&bound, &board, &state, repo.path().to_path_buf()).await;
+        let rows = ink_log();
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].session, "sess-1");
+        assert_eq!(row_line(&rows[0].output, "state"), Some("seated"));
+        assert_eq!(row_line(&rows[0].output, "run"), Some(last.run_id.as_str()));
+        assert!(
+            rows[0].output.contains("surface: all\tfail\t"),
+            "{}",
+            rows[0].output
+        );
+        assert!(!rows[0].audit_seated, "the row is written before the seat");
+        let record = tugarc_core::read_arc(&Paths::from_env(), repo.path(), "demo").unwrap();
+        assert_eq!(
+            record.resume,
+            Some(tugarc_core::ArcStage::Audit),
+            "the bind seated it"
+        );
+
+        // A second wake finds the row written and writes no second one.
+        evaluate_workspace(&bound, &board, &state, repo.path().to_path_buf()).await;
+        assert_eq!(ink_log().len(), 1);
+        cancel.cancel();
     }
 
     /// **A hung verify ends at its horizon.** The quiet path's check never
@@ -2841,6 +4488,7 @@ mod tests {
                     seat: Some("sess-1".to_string()),
                     base_tip: repo.tip("main"),
                     horizon: Duration::from_millis(1500),
+                    trigger: ReauditTrigger::default(),
                 }),
                 ..demo_job(&repo)
             },

@@ -158,6 +158,28 @@ describe("changeset wire contract", () => {
     ).toBe(true);
     expect(isChangesetEntry({ ...base, restamp: { deadline: 1_755_000_000_000 } })).toBe(false);
     expect(isChangesetEntry({ ...base, restamp: "running" })).toBe(false);
+    // The re-audit's run: the golden fixture's whole block passes, and a
+    // surface list that is not a list, a surface without a status, or a
+    // trigger without a sha is drift.
+    const goldenArc = (golden as { changesets: Record<string, unknown>[] }).changesets.find(
+      (e) => e.kind === "arc",
+    );
+    const restamp = goldenArc?.restamp as Record<string, unknown>;
+    expect(restamp.run_id).toBe("0f3c1e5a9b7d4e21a8c6f0b2d4e6a8c0");
+    expect(isChangesetEntry({ ...base, restamp })).toBe(true);
+    expect(isChangesetEntry({ ...base, restamp: { ...restamp, surfaces: "rust" } })).toBe(false);
+    expect(
+      isChangesetEntry({ ...base, restamp: { ...restamp, surfaces: [{ name: "rust" }] } }),
+    ).toBe(false);
+    expect(
+      isChangesetEntry({ ...base, restamp: { ...restamp, trigger: { subject: "s" } } }),
+    ).toBe(false);
+    expect(
+      isChangesetEntry({
+        ...base,
+        restamp: { ...restamp, surfaces: [{ name: "rust", status: "pass", ms: "30s" }] },
+      }),
+    ).toBe(false);
     // The staleness kind: one of three words, or absent.
     for (const kind of ["head", "base", "both"]) {
       expect(isChangesetEntry({ ...base, audit_staleness: kind })).toBe(true);

@@ -30,6 +30,7 @@ import {
   type ArcAuditStaleness,
   type ArcChangesetEntry,
   type ArcJoinStateWire,
+  type ArcRestampTriggerWire,
   type ArcRunState,
 } from "@/lib/changeset-types";
 
@@ -151,11 +152,20 @@ export interface ArcJoinRegisterInput {
    */
   boundCallsign?: string | null;
   /**
-   * Whether the engine's quiet re-stamp holds the arc right now — the feed's
+   * Whether the engine's re-audit is running on the arc right now — the feed's
    * `restamp.running_since` is present. A stale audit the machine is already
    * answering says so, rather than reading as a wait on a card.
    */
   restampRunning?: boolean;
+  /**
+   * The engine's re-audit is waiting to start — the feed's `restamp.phase` is
+   * `waiting` — and the server's sentence for what it waits on.
+   */
+  restampWaiting?: string | null;
+  /** What moved the base under the engine's re-audit, off `restamp.trigger`. */
+  restampTrigger?: ArcRestampTriggerWire | null;
+  /** When the running re-audit's horizon falls, RFC 3339. */
+  restampDeadline?: string | null;
   /**
    * Which side moved under a stale audit, straight off the feed's
    * `audit_staleness`: a round landed after it (`head`), the base moved
@@ -223,23 +233,54 @@ export const BEAT_WORDS: Record<string, string> = {
 
 /**
  * The three facts a stale audit's sentences read off an arc's feed entry —
- * the card the re-audit runs on, whether the machine's quiet re-stamp holds
- * the arc, and which side moved. One reader, so the rows, the lane and the
- * composer cannot spell them differently.
+ * the card the re-audit runs on, what the engine's own re-audit is doing
+ * (running, with its trigger and horizon, or waiting, with its reason), and
+ * which side moved. One reader, so the rows, the lane and the composer cannot
+ * spell them differently.
  */
 export function staleAuditFacts(
   entry: Pick<ArcChangesetEntry, "bound_callsign" | "restamp" | "audit_staleness">,
-): Pick<ArcJoinRegisterInput, "boundCallsign" | "restampRunning" | "auditStaleness"> {
+): Pick<
+  ArcJoinRegisterInput,
+  | "boundCallsign"
+  | "restampRunning"
+  | "restampWaiting"
+  | "restampTrigger"
+  | "restampDeadline"
+  | "auditStaleness"
+> {
   return {
     boundCallsign: entry.bound_callsign ?? null,
     restampRunning: restampRunning(entry),
+    restampWaiting: restampWaiting(entry) ? (entry.restamp?.waiting ?? null) : null,
+    restampTrigger: entry.restamp?.trigger ?? null,
+    restampDeadline: entry.restamp?.deadline ?? null,
     auditStaleness: entry.audit_staleness ?? null,
   };
 }
 
-/** Whether the engine's quiet re-stamp holds the arc right now. */
+/** Whether the engine's re-audit is running on the arc right now. */
 export function restampRunning(entry: { restamp?: ArcChangesetEntry["restamp"] | null }): boolean {
   return entry.restamp?.running_since !== undefined;
+}
+
+/** Whether the engine's re-audit is waiting to start on the arc. */
+export function restampWaiting(entry: { restamp?: ArcChangesetEntry["restamp"] | null }): boolean {
+  return entry.restamp?.phase === "waiting";
+}
+
+/**
+ * When a running re-audit ends by, as a local clock time, or null without a
+ * horizon. The Re-audit refusal and the register's line share it.
+ */
+export function restampEndsBy(deadline: string | null | undefined): string | null {
+  const at = deadline === undefined || deadline === null ? Number.NaN : Date.parse(deadline);
+  if (Number.isNaN(at)) return null;
+  return new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 /** How a stale audit's sentence opens, by which side moved. */
@@ -382,9 +423,9 @@ export function arcJoinRegister(
   // waiting readings — the re-audit is running, a card holds the arc and the re-audit
   // is about to be seated on it, or nobody holds it and it waits for a card.
   // Each names its card and its door, so the reader knows where to look and
-  // what to press. Beside them the machine's own answer: a quiet re-stamp
-  // already running needs no card at all. A stop inside the re-audit falls
-  // through to the stop's own sentence.
+  // what to press. Beside them the machine's own answer: the engine's
+  // re-audit, running or waiting to start, needs no card at all. A stop
+  // inside the re-audit falls through to the stop's own sentence.
   if (auditStale && (run?.stopped ?? "") === "") {
     const lead = staleLead(arc, input.base, input.auditStaleness);
     const card =
@@ -399,10 +440,25 @@ export function arcJoinRegister(
       };
     }
     if (input.restampRunning === true) {
+      const trigger = input.restampTrigger ?? null;
+      const on =
+        trigger === null || trigger.sha === ""
+          ? input.base
+          : `${input.base} ${trigger.sha.slice(0, 7)}`;
+      const after =
+        trigger?.arc !== undefined && trigger.arc !== "" ? ` (after ${trigger.arc} joined)` : "";
+      const by = restampEndsBy(input.restampDeadline);
       return {
         phase: "in_flight",
-        line: `${lead} — re-stamping it onto the moved base`,
-        word: "re-stamping",
+        line: `${lead} — re-auditing it on ${on}${after}${by === null ? "" : `, ends by ${by}`}`,
+        word: "re-auditing",
+      };
+    }
+    if (input.restampWaiting !== undefined && input.restampWaiting !== null) {
+      return {
+        phase: "in_flight",
+        line: `${lead} — the re-audit is ${input.restampWaiting}`,
+        word: "waiting",
       };
     }
     return input.bound === false

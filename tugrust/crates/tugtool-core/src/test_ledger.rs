@@ -588,6 +588,60 @@ pub fn runs_for_call(
     Ok(runs)
 }
 
+/// One check's verdict as its child recorded it: tests passed of total, and
+/// the first failure's name and message. Plain data, so a caller maps it onto
+/// whatever row type its own report carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CallVerdict {
+    pub passed: Option<u64>,
+    pub total: Option<u64>,
+    pub title: Option<String>,
+    pub message: Option<String>,
+}
+
+/// One check's verdict from the runs its child recorded: tests passed of
+/// total when any run counted tests, and the first failure's name and message
+/// across them. `None` when no run was recorded.
+pub fn verdict_of_runs(runs: &[SuiteRun]) -> Option<CallVerdict> {
+    if runs.is_empty() {
+        return None;
+    }
+    let total: i64 = runs.iter().map(|r| r.tests).sum();
+    let failed: i64 = runs.iter().map(|r| r.failed).sum();
+    let first = runs.iter().find_map(|r| r.failures.first());
+    Some(CallVerdict {
+        passed: (total > 0).then(|| (total - failed).max(0) as u64),
+        total: (total > 0).then_some(total as u64),
+        title: first.map(|f| f.name.clone()),
+        message: first.map(|f| f.message.clone()).filter(|m| !m.is_empty()),
+    })
+}
+
+/// The reader a verify asks after each check exits: what the check's child
+/// recorded, read from the test ledger under `call`. The runs under the call
+/// are read in order and each check is credited with the ones recorded since
+/// the last ask, so a check whose runner wrote two records carries both, and
+/// runs already under the call when the reader was made are nobody's. With no
+/// call id, or no ledger, every answer is `None`. The read is
+/// telemetry-grade: a ledger that cannot be opened or read never fails the
+/// verify that asks.
+pub fn call_verdicts(call: Option<String>) -> impl FnMut(&str) -> Option<CallVerdict> {
+    let conn = call.as_ref().and_then(|_| open_ledger(default_path()).ok());
+    let mut seen = match (&conn, &call) {
+        (Some(conn), Some(call)) => runs_for_call(conn, call, None)
+            .map(|r| r.len())
+            .unwrap_or(0),
+        _ => 0,
+    };
+    move |_command: &str| {
+        let (conn, call) = (conn.as_ref()?, call.as_deref()?);
+        let runs = runs_for_call(conn, call, None).ok()?;
+        let fresh = runs.get(seen..).unwrap_or(&[]);
+        seen = runs.len();
+        verdict_of_runs(fresh)
+    }
+}
+
 /// Fill each run's file and failure rows.
 fn attach_rows(conn: &Connection, runs: &mut [SuiteRun]) -> Result<(), TestLedgerError> {
     let mut files = conn
@@ -1106,5 +1160,86 @@ assertion `left == right` failed
         // The tempdir lives under the system temp dir, which is inside no
         // checkout — so a scratch directory is its own root.
         assert_eq!(run_root_for(&scratch), scratch);
+    }
+
+    fn suite_run(tests: i64, failed: i64, failures: Vec<JunitFailure>) -> SuiteRun {
+        SuiteRun {
+            run_id: 1,
+            suite: "tugdeck".into(),
+            started_at: 0,
+            ended_at: 1,
+            run_root: "/r".into(),
+            branch: "main".into(),
+            head_sha: "abc1234".into(),
+            dirty: false,
+            session_id: None,
+            tool_use_id: Some("toolu_01A".into()),
+            command: "bun test".into(),
+            exit_code: if failed > 0 { 1 } else { 0 },
+            wall_secs: 1.0,
+            tests,
+            failed,
+            skipped: 0,
+            has_record: true,
+            verdict: if failed > 0 { "fail" } else { "pass" }.into(),
+            files: Vec::new(),
+            failures,
+        }
+    }
+
+    fn failure(name: &str, message: &str) -> JunitFailure {
+        JunitFailure {
+            file: "a.test.ts".into(),
+            name: name.into(),
+            classname: String::new(),
+            message: message.into(),
+            detail: String::new(),
+        }
+    }
+
+    #[test]
+    fn no_runs_is_no_verdict() {
+        assert_eq!(verdict_of_runs(&[]), None);
+    }
+
+    #[test]
+    fn a_verdict_sums_its_runs_and_names_the_first_failure() {
+        let runs = [
+            suite_run(4, 0, Vec::new()),
+            suite_run(
+                6,
+                2,
+                vec![failure("bad two", "expected 2"), failure("bad three", "x")],
+            ),
+        ];
+        assert_eq!(
+            verdict_of_runs(&runs),
+            Some(CallVerdict {
+                passed: Some(8),
+                total: Some(10),
+                title: Some("bad two".into()),
+                message: Some("expected 2".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_run_that_counted_nothing_carries_no_counts_and_an_empty_message_is_none() {
+        let runs = [suite_run(0, 0, vec![failure("throws", "")])];
+        assert_eq!(
+            verdict_of_runs(&runs),
+            Some(CallVerdict {
+                passed: None,
+                total: None,
+                title: Some("throws".into()),
+                message: None,
+            })
+        );
+    }
+
+    #[test]
+    fn a_reader_with_no_call_answers_nothing() {
+        let mut verdicts = call_verdicts(None);
+        assert_eq!(verdicts("just test-ts"), None);
     }
 }

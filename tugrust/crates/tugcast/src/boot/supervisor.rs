@@ -810,6 +810,9 @@ pub(crate) async fn supervisor(
             // replay is never a turn; it seats the arc's audit instead.
             code_input_tx: Some(code_input_tx.clone()),
             code_output: Some(supervisor.code_output.clone()),
+            // The re-audit's transcript row is written through the supervisor,
+            // which owns the shell ledger and the CONTROL frame.
+            supervisor: Some(Arc::clone(&supervisor)),
             cancel: cancel.clone(),
         },
         gh_response_tx.subscribe(),

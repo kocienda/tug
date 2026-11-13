@@ -424,6 +424,27 @@ impl ShellLedger {
         Ok(id)
     }
 
+    /// Rewrite one row's `output` and `settled_at_ms` in place, by its id.
+    ///
+    /// The re-audit's transcript row is one story told over several writes —
+    /// waiting, running, its ending — and each write is the same row, so the
+    /// deck's upsert by receipt id and a reload's replay both read one turn.
+    /// Answers how many rows moved: `0` means the row was evicted or never
+    /// existed, and the caller writes a fresh one.
+    pub fn update_exchange_output(
+        &self,
+        id: i64,
+        output: &str,
+        settled_at_ms: i64,
+    ) -> Result<usize, ShellLedgerError> {
+        let conn = self.db.lock();
+        let changed = conn.execute(
+            "UPDATE shell_exchanges SET output = ?2, settled_at_ms = ?3 WHERE id = ?1",
+            params![id, output, settled_at_ms],
+        )?;
+        Ok(changed)
+    }
+
     /// Distinct lines that currently own at least one exchange, for tests in
     /// other modules that drive a write gateway and need to see which line it
     /// keyed the row under.
@@ -1169,6 +1190,33 @@ mod tests {
         led.mark_landings_told("A", a + 1, 1).unwrap();
         assert!(untold_commands(&led, "A").is_empty());
         assert_eq!(untold_commands(&led, "B"), ["/commit"]);
+    }
+
+    #[test]
+    fn a_reaudit_row_is_never_told() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        led.record_exchange(&ex("L", "/arc-reaudit demo", Some(0)))
+            .unwrap();
+        led.record_exchange(&ex("L", "/commit", Some(0))).unwrap();
+        assert_eq!(untold_commands(&led, "L"), ["/commit"]);
+    }
+
+    #[test]
+    fn an_exchange_output_is_rewritten_in_place() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        let id = led
+            .record_exchange(&ex("L", "/arc-reaudit demo", Some(0)))
+            .unwrap();
+        assert_eq!(
+            led.update_exchange_output(id, "state: verified\n", 2000)
+                .unwrap(),
+            1
+        );
+        let rows = led.list_exchanges_since("L", None).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, id);
+        assert_eq!(rows[0].output, "state: verified\n");
+        assert_eq!(led.update_exchange_output(id + 99, "x", 1).unwrap(), 0);
     }
 
     /// Today's `shell_exchanges` shape — `line_id` and the anchor present —

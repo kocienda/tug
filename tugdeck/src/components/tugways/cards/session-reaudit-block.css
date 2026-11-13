@@ -1,0 +1,84 @@
+/* ============================================================================
+   Re-audit block
+   ========================================================================= */
+
+/**
+ * The engine's re-audit in the transcript: `Re-audit · <arc>` and a status
+ * word on the header, then the headline, the phase line, one row per surface,
+ * and the clock or the verdict.
+ *
+ * @module components/tugways/cards/session-reaudit-block
+ */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tug7-element-global-text-normal-default-rest (element-global-text-normal-default-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .reaudit-block-headline (color)      |
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .reaudit-block-status, .reaudit-block-phase, .reaudit-block-footer, .reaudit-block-verdict (color) |
+ * | --tug7-element-global-text-normal-success-rest (element-global-text-normal-success-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | success      | verified status and verdict (color)  |
+ * | --tug7-element-global-text-normal-caution-rest (element-global-text-normal-caution-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | caution      | seated / released status and verdict (color) |
+ */
+
+.reaudit-block-identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tugx-toolheader-name-size);
+}
+
+.reaudit-block-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-block-status {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+}
+
+.reaudit-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tugx-block-receipt-inset-block) var(--tugx-block-receipt-inset-inline);
+  font-size: var(--tugx-toolheader-name-size);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-block-headline {
+  margin: 0;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow-wrap: anywhere;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-block-phase,
+.reaudit-block-footer,
+.reaudit-block-verdict {
+  margin: 0;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  overflow-wrap: anywhere;
+}
+
+.reaudit-block-footer {
+  font-variant-numeric: tabular-nums;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-block-status[data-state="verified"],
+.reaudit-block-body[data-state="verified"] .reaudit-block-verdict {
+  color: var(--tug7-element-global-text-normal-success-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.reaudit-block-status[data-state="seated"],
+.reaudit-block-status[data-state="released"],
+.reaudit-block-body[data-state="seated"] .reaudit-block-verdict,
+.reaudit-block-body[data-state="released"] .reaudit-block-verdict {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}

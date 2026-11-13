@@ -2800,6 +2800,11 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "control" },
   { element: "--tug7-element-global-text-normal-danger-rest", surface: "--tug7-surface-global-primary-normal-overlay-rest", role: "control" },
 
+  // ---- cards/session-reaudit-block.css, reaudit-rows.css — the re-audit's status words and marks ----
+  { element: "--tug7-element-global-text-normal-success-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
+  { element: "--tug7-element-global-text-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
+  { element: "--tug7-element-global-text-normal-danger-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "informational" },
+
   // ---- tug-progress-indicator.css ----
   { element: "--tugx-progress-indicator-label-color", surface: "--tugx-progress-indicator-surface", role: "content" },
 

@@ -911,6 +911,64 @@ pub struct ArcRestamp {
     /// Why the last quiet job could not re-stamp and seated the audit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seated_why: Option<String>,
+    /// The re-audit's identity: one per story, minted when it starts and
+    /// shared by the transcript row that tells it. Absent when nothing runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    /// `waiting`, `replaying`, `verifying`, `marking` or `seating`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    /// The wait's sentence while `phase` is `waiting`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
+    /// When the wait began, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<String>,
+    /// What moved the base.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<ArcRestampTrigger>,
+    /// One row per surface the verify planned, in plan order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<ArcRestampSurface>,
+    /// The run id of the run that most recently ended on this arc, so a face
+    /// holding a row whose closing frame has not reached it yet reads it as
+    /// finishing rather than interrupted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_id: Option<String>,
+}
+
+/// What moved the base under a re-audit: the new tip, its subject, and the
+/// arc it joined when the tip is a join's squash.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArcRestampTrigger {
+    pub sha: String,
+    #[serde(default)]
+    pub subject: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<String>,
+}
+
+/// One surface of a re-audit's verify, as it stands.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArcRestampSurface {
+    pub name: String,
+    /// `pending`, `running`, `pass`, `fail` or `skipped`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    /// Wall time in whole milliseconds, once the surface lands — whole,
+    /// because the restamp fact compares by `Eq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+    /// When the surface started, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// The join pipeline's state for one arc — the single durable source every
@@ -2085,6 +2143,7 @@ mod tests {
                 worktree_dirty,
                 files,
                 join,
+                restamp,
                 ..
             } => {
                 // The owner key is opaque payload rather than a tag, and this
@@ -2106,6 +2165,22 @@ mod tests {
                     join.conflicts,
                     vec!["tugrust/crates/tugtool/src/commands/arc.rs".to_string()]
                 );
+                // The re-audit's fact, read by both sides of the mirror.
+                let restamp = restamp.as_ref().expect("the fixture's restamp block");
+                assert_eq!(
+                    restamp.run_id.as_deref(),
+                    Some("0f3c1e5a9b7d4e21a8c6f0b2d4e6a8c0")
+                );
+                assert_eq!(restamp.phase.as_deref(), Some("verifying"));
+                assert_eq!(
+                    restamp.trigger.as_ref().and_then(|t| t.arc.as_deref()),
+                    Some("content-lid-wave")
+                );
+                assert_eq!(restamp.surfaces.len(), 3);
+                assert_eq!(restamp.surfaces[0].name, "rust");
+                assert_eq!(restamp.surfaces[0].ms, Some(30782));
+                assert_eq!(restamp.surfaces[1].status, "running");
+                assert_eq!(restamp.last_run_id.as_deref(), Some("7b2d"));
             }
             other => panic!("expected arc entry, got {other:?}"),
         }

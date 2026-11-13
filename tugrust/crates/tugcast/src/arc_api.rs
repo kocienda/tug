@@ -368,14 +368,14 @@ pub(crate) fn arc_resume(
     // audit still stands is refused rather than bound as though something
     // were about to happen.
     if record.done {
-        // A quiet re-stamp inside its horizon is already answering the stale
+        // The engine's re-audit inside its horizon is already answering the stale
         // audit, so the press refuses and says when it may come back; a job
         // past its horizon is released here and the press goes on.
         match crate::feeds::base_motion::release_restamp(&arc_id) {
             crate::feeds::base_motion::RestampRelease::Running { deadline, .. } => {
                 let by = chrono::DateTime::<chrono::Local>::from(deadline).format("%H:%M:%S");
                 return ArcApiOutcome::Error(format!(
-                    "{arc} is re-stamping its audit quietly — wait for it to finish, or press again after {by}"
+                    "{arc} is already re-auditing — wait for it to finish, or press again after {by}"
                 ));
             }
             // The job is writing its answer now; a press that went on would
@@ -383,7 +383,7 @@ pub(crate) fn arc_resume(
             // over an audit just seated.
             crate::feeds::base_motion::RestampRelease::Finishing => {
                 return ArcApiOutcome::Error(format!(
-                    "{arc}'s quiet re-stamp is writing its answer now — press again in a moment"
+                    "{arc}'s re-audit is writing its answer now — press again in a moment"
                 ));
             }
             crate::feeds::base_motion::RestampRelease::NotRunning
@@ -1848,7 +1848,7 @@ mod tests {
         let outcome = arc_resume(&ledger, root, "claude-1", "alpha");
         crate::feeds::base_motion::end_restamp_for_test(&arc_id, generation);
         assert!(
-            matches!(&outcome, ArcApiOutcome::Error(why) if why.contains("re-stamping its audit")),
+            matches!(&outcome, ArcApiOutcome::Error(why) if why.contains("already re-auditing")),
             "refused while the quiet job holds the arc",
         );
         assert_eq!(resume_lines(root), 0, "and nothing written");

@@ -219,6 +219,7 @@ import "./session-commit-receipt-block";
 import "./session-push-receipt-block";
 import "./session-join-receipt-block";
 import "./session-arc-receipt-block";
+import "./session-reaudit-block";
 import { ArcNoteLine } from "./session-arc-note-block";
 import "./session-notice-block";
 import { SessionNoticeLine } from "./session-notice-line";

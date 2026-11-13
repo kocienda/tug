@@ -95,8 +95,8 @@ function useArcTransportPress({
   verb: ArcTransportVerb;
   actor: TransportActor;
   /**
-   * A refusal the verb set computed beside the actor's own — Re-audit while a
-   * quiet re-stamp holds the arc — which the press speaks rather than sends.
+   * A refusal the verb set computed beside the actor's own — Re-audit while
+   * the engine's re-audit holds the arc — which the press speaks rather than sends.
    */
   refusal: string | null;
   /** The card a refusal speaks on, or null when there is nowhere to speak. */
