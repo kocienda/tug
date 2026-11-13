@@ -1,7 +1,21 @@
+/* @tug-pairings {
+ * --tugx-pane-control-on-fg-rest | --tug7-surface-card-primary-normal-titlebar-active | control
+ * --tugx-pane-control-off-fg-rest | --tug7-surface-card-primary-normal-titlebar-inactive | control
+ * } */
+
+/**
+ * @tug-pairings
+ * | Element                         | Surface                                              | Role    | Context                                                         |
+ * |---------------------------------|------------------------------------------------------|---------|-----------------------------------------------------------------|
+ * | --tugx-pane-control-on-fg-rest  | --tug7-surface-card-primary-normal-titlebar-active   | control | .tug-pane[data-focused="true"] .session-name-rename-label       |
+ * | --tugx-pane-control-off-fg-rest | --tug7-surface-card-primary-normal-titlebar-inactive | control | .tug-pane:not([data-focused="true"]) .session-name-rename-label |
+ */
+
 /**
  * The Session card masthead's inline name editor, and the pencil that opens it.
  *
- * No colour is set here. The field is a `TugInput` and keeps its own tokens
+ * One colour is set here, the Rename word's, in the title-bar controls' own
+ * resting ink. The field is a `TugInput` and keeps its own tokens
  * ([L20]); the pencil is a `TugIconButton` at the title-bar cluster's size,
  * painted by the cluster's own rules in `tug-pane.css` through the
  * `.tug-pane-title-bar-inline-control` class its wrapper wears. So this file
@@ -13,7 +27,9 @@
    not change voice or height the moment it becomes editable. The box metrics
    are restated because the field's own are a form row's, and a form row is
    taller than a title line: left alone, opening the editor would move every
-   line of chrome beneath it.
+   line of chrome beneath it. So the box is exactly one line tall, border
+   included, and it is pulled back by its own border and padding so the first
+   letter of the name stands where it stood before the field opened.
 
    `user-select: text` is stated because the chrome around it is
    `user-select: none`, which WebKit lets reach into a text field. */
@@ -23,10 +39,11 @@
   inline-size: 18em;
   min-inline-size: 6em;
   max-inline-size: 100%;
-  block-size: auto;
+  block-size: 1lh;
   min-block-size: 0;
   padding-block: 0;
   padding-inline: 0.25em;
+  margin-inline-start: calc(-0.25em - 1px);
   font-size: inherit;
   font-weight: var(--tug-font-weight-semibold);
   line-height: inherit;
@@ -62,7 +79,7 @@
 .session-name-rename[data-revealed],
 .session-name-rename:focus-within {
   inline-size: auto;
-  padding-inline-start: 0.25em;
+  padding-inline-start: 0.625em;
   overflow: visible;
   opacity: 1;
   /* The overhang below the line lies over the description line's box, which
@@ -70,6 +87,28 @@
      bottom edge. */
   position: relative;
   z-index: 1;
+}
+
+/* The word after the pencil. It is outside the button, so the button's
+   rollover box is the icon's width and no wider; it wears the title-bar
+   controls' resting ink, in the caption's size, and opens the editor too. */
+.session-name-rename-label {
+  flex: none;
+  padding-inline: 0.125em 0.25em;
+  font-size: var(--tug-font-size-xs);
+  font-weight: var(--tug-font-weight-regular);
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+.tug-pane[data-focused="true"] .session-name-rename-label {
+  color: var(--tugx-pane-control-on-fg-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+.tug-pane:not([data-focused="true"]) .session-name-rename-label {
+  color: var(--tugx-pane-control-off-fg-rest);
 }
 
 /* The title's text box elides by clipping, and a clip on both axes would cut

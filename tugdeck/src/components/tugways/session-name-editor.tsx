@@ -248,9 +248,11 @@ export interface SessionNameRenameButtonProps {
 }
 
 /**
- * The pencil after the name. It is a `TugIconButton`, which refuses first
- * responder on click and is not the pane's grab handle, so a press on it
- * neither takes the keyboard from the composer nor begins a drag.
+ * The pencil after the name, and the word Rename after the pencil. The pencil
+ * is a `TugIconButton`, which refuses first responder on click and is not the
+ * pane's grab handle, so a press on it neither takes the keyboard from the
+ * composer nor begins a drag. The word is a second target for the same act,
+ * outside the button so the button's rollover box stays the icon's own.
  *
  * It is revealed while the pointer is on the name or on the pencil itself, and
  * the reveal is read from `pointerenter`/`pointerleave` rather than the
@@ -310,6 +312,18 @@ export function SessionNameRenameButton({
           onRename();
         }}
       />
+      <span
+        className="session-name-rename-label"
+        // The button already names the act for assistive tech.
+        aria-hidden="true"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRename();
+        }}
+      >
+        Rename
+      </span>
     </span>
   );
 }
