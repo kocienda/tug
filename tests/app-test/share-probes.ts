@@ -24,7 +24,7 @@ export const CARD = '[data-card-id="A"]';
 export const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 export const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 export const MARK = `${CARD} [data-slot="share-turn-mark"]`;
-export const BAR = `${CARD} [data-slot="session-share-bar"]`;
+export const SHADE = `${CARD} [data-slot="session-share-view"]`;
 export const COUNT = `${CARD} [data-testid="session-share-count"]`;
 export const PREVIEW = `${CARD} [data-testid="session-share-preview"]`;
 export const COPY = `${CARD} [data-testid="session-share-copy"]`;
@@ -129,7 +129,7 @@ export async function openSeededCard(
 
 const settle = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 
-/** Choose the share bar's format `value` with a trusted click, and wait for the choice to take. */
+/** Choose the Share shade's format `value` with a trusted click, and wait for the choice to take. */
 export async function chooseFormat(app: App, value: "pdf" | "png" | "markdown"): Promise<void> {
   const card = app.body("A");
   await card.nativeClickAtElement(formatChoice(value));
@@ -140,15 +140,17 @@ export async function chooseFormat(app: App, value: "pdf" | "png" | "markdown"):
 }
 
 /**
- * Press Preview…, wait for the preview sheet to take the keyboard from the
- * window that held it, then press the sheet's Done (its Return key).
- * `timeoutMs` bounds the wait for the sheet, which a rendered format reaches
- * only after the host's render.
+ * Press `button` — Preview…, or Copy, Save… or Share… on a selection not yet
+ * previewed — wait for the preview sheet to take the keyboard from the
+ * window that held it, then press the sheet's default button (its Return
+ * key): Done after Preview…, the action's own button otherwise. `timeoutMs`
+ * bounds the wait for the sheet, which a rendered format reaches only after
+ * the host's render.
  */
-export async function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<void> {
+export async function pressThroughPreview(app: App, button: string, timeoutMs = 10_000): Promise<void> {
   const before = await app.windowState();
   expect(before.isKeyWindow, "the card's window holds the keyboard before the preview").toBe(true);
-  await app.body("A").nativeClickAtElement(PREVIEW);
+  await app.body("A").nativeClickAtElement(button);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const state = await app.windowState();
@@ -160,12 +162,17 @@ export async function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<v
         await settle(100);
         after = await app.windowState();
       }
-      expect(after.isKeyWindow, "Return pressed the sheet's Done").toBe(true);
+      expect(after.isKeyWindow, "Return pressed the sheet's default button").toBe(true);
       return;
     }
     await settle(100);
   }
   throw new Error("the preview sheet never took the keyboard");
+}
+
+/** Press Preview… and the preview sheet's Done. */
+export function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<void> {
+  return pressThroughPreview(app, PREVIEW, timeoutMs);
 }
 
 /** The marks' turn keys in transcript order, and which are checked. */

@@ -992,6 +992,16 @@ export interface TugSheetContentProps extends TugSheetFaceProps {
    */
   shadePassive?: boolean;
   /**
+   * Present the shade WITHOUT any modality: no scrim, nothing made `inert`,
+   * and — as a passive shade — no focus trap and no focus claimed or
+   * restored. The region the shade rests over stays fully live, so a surface
+   * that works WITH the transcript (share mode, whose marks are clicked in the
+   * transcript while the shade holds the choices and actions) can stand at the
+   * card's bottom like every other shade. Shade presentation only.
+   * @default false
+   */
+  shadeModeless?: boolean;
+  /**
    * Whether the shade shows its bottom resize grabber. Default `true`. A plain,
    * non-resizable shade (e.g. History) passes `false` — the shade keeps its
    * fixed-fraction height with no drag handle. Ignored under `shadeAutoSize`
@@ -1275,7 +1285,8 @@ export function TugSheetContent({
   shadeAutoSize = false,
   shadeGrabber = true,
   shadeAnchor = "top",
-  shadePassive = false,
+  shadePassive: shadePassiveProp = false,
+  shadeModeless = false,
   grabberLabel = "Resize",
   bottomAnchorSelector,
   reportNaturalHeight,
@@ -1285,6 +1296,8 @@ export function TugSheetContent({
   ...rest
 }: TugSheetContentProps) {
   const { open, onOpenChange, contentId, responderId } = useTugSheetContext();
+  // A modeless shade is a passive one with its modality taken away too.
+  const shadePassive = shadePassiveProp || shadeModeless;
   // Chrome ref drives the inert effect (`inert` on `.tug-pane-body`).
   const cardEl = useContext(TugPanePortalContext);
   // Frame ref is the portal target. Pane-modal surfaces portal here so
@@ -2440,7 +2453,7 @@ export function TugSheetContent({
   useLayoutEffect(() => {
     if (open) triggerElRef.current = document.activeElement;
   }, [open]);
-  usePaneInert(paneBody, open);
+  usePaneInert(shadeModeless ? null : paneBody, open);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     // Escape is owned by the engine's Escape ladder ([P02]) via the trap's
@@ -2577,11 +2590,13 @@ export function TugSheetContent({
   if (presentation === "shade") {
     return (
       <TugSheetStackingContext.Provider value={true}>
-        <div
-          ref={shadeScrimRef}
-          className="tug-sheet-shade-scrim"
-          data-slot="tug-sheet-shade-scrim"
-        />
+        {shadeModeless ? null : (
+          <div
+            ref={shadeScrimRef}
+            className="tug-sheet-shade-scrim"
+            data-slot="tug-sheet-shade-scrim"
+          />
+        )}
         <FocusScopeRadix.FocusScope
           trapped={false}
           loop

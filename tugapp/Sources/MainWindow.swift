@@ -2036,8 +2036,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// extension, decides what is written: the chosen choice's text, or its
     /// rendered file copied into place. `completion` hears how it ended.
     private func presentExportPanel(baseName: String, choices: [ExportChoice],
+                                    title: String = "Export Session", nameFieldLabel: String = "Export As:",
                                     completion: @escaping (ExportOutcome) -> Void) {
-        let config = ExportPanelConfig.make(baseName: baseName, choices: choices)
+        let config = ExportPanelConfig.make(baseName: baseName, choices: choices,
+                                            title: title, nameFieldLabel: nameFieldLabel)
         let panel = NSSavePanel()
         panel.canCreateDirectories = true
         panel.title = config.title
@@ -2057,6 +2059,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
         panel.accessoryView = stack
 
+        // The panel is a remote view, out of this process: nothing in the
+        // window can see it stand, so its presentation is said here — the
+        // line a test reads to know a Save… reached the panel.
+        TugLog.info("export", "save panel shown", [TugLog.field("title", config.title)])
         panel.beginSheetModal(for: self) { [weak self] response in
             self?.activeExportChoices = []
             guard response == .OK, let url = panel.url,
@@ -2085,8 +2091,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// Show a share's artifact in the preview sheet, answering `onShareDone`
-    /// with `done` when it is dismissed, or `failed` at once when the
-    /// rendered file cannot be read.
+    /// with `done` on Done or the confirm button, `canceled` on Cancel, or
+    /// `failed` at once when the rendered file cannot be read.
     private func presentSharePreview(_ request: SharePreview, replyTo target: WKWebView) {
         let reply = { [weak self] (result: ShareDone.Result) in
             self?.hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
@@ -2094,9 +2100,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         guard activeSharePreview == nil,
               request.format == .markdown || ShareRenderOutput.isRenderedArtifact(path: request.path),
               let sheet = SharePreviewSheet(format: request.format, text: request.text, path: request.path,
-                                            parent: self, completion: { [weak self] in
+                                            confirm: request.confirm,
+                                            parent: self, completion: { [weak self] wentOn in
                                                 self?.activeSharePreview = nil
-                                                reply(.done)
+                                                reply(wentOn ? .done : .canceled)
                                             }) else {
             reply(.failed)
             return
@@ -2118,7 +2125,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             ? .text(request.text)
             : .file(URL(fileURLWithPath: request.path))
         let choice = ExportChoice(title: request.format.title, ext: request.format.fileExtension, content: content)
-        presentExportPanel(baseName: request.baseName, choices: [choice]) { [weak self] outcome in
+        presentExportPanel(baseName: request.baseName, choices: [choice],
+                           title: ExportPanelConfig.shareSaveTitle, nameFieldLabel: "Save As:") { [weak self] outcome in
             let result: ShareDone.Result
             switch outcome {
             case .saved: result = .done

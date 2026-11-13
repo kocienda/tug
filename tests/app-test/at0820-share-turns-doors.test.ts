@@ -7,15 +7,19 @@
  *   A. The cell menu's Share from Here… on turn 3 enters share mode with
  *      turns 3 and 4 marked — that turn and every later one.
  *   B. Changes from share mode leaves share mode: the landing needs the
- *      composer share mode hides.
+ *      transcript, which the Changes shade makes inert while share mode's
+ *      marks are clicked there.
  *   C. File ▸ Share Turns… from Changes leaves Changes and enters share mode
  *      with nothing marked.
  *   D. `/share` typed in the composer enters share mode.
+ *   E. The masthead's Share Turns button, second from the left after Rename,
+ *      enters share mode.
  *
  * The marks, the gate and the copy are at0819's.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/cards/session-share-bar.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-share-view.tsx
+ * @covers tugdeck/src/components/tugways/session-masthead.tsx
  * @covers tugdeck/src/components/tugways/cards/share-turn-mark.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
  * @covers tugdeck/src/lib/share-turns-store.ts
@@ -30,11 +34,11 @@ import { rmSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  BAR,
   CELL_MENU,
   COMMIT_BUTTON,
   COUNT,
   PROMPT_INPUT,
+  SHADE,
   USER_ROWS,
   marksJs,
   openSeededCard,
@@ -52,11 +56,11 @@ interface Mark {
 }
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
-const barShown = `!!document.querySelector(${JSON.stringify(BAR)})`;
+const barShown = `!!document.querySelector(${JSON.stringify(SHADE)})`;
 
 describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
   test(
-    "Share from Here, the File menu and /share enter it; Changes and share mode exclude each other",
+    "Share from Here, the File menu, /share and the masthead enter it; Changes and share mode exclude each other",
     async () => {
       const app = await launchTugApp({ testName: "at0820-share-turns-doors" });
       let projectDir = "";
@@ -120,7 +124,7 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
 
         // ── D. /share typed in the composer ────────────────────────────────
         // Done leaves the mode (Escape is at0819's), and the composer is back.
-        await card.nativeClickAtElement(`${BAR} [data-testid="session-share-done"]`);
+        await card.nativeClickAtElement(`${SHADE} [data-testid="session-share-done"]`);
         await card.waitForCondition<boolean>(
           `!document.querySelector('[data-card-id="A"] [data-share-mode]')`,
           { timeoutMs: 4_000 },
@@ -131,6 +135,31 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
         await app.nativeKey("Escape"); // dismiss the completion popup
         await settle();
         await app.nativeKey("Return", ["cmd"]);
+        await card.waitForCondition<boolean>(barShown, { timeoutMs: 6_000 });
+
+        // ── E. The masthead's Share Turns button ───────────────────────────
+        // Second in the card's own run, right after Rename.
+        await card.nativeClickAtElement(`${SHADE} [data-testid="session-share-done"]`);
+        await card.waitForCondition<boolean>(`!(${barShown})`, { timeoutMs: 4_000 });
+        await card.revealPaneControls(".body-chrome-frame");
+        // The card's own buttons, in document order, which is the row's.
+        const order = await card.evalJS<string[]>(`Array.from(document.querySelectorAll(${JSON.stringify(
+          [
+            "session-masthead-rename",
+            "session-masthead-share",
+            "session-masthead-widget",
+            "session-masthead-add-dir",
+            "session-masthead-reveal",
+          ]
+            .map((slot) => `[data-slot="${slot}"]`)
+            .join(", "),
+        )})).map(function (el) { return el.getAttribute("data-slot"); })`);
+        note(`at0820 masthead order: ${JSON.stringify(order)}`);
+        expect(order.slice(0, 2), "Rename leads, Share Turns follows").toEqual([
+          "session-masthead-rename",
+          "session-masthead-share",
+        ]);
+        await card.nativeClickAtElement('[data-slot="session-masthead-share"]');
         await card.waitForCondition<boolean>(barShown, { timeoutMs: 6_000 });
       } finally {
         await app.close();

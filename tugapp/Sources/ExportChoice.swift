@@ -22,6 +22,9 @@ struct ExportChoice: Equatable {
 /// The save panel's configuration for a set of choices — everything about
 /// it that is not AppKit, so it can be checked without a window.
 struct ExportPanelConfig: Equatable {
+    /// The save panel's title when a share's Save… raises it.
+    static let shareSaveTitle = "Save Shared Turns"
+
     var title: String
     var nameFieldLabel: String
     /// The Format popup's titles, in the choices' order.
@@ -30,12 +33,19 @@ struct ExportPanelConfig: Equatable {
     var initialFilename: String
 
     /// The configuration for `choices` under `baseName`. The first choice is
-    /// the one the panel opens on.
-    static func make(baseName: String, choices: [ExportChoice]) -> ExportPanelConfig {
+    /// the one the panel opens on. The title and the name field's label are
+    /// `/export`'s unless the caller names its own — a share's Save… says
+    /// what it is saving.
+    static func make(
+        baseName: String,
+        choices: [ExportChoice],
+        title: String = "Export Session",
+        nameFieldLabel: String = "Export As:"
+    ) -> ExportPanelConfig {
         let ext = choices.first?.ext ?? ""
         return ExportPanelConfig(
-            title: "Export Session",
-            nameFieldLabel: "Export As:",
+            title: title,
+            nameFieldLabel: nameFieldLabel,
             popupTitles: choices.map(\.title),
             initialFilename: ext.isEmpty ? baseName : "\(baseName).\(ext)"
         )

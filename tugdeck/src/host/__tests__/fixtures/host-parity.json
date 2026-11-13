@@ -1532,13 +1532,15 @@
           "id": "share-1",
           "format": "markdown",
           "text": "# Session\n",
-          "path": ""
+          "path": "",
+          "confirm": ""
         },
         {
           "id": "share-2",
           "format": "pdf",
           "text": "",
-          "path": "/tmp/tug-share/share-2.pdf"
+          "path": "/tmp/tug-share/share-2.pdf",
+          "confirm": "Save…"
         }
       ],
       "refused": [
@@ -1547,12 +1549,20 @@
           "id": "share-1",
           "format": "docx",
           "text": "",
-          "path": ""
+          "path": "",
+          "confirm": ""
         },
         {
           "id": "share-1",
           "format": "markdown",
-          "text": "# S"
+          "text": "# S",
+          "confirm": ""
+        },
+        {
+          "id": "share-1",
+          "format": "markdown",
+          "text": "# S",
+          "path": ""
         }
       ]
     },

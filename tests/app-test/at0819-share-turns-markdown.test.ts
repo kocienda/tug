@@ -10,20 +10,24 @@
  * the native shift-click reaching the gesture record, the scrub round trip
  * through tugcast, the host's preview sheet, and the pasteboard.
  *
- *   A. File ▸ Share Turns… enters share mode: the bar shows and the
- *      composer is hidden, with the draft typed into it still there.
+ *   A. File ▸ Share Turns… enters share mode: the Share shade rises from the
+ *      bottom of the transcript and rests on the Z2 status bar, and the
+ *      composer stays where it is, with the draft typed into it still there.
  *   B. Clicking marks 1 and 3 toggles them; a shift-click on 4 extends from
  *      3, so 1, 3 and 4 are marked.
- *   C. Copy is closed until a preview: with Markdown chosen (a share starts
- *      as a PDF), Preview…, then the sheet's Done, opens it.
+ *   C. Copy acts at once: with Markdown chosen (a share starts as a PDF), a
+ *      press on a selection not yet previewed shows the preview first, with a
+ *      Copy button, and Return on it copies.
  *   D. Copy writes Markdown that carries `[secret]` where the key was and
  *      `~/` where the home was, holds neither the key nor the raw home, and
  *      holds nothing of the unmarked turn 2.
- *   E. Marking turn 2 closes Copy again.
+ *   E. Marking turn 2 moves the selection off the preview: Copy stays open,
+ *      and the next press would preview again.
  *   F. Escape leaves share mode, and the composer's draft is intact.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
- * @covers tugdeck/src/components/tugways/cards/session-share-bar.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-share-view.tsx
+ * @covers tugdeck/src/components/tugways/tug-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/share-turn-mark.tsx
  * @covers tugdeck/src/lib/share-turns-store.ts
  * @covers tugdeck/src/lib/share-actions.ts
@@ -39,20 +43,20 @@ import { rmSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  BAR,
   COPY,
   COUNT,
   ENTRY_REGION,
   HOME,
   PROMPT_INPUT,
   SECRET,
+  SHADE,
   UNMARKED_WORD,
   chooseFormat,
   clickMark,
   enabledJs,
   marksJs,
   openSeededCard,
-  previewAndDismiss,
+  pressThroughPreview,
   readPasteboard,
   setPasteboard,
 } from "./share-probes";
@@ -97,15 +101,24 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
 
         // ── A. File ▸ Share Turns… enters the mode ─────────────────────────
         await app.performMenuItem("file.shareTurns");
-        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(BAR)})`, {
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(SHADE)})`, {
           timeoutMs: 6_000,
         });
         expect(
           await card.evalJS<string>(
             `getComputedStyle(document.querySelector(${JSON.stringify(ENTRY_REGION)})).display`,
           ),
-          "the composer is hidden",
-        ).toBe("none");
+          "the composer stays",
+        ).not.toBe("none");
+        // The shade rests on Z2: its panel's bottom edge meets the status
+        // bar's top, once its rise has landed.
+        const restJs = `(function(){
+          var panel = document.querySelector(${JSON.stringify(SHADE)}).closest(".tug-sheet-shade");
+          var z2 = document.querySelector('[data-card-id="A"] [data-slot="session-card-status-bar"]');
+          if (panel === null || z2 === null) return null;
+          return Math.abs(panel.getBoundingClientRect().bottom - z2.getBoundingClientRect().top);
+        })()`;
+        await card.waitForCondition<boolean>(`(${restJs}) !== null && (${restJs}) <= 2`, { timeoutMs: 4_000 });
 
         const marks = await card.evalJS<Mark[]>(marksJs());
         note(`at0819 marks: ${JSON.stringify(marks)}`);
@@ -129,15 +142,13 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         const checked = (await card.evalJS<Mark[]>(marksJs())).map((m) => m.checked);
         expect(checked, "1, 3 and 4 are marked").toEqual([true, false, true, true]);
 
-        // ── C. Copy opens only after a preview ─────────────────────────────
-        expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy is closed before a preview").toBe(false);
+        // ── C. Copy previews first, then copies on its own button ──────────
+        expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy is open once a turn is marked").toBe(true);
         await chooseFormat(app, "markdown");
-        await previewAndDismiss(app);
-        await card.waitForCondition<boolean>(enabledJs(COPY), { timeoutMs: 6_000 });
+        setPasteboard(SENTINEL);
+        await pressThroughPreview(app, COPY);
 
         // ── D. Copy writes the scrubbed Markdown ───────────────────────────
-        setPasteboard(SENTINEL);
-        await card.nativeClickAtElement(COPY);
         const deadline = Date.now() + 5_000;
         let copied = readPasteboard();
         while (copied === SENTINEL && Date.now() < deadline) {
@@ -152,13 +163,19 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(copied, "the raw home never leaves").not.toContain(HOME);
         expect(copied, "the unmarked turn stays out").not.toContain(UNMARKED_WORD);
 
-        // ── E. Marking turn 2 closes Copy ───────────────────────────────────
+        // ── E. Marking turn 2 moves the selection off the preview ──────────
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === true`, {
+          timeoutMs: 4_000,
+        });
         await clickMark(app, k2);
-        await card.waitForCondition<boolean>(`!(${enabledJs(COPY)})`, { timeoutMs: 4_000 });
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === false`, {
+          timeoutMs: 4_000,
+        });
+        expect(await card.evalJS<boolean>(enabledJs(COPY)), "Copy stays open").toBe(true);
 
         // ── F. Escape leaves, and the draft is there ───────────────────────
         await app.nativeKey("Escape");
-        await card.waitForCondition<boolean>(`!document.querySelector(${JSON.stringify(BAR)})`, {
+        await card.waitForCondition<boolean>(`!document.querySelector(${JSON.stringify(SHADE)})`, {
           timeoutMs: 4_000,
         });
         const draft = await card.evalJS<string>(

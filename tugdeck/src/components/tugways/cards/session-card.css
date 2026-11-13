@@ -137,13 +137,29 @@
    — view slot, find bar, Z2, and the beat — so it rises from the top of the
    prompt-entry region, the first thing below the column. */
 .session-view-pane[data-view="changes"],
-.session-view-pane[data-view="history"] {
+.session-view-pane[data-view="history"],
+.session-view-pane[data-view="share"] {
   flex: none;
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
   overflow: hidden;
+}
+
+/* The Share shade is modeless ([P01]): no scrim dims the transcript behind
+   it, so the shade's usual translucency would let the rows under its edge
+   read through its controls as ghost text. It is opaque instead. The alpha is
+   the `body` variable the shade reads live, so the wrapper's value wins. */
+.session-view-pane[data-view="share"] {
+  --tugx-shade-alpha: 1;
+}
+
+/* While the Share shade stands, the transcript's jump-to-latest button rises
+   with the transcript's bottom inset, so it floats above the shade rather
+   than under it. Zero otherwise. */
+.session-view-slot .tug-jump-to-bottom-button {
+  --tugx-jump-bottom: calc(16px + var(--tugx-session-share-inset, 0px));
 }
 
 /* Changes / History slot views. Each fills its pane and scrolls its own
@@ -344,20 +360,6 @@
    own look comes from `tug-find-bar.css`; this rule is docking only. */
 .session-card-top-column > [data-slot="session-card-find-bar"] {
   flex: 0 0 auto;
-}
-
-/* Share mode ([P01]): its bar docks in the find bar's seat, and the bottom of
-   the card is the bar. The composer and the Z2 strip are hidden, never
-   unmounted, so the draft, its caret and its atoms are there when the mode is
-   left. Appearance only: `data-share-mode` is written from the share store. */
-.session-card-top-column > [data-slot="session-share-bar"] {
-  flex: 0 0 auto;
-}
-
-.session-card[data-share-mode] [data-slot="session-card-z2-seat"],
-.session-card[data-share-mode] [data-slot="session-card-status-bar"],
-.session-card[data-share-mode] [data-slot="session-card-entry-region"] {
-  display: none;
 }
 
 .session-card-status-bar {
@@ -684,8 +686,12 @@
      pixels below the status indicator dot above. Bump just the
      end side to `2xl` (24px) so there's generous breathing room
      between the bottom-most Z1B and the status surface. */
-  --tugx-list-view-padding-block-end: var(--tug-space-2xl);
-  --tugx-list-view-scroll-padding-end: var(--tug-space-2xl);
+  /* While the Share shade stands over the transcript's bottom edge, its
+     height (`--tugx-session-share-inset`, written on the view slot by the
+     card as the shade sizes) joins the end side, so the newest turns can be
+     scrolled clear of it and marked. Zero otherwise. */
+  --tugx-list-view-padding-block-end: calc(var(--tug-space-2xl) + var(--tugx-session-share-inset, 0px));
+  --tugx-list-view-scroll-padding-end: calc(var(--tug-space-2xl) + var(--tugx-session-share-inset, 0px));
 
   /* Static fallback for the entry-header pin offset. The shared
    * PinStackController in `tug-transcript-entry.tsx` writes the live

@@ -398,20 +398,24 @@ const shareFormat = literal("markdown", "pdf", "png");
 /**
  * Show a share's artifact in the host's preview sheet: the scrubbed Markdown
  * as `text`, or a rendered file at `path` (`""` for the one unused).
- * Answered with `onShareDone` under `id`.
+ * `confirm` is the title of the action the preview stands before — `Copy`,
+ * `Save…`, `Share…` — which the sheet offers beside Cancel; `""` shows the
+ * artifact with only Done. Answered with `onShareDone` under `id`: `done` for
+ * Done or the confirm button, `canceled` for Cancel.
  */
 export const sharePreviewToHost = defineToHost({
   name: "sharePreview",
   from: "any",
-  codec: obj({ id: str, format: shareFormat, text: str, path: str }),
+  codec: obj({ id: str, format: shareFormat, text: str, path: str, confirm: str }),
   samples: [
-    { id: "share-1", format: "markdown", text: "# Session\n", path: "" },
-    { id: "share-2", format: "pdf", text: "", path: "/tmp/tug-share/share-2.pdf" },
+    { id: "share-1", format: "markdown", text: "# Session\n", path: "", confirm: "" },
+    { id: "share-2", format: "pdf", text: "", path: "/tmp/tug-share/share-2.pdf", confirm: "Save…" },
   ],
   refused: [
     "share-1",
-    { id: "share-1", format: "docx", text: "", path: "" },
-    { id: "share-1", format: "markdown", text: "# S" },
+    { id: "share-1", format: "docx", text: "", path: "", confirm: "" },
+    { id: "share-1", format: "markdown", text: "# S", confirm: "" },
+    { id: "share-1", format: "markdown", text: "# S", path: "" },
   ],
 });
 

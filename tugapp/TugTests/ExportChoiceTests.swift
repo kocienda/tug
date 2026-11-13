@@ -20,9 +20,11 @@ final class ExportChoiceTests: XCTestCase {
         let pdf = URL(fileURLWithPath: "/tmp/tug-share/share-4.pdf")
         let config = ExportPanelConfig.make(baseName: "tug-share-tug", choices: [
             ExportChoice(title: ShareFormat.pdf.title, ext: ShareFormat.pdf.fileExtension, content: .file(pdf)),
-        ])
+        ], title: ExportPanelConfig.shareSaveTitle, nameFieldLabel: "Save As:")
         check("the popup lists PDF alone", config.popupTitles == ["PDF"], "\(config.popupTitles)")
         check("the filename ends .pdf", config.initialFilename == "tug-share-tug.pdf", config.initialFilename)
+        check("the panel says it saves shared turns", config.title == "Save Shared Turns", config.title)
+        check("the field says Save As", config.nameFieldLabel == "Save As:", config.nameFieldLabel)
     }
 
     func testAChoiceWritesTextAndCopiesAFileOverAnExistingOne() throws {

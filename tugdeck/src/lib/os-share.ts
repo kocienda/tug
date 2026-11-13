@@ -76,12 +76,15 @@ function request(post: (id: string) => void): Promise<ShareDoneResult> {
 }
 
 /**
- * Show `artifact` in the host's preview sheet. Resolves `"done"` when the
- * sheet is dismissed, or `"failed"` when the artifact could not be shown.
+ * Show `artifact` in the host's preview sheet. With `confirm` empty the sheet
+ * has only Done; otherwise it offers Cancel and a `confirm` button — the
+ * action the preview stands before. Resolves `"done"` on Done or the confirm
+ * button, `"canceled"` on Cancel, or `"failed"` when the artifact could not be
+ * shown.
  */
-export function sharePreview(artifact: ShareArtifactRef): Promise<ShareDoneResult> {
+export function sharePreview(artifact: ShareArtifactRef, confirm = ""): Promise<ShareDoneResult> {
   if (!hostAvailable(sharePreviewToHost)) return Promise.resolve("unavailable");
-  return request((id) => postToHost(sharePreviewToHost, { id, ...artifact }));
+  return request((id) => postToHost(sharePreviewToHost, { id, ...artifact, confirm }));
 }
 
 /**

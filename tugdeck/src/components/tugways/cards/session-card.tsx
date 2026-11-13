@@ -229,7 +229,7 @@ import {
   type ShareActionContext,
 } from "@/lib/share-actions";
 import type { ShareAnchor } from "@/lib/os-share";
-import { SessionShareBar } from "./session-share-bar";
+import { SessionShareView } from "./session-share-view";
 import { useTugAlert } from "@/components/tugways/tug-alert";
 import {
   deriveSessionCardBannerSpec,
@@ -3605,10 +3605,13 @@ export function SessionCardBody({
   // confirmation toast in this card.
   const paneBulletinRef = useRef<TugPaneBulletinApi>(null);
 
-  // Share mode ([P01]): the bar takes the find bar's seat and the composer
-  // is hidden by attribute, never unmounted, so its draft survives. Entering
-  // closes Find and leaves both landings, the other modes that take over the
-  // bottom of the card; leaving hands the keyboard back to the composer.
+  // Share mode ([P01]): a shade, like Changes and History, rising from the
+  // view slot's bottom edge onto the Z2 status bar, with the composer and Z2
+  // where they always are. It is modeless — the turns are marked in the
+  // transcript above it — so the other bottom-of-card modes give way to it:
+  // entering closes Find, leaves both landings and drops a Changes or History
+  // shade (each of which makes the transcript inert); any of them arriving
+  // leaves it. Leaving hands the keyboard back to the composer.
   const shareActive = useSyncExternalStore(
     shareTurnsStore.subscribe,
     () => shareTurnsStore.getSnapshot().active,
@@ -3618,14 +3621,64 @@ export function SessionCardBody({
       if (findBarOpenRef.current) closeFindBar();
       commitModeController.leave();
       joinModeController.leave();
+      shadeViewController.hide();
       shareTurnsStore.enter(selected, anchor);
     },
-    [closeFindBar, commitModeController, joinModeController, shareTurnsStore],
+    [closeFindBar, commitModeController, joinModeController, shadeViewController, shareTurnsStore],
   );
   const leaveShare = useCallback(() => {
     shareTurnsStore.leave();
     entryDelegateRef.current?.focus();
   }, [shareTurnsStore, entryDelegateRef]);
+  // A Changes or History shade arriving leaves share mode: both make the
+  // transcript inert, where the marks are. Observed on the controller itself,
+  // so the two never stand together for a frame ([L22]).
+  useLayoutEffect(
+    () =>
+      shadeViewController.subscribe(() => {
+        if (shadeViewController.getSnapshot() !== "none") shareTurnsStore.leave();
+      }),
+    [shadeViewController, shareTurnsStore],
+  );
+  // The Share shade follows the mode, as the other shades follow the
+  // controller's view choice; a self-initiated close (Escape, ⌘.) leaves the
+  // mode through `onOpenChange`.
+  const shareSheetRef = useRef<TugSheetHandle | null>(null);
+  useEffect(() => {
+    if (shareActive) shareSheetRef.current?.open();
+    else shareSheetRef.current?.close();
+  }, [shareActive]);
+  const handleShareSheetOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && shareTurnsStore.getSnapshot().active) leaveShare();
+    },
+    [shareTurnsStore, leaveShare],
+  );
+  // The shade rests over the transcript's bottom edge, where the newest turns
+  // are — usually the ones being shared. So while it stands, its height is the
+  // transcript's bottom inset (`--tugx-session-share-inset`, read by the
+  // list's end padding in `session-card.css`), and every turn can still be
+  // scrolled clear of it and marked. A DOM write from the observer ([L06]);
+  // the observer goes with the view it watches ([L27]).
+  const shareInsetObserverRef = useRef<ResizeObserver | null>(null);
+  const setShareViewEl = useCallback((el: HTMLDivElement | null) => {
+    shareInsetObserverRef.current?.disconnect();
+    shareInsetObserverRef.current = null;
+    if (el === null) {
+      viewSlotRef.current?.style.removeProperty("--tugx-session-share-inset");
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.borderBoxSize[0];
+      if (box === undefined) return;
+      viewSlotRef.current?.style.setProperty(
+        "--tugx-session-share-inset",
+        `${Math.ceil(box.blockSize)}px`,
+      );
+    });
+    observer.observe(el);
+    shareInsetObserverRef.current = observer;
+  }, []);
   // The cell menu's Share from Here…: that turn and every later selectable
   // turn, with that turn as the anchor ([P12]).
   const shareFromTurn = useCallback(
@@ -3679,7 +3732,7 @@ export function SessionCardBody({
     void copyShare(shareActionContext());
   }, [shareActionContext]);
   const handleSharePick = useCallback(
-    (anchor: ShareAnchor) => {
+    (anchor: () => ShareAnchor | null) => {
       void pickShare(shareActionContext(), anchor);
     },
     [shareActionContext],
@@ -3687,9 +3740,9 @@ export function SessionCardBody({
   const handleShareSave = useCallback(() => {
     void saveShare(shareActionContext());
   }, [shareActionContext]);
-  // `data-share-mode` on the card root is appearance: the CSS hides the
-  // composer and the status strip under it. Written straight from the store
-  // ([L06], [L22]), so it lands in the same frame the bar mounts.
+  // `data-share-mode` on the card root says the mode is on, for whatever
+  // reads the card's state from its DOM. Written straight from the store
+  // ([L06], [L22]), so it lands in the same frame the shade opens.
   useLayoutEffect(() => {
     const write = (): void => {
       const root = sessionCardRootRef.current;
@@ -5629,6 +5682,38 @@ export function SessionCardBody({
                     </TugSheetContent>
                   </TugSheet>
                 </div>
+                <div className="session-view-pane" data-view="share">
+                  <TugSheet
+                    ref={shareSheetRef}
+                    onOpenChange={handleShareSheetOpenChange}
+                  >
+                    {/* Share mode's shade ([P01]): content-sized, resting on
+                      the slot's bottom edge — the top of Z2, or of the find
+                      bar while it is open — as History does. Modeless: no
+                      scrim, nothing inert, no focus taken, because the turns
+                      are marked in the transcript above it, and the composer
+                      below stays live. */}
+                    <TugSheetContent
+                      title="Share Turns"
+                      presentation="shade"
+                      shadeAnchor="bottom"
+                      persistKey="session-card"
+                      shadeAutoSize
+                      shadeModeless
+                    >
+                      <div ref={setShareViewEl}>
+                        <SessionShareView
+                          store={shareTurnsStore}
+                          onPreview={handleSharePreview}
+                          onCopy={handleShareCopy}
+                          onSave={handleShareSave}
+                          onShare={handleSharePick}
+                          onDone={leaveShare}
+                        />
+                      </div>
+                    </TugSheetContent>
+                  </TugSheet>
+                </div>
               </div>
               <PaneBulletinAnchor ref={paneBulletinRef} />
             </TugPaneBulletinProvider>
@@ -5645,18 +5730,6 @@ export function SessionCardBody({
               overlay, which is why the card has none of its own: a search is
               live only while the bar is open ([P13]).
             */}
-          {shareActive ? (
-            // Share mode's bar, in the find bar's seat ([P01]); the two never
-            // stand together, since each leaves the other.
-            <SessionShareBar
-              store={shareTurnsStore}
-              onPreview={handleSharePreview}
-              onCopy={handleShareCopy}
-              onSave={handleShareSave}
-              onShare={handleSharePick}
-              onDone={leaveShare}
-            />
-          ) : null}
           {findBarOpen ? (
             // Under the SAME CycleScope the prompt entry uses, so the bar's
             // four stops register into this card's one focus cycle rather

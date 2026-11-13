@@ -74,7 +74,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
 import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
-import { FolderOpenDot, FolderPlus, Pencil, Summary, X } from "lucide-react";
+import { FolderOpenDot, FolderPlus, Pencil, Share, Summary, X } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -1081,7 +1081,27 @@ export const SessionMasthead = React.memo(function SessionMasthead({
           />
         </TugTooltip>
       )}
-      {/* The SUMMARY comes next and Reveal follows, which is the cluster's rule and
+      {/* Share Turns, beside Rename: the File menu's item and `/share` as a
+          button. It runs the same command, a bare `/share`, so it opens the
+          card's Share shade with nothing marked, and an empty transcript is
+          refused with the same bulletin. Like Rename it activates its card
+          (no `data-no-activate`), because the command goes to the key card. */}
+      {cardId !== undefined && (
+        <TugActionTooltip
+          action={`${TUG_ACTIONS.RUN_SLASH_COMMAND}:share`}
+          content="Share Turns…"
+        >
+          <TugIconButton
+            size="sm"
+            icon={<Share />}
+            data-slot="session-masthead-share"
+            tabIndex={-1}
+            aria-label="Share turns"
+            onClick={() => dispatchCommand(`${TUG_ACTIONS.RUN_SLASH_COMMAND}:share`)}
+          />
+        </TugActionTooltip>
+      )}
+      {/* The SUMMARY follows Share Turns and Reveal comes last, which is the cluster's rule and
           not this card's preference: the rollup reads right to left as a fixed
           spine — bullseye, card width, Reveal in Finder — and only the
           leftmost positions belong to whatever a particular card adds. Reveal

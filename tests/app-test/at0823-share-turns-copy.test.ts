@@ -15,7 +15,7 @@
  *   C. Share… over the image answers `shown`. The picker's own UI is
  *      AppKit's; the Escape that closes it is cleanup, not an assertion.
  *
- * Each Copy is pressed with a native click on the bar's button; the share
+ * Each Copy is pressed with a native click on the shade's button; the share
  * picker is asked for through `__tug.sharePick`, which posts exactly what the
  * button posts and hands back the host's reply.
  *
@@ -30,8 +30,8 @@ import { rmSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import {
-  BAR,
   COPY,
+  SHADE,
   chooseFormat,
   enabledJs,
   openSeededCard,
@@ -96,7 +96,7 @@ describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", ()
         };
 
         await app.performMenuItem("file.shareTurns");
-        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(BAR)})`, {
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(SHADE)})`, {
           timeoutMs: 6_000,
         });
         expect(await card.evalJS<number>(`window.__tug.shareMark("A", [0, 1])`)).toBe(2);

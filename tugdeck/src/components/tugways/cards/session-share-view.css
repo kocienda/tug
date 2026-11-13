@@ -1,0 +1,74 @@
+/**
+ * @tug-pairings
+ * | Element                                     | Surface                                           | Role    | Context                                                       |
+ * |---------------------------------------------|---------------------------------------------------|---------|---------------------------------------------------------------|
+ * | --tug7-element-field-text-normal-label-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__hint, field labels, .session-share-view__rendering |
+ */
+
+/* The Share shade's content ([P01]): a header strip (the BlockStrip, styled by
+   its own contract), then the choices, then the actions row. The shade itself
+   — its surface, its borders, its rise from the slot's bottom edge — is
+   `TugSheetContent presentation="shade"`; this sheet only lays out what sits
+   inside it. The shade's surface is `--tugx-shade-bg`, which resolves to the
+   content surface named in the pairings above. */
+
+.session-share-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The choices: how tool calls appear, and the format. One row that wraps on a
+   narrow card rather than clipping a control. */
+.session-share-view__fields {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-xl);
+  padding: var(--tug-space-sm) var(--tug-space-md) 0;
+}
+
+.session-share-view__field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-view__field-label {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* What to do next, in one quiet line: how marks are made. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-view__hint {
+  padding: var(--tug-space-sm) var(--tug-space-md) 0;
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 12px;
+}
+
+/* The actions row is a sheet footer (`.tug-sheet-actions`: right-aligned,
+   sheet spacing), inset from the shade's edges as History's footer is. The
+   "Rendering…" status holds its leading edge. */
+.session-share-view__actions {
+  align-items: center;
+  padding: 0 var(--tugx-sheet-space-b) var(--tugx-sheet-space-b);
+}
+
+.session-share-view__spacer {
+  flex: 1 1 0;
+}
+
+/* "Rendering…" with its running indicator, while a preview is prepared. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-view__rendering {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: 12px;
+  white-space: nowrap;
+}
