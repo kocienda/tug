@@ -2289,6 +2289,7 @@ impl AgentSupervisor {
             | A::ListOverviewPosts
             | A::ListShellExchanges
             | A::ListRefs => self.handle_telemetry_control(action, payload).await,
+            A::ScrubShareText => self.handle_share_control(action, payload).await,
             // The router's own reads and the legacy pipeline's verbs.
             A::FeedStats
             | A::SubscribeFeeds

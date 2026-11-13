@@ -64,6 +64,14 @@
 		AA00000100000000000000F3 /* OpenableFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F2 /* OpenableFiles.swift */; };
 		AA00000100000000000000F4 /* OpenableFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F2 /* OpenableFiles.swift */; };
 		AA00000100000000000000F5 /* OpenableFilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F3 /* OpenableFilesTests.swift */; };
+		AA00000100000000000000F6 /* ExportChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F4 /* ExportChoice.swift */; };
+		AA00000100000000000000F7 /* ExportChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F4 /* ExportChoice.swift */; };
+		AA00000100000000000000F8 /* ExportChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F5 /* ExportChoiceTests.swift */; };
+		AA00000100000000000000F9 /* SharePreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F6 /* SharePreviewSheet.swift */; };
+		AA00000100000000000000FA /* ShareRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F7 /* ShareRenderer.swift */; };
+		AA00000100000000000000FB /* ShareRenderOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F8 /* ShareRenderOutput.swift */; };
+		AA00000100000000000000FC /* ShareRenderOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F8 /* ShareRenderOutput.swift */; };
+		AA00000100000000000000FD /* ShareRenderOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F9 /* ShareRenderOutputTests.swift */; };
 		AA000001000000000000004C /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
 		AA000001000000000000004D /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
 		AA000001000000000000004E /* MenuStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000048 /* MenuStateTests.swift */; };
@@ -157,6 +165,12 @@
 		AA00000200000000000000F1 /* QuitGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitGateTests.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F2 /* OpenableFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenableFiles.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F3 /* OpenableFilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenableFilesTests.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F4 /* ExportChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportChoice.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F5 /* ExportChoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportChoiceTests.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F6 /* SharePreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePreviewSheet.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F7 /* ShareRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderer.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F8 /* ShareRenderOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderOutput.swift; sourceTree = "<group>"; };
+		AA00000200000000000000F9 /* ShareRenderOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderOutputTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000047 /* MenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuState.swift; sourceTree = "<group>"; };
 		AA0000020000000000000048 /* MenuStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuStateTests.swift; sourceTree = "<group>"; };
 		AA000002000000000000004D /* FrameMeterStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameMeterStats.swift; sourceTree = "<group>"; };
@@ -232,6 +246,10 @@
 				AA000002000000000000004C /* MenuStateSync.swift */,
 				AA00000200000000000000F0 /* QuitGate.swift */,
 				AA00000200000000000000F2 /* OpenableFiles.swift */,
+				AA00000200000000000000F4 /* ExportChoice.swift */,
+				AA00000200000000000000F6 /* SharePreviewSheet.swift */,
+				AA00000200000000000000F7 /* ShareRenderer.swift */,
+				AA00000200000000000000F8 /* ShareRenderOutput.swift */,
 				AA0000020000000000000047 /* MenuState.swift */,
 				AA0000020000000000000002 /* MainWindow.swift */,
 				AA000002000000000000004E /* HostFrameMeter.swift */,
@@ -304,6 +322,8 @@
 				AA0000020000000000000044 /* DictationStateTests.swift */,
 				AA00000200000000000000F1 /* QuitGateTests.swift */,
 				AA00000200000000000000F3 /* OpenableFilesTests.swift */,
+				AA00000200000000000000F5 /* ExportChoiceTests.swift */,
+				AA00000200000000000000F9 /* ShareRenderOutputTests.swift */,
 				AA0000020000000000000048 /* MenuStateTests.swift */,
 				AA0000020000000000000050 /* FrameMeterStatsTests.swift */,
 				AA0000020000000000000054 /* BodyGeometryTests.swift */,
@@ -424,6 +444,10 @@
 				AA0000010000000000000001 /* AppDelegate.swift in Sources */,
 				AA00000100000000000000F0 /* QuitGate.swift in Sources */,
 				AA00000100000000000000F3 /* OpenableFiles.swift in Sources */,
+				AA00000100000000000000F6 /* ExportChoice.swift in Sources */,
+				AA00000100000000000000F9 /* SharePreviewSheet.swift in Sources */,
+				AA00000100000000000000FA /* ShareRenderer.swift in Sources */,
+				AA00000100000000000000FB /* ShareRenderOutput.swift in Sources */,
 				AA000001000000000000004F /* BridgeHandler.swift in Sources */,
 				AA0000010000000000000050 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000053 /* MenuStateSync.swift in Sources */,
@@ -493,6 +517,10 @@
 				AA00000100000000000000F2 /* QuitGateTests.swift in Sources */,
 				AA00000100000000000000F4 /* OpenableFiles.swift in Sources */,
 				AA00000100000000000000F5 /* OpenableFilesTests.swift in Sources */,
+				AA00000100000000000000F7 /* ExportChoice.swift in Sources */,
+				AA00000100000000000000F8 /* ExportChoiceTests.swift in Sources */,
+				AA00000100000000000000FC /* ShareRenderOutput.swift in Sources */,
+				AA00000100000000000000FD /* ShareRenderOutputTests.swift in Sources */,
 				AA000001000000000000004E /* MenuStateTests.swift in Sources */,
 				AA0000010000000000000058 /* FrameMeterStatsTests.swift in Sources */,
 				AA000001000000000000005D /* BodyGeometryTests.swift in Sources */,

@@ -106,6 +106,16 @@ import {
 } from "./lib/session-identity";
 import { sessionNameStore } from "./lib/session-name-store";
 import { readClipboardViaNative } from "./lib/tug-native-clipboard";
+import { getOnScreenTheme } from "./contexts/theme-provider";
+import { sharePick, shareRender, type ShareDoneResult, type ShareRenderOutcome } from "./lib/os-share";
+import {
+  buildShareRenderDocument,
+  buildShareSlice,
+  selectableTurnKeys,
+  shareHeader,
+  shareTurnNumbers,
+  type ShareToolMode,
+} from "./lib/share-turns";
 import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clipboard-filters";
 import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
 import { getTugbankClient } from "./lib/tugbank-singleton";
@@ -659,8 +669,53 @@ import {
  * which no shell frame holds back, and the tests that made the shell's
  * frame late judged the hold the cut replaced. Major stays `2`: no harness
  * reader of it remains.
+ *
+ * `2.66.0`: adds {@link TugTestSurface.shareRender}, on a body's surface: the
+ * card's every selectable turn rendered through the host's share page, as a
+ * share's Preview… would render them (without the scrub, which is the
+ * Preview's), answered with the host's outcome. Additive; major stays `2`.
+ *
+ * `2.67.0`: {@link TugTestSurface.shareRender} takes an optional `title` that
+ * replaces the header's, so a test can render a document of a known height.
+ * Additive; major stays `2`.
+ *
+ * `2.68.0`: adds {@link TugTestSurface.shareState}, a card's share mode as
+ * its store holds it — the format, whether a preview is being prepared, the
+ * gate, and the artifact last previewed — and {@link TugTestSurface.shareMark},
+ * which marks selectable turns by index, so a test can mark a turn the
+ * windowed list has not mounted. Additive; major stays `2`.
+ *
+ * `2.69.0`: adds {@link TugTestSurface.readClipboardFacts}, the pasteboard's
+ * plain-text and HTML flavours read through the native bridge and reported
+ * as lengths and needle hits, so a rich copy is asserted without carrying
+ * the whole document back, and {@link TugTestSurface.sharePick}, which asks
+ * the host's share picker for a card's previewed artifact as the bar's Share…
+ * does and answers the host's reply. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.65.0" as const;
+export const SURFACE_VERSION = "2.69.0" as const;
+
+/** What {@link TugTestSurface.readClipboardFacts} reports of the pasteboard. */
+export interface ClipboardFacts {
+  textLength: number;
+  htmlLength: number;
+  /** Whether the HTML flavour carries inline styles (`style="`). */
+  htmlStyled: boolean;
+  /** For each needle, whether the plain-text flavour contains it. */
+  textHas: boolean[];
+  /** For each needle, whether the HTML flavour contains it. */
+  htmlHas: boolean[];
+}
+
+/** A card's share mode as {@link TugTestSurface.shareState} reports it. */
+export interface ShareStateFacts {
+  active: boolean;
+  format: "markdown" | "pdf" | "png";
+  rendering: boolean;
+  /** Whether Copy, Save… and Share… may act on the held artifact. */
+  canSend: boolean;
+  /** The artifact last previewed, or `null`; the HTML and Markdown by length. */
+  lastArtifact: { format: "markdown" | "pdf" | "png"; path: string; htmlLength: number; markdownLength: number } | null;
+}
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -1493,6 +1548,44 @@ export interface TugTestSurface {
   renderedRows(cardId: string): Promise<RenderedRowFacts[] | null>;
 
   /**
+   * Render every selectable turn of `cardId`'s session through the host's
+   * share page (SURFACE_VERSION 2.66.0): the slice under `toolMode`, the
+   * header and turn numbers the card shows, this page's theme and the
+   * session's model, sent as `shareRender` in `format`. Resolves the host's
+   * `onShareRendered` outcome, or `null` for a card with no bound session.
+   * `title`, when given, replaces the header's title (SURFACE_VERSION
+   * 2.65.0): a test's way to make a document of a known, large height.
+   */
+  shareRender(
+    cardId: string,
+    format: "pdf" | "png",
+    toolMode: ShareToolMode,
+    title?: string,
+  ): Promise<ShareRenderOutcome | null>;
+
+  /**
+   * `cardId`'s share mode as its store holds it (SURFACE_VERSION 2.68.0), or
+   * `null` for a card with no services.
+   */
+  shareState(cardId: string): ShareStateFacts | null;
+
+  /**
+   * Mark `cardId`'s selectable turns at `indexes` (0-based, in transcript
+   * order) in its share mode, as a click on each mark would (SURFACE_VERSION
+   * 2.66.0). Returns how many turns are marked, or `null` for a card with no
+   * services or not in share mode.
+   */
+  shareMark(cardId: string, indexes: number[]): number | null;
+
+  /**
+   * Post `cardId`'s previewed artifact to the host's share picker, anchored
+   * at the bar's Share… button, exactly as the button does, and resolve with
+   * the host's reply (SURFACE_VERSION 2.69.0); `null` for a card with no
+   * services, no open gate, or no button.
+   */
+  sharePick(cardId: string): Promise<ShareDoneResult | null>;
+
+  /**
    * Deliver a `session_updated` ledger row as if it had arrived over the wire
    * (SURFACE_VERSION 2.4.0).
    *
@@ -1572,6 +1665,14 @@ export interface TugTestSurface {
     text: string;
     atoms: Array<{ type: string; label: string; value: string }>;
   } | null>;
+
+  /**
+   * Read the pasteboard's plain-text and HTML flavours through
+   * `readClipboardViaNative` and report their lengths, whether the HTML is
+   * inline-styled, and which of `needles` each contains (SURFACE_VERSION
+   * 2.67.0).
+   */
+  readClipboardFacts(needles: string[]): Promise<ClipboardFacts>;
 
   /**
    * Build the ingest Worker and have it open this page's own `ws://<host>/ws`,
@@ -3631,6 +3732,17 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       };
     },
 
+    async readClipboardFacts(needles: string[]): Promise<ClipboardFacts> {
+      const { text, html } = await readClipboardViaNative();
+      return {
+        textLength: text.length,
+        htmlLength: html.length,
+        htmlStyled: html.includes('style="'),
+        textHas: needles.map((n) => text.includes(n)),
+        htmlHas: needles.map((n) => html.includes(n)),
+      };
+    },
+
     ingestSpike(): Promise<IngestSpikeReport> {
       return new Promise((resolve) => {
         const worker = new Worker(
@@ -4365,6 +4477,83 @@ function pageStoreSurfaceMethods() {
         pageHashes: Array.from(el.children).map((c) => c.getAttribute("data-content-hash") ?? ""),
         pageText: el.textContent ?? "",
       }));
+    },
+
+    async shareRender(
+      cardId: string,
+      format: "pdf" | "png",
+      toolMode: ShareToolMode,
+      title?: string,
+    ): Promise<ShareRenderOutcome | null> {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const snapshot = services.codeSessionStore.getSnapshot();
+      const selected = new Set(selectableTurnKeys(snapshot.transcript));
+      const slice = buildShareSlice(snapshot.transcript, selected, toolMode);
+      const header = shareHeader({
+        identity: resolveSessionIdentity(services.tugSessionId, { projectDir: services.projectDir }),
+        transcript: snapshot.transcript,
+        selected,
+        snapshot,
+      });
+      const doc = buildShareRenderDocument({
+        theme: getOnScreenTheme(),
+        header: title === undefined ? header : { ...header, title },
+        toolMode,
+        modelName: services.sessionMetadataStore.getSnapshot().model,
+        slice,
+        turnNumbers: shareTurnNumbers(slice, snapshot.transcript, snapshot),
+      });
+      return shareRender(format, JSON.stringify(doc));
+    },
+
+    shareState(cardId: string): ShareStateFacts | null {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const store = services.shareTurnsStore;
+      const s = store.getSnapshot();
+      const a = s.lastArtifact;
+      return {
+        active: s.active,
+        format: s.format,
+        rendering: s.rendering,
+        canSend: store.canSend(),
+        lastArtifact:
+          a === null
+            ? null
+            : { format: a.format, path: a.path, htmlLength: a.html.length, markdownLength: a.markdown.length },
+      };
+    },
+
+    shareMark(cardId: string, indexes: number[]): number | null {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const store = services.shareTurnsStore;
+      if (!store.getSnapshot().active) return null;
+      const keys = selectableTurnKeys(services.codeSessionStore.getSnapshot().transcript);
+      for (const index of indexes) {
+        const key = keys[index];
+        if (key !== undefined && !store.isSelected(key)) store.toggle(key);
+      }
+      return store.getSnapshot().selected.size;
+    },
+
+    async sharePick(cardId: string): Promise<ShareDoneResult | null> {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const store = services.shareTurnsStore;
+      const artifact = store.getSnapshot().lastArtifact;
+      const button = document.querySelector('[data-testid="session-share-share"]');
+      if (!store.canSend() || artifact === null || button === null) return null;
+      const rect = button.getBoundingClientRect();
+      return sharePick(
+        {
+          format: artifact.format,
+          text: artifact.format === "markdown" ? artifact.markdown : "",
+          path: artifact.path,
+        },
+        { x: rect.left, y: rect.top, w: rect.width, h: rect.height },
+      );
     },
   };
 }

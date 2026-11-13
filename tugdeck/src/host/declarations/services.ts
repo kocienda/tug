@@ -390,6 +390,145 @@ export const exportSessionToHost = defineToHost({
 });
 
 /**
+ * The three formats a share makes. A Markdown artifact travels as `text`; a
+ * PDF or PNG is a file the host rendered, named by `path`.
+ */
+const shareFormat = literal("markdown", "pdf", "png");
+
+/**
+ * Show a share's artifact in the host's preview sheet: the scrubbed Markdown
+ * as `text`, or a rendered file at `path` (`""` for the one unused).
+ * Answered with `onShareDone` under `id`.
+ */
+export const sharePreviewToHost = defineToHost({
+  name: "sharePreview",
+  from: "any",
+  codec: obj({ id: str, format: shareFormat, text: str, path: str }),
+  samples: [
+    { id: "share-1", format: "markdown", text: "# Session\n", path: "" },
+    { id: "share-2", format: "pdf", text: "", path: "/tmp/tug-share/share-2.pdf" },
+  ],
+  refused: [
+    "share-1",
+    { id: "share-1", format: "docx", text: "", path: "" },
+    { id: "share-1", format: "markdown", text: "# S" },
+  ],
+});
+
+/**
+ * Save a previewed share artifact through the save panel, offering only its
+ * one format. Answered with `onShareDone` under `id`.
+ */
+export const shareSaveToHost = defineToHost({
+  name: "shareSave",
+  from: "any",
+  codec: obj({ id: str, baseName: str, format: shareFormat, text: str, path: str }),
+  samples: [
+    { id: "share-3", baseName: "tug-share-tug", format: "markdown", text: "# Session\n", path: "" },
+    { id: "share-4", baseName: "tug-share-tug", format: "png", text: "", path: "/tmp/tug-share/share-4.png" },
+  ],
+  refused: [
+    { id: "share-3", format: "markdown", text: "", path: "" },
+    { id: "share-3", baseName: "b", format: "markdown", text: null, path: "" },
+  ],
+});
+
+/**
+ * Copy a previewed share image: the PNG at `path` as `public.png`, with the
+ * Markdown `text` as its plain-text flavour. Image only — a PDF's and a
+ * Markdown share's Copy go through `clipboardWrite`. Answered with
+ * `onShareDone` under `id`.
+ */
+export const shareCopyToHost = defineToHost({
+  name: "shareCopy",
+  from: "any",
+  codec: obj({ id: str, path: str, text: str }),
+  samples: [{ id: "share-7", path: "/tmp/tug-share/share-7.png", text: "# Session\n" }],
+  refused: ["share-7", { id: "share-7", path: "/tmp/a.png" }, { id: "share-7", path: 7, text: "" }],
+});
+
+/**
+ * Show the system share picker over a previewed artifact: the rendered file at
+ * `path`, or the Markdown `text`. `x`, `y`, `w`, `h` are the Share… button's
+ * rect in the posting page's viewport. Answered with `onShareDone` under `id`.
+ */
+export const sharePickToHost = defineToHost({
+  name: "sharePick",
+  from: "any",
+  codec: obj({ id: str, format: shareFormat, path: str, text: str, x: num, y: num, w: num, h: num }),
+  samples: [
+    { id: "share-8", format: "pdf", path: "/tmp/tug-share/share-8.pdf", text: "", x: 400, y: 600, w: 72, h: 24 },
+    { id: "share-9", format: "markdown", path: "", text: "# Session\n", x: 0, y: 0, w: 1, h: 1 },
+  ],
+  refused: [
+    "share-8",
+    { id: "share-8", format: "pdf", path: "", text: "", x: 0, y: 0, w: 1 },
+    { id: "share-8", format: "docx", path: "", text: "", x: 0, y: 0, w: 1, h: 1 },
+  ],
+});
+
+/** The two formats the host renders from the share page. */
+const shareRenderFormat = literal("pdf", "png");
+
+/**
+ * Render a share document (`ShareRenderDocument`, as JSON) to a file: the host
+ * loads the share page in a hidden view, hands it the document, and answers
+ * `onShareRendered` under `id`.
+ */
+export const shareRenderToHost = defineToHost({
+  name: "shareRender",
+  from: "any",
+  codec: obj({ id: str, format: shareRenderFormat, document: str }),
+  samples: [
+    { id: "share-render-1", format: "png", document: "{\"version\":1}" },
+    { id: "share-render-2", format: "pdf", document: "{}" },
+  ],
+  refused: [
+    "share-render-1",
+    { id: "share-render-1", format: "markdown", document: "{}" },
+    { id: "share-render-1", format: "png" },
+  ],
+});
+
+/**
+ * The share page booted and is listening for its document. Taken only from a
+ * view the host's renderer made.
+ */
+export const shareHelloToHost = defineToHost({
+  name: "shareHello",
+  from: "any",
+  codec: obj({ id: str }),
+  samples: [{ id: "share-render-1" }],
+  refused: ["share-render-1", {}, { id: 7 }],
+});
+
+/**
+ * The share page has mounted its document and every enhancement a reader
+ * would see has landed: `height` is the document's full height in CSS pixels.
+ * Taken only from a view the host's renderer made.
+ */
+export const shareRenderReadyToHost = defineToHost({
+  name: "shareRenderReady",
+  from: "any",
+  codec: obj({ id: str, height: num }),
+  samples: [{ id: "share-render-1", height: 1840 }],
+  refused: ["share-render-1", { id: "share-render-1" }, { id: "share-render-1", height: "1840" }],
+});
+
+/**
+ * The share page's inline-styled HTML of what it drew, answering the host's
+ * `onShareHtmlRequest`: the rich flavour a PDF's Copy writes beside the
+ * Markdown. Taken only from a view the host's renderer made.
+ */
+export const shareRenderHtmlToHost = defineToHost({
+  name: "shareRenderHtml",
+  from: "any",
+  codec: obj({ id: str, html: str }),
+  samples: [{ id: "share-render-1", html: "<div style=\"color: rgb(0, 0, 0)\">Hi</div>" }],
+  refused: ["share-render-1", { id: "share-render-1" }, { html: "" }],
+});
+
+/**
  * The name of one update-flow control, posted bare: `UpdateAction` in
  * `tugapp/Sources/UpdateState.swift`, one for one.
  */
@@ -474,6 +613,66 @@ export const exportDoneToPage = defineToPage({
     { id: "tug-export-2", result: "canceled" },
   ],
   refused: ["saved", { id: "tug-export-1", result: "failed" }, { result: "saved" }],
+});
+
+/** How a share's preview, save, copy or pick ended. */
+export const shareDoneToPage = defineToPage({
+  member: "onShareDone",
+  to: "any",
+  codec: obj({ id: str, result: literal("done", "canceled", "shown", "failed") }),
+  samples: [
+    { id: "share-1", result: "done" },
+    { id: "share-3", result: "canceled" },
+    { id: "share-5", result: "shown" },
+    { id: "share-6", result: "failed" },
+  ],
+  refused: ["done", { id: "share-1", result: "saved" }, { result: "done" }],
+});
+
+/** The document the share page is to render, as the JSON the requester posted. */
+export const shareDocumentToPage = defineToPage({
+  member: "onShareDocument",
+  to: "any",
+  codec: obj({ id: str, document: str }),
+  samples: [{ id: "share-render-1", document: "{\"version\":1}" }],
+  refused: ["share-render-1", { id: "share-render-1" }, { document: "{}" }],
+});
+
+/** The host asks the share page for the inline-styled HTML of what it drew. */
+export const shareHtmlRequestToPage = defineToPage({
+  member: "onShareHtmlRequest",
+  to: "any",
+  codec: obj({ id: str }),
+  samples: [{ id: "share-render-1" }],
+  refused: ["share-render-1", {}, { id: 7 }],
+});
+
+/**
+ * How a render ended: `ok` with the file at `path`, its height in CSS pixels
+ * and its page count; `tooTall` for an image past the cap; `failed` otherwise.
+ * `html` is `""` except for an `ok` PDF.
+ */
+export const shareRenderedToPage = defineToPage({
+  member: "onShareRendered",
+  to: "any",
+  codec: obj({
+    id: str,
+    result: literal("ok", "failed", "tooTall"),
+    path: str,
+    height: num,
+    pages: num,
+    html: str,
+  }),
+  samples: [
+    { id: "share-render-1", result: "ok", path: "/tmp/tug-share/share-render-1.png", height: 1840, pages: 1, html: "" },
+    { id: "share-render-2", result: "failed", path: "", height: 0, pages: 0, html: "" },
+    { id: "share-render-3", result: "tooTall", path: "", height: 9100, pages: 0, html: "" },
+  ],
+  refused: [
+    "ok",
+    { id: "share-render-1", result: "done", path: "", height: 0, pages: 0, html: "" },
+    { id: "share-render-1", result: "ok", path: "", height: 0, pages: 0 },
+  ],
 });
 
 /** The pasteboard's plain text, rich text and atom sidecar; `""` for a flavour it has none of. */

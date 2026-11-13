@@ -72,7 +72,7 @@ enum PageFaultScript {
           // that stalls with no error, no socket and no lap is otherwise
           // unreadable (2026-10-21). The buffer is raised first so the count
           // is the whole graph, not the default 250.
-          if (!/[?&](body|overlay)=/.test(window.location.search)) {
+          if (!/[?&](body|overlay|share)=/.test(window.location.search)) {
             try { performance.setResourceTimingBufferSize(4000); } catch (e) {}
             var census = function (mark) {
               try {

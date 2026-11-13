@@ -1,0 +1,75 @@
+/* The share page: the shared turns in one 720-pixel column, on the surface a
+   Session card's transcript sits on — the pane's own, `--tugx-pane-bg` — run
+   to the page's edge, so an image or a PDF page is the card's ground with the
+   card's rows on it. Nothing here defines a colour, a font or a size of its
+   own: every value is a token the live card already resolves, and the theme
+   is the requester's, applied by name. The theme's tokens are declared on
+   `body`, so `body` paints, and its background propagates to the canvas. */
+
+@page {
+  margin: 0;
+}
+
+/* A page every other mode clips to its viewport (`globals.css`) grows here to
+   its content: the host sizes the view to the height this page reports. */
+html[data-share-page],
+html[data-share-page] body {
+  height: auto;
+  overflow: visible;
+}
+
+html[data-share-page] body {
+  background-color: var(--tugx-pane-bg);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The deck root holds the share root, in the 720-pixel column with its
+   margin: `body`'s own padding is pinned to zero by `index.html`'s inline
+   style. The deck's canvas and grid are not this page's. */
+html[data-share-page] #deck-container {
+  width: 720px;
+  height: auto;
+  padding: 36px;
+  box-sizing: border-box;
+  background: var(--tugx-pane-bg);
+}
+
+/* The header: the share's title, then one quiet line of facts. Sized as the
+   transcript's own text is, in `em` against its 14px root. */
+html[data-share-page] .share-page__header {
+  font-size: 14px;
+  margin-block-end: var(--tug-space-2xl);
+}
+
+html[data-share-page] .share-page__title {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0;
+}
+
+html[data-share-page] .share-page__facts {
+  margin: var(--tug-space-2xs) 0 0;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The transcript column: the rows a live list spaces with its row gap, in
+   flow, with no scrollport. */
+html[data-share-page] .session-share-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xl);
+  flex: none;
+}
+
+/* An entry's header pins to its scroller's top in a live card; a page has no
+   scroller, and a printed page must not repeat it. It stays with what it
+   heads. */
+html[data-share-page] .tug-transcript-entry__pin {
+  position: static;
+  break-inside: avoid;
+  break-after: avoid;
+}
+
+html[data-share-page] .session-share-transcript__row {
+  break-inside: auto;
+}

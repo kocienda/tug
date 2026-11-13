@@ -87,6 +87,7 @@ import { sessionTagStore } from "./lib/session-tag-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
 import { deliverSessionSearchAnswer } from "./lib/session-search-answers";
+import { deliverScrubShareAnswer } from "./lib/share-scrub";
 import {
   applyAuthResultPayload,
   applyDownloadEnded,
@@ -118,6 +119,8 @@ import { getAppLifecycle } from "./lib/app-lifecycle";
 import { keyboardAccessStore } from "./keyboard-access-store";
 import {
   decodeResolveSessionsOk,
+  decodeScrubShareTextErr,
+  decodeScrubShareTextOk,
   decodeSearchSessionsOk,
   normalizeSessionRow,
 } from "./protocol";
@@ -1889,6 +1892,25 @@ export function registerStoreTailActions(): void {
   });
   registerAction("search_sessions_err", (payload) => {
     console.warn("search_sessions_err", payload.reason, payload.query);
+  });
+
+  // scrub_share_text_ok / _err: the secret filter's answer to a share
+  // action's strings. The ask whose request id it carries settles; an error
+  // settles it with nothing, which fails that share action rather than
+  // rendering unscrubbed text.
+  registerAction("scrub_share_text_ok", (payload) => {
+    const decoded = decodeScrubShareTextOk(payload);
+    if (decoded === null) {
+      console.warn("scrub_share_text_ok: undecodable payload");
+      return;
+    }
+    deliverScrubShareAnswer(decoded);
+  });
+  registerAction("scrub_share_text_err", (payload) => {
+    const decoded = decodeScrubShareTextErr(payload);
+    if (decoded === null) return;
+    console.warn("scrub_share_text_err", decoded.reason);
+    deliverScrubShareAnswer(decoded);
   });
 
   // session_index_changed: some instance on this machine wrote the shared

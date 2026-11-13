@@ -742,6 +742,107 @@ struct ExportSession: Decodable, Equatable {
     var jsonl: String
 }
 
+/// The three formats a share makes: Markdown travels as text, a PDF or PNG
+/// is a file the host rendered.
+enum ShareFormat: String, Codable, Equatable {
+    case markdown, pdf, png
+
+    /// The file extension a saved artifact of this format takes.
+    var fileExtension: String {
+        switch self {
+        case .markdown: return "md"
+        case .pdf: return "pdf"
+        case .png: return "png"
+        }
+    }
+
+    /// The save panel's name for this format.
+    var title: String {
+        switch self {
+        case .markdown: return "Markdown"
+        case .pdf: return "PDF"
+        case .png: return "PNG Image"
+        }
+    }
+}
+
+/// `sharePreview`: show a share's artifact in the preview sheet — `text` for
+/// Markdown, the rendered file at `path` otherwise, `""` for the one unused.
+/// Answered with `onShareDone` under `id`.
+struct SharePreview: Decodable, Equatable {
+    var id: String
+    var format: ShareFormat
+    var text: String
+    var path: String
+}
+
+/// `shareSave`: save a previewed share artifact through the save panel,
+/// offering its one format. Answered with `onShareDone` under `id`.
+struct ShareSave: Decodable, Equatable {
+    var id: String
+    /// The default filename, without an extension.
+    var baseName: String
+    var format: ShareFormat
+    var text: String
+    var path: String
+}
+
+/// `shareCopy`: copy a previewed share image — the PNG at `path` as
+/// `public.png`, the Markdown `text` as its plain-text flavour. Answered with
+/// `onShareDone` under `id`.
+struct ShareCopy: Decodable, Equatable {
+    var id: String
+    var path: String
+    var text: String
+}
+
+/// `sharePick`: show the share picker over a previewed artifact — the file at
+/// `path`, or the Markdown `text` — anchored at the Share… button's rect
+/// (`x`, `y`, `w`, `h`) in the posting page's viewport. Answered with
+/// `onShareDone` under `id`.
+struct SharePick: Decodable, Equatable {
+    var id: String
+    var format: ShareFormat
+    var path: String
+    var text: String
+    var x: Double
+    var y: Double
+    var w: Double
+    var h: Double
+}
+
+/// The two formats the host renders from the share page.
+enum ShareRenderFormat: String, Codable, Equatable {
+    case pdf, png
+}
+
+/// `shareRender`: render a share document (the JSON of `ShareRenderDocument`)
+/// to a file in a hidden view, answered with `onShareRendered` under `id`.
+struct ShareRender: Decodable, Equatable {
+    var id: String
+    var format: ShareRenderFormat
+    var document: String
+}
+
+/// `shareHello`: the share page booted and is listening for its document.
+struct ShareHello: Decodable, Equatable {
+    var id: String
+}
+
+/// `shareRenderReady`: the share page has laid its document out; `height` is
+/// its full height in CSS pixels.
+struct ShareRenderReady: Decodable, Equatable {
+    var id: String
+    var height: Double
+}
+
+/// `shareRenderHtml`: the share page's inline-styled HTML of what it drew,
+/// answering `onShareHtmlRequest`.
+struct ShareRenderHtml: Decodable, Equatable {
+    var id: String
+    var html: String
+}
+
 /// `pageZoom` and `onPageZoom`: a zoom factor.
 struct PageZoom: Codable, Equatable {
     var factor: Double
@@ -851,6 +952,48 @@ struct ExportDone: Codable, Equatable {
 
     var id: String
     var result: Result
+}
+
+/// `onShareDone`: how a share's preview, save, copy or pick ended.
+struct ShareDone: Codable, Equatable {
+    enum Result: String, Codable, Equatable {
+        case done, canceled, shown, failed
+    }
+
+    var id: String
+    var result: Result
+}
+
+/// `onShareDocument`: the document the share page is to render.
+struct ShareDocument: Codable, Equatable {
+    var id: String
+    var document: String
+}
+
+/// `onShareHtmlRequest`: ask the share page for the inline-styled HTML of
+/// what it drew.
+struct ShareHtmlRequest: Codable, Equatable {
+    var id: String
+}
+
+/// `onShareRendered`: how a render ended. `html` is `""` except for an `ok`
+/// PDF.
+struct ShareRendered: Codable, Equatable {
+    enum Result: String, Codable, Equatable {
+        case ok, failed, tooTall
+    }
+
+    var id: String
+    var result: Result
+    var path: String
+    var height: Double
+    var pages: Int
+    var html: String
+
+    /// A render that produced nothing.
+    static func failed(id: String) -> ShareRendered {
+        ShareRendered(id: id, result: .failed, path: "", height: 0, pages: 0, html: "")
+    }
 }
 
 /// `onClipboardRead`: the pasteboard's plain text, rich text and atom
@@ -998,7 +1141,9 @@ enum ToHostName: String, CaseIterable {
     case sourceTree, choosePath, getSettings, setTheme, tooltipDelay
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
     case openPath, lookUpInDictionary, spellingGuesses, rememberSpelling, trashPath, restorePath, thumbnailPath
-    case exportSession, updateAction, dictation, pageZoom, hostFrames
+    case exportSession, sharePreview, shareSave, shareRender, shareHello, shareRenderReady, shareRenderHtml
+    case shareCopy, sharePick
+    case updateAction, dictation, pageZoom, hostFrames
 
     /// Whether only the shell may post it: the deck's own chrome, the
     /// window's settings, and the commands that direct bodies. `pageZoom` is
@@ -1090,6 +1235,14 @@ enum ToHost {
     case restorePath(RestorePath)
     case thumbnailPath(ThumbnailPath)
     case exportSession(ExportSession)
+    case sharePreview(SharePreview)
+    case shareRender(ShareRender)
+    case shareHello(ShareHello)
+    case shareRenderReady(ShareRenderReady)
+    case shareRenderHtml(ShareRenderHtml)
+    case shareSave(ShareSave)
+    case shareCopy(ShareCopy)
+    case sharePick(SharePick)
     case updateAction(UpdateAction)
     case dictation(DictationRequest)
     case pageZoom(PageZoom)
@@ -1150,6 +1303,14 @@ enum ToHost {
         case .restorePath: return .restorePath(try read(RestorePath.self))
         case .thumbnailPath: return .thumbnailPath(try read(ThumbnailPath.self))
         case .exportSession: return .exportSession(try read(ExportSession.self))
+        case .sharePreview: return .sharePreview(try read(SharePreview.self))
+        case .shareRender: return .shareRender(try read(ShareRender.self))
+        case .shareHello: return .shareHello(try read(ShareHello.self))
+        case .shareRenderReady: return .shareRenderReady(try read(ShareRenderReady.self))
+        case .shareRenderHtml: return .shareRenderHtml(try read(ShareRenderHtml.self))
+        case .shareSave: return .shareSave(try read(ShareSave.self))
+        case .shareCopy: return .shareCopy(try read(ShareCopy.self))
+        case .sharePick: return .sharePick(try read(SharePick.self))
         case .pageZoom: return .pageZoom(try read(PageZoom.self))
         case .hostFrames: return .hostFrames(try read(HostFramesRequest.self))
         case .updateAction: return .updateAction(try read(UpdateAction.self))
@@ -1261,7 +1422,7 @@ enum ToPageMember: String, CaseIterable {
     // Page lifecycle.
     case onBodyBind, onBodyState, onBodyVisibility, onBodyTheme, onPlanStarted
     // The host's services.
-    case onSettingsLoaded, onPathChosen, onExportDone, onClipboardRead, onSpellingGuesses, onTrashResult, onThumbnail, onHostFrames
+    case onSettingsLoaded, onPathChosen, onExportDone, onShareDone, onShareDocument, onShareHtmlRequest, onShareRendered, onClipboardRead, onSpellingGuesses, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
 }
 
@@ -1279,6 +1440,10 @@ enum ToPage {
     case settingsLoaded(SettingsLoaded)
     case pathChosen(PathChosen)
     case exportDone(ExportDone)
+    case shareDone(ShareDone)
+    case shareDocument(ShareDocument)
+    case shareHtmlRequest(ShareHtmlRequest)
+    case shareRendered(ShareRendered)
     case clipboardRead(ClipboardContents)
     case spellingGuesses(SpellingGuessesReply)
     case trashResult(TrashResult)
@@ -1305,6 +1470,10 @@ enum ToPage {
         case .settingsLoaded: return .onSettingsLoaded
         case .pathChosen: return .onPathChosen
         case .exportDone: return .onExportDone
+        case .shareDone: return .onShareDone
+        case .shareDocument: return .onShareDocument
+        case .shareHtmlRequest: return .onShareHtmlRequest
+        case .shareRendered: return .onShareRendered
         case .clipboardRead: return .onClipboardRead
         case .spellingGuesses: return .onSpellingGuesses
         case .trashResult: return .onTrashResult
@@ -1335,6 +1504,10 @@ enum ToPage {
         case .settingsLoaded(let settings): return try? encoder.encode(settings)
         case .pathChosen(let chosen): return try? encoder.encode(chosen)
         case .exportDone(let done): return try? encoder.encode(done)
+        case .shareDone(let done): return try? encoder.encode(done)
+        case .shareDocument(let document): return try? encoder.encode(document)
+        case .shareHtmlRequest(let request): return try? encoder.encode(request)
+        case .shareRendered(let rendered): return try? encoder.encode(rendered)
         case .clipboardRead(let contents): return try? encoder.encode(contents)
         case .spellingGuesses(let reply): return try? encoder.encode(reply)
         case .trashResult(let result): return try? encoder.encode(result)
@@ -1368,6 +1541,10 @@ enum ToPage {
             case .onSettingsLoaded: return .success(.settingsLoaded(try read(SettingsLoaded.self)))
             case .onPathChosen: return .success(.pathChosen(try read(PathChosen.self)))
             case .onExportDone: return .success(.exportDone(try read(ExportDone.self)))
+            case .onShareDone: return .success(.shareDone(try read(ShareDone.self)))
+            case .onShareDocument: return .success(.shareDocument(try read(ShareDocument.self)))
+            case .onShareHtmlRequest: return .success(.shareHtmlRequest(try read(ShareHtmlRequest.self)))
+            case .onShareRendered: return .success(.shareRendered(try read(ShareRendered.self)))
             case .onClipboardRead: return .success(.clipboardRead(try read(ClipboardContents.self)))
             case .onSpellingGuesses: return .success(.spellingGuesses(try read(SpellingGuessesReply.self)))
             case .onTrashResult: return .success(.trashResult(try read(TrashResult.self)))

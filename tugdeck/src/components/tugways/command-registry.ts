@@ -667,6 +667,9 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
   // Export writes the transcript the card already holds, so it needs the
   // card and not a live session.
   ["export", "Export Session…", "file.exportTranscript", sessionCardFrontmost],
+  // Share picks turns from the transcript the card holds, so, like export,
+  // it needs the card and not a live session.
+  ["share", "Share Turns…", "file.shareTurns", sessionCardFrontmost],
   [
     "copy",
     "Copy Last Response",
@@ -3693,6 +3696,7 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.COPY_SESSION_ID,
   TUG_ACTIONS.COPY_SESSION_DESCRIPTION,
   TUG_ACTIONS.COPY_SESSION_ACTIVITY,
+  TUG_ACTIONS.SHARE_FROM_TURN,
   TUG_ACTIONS.SHOW_SESSION,
   TUG_ACTIONS.RENAME_SESSION,
   TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,

@@ -1525,6 +1525,227 @@
       ]
     },
     {
+      "name": "sharePreview",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-1",
+          "format": "markdown",
+          "text": "# Session\n",
+          "path": ""
+        },
+        {
+          "id": "share-2",
+          "format": "pdf",
+          "text": "",
+          "path": "/tmp/tug-share/share-2.pdf"
+        }
+      ],
+      "refused": [
+        "share-1",
+        {
+          "id": "share-1",
+          "format": "docx",
+          "text": "",
+          "path": ""
+        },
+        {
+          "id": "share-1",
+          "format": "markdown",
+          "text": "# S"
+        }
+      ]
+    },
+    {
+      "name": "shareSave",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-3",
+          "baseName": "tug-share-tug",
+          "format": "markdown",
+          "text": "# Session\n",
+          "path": ""
+        },
+        {
+          "id": "share-4",
+          "baseName": "tug-share-tug",
+          "format": "png",
+          "text": "",
+          "path": "/tmp/tug-share/share-4.png"
+        }
+      ],
+      "refused": [
+        {
+          "id": "share-3",
+          "format": "markdown",
+          "text": "",
+          "path": ""
+        },
+        {
+          "id": "share-3",
+          "baseName": "b",
+          "format": "markdown",
+          "text": null,
+          "path": ""
+        }
+      ]
+    },
+    {
+      "name": "shareRender",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-render-1",
+          "format": "png",
+          "document": "{\"version\":1}"
+        },
+        {
+          "id": "share-render-2",
+          "format": "pdf",
+          "document": "{}"
+        }
+      ],
+      "refused": [
+        "share-render-1",
+        {
+          "id": "share-render-1",
+          "format": "markdown",
+          "document": "{}"
+        },
+        {
+          "id": "share-render-1",
+          "format": "png"
+        }
+      ]
+    },
+    {
+      "name": "shareHello",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-render-1"
+        }
+      ],
+      "refused": [
+        "share-render-1",
+        {},
+        {
+          "id": 7
+        }
+      ]
+    },
+    {
+      "name": "shareRenderReady",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-render-1",
+          "height": 1840
+        }
+      ],
+      "refused": [
+        "share-render-1",
+        {
+          "id": "share-render-1"
+        },
+        {
+          "id": "share-render-1",
+          "height": "1840"
+        }
+      ]
+    },
+    {
+      "name": "shareRenderHtml",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-render-1",
+          "html": "<div style=\"color: rgb(0, 0, 0)\">Hi</div>"
+        }
+      ],
+      "refused": [
+        "share-render-1",
+        {
+          "id": "share-render-1"
+        },
+        {
+          "html": ""
+        }
+      ]
+    },
+    {
+      "name": "shareCopy",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-7",
+          "path": "/tmp/tug-share/share-7.png",
+          "text": "# Session\n"
+        }
+      ],
+      "refused": [
+        "share-7",
+        {
+          "id": "share-7",
+          "path": "/tmp/a.png"
+        },
+        {
+          "id": "share-7",
+          "path": 7,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "name": "sharePick",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-8",
+          "format": "pdf",
+          "path": "/tmp/tug-share/share-8.pdf",
+          "text": "",
+          "x": 400,
+          "y": 600,
+          "w": 72,
+          "h": 24
+        },
+        {
+          "id": "share-9",
+          "format": "markdown",
+          "path": "",
+          "text": "# Session\n",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1
+        }
+      ],
+      "refused": [
+        "share-8",
+        {
+          "id": "share-8",
+          "format": "pdf",
+          "path": "",
+          "text": "",
+          "x": 0,
+          "y": 0,
+          "w": 1
+        },
+        {
+          "id": "share-8",
+          "format": "docx",
+          "path": "",
+          "text": "",
+          "x": 0,
+          "y": 0,
+          "w": 1,
+          "h": 1
+        }
+      ]
+    },
+    {
       "name": "updateAction",
       "from": "shell",
       "samples": [
@@ -2147,6 +2368,121 @@
         },
         {
           "result": "saved"
+        }
+      ]
+    },
+    {
+      "member": "onShareDone",
+      "to": "any",
+      "samples": [
+        {
+          "id": "share-1",
+          "result": "done"
+        },
+        {
+          "id": "share-3",
+          "result": "canceled"
+        },
+        {
+          "id": "share-5",
+          "result": "shown"
+        },
+        {
+          "id": "share-6",
+          "result": "failed"
+        }
+      ],
+      "refused": [
+        "done",
+        {
+          "id": "share-1",
+          "result": "saved"
+        },
+        {
+          "result": "done"
+        }
+      ]
+    },
+    {
+      "member": "onShareDocument",
+      "to": "any",
+      "samples": [
+        {
+          "id": "share-render-1",
+          "document": "{\"version\":1}"
+        }
+      ],
+      "refused": [
+        "share-render-1",
+        {
+          "id": "share-render-1"
+        },
+        {
+          "document": "{}"
+        }
+      ]
+    },
+    {
+      "member": "onShareHtmlRequest",
+      "to": "any",
+      "samples": [
+        {
+          "id": "share-render-1"
+        }
+      ],
+      "refused": [
+        "share-render-1",
+        {},
+        {
+          "id": 7
+        }
+      ]
+    },
+    {
+      "member": "onShareRendered",
+      "to": "any",
+      "samples": [
+        {
+          "id": "share-render-1",
+          "result": "ok",
+          "path": "/tmp/tug-share/share-render-1.png",
+          "height": 1840,
+          "pages": 1,
+          "html": ""
+        },
+        {
+          "id": "share-render-2",
+          "result": "failed",
+          "path": "",
+          "height": 0,
+          "pages": 0,
+          "html": ""
+        },
+        {
+          "id": "share-render-3",
+          "result": "tooTall",
+          "path": "",
+          "height": 9100,
+          "pages": 0,
+          "html": ""
+        }
+      ],
+      "refused": [
+        "ok",
+        {
+          "id": "share-render-1",
+          "result": "done",
+          "path": "",
+          "height": 0,
+          "pages": 0,
+          "html": ""
+        },
+        {
+          "id": "share-render-1",
+          "result": "ok",
+          "path": "",
+          "height": 0,
+          "pages": 0
         }
       ]
     },

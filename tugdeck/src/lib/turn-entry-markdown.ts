@@ -188,6 +188,55 @@ export function toolCallToMarkdown(
 }
 
 // ---------------------------------------------------------------------------
+// One-line tool summaries
+// ---------------------------------------------------------------------------
+
+/**
+ * The input keys a one-line tool summary reads, in order — the first whose
+ * value is a string names the call. The same keys, in the same order, as
+ * `tool_line` in `tugcore`'s `session_transcript.rs`, so a tool call reads
+ * the same in one line wherever Tug writes one.
+ */
+const TOOL_SUMMARY_KEYS = ["file_path", "command", "pattern", "description", "prompt"] as const;
+
+/** The most characters a one-line summary keeps before its ellipsis. */
+const TOOL_SUMMARY_LEN = 80;
+
+/**
+ * One tool call in one line: `→ Name(summary)`, or `→ Name()` when no
+ * summary key holds a string. The summary is trimmed, its newlines flattened
+ * to spaces, and cut at {@link TOOL_SUMMARY_LEN} characters (code points, not
+ * UTF-16 units) with `…` when anything was cut.
+ */
+export function toolCallSummaryLine(call: ToolUseMessage): string {
+  const input = call.input;
+  let raw: string | null = null;
+  if (input !== null && typeof input === "object" && !Array.isArray(input)) {
+    const fields = input as Record<string, unknown>;
+    for (const key of TOOL_SUMMARY_KEYS) {
+      const value = fields[key];
+      if (typeof value === "string") {
+        raw = value;
+        break;
+      }
+    }
+  }
+  if (raw === null) return `→ ${call.toolName}()`;
+  const flattened = Array.from(raw.trim(), (c) => (c === "\n" || c === "\r" ? " " : c));
+  const summary =
+    flattened.length <= TOOL_SUMMARY_LEN
+      ? flattened.join("")
+      : `${flattened.slice(0, TOOL_SUMMARY_LEN).join("")}…`;
+  return `→ ${call.toolName}(${summary})`;
+}
+
+/**
+ * How a serialization writes tool calls: `full` sections with input and
+ * output, one `summaries` line per top-level call, or `none`.
+ */
+export type ToolCallMode = "summaries" | "full" | "none";
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -196,12 +245,22 @@ export function toolCallToMarkdown(
  * covering every tool call followed by the assistant's prose. Returns
  * an empty string for a turn with neither (the COPY affordance is
  * suppressed for an empty result by its own length check).
+ *
+ * `toolMode` (default `full`) says how the tool calls are written: `full`
+ * is the sections above, `summaries` is one {@link toolCallSummaryLine} per
+ * top-level call with its subagent children omitted, and `none` leaves the
+ * calls out, so the turn reads as its prose alone.
  */
-export function turnEntryToMarkdown(turn: TurnEntry): string {
+export function turnEntryToMarkdown(
+  turn: TurnEntry,
+  options?: { toolMode?: ToolCallMode },
+): string {
+  const toolMode = options?.toolMode ?? "full";
   const toolCalls: ToolUseMessage[] = [];
   const proseChunks: string[] = [];
   for (const m of turn.messages) {
     if (m.kind === "tool_use") {
+      if (toolMode === "none") continue;
       toolCalls.push(m);
     } else if (m.kind === "assistant_text") {
       proseChunks.push(m.text);
@@ -209,7 +268,9 @@ export function turnEntryToMarkdown(turn: TurnEntry): string {
   }
   const { topLevel, childrenByParent } = groupToolCallsByParent(toolCalls);
   const sections: string[] = topLevel.map((call) =>
-    serializeToolCall(call, 0, childrenByParent),
+    toolMode === "summaries"
+      ? toolCallSummaryLine(call)
+      : serializeToolCall(call, 0, childrenByParent),
   );
 
   // Concatenate the turn's `assistant_text` Messages in arrival

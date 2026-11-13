@@ -183,6 +183,8 @@ export interface TugTranscriptEntryProps
    * after the sequence badge when both are present.
    */
   headerTrailing?: React.ReactNode;
+  /** A control in the icon's seat — see {@link TugTranscriptEntryPinProps.mark}. */
+  mark?: React.ReactNode;
   /** Row body content. The primitive imposes no opinion on text rendering. */
   body: React.ReactNode;
   /**
@@ -630,6 +632,13 @@ export interface TugTranscriptEntryPinProps {
   /** Optional trailing header slot, after the address. */
   headerTrailing?: React.ReactNode;
   /**
+   * A control drawn in the icon's seat in place of the participant glyph —
+   * the share mode's per-turn check. Absent, the glyph draws. The seat is
+   * hidden from assistive technology only while it holds the glyph, so a
+   * control placed here keeps its role and name.
+   */
+  mark?: React.ReactNode;
+  /**
    * The identifier's `id`, for an entry whose `aria-labelledby` names it.
    * A copy of an attribution drawn elsewhere passes none, so no id appears
    * twice in the document.
@@ -662,9 +671,11 @@ export const TugTranscriptEntryPin = React.forwardRef<
     headerTrailing,
     identifierId,
     stuck,
+    mark,
   },
   pinRef,
 ) {
+  const marked = mark !== undefined && mark !== null;
   return (
     <div
       ref={pinRef}
@@ -672,9 +683,15 @@ export const TugTranscriptEntryPin = React.forwardRef<
       data-stuck={stuck === true ? "true" : undefined}
       data-crossing-pin=""
     >
-      <div className="tug-transcript-entry__icon" aria-hidden="true">
-        {PARTICIPANT_ICONS[participant]}
-      </div>
+      {marked ? (
+        <div className="tug-transcript-entry__icon" data-marked="">
+          {mark}
+        </div>
+      ) : (
+        <div className="tug-transcript-entry__icon" aria-hidden="true">
+          {PARTICIPANT_ICONS[participant]}
+        </div>
+      )}
       <div className="tug-transcript-entry__header">
         <strong id={identifierId} className="tug-transcript-entry__identifier">
           {identifier}
@@ -711,6 +728,7 @@ export const TugTranscriptEntry = React.forwardRef<HTMLDivElement, TugTranscript
     timestamp,
     address,
     headerTrailing,
+    mark,
     body,
     inflightFooter,
     controls,
@@ -772,6 +790,7 @@ export const TugTranscriptEntry = React.forwardRef<HTMLDivElement, TugTranscript
         timestamp={timestamp}
         address={address}
         headerTrailing={headerTrailing}
+        mark={mark}
         identifierId={labelledById}
       />
       <div className="tug-transcript-entry__content">

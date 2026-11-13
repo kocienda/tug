@@ -74,8 +74,10 @@
  */
  
 import React, {
+  createContext,
   forwardRef,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -206,6 +208,14 @@ import {
 } from "@/lib/code-session-store/stages";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
+  isShareLeadRow,
+  ShareTurnsContext,
+  useShareFromHereEntries,
+  useShareTurnMark,
+  type ShareTurnsContextValue,
+} from "@/components/tugways/cards/share-turn-mark";
+import type { ShareTurnsStore } from "@/lib/share-turns-store";
+import {
   resolveCommandAttribution,
   resolveCommandBlock,
   resolveCommandPresentation,
@@ -245,6 +255,7 @@ import type { TranscriptSettingsStore } from "@/lib/transcript-settings-store";
 import {
   SessionTranscriptDataSource,
   transcriptCellPropsEqual,
+  turnNumberAt,
   useSessionTranscriptDataSource,
   type SessionRowDescriptor,
   type SessionTranscriptCellKind,
@@ -257,24 +268,38 @@ import type { PropertyStore } from "@/lib/property-store";
 // ---------------------------------------------------------------------------
 
 /**
- * The absolute turn-number offset for the loaded window — the count of
- * older turns that precede the first loaded turn. Added to a row's
- * window-relative turn index so every row is addressed by its true session
- * turn rather than its position within the loaded slice. `0` when the whole
- * session is loaded (no recency window). Enters React via
- * `useSyncExternalStore` ([L02]); updates (e.g. after a prepend shifts the
- * window) re-number every visible row.
+ * The true session turn number of the turn at window-relative index
+ * `localTurnIndex` — {@link turnNumberAt} over the store's snapshot, so a
+ * row is addressed by its session turn rather than its position within the
+ * loaded slice. Enters React via `useSyncExternalStore` ([L02]); updates
+ * (e.g. after a prepend shifts the window) re-number every visible row.
+ *
+ * Under a {@link ShareTurnNumberContext} the turn's number in the card it was
+ * shared from wins: a share page holds only the picked turns, so counting its
+ * own snapshot would renumber a pick of #3 and #9 as #1 and #2.
  */
-function useTurnNumberBase(codeSessionStore: CodeSessionStore): number {
-  return useSyncExternalStore(
+function useTurnNumber(
+  codeSessionStore: CodeSessionStore,
+  localTurnIndex: number,
+  turnKey: string | undefined,
+): number {
+  const shared = useContext(ShareTurnNumberContext);
+  const counted = useSyncExternalStore(
     codeSessionStore.subscribe,
     useCallback(
-      () =>
-        codeSessionStore.getSnapshot().replayWindow?.firstLoadedTurnIndex ?? 0,
-      [codeSessionStore],
+      () => turnNumberAt(codeSessionStore.getSnapshot(), localTurnIndex),
+      [codeSessionStore, localTurnIndex],
     ),
   );
+  return (turnKey !== undefined ? shared?.get(turnKey) : undefined) ?? counted;
 }
+
+/**
+ * Each shared turn's number in the card it came from, by `turnKey`. Provided
+ * once at the share page's root ([L02]: a constant for the page's life);
+ * absent everywhere else, where a row counts its own place.
+ */
+export const ShareTurnNumberContext = createContext<ReadonlyMap<string, number> | null>(null);
 
 // A user-row body is rendered verbatim. There was once a `>` Code route
 // prefix — the composer convention where `>` meant "route this line to the
@@ -536,10 +561,11 @@ const UserMessageCell = React.memo(function UserMessageCell({
   // the `#u{turn}` address on its attribution row; image-atom captions carry
   // the same turn number so the inline chip and the attachment-strip tile
   // agree.
-  const turnNumber =
-    useTurnNumberBase(codeSessionStore) +
-    dataSource.localTurnIndexForRow(index) +
-    1;
+  const turnNumber = useTurnNumber(
+    codeSessionStore,
+    dataSource.localTurnIndexForRow(index),
+    row.turnKey,
+  );
   // Durable badge address ([P09]): session-true turn + within-turn ordinal.
   // A merged turn's steered user rows get `.2`, `.3`; the opener stays `#u{turn}`.
   const address = {
@@ -547,6 +573,9 @@ const UserMessageCell = React.memo(function UserMessageCell({
     turn: turnNumber,
     sub: dataSource.withinTurnOrdinalForRow(index),
   };
+  // In share mode the turn's first row carries its share mark ([L02]).
+  const shareMark = useShareTurnMark(row.turn, isShareLeadRow(row, address.sub));
+  const shareFromHere = useShareFromHereEntries(row.turn);
   // The data source resolves the specific `user_message` this row
   // renders (the turn opener, or a merged/steered mid-turn message —
   // never re-derived from `messages[0]`, Spec S01/[P04]). It is set on
@@ -625,6 +654,7 @@ const UserMessageCell = React.memo(function UserMessageCell({
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
     insertTarget,
+    turnEntries: shareFromHere,
   });
   // The COPY chip's write. `copyText` is what an external app gets; a paste
   // back into Tug gets the substrate itself — text with its U+FFFC positions
@@ -664,6 +694,7 @@ const UserMessageCell = React.memo(function UserMessageCell({
           identifier={wheel ? WHEEL_IDENTIFIER : USER_IDENTIFIER}
           timestamp={timestamp === "" ? undefined : timestamp}
           address={address}
+          mark={shareMark}
           body={
             <>
               {/* Staged shell / `/btw` context that rode this submission,
@@ -1795,10 +1826,11 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   // row carries one `#a{turn}` address on its attribution row (a wake/cron
   // turn is the assistant speaking, so it is `#a` too); the inline messages
   // of the turn carry none.
-  const turnNumber =
-    useTurnNumberBase(codeSessionStore) +
-    dataSource.localTurnIndexForRow(index) +
-    1;
+  const turnNumber = useTurnNumber(
+    codeSessionStore,
+    dataSource.localTurnIndexForRow(index),
+    row.turnKey,
+  );
   // Durable badge address ([P09]): session-true turn + within-turn run ordinal.
   // A merged turn's later assistant runs get `.2`, `.3`; the first stays `#a{turn}`.
   const address = {
@@ -1806,6 +1838,8 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
     turn: turnNumber,
     sub: dataSource.withinTurnOrdinalForRow(index),
   };
+  const shareMark = useShareTurnMark(row.turn, isShareLeadRow(row, address.sub));
+  const shareFromHere = useShareFromHereEntries(row.turn);
   // `turnKey` is set for every assistant row by `rowAt`. The fallback
   // throws in dev (data-source contract violation) and falls back to
   // an index-scoped string in prod so different rows can't
@@ -1980,6 +2014,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
     insertTarget,
+    turnEntries: shareFromHere,
   });
 
   // A compaction-only turn (a `/compact`, or an auto-compact boundary) is not
@@ -2048,6 +2083,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
               timestamp === "" || timestamp === undefined ? undefined : timestamp
             }
             address={address}
+            mark={shareMark}
             body={
               // Body order — per [D07] sequence substrate, the wire's
               // arrival order drives the visual order. The renderer
@@ -2248,6 +2284,11 @@ export interface SessionTranscriptHostProps {
    * above it.
    */
   liveEdgeContent?: React.ReactNode;
+  /**
+   * The card's share mode. While it is on, each selectable turn's first row
+   * shows a check; absent, no row ever does.
+   */
+  shareTurnsStore?: ShareTurnsStore;
 }
 
 /**
@@ -2350,10 +2391,17 @@ export const SessionTranscriptHost = forwardRef<
     findOpen,
     renderTurnTrailing,
     liveEdgeContent,
+    shareTurnsStore,
   },
   ref,
 ) {
   const dataSource = useSessionTranscriptDataSource(codeSessionStore);
+  // One value for the card's lifetime, so no cell re-renders on its account.
+  const shareTurns = useMemo<ShareTurnsContextValue | null>(
+    () =>
+      shareTurnsStore === undefined ? null : { store: shareTurnsStore, codeSessionStore },
+    [shareTurnsStore, codeSessionStore],
+  );
   const streamingStore = codeSessionStore.streamingDocument;
 
   // [DT10] transcript-replay paint gate. While the card's lifecycle
@@ -3410,6 +3458,7 @@ export const SessionTranscriptHost = forwardRef<
         // when modal. The overlay is an absolute sibling layered *over* it.
         <div className="tug-control-bar-region" ref={setRegionEl}>
           <ToolBlockExpansionContext.Provider value={toolBlockExpansion}>
+            <ShareTurnsContext.Provider value={shareTurns}>
             <ReportContext.Provider value={codeSessionStore.reports}>
             <FindTargetRegistryContext.Provider value={findTargets}>
             <TugListView
@@ -3479,6 +3528,7 @@ export const SessionTranscriptHost = forwardRef<
             />
             </FindTargetRegistryContext.Provider>
             </ReportContext.Provider>
+            </ShareTurnsContext.Provider>
           </ToolBlockExpansionContext.Provider>
           {/* Its press dispatches `last-turn`, which the session card answers
               with this transcript's `scrollToBottom` — the same jump End makes. */}
@@ -3494,3 +3544,75 @@ export const SessionTranscriptHost = forwardRef<
     </div>
   );
 });
+
+// ---------------------------------------------------------------------------
+// `SessionShareTranscript` — the share page's transcript.
+// ---------------------------------------------------------------------------
+
+export interface SessionShareTranscriptProps {
+  /** A connectionless store seeded with the shared turns. */
+  codeSessionStore: CodeSessionStore;
+  /** Carries the model name the turns were answered by. */
+  sessionMetadataStore: SessionMetadataStore;
+}
+
+/**
+ * Every row of a seeded store's transcript, in a plain column, through the
+ * same `UserMessageCell` and `AssistantTurnCell` the live list mounts — not a
+ * list view: there is no scrollport, nothing is windowed, and every row is
+ * mounted at once, because the page exists to be photographed whole. The
+ * rows are bounded by the selection a share makes, not by a session's length.
+ *
+ * Only the two kinds a share holds render; a shell, refs or ghost row never
+ * reaches a share slice, and its cell would need the live card's stores.
+ * The providers a cell reads beyond its props (tool-block expansion, turn
+ * numbers, the theme, the responder chain) are the share root's to supply.
+ */
+export function SessionShareTranscript({
+  codeSessionStore,
+  sessionMetadataStore,
+}: SessionShareTranscriptProps): React.ReactElement {
+  const dataSource = useSessionTranscriptDataSource(codeSessionStore);
+  // [L02]: the row set enters React through the data source's own version.
+  useSyncExternalStore(
+    useCallback((onChange: () => void) => dataSource.subscribe(onChange), [dataSource]),
+    useCallback(() => dataSource.getVersion(), [dataSource]),
+  );
+  const streamingStore = codeSessionStore.streamingDocument;
+  const rows: React.ReactNode[] = [];
+  const count = dataSource.numberOfItems();
+  for (let index = 0; index < count; index += 1) {
+    const kind = dataSource.kindForIndex(index);
+    const id = dataSource.idForIndex(index);
+    const cell = { index, id, kind, dataSource, selected: false, row: dataSource.rowAt(index) };
+    if (kind === "user") {
+      rows.push(
+        <div key={id} className="session-share-transcript__row" data-share-row="user">
+          <UserMessageCell
+            {...cell}
+            codeSessionStore={codeSessionStore}
+            sessionMetadataStore={sessionMetadataStore}
+          />
+        </div>,
+      );
+    } else if (kind === "assistant") {
+      rows.push(
+        <div key={id} className="session-share-transcript__row" data-share-row="assistant">
+          <AssistantTurnCell
+            {...cell}
+            codeSessionStore={codeSessionStore}
+            sessionMetadataStore={sessionMetadataStore}
+            streamingStore={streamingStore}
+          />
+        </div>,
+      );
+    }
+  }
+  return (
+    <ReportContext.Provider value={codeSessionStore.reports}>
+      <div className="session-card-transcript session-share-transcript" data-slot="session-share-transcript">
+        {rows}
+      </div>
+    </ReportContext.Provider>
+  );
+}

@@ -50,6 +50,7 @@ import { PathCommandsStore } from "./path-commands-store";
 import { ShellGrammarStore } from "./shell-grammar-store";
 import { ShellClassifyStore } from "./shell-classify-store";
 import { PendingContextStore } from "./pending-context-store";
+import { ShareTurnsStore } from "./share-turns-store";
 import { FeedStore, type FeedStoreFilter } from "./feed-store";
 import { FeedId } from "../protocol";
 import type { CompletionProvider } from "./tug-text-types";
@@ -163,6 +164,12 @@ export interface CardServices {
    * the shell / `/btw` rows (stage actions + queued badge).
    */
   readonly pendingContextStore: PendingContextStore;
+  /**
+   * The card's share mode — which turns are marked for sharing, the chosen
+   * tool mode and format, and the preview gate. Lives as long as the
+   * card's `codeSessionStore`.
+   */
+  readonly shareTurnsStore: ShareTurnsStore;
   /**
    * The `@` file-completion provider. Captured once at construction
    * because each call to `SessionFileCompletion.getProvider()` creates a
@@ -910,6 +917,7 @@ class CardServicesStore {
       shellClassifyStore,
       changesController,
       pendingContextStore,
+      shareTurnsStore: new ShareTurnsStore(),
       fileCompletionProvider,
       sessionFileCompletion,
     };
@@ -1044,6 +1052,7 @@ class CardServicesStore {
     services.refsSessionFeedStore.dispose();
     services.changesController.dispose();
     services.pendingContextStore.dispose();
+    services.shareTurnsStore.dispose();
   }
 
   // ── Public API ───────────────────────────────────────────────────────────

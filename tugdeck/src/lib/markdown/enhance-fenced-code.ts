@@ -37,6 +37,7 @@ import {
   buildFoldButton,
 } from "./enhance-block-chrome";
 import { highlightFragmentToHtml } from "@/lib/language-registry";
+import { trackEnhancement } from "./pending-enhancements";
 
 /** Parses the language tag off a `<code class="language-X">` element.
  *  Returns `null` for unspecified-language fenced blocks. */
@@ -188,7 +189,7 @@ function whenIdle(run: () => void): void {
 function highlightFencedCode(codeEl: HTMLElement, lang: string): void {
   const source = codeEl.textContent ?? "";
   if (source === "") return;
-  void highlightFragmentToHtml(source, lang)
+  void trackEnhancement(highlightFragmentToHtml(source, lang))
     .then((html) => {
       if (html === "") return;
       if (!codeEl.isConnected) return;

@@ -559,6 +559,22 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// another page's `start` hears its own `ended` there, not in the page
     /// that took the mic. A terminal event lets the entry go.
     private let dictationTargets = NSMapTable<NSString, WKWebView>.strongToWeakObjects()
+
+    /// The share preview sheet on screen, held until its Done so it is not
+    /// released while shown; one at a time, since a sheet is modal to the
+    /// window.
+    private var activeSharePreview: SharePreviewSheet?
+
+    /// The share picker on screen, held until its delegate hears the choice:
+    /// an unretained picker can be deallocated while it is shown.
+    private var activeSharePicker: NSSharingServicePicker?
+
+    /// The hidden share pages rendering shared turns to files, one per job.
+    private(set) lazy var shareRenderer = ShareRenderer(window: self)
+
+    /// The choices of the export save panel on screen, read by the Format
+    /// popup's action to swap the filename's extension.
+    private var activeExportChoices: [ExportChoice] = []
     #if DEBUG
     /// The display-rate spike's child page (`spikeBody`), made on first use.
     /// DEBUG-only.
@@ -1472,6 +1488,13 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         BodyGeometry.flipped(point, inHeight: containerView.bounds.height)
     }
 
+    /// Put a share page's view in the container beneath every page, the
+    /// shell's included, where it paints (a hidden view would not) and covers
+    /// nothing the user sees. `ShareRenderer` sizes and removes it.
+    func placeShareView(_ view: NSView) {
+        containerView.addSubview(view, positioned: .below, relativeTo: nil)
+    }
+
     /// Stand `view` over the shell's and every card's, across the whole
     /// container: the overlay's place.
     func placeOverCards(_ view: NSView, above cards: NSView) {
@@ -2002,24 +2025,30 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         hostChannel.send(.networkPath(report), to: webView)
     }
 
-    /// Present the `/export` save panel ([#step-13c]) as a sheet on this
-    /// window. The accessory File Format popup selects which content
-    /// (markdown / JSON Lines) is written; the popup index — not the typed
-    /// extension — is authoritative at write time. Calls back
-    /// `onExportDone({id, result: "saved" | "canceled"})`.
-    private func presentExportPanel(requestId: String, baseName: String,
-                                    markdown: String, jsonl: String,
-                                    replyTo target: WKWebView) {
+    /// How a save panel ended.
+    private enum ExportOutcome {
+        case saved, canceled, failed
+    }
+
+    /// Present the export save panel as a sheet on this window, offering
+    /// `choices` in its Format popup — `/export`'s Markdown and JSON Lines, or
+    /// a share's one previewed artifact. The popup index, not the typed
+    /// extension, decides what is written: the chosen choice's text, or its
+    /// rendered file copied into place. `completion` hears how it ended.
+    private func presentExportPanel(baseName: String, choices: [ExportChoice],
+                                    completion: @escaping (ExportOutcome) -> Void) {
+        let config = ExportPanelConfig.make(baseName: baseName, choices: choices)
         let panel = NSSavePanel()
         panel.canCreateDirectories = true
-        panel.title = "Export Session"
-        panel.nameFieldLabel = "Export As:"
-        panel.nameFieldStringValue = "\(baseName).md"
+        panel.title = config.title
+        panel.nameFieldLabel = config.nameFieldLabel
+        panel.nameFieldStringValue = config.initialFilename
 
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 25))
-        popup.addItems(withTitles: ["Markdown", "JSON Lines"])
+        popup.addItems(withTitles: config.popupTitles)
         popup.target = self
         popup.action = #selector(exportFormatChanged(_:))
+        activeExportChoices = choices
 
         let label = NSTextField(labelWithString: "Format:")
         let stack = NSStackView(views: [label, popup])
@@ -2029,28 +2058,122 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         panel.accessoryView = stack
 
         panel.beginSheetModal(for: self) { [weak self] response in
-            guard let self = self else { return }
-            var result = ExportDone.Result.canceled
-            if response == .OK, let url = panel.url {
-                let content = popup.indexOfSelectedItem == 0 ? markdown : jsonl
-                do {
-                    try content.write(to: url, atomically: true, encoding: .utf8)
-                    result = .saved
-                } catch {
-                    NSLog("MainWindow: export write failed: %@", error.localizedDescription)
-                }
+            self?.activeExportChoices = []
+            guard response == .OK, let url = panel.url,
+                  choices.indices.contains(popup.indexOfSelectedItem) else {
+                completion(.canceled)
+                return
             }
-            self.hostChannel.send(.exportDone(ExportDone(id: requestId, result: result)), to: target)
+            do {
+                try writeExportChoice(choices[popup.indexOfSelectedItem], to: url)
+                completion(.saved)
+            } catch {
+                NSLog("MainWindow: export write failed: %@", error.localizedDescription)
+                completion(.failed)
+            }
         }
     }
 
     /// File Format popup changed — swap the save panel's filename extension to
     /// match (cosmetic; the popup index drives the written content at OK time).
     @objc private func exportFormatChanged(_ sender: NSPopUpButton) {
-        guard let panel = sender.window as? NSSavePanel else { return }
-        let ext = sender.indexOfSelectedItem == 0 ? "md" : "jsonl"
+        guard let panel = sender.window as? NSSavePanel,
+              activeExportChoices.indices.contains(sender.indexOfSelectedItem) else { return }
+        let ext = activeExportChoices[sender.indexOfSelectedItem].ext
         let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
         panel.nameFieldStringValue = "\(base).\(ext)"
+    }
+
+    /// Show a share's artifact in the preview sheet, answering `onShareDone`
+    /// with `done` when it is dismissed, or `failed` at once when the
+    /// rendered file cannot be read.
+    private func presentSharePreview(_ request: SharePreview, replyTo target: WKWebView) {
+        let reply = { [weak self] (result: ShareDone.Result) in
+            self?.hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
+        }
+        guard activeSharePreview == nil,
+              request.format == .markdown || ShareRenderOutput.isRenderedArtifact(path: request.path),
+              let sheet = SharePreviewSheet(format: request.format, text: request.text, path: request.path,
+                                            parent: self, completion: { [weak self] in
+                                                self?.activeSharePreview = nil
+                                                reply(.done)
+                                            }) else {
+            reply(.failed)
+            return
+        }
+        activeSharePreview = sheet
+        sheet.present(on: self)
+    }
+
+    /// Save a previewed share artifact through the export panel, offering its
+    /// one format, and answer `onShareDone` with `done`, `canceled` or
+    /// `failed`.
+    private func presentShareSave(_ request: ShareSave, replyTo target: WKWebView) {
+        guard request.format == .markdown || ShareRenderOutput.isRenderedArtifact(path: request.path) else {
+            TugLog.warn("share", "shareSave refused a path no render wrote", [TugLog.field("id", request.id)])
+            hostChannel.send(.shareDone(ShareDone(id: request.id, result: .failed)), to: target)
+            return
+        }
+        let content: ExportChoice.Content = request.format == .markdown
+            ? .text(request.text)
+            : .file(URL(fileURLWithPath: request.path))
+        let choice = ExportChoice(title: request.format.title, ext: request.format.fileExtension, content: content)
+        presentExportPanel(baseName: request.baseName, choices: [choice]) { [weak self] outcome in
+            let result: ShareDone.Result
+            switch outcome {
+            case .saved: result = .done
+            case .canceled: result = .canceled
+            case .failed: result = .failed
+            }
+            self?.hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
+        }
+    }
+
+    /// Copy a previewed share image: `public.png` from the rendered file and
+    /// the Markdown as `public.utf8-plain-text`, answering `onShareDone` with
+    /// `done`, or `failed` when the file cannot be read. A PDF's and a
+    /// Markdown share's Copy go through `clipboardWrite`.
+    private func copyShareImage(_ request: ShareCopy, replyTo target: WKWebView) {
+        let result: ShareDone.Result
+        if ShareRenderOutput.isRenderedArtifact(path: request.path),
+           let png = try? Data(contentsOf: URL(fileURLWithPath: request.path)), !png.isEmpty {
+            let pasteboard = NSPasteboard.general
+            pasteboard.declareTypes([.png, .string], owner: nil)
+            pasteboard.setData(png, forType: .png)
+            pasteboard.setString(request.text, forType: .string)
+            result = .done
+        } else {
+            TugLog.warn("share", "shareCopy could not read the image", [TugLog.field("id", request.id)])
+            result = .failed
+        }
+        hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
+    }
+
+    /// Show the system share picker over a previewed artifact — the rendered
+    /// file, or the Markdown as text — anchored at the Share… button in the
+    /// sender's own web view, whose viewport the rect was measured in. The
+    /// picker is retained in `activeSharePicker` until its delegate hears
+    /// the choice.
+    ///
+    /// `show(relativeTo:of:preferredEdge:)` returns at once: the picker's
+    /// menu runs on its own after the call, so `shown` answers before the
+    /// user has picked, and what they pick is AppKit's.
+    private func presentSharePicker(_ request: SharePick, replyTo target: WKWebView) {
+        guard request.format == .markdown || ShareRenderOutput.isRenderedArtifact(path: request.path) else {
+            TugLog.warn("share", "sharePick refused a path no render wrote", [TugLog.field("id", request.id)])
+            hostChannel.send(.shareDone(ShareDone(id: request.id, result: .failed)), to: target)
+            return
+        }
+        let item: Any = request.format == .markdown
+            ? request.text as NSString
+            : URL(fileURLWithPath: request.path) as NSURL
+        let picker = NSSharingServicePicker(items: [item])
+        picker.delegate = self
+        activeSharePicker = picker
+        let rect = CGRect(x: request.x, y: request.y, width: max(request.w, 1), height: max(request.h, 1))
+        let anchor = target.isFlipped ? rect : BodyGeometry.flipped(rect, inHeight: target.bounds.height)
+        picker.show(relativeTo: anchor, of: target, preferredEdge: .minY)
+        hostChannel.send(.shareDone(ShareDone(id: request.id, result: .shown)), to: target)
     }
 
     // MARK: - WKNavigationDelegate
@@ -2467,6 +2590,7 @@ extension MainWindow {
     func hostSender(for view: WKWebView?) -> HostSender? {
         if view === webView { return .shell(webView) }
         if let overlay = bodies?.overlayView, view === overlay { return .overlay(overlay) }
+        if let view, shareRenderer.owns(view) { return .share(view) }
         return bodies?.body(for: view).map { .body($0) }
     }
 
@@ -2733,15 +2857,52 @@ extension MainWindow {
             dictationEngine.handle(verb: request.verb, id: request.id)
 
         case .exportSession(let export):
-            // `/export` ([#step-13c]) — save the session transcript to a
-            // user-chosen file. The web layer builds BOTH renderings
-            // (markdown + JSON Lines) and sends them with a default base
-            // name; the host runs an NSSavePanel whose File Format popup
-            // chooses which content is written. Sibling of `openPath` (the
-            // host owns the panel + file write; the content is the web
-            // layer's). Calls back `onExportDone(id, "saved" | "canceled")`.
-            presentExportPanel(requestId: export.id, baseName: export.baseName,
-                               markdown: export.markdown, jsonl: export.jsonl, replyTo: replyView)
+            // `/export` — save the session transcript to a user-chosen file.
+            // The web layer builds BOTH renderings (markdown + JSON Lines)
+            // and sends them with a default base name; the host runs the
+            // export panel, whose Format popup chooses which is written.
+            // Sibling of `openPath` (the host owns the panel + file write;
+            // the content is the web layer's). Calls back
+            // `onExportDone(id, "saved" | "canceled")`; a failed write reads
+            // as canceled, as it always has.
+            let choices = [
+                ExportChoice(title: "Markdown", ext: "md", content: .text(export.markdown)),
+                ExportChoice(title: "JSON Lines", ext: "jsonl", content: .text(export.jsonl)),
+            ]
+            presentExportPanel(baseName: export.baseName, choices: choices) { [weak self] outcome in
+                let result: ExportDone.Result = outcome == .saved ? .saved : .canceled
+                self?.hostChannel.send(.exportDone(ExportDone(id: export.id, result: result)), to: replyView)
+            }
+        case .sharePreview(let request):
+            presentSharePreview(request, replyTo: replyView)
+        case .shareSave(let request):
+            presentShareSave(request, replyTo: replyView)
+        case .shareCopy(let request):
+            copyShareImage(request, replyTo: replyView)
+        case .sharePick(let request):
+            presentSharePicker(request, replyTo: replyView)
+        case .shareRender(let request):
+            // A share page renders; it never asks for a render of its own.
+            guard sender.shareView == nil else { return }
+            shareRenderer.render(id: request.id, format: request.format, document: request.document, replyTo: replyView)
+        case .shareHello(let hello):
+            guard let view = sender.shareView else {
+                TugLog.warn("share", "shareHello from a page that is not a share page", [TugLog.field("page", sender.pageName)])
+                return
+            }
+            shareRenderer.hello(id: hello.id, from: view)
+        case .shareRenderReady(let ready):
+            guard let view = sender.shareView else {
+                TugLog.warn("share", "shareRenderReady from a page that is not a share page", [TugLog.field("page", sender.pageName)])
+                return
+            }
+            shareRenderer.ready(id: ready.id, height: ready.height, from: view)
+        case .shareRenderHtml(let reply):
+            guard let view = sender.shareView else {
+                TugLog.warn("share", "shareRenderHtml from a page that is not a share page", [TugLog.field("page", sender.pageName)])
+                return
+            }
+            shareRenderer.html(id: reply.id, html: reply.html, from: view)
         case .frontendReady:
             // A body's ready is its own: it has painted its card. The
             // launch's reveal and lifecycle replay are the shell's.
@@ -3005,6 +3166,16 @@ extension MainWindow {
             // the web view. The shell never posts this.
             if let fromBody { bodies.setSurface(fromBody, surface: surface.surface, palette: surface.palette) }
         }
+    }
+}
+
+// MARK: - NSSharingServicePickerDelegate
+
+extension MainWindow: NSSharingServicePickerDelegate {
+    /// The picker is done — a service chosen, or `nil` when it was dismissed —
+    /// so the window lets it go.
+    func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, didChoose service: NSSharingService?) {
+        if activeSharePicker === sharingServicePicker { activeSharePicker = nil }
     }
 }
 

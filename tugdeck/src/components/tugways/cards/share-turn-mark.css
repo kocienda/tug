@@ -1,0 +1,50 @@
+/**
+ * @tug-pairings
+ * | Element                                            | Surface                                               | Role          | Context                                      |
+ * |----------------------------------------------------|-------------------------------------------------------|---------------|----------------------------------------------|
+ * | --tug7-surface-toggle-primary-normal-off-rest      | --tug7-surface-global-primary-normal-content-rest     | informational | .share-turn-mark (border)                    |
+ * | --tug7-surface-toggle-primary-normal-off-hover     | --tug7-surface-global-primary-normal-content-rest     | informational | .share-turn-mark:hover (border)              |
+ * | --tug7-surface-toggle-primary-normal-on-rest       | --tug7-surface-global-primary-normal-content-rest     | informational | .share-turn-mark[data-checked="true"]        |
+ * | --tug7-element-checkmark-icon-normal-plain-rest    | --tug7-surface-toggle-primary-normal-on-rest          | control       | .share-turn-mark__check (color)              |
+ */
+
+/* The share mode's per-turn check, in the transcript entry's icon seat.
+ * Unchecked it is an empty square; checked it fills and shows the tick. */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.share-turn-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-block-start: 0.125em;
+  padding: 0;
+  border: 1px solid var(--tug7-surface-toggle-primary-normal-off-rest);
+  border-radius: 0.25rem;
+  background-color: transparent;
+  cursor: pointer;
+  transition: background-color 80ms ease, border-color 80ms ease;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.share-turn-mark:hover {
+  border-color: var(--tug7-surface-toggle-primary-normal-off-hover);
+}
+
+.share-turn-mark[data-checked="true"] {
+  background-color: var(--tug7-surface-toggle-primary-normal-on-rest);
+  border-color: var(--tug7-surface-toggle-primary-normal-on-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-toggle-primary-normal-on-rest */
+.share-turn-mark__check {
+  width: 0.75rem;
+  height: 0.75rem;
+  color: var(--tug7-element-checkmark-icon-normal-plain-rest);
+  visibility: hidden;
+}
+
+.share-turn-mark[data-checked="true"] .share-turn-mark__check {
+  visibility: visible;
+}

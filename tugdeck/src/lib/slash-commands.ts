@@ -190,6 +190,10 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Export the session transcript to a file (Markdown or JSON Lines)",
   },
   {
+    name: "share",
+    description: "Pick turns to share as PDF, image or Markdown",
+  },
+  {
     name: "add-dir",
     description: "Let this session read and write another directory",
     takesArgs: true,

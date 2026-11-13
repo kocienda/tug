@@ -45,6 +45,7 @@ import {
 } from "@/lib/lazy/load-katex";
 
 import { walkInlineMath } from "./block-transformers/inline-math-walker";
+import { trackEnhancement } from "./pending-enhancements";
 
 /** Selector for pending KaTeX placeholders (both inline + display). */
 const PENDING_SELECTOR = '.tugx-katex[data-tugx-math-pending="true"]';
@@ -126,7 +127,7 @@ export function enhanceMath(
     return Promise.resolve();
   }
 
-  return loadKaTeX().then(
+  return trackEnhancement(loadKaTeX()).then(
     (engine) => {
       // Re-query: by the time the promise resolves the DOM may have
       // been mutated again (a fresh streaming delta wiping out our
@@ -174,7 +175,7 @@ export function renderMathInto(
     renderPlaceholder(el, sync, options?.onError);
     return Promise.resolve();
   }
-  return loadKaTeX().then(
+  return trackEnhancement(loadKaTeX()).then(
     (engine) => {
       // The element may have been detached between scheduling and
       // resolution; rendering into a detached node is harmless.

@@ -7,6 +7,9 @@ enum HostSender {
     case body(BodyViewController.Body)
     /// The overlay page above every card (`BodyViewController.overlayView`).
     case overlay(WKWebView)
+    /// A share page a `ShareRenderer` made, rendering shared turns in a
+    /// hidden view.
+    case share(WKWebView)
 
     /// The body that posted, or nil for the shell.
     var body: BodyViewController.Body? {
@@ -19,6 +22,7 @@ enum HostSender {
         case .shell(let view): return view
         case .body(let body): return body.webView
         case .overlay(let view): return view
+        case .share(let view): return view
         }
     }
 
@@ -32,12 +36,19 @@ enum HostSender {
         return false
     }
 
+    /// The share page's view, or nil for any other page.
+    var shareView: WKWebView? {
+        if case .share(let view) = self { return view }
+        return nil
+    }
+
     /// The page as a log line names it: `shell`, `overlay`, the body's card,
     /// or `spare` for a body not yet bound to one.
     var pageName: String {
         switch self {
         case .shell: return "shell"
         case .overlay: return "overlay"
+        case .share: return "share"
         case .body(let body): return body.cardId ?? "spare"
         }
     }

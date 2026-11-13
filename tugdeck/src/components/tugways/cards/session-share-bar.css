@@ -1,0 +1,55 @@
+/**
+ * @tug-pairings
+ * | Element                                         | Surface                                           | Role          | Context                                   |
+ * |-------------------------------------------------|---------------------------------------------------|---------------|-------------------------------------------|
+ * | --tug7-element-global-divider-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .session-share-bar (border-top)           |
+ * | --tug7-element-field-text-normal-label-rest     | --tug7-surface-global-primary-normal-content-rest | content       | .session-share-bar__count, field labels, .session-share-bar__rendering |
+ */
+
+/* The share mode's bar, in the find bar's seat. One row: the count, the two
+ * choices, then the actions at the trailing edge. It wraps on a narrow card
+ * rather than clipping a control. */
+.session-share-bar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  background-color: var(--tug7-surface-global-primary-normal-content-rest);
+  border-top: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  outline: none;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-bar__count {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.session-share-bar__field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-bar__field-label {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  white-space: nowrap;
+}
+
+.session-share-bar__spacer {
+  flex: 1 1 0;
+}
+
+/* "Rendering…" with its running indicator, while a preview is prepared. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-share-bar__rendering {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  color: var(--tug7-element-field-text-normal-label-rest);
+  white-space: nowrap;
+}

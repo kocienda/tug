@@ -334,6 +334,12 @@ struct MenuBarBuilder {
         exportItem.representedObject = "export"
         fileMenu.addItem(exportItem)
 
+        // Share Turns… — the session card's `/share` surface: pick turns and
+        // send them as a rendering. Same round-trip and gating as Export.
+        let shareItem = NSMenuItem(title: "Share Turns…", action: #selector(MenuBarActions.runCardCommand(_:)), keyEquivalent: "").identified("file.shareTurns")
+        shareItem.representedObject = "share"
+        fileMenu.addItem(shareItem)
+
         // Edit Menu - position 2
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)

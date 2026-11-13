@@ -2909,5 +2909,14 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // ---- entity-tips.css ----
   { element: "--tugx-tip-mono-fg", surface: "--tugx-tooltip-bg", role: "informational" },
 
+  // ---- cards/session-share-bar.css ----
+  { element: "--tug7-element-global-divider-normal-default-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-element-field-text-normal-label-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "content" },
+
+  // ---- cards/share-turn-mark.css ----
+  { element: "--tug7-surface-toggle-primary-normal-off-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-surface-toggle-primary-normal-off-hover", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-surface-toggle-primary-normal-on-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+
 ];
 

@@ -219,6 +219,18 @@ import type { PathCommandsStore } from "@/lib/path-commands-store";
 import type { ShellGrammarStore } from "@/lib/shell-grammar-store";
 import type { ShellClassifyStore } from "@/lib/shell-classify-store";
 import type { PendingContextStore } from "@/lib/pending-context-store";
+import type { ShareTurnsStore } from "@/lib/share-turns-store";
+import { selectableTurnKeys } from "@/lib/share-turns";
+import {
+  copyShare,
+  pickShare,
+  previewShare,
+  saveShare,
+  type ShareActionContext,
+} from "@/lib/share-actions";
+import type { ShareAnchor } from "@/lib/os-share";
+import { SessionShareBar } from "./session-share-bar";
+import { useTugAlert } from "@/components/tugways/tug-alert";
 import {
   deriveSessionCardBannerSpec,
   humanizeErrorSummary,
@@ -637,6 +649,8 @@ export interface SessionCardServices {
   /** Staged shell / `/btw` context queue — consumed at send, surfaced to the
    *  composer + rows (Add-to-context, VISIBILITY toggle). */
   pendingContextStore: PendingContextStore;
+  /** The card's share mode: marked turns, choices and the preview gate. */
+  shareTurnsStore: ShareTurnsStore;
   /**
    * Delegate handle for the embedded `PromptEntry`. Owned by the
    * hook because the `/` completion provider's position-0 gate reads
@@ -1751,6 +1765,7 @@ export function SessionCardBody({
     sideQuestionStore,
     changesController,
     pendingContextStore,
+    shareTurnsStore,
     entryDelegateRef,
   } = services;
 
@@ -1978,6 +1993,8 @@ export function SessionCardBody({
       // a bare `exit`) persists a typed commit message, so coming back to
       // Changes resumes it exactly as Cancel and the Z4A tab do.
       commitModeController.leave();
+      // Share mode holds the same seat ([P01]), so Find leaves it too.
+      shareTurnsStore.leave();
       // Where the reader is, captured BEFORE the bar mounts: opening find
       // shrinks the transcript by the bar's height, so a viewport read taken
       // afterwards describes a viewport the user never saw. `keepAnchor` is
@@ -1989,7 +2006,7 @@ export function SessionCardBody({
       // The bar focuses its own query field on mount.
       setFindBarOpen(true);
     },
-    [commitModeController],
+    [commitModeController, shareTurnsStore],
   );
 
   // The cycle is declared further down (it needs `sessionErrored`), but the
@@ -2167,6 +2184,23 @@ export function SessionCardBody({
       }
     }
   }, [anyLandingActive, shadeViewController, closeFindBar]);
+  // A landing needs the composer that share mode hides, so a landing's entry
+  // leaves share mode ([P01]). Observed on the controllers themselves, not
+  // through the passive effect above: the exclusion holds in the same task
+  // the landing opens in, with no frame where both stand ([L22]).
+  useLayoutEffect(() => {
+    const leaveOnLanding = (): void => {
+      if (commitModeController.getSnapshot().active || joinModeController.getSnapshot().active) {
+        shareTurnsStore.leave();
+      }
+    };
+    const releaseCommit = commitModeController.subscribe(leaveOnLanding);
+    const releaseJoin = joinModeController.subscribe(leaveOnLanding);
+    return () => {
+      releaseCommit();
+      releaseJoin();
+    };
+  }, [commitModeController, joinModeController, shareTurnsStore]);
   const handleChangesSheetOpenChange = useCallback(
     (open: boolean) => {
       if (!open && shadeViewController.getSnapshot() === "changes") {
@@ -3571,6 +3605,102 @@ export function SessionCardBody({
   // confirmation toast in this card.
   const paneBulletinRef = useRef<TugPaneBulletinApi>(null);
 
+  // Share mode ([P01]): the bar takes the find bar's seat and the composer
+  // is hidden by attribute, never unmounted, so its draft survives. Entering
+  // closes Find and leaves both landings, the other modes that take over the
+  // bottom of the card; leaving hands the keyboard back to the composer.
+  const shareActive = useSyncExternalStore(
+    shareTurnsStore.subscribe,
+    () => shareTurnsStore.getSnapshot().active,
+  );
+  const enterShare = useCallback(
+    (selected?: Iterable<string>, anchor: string | null = null) => {
+      if (findBarOpenRef.current) closeFindBar();
+      commitModeController.leave();
+      joinModeController.leave();
+      shareTurnsStore.enter(selected, anchor);
+    },
+    [closeFindBar, commitModeController, joinModeController, shareTurnsStore],
+  );
+  const leaveShare = useCallback(() => {
+    shareTurnsStore.leave();
+    entryDelegateRef.current?.focus();
+  }, [shareTurnsStore, entryDelegateRef]);
+  // The cell menu's Share from Here…: that turn and every later selectable
+  // turn, with that turn as the anchor ([P12]).
+  const shareFromTurn = useCallback(
+    (turnKey: string) => {
+      const keys = selectableTurnKeys(codeSessionStore.getSnapshot().transcript);
+      const at = keys.indexOf(turnKey);
+      if (at === -1) {
+        paneBulletinRef.current?.caution("That turn can't be shared");
+        return;
+      }
+      enterShare(keys.slice(at), turnKey);
+    },
+    [codeSessionStore, enterShare],
+  );
+  // `/share` and File ▸ Share Turns…: the mode with nothing marked. An empty
+  // transcript has nothing to mark, which is said rather than shown ([L31]).
+  const enterShareFromCommand = useCallback(() => {
+    if (codeSessionStore.getSnapshot().transcript.length === 0) {
+      paneBulletinRef.current?.caution("Nothing to share yet");
+      return;
+    }
+    enterShare();
+  }, [codeSessionStore, enterShare]);
+  // What the bar's actions read, built at the press so every fact is live
+  // ([L07]): the session, its project, and whether it is private.
+  const showAlert = useTugAlert();
+  const shareActionContext = useCallback((): ShareActionContext => {
+    const binding = cardSessionBindingStore.getBinding(cardId);
+    const tugSessionId = binding?.tugSessionId ?? "";
+    return {
+      store: shareTurnsStore,
+      codeSessionStore,
+      tugSessionId,
+      projectDir: binding?.projectDir ?? "",
+      modelName: () => sessionMetadataStore.getSnapshot().model,
+      isPrivate: () => tugSessionId !== "" && sessionPrivateStore.isPrivate(tugSessionId),
+      confirmPrivate: () =>
+        showAlert({
+          title: "This session is private.",
+          message: "Render its turns for sharing?",
+          confirmLabel: "Render",
+          cancelLabel: "Cancel",
+        }),
+      notify: () => paneBulletinRef.current,
+    };
+  }, [cardId, codeSessionStore, sessionMetadataStore, shareTurnsStore, showAlert]);
+  const handleSharePreview = useCallback(() => {
+    void previewShare(shareActionContext());
+  }, [shareActionContext]);
+  const handleShareCopy = useCallback(() => {
+    void copyShare(shareActionContext());
+  }, [shareActionContext]);
+  const handleSharePick = useCallback(
+    (anchor: ShareAnchor) => {
+      void pickShare(shareActionContext(), anchor);
+    },
+    [shareActionContext],
+  );
+  const handleShareSave = useCallback(() => {
+    void saveShare(shareActionContext());
+  }, [shareActionContext]);
+  // `data-share-mode` on the card root is appearance: the CSS hides the
+  // composer and the status strip under it. Written straight from the store
+  // ([L06], [L22]), so it lands in the same frame the bar mounts.
+  useLayoutEffect(() => {
+    const write = (): void => {
+      const root = sessionCardRootRef.current;
+      if (root === null) return;
+      if (shareTurnsStore.getSnapshot().active) root.setAttribute("data-share-mode", "");
+      else root.removeAttribute("data-share-mode");
+    };
+    write();
+    return shareTurnsStore.subscribe(write);
+  }, [shareTurnsStore]);
+
   // The session's name. `/rename <text>` and `/unname` set it directly; bare
   // `/rename` opens the masthead's inline name editor. Every door commits
   // through `renameTo`: an optimistic name write, the `rename_session` frame,
@@ -4322,6 +4452,9 @@ export function SessionCardBody({
         // "canceled" → no bulletin.
       });
     },
+    // `/share` — pick turns to share ([P12]). File ▸ Share Turns… arrives
+    // here too, through the slash bridge.
+    share: () => enterShareFromCommand(),
     // `/cd` and `/change-directory` — move this card into another directory,
     // carrying the conversation. Refused mid-turn, on an arc-bound card, and
     // for the directory the card is already in; the target is the draft's
@@ -4750,6 +4883,17 @@ export function SessionCardBody({
       [TUG_ACTIONS.FOCUS_PROMPT]: (_event: ActionEvent) => {
         entryDelegateRef.current?.focus();
       },
+      // A transcript cell menu's Share from Here…, carrying the turn's key.
+      [TUG_ACTIONS.SHARE_FROM_TURN]: (event: ActionEvent) => {
+        if (typeof event.value === "string") shareFromTurn(event.value);
+      },
+      // Escape leaves share mode from anywhere in the card — a mark's click
+      // promotes its transcript cell, so the bar is not always the first
+      // responder. Registered only while the mode is on, so the card answers
+      // `cancelDialog` for nothing else.
+      ...(shareActive
+        ? { [TUG_ACTIONS.CANCEL_DIALOG]: (_event: ActionEvent) => leaveShare() }
+        : {}),
       // Open this card's Changes shade. Sent by a surface that shows this
       // card's arc — the Arcs card's Arcs row — after fronting the card.
       //
@@ -5410,6 +5554,7 @@ export function SessionCardBody({
                     findSession={findSession}
                     findOpen={findBarOpen}
                     renderTurnTrailing={renderTurnTrailing}
+                    shareTurnsStore={shareTurnsStore}
                     // The landing arc narrates at the live edge, beneath every
                     // row and above the composer — ink in motion, never
                     // ledgered. Built inline rather than memoized for the same
@@ -5500,6 +5645,18 @@ export function SessionCardBody({
               overlay, which is why the card has none of its own: a search is
               live only while the bar is open ([P13]).
             */}
+          {shareActive ? (
+            // Share mode's bar, in the find bar's seat ([P01]); the two never
+            // stand together, since each leaves the other.
+            <SessionShareBar
+              store={shareTurnsStore}
+              onPreview={handleSharePreview}
+              onCopy={handleShareCopy}
+              onSave={handleShareSave}
+              onShare={handleSharePick}
+              onDone={leaveShare}
+            />
+          ) : null}
           {findBarOpen ? (
             // Under the SAME CycleScope the prompt entry uses, so the bar's
             // four stops register into this card's one focus cycle rather

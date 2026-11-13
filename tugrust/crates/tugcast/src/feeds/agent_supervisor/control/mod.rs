@@ -7,6 +7,7 @@ mod changeset;
 mod deck;
 mod rows;
 mod session;
+mod share;
 mod telemetry;
 
 #[cfg(test)]

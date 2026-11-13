@@ -94,7 +94,7 @@ pass-throughs: both reload in place over the bridge on claude 2.1.311. See
 
 ### Account / auth / subscription / novelty
 `/login`, `/privacy-settings`, `/config` (alias `/settings`),
-`/feedback` (alias `/share`), `/install-github-app`, `/install-slack-app`,
+`/feedback` (claude's alias `/share` is Tug's own command, which picks turns to share), `/install-github-app`, `/install-slack-app`,
 `/web-setup`, `/setup-bedrock`, `/setup-vertex`, `/upgrade`, `/passes`,
 `/powerup`, `/radio`, `/stickers`, `/sandbox`, `/cost` and `/stats` (aliases of
 `/usage`, which opens the card's usage sheet and is reached by that name),

@@ -9,8 +9,10 @@
  *
  * Two formats, mirroring the terminal's export choices:
  *  - **Markdown** — a readable document: each turn as a `## You` prompt above
- *    the assistant's tool calls + prose (reusing {@link turnEntryToMarkdown},
- *    the exact per-row COPY serialization).
+ *    the assistant's tool calls + prose — the share serializer
+ *    ({@link shareDocumentMarkdown}) over every entry, every tool call in
+ *    full, with no header and no scrub: an archive for oneself rather than
+ *    something sent, so its bytes are what `/export` has always written.
  *  - **JSON Lines** — one JSON object per transcript Message, in order: a
  *    faithful, machine-readable journal. Every line is independently
  *    `JSON.parse`-able.
@@ -21,42 +23,22 @@
  */
 
 import type { TurnEntry } from "@/lib/code-session-store/types";
-import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import { resolveSessionIdentity } from "@/lib/session-identity";
+import { shareDocumentMarkdown } from "@/lib/share-turns";
 
 /** The export formats `/export` offers. */
 export type ExportFormat = "markdown" | "jsonl";
 
-/** The first `user_message` text in a turn, or `null` if it opens otherwise. */
-function turnPrompt(turn: TurnEntry): string | null {
-  for (const m of turn.messages) {
-    if (m.kind === "user_message") return m.text;
-  }
-  return null;
-}
-
 /**
  * Render the whole transcript as a single markdown document: each turn's user
  * prompt under a `## You` heading, followed by the assistant's tool calls +
- * prose (via {@link turnEntryToMarkdown}) under `## Claude`. Turns with no
- * content on a side simply omit that heading; an empty transcript yields a
- * lone title.
+ * prose under `## Claude`. Turns with no content on a side simply omit that
+ * heading; an empty transcript yields a lone title.
  */
 export function transcriptToMarkdown(
   transcript: ReadonlyArray<TurnEntry>,
 ): string {
-  const sections: string[] = ["# Session transcript"];
-  for (const turn of transcript) {
-    const prompt = turnPrompt(turn);
-    if (prompt !== null && prompt.trim().length > 0) {
-      sections.push(`## You\n\n${prompt.trim()}`);
-    }
-    const assistant = turnEntryToMarkdown(turn);
-    if (assistant.length > 0) {
-      sections.push(`## Claude\n\n${assistant}`);
-    }
-  }
-  return `${sections.join("\n\n")}\n`;
+  return shareDocumentMarkdown({ turns: transcript, toolMode: "full", header: null });
 }
 
 /**

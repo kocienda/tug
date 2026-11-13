@@ -342,6 +342,20 @@
   flex: 0 0 auto;
 }
 
+/* Share mode ([P01]): its bar docks in the find bar's seat, and the bottom of
+   the card is the bar. The composer and the Z2 strip are hidden, never
+   unmounted, so the draft, its caret and its atoms are there when the mode is
+   left. Appearance only: `data-share-mode` is written from the share store. */
+.session-card-top-column > [data-slot="session-share-bar"] {
+  flex: 0 0 auto;
+}
+
+.session-card[data-share-mode] [data-slot="session-card-z2-seat"],
+.session-card[data-share-mode] [data-slot="session-card-status-bar"],
+.session-card[data-share-mode] [data-slot="session-card-entry-region"] {
+  display: none;
+}
+
 .session-card-status-bar {
   /* ==========================================================================
      Z2 TUNING — hand-edit these. Every width, margin and gap in the Z2 status

@@ -336,6 +336,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `file.save` | `save` | first responder | registry gate |
 | `file.saveACopy` | `save-a-copy` | first responder | registry gate |
 | `file.saveAs` | `save-as` | first responder | registry gate |
+| `file.shareTurns` | `run-slash-command:share` | key card | registry gate |
 | `go.firstTurn` | `first-turn` | key card | registry gate |
 | `go.focusCardAbove` | `focus-card:above` | first responder | registry gate |
 | `go.focusCardBelow` | `focus-card:below` | first responder | registry gate |

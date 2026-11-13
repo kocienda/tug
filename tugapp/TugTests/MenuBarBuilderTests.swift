@@ -134,6 +134,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "File | Close All Tabs | ⌥⌘w | closeAllCardTabs: | file.closeAllCardTabs",
         "File | ---",
         "File | Export Session… | - | runCardCommand: | file.exportTranscript",
+        "File | Share Turns… | - | runCardCommand: | file.shareTurns",
         "Bar | Edit ▸ | - | - | -",
         "Edit | Undo | ⌘z | performUndo: | edit.undo",
         "Edit | Redo | ⇧⌘z | performRedo: | edit.redo",

@@ -109,6 +109,9 @@ control_actions! {
     ListShellExchanges => "list_shell_exchanges",
     ListRefs => "list_refs",
 
+    // Supervisor: sharing turns.
+    ScrubShareText => "scrub_share_text",
+
     // `dispatch_action`: replies to a `/api/eval` or an ask, settled by id.
     EvalResponse => "eval-response",
     AskResponse => "ask-response",

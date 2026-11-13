@@ -213,6 +213,7 @@ export function useSessionCardServices(cardId: string): SessionCardServices | nu
       shellClassifyStore: services.shellClassifyStore,
       changesController: services.changesController,
       pendingContextStore: services.pendingContextStore,
+      shareTurnsStore: services.shareTurnsStore,
       entryDelegateRef,
     };
   }, [

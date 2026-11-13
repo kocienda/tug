@@ -51,6 +51,7 @@ import { useResponder } from "@/components/tugways/use-responder";
 import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
 import { ReadOnlyTextHostContext } from "@/components/tugways/use-read-only-text-surface";
 import { useAnnotationMenu } from "@/components/tugways/use-annotation-menu";
+import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { SessionMetadataStore, SlashCommandInfo } from "@/lib/session-metadata-store";
 
@@ -261,6 +262,12 @@ export interface TranscriptCellMenuOptions {
    * fixture with no composer to send to; the item is then not offered.
    */
   insertTarget?: PromptInsertTarget;
+  /**
+   * Items about the cell's turn, appended after the entity items when the
+   * menu opens — the Session card's Share from Here…. Read at open time, so
+   * a cell that stops offering them needs no re-render of the menu.
+   */
+  turnEntries?: () => TugEditorContextMenuEntry[];
 }
 
 // Exported for the copy-wiring app-test fixture (`fixture-transcript-copy`),
@@ -269,6 +276,7 @@ export interface TranscriptCellMenuOptions {
 export function useTranscriptCellMenu({
   resolveCopyMarkdown,
   insertTarget,
+  turnEntries,
 }: TranscriptCellMenuOptions = {}): {
   ResponderScope: React.FC<{ children: React.ReactNode }>;
   cellProps: TranscriptCellProps;
@@ -291,6 +299,20 @@ export function useTranscriptCellMenu({
   // the current messages / store).
   const resolveCopyRef = useRef(resolveCopyMarkdown);
   resolveCopyRef.current = resolveCopyMarkdown;
+  // Live-ref the turn items for the same reason ([L07]).
+  const turnEntriesRef = useRef(turnEntries);
+  turnEntriesRef.current = turnEntries;
+  const annotationExtraEntries = annotation.extraEntries;
+  const extraEntries = useCallback(
+    (event: MouseEvent): TugEditorContextMenuEntry[] => {
+      const entity = annotationExtraEntries(event);
+      const turn = turnEntriesRef.current?.() ?? [];
+      if (turn.length === 0) return entity;
+      if (entity.length === 0) return turn;
+      return [...entity, { type: "separator" }, ...turn];
+    },
+    [annotationExtraEntries],
+  );
 
   // Build the adapter once the body element is available. Re-runs
   // whenever the body element identity changes (rare for inline-rendered
@@ -521,7 +543,7 @@ export function useTranscriptCellMenu({
     menu,
   } = useTextSurfaceContextMenu({
     adapterRef,
-    extraEntries: annotation.extraEntries,
+    extraEntries,
     hideStandardItems: annotation.hideStandardItems,
     wholeEntityTarget: annotation.wholeEntityTarget,
   });

@@ -146,7 +146,8 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   "config",
   "settings", // alias of /config.
   "feedback",
-  "share", // alias of /feedback.
+  // (`/share`, claude's alias of /feedback, is Tug's own: it picks turns
+  // to share — see LOCAL_SLASH_COMMANDS. `/feedback` stays hidden.)
   "install-github-app",
   "install-slack-app",
   "web-setup", // connects a GitHub account to Claude Code on the web.

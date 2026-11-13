@@ -795,6 +795,21 @@ function composeRowLayout(
 }
 
 /**
+ * The 1-based session turn number of the committed turn at
+ * `transcriptIndex`: the count of older turns the loaded window leaves out
+ * (`replayWindow.firstLoadedTurnIndex`, `0` when the whole session is
+ * loaded) plus the turn's index in the loaded transcript, plus one.
+ *
+ * The one rule every turn address reads — the `#u` and `#a` badges on the
+ * live rows, and the turn numbers a share carries — so a turn is the same
+ * number wherever it is named. An index past the committed transcript (the
+ * in-flight turn's `transcript.length`) numbers the next turn.
+ */
+export function turnNumberAt(snap: CodeSessionSnapshot, transcriptIndex: number): number {
+  return (snap.replayWindow?.firstLoadedTurnIndex ?? 0) + transcriptIndex + 1;
+}
+
+/**
  * Build the {@link RowLayout} for `snap`. Pure function — exported
  * for unit-test reuse. Walks each turn's `messages` once into row
  * groups (Spec S01), then accounts for the in-flight turn and ghosts.

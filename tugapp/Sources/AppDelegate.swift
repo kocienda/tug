@@ -273,6 +273,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         TugLog.start()
 
+        // A share render's files live for the app run that made them; a
+        // run that has ended leaves its directory behind, and this takes it
+        // (`ShareRenderOutput`). Another live Tug's is left alone.
+        DispatchQueue.global(qos: .utility).async { ShareRenderOutput.sweepStale() }
+
         // Tug has no native window tabbing — cards and panes are Tug's own
         // navigation model, not NSWindow tabs. Disabling automatic tabbing
         // keeps AppKit from injecting the Show Previous/Next Tab, Move Tab

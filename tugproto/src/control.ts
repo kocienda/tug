@@ -76,6 +76,9 @@ export const CONTROL_ACTIONS = [
   "list_shell_exchanges",
   "list_refs",
 
+  // Supervisor: sharing turns.
+  "scrub_share_text",
+
   // `dispatch_action`: replies to a `/api/eval` or an ask, settled by id.
   "eval-response",
   "ask-response",

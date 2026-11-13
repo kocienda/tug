@@ -178,6 +178,31 @@ const STREAM_SOURCE_TAG = "code-session-store";
  */
 export const FIND_FINISHER_MS = 1500;
 
+/** One write {@link CodeSessionStore.seedStaticTranscript} makes to the streaming document. */
+export interface SeedWrite {
+  path: string;
+  value: string;
+}
+
+/**
+ * Every streaming-document path a committed turn's cells read, with the
+ * value each holds: one `turn.K.message.M.text` per `assistant_text`
+ * message, carrying that message's text. A live session writes these as the
+ * text streams in; a store seeded with a static transcript has to write them
+ * itself, or the prose cells would mount empty. Thinking is never written —
+ * a share slice holds none, and a share renders none.
+ */
+export function seedPathsFor(turns: ReadonlyArray<TurnEntry>): SeedWrite[] {
+  const writes: SeedWrite[] = [];
+  for (const turn of turns) {
+    for (const m of turn.messages) {
+      if (m.kind !== "assistant_text") continue;
+      writes.push({ path: `turn.${turn.turnKey}.message.${m.messageKey}.text`, value: m.text });
+    }
+  }
+  return writes;
+}
+
 /**
  * The longest any reader waits on the ingest host's acknowledgment of what
  * this store posted ([L33]). It is the teardown's budget: sized to contain
@@ -2105,6 +2130,29 @@ export class CodeSessionStore extends Subscribable {
       else still.push(waiter);
     }
     this._settleWaiters = still;
+  }
+
+  /**
+   * Replace the transcript with `turns`, committed and whole, as a session
+   * that had streamed them would hold it: one stream patch writing every path
+   * the cells read ({@link seedPathsFor}), then one structure patch splicing
+   * the turns in, through the store's own appliers, and one notify. For a
+   * connectionless store that will never hear a frame — the share page's —
+   * never for a live session's, whose engine owns its transcript.
+   */
+  seedStaticTranscript(turns: ReadonlyArray<TurnEntry>): void {
+    const session = this.tugSessionId;
+    this.applyStream({
+      kind: "stream",
+      session,
+      payload: { writes: seedPathsFor(turns), textGrew: true },
+    });
+    this.applyStructure({
+      kind: "structure",
+      session,
+      payload: { transcript: [{ start: 0, deleteCount: this._transcript.length, entries: [...turns] }] },
+    });
+    this.endOfBatch();
   }
 
   /** Streamed text and live usage: writes into the streaming document. */

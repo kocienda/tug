@@ -804,6 +804,26 @@ export function encodeSearchSessions(opts: {
   return controlFrame("search_sessions", params);
 }
 
+/**
+ * Build a `scrub_share_text` CONTROL request frame — every string a share
+ * output will show, sent to tugcast's secret filter in one request before
+ * anything renders. The answer, `scrub_share_text_ok`, carries the same
+ * strings in the same order, scrubbed and with the home directory shortened
+ * to `~`; a refusal is `scrub_share_text_err` with a `reason`.
+ *
+ * CONTROL answers are broadcast, so `requestId` is the caller's mark on the
+ * ask, echoed on either answer.
+ */
+export function encodeScrubShareText(opts: {
+  requestId: string;
+  texts: readonly string[];
+}): Frame {
+  return controlFrame("scrub_share_text", {
+    request_id: opts.requestId,
+    texts: opts.texts,
+  });
+}
+
 
 /**
  * Build a `trash_session` CONTROL request frame.
@@ -1658,6 +1678,53 @@ export function decodeSearchSessionsOk(payload: unknown): SearchSessionsOk | nul
     projectDir: typeof obj.project_dir === "string" ? obj.project_dir : "",
     requestId: typeof obj.request_id === "string" ? obj.request_id : null,
     sessions,
+  };
+}
+
+/** Decoded `scrub_share_text_ok` response payload. */
+export interface ScrubShareTextOk {
+  requestId: string;
+  /** The asked strings, scrubbed, in the order and number they were asked. */
+  texts: readonly string[];
+}
+
+/**
+ * Type guard + decoder for `scrub_share_text_ok`. Unlike the session reads,
+ * nothing here is defaulted: an answer whose `texts` is not an array of
+ * strings, or which carries no `request_id`, is refused whole, because a
+ * string dropped or invented would put the wrong text in the wrong place of
+ * a share output.
+ */
+export function decodeScrubShareTextOk(payload: unknown): ScrubShareTextOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "scrub_share_text_ok") return null;
+  if (typeof obj.request_id !== "string" || obj.request_id.length === 0) return null;
+  if (!Array.isArray(obj.texts)) return null;
+  const texts: string[] = [];
+  for (const text of obj.texts) {
+    if (typeof text !== "string") return null;
+    texts.push(text);
+  }
+  return { requestId: obj.request_id, texts };
+}
+
+/** Decoded `scrub_share_text_err` response payload. */
+export interface ScrubShareTextErr {
+  /** `null` when the refused request carried no readable id. */
+  requestId: string | null;
+  /** `malformed_request`, `too_large`, or `scrub_failed`. */
+  reason: string;
+}
+
+/** Type guard + decoder for `scrub_share_text_err`. */
+export function decodeScrubShareTextErr(payload: unknown): ScrubShareTextErr | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "scrub_share_text_err") return null;
+  return {
+    requestId: typeof obj.request_id === "string" ? obj.request_id : null,
+    reason: typeof obj.reason === "string" ? obj.reason : "unknown",
   };
 }
 
