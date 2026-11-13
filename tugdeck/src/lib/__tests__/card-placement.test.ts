@@ -269,6 +269,24 @@ describe("hiddenSince", () => {
     const deck = deckOf({ arriving: true, parked: true });
     expect(hiddenSince(deck, posted, new Set(["rail"]))?.bodies[0].visible).toBe(false);
   });
+
+  test("a closed card loses `staged` with `visible`: the host shows a card by `staged`, so the hide is not one without it", () => {
+    bodyCardsStore.mark("closed");
+    bodyCardsStore.setState("closed", "painted");
+    const deck = deckOf({ arriving: false });
+    const hidden = hiddenSince(deck, { bodies: [view("closed", 0, 34)] })?.bodies[0];
+    expect(hidden?.visible).toBe(false);
+    expect(hidden?.staged).toBe(false);
+  });
+
+  test("a card hidden only by its workspace parking stays staged: the host's cut shows it again", () => {
+    bodyCardsStore.mark("rail");
+    bodyCardsStore.setState("rail", "painted");
+    const deck = deckOf({ arriving: false, parked: true });
+    const hidden = hiddenSince(deck, posted)?.bodies[0];
+    expect(hidden?.visible).toBe(false);
+    expect(hidden?.staged).toBe(true);
+  });
 });
 
 describe("a revived card", () => {
@@ -445,7 +463,7 @@ describe("heldForThePaint", () => {
   test("a view gone from the placement altogether is held too", () => {
     const hold = heldForThePaint({ bodies: [view("gone", 40, 40)] }, { bodies: [view("w1", 0, 0)] });
     expect(hold?.held.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40)]);
-    expect(hold?.releasing.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40, { visible: false })]);
+    expect(hold?.releasing.bodies).toEqual([view("w1", 0, 0), view("gone", 40, 40, { visible: false, staged: false })]);
   });
 
   test("a view over a card the host pictures is not held: the host takes it down as the picture stands", () => {

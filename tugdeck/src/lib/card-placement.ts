@@ -912,7 +912,9 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
 /**
  * `placement` with every body whose facts no longer show it marked hidden,
  * at the rect it had — or null when nothing changed. The commit-time half of
- * placement: what a settle may not measure, it may still hide.
+ * placement: what a settle may not measure, it may still hide. A body the
+ * deck no longer stages loses `staged` with it, which is the fact the host
+ * shows a card by.
  *
  * A body a plan is carrying in (`carriedIn`) is shown by its plan, not by
  * the deck's `arriving`, which stands until the settle lands: only a fact
@@ -930,7 +932,7 @@ export function hiddenSince(
     const facts = read !== null && carriedIn.has(b.cardId) ? { ...read, arriving: false } : read;
     if (facts !== null && bodyVisible(facts)) return b;
     changed = true;
-    return { ...b, visible: false };
+    return { ...b, visible: false, staged: b.staged && stagedOf(facts) };
   });
   return changed ? { bodies } : null;
 }
@@ -975,7 +977,7 @@ export function heldForThePaint(
   const nextOf = new Map(next.bodies.map((b) => [b.cardId, b]));
   return {
     held: { bodies: [...kept, ...leaving] },
-    releasing: { bodies: [...kept, ...leaving.map((b) => nextOf.get(b.cardId) ?? { ...b, visible: false })] },
+    releasing: { bodies: [...kept, ...leaving.map((b) => nextOf.get(b.cardId) ?? { ...b, visible: false, staged: false })] },
   };
 }
 
@@ -1331,10 +1333,20 @@ export class CardPlacer {
   private postHiding(): void {
     const posted = this.poster.lastPosted;
     if (posted !== null && this.hiding.size > 0) {
-      const bodies = posted.bodies.map((b) => (b.visible && this.hiding.has(b.cardId) ? { ...b, visible: false } : b));
+      const bodies = posted.bodies.map((b) => (b.visible && this.hiding.has(b.cardId) ? { ...b, visible: false, staged: b.staged && this.stillStaged(b.cardId) } : b));
       this.poster.offer({ bodies });
     }
     this.hiding.clear();
+  }
+
+  /**
+   * Whether the deck still stages `cardId`. The host shows a card by its
+   * `staged`, never by `visible`, so a hide that left `staged` standing is
+   * one the host never carries out: a closed card's view stood over the
+   * survivors for the whole settle that took its room.
+   */
+  private stillStaged(cardId: string): boolean {
+    return stagedOf(bodyCardsStore.has(cardId) ? shownFactsOf(this.deck, cardId) : null);
   }
 
   /**
