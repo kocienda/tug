@@ -469,8 +469,55 @@ function TelemetryBirthRow({
 const NO_DIRECTORIES: readonly string[] = Object.freeze([]);
 
 /**
+ * A folder named in the summary, as a link that opens it in the Finder. The
+ * full canonical path rides the tooltip; the row shows it `~`-abbreviated.
+ */
+function TelemetryFolderLink({ path, home }: { path: string; home: string }): React.ReactElement {
+  return (
+    <button
+      type="button"
+      className="session-masthead-telemetry-directory"
+      title={path}
+      onClick={() => openPathInOS(path, "folder")}
+    >
+      {displayPath(path, home)}
+    </button>
+  );
+}
+
+/** The home directory a path in the summary is abbreviated against. */
+function useHome(): string {
+  return useSyncExternalStore(hostFactsStore.subscribe, () => hostFactsStore.getSnapshot()?.home ?? "");
+}
+
+/**
+ * The PROJECT row: the folder the session is based in, opened in the Finder
+ * on a click. Absent on a card bound to no project.
+ */
+function TelemetryProjectRow({ projectDir }: { projectDir: string }): React.ReactElement | null {
+  const home = useHome();
+  if (projectDir.length === 0) return null;
+  return (
+    <TugKeyValueRow
+      className="session-masthead-telemetry-row"
+      data-row="project"
+      label="PROJECT"
+      labelClassName="session-masthead-telemetry-label"
+      valueClassName="session-masthead-telemetry-value"
+      trailing={null}
+      trailingClassName="session-masthead-telemetry-action"
+    >
+      <span className="session-masthead-telemetry-directories">
+        <TelemetryFolderLink path={projectDir} home={home} />
+      </span>
+    </TugKeyValueRow>
+  );
+}
+
+/**
  * The DIRECTORIES row: each folder the session may read and write beyond its
- * project directory, one per line, and no row at all when there are none.
+ * project directory, one per line, each opened in the Finder on a click, and
+ * no row at all when there are none.
  *
  * It reads `additionalDirectories` off the card's metadata store — what the
  * wire reports Claude holds, granted folders, remembered ones and ones from
@@ -496,7 +543,7 @@ function TelemetryDirectoriesRow({ cardId }: { cardId: string | undefined }): Re
   const body = useSyncExternalStore(bodyFactsStore.subscribe, () =>
     cardId === undefined ? NO_DIRECTORIES : bodyFactsStore.directories(cardId),
   );
-  const home = useSyncExternalStore(hostFactsStore.subscribe, () => hostFactsStore.getSnapshot()?.home ?? "");
+  const home = useHome();
   const directories = metadata !== null ? own : body;
   if (directories.length === 0) return null;
   return (
@@ -511,9 +558,7 @@ function TelemetryDirectoriesRow({ cardId }: { cardId: string | undefined }): Re
     >
       <span className="session-masthead-telemetry-directories">
         {directories.map((dir) => (
-          <span key={dir} className="session-masthead-telemetry-directory" title={dir}>
-            {displayPath(dir, home)}
-          </span>
+          <TelemetryFolderLink key={dir} path={dir} home={home} />
         ))}
       </span>
     </TugKeyValueRow>
@@ -903,6 +948,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
                   pixels above this panel. */}
               <TelemetryBirthRow cardId={cardId} createdAtMs={createdAtMs} />
               <TelemetryRow label="BRANCH">{identity.branch ?? "—"}</TelemetryRow>
+              <TelemetryProjectRow projectDir={projectDir} />
               <TelemetryDirectoriesRow cardId={cardId} />
               {/* The two copyable forms sit TOGETHER, the atom directly above
                   the flat citation, each labeled by what a paste of it yields:

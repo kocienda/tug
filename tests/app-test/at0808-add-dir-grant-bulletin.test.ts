@@ -19,7 +19,9 @@
  *
  *   B. **The Session Summary lists the folders the session holds.** Its
  *      Directories row is absent before any grant and names the granted
- *      folder once the session's list carries it.
+ *      folder once the session's list carries it; the Project row names the
+ *      project folder throughout. Every key ends before its value starts,
+ *      and a click on a folder asks the host to open it as a folder.
  *
  *   C. **A refusal is a caution with tugcode's reason.** That it never puts
  *      the card in its errored state is the store's unit test
@@ -62,6 +64,7 @@ const ALERT_TITLE = ".tug-alert-title";
 const WIDGET = '[data-slot="session-masthead-widget"]';
 const PANEL = '[data-slot="session-masthead-telemetry"]';
 const DIRECTORIES_ROW = `${PANEL} .session-masthead-telemetry-row[data-row="directories"]`;
+const PROJECT_ROW = `${PANEL} .session-masthead-telemetry-row[data-row="project"]`;
 
 function deckShape() {
   return {
@@ -106,8 +109,21 @@ async function waitForBulletin(app: App, tone: string, needle: string): Promise<
 /**
  * Open the Session Summary, read its Directories row — each folder's full
  * path, or null when the row is absent — and close it again.
+ *
+ * It also reads the Project row's folder, and asserts on the way that no key
+ * in the panel runs into its value: the key track is a fixed width, and
+ * DIRECTORIES at its letter-spacing once overflowed it.
  */
 async function readDirectoriesRow(app: App): Promise<string[] | null> {
+  return (await readSummary(app)).directories;
+}
+
+interface SummaryReading {
+  project: string | null;
+  directories: string[] | null;
+}
+
+async function readSummary(app: App, click?: string): Promise<SummaryReading> {
   // The pane's chrome is the Session card's own, in its page.
   await app.body("S").revealPaneControls(".body-chrome-frame");
   await app.body("S").nativeClickAtElement(WIDGET);
@@ -115,20 +131,68 @@ async function readDirectoriesRow(app: App): Promise<string[] | null> {
     `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
     { timeoutMs: 8_000 },
   );
-  const read = await app.body("S").evalJS<string[] | null>(
+  const read = await app.body("S").evalJS<SummaryReading & { collisions: string[] }>(
     `(function () {
-       var row = document.querySelector(${JSON.stringify(DIRECTORIES_ROW)});
-       if (row === null) return null;
-       return Array.from(row.querySelectorAll(".session-masthead-telemetry-directory")).map(
-         function (d) { return d.getAttribute("title") || ""; });
+       var folders = function (selector) {
+         var row = document.querySelector(selector);
+         if (row === null) return null;
+         return Array.from(row.querySelectorAll(".session-masthead-telemetry-directory")).map(
+           function (d) { return d.getAttribute("title") || ""; });
+       };
+       var collisions = Array.from(document.querySelectorAll(${JSON.stringify(`${PANEL} .session-masthead-telemetry-row`)}))
+         .filter(function (row) {
+           var key = row.querySelector(".session-masthead-telemetry-label");
+           var value = row.querySelector(".session-masthead-telemetry-value");
+           if (key === null || value === null) return false;
+           var range = document.createRange();
+           range.selectNodeContents(key);
+           return range.getBoundingClientRect().right > value.getBoundingClientRect().left;
+         })
+         .map(function (row) { return (row.querySelector(".session-masthead-telemetry-label").textContent || "").trim(); });
+       var project = folders(${JSON.stringify(PROJECT_ROW)});
+       return { project: project === null ? null : project[0], directories: folders(${JSON.stringify(DIRECTORIES_ROW)}), collisions: collisions };
      })()`,
   );
+  expect(read.collisions, "no key runs into its value").toEqual([]);
+  if (click !== undefined) {
+    await app.body("S").evalJS(
+      `Array.from(document.querySelectorAll(${JSON.stringify(`${PANEL} .session-masthead-telemetry-directory`)}))
+        .find(function (d) { return d.getAttribute("title") === ${JSON.stringify(click)}; }).click()`,
+    );
+  }
   await app.nativeKey("Escape");
   await app.body("S").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PANEL)}) === null`,
     { timeoutMs: 8_000 },
   );
-  return read;
+  return { project: read.project, directories: read.directories };
+}
+
+/**
+ * Record what the Session card's page posts to the host's `openPath` bridge,
+ * WITHOUT calling through: a real Finder window would steal the focus the
+ * harness depends on, and what the deck asks for is the whole contract. The
+ * install is `at0410`'s, for the reasons it gives — every wrapper is pinned,
+ * and the install is read back before it is trusted.
+ */
+async function captureOpenPath(app: App): Promise<void> {
+  const installed = await app.body("S").evalJS<boolean>(
+    `(function(){
+      window.__at0808OpenPath = [];
+      var recorder = function(payload){ window.__at0808OpenPath.push(typeof payload === "string" ? JSON.parse(payload) : payload); };
+      var ns = window.webkit;
+      var real = ns.messageHandlers;
+      var handler = real.openPath;
+      window.__at0808Pins = { ns: ns, real: real, handler: handler };
+      try {
+        var handlers = new Proxy({}, { get: function(_t, name){ return name === "openPath" ? { postMessage: recorder } : real[name]; } });
+        Object.defineProperty(ns, "messageHandlers", { configurable: true, value: handlers });
+      } catch (e) {}
+      try { handler.postMessage = recorder; } catch (e) {}
+      try { return window.webkit.messageHandlers.openPath.postMessage === recorder; } catch (e) { return false; }
+    })()`,
+  );
+  if (!installed) throw new Error("[at0808] the openPath capture did not take in the Session card's page");
 }
 
 /** What the dialog showed: its buttons, its checkbox's label and whether it opened checked. */
@@ -233,7 +297,12 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
         await waitForBulletin(app, "success", "shared");
 
         // ---- B. The Session Summary lists the held folder. -----------------
-        expect(await readDirectoriesRow(app)).toEqual([GRANTED]);
+        await captureOpenPath(app);
+        expect(await readSummary(app, GRANTED)).toEqual({ project: PROJECT_DIR, directories: [GRANTED] });
+        expect(
+          await app.body("S").evalJS<Array<{ path: string; kind: string }>>(`window.__at0808OpenPath`),
+          "a click on a folder opens it as a folder",
+        ).toEqual([{ path: GRANTED, kind: "folder" }]);
 
         // ---- C. Refused: a caution naming tugcode's reason. ----------------
         await grantForThisSession(app, REFUSED);

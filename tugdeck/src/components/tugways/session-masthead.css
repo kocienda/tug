@@ -389,7 +389,7 @@
    instead of pushing its own button off the edge. */
 .session-masthead-telemetry-row {
   display: grid;
-  grid-template-columns: 5rem minmax(0, max-content) 1fr;
+  grid-template-columns: 6.5rem minmax(0, max-content) 1fr;
   align-items: center;
   column-gap: var(--tug-space-sm);
   /* The action track's own height, reserved on EVERY row. A copy button is
@@ -436,7 +436,8 @@
 
 /* The DIRECTORIES row lists one folder per line, so its key sits at the top of
    the run rather than centred against it, and each folder elides on its own
-   line rather than the run being cut as one. */
+   line rather than the run being cut as one. The key track is wide enough for
+   DIRECTORIES at its letter-spacing, so the key never runs into its value. */
 .session-masthead-telemetry-row[data-row="directories"] {
   align-items: start;
 }
@@ -447,10 +448,30 @@
   min-width: 0;
 }
 
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
 .session-masthead-telemetry-directory {
+  /* A folder is a link that opens it in the Finder: link ink, an underline on
+     hover, and none of a button's chrome. */
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  color: var(--tug7-element-global-text-normal-link-rest);
+  max-inline-size: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+.session-masthead-telemetry-directory:hover {
+  color: var(--tug7-element-global-text-normal-link-hover);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 /* An ENCLOSED value — the atom's pill, the citation's badge — is a bordered
