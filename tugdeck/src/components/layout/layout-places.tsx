@@ -106,7 +106,7 @@ export interface LayoutPlace {
   slot?: number;
   /** The arrangement the deck has stored for this place. */
   mode: ColumnMode;
-  /** What to call it out loud: "Column 3". */
+  /** What to call it out loud: "Slot 3". */
   label: string;
   /** The sender id the section's responder routes this place's presses by. */
   senderId: string;
@@ -596,7 +596,7 @@ export function LayoutPlaceToggles({
       data-layout={layout}
       data-testid="layout-card-toggles"
       role="group"
-      aria-label="Column arrangements"
+      aria-label="Slot arrangements"
       tabIndex={focusGroup !== undefined ? 0 : undefined}
       onKeyDown={onKeyDown}
     >

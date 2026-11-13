@@ -261,16 +261,47 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
         // writes ⌃⌘Y from the frontend's keymap.
         menu.addItem(NSMenuItem(title: "Fold Card", action: #selector(AppDelegate.toggleCardFold(_:)), keyEquivalent: "").identified("view.foldCard"))
 
-        // The two verbs about a column's DIVISION: one equalizes the column
-        // the layout selection stands in, the other every split column on the
-        // deck. Between the card postures above and the rail verbs below,
-        // because a column is neither one card nor a sidebar. ⌃⌘E and ⌥⇧⌘E —
-        // the same key twice, the shape the sidebar pair below makes on S.
+        // The slot family — how the cards standing in one slot arrange
+        // themselves, and where this card stands among them. Between the card
+        // postures above and the rail verbs below, because a slot is neither
+        // one card nor a sidebar. Choosing which card to LOOK at is movement
+        // and lives in Go; these change what the slot shows.
+        //
+        // ⌃⌘/ splits or stacks the slot, the ⌃⌘ arrows move the card among its
+        // members, and the two Equalize rows write the division: one for the
+        // slot the layout selection stands in, one for every split slot on the
+        // deck, ⌃⌘E and ⌥⇧⌘E — the same key twice, the shape the sidebar pair
+        // below makes on S.
+        //
+        // Every one of them is selection-relative — the frontend resolves the
+        // layout selection, else the Cards list's cursor, else the first
+        // responder — so the move target is all the payload there is.
         //
         // Key equivalents left EMPTY as everywhere in this file:
-        // `applyCommandChords` writes both from the frontend's keymap. Each is
-        // dark when it has no division to write, by its registry gate.
+        // `applyCommandChords` writes them from the frontend's keymap, so the
+        // whole family stays rebindable. Each is dark when it has nothing to
+        // do, by its registry gate; the split and move gates hold the chord
+        // while dark (`disabledChord: "keep"`), so the beep is honest feedback
+        // that the slot had no move to make.
+        //
+        // "Split or Stack Slot" is the BOOT title only. The registry gate
+        // rewrites it on every menuState push to name the one verb the next
+        // press performs — "Split Slot" over a stacked slot, "Stack Slot"
+        // over a split one — so the row is never a coin toss. It falls back
+        // to the pair when no slot resolves, which is also when the row is
+        // dark.
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Split or Stack Slot", action: #selector(AppDelegate.toggleSlotSplit(_:)), keyEquivalent: "").identified("view.slotSplit"))
+        for (title, where_, id) in [
+            ("Move Card Up in Slot", "up", "view.slotMoveUp"),
+            ("Move Card Down in Slot", "down", "view.slotMoveDown"),
+            ("Move Card to Top of Slot", "top", "view.slotMoveTop"),
+            ("Move Card to Bottom of Slot", "bottom", "view.slotMoveBottom"),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(AppDelegate.moveInSlotFromMenu(_:)), keyEquivalent: "").identified(id)
+            item.representedObject = where_
+            menu.addItem(item)
+        }
         menu.addItem(NSMenuItem(title: "Equalize Heights", action: #selector(AppDelegate.equalizeHeights(_:)), keyEquivalent: "").identified("view.equalizeHeights"))
         menu.addItem(NSMenuItem(title: "Equalize All Heights", action: #selector(AppDelegate.equalizeAllHeights(_:)), keyEquivalent: "").identified("view.equalizeAllHeights"))
 

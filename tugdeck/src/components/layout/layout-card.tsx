@@ -354,8 +354,8 @@ const SIDE_LABELS: Record<SidebarSide, string> = {
 
 /** The caption for a slot's place toggle. One-based, matching the ⌘-digit chords
  *  and every other place the deck names a slot to the user. */
-function columnCaption(slot: number): string {
-  return `Column ${slot + 1}`;
+function slotCaption(slot: number): string {
+  return `Slot ${slot + 1}`;
 }
 
 /** A sidebar card the deck can place, as this card needs it. */
@@ -1240,7 +1240,7 @@ export function LayoutContent(
       key: `col-${slot}`,
       slot,
       mode: occupiedColumnOf(slot)?.mode ?? columnModeOf(imposition, slot),
-      label: columnCaption(slot),
+      label: slotCaption(slot),
       senderId: `${COLUMN_SENDER_PREFIX}${slot}`,
     }),
   );

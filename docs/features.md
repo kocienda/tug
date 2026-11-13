@@ -33,7 +33,7 @@ A slot can hold more than one card.
 - By default the cards in a slot **stack**: they share one place, the front card is the one you see, and a layers badge in its masthead counts the ones behind it. Click the badge or press Command-R for a picker of what is in the stack. Option-Command-Left Bracket and Option-Command-Right Bracket step through it.
 - **Split** the slot instead when you want its cards in view at once, for instance a test log above the transcript driving it. The slot's height is divided among its cards, each lettered A, B, C from the top, with a seam to drag between them.
 
-Control-Command-Slash, or Window > Split or Stack Column, toggles a slot between stack and split, so the choice is never a commitment. In a split slot, Control-Command-Up Arrow and Control-Command-Down Arrow move a card up or down, and Control-Shift-Command-Up Arrow and Control-Shift-Command-Down Arrow send it to the top or bottom. Control-Command-E, or View > Equalize Heights, evens out one slot, and Option-Shift-Command-E, or View > Equalize All Heights, every slot.
+Control-Command-Slash, or View > Split or Stack Slot, toggles a slot between stack and split, so the choice is never a commitment. In a split slot, Control-Command-Up Arrow and Control-Command-Down Arrow move a card up or down, and Control-Shift-Command-Up Arrow and Control-Shift-Command-Down Arrow send it to the top or bottom. Control-Command-E, or View > Equalize Heights, evens out one slot, and Option-Shift-Command-E, or View > Equalize All Heights, every slot.
 
 ### Addresses
 

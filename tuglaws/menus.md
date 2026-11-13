@@ -178,9 +178,9 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⇧⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⇧⌘Z | `redo` | Redo | JS, global |
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
-| ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Column | menu bar (swept) |
-| ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Column | menu bar (swept) |
-| ⌃⌘/ | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
+| ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Slot | menu bar (swept) |
+| ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Slot | menu bar (swept) |
+| ⌃⌘/ | `toggle-column-split` | Split or Stack Slot | menu bar (swept) |
 | ⌃⌘1 | `go-to-slot:1` | Go to Slot 1 | menu bar (swept) |
 | ⌃⌘2 | `go-to-slot:2` | Go to Slot 2 | menu bar (swept) |
 | ⌃⌘3 | `go-to-slot:3` | Go to Slot 3 | menu bar (swept) |
@@ -211,9 +211,9 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘{ | `first-turn` | First Turn | menu bar (swept) |
 | ⌃⌘} | `last-turn` | Last Turn | menu bar (swept) |
 | ⌃⌘← | `toggle-rail:left` | Show Left Rail | menu bar (swept) |
-| ⌃⌘↑ | `move-in-column:up` | Move Card Up in Column | menu bar (swept) |
+| ⌃⌘↑ | `move-in-column:up` | Move Card Up in Slot | menu bar (swept) |
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
-| ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
+| ⌃⌘↓ | `move-in-column:down` | Move Card Down in Slot | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
 | ⌘" | `decrease-quote-level` | Decrease Quote Level | menu bar (swept) |
 | ⌘' | `increase-quote-level` | Increase Quote Level | menu bar (swept) |
@@ -432,15 +432,15 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `view.sidebar.overview.left` | `set-sidebar-side:overview:left` | registered handler | registry gate |
 | `view.sidebar.overview.right` | `set-sidebar-side:overview:right` | registered handler | registry gate |
 | `view.sidebar.overview.show` | `toggle-overview` | registered handler | registry gate |
+| `view.slotMoveBottom` | `move-in-column:bottom` | first responder | registry gate |
+| `view.slotMoveDown` | `move-in-column:down` | first responder | registry gate |
+| `view.slotMoveTop` | `move-in-column:top` | first responder | registry gate |
+| `view.slotMoveUp` | `move-in-column:up` | first responder | registry gate |
+| `view.slotSplit` | `toggle-column-split` | first responder | registry gate |
 | `view.toggleActualSize` | `zoom-toggle-actual` | first responder | host tier |
 | `view.toggleSidebars` | `toggle-sidebars` | registered handler | registry gate |
 | `view.zoomIn` | `zoom-in` | first responder | host tier |
 | `view.zoomOut` | `zoom-out` | first responder | host tier |
-| `window.columnMoveBottom` | `move-in-column:bottom` | first responder | registry gate |
-| `window.columnMoveDown` | `move-in-column:down` | first responder | registry gate |
-| `window.columnMoveTop` | `move-in-column:top` | first responder | registry gate |
-| `window.columnMoveUp` | `move-in-column:up` | first responder | registry gate |
-| `window.columnSplit` | `toggle-column-split` | first responder | registry gate |
 | `window.deleteWorkspace` | `delete-space` | first responder | registry gate |
 | `window.duplicateWorkspace` | `duplicate-space` | first responder | host tier |
 | `window.minimize` | `minimize` | AppKit performs it | host tier |

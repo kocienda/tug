@@ -68,22 +68,25 @@ export const deckFacts = defineSharedStore<DeckFactsValue>({
 /**
  * The shell's menu facts: the deck's arrangement projected the way the
  * shell's menu publisher projects it, and the focus family's travel per
- * direction. A body's one-card deck cannot say how many panes stand, which
- * slot is where, or whether a card lies to the right, so the gates it posts
- * for the key card's menu items read these. Opaque here:
+ * direction, and what the slot verbs could do to the layout selection. A
+ * body's one-card deck cannot say how many panes stand, which slot is where,
+ * whether a card lies to the right, or where its card stands among the other
+ * members of its slot, so the gates it posts for the key card's menu items
+ * read these. Opaque here:
  * `lib/host-menu-state.ts` writes and reads them. Null until the shell has
  * projected.
  */
 export interface DeckMenuValue {
   projection: unknown;
   focusTravel: unknown;
+  column: unknown;
 }
 
 export const deckMenu = defineSharedStore<DeckMenuValue | null>({
   key: "deck.menu",
   owner: "shell",
   scope: { deck: true },
-  codec: nullable(obj({ projection: carried, focusTravel: carried })),
+  codec: nullable(obj({ projection: carried, focusTravel: carried, column: carried })),
   initial: null,
 });
 

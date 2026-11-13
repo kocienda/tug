@@ -429,10 +429,10 @@ describe("computeCommandCapabilities", () => {
 
     // No column resolves — a free deck, or nothing selected. The row is dark,
     // and it keeps the neutral pair rather than naming a verb it would not
-    // perform. A dark row promising "Split Column" is a lie the user can read.
+    // perform. A dark row promising "Split Slot" is a lie the user can read.
     const none = computeCommandCapabilities(source(chain, { column: null }));
-    expect(none["window.columnSplit"].enabled).toBe(false);
-    expect(none["window.columnSplit"].title).toBe("Split or Stack Column");
+    expect(none["view.slotSplit"].enabled).toBe(false);
+    expect(none["view.slotSplit"].title).toBe("Split or Stack Slot");
 
     // A stacked place, one card deep. It is ENABLED: splitting a slot that
     // holds one card is a legal act that arms the place for the card arriving
@@ -449,12 +449,12 @@ describe("computeCommandCapabilities", () => {
         },
       }),
     );
-    expect(stacked["window.columnSplit"].enabled).toBe(true);
-    expect(stacked["window.columnSplit"].title).toBe("Split Column");
+    expect(stacked["view.slotSplit"].enabled).toBe(true);
+    expect(stacked["view.slotSplit"].title).toBe("Split Slot");
     // The travel rows are NOT loosened with it: a lone member really has
     // nowhere to go, and that refusal is what `disabledChord: "keep"` beeps.
-    expect(stacked["window.columnMoveUp"].enabled).toBe(false);
-    expect(stacked["window.columnMoveDown"].enabled).toBe(false);
+    expect(stacked["view.slotMoveUp"].enabled).toBe(false);
+    expect(stacked["view.slotMoveDown"].enabled).toBe(false);
     // A stack has no division, so Equalize Heights is dark over it.
     expect(stacked["view.equalizeHeights"].enabled).toBe(false);
 
@@ -469,10 +469,10 @@ describe("computeCommandCapabilities", () => {
         },
       }),
     );
-    expect(split["window.columnSplit"].enabled).toBe(true);
-    expect(split["window.columnSplit"].title).toBe("Stack Column");
-    expect(split["window.columnMoveUp"].enabled).toBe(true);
-    expect(split["window.columnMoveDown"].enabled).toBe(false);
+    expect(split["view.slotSplit"].enabled).toBe(true);
+    expect(split["view.slotSplit"].title).toBe("Stack Slot");
+    expect(split["view.slotMoveUp"].enabled).toBe(true);
+    expect(split["view.slotMoveDown"].enabled).toBe(false);
     expect(split["view.equalizeHeights"].enabled).toBe(true);
   });
 

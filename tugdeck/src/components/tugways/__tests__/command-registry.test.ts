@@ -290,11 +290,11 @@ describe("promoted commands", () => {
     [TUG_ACTIONS.OPEN_COMMAND_PICKER, "session.commandPicker", "detach"],
     [TUG_ACTIONS.TOGGLE_DICTATION, "session.dictate", "detach"],
     [TUG_ACTIONS.STOP_DICTATION_AND_SEND, "session.dictateAndSend", "detach"],
-    [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "window.columnSplit", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:up`, "window.columnMoveUp", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:down`, "window.columnMoveDown", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:top`, "window.columnMoveTop", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`, "window.columnMoveBottom", "keep"],
+    [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "view.slotSplit", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:up`, "view.slotMoveUp", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:down`, "view.slotMoveDown", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:top`, "view.slotMoveTop", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`, "view.slotMoveBottom", "keep"],
   ];
 
   test("each drives its item and records its disabled-state chord", () => {

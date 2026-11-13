@@ -868,7 +868,7 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * width row is three: each is separately rebindable and each is one row in the
  * keymap pane.
  *
- * **Promoted to the Window menu**, unlike ⌘1..9 and the nudge pair. The
+ * **Promoted to the View menu**, unlike ⌘1..9 and the nudge pair. The
  * objection that kept them off it was that a menu item's `validate` had
  * nothing to read: these act on the layout selection, which is a fact about
  * the Cards card's list rather than about the frontmost card. That was answerable,
@@ -893,9 +893,9 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
 const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
   {
     id: TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
-    title: "Split or Stack Column",
+    title: "Split or Stack Slot",
     routing: "first-responder" as const,
-    menuItemId: "window.columnSplit",
+    menuItemId: "view.slotSplit",
     mirrored: true,
     disabledChord: "keep",
     bindings: [
@@ -911,42 +911,42 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
     // the user press to find out which one they were asking for — the
     // arrangement decides, so let the arrangement name the row.
     //
-    // A column that resolves to nothing keeps the neutral phrasing rather
+    // A slot that resolves to nothing keeps the neutral phrasing rather
     // than an arbitrary verb: the row is dark there, and a dark row naming a
     // verb is a promise it is not keeping.
     dynamicTitle: (chain: CommandValidationSource) => {
       const mode = chain.menu.column?.mode;
-      if (mode === undefined) return "Split or Stack Column";
-      return mode === "split" ? "Stack Column" : "Split Column";
+      if (mode === undefined) return "Split or Stack Slot";
+      return mode === "split" ? "Stack Slot" : "Split Slot";
     },
   },
   ...(
     [
       {
         where: "up",
-        title: "Move Card Up in Column",
-        menuItemId: "window.columnMoveUp",
+        title: "Move Card Up in Slot",
+        menuItemId: "view.slotMoveUp",
         key: "ArrowUp",
         shift: false,
       },
       {
         where: "down",
-        title: "Move Card Down in Column",
-        menuItemId: "window.columnMoveDown",
+        title: "Move Card Down in Slot",
+        menuItemId: "view.slotMoveDown",
         key: "ArrowDown",
         shift: false,
       },
       {
         where: "top",
-        title: "Move Card to Top of Column",
-        menuItemId: "window.columnMoveTop",
+        title: "Move Card to Top of Slot",
+        menuItemId: "view.slotMoveTop",
         key: "ArrowUp",
         shift: true,
       },
       {
         where: "bottom",
-        title: "Move Card to Bottom of Column",
-        menuItemId: "window.columnMoveBottom",
+        title: "Move Card to Bottom of Slot",
+        menuItemId: "view.slotMoveBottom",
         key: "ArrowDown",
         shift: true,
       },
@@ -2499,7 +2499,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   // chord and a View menu row of its own.
   //
   // **The tier, derived** (tuglaws/chord-tiers.md): a column's division is
-  // layout vocabulary, the tier ⌃⌘/ Split or Stack Column already holds for
+  // layout vocabulary, the tier ⌃⌘/ Split or Stack Slot already holds for
   // the same slot. E for *Equalize*, an initial, on a letter the tier had free
   // and macOS reserves nothing on.
   //
@@ -2557,7 +2557,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   // **The tier, derived** (tuglaws/chord-tiers.md): a rail is layout
   // vocabulary, which is what ⌃⌘ carries — the ⌃⌘←/→ pair addresses ONE side
   // and this addresses both — and S is *Sidebars*, an initial on a letter the
-  // tier had free once Split or Stack Column moved to ⌃⌘/.
+  // tier had free once Split or Stack Slot moved to ⌃⌘/.
   //
   // **It is the pair's whole-deck form, not its rival.** ⌃⌘←/→ is a summons:
   // it brings a side back AND takes the keyboard to it, three-state. This one
@@ -2682,14 +2682,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     // column row, and ⌃⌘S; the slot set is the deck's, so the payload set is
     // runtime.
     id: TUG_ACTIONS.SET_COLUMN_MODE,
-    title: "Set Column Mode",
+    title: "Set Slot Mode",
     routing: "registry",
     internal: true,
   },
   {
     // Its door is the stack badge menu.
     id: TUG_ACTIONS.EQUALIZE_COLUMN,
-    title: "Equalize Column Heights",
+    title: "Equalize Slot Heights",
     routing: "registry",
     internal: true,
   },

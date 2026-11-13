@@ -2578,7 +2578,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (column === undefined) {
           tugDevLogStore.debug(
             "toggle-column-split",
-            "the selection's card stands in no column",
+            "the selection's card stands in no slot",
             { slot, cardId: cardIds[0] },
           );
           flashCardPane(store, cardIds[0]);

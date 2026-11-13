@@ -798,7 +798,7 @@ export function validateDeckState(state: DeckState): void {
       const standing = slotByPaneId.get(paneId);
       if (standing !== slot) {
         throw new DeckStateInvariantError(
-          `column ${slot} names pane "${paneId}" as a member, but that pane stands ` +
+          `slot ${slot} names pane "${paneId}" as a member, but that pane stands ` +
             `${standing === undefined ? "outside the chain" : `in slot ${standing}`}`,
         );
       }

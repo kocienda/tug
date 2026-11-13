@@ -23,7 +23,6 @@ import AppKit
     func insertFile(_ sender: Any?)
     func lastTurn(_ sender: Any?)
     func logOut(_ sender: Any?)
-    func moveInColumnFromMenu(_ sender: NSMenuItem)
     func newComponentGalleryCard(_ sender: Any?)
     func newHelloWorldCard(_ sender: Any)
     func newJot(_ sender: Any)
@@ -90,7 +89,6 @@ import AppKit
     func sourceTree(_ sender: Any)
     func stopDictationAndSend(_ sender: Any?)
     func stopSession(_ sender: Any?)
-    func toggleColumnSplit(_ sender: Any?)
     func toggleDictation(_ sender: Any?)
     func toggleRailFromMenu(_ sender: NSMenuItem)
     func toggleShadeView(_ sender: NSMenuItem)
@@ -640,7 +638,7 @@ struct MenuBarBuilder {
         gMenu.addItem(NSMenuItem.separator())
         // Focus Card Left / Right / Above / Below — move the KEYBOARD to the
         // card that is spatially in that direction, which is the other half of
-        // the pair Window's column rows are one of: those move the card, these
+        // the pair View's slot rows are one of: those move the card, these
         // move the reader through the arrangement the card stands in. Its own
         // group for that reason, and because it is the one family here that is
         // not selection-relative — the frontend reads the first responder, since
@@ -723,42 +721,6 @@ struct MenuBarBuilder {
         windowMenuItem.submenu = wMenu
         wMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m").identified("window.minimize"))
         wMenu.addItem(NSMenuItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "").identified("window.zoom"))
-        wMenu.addItem(NSMenuItem.separator())
-        // The column family — how the panes standing in one slot arrange
-        // themselves, and where this card stands among them. Its own group
-        // because moving a card among the panes of a place is arrangement —
-        // Window's business — where choosing which card to look at is
-        // movement, and lives in Go.
-        //
-        // ⌃⌘/ and the ⌃⌘ arrows, all with EMPTY key equivalents for the same
-        // reason the width rows have them — `applyCommandChords` writes them
-        // from the frontend's keymap, so the whole family stays rebindable.
-        // Their gates hold the chord while the item is dark
-        // (`disabledChord: "keep"`): nothing in the JS funnel wants these
-        // chords, so there is nothing for a release to hand them back to, and
-        // the beep is honest feedback that the column had no move to make.
-        //
-        // Every one of them is selection-relative — the frontend resolves the
-        // layout selection, else the Cards list's cursor, else the first
-        // responder — so the move target is all the payload there is.
-        //
-        // "Split or Stack Column" is the BOOT title only. The registry gate
-        // rewrites it on every menuState push to name the one verb the next
-        // press performs — "Split Column" over a stacked place, "Stack
-        // Column" over a split one — so the row is never a coin toss. It
-        // falls back to the pair when no column resolves, which is also when
-        // the row is dark.
-        wMenu.addItem(NSMenuItem(title: "Split or Stack Column", action: #selector(MenuBarActions.toggleColumnSplit(_:)), keyEquivalent: "").identified("window.columnSplit"))
-        for (title, where_, id) in [
-            ("Move Card Up in Column", "up", "window.columnMoveUp"),
-            ("Move Card Down in Column", "down", "window.columnMoveDown"),
-            ("Move Card to Top of Column", "top", "window.columnMoveTop"),
-            ("Move Card to Bottom of Column", "bottom", "window.columnMoveBottom"),
-        ] {
-            let item = NSMenuItem(title: title, action: #selector(MenuBarActions.moveInColumnFromMenu(_:)), keyEquivalent: "").identified(id)
-            item.representedObject = where_
-            wMenu.addItem(item)
-        }
         wMenu.addItem(NSMenuItem.separator())
         // Anchor separator for the dynamic pane-list slice: pane items are
         // inserted directly after it (and removed by identifier prefix) on

@@ -294,7 +294,8 @@ import {
 import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
 import { flashCardPane, setPaneFlashRelay } from "./flash-pane-border";
-import { shareLayoutSelection } from "./cards-selection-store";
+import { cardsSelectionStore, shareLayoutSelection, subscribeLayoutCursorCard } from "./cards-selection-store";
+import { resolveColumnMenuFact } from "./layout-selection";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
 import { closeGuardWalk } from "./close-guard-walk";
@@ -493,6 +494,13 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFactsValue {
  * The arrangement's menu facts, which a body's one-card deck cannot project
  * for itself: the gates a body posts for its card's Go, View and Window items
  * read these ([F19]).
+ *
+ * `column` is the slot verbs' fact — Split or Stack Slot, the four Move Card
+ * rows and Equalize Heights. It reads the layout selection's ladder (the
+ * Cards selection, the Cards list's cursor, the first responder), all of
+ * which live in the shell. Without it a body's gates for those rows read
+ * `column: null` and posted them dark over the shell's live answer whenever a
+ * body card was key — which is every time a content card has the keyboard.
  */
 function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
   const state = deck.getSnapshot();
@@ -503,6 +511,7 @@ function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
       { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
       deck.getFirstResponderCardId(),
     ),
+    column: resolveColumnMenuFact(deck),
   };
 }
 
@@ -1222,6 +1231,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     // of each binding's directory ([L29]); an answer landing can merge two.
     canonicalDirStore.subscribe(publishDeckFacts),
     motionBreaker.onChange(publishDeckFacts),
+    // The slot verbs' fact reads the layout selection, whose two non-deck
+    // rungs move without a deck mutation: the Cards selection and the Cards
+    // list's cursor. The shell's own menu publisher watches the same pair.
+    cardsSelectionStore.subscribe(publishDeckFacts),
+    subscribeLayoutCursorCard(publishDeckFacts),
   );
   publishDeckFacts();
   // A workspace's live-session count reads the bindings and the bindings

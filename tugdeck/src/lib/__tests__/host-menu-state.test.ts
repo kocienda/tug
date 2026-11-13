@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyShellMenuFacts,
   bodyMenuPayload,
   computeEditCapabilities,
   computeFileMenuGates,
   EMPTY_EDIT_CAPABILITIES,
   HostMenuStatePublisher,
+  initBodyHostMenuState,
   projectDeckState,
   registerMenuCapsRefresher,
   requestMenuStateRefresh,
@@ -24,6 +26,7 @@ import { registerStubShellDeck } from "@/__tests__/shell-deck-stub";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 import type { SpacesSnapshot } from "../../spaces";
+import type { CardDeck } from "../../card-deck";
 
 function card(id: string, overrides: Partial<CardState> = {}): CardState {
   return {
@@ -847,10 +850,10 @@ describe("bodyMenuPayload", () => {
         "edit.copy": { enabled: true },
         "file.openQuickly": { enabled: true },
         "file.newTextCard": { enabled: true },
-        "window.columnSplit": { enabled: true },
+        "view.slotSplit": { enabled: true },
       },
     } as unknown as MenuStatePayload;
-    expect(Object.keys(bodyMenuPayload(payload).commands)).toEqual(["edit.copy", "window.columnSplit"]);
+    expect(Object.keys(bodyMenuPayload(payload).commands)).toEqual(["edit.copy", "view.slotSplit"]);
   });
 
   test("over a deck with nothing selected, posts no gates and an empty edit block, and keeps its blocks", () => {
@@ -859,7 +862,7 @@ describe("bodyMenuPayload", () => {
       selectionActive: false,
       session,
       edit: { ...EMPTY_EDIT_CAPABILITIES, undo: true, copy: true },
-      commands: { "edit.copy": { enabled: true }, "window.columnSplit": { enabled: true } },
+      commands: { "edit.copy": { enabled: true }, "view.slotSplit": { enabled: true } },
     } as unknown as MenuStatePayload;
     const posted = bodyMenuPayload(payload);
     expect(posted.commands).toEqual({});
@@ -921,5 +924,51 @@ describe("computeFileMenuGates (Spec S02)", () => {
     const gates = computeFileMenuGates(base);
     expect(gates.saveAs).toBe(true);
     expect(gates.saveACopy).toBe(true);
+  });
+});
+
+// Last in the file: it installs the module's body publisher, which the
+// module-level publish functions then speak to.
+describe("initBodyHostMenuState", () => {
+  test("the slot rows a body posts follow the shell's column fact", () => {
+    // A body page's deck is its one card, standing in no slot, so the fact it
+    // could compute for itself is always `null`. The slot rows route to the
+    // first responder, so the body's gates for them are posted over the
+    // shell's while its card is key — and they used to read that `null`,
+    // which put Split or Stack Slot and the four Move Card rows dark, under
+    // their neutral title, whenever a content card had the keyboard.
+    const posted: Record<string, { enabled?: boolean; title?: string }>[] = [];
+    const host = globalThis as { webkit?: unknown };
+    const before = host.webkit;
+    host.webkit = {
+      messageHandlers: {
+        menuState: {
+          postMessage: (raw: string) => posted.push(JSON.parse(raw).commands),
+        },
+      },
+    };
+    try {
+      const state: DeckState = {
+        ...deck([card("a")], [pane("p1", ["a"])]),
+        activePaneId: "p1",
+      };
+      const oneCard = {
+        subscribe: () => () => {},
+        getSnapshot: () => state,
+      } as unknown as CardDeck;
+      initBodyHostMenuState(oneCard, null);
+      applyShellMenuFacts({
+        projection: projectDeckState(state),
+        focusTravel: null,
+        column: { mode: "split", canMoveUp: false, canMoveDown: true, canEqualize: true },
+      });
+      const gates = posted[posted.length - 1];
+      expect(gates["view.slotSplit"]).toMatchObject({ enabled: true, title: "Stack Slot" });
+      expect(gates["view.slotMoveDown"]?.enabled).toBe(true);
+      expect(gates["view.slotMoveUp"]?.enabled).toBe(false);
+      expect(gates["view.equalizeHeights"]?.enabled).toBe(true);
+    } finally {
+      host.webkit = before;
+    }
   });
 });

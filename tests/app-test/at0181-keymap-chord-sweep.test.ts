@@ -152,19 +152,19 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
 
         // Keep — the other answer to the same question, and the reason the
         // registry asks it per command. This deck holds one pane in no
-        // column, so all five column items validate dark; they hold their
+        // slot, so all five slot items validate dark; they hold their
         // chords anyway (`disabledChord: "keep"`), because nothing in the JS
         // funnel wants ⌃⌘/ or the ⌃⌘ arrows and there is nothing for a
         // release to hand them back to. The two arrow conversions ride here
         // too: `NSUpArrowFunctionKey` and its ⇧ counterpart, written by the
         // sweep onto items built with no key equivalent at all.
-        await expectChord(app, "window.columnSplit", "/", COMMAND | CONTROL);
-        await expectChord(app, "window.columnMoveUp", "\u{F700}", COMMAND | CONTROL);
-        await expectChord(app, "window.columnMoveDown", "\u{F701}", COMMAND | CONTROL);
-        await expectChord(app, "window.columnMoveTop", "\u{F700}", COMMAND | CONTROL | SHIFT);
+        await expectChord(app, "view.slotSplit", "/", COMMAND | CONTROL);
+        await expectChord(app, "view.slotMoveUp", "\u{F700}", COMMAND | CONTROL);
+        await expectChord(app, "view.slotMoveDown", "\u{F701}", COMMAND | CONTROL);
+        await expectChord(app, "view.slotMoveTop", "\u{F700}", COMMAND | CONTROL | SHIFT);
         await expectChord(
           app,
-          "window.columnMoveBottom",
+          "view.slotMoveBottom",
           "\u{F701}",
           COMMAND | CONTROL | SHIFT,
         );
@@ -184,10 +184,10 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
           focusLeft.found ? focusLeft.enabled : true,
           "a focus row is dark when the arrangement has nothing that way",
         ).toBe(false);
-        const split = await app.menuItemState("window.columnSplit");
+        const split = await app.menuItemState("view.slotSplit");
         expect(
           split.found ? split.enabled : true,
-          "a column item is dark when there is no column",
+          "a slot item is dark when there is no slot",
         ).toBe(false);
       } catch (err) {
         const tail = app.tailLog(200);

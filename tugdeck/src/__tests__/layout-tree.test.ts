@@ -1627,7 +1627,7 @@ describe("validateDeckState", () => {
     const state = columnState({ 0: { order: ["s1", "s2"] } }, [0, 1]);
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
     expect(() => validateDeckState(state)).toThrow(
-      /column 0 names pane "s2" as a member, but that pane stands in slot 1/,
+      /slot 0 names pane "s2" as a member, but that pane stands in slot 1/,
     );
   });
 

@@ -1239,9 +1239,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-rail", params: ["value": side])
     }
 
-    /// View ▸ Equalize Heights. Carries nothing: which column divides is the
+    /// View ▸ Equalize Heights. Carries nothing: which slot divides is the
     /// frontend's answer, resolved from the layout selection as ⌃⌘/ resolves
-    /// it, and the item is dark when that column has no division to write.
+    /// it, and the item is dark when that slot has no division to write.
     @objc func equalizeHeights(_ sender: Any) {
         sendControl("equalize-heights")
     }
@@ -1822,28 +1822,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-bullseye")
     }
 
-    /// Window ▸ Split or Stack Column. No payload, for the same reason
+    /// View ▸ Split or Stack Slot. No payload, for the same reason
     /// Bullseye carries none: which slot divides is the frontend's answer, and
     /// it resolves it from the layout selection the chord resolves too.
     ///
     /// The title is the registry gate's dynamic one, and the item is dark only
-    /// when the layout selection resolves to no column at all: a slot one card
+    /// when the layout selection resolves to no slot at all: a slot one card
     /// deep still splits, which arms the place for the card that arrives next.
-    @objc func toggleColumnSplit(_ sender: Any?) {
+    @objc func toggleSlotSplit(_ sender: Any?) {
         sendControl("toggle-column-split")
     }
 
-    /// Window ▸ Move Card Up / Down / to Top / to Bottom of Column. The target
+    /// View ▸ Move Card Up / Down / to Top / to Bottom of Slot. The target
     /// rides `representedObject`; which card travels is again the frontend's
     /// answer. Enablement rides each item's registry gate on the menuState
     /// push, so an item is dark exactly when `moveInColumn` would refuse.
-    @objc func moveInColumnFromMenu(_ sender: NSMenuItem) {
+    @objc func moveInSlotFromMenu(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? String else { return }
         sendControl("move-in-column", params: ["value": target])
     }
 
     /// Go ▸ Focus Card Left / Right / Above / Below. The direction rides
-    /// `representedObject`, the shape the column-move rows use. NOT
+    /// `representedObject`, the shape the slot-move rows use. NOT
     /// selection-relative, unlike those: the frontend reads the first responder,
     /// because the verb moves the keyboard rather than a card. Enablement rides
     /// each item's registry gate on the menuState push, answered per direction,

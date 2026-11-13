@@ -1583,6 +1583,9 @@ export function initBodyHostMenuState(deck: CardDeck, view: DeckView | null): vo
   publisher.setFocusTravelFactSource(
     () => (shellMenuFacts?.focusTravel as CommandMenuFacts["focusTravel"] | undefined) ?? null,
   );
+  publisher.setColumnFactSource(
+    () => (shellMenuFacts?.column as CommandMenuFacts["column"] | undefined) ?? null,
+  );
   deck.subscribe(push);
   cardSessionBindingStore.subscribe(push);
   cardTitleStore.subscribe(push);
