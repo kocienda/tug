@@ -2065,6 +2065,10 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         TugLog.info("export", "save panel shown", [TugLog.field("title", config.title)])
         panel.beginSheetModal(for: self) { [weak self] response in
             self?.activeExportChoices = []
+            TugLog.info("export", "save panel ended", [
+                TugLog.field("title", config.title),
+                TugLog.field("response", response == .OK ? "ok" : "cancel"),
+            ])
             guard response == .OK, let url = panel.url,
                   choices.indices.contains(popup.indexOfSelectedItem) else {
                 completion(.canceled)
@@ -2074,9 +2078,22 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
                 try writeExportChoice(choices[popup.indexOfSelectedItem], to: url)
                 completion(.saved)
             } catch {
-                NSLog("MainWindow: export write failed: %@", error.localizedDescription)
+                TugLog.warn("export", "write failed", [TugLog.field("error", error.localizedDescription)])
                 completion(.failed)
             }
+        }
+        // Whether the panel actually stands: a sheet begun while the window
+        // still holds another is queued behind it and never shown, and the
+        // line above cannot tell the two apart. Read two seconds on: the
+        // panel is a remote view, and takes over half a second to come up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self else { return }
+            TugLog.info("export", "save panel attached", [
+                TugLog.field("title", config.title),
+                TugLog.field("attached", String(self.attachedSheet === panel)),
+                TugLog.field("holding", self.attachedSheet.map { String(describing: type(of: $0)) } ?? "none"),
+                TugLog.field("sheets", String(self.sheets.count)),
+            ])
         }
     }
 

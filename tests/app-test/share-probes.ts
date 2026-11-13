@@ -175,9 +175,16 @@ export async function pressAction(app: App, action: ShareActionName): Promise<vo
  * window that held it, then press the sheet's default button (its Return
  * key): Done after Preview…, the action's own button otherwise. `timeoutMs`
  * bounds the wait for the sheet, which a rendered format reaches only after
- * the host's render.
+ * the host's render. `thenAnotherSheet` is for Save…, whose confirm raises
+ * the save panel: the card's window does not get the keyboard back, and the
+ * caller reads the panel from the host's log instead.
  */
-export async function pressThroughPreview(app: App, action: ShareActionName, timeoutMs = 10_000): Promise<void> {
+export async function pressThroughPreview(
+  app: App,
+  action: ShareActionName,
+  timeoutMs = 10_000,
+  thenAnotherSheet = false,
+): Promise<void> {
   await chooseAction(app, action);
   const before = await app.windowState();
   expect(before.isKeyWindow, "the card's window holds the keyboard before the preview").toBe(true);
@@ -187,6 +194,7 @@ export async function pressThroughPreview(app: App, action: ShareActionName, tim
     const state = await app.windowState();
     if (!state.isKeyWindow && state.appKeyWindow) {
       await app.nativeKey("Return");
+      if (thenAnotherSheet) return;
       const gone = Date.now() + 3_000;
       let after = await app.windowState();
       while (!after.isKeyWindow && Date.now() < gone) {

@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 
 /// Where a share render's files live: `NSTemporaryDirectory()/tug-share/`,
 /// in a directory of this process's own, so an artifact is still there for
@@ -27,6 +28,39 @@ enum ShareRenderOutput {
     static func imageScale(height: Double, width: Double, backing: Double) -> Double {
         let scale = max(1, backing)
         return width * scale * height * scale <= imagePixelBudget ? scale : 1
+    }
+
+    /// `pdf` as one page: its pages drawn end to end, top to bottom, on a
+    /// single page as wide as the widest and as tall as all of them. WebKit's
+    /// `createPDF` breaks a page at 14,400 points, so a long share arrives in
+    /// several; a share's PDF has no page breaks, so they are joined. The
+    /// pages are redrawn as PDF content, so text stays text. Returns `nil`
+    /// when there is nothing to join — one page already, or data that is not
+    /// a PDF — and the caller keeps what it has.
+    static func joinedIntoOnePage(_ pdf: Data) -> Data? {
+        guard let document = PDFDocument(data: pdf), document.pageCount > 1 else { return nil }
+        let pages = (0..<document.pageCount).compactMap { document.page(at: $0) }
+        let boxes = pages.map { $0.bounds(for: .mediaBox) }
+        let width = boxes.map(\.width).max() ?? 0
+        let height = boxes.map(\.height).reduce(0, +)
+        guard width > 0, height > 0 else { return nil }
+        var mediaBox = CGRect(x: 0, y: 0, width: width, height: height)
+        let joined = NSMutableData()
+        guard let consumer = CGDataConsumer(data: joined),
+              let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { return nil }
+        context.beginPDFPage(nil)
+        // PDF space rises from the bottom; the first page goes at the top.
+        var top = height
+        for (page, box) in zip(pages, boxes) {
+            top -= box.height
+            context.saveGState()
+            context.translateBy(x: -box.minX, y: top - box.minY)
+            page.draw(with: .mediaBox, to: context)
+            context.restoreGState()
+        }
+        context.endPDFPage()
+        context.closePDF()
+        return joined as Data
     }
 
     /// `NSTemporaryDirectory()/tug-share/`.

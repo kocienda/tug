@@ -48,7 +48,9 @@ import WebKit
 /// **The PDF** is one continuous page, the column's width and the document's
 /// height, from `createPDF`: no page breaks, so no row, fence or line is ever
 /// cut across a boundary, and the theme's ground runs edge to edge. It reads
-/// as the card does — scrolled, not paged.
+/// as the card does — scrolled, not paged. `createPDF` itself breaks a page
+/// at 14,400 points, so a longer document's pages are joined end to end into
+/// one (`ShareRenderOutput.joinedIntoOnePage`).
 ///
 /// **Readings**, 2026-11-13, an app-test instance at 2× in the default dark
 /// theme, turns of a prompt and a reply carrying a code fence, a list and a
@@ -202,7 +204,10 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         job.view.createPDF(configuration: config) { [weak self] result in
             guard let self, let job = self.jobs[id] else { return }
             do {
-                let data = try result.get()
+                // `createPDF` breaks a page at 14,400 points; a share's PDF
+                // has no breaks, so a long one's pages are joined into one.
+                let made = try result.get()
+                let data = ShareRenderOutput.joinedIntoOnePage(made) ?? made
                 try FileManager.default.createDirectory(
                     at: url.deletingLastPathComponent(), withIntermediateDirectories: true
                 )

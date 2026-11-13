@@ -189,6 +189,11 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
 
         // ── C. Copy previews first, then copies on its own button ──────────
         expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button is open once a turn is marked").toBe(true);
+        // It is the shade's default button, and wears the default ring.
+        await card.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(GO)}).hasAttribute("data-default-ring")`,
+          { timeoutMs: 4_000 },
+        );
         await chooseFormat(app, "markdown");
         setPasteboard(SENTINEL);
         await pressThroughPreview(app, "copy");

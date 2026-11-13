@@ -176,7 +176,7 @@ function WorkingDesign(): React.ReactElement {
           <TugPushButton size="sm" emphasis="outlined" role="action">
             Cancel
           </TugPushButton>
-          <TugPushButton size="sm" emphasis="primary" role="action">
+          <TugPushButton size="sm" emphasis="primary" role="action" persistentDefaultRing>
             {actionLabel}
           </TugPushButton>
         </div>

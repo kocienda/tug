@@ -301,6 +301,10 @@ export function SessionShareView({
             onClick={go}
             data-testid="session-share-go"
             data-share-action={snapshot.action}
+            // The shade's default action: it wears the double ring the whole
+            // time it can act, wherever the keyboard rests, as a sheet's
+            // default button does.
+            persistentDefaultRing
           >
             {shareActionLabel(snapshot.action)}
           </TugPushButton>

@@ -27,6 +27,9 @@ final class SharePreviewSheet: NSObject {
     private let window: SharePreviewWindow
     private let completion: (Bool) -> Void
     private var finished = false
+    /// The button's answer, set before the sheet is ended and read when
+    /// AppKit reports it gone. `nil` when it ends by any path but a button.
+    private var answer: Bool?
     /// What dismissing with Escape, or by any path but a button, answers.
     private let escapeGoesOn: Bool
 
@@ -95,7 +98,7 @@ final class SharePreviewSheet: NSObject {
     func present(on parent: NSWindow) {
         parent.beginSheet(window) { [weak self] _ in
             guard let self else { return }
-            self.finish(goOn: self.escapeGoesOn)
+            self.finish(goOn: self.answer ?? self.escapeGoesOn)
         }
         window.makeFirstResponder(window.initialFirstResponder)
     }
@@ -108,12 +111,19 @@ final class SharePreviewSheet: NSObject {
         dismiss(goOn: false)
     }
 
-    /// Answer first, then take the sheet down: ending the sheet runs the
-    /// `beginSheet` handler, which would otherwise answer for a button it
-    /// never saw.
+    /// Record the answer, then END the sheet and let AppKit's completion
+    /// deliver it. The order is load-bearing: the window is ordered out only
+    /// after the parent has been told the sheet ended. Ordering it out first
+    /// leaves the parent's sheet session unfinished, and every sheet begun
+    /// after it — the save panel a confirmed Save… raises, the next preview —
+    /// is queued behind a sheet that is no longer there, and never shown.
     private func dismiss(goOn: Bool) {
-        finish(goOn: goOn)
-        window.sheetParent?.endSheet(window)
+        answer = goOn
+        if let parent = window.sheetParent {
+            parent.endSheet(window)
+        } else {
+            finish(goOn: goOn)
+        }
     }
 
     private func finish(goOn: Bool) {

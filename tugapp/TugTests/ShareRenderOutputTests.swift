@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 import XCTest
 
 // Where a share render writes, read without a window: every file under
@@ -54,6 +55,37 @@ final class ShareRenderOutputTests: XCTestCase {
         // A 1× display is 1× throughout, and a nonsense backing is too.
         XCTAssertEqual(ShareRenderOutput.imageScale(height: 1840, width: 720, backing: 1), 1)
         XCTAssertEqual(ShareRenderOutput.imageScale(height: 1840, width: 720, backing: 0), 1)
+    }
+
+    /// A PDF of `heights.count` pages, each `width` wide and as tall as named.
+    private func pdf(width: CGFloat, heights: [CGFloat]) -> Data {
+        let data = NSMutableData()
+        var first = CGRect(x: 0, y: 0, width: width, height: heights[0])
+        let context = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &first, nil)!
+        for height in heights {
+            var box = CGRect(x: 0, y: 0, width: width, height: height)
+            let info = [kCGPDFContextMediaBox as String: Data(bytes: &box, count: MemoryLayout<CGRect>.size)] as CFDictionary
+            context.beginPDFPage(info)
+            context.setFillColor(CGColor(gray: 0.2, alpha: 1))
+            context.fill(box)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        return data as Data
+    }
+
+    func testALongSharesPagesAreJoinedIntoOne() throws {
+        let joined = try XCTUnwrap(ShareRenderOutput.joinedIntoOnePage(pdf(width: 720, heights: [14_400, 590])))
+        let document = try XCTUnwrap(PDFDocument(data: joined))
+        XCTAssertEqual(document.pageCount, 1)
+        let box = try XCTUnwrap(document.page(at: 0)).bounds(for: .mediaBox)
+        XCTAssertEqual(box.width, 720, accuracy: 0.5)
+        XCTAssertEqual(box.height, 14_990, accuracy: 0.5)
+    }
+
+    func testAOnePagePDFAndNonsenseAreLeftAlone() {
+        XCTAssertNil(ShareRenderOutput.joinedIntoOnePage(pdf(width: 720, heights: [594])))
+        XCTAssertNil(ShareRenderOutput.joinedIntoOnePage(Data("not a pdf".utf8)))
     }
 
     func testTheSweepTakesEndedProcessesAndLeavesLiveOnes() throws {

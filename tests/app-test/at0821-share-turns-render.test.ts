@@ -25,6 +25,8 @@
  *      image: there is no height cap. It is photographed in tiles and
  *      stitched, so the PNG is the document's full height, and its left
  *      margin is the card's surface in every tile's band, top to bottom.
+ *   E. A document past 14,400 points — where WebKit's own PDF would break
+ *      into a second page — still answers a PDF of exactly one page.
  *
  * A document that does not decode is refused by `decodeShareRenderDocument`'s
  * pure test; waiting out the host's 60 s deadline would not fit a file's
@@ -185,6 +187,14 @@ describe.skipIf(!SHOULD_RUN)("AT0821: share turns rendered to an image and a PDF
             `row ${y} of the tall image is the card's surface, not ${JSON.stringify(ground)}`,
           ).toBe(true);
         }
+
+        // ── E. A PDF past WebKit's page limit is still one page ────────────
+        const longPdf = await render(app, "pdf", "summaries", `"tall ".repeat(9000)`);
+        note(`at0821 long pdf: ${JSON.stringify({ ...longPdf, html: longPdf.html.length })}`);
+        expect(longPdf.result).toBe("ok");
+        expect(longPdf.height, "past the 14,400-point page limit").toBeGreaterThan(14_400);
+        expect(longPdf.pages, "no page break, however long").toBe(1);
+        rmSync(longPdf.path, { force: true });
 
         for (const path of [summaries.path, full.path, pdf.path, tall.path]) rmSync(path, { force: true });
       } catch (err) {

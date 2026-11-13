@@ -144,10 +144,21 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
             .split("\n")
             .some((line) => line.includes("save panel shown") && line.includes("Save Shared Turns"));
         expect(panelShown(), "no save panel before the press").toBe(false);
-        await pressThroughPreview(app, "save", 15_000);
+        await pressThroughPreview(app, "save", 15_000, true);
         const panelDeadline = Date.now() + 5_000;
         while (!panelShown() && Date.now() < panelDeadline) await Bun.sleep(100);
         expect(panelShown(), "Save… raised the share's save panel").toBe(true);
+        // Begun is not standing: a sheet begun while the window still holds
+        // another is queued behind it and never shown. The host says which.
+        const attachedLine = (): string | undefined =>
+          app
+            .tugappLog()
+            .split("\n")
+            .find((line) => line.includes("save panel attached") && line.includes("Save Shared Turns"));
+        const attachDeadline = Date.now() + 5_000;
+        while (attachedLine() === undefined && Date.now() < attachDeadline) await Bun.sleep(100);
+        note(`at0822 ${attachedLine() ?? "no attached line"}`);
+        expect(attachedLine() ?? "", "the save panel is the window's attached sheet").toContain("attached=true");
         const saved = await state();
         expect(saved.lastArtifact?.format, "the PDF it previewed is held").toBe("pdf");
         expect(saved.canSend, "and is the preview of this selection").toBe(true);
