@@ -41,6 +41,13 @@
   margin-inline-end: var(--tugx-session-identity-progress-trail, 6px);
 }
 
+/* A worded cluster may give way: its phase word elides (`Audit…`) rather than
+   pushing the row's trailing furniture off the line. */
+.session-identity-row-progress[data-worded="true"] {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 /* ============================================================================
    The account run's WALL register ([D185])
    ========================================================================= */

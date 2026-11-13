@@ -785,6 +785,15 @@ export interface SessionIdentityRowProps
    */
   tape?: boolean;
   /**
+   * Whether the arc mark on the title line says the phase in words —
+   * `Auditing`, `Executing` — beside its glyph. A rail of sessions has no Z2
+   * ARC cell under each row to say it, so the Workspaces card asks for the
+   * word; a masthead, whose instrument tier says it one band below, does not.
+   * The word elides when the row runs out of room.
+   * @default false
+   */
+  arcWord?: boolean;
+  /**
    * Wrap the tape before it is mounted — for a surface that hangs an
    * affordance on it. The masthead's tape is the trigger for the expanded
    * Activity card; the Cards card's is a reading and nothing more.
@@ -944,6 +953,7 @@ export function SessionIdentityRow({
   indicatorPacking = "ink",
   drift = false,
   tape = false,
+  arcWord = false,
   renderTape,
   identityContext,
   row: rowOverride,
@@ -1370,12 +1380,14 @@ export function SessionIdentityRow({
       <span
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"
+        data-worded={arcWord ? "true" : undefined}
       >
         <ArcLifecycleMark
           model={arcModel}
           size="read"
           name={arcFact.name}
           fraction={arcGlance}
+          showWord={arcWord}
         />
       </span>
     ) : null;

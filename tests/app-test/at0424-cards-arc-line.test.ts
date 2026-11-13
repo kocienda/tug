@@ -250,6 +250,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         const stepped = await kindBody(app, "cards").evalJS<{
           fraction: string;
           phase: string | null;
+          word: string | null;
           monitorDots: number;
         }>(
           `(() => {
@@ -258,6 +259,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
              return {
                fraction: (fraction?.textContent ?? "").trim(),
                phase: mark?.getAttribute("data-phase") ?? null,
+               word:
+                 mark?.querySelector('[data-slot="tug-arc-lifecycle-mark-word"]')
+                   ?.textContent?.trim() ?? null,
                // ONE mark on the row, and it is the bare phase dot.
                monitorDots: document.querySelectorAll(
                  ${JSON.stringify(`${SESSION_ROW} .tug-session-row-dot [data-slot="tug-progress-indicator"]`)},
@@ -275,6 +279,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         // tick per step — is the OTHER register's to draw, on a surface where
         // the arc is the subject; a session's row carries the compact one.
         expect(stepped.phase).toBe("implement");
+        // And says it in WORDS, as the Z2 cell and the Changes lane do: a rail
+        // row has no ARC cell under it, so the glyph alone left `Auditing` and
+        // `Executing` unsaid on this card.
+        expect(stepped.word).toBe("Executing");
         // One dot on the row, and no ring around it.
         expect(stepped.monitorDots).toBe(1);
         // Still no fourth line, still the same cells.

@@ -38,6 +38,7 @@ import "./arc-lifecycle-mark.css";
 import React from "react";
 
 import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
+import { arcCellWord } from "@/lib/arc-track-model";
 
 import { ArcPhaseMark, arcPhaseWord } from "./arc-phase-mark";
 import { TugStepFraction } from "./tug-step-fraction";
@@ -74,6 +75,14 @@ export interface ArcLifecycleMarkProps {
    * and the glyph beside it describe.
    */
   fraction?: { current: number; total: number } | null;
+  /**
+   * Whether the phase is said in words after the glyph — the Z2 ARC cell's
+   * own word (`Auditing`, `Audit` at rest, `Stopped`), eliding when the host
+   * runs out of room. For a host with no instrument beside it to say the
+   * phase; the masthead's tier says it already.
+   * @default false
+   */
+  showWord?: boolean;
 }
 
 export function ArcLifecycleMark({
@@ -81,6 +90,7 @@ export function ArcLifecycleMark({
   size = "rail",
   name,
   fraction: fractionOverride,
+  showWord = false,
 }: ArcLifecycleMarkProps): React.ReactElement {
   const state = arcCellState(model, model.phase);
   const fraction =
@@ -118,6 +128,7 @@ export function ArcLifecycleMark({
         data-size={size}
         data-phase={model.phase}
         data-stopped={model.stopped !== null ? "true" : undefined}
+        data-worded={showWord ? "true" : undefined}
         aria-label={sentence}
       >
         <span
@@ -129,6 +140,15 @@ export function ArcLifecycleMark({
         {/* One pixel proud of the pill's own band, the same relation the
             full register's glyph keeps to the track. */}
         <ArcPhaseMark model={model} size={size === "read" ? 11 : 9} />
+        {showWord ? (
+          <span
+            className="tug-arc-lifecycle-mark-word"
+            data-slot="tug-arc-lifecycle-mark-word"
+            aria-hidden="true"
+          >
+            {arcCellWord(model)}
+          </span>
+        ) : null}
         {fraction !== null ? (
           <TugStepFraction current={fraction.current} total={fraction.total} />
         ) : null}

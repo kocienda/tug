@@ -143,6 +143,10 @@ export function CardsSessionRow({
         // the 28px glyph above is a wide indent to spend on a rail this narrow.
         subAlign="edge"
         tape
+        // The phase in words beside the arc's glyph — `Auditing` — since no
+        // ARC cell stands under a rail row to say it. It elides before the
+        // row's furniture does.
+        arcWord
         // A monitor row answers a right-click with the session's copies — the
         // atom, the citation, the id, the description, the newest beat — over
         // its whole surface, the same menu the masthead offers. A rail is where

@@ -40,6 +40,28 @@
   margin-inline-start: var(--tugx-arc-lifecycle-mark-in, 5px);
 }
 
+/* The worded mark — a host with no ARC cell beside it says the phase. The
+   word is the one part that may give way: it elides (`Audit…`) while the pill,
+   the glyph and the count keep their boxes. */
+.tug-arc-lifecycle-mark[data-worded="true"] {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.tug-arc-lifecycle-mark-word {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tugx-step-fraction-font-size, var(--tug-font-size-2xs));
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-arc-lifecycle-mark[data-stopped="true"] .tug-arc-lifecycle-mark-word {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
 .tug-arc-lifecycle-mark-pill {
   display: inline-block;
   flex: 0 0 auto;
