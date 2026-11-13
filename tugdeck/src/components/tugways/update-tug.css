@@ -32,8 +32,10 @@
  * shorthand is used rather than an `animation-delay` override because the base
  * rule writes a shorthand, and a shorthand resets every longhand it omits.
  *
- * Radix's instant exit is untouched: `[data-state="closed"]` is not written
- * here, and [F03] records what happens to a Radix layer given one. */
+ * `[data-state="closed"]` is not written here, and [F03] records what happens
+ * to a Radix layer given one: the exit runs in TugAnimator before Radix
+ * closes (`internal/overlay-motion.ts`). The fade's 200ms is the overlays'
+ * one duration. */
 @keyframes update-tug-zoom-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -41,7 +43,7 @@
 
 .tug-alert-content.update-tug[data-zoom][data-state="open"] {
   animation:
-    update-tug-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
+    update-tug-zoom-in calc(200ms * var(--tug-timing, 1)) ease-out
     var(--tugx-zoom-run-duration, 200ms) backwards;
 }
 

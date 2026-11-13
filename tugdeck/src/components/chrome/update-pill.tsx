@@ -122,6 +122,16 @@ const LIVE_STAGES: ReadonlySet<UpdateStage> = new Set<UpdateStage>([
 ]);
 
 /**
+ * Whether an update exists in `stage` — the half of the pill's `showing` that
+ * does not depend on the pill itself. The wizard reads it on close: a close
+ * into a live update is a close the pill zooms home, so the panel goes at
+ * once and the rectangles carry it, where any other close fades.
+ */
+export function isUpdateLive(stage: UpdateStage): boolean {
+  return LIVE_STAGES.has(stage);
+}
+
+/**
  * The one sentence. The version says *which* update, never what it is doing.
  *
  * Spelled `v0.9.0`, the same as the wizard's Check row — the pill is the door
@@ -140,7 +150,7 @@ export function UpdatePill(): ReactElement | null {
   const wizardOpen = useUpdateTugOpen();
   const [hidden, setHidden] = useState(false);
 
-  const live = LIVE_STAGES.has(state.stage);
+  const live = isUpdateLive(state.stage);
   const showing = live && !hidden && !wizardOpen;
   const pillRef = useRef<HTMLDivElement | null>(null);
 

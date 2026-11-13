@@ -39,9 +39,16 @@
  * a stash nobody claims is swept a tick later.
  *
  * Radix is untouched throughout ([B07], [L14]). The entrance gains a delay
- * under `data-zoom` and the exit stays instant, which is what [F03] requires;
- * the run on close reads a rect measured before the open flag clears and needs
- * nothing from the departing layer.
+ * under `data-zoom`; the run on close reads a rect measured before the open
+ * flag clears and needs nothing from the departing layer.
+ *
+ * The exit is the overlays' shared one (`internal/overlay-motion.ts`, the
+ * overlay-exits brief's [B05]): Radix stays open through it and closes when it
+ * settles, or at its deadline, so the closed state still names no animation
+ * and the hang [F03] recorded cannot come back. A close the pill will zoom
+ * home — an update still live, and a run that would plant — skips the fade:
+ * the panel goes at once and the rectangles carry it. Every other close (the
+ * flow ending in `idle`, reduced motion) fades.
  *
  * # Closing is pause, not dismissal
  *
@@ -146,7 +153,10 @@ import {
   claimZoomRect,
   runZoomRects,
   stashZoomRect,
+  zoomRunsCanPlant,
 } from "../chrome/zoom-rects";
+import { isUpdateLive } from "../chrome/update-pill";
+import { useOverlayExit } from "./internal/overlay-motion";
 import {
   postUpdateAction,
   updateStore,
@@ -346,6 +356,13 @@ export function UpdateTug(): ReactElement {
   // The panel, for the two measurements the zoom needs: its rect on the way
   // out, and its rect as the destination on the way in.
   const contentRef = useRef<HTMLDivElement | null>(null);
+  // The scrim, for the shared exit's fade.
+  const scrimRef = useRef<HTMLDivElement | null>(null);
+  const { shown, skipNextExit } = useOverlayExit({
+    open,
+    panelRef: contentRef,
+    scrimRef,
+  });
   // True only while a Stop Work press is still inside its bounded wait. The
   // row cannot derive this from the count: a press whose sessions have not
   // acknowledged yet leaves the count exactly where it was.
@@ -465,15 +482,19 @@ export function UpdateTug(): ReactElement {
   }, []);
 
   const close = useCallback(() => {
-    const { action } = closeAction(updateStore.getSnapshot().stage);
+    const stage = updateStore.getSnapshot().stage;
+    const { action } = closeAction(stage);
     if (action !== null) postUpdateAction(action);
     // Measure before the flag clears, because clearing it is what unmounts the
     // panel ([B03]). Every close stashes; whether anything comes of it is the
     // pill's to decide, since only a pill that actually mounts claims the rect
     // and an unclaimed stash is swept a tick later ([B05]).
     if (contentRef.current !== null) stashZoomRect(contentRef.current);
+    // A close into a live update is one the pill zooms home: the rectangles
+    // carry the panel, so it goes at once rather than fading under them.
+    if (isUpdateLive(stage) && zoomRunsCanPlant()) skipNextExit();
     setUpdateTugOpen(false);
-  }, []);
+  }, [skipNextExit]);
 
   const act = useCallback((action: UpdateAction) => {
     // Retry re-arms the horizon as well as posting: a host that does not move on
@@ -516,9 +537,9 @@ export function UpdateTug(): ReactElement {
   const notes = offeredNotes(state);
 
   return (
-    <AlertDialog.Root open={open}>
+    <AlertDialog.Root open={shown}>
       <AlertDialog.Portal container={overlayRoot}>
-        <AlertDialog.Overlay className="tug-alert-overlay" />
+        <AlertDialog.Overlay ref={scrimRef} className="tug-alert-overlay" />
         <AlertDialog.Content
           ref={attachContent}
           className="tug-alert-content update-tug"

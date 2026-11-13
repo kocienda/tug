@@ -177,6 +177,16 @@ function resolveDuration(duration: string | number | undefined): number {
 }
 
 /**
+ * The scaled ms a duration option resolves to — the same answer `animate()`
+ * gives it, `--tug-timing` applied once. For a caller that has to time
+ * something against an animation it starts (an overlay exit's deadline) and
+ * must not re-derive the token table or the scale.
+ */
+export function scaledDurationMs(duration: string | number | undefined): number {
+  return resolveDuration(duration);
+}
+
+/**
  * Check whether a keyframes argument contains any spatial properties.
  * Handles both Keyframe[] and PropertyIndexedKeyframes formats.
  */

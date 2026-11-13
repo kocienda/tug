@@ -28,11 +28,18 @@ body {
 
 /* ---- Keyframe animations [L14] — duration scales via --tug-timing [L13] ----
  *
- * **Entrances only.** The three exit keyframes that stood here are gone, not
- * merely unreferenced: an alert's dismissal is instant on purpose, because
- * Radix Presence holds a closing layer until `animationend` and the body lock
- * comes off with the unmount. The reasoning is at
- * `.tug-alert-overlay[data-state="closed"]` below. */
+ * **Entrances only, and only in CSS.** Every surface drawn on these classes —
+ * TugAlert, the two gates, the setup and update wizards, the workspace name
+ * dialog — arrives by the rules below. None of them leaves by a CSS exit,
+ * because Radix Presence holds a closing layer until `animationend` and the
+ * body lock comes off with the unmount; `.tug-alert-overlay[data-state="closed"]`
+ * below records what that cost. Their exits run in TugAnimator while Radix is
+ * still open (`internal/overlay-motion.ts`).
+ *
+ * The numbers are the overlays' one motion table, restated because CSS cannot
+ * import it: 200ms (`--tug-motion-duration-moderate`), `ease-out`, a
+ * `scale-fade` from 0.96, and a `rise` of 28px (`OVERLAY_SCALE_FROM`,
+ * `OVERLAY_ROLL_PX`). Change one there and change it here. */
 
 @keyframes tug-alert-overlay-in {
   from { opacity: 0; }
@@ -50,7 +57,7 @@ body {
    `rise` — a short travel
    up onto the line rather than a scale about the middle of the screen. */
 @keyframes tug-alert-content-rest-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(28px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
@@ -66,11 +73,11 @@ body {
 }
 
 .tug-alert-overlay[data-state="open"] {
-  animation: tug-alert-overlay-in calc(150ms * var(--tug-timing, 1)) ease-out;
+  animation: tug-alert-overlay-in calc(200ms * var(--tug-timing, 1)) ease-out;
 }
 
 .tug-alert-overlay[data-state="closed"] {
-  /* **No exit animation, deliberately — this is the fix, not an omission.**
+  /* **No CSS exit animation, deliberately — this is the fix, not an omission.**
    *
    * Radix Presence keeps a closing layer mounted until `animationend`, and it
    * decides whether to wait by reading the computed `animation-name`: anything
@@ -91,10 +98,12 @@ body {
    * stands the same layer down by hand.
    *
    * Naming no animation makes the unmount synchronous and the lock release
-   * unconditional. The cost is that a dismissed alert vanishes rather than
-   * fading over 100ms; the enter animation above is untouched. A fade whose
-   * failure mode is "the entire app stops responding, silently, forever" is
-   * not worth 100ms of polish on a surface whose whole job is to go away.
+   * unconditional. The exit an alert does have runs BEFORE this state:
+   * `useOverlayExit` (`internal/overlay-motion.ts`) holds Radix open, runs the
+   * panel and scrim out in TugAnimator, and lets Radix close when the exit
+   * settles — on `finished`, or on a deadline when `finished` never comes. By
+   * the time this rule applies there is nothing left to animate, and Presence
+   * has nothing to wait for. A CSS exit here would bring the hang back.
    * The `pointer-events` override below stays as the second line of defence. */
   /* `!important` beats Radix's own INLINE `pointer-events: auto`, which it
      writes on the overlay and the content of an open modal to punch through
@@ -171,11 +180,11 @@ body {
 }
 
 .tug-alert-content[data-state="open"] {
-  animation: tug-alert-content-in calc(150ms * var(--tug-timing, 1)) ease-out;
+  animation: tug-alert-content-in calc(200ms * var(--tug-timing, 1)) ease-out;
 }
 
 .tug-alert-content[data-state="closed"] {
-  /* No exit animation, for the reason given on the overlay above: Presence
+  /* No CSS exit animation, for the reason given on the overlay above: Presence
    * must be able to unmount this node without waiting for an `animationend`
    * that may never come, because the body lock comes off with it. */
   /* Same inline-style override as the overlay above, for the same reason —
@@ -183,6 +192,15 @@ body {
   pointer-events: none !important;
 }
 
+
+/* The exit is running: the surface has answered, so nothing inside it takes
+   another press ([L06] — the attribute is set by `runOverlayExit`). The scrim
+   is left as it is, so a press during the fade still lands on nothing.
+   `!important` for the reason the closed state gives: Radix writes an inline
+   `pointer-events: auto` on modal content. */
+.tug-alert-content[data-closing] {
+  pointer-events: none !important;
+}
 
 /* ---- Rest-line anchored ([data-vertical-anchor="rest-line"]) ----
  *

@@ -66,7 +66,11 @@
  * fades. The panel is measured as the closed snapshot arrives, in the store's
  * own notification, which runs before React re-renders and Radix takes the
  * content down, so the box read is the panel still standing. A close with no
- * `to` fades as it always has.
+ * `to` leaves by the overlays' shared exit (`internal/overlay-motion.ts`): the
+ * panel and scrim fade out over 200ms while Radix stays open, and Radix
+ * closes when the exit settles or at its deadline. A close a zoom carries
+ * skips that fade — the panel goes at once and the rectangles carry it, with
+ * the scrim's stand-in lingering behind them.
  *
  * A cancel — the Cancel button, Escape, ⌘. — zooms back the way it came,
  * from the panel to the question's `from`, as a window closes back into its
@@ -102,6 +106,7 @@ import { runZoomRects, zoomRunDurationMs } from "@/components/chrome/zoom-rects"
 import { animate } from "@/components/tugways/tug-animator";
 import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
 import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
+import { useOverlayExit } from "@/components/tugways/internal/overlay-motion";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useGateDeck } from "@/lib/gate-deck";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
@@ -137,8 +142,8 @@ const COMMIT_LABELS: Record<WorkspaceNameRequest["verb"], string> = {
   duplicate: "Duplicate",
 };
 
-/** The scrim's fade, in and out, unscaled — the alert's own 150ms. */
-const SCRIM_FADE_MS = 150;
+/** The scrim's fade, in and out, unscaled — the overlays' one 200ms (`OVERLAY_DURATION`). */
+const SCRIM_FADE_MS = 200;
 
 /** The stand-in scrim lingering after a close, if one is up. */
 let scrimStandIn: HTMLDivElement | null = null;
@@ -190,6 +195,17 @@ export function WorkspaceNameDialog(): React.ReactElement {
   // produces: a ref set here is current there, and an effect would be late.
   const openRef = useRef(open);
   openRef.current = open;
+  // The scrim, which wears the panel's zoom marks on the way in.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  // The panel as it stands: what the zoom out measures.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  // The overlays' shared exit. Radix follows `presented`, which outlasts `open` by
+  // the length of the fade; a zoom that carries the panel skips it.
+  const { shown: presented, skipNextExit } = useOverlayExit({
+    open,
+    panelRef: contentRef,
+    scrimRef: overlayRef,
+  });
 
   const answer = useCallback(
     (name: string | null) => {
@@ -205,18 +221,21 @@ export function WorkspaceNameDialog(): React.ReactElement {
           const box = node.getBoundingClientRect();
           if (runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, from, "sheet")) {
             lingerScrim();
+            skipNextExit();
           }
         }
         setAnswered(request.seq);
       }
       deck.answerWorkspaceName(request.seq, name);
     },
-    [open, request.waiting, request.seq, deck],
+    [open, request.waiting, request.seq, deck, skipNextExit],
   );
   const cancel = useCallback(() => answer(null), [answer]);
 
   const { FocusModeScope, onCloseAutoFocus } = useFocusTrap({
-    active: open,
+    // On screen, not open: the field's ring stays on the panel while it fades
+    // (see `useFocusTrap`'s `active`).
+    active: presented,
     deferDomFocusToTeardown: true,
     onEscapeDismiss: cancel,
     kbf: false,
@@ -237,10 +256,6 @@ export function WorkspaceNameDialog(): React.ReactElement {
   // the node on the closing commit too, which the open guard turns away, and
   // a question already zoomed for is not zoomed for again.
   const zoomedSeqRef = useRef(0);
-  // The scrim, which wears the panel's zoom marks on the way in.
-  const overlayRef = useRef<HTMLDivElement | null>(null);
-  // The panel as it stands: what the zoom out measures.
-  const contentRef = useRef<HTMLDivElement | null>(null);
   const attachContent = useCallback(
     (node: HTMLDivElement | null) => {
       contentRef.current = node;
@@ -305,13 +320,14 @@ export function WorkspaceNameDialog(): React.ReactElement {
       const box = node.getBoundingClientRect();
       if (runZoomRects({ top: box.top, left: box.left, width: box.width, height: box.height }, next.to, "sheet")) {
         lingerScrim();
+        skipNextExit();
       }
     });
-  }, []);
+  }, [skipNextExit]);
 
   return (
     <Dialog.Root
-      open={open}
+      open={presented}
       onOpenChange={(next) => {
         if (!next) cancel();
       }}

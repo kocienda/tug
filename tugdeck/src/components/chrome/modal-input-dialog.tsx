@@ -80,6 +80,7 @@ import "./modal-input-dialog.css";
 
 import { TugInput } from "@/components/tugways/tug-input";
 import { group } from "@/components/tugways/tug-animator";
+import { runOverlayExit } from "@/components/tugways/internal/overlay-motion";
 import { ATTACHED_LIST_ATTRIBUTE } from "@/components/tugways/focus-manager";
 import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -217,28 +218,6 @@ function renderEmpty(
  */
 const MODAL_INPUT_FADE_DURATION = "--tug-motion-duration-fast";
 
-/**
- * The close's deadline, independent of the fade. Motion is a courtesy and the
- * dismissal is the answer, so the answer may never be the animation's to
- * withhold: whichever comes first — `finished`, or this — closes the dialog,
- * once.
- *
- * This is not defensive padding. `finished` genuinely does not always settle:
- * a window whose rAF is suspended (backgrounded, or merely covered — a covered
- * window reads `visibilityState: "hidden"`) freezes the animation mid-flight,
- * and a group superseded on the same key never resolves either. Both leave the
- * promise pending forever, and with the close gated on it the panel sits at
- * `data-closing` — faded, pointer-dead, and latched against every later close
- * gesture by the re-entry guard. An unclosable modal is the worst outcome in
- * the surface's whole repertoire, and it is reachable from a user simply
- * looking at another window.
- *
- * Comfortably past `fast` (100ms) so it never pre-empts a fade that is really
- * running, and short enough that a stalled one is not a hang the user waits
- * through.
- */
-const MODAL_INPUT_CLOSE_DEADLINE_MS = 250;
-
 export function ModalInputDialog({
   placeholder = "Search",
   provider,
@@ -268,45 +247,34 @@ export function ModalInputDialog({
   // hold presence state. The guard makes a second close gesture during the
   // fade a no-op rather than a double-fire.
   //
-  // The dismissal is RACED against the fade rather than sequenced after it:
-  // `finished` settling and `MODAL_INPUT_CLOSE_DEADLINE_MS` elapsing both call
-  // `finish`, and `settle` makes sure only the first one counts. Awaiting
-  // `finished` alone is what let a stalled animation latch the panel shut
-  // (see the deadline's own comment) — motion decorates the close, it does not
-  // gate it.
+  // The fade is the overlays' shared exit (`internal/overlay-motion.ts`): it
+  // marks the panel `data-closing`, and the dismissal is RACED against the
+  // fade by a deadline rather than sequenced after it, because awaiting
+  // `finished` alone is what let a stalled animation latch the panel shut.
+  // Motion decorates the close; it does not gate it. This surface keeps its
+  // own `fast` fade, the one exception to the overlays' single duration.
   const closingRef = useRef(false);
   const closeWith = useCallback((finish: () => void) => {
     if (closingRef.current) return;
     closingRef.current = true;
     const panelEl = panelRef.current;
-    if (panelEl === null) {
-      finish();
-      return;
-    }
-    // The surface has answered; nothing inside it may take another press
-    // mid-fade ([L06] — a DOM attribute, styled in the CSS).
-    panelEl.setAttribute("data-closing", "");
-    let settled = false;
-    let deadline = 0;
-    const settle = (): void => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(deadline);
-      finish();
-    };
-    deadline = window.setTimeout(settle, MODAL_INPUT_CLOSE_DEADLINE_MS);
-    const g = group({ duration: MODAL_INPUT_FADE_DURATION });
-    g.animate(panelEl, [{ opacity: 1 }, { opacity: 0 }], {
-      key: "modal-input-panel",
-      easing: "ease-in",
+    // No panel, no fade: `runOverlayExit` finishes at once when it has nothing
+    // to animate. The overlay fades only alongside a panel, as it always has.
+    runOverlayExit({
+      // The surface has answered; nothing inside it may take another press
+      // mid-fade ([L06] — a DOM attribute, styled in the CSS).
+      closing: [panelEl],
+      duration: MODAL_INPUT_FADE_DURATION,
+      tracks: [
+        { el: panelEl, frames: [{ opacity: 1 }, { opacity: 0 }], key: "modal-input-panel" },
+        {
+          el: panelEl === null ? null : overlayRef.current,
+          frames: [{ opacity: 1 }, { opacity: 0 }],
+          key: "modal-input-overlay",
+        },
+      ],
+      finish,
     });
-    if (overlayRef.current !== null) {
-      g.animate(overlayRef.current, [{ opacity: 1 }, { opacity: 0 }], {
-        key: "modal-input-overlay",
-        easing: "ease-in",
-      });
-    }
-    g.finished.then(settle).catch(settle);
   }, []);
   const requestDismiss = useCallback(
     () => closeWith(onDismiss),

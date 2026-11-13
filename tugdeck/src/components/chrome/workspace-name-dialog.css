@@ -62,7 +62,7 @@
 
 .tug-alert-content.tug-workspace-name-dialog[data-zoom="run"][data-state="open"] {
   animation:
-    tug-workspace-name-zoom-in calc(150ms * var(--tug-timing, 1)) ease-out
+    tug-workspace-name-zoom-in calc(200ms * var(--tug-timing, 1)) ease-out
     var(--tugx-zoom-sheet-landing, 450ms) backwards;
 }
 
@@ -83,15 +83,17 @@
 
 .tug-alert-overlay.tug-workspace-name-scrim[data-zoom="run"][data-state="open"] {
   animation:
-    tug-workspace-name-scrim-in calc(150ms * var(--tug-timing, 1)) ease-out
-    calc(var(--tugx-zoom-sheet-landing, 450ms) + 150ms * var(--tug-timing, 1)) backwards;
+    tug-workspace-name-scrim-in calc(200ms * var(--tug-timing, 1)) ease-out
+    calc(var(--tugx-zoom-sheet-landing, 450ms) + 200ms * var(--tug-timing, 1)) backwards;
 }
 
 /*
- * Out, the alert's scrim unmounts at once (`tug-alert.css` says why its exit
- * names no animation), so `workspace-name-dialog.tsx` plants this stand-in as
- * it goes: the scrim's look and place, no Radix node, dead to the pointer.
- * TugAnimator holds it through the zoom run and then fades it.
+ * Out, on a close a zoom carries, the panel and scrim go at once (the shared
+ * exit is skipped so the rectangles carry the panel), so
+ * `workspace-name-dialog.tsx` plants this stand-in as it goes: the scrim's
+ * look and place, no Radix node, dead to the pointer. TugAnimator holds it
+ * through the zoom run and then fades it. Any other close fades the real
+ * scrim through the shared exit.
  */
 .tug-workspace-name-scrim-stand-in {
   position: fixed;

@@ -31,10 +31,19 @@ import { useResponderChain } from "./responder-chain-provider";
 
 export interface UseFocusTrapOptions {
   /**
-   * Whether the trap is currently active (the surface is open). The mode is
+   * Whether the trap is currently active: the surface is ON SCREEN. The mode is
    * pushed while `true` and popped when it goes `false` or the component
-   * unmounts — so surfaces with an exit animation (`open` flips before the
-   * portal unmounts) release focus promptly on close.
+   * unmounts.
+   *
+   * A surface with an exit animation passes its presence (open, or still
+   * exiting), not its `open` flag. The key view's ring and a default button's
+   * double ring are projected only while this mode is current, so popping on
+   * `open` stripped both from a panel still animating away. That used to be
+   * the advice here, on the grounds that it released focus promptly. It
+   * released nothing the user could reach: a surface with
+   * `deferDomFocusToTeardown` keeps DOM focus inside its own focus scope until
+   * it unmounts, so keys typed during the exit landed in the panel either way.
+   * Reversed by the user on 2026-11-13 (`briefs/overlay-exits-brief.md`, [B09]).
    */
   active: boolean;
   /**

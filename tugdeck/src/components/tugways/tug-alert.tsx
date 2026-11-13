@@ -87,6 +87,7 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
 import { MODAL_REST_LINE } from "./cards/modal-rest-line";
 import { useFocusTrap } from "./use-focus-trap";
+import { useOverlayExit } from "./internal/overlay-motion";
 import { useFocusManager } from "./use-focusable";
 import { useSpatialOrder } from "./use-spatial-order";
 import type { SpatialOrder, SpatialSeam } from "./spatial-order";
@@ -391,8 +392,36 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     // and the close-focus DOM write is the trap's single teardown writer wired to
     // `AlertDialog.Content` below. App-modal blocking is unchanged — Radix's own
     // overlay + focus scope still block everything; only Escape routing moves.
+    //
+    // Active for as long as the alert is ON SCREEN (`shown`), not for as long as
+    // it is open: the key view's ring and the default button's double ring are
+    // projected only while this mode is current, so a trap that popped when the
+    // answer came would strip both rings from a panel still fading out. Nothing
+    // is released early by popping sooner anyway — Radix's focus scope holds DOM
+    // focus inside the panel until it unmounts.
+    const contentElRef = React.useRef<HTMLDivElement | null>(null);
+    const scrimElRef = React.useRef<HTMLDivElement | null>(null);
+
+    // ---- The exit ([B02] of the overlay-exits brief) ----
+    //
+    // The answer comes first and the close after the motion: `resolveAndClose`
+    // resolves the caller's promise and drops `open` at once, and Radix keeps
+    // the dialog for as long as `shown` holds, which is the length of the
+    // overlays' shared exit (`internal/overlay-motion.ts`) — the panel leaving
+    // by the shape it arrived by, the scrim fading with it. The exit settles
+    // on its own `finished` or on a deadline, whichever is first, and only
+    // then does Radix close; its closed state still names no animation, so
+    // the unmount is synchronous and the body lock always comes off
+    // (`tug-alert.css` records why). An `alert()` raised mid-exit calls the
+    // exit off and the panel stays.
+    const { shown } = useOverlayExit({
+      open,
+      panelRef: contentElRef,
+      scrimRef: scrimElRef,
+    });
+
     const { FocusModeScope, onCloseAutoFocus } = useFocusTrap({
-      active: open,
+      active: shown,
       deferDomFocusToTeardown: true,
       onEscapeDismiss: handleCancelAction,
     });
@@ -411,7 +440,6 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     // with no view slot, resolves nothing — and then the alert stays centred,
     // which is the right answer there and needs no exception clause.
     const restLineRef = React.useRef<HTMLElement | null>(null);
-    const contentElRef = React.useRef<HTMLDivElement | null>(null);
 
     const captureRestLine = React.useCallback(() => {
       const focused = document.activeElement;
@@ -702,9 +730,9 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     }
 
     return (
-      <AlertDialog.Root open={open} onOpenChange={handleOpenChange}>
+      <AlertDialog.Root open={shown} onOpenChange={handleOpenChange}>
         <AlertDialog.Portal container={overlayRoot}>
-          <AlertDialog.Overlay className="tug-alert-overlay" />
+          <AlertDialog.Overlay ref={scrimElRef} className="tug-alert-overlay" />
           <AlertDialog.Content
             ref={(el: HTMLDivElement | null) => {
               (responderRef as (node: HTMLDivElement | null) => void)(el);

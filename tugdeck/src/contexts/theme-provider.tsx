@@ -121,7 +121,7 @@ export function readGroundFromAppliedCss(): { canvas: string; grid: string } | n
 export function sendCanvasColor(hex: string): void {
   const normalized = normalizeColorToHex(hex);
   if (!normalized) return;
-  postToHost(setThemeToHost, { color: normalized, ...(readGroundFromAppliedCss() ?? {}) });
+  postToHost(setThemeToHost, { color: normalized, ...readGroundFromAppliedCss() });
 }
 
 // ---------------------------------------------------------------------------

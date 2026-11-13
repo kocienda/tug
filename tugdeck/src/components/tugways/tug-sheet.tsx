@@ -117,6 +117,14 @@ import { refuseCardModalHold } from "@/lib/card-modal-hold-store";
 import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
 import { SHEET_CANVAS_GAP } from "@/lib/sheet-reservation";
 import { group } from "@/components/tugways/tug-animator";
+import {
+  OVERLAY_DURATION,
+  OVERLAY_RISE,
+  OVERLAY_ROLL_PX,
+  OVERLAY_SCALE_FADE,
+  runOverlayExit,
+  type OverlayMotion,
+} from "@/components/tugways/internal/overlay-motion";
 import { useTugPaneScrim } from "@/components/tugways/use-tug-pane-scrim";
 import { paneBodyOf, usePaneInert } from "@/components/tugways/use-pane-inert";
 import type { ActionEvent } from "./responder-chain";
@@ -297,10 +305,7 @@ const SHEET_RESIZE_MIN_WIDTH = 460;
 const SHEET_RESIZE_MIN_HEIGHT = 250;
 
 /** Enter/exit keyframe pair for one presentation style. */
-interface SheetPresentationMotion {
-  enter: Keyframe[];
-  exit: Keyframe[];
-}
+type SheetPresentationMotion = OverlayMotion;
 
 /**
  * Keyframes per presentation style. The first enter frame (and last
@@ -316,8 +321,11 @@ interface SheetPresentationMotion {
  * The roll distance shared by the `shade` and `rise` presentations — a short
  * fixed nudge (px, so a tall surface rolls the same light distance as a short
  * one) in place of a full-height `translateY(±100%)` sweep.
+ *
+ * The overlays' one roll distance (`internal/overlay-motion.ts`), so a sheet
+ * and an alert resting on the same rest line rise the same way.
  */
-const SHEET_ROLL_PX = 28;
+const SHEET_ROLL_PX = OVERLAY_ROLL_PX;
 
 /**
  * How far the `settle` exit lowers the panel, in px.
@@ -408,26 +416,9 @@ const SHEET_PRESENTATION_MOTION: Record<TugSheetPresentation, SheetPresentationM
   // makes so short a move read as an entrance rather than a twitch — the roll
   // alone would pop. Opacity targets 1 here (a panel is opaque), where the
   // shade's targets its own `--tugx-shade-alpha`.
-  rise: {
-    enter: [
-      { transform: `translateY(${SHEET_ROLL_PX}px)`, opacity: 0 },
-      { transform: "translateY(0)", opacity: 1 },
-    ],
-    exit: [
-      { transform: "translateY(0)", opacity: 1 },
-      { transform: `translateY(${SHEET_ROLL_PX}px)`, opacity: 0 },
-    ],
-  },
-  "scale-fade": {
-    enter: [
-      { transform: "scale(0.96)", opacity: 0 },
-      { transform: "scale(1)", opacity: 1 },
-    ],
-    exit: [
-      { transform: "scale(1)", opacity: 1 },
-      { transform: "scale(0.96)", opacity: 0 },
-    ],
-  },
+  // The two shapes every overlay draws from, alerts included.
+  rise: OVERLAY_RISE,
+  "scale-fade": OVERLAY_SCALE_FADE,
   // The rise's entrance and a longer, slower descent out of it ([B05]). The
   // two halves are deliberately asymmetric: the panel arrives the way every
   // other bottom-anchored panel arrives, and leaves by going DOWN into the row
@@ -1456,10 +1447,21 @@ export function TugSheetContent({
   // `moveDomFocus: false` (logical state only, key view + first responder); the
   // engine must NOT also move DOM focus in `popFocusMode`, which would double-write
   // against the unmount-autofocus writer.
+  //
+  // Presence: keep the portal mounted during the exit animation.
+  // `mounted` becomes true when open goes true, and false only after the exit animation completes.
+  const [mounted, setMounted] = useState(false);
   const { FocusModeScope } = useFocusTrap({
     // Passive shade ([P17]): no trap — focus stays in the live prompt entry
     // below the shade, which is the message editor for the commit route.
-    active: open && !shadePassive,
+    //
+    // Active while the panel is ON SCREEN — open, or still exiting — not only
+    // while open: the key view's ring and the default button's double ring are
+    // projected only while this mode is current, so a trap popped on close
+    // stripped both from a panel still sliding away. Popping sooner released
+    // nothing the user could reach: the Radix `FocusScope` below holds DOM
+    // focus inside the panel until it unmounts.
+    active: (open || mounted) && !shadePassive,
     closeDisposition: closeDispositionRef,
     deferDomFocusToTeardown: true,
     // [P01] The engine's Escape ladder owns the sheet's Escape now: when the
@@ -1468,9 +1470,6 @@ export function TugSheetContent({
     onEscapeDismiss: requestCancel,
   });
 
-  // Presence: keep the portal mounted during the exit animation.
-  // `mounted` becomes true when open goes true, and false only after the exit animation completes.
-  const [mounted, setMounted] = useState(false);
   // `open` as a ref, for the cleanups that have to tell a CLOSE from an
   // unmount-while-open. Written during render, so a cleanup running for an
   // `open` transition reads the new value and one running for a deletion
@@ -2175,7 +2174,7 @@ export function TugSheetContent({
     // Both arms settle in a microtask, so both can land after the teardown.
     let live = true;
 
-    const g = group({ duration: "--tug-motion-duration-moderate" });
+    const g = group({ duration: OVERLAY_DURATION });
     const isShade = presentation === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
@@ -2283,10 +2282,6 @@ export function TugSheetContent({
     // one, so the lowering lands with the edge (`settleExitTiming`).
     const settle =
       presentation === "settle" ? settleExitTiming(contentEl) : null;
-    const g = group({
-      duration:
-        settle !== null ? settle.durationMs : "--tug-motion-duration-moderate",
-    });
     const isShade = presentation === "shade";
     const motion =
       isShade && shadeAnchor === "bottom"
@@ -2312,26 +2307,29 @@ export function TugSheetContent({
             { ...motion.exit[1], offset: 1 },
           ]
         : motion.exit;
-    g.animate(contentEl, exitFrames, {
-      key: "sheet-content",
-      easing: "ease-in",
-    });
     // The scrim fades a beat before the roll finishes (`SHADE_SCRIM_EXIT_MS` <
     // moderate) and eases out fast — so the dimming reads as already gone the
-    // instant the panel lands, not cut off at the end. The group still waits on
+    // instant the panel lands, not cut off at the end. The exit still waits on
     // the (longer) roll before unmounting.
-    if (isShade && shadeScrimRef.current) {
-      g.animate(shadeScrimRef.current, [{ opacity: 1 }, { opacity: 0 }], {
-        key: "shade-scrim",
-        duration: SHADE_SCRIM_EXIT_MS,
-        easing: "ease-out",
-      });
-    }
-    g.finished.then(() => {
-      setMounted(false);
-    }).catch(() => {
-      // Animation interrupted — unmount anyway to avoid stuck state.
-      setMounted(false);
+    //
+    // The overlays' shared exit (`internal/overlay-motion.ts`): `mounted` goes
+    // false when the exit finishes, when it is interrupted, or at its deadline,
+    // whichever is first. The deadline is what this effect lacked — a sheet
+    // closed in a covered window, whose rAF is suspended, waited on a
+    // `finished` that never settled and stayed mounted.
+    runOverlayExit({
+      duration: settle !== null ? settle.durationMs : OVERLAY_DURATION,
+      tracks: [
+        { el: contentEl, frames: exitFrames, key: "sheet-content" },
+        {
+          el: isShade ? shadeScrimRef.current : null,
+          frames: [{ opacity: 1 }, { opacity: 0 }],
+          key: "shade-scrim",
+          duration: SHADE_SCRIM_EXIT_MS,
+          easing: "ease-out",
+        },
+      ],
+      finish: () => setMounted(false),
     });
   }, [open, mounted, presentation, shadeAnchor]);
 

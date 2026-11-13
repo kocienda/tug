@@ -369,6 +369,17 @@ function bunchedParameter(index: number, count: number, power: number): number {
 }
 
 /**
+ * Whether a run started now would plant: motion on and a non-zero timing
+ * scale. The same test {@link runZoomRects} makes first, for a side that has
+ * to decide something before the run is started by somebody else — the
+ * update wizard, whose close zooms home only when the pill that claims its
+ * rect would actually run.
+ */
+export function zoomRunsCanPlant(): boolean {
+  return isTugMotionEnabled() && getTugTiming() !== 0;
+}
+
+/**
  * Run the rectangles from `from` to `to`.
  *
  * Returns `true` when rectangles were planted and `false` when reduced motion or
@@ -379,9 +390,7 @@ function bunchedParameter(index: number, count: number, power: number): number {
  * caller nothing ([B06]).
  */
 export function runZoomRects(from: ZoomRect, to: ZoomRect, kind: ZoomRunKind = "pill"): boolean {
-  if (!isTugMotionEnabled()) return false;
-  const timing = getTugTiming();
-  if (timing === 0) return false;
+  if (!zoomRunsCanPlant()) return false;
 
   // A new run clears whatever the last one left standing ([B08]). This bumps
   // the token, so the token read below is the new run's.

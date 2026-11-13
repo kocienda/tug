@@ -71,9 +71,14 @@ The trap's focus restore moves to the end of the fade. A second close gesture du
 
 **[B03] One duration for every overlay: `--tug-motion-duration-moderate`, 200 ms.** The user settled this. The alert entrance moves from 150 ms to 200 ms. Easing follows the sheets: `ease-out` in, `ease-in` out. `ModalInputDialog` keeps its 100 ms `fast` fade, because that one is intentional: it is a quick input surface, not a dialog. `SHADE_SCRIM_EXIT_MS` stays, since it is the scrim leaving a beat ahead of the panel inside the 200 ms, not a second duration.
 
-**[B04] One motion table: each alert placement uses the sheet presentation it already resembles.** A centred alert uses `scale-fade` and a rest-line alert uses `rise`, with frames read from `SHEET_PRESENTATION_MOTION` (exported, or lifted beside the helper). Both alert entrances move from CSS keyframes to TugAnimator. As a result, the rest-line alert travels `SHEET_ROLL_PX` (28 px) rather than 8 px.
+**[B04] One motion table: each alert placement uses the sheet presentation it already resembles.** A centred alert uses `scale-fade` and a rest-line alert uses `rise`. The shapes and numbers live in one place, `internal/overlay-motion.ts` (`OVERLAY_SCALE_FADE`, `OVERLAY_RISE`, `OVERLAY_ROLL_PX`, `OVERLAY_SCALE_FROM`), and the sheet's `SHEET_PRESENTATION_MOTION` is built on them. As a result, the rest-line alert travels 28 px rather than 8 px.
 
-The centred alert keeps its centring in `transform: translate(-50%, -50%)`, which an animated `transform` would overwrite. The centring moves to the individual `translate: -50% -50%` property, which composes with an animated `transform`. The rest-line variant does the same with `translate: -50% 0`. The CSS entrance keyframes are deleted.
+*Amended during the work.* The alert's **entrance stays in CSS**, retimed to 200 ms with the 28 px rise, and the centring stays in `transform`. The plan had been to move both entrances to TugAnimator, move the centring to `translate:`, and delete the CSS keyframes. Two things ruled that out:
+
+- The five Radix app-modals draw their entrance from the same `.tug-alert-content[data-state="open"]` rule, so deleting it would strip theirs.
+- `update-tug.css` relies on `transform` doing the centring.
+
+So the alert's exit frames (`alertPanelExitFrames`) restate the centring in every frame, the same way the CSS keyframes do. `tug-alert.css` names the TypeScript constants beside its two numbers. The exit, the part that mattered, runs in TugAnimator as decided.
 
 **[B05] The two zoom dialogs keep their zoom, and the zoom is their exit.** The user settled this: the zoom tells a clearer story about where these surfaces come from.
 
@@ -87,6 +92,12 @@ The centred alert keeps its centring in `transform: translate(-50%, -50%)`, whic
 **[B07] The version gate and `configure-tug` adopt the helper, which needs a presented state that lags the store.** Both read `open` from a store, so Radix closes on the same frame as the store. Each one keeps a local `presented` flag: it goes true with the store, and goes false only when the helper settles. Radix's `open` follows `presented`. The restore gate already holds its last snapshot for its closing frame; these two do the same with their content. If the version gate turns out never to close at runtime ([F06]), it adopts the same code for consistency and nothing more.
 
 **[B08] The work may land directly on `main` from this brief.** The user said so. The change is contained to the overlay components, their CSS and one helper, and every decision it needs is above. Running an arc is still an option, not a requirement.
+
+---
+
+**[B09] A surface's focus trap lasts as long as the surface is on screen, not as long as it is open.** The user settled this on 2026-11-13, after a frame of the dialogs video showed the double ring gone from an alert in mid-fade. The rings (the key view's, and the default button's double ring) are projected only while the surface's focus mode is current, so a trap popped on `open` stripped them from a panel still leaving.
+
+This applies to `TugAlert` (`active: shown`), the workspace-name dialog (`active: presented`) and `TugSheet` (`active: (open || mounted) && !shadePassive`); for sheets the fault was older than this work. It reverses what `useFocusTrap`'s `active` doc used to advise, popping on `open` to "release focus promptly". That released nothing the user could reach: with `deferDomFocusToTeardown`, Radix's focus scope keeps DOM focus inside the panel until it unmounts. The doc now says so.
 
 ---
 
@@ -119,6 +130,12 @@ The centred alert keeps its centring in `transform: translate(-50%, -50%)`, whic
 **Verification:**
 
 - A new app-test closes an alert under `--tug-timing: 0` and again with rAF held (a covered window), then asserts that the body takes a press again within the deadline. This turns [F01]'s hazard into a test.
+  *Done as `at0817-overlay-exit-frees-the-app`.* It checks four closes:
+  - the logout `TugAlert` and the setup wizard are each marked `data-closing` with an animation running on their panel;
+  - with every new WAAPI animation paused, which is what a covered window does to `finished`, the wizard still closes and the overlay's body lock and window claim come off;
+  - the same holds at `--tug-timing: 0`.
 - A matching case covers a sheet closed while its window is covered.
+  *Covered at the unit level instead.* `__tests__/overlay-motion.test.ts` pins the shared contract that the sheet's exit now settles through: one settle, the deadline when `finished` never settles, and no close after a cancel. No sheet app-test was added.
 - `at0559`'s `clearStaleAppModal` helper should become unnecessary. If the new test proves it is, delete it.
+  *Kept.* The layer it clears is the **restore gate**'s, and [B06] leaves that gate's exit exactly as it was, so nothing here proves the helper unnecessary.
 - Run the step's selection through `just app-test-changed`. The alert and sheet are shared primitives, so take the union with `just app-test-select`.

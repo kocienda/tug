@@ -17,11 +17,12 @@
 
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { TriangleAlert } from "lucide-react";
-import { type ReactElement } from "react";
+import { type ReactElement, useRef } from "react";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useHostInfo } from "@/lib/host-info-store";
 import { useVersionGateOpen, requiredMinimumLabel } from "@/lib/macos-support";
 import { usePublishAppModalOpen } from "@/lib/app-modal-store";
+import { useOverlayExit } from "@/components/tugways/internal/overlay-motion";
 import "@/components/tugways/tug-alert.css";
 import "./version-gate.css";
 
@@ -35,11 +36,19 @@ export function VersionGate(): ReactElement {
   // is not inside Radix's focus trap, so ⌘N would open a card behind it.
   usePublishAppModalOpen("version-gate", open);
 
+  // The overlays' shared exit (`internal/overlay-motion.ts`), should the gate
+  // ever close while the app runs: Radix stays open through the fade and
+  // closes when it settles, or at its deadline.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const scrimRef = useRef<HTMLDivElement | null>(null);
+  const { shown } = useOverlayExit({ open, panelRef, scrimRef });
+
   return (
-    <AlertDialog.Root open={open}>
+    <AlertDialog.Root open={shown}>
       <AlertDialog.Portal container={overlayRoot}>
-        <AlertDialog.Overlay className="tug-alert-overlay" />
+        <AlertDialog.Overlay ref={scrimRef} className="tug-alert-overlay" />
         <AlertDialog.Content
+          ref={panelRef}
           className="tug-alert-content tug-version-gate"
           data-slot="tug-version-gate"
           onEscapeKeyDown={(e) => e.preventDefault()}

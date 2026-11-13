@@ -98,12 +98,14 @@ import {
   type ReactNode,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { authStore, useAuth } from "@/lib/auth-store";
 import { useVersionGateOpen, deriveConfigureTugOpen } from "@/lib/macos-support";
 import { usePublishAppModalOpen } from "@/lib/app-modal-store";
+import { useOverlayExit } from "@/components/tugways/internal/overlay-motion";
 import { useAppTransportState } from "@/lib/transport-state-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
@@ -597,6 +599,15 @@ export function ConfigureTug(): ReactElement {
   // a side effect of the derivation above rather than a second source of
   // truth — `open` stays the one answer, and this publishes it outward.
   usePublishAppModalOpen("configure-tug", open);
+
+  // The overlays' shared exit (`internal/overlay-motion.ts`): Radix stays open
+  // through the panel's fade and closes when it settles, or at its deadline.
+  // `open` is still the one answer — the hold is only how long Radix keeps the
+  // panel on screen after it went false, and the app-modal publish above
+  // follows `open`, not the fade.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const scrimRef = useRef<HTMLDivElement | null>(null);
+  const { shown } = useOverlayExit({ open, panelRef, scrimRef });
 
   // The first run is finished when the wizard's own claim on the app lets go:
   // Claude Code installed, logged in, and a session on the deck. That — not
@@ -1152,10 +1163,11 @@ export function ConfigureTug(): ReactElement {
   );
 
   return (
-    <AlertDialog.Root open={open}>
+    <AlertDialog.Root open={shown}>
       <AlertDialog.Portal container={overlayRoot}>
-        <AlertDialog.Overlay className="tug-alert-overlay" />
+        <AlertDialog.Overlay ref={scrimRef} className="tug-alert-overlay" />
         <AlertDialog.Content
+          ref={panelRef}
           className="tug-alert-content configure-tug"
           data-slot="configure-tug"
           aria-describedby={undefined}
