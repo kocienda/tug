@@ -40,14 +40,15 @@ import {
 /**
  * The annotation this click acts on, or `null` when it acts on none.
  *
- * Modified clicks fall through so text selection and the platform's own link
- * gestures keep working; an anchor navigates itself (the host's navigation
- * delegate routes it), and acting here too would open it twice; the tail of a
+ * A ⌘-click acts exactly as a plain click does — the Mac's link gesture
+ * opens what a click opens. A shift-click falls through so it can extend a
+ * text selection; an anchor navigates itself (the host's navigation delegate
+ * routes it), and acting here too would open it twice; the tail of a
  * drag-selection over an annotation is not a click on it; and a kind with no
  * registered click behavior claims nothing.
  */
 function clickedAnnotation(event: MouseEvent): ResolvedAnnotation | null {
-  if (event.button !== 0 || event.metaKey || event.shiftKey) return null;
+  if (event.button !== 0 || event.shiftKey) return null;
   const hit = annotationFromEvent(event);
   if (hit === null) return null;
   if (hit.element instanceof HTMLAnchorElement) return null;
@@ -98,7 +99,7 @@ export function useAnnotationClicks(
     // protection declare it on the element; the rest are left alone so a press
     // inside prose still starts a selection.
     const onMouseDown = (event: MouseEvent): void => {
-      if (event.button !== 0 || event.metaKey || event.shiftKey) return;
+      if (event.button !== 0 || event.shiftKey) return;
       const hit = annotationFromEvent(event);
       if (hit === null) return;
       if (hit.element.dataset.noActivate === undefined) return;

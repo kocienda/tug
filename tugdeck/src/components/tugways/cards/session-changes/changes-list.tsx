@@ -205,7 +205,6 @@ function FilePathLink({
       if (
         event.button !== 0 ||
         isSecondaryPress(event.nativeEvent) ||
-        event.metaKey ||
         event.shiftKey
       ) {
         return;
