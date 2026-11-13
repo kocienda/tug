@@ -33,6 +33,7 @@ import { LOCAL_SLASH_COMMANDS, type LocalSlashCommandSpec } from "@/lib/slash-co
 import { isHiddenSlashCommand, isUnlistedSlashCommand } from "@/lib/slash-supported";
 import { isCompactionLowEffect } from "@/lib/code-session-store/telemetry";
 import { wrapPositionZero } from "./completion-providers/position-zero";
+import { createMentionProvider } from "./completion-providers/mentions";
 import {
   filterCommandProvider,
   localCommandCompletionProvider,
@@ -40,6 +41,9 @@ import {
 } from "./completion-providers/local-commands";
 import type { PromptEntryDelegate } from "./prompt-entry";
 import type { SessionCardServices } from "./session-card";
+
+/** The key the `@` mention provider is held under on each services bag. */
+const MENTION_PROVIDER = Symbol("session-card-mention-provider");
 
 /** Stable empty `@` provider used while services aren't ready. */
 const EMPTY_FILE_COMPLETION_PROVIDER = ((_q: string) => []) as CompletionProvider;
@@ -106,7 +110,21 @@ export function useSessionCardServices(cardId: string): SessionCardServices | nu
 
   const completionProviders = useMemo<Record<string, CompletionProvider>>(
     () => ({
-      "@": services?.fileCompletionProvider ?? EMPTY_FILE_COMPLETION_PROVIDER,
+      // `@` offers the session's files, then sessions and commits searched in
+      // tugcast. The searched kinds hold listeners on the connection, so the
+      // provider is held on the services bag and released with it ([L27]) —
+      // never in React state or an effect ([L02]).
+      "@":
+        services === null
+          ? EMPTY_FILE_COMPLETION_PROVIDER
+          : cardServicesStore.resourceFor(services, MENTION_PROVIDER, () => {
+              const mentions = createMentionProvider({
+                files: services.fileCompletionProvider,
+                projectDir: () => services.projectDir,
+                ownSessionId: () => services.tugSessionId,
+              });
+              return { value: mentions.provider, release: () => mentions.dispose() };
+            }),
       // Position-0 gated: a leading `/` opens the descriptive popup; mid-text
       // yields an empty popup (the inline ghost covers that case instead).
       "/": commandMatchProvider

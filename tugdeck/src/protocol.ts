@@ -775,6 +775,35 @@ export function encodeResolveSessions(ids: readonly string[]): Frame {
   return controlFrame("resolve_sessions", { ids });
 }
 
+/**
+ * Build a `search_sessions` CONTROL request frame — "which sessions on this
+ * machine does this fragment name?", the read behind the composer's `@` popup.
+ *
+ * The **server** searches: this ledger's rows merged with the machine-wide
+ * index, with private sessions, app-test instances and Tug's own activity
+ * left out, and sessions with no callsign left out too. An empty `query` is
+ * the recents list. `projectDir` is the composer's project, whose sessions
+ * rank first.
+ *
+ * CONTROL answers are broadcast, so `requestId` is the caller's own mark on
+ * the ask: `search_sessions_ok` echoes it with the query and the project, and
+ * a caller drops any answer whose id is not the one it is waiting on.
+ */
+export function encodeSearchSessions(opts: {
+  query: string;
+  projectDir: string;
+  requestId: string;
+  limit?: number;
+}): Frame {
+  const params: Record<string, unknown> = {
+    query: opts.query,
+    project_dir: opts.projectDir,
+    request_id: opts.requestId,
+  };
+  if (opts.limit !== undefined) params.limit = opts.limit;
+  return controlFrame("search_sessions", params);
+}
+
 
 /**
  * Build a `trash_session` CONTROL request frame.
@@ -1569,6 +1598,67 @@ export interface ResolvedElsewhere {
   callsign: string | null;
   title: string | null;
   instance: string | null;
+}
+
+/** One session a `search_sessions` request found. */
+export interface SearchedSession {
+  sessionId: string;
+  /** Never empty: a session with no callsign is not offered. */
+  callsign: string;
+  title: string | null;
+  projectDir: string;
+  /** Basename of `projectDir` — the project half of `<project>/<callsign>`. */
+  projectLeaf: string;
+  lastUsedAtMs: number;
+  /** The recording instance when it is not this one, else `null`. */
+  instance: string | null;
+}
+
+/** Decoded `search_sessions_ok` response payload. */
+export interface SearchSessionsOk {
+  query: string;
+  projectDir: string;
+  /** The asker's own mark, echoed; `null` when the request carried none. */
+  requestId: string | null;
+  /** Most relevant first: the asking project's sessions, then recency. */
+  sessions: readonly SearchedSession[];
+}
+
+/**
+ * Type guard + decoder for `search_sessions_ok`. A row missing its id, its
+ * callsign or its project is dropped rather than failing the frame, on the
+ * same terms as `decodeResolveSessionsOk`: none of the three can be defaulted
+ * into a session atom that names anything.
+ */
+export function decodeSearchSessionsOk(payload: unknown): SearchSessionsOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "search_sessions_ok") return null;
+  const sessions: SearchedSession[] = [];
+  if (Array.isArray(obj.sessions)) {
+    for (const entry of obj.sessions) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (typeof e.session_id !== "string" || e.session_id.length === 0) continue;
+      if (typeof e.callsign !== "string" || e.callsign.length === 0) continue;
+      if (typeof e.project_dir !== "string" || e.project_dir.length === 0) continue;
+      sessions.push({
+        sessionId: e.session_id,
+        callsign: e.callsign,
+        title: typeof e.title === "string" && e.title.length > 0 ? e.title : null,
+        projectDir: e.project_dir,
+        projectLeaf: typeof e.project_leaf === "string" ? e.project_leaf : "",
+        lastUsedAtMs: typeof e.last_used_at_ms === "number" ? e.last_used_at_ms : 0,
+        instance: typeof e.instance === "string" ? e.instance : null,
+      });
+    }
+  }
+  return {
+    query: typeof obj.query === "string" ? obj.query : "",
+    projectDir: typeof obj.project_dir === "string" ? obj.project_dir : "",
+    requestId: typeof obj.request_id === "string" ? obj.request_id : null,
+    sessions,
+  };
 }
 
 /**

@@ -216,6 +216,7 @@ import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import type { CompletionProvider, HistoryProvider } from "@/lib/tug-text-types";
+import { createMentionProvider } from "@/components/tugways/cards/completion-providers/mentions";
 import {
   FeedId,
   type OverviewAuthor,
@@ -1797,6 +1798,26 @@ function overviewFileCompletionProvider(): CompletionProvider {
 }
 
 /**
+ * The composer's whole `@` provider: those files, then sessions and commits.
+ * The Overview has no project and no session of its own, so nothing ranks a
+ * session ahead by project, none is left out as the one being typed in, and
+ * commits are the bootstrap workspace's — the same repository the files are
+ * read from. A lazy singleton with the file provider's lifetime: the card is
+ * app-wide, so what it holds on the connection is held for the page.
+ */
+let _mentionProvider: CompletionProvider | null = null;
+function overviewMentionProvider(): CompletionProvider {
+  if (_mentionProvider !== null) return _mentionProvider;
+  if (getConnection() === null) return overviewFileCompletionProvider();
+  _mentionProvider = createMentionProvider({
+    files: overviewFileCompletionProvider(),
+    projectDir: () => overviewCompletionRoot() ?? "",
+    ownSessionId: () => null,
+  }).provider;
+  return _mentionProvider;
+}
+
+/**
  * The absolute directory an `@` mention in the Overview's composer is
  * relative to — the bootstrap workspace, learned from the answers the
  * completion provider above is reading anyway ([B10]).
@@ -1992,7 +2013,7 @@ function OverviewComposer({
   );
 
   const completionProviders = useMemo<Record<string, CompletionProvider>>(
-    () => ({ "@": overviewFileCompletionProvider() }),
+    () => ({ "@": overviewMentionProvider() }),
     [],
   );
 

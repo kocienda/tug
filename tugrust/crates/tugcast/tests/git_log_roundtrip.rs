@@ -103,6 +103,25 @@ async fn git_log_query_honors_limit() {
 }
 
 #[tokio::test]
+async fn git_log_query_with_a_query_searches_the_history() {
+    let repo = make_log_repo();
+    let temp_bank = NamedTempFile::new().expect("temp bank file");
+    let bank_path = temp_bank.path().to_path_buf();
+    drop(temp_bank);
+    let tc = TestTugcast::spawn(repo.path(), bank_path).await;
+    let mut ws = TestWs::connect(tc.port).await;
+
+    ws.send_git_log_search(repo.path(), "gl-rt-q", "SECOND")
+        .await;
+    let resp = ws
+        .await_git_log("gl-rt-q", WIRE_TIMEOUT)
+        .await
+        .expect("git_log response");
+    assert_eq!(subjects(&resp), ["second"], "got {resp:#}");
+    assert_eq!(resp["has_more"], false);
+}
+
+#[tokio::test]
 async fn git_log_query_reads_explicit_root_not_bootstrap() {
     // Bootstrap source-tree is repo A; the query names an UNREGISTERED repo B.
     // The log must come from B (the explicit root), not fall back to A — the

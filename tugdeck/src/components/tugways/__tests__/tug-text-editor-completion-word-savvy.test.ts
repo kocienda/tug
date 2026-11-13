@@ -245,6 +245,33 @@ describe("trailing punctuation is trimmed from the query", () => {
     expect(trimTrailingPunctuation("some-file_v2")).toBe("some-file_v2");
   });
 
+  test("the colon of an exact kind prefix is kept, under @ alone", () => {
+    expect(trimTrailingPunctuation("session:", "@")).toBe("session:");
+    expect(trimTrailingPunctuation("commit:", "@")).toBe("commit:");
+    // Punctuation after the colon is still prose.
+    expect(trimTrailingPunctuation("session:.", "@")).toBe("session:");
+    // An interior colon never needed the exception.
+    expect(trimTrailingPunctuation("session:fa,", "@")).toBe("session:fa");
+    // Any other word sheds its colon as it always did.
+    expect(trimTrailingPunctuation("plan.md:", "@")).toBe("plan.md");
+    expect(trimTrailingPunctuation("sessions:", "@")).toBe("sessions");
+    expect(trimTrailingPunctuation("Session:", "@")).toBe("Session");
+    // And so does every other trigger: `/commit:` is the command, then a colon.
+    expect(trimTrailingPunctuation("commit:", "/")).toBe("commit");
+    expect(trimTrailingPunctuation("commit:")).toBe("commit");
+  });
+
+  test("typing @session: queries with the colon on", () => {
+    const typed = makeState("session: next", 0).update({
+      changes: { from: 0, insert: "@" },
+      selection: EditorSelection.cursor(1),
+      userEvent: "input.type",
+    }).state;
+    const field = typed.field(completionField);
+    expect(field.active).toBe(true);
+    expect(field.query).toBe("session:");
+  });
+
   test("a mention written mid-sentence queries the path, not the clause", () => {
     // The reported flow: "@arc/overview-plan.md; Phase F …". The token
     // ends at whitespace, so without the trim the query carries the

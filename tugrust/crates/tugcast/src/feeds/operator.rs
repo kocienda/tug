@@ -1047,11 +1047,11 @@ impl HistoryScope {
 /// knew it, the instance that recorded it when that is not this one, and
 /// how many segments the line folded into this row.
 #[derive(Debug, Clone)]
-struct HistoryRow {
-    row: SessionRow,
-    source: HistorySource,
-    instance: Option<String>,
-    segments: usize,
+pub(crate) struct HistoryRow {
+    pub(crate) row: SessionRow,
+    pub(crate) source: HistorySource,
+    pub(crate) instance: Option<String>,
+    pub(crate) segments: usize,
 }
 
 /// Whether a project dir is Tug's own machine activity rather than the
@@ -1086,13 +1086,47 @@ fn is_apptest_instance(instance: &str) -> bool {
 /// carrying the line's whole span, started at its first segment's start
 /// and last used at its last segment's. The segment count travels with it.
 fn history_sessions(ctx: &OperatorContext, scope: HistoryScope) -> Result<Vec<HistoryRow>, String> {
-    let own = ctx
-        .ledger
+    let workspace_dirs: Option<Vec<String>> = match scope {
+        HistoryScope::Machine => None,
+        HistoryScope::Workspace => {
+            let mut dirs = ctx
+                .ledger
+                .project_dirs()
+                .map_err(|err| format!("sessions: {err}"))?;
+            dirs.push(crate::session_ledger::stored_project_dir(
+                &ctx.bootstrap_project_dir.to_string_lossy(),
+            ));
+            Some(
+                dirs.iter()
+                    .map(|d| d.trim_end_matches('/').to_string())
+                    .collect(),
+            )
+        }
+    };
+    merged_history_rows(
+        &ctx.ledger,
+        &ctx.session_index_path,
+        workspace_dirs.as_deref(),
+    )
+}
+
+/// The merge behind [`history_sessions`], on the two records it reads rather
+/// than on an [`OperatorContext`], so the composer's session search serves
+/// exactly the sessions the Overview does, under the same exclusions.
+///
+/// `index_dirs` narrows the machine-wide index to the projects named, each
+/// without a trailing `/`; `None` takes every project on the machine. The
+/// ledger's own rows are never narrowed by it.
+pub(crate) fn merged_history_rows(
+    ledger: &SessionLedger,
+    index_path: &Path,
+    index_dirs: Option<&[String]>,
+) -> Result<Vec<HistoryRow>, String> {
+    let own = ledger
         .list_history_rows()
         .map_err(|err| format!("sessions: {err}"))?;
     let this_instance = tugcore::instance::instance_id();
-    let private: std::collections::HashSet<String> = ctx
-        .ledger
+    let private: std::collections::HashSet<String> = ledger
         .private_session_ids()
         .map_err(|err| format!("sessions: {err}"))?
         .into_iter()
@@ -1113,30 +1147,15 @@ fn history_sessions(ctx: &OperatorContext, scope: HistoryScope) -> Result<Vec<Hi
         });
     }
 
-    let workspace_dirs: Vec<String> = match scope {
-        HistoryScope::Machine => Vec::new(),
-        HistoryScope::Workspace => {
-            let mut dirs = ctx
-                .ledger
-                .project_dirs()
-                .map_err(|err| format!("sessions: {err}"))?;
-            dirs.push(crate::session_ledger::stored_project_dir(
-                &ctx.bootstrap_project_dir.to_string_lossy(),
-            ));
-            dirs.iter()
-                .map(|d| d.trim_end_matches('/').to_string())
-                .collect()
-        }
-    };
-    for entry in tugcore::session_index::all_entries(&ctx.session_index_path) {
+    for entry in tugcore::session_index::all_entries(index_path) {
         if is_apptest_instance(&entry.instance) || is_tug_noise_project(&entry.project_dir) {
             continue;
         }
-        if scope == HistoryScope::Workspace
-            && !workspace_dirs
+        if index_dirs.is_some_and(|dirs| {
+            !dirs
                 .iter()
                 .any(|d| d == entry.project_dir.trim_end_matches('/'))
-        {
+        }) {
             continue;
         }
         if by_id.contains_key(&entry.session_id) {

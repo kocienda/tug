@@ -125,6 +125,7 @@ import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling
 import { sessionNameStore } from "@/lib/session-name-store";
 import { subscribeThemeChange } from "@/theme-tokens";
 import type { AtomSegment } from "@/lib/tug-atom-img";
+import { chipMark } from "@/lib/command-atom";
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import type { HistoryProvider, InputAction } from "@/lib/tug-text-types";
@@ -3666,6 +3667,17 @@ export function computeCompletionPosition(
 }
 
 /**
+ * The mark a completion row wears before its label: the one its atom's chip
+ * leads with, for the two kinds whose chip is a pill. A session row gets the
+ * dot and a commit row the ring, so a row reads as the chip it will become;
+ * a file or command row is told apart by its label alone and gets none.
+ */
+export function completionRowMark(atomType: string): "dot" | "ring" | null {
+  const mark = chipMark(atomType);
+  return mark === "dot" || mark === "ring" ? mark : null;
+}
+
+/**
  * Repaint the typeahead popup against `popup` (a `<div>` portaled to
  * the canvas overlay root). Called whenever the typeahead state
  * changes via the per-view subscription installed in
@@ -3718,7 +3730,11 @@ function paintCompletionPopup(
   if (same) {
     for (let k = 0; k < state.filtered.length; k++) {
       const label = items[k]?.querySelector(".tug-completion-menu-label");
-      if (label?.textContent !== state.filtered[k]!.label) {
+      const mark = items[k]?.querySelector(".tug-completion-menu-mark");
+      if (
+        label?.textContent !== state.filtered[k]!.label ||
+        (mark?.getAttribute("data-mark") ?? null) !== completionRowMark(state.filtered[k]!.atom.type)
+      ) {
         same = false;
         break;
       }
@@ -3757,6 +3773,18 @@ function paintCompletionPopup(
         }
       } else {
         label.textContent = item.label;
+      }
+      // The kind mark sits inside the label's box, ahead of its text, so the
+      // label column's tab-stop holds and the description still lines up. It
+      // has no text of its own: the label reads the same to the row check
+      // above and to assistive technology.
+      const markKind = completionRowMark(item.atom.type);
+      if (markKind !== null) {
+        const mark = document.createElement("span");
+        mark.className = "tug-completion-menu-mark";
+        mark.setAttribute("data-mark", markKind);
+        mark.setAttribute("aria-hidden", "true");
+        label.prepend(mark);
       }
       div.appendChild(label);
       // Second column: the command's one-line description, muted and capped

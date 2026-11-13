@@ -132,6 +132,7 @@ import {
   type PositionedAtom,
 } from "./atom-decoration";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
+import { MENTION_KINDS } from "@/lib/mention-kinds";
 import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
 import type {
   CompletionItem,
@@ -466,12 +467,27 @@ const LEADING_TOKEN_PUNCTUATION = "([{<'\"`";
  * next derivation includes it again. Only the tail is affected, so
  * `@my,file.md` still queries in full.
  *
+ * One colon is not punctuation. Under the `@` trigger, `session:` and
+ * `commit:` narrow a mention to one kind, and the narrowing is the colon:
+ * shorn of it, `@session:` would query for files named "session". So a
+ * query that is exactly one of those words and its colon keeps the colon.
+ * `@session:fa` never needed the exception — its colon is interior — and
+ * every other trigger sheds the colon as before, so `/commit:` is still the
+ * `/commit` command followed by a colon.
+ *
  * Pure; exported for the test suite.
  */
-export function trimTrailingPunctuation(query: string): string {
+export function trimTrailingPunctuation(query: string, trigger?: string): string {
   let end = query.length;
   while (end > 0 && TRAILING_TOKEN_PUNCTUATION.includes(query[end - 1]!)) {
     end--;
+  }
+  if (
+    trigger === "@" &&
+    query[end] === ":" &&
+    (MENTION_KINDS as readonly string[]).includes(query.slice(0, end))
+  ) {
+    end++;
   }
   return query.slice(0, end);
 }
@@ -563,12 +579,13 @@ function resolveQueryBound(
  */
 function caretBoundedQuery(
   doc: { sliceString: (from: number, to: number) => string },
+  trigger: string,
   queryStart: number,
   caret: number,
   tokenEnd: number,
 ): string {
   const end = Math.max(queryStart, Math.min(caret, tokenEnd));
-  return trimTrailingPunctuation(doc.sliceString(queryStart, end));
+  return trimTrailingPunctuation(doc.sliceString(queryStart, end), trigger);
 }
 
 /**
@@ -635,11 +652,11 @@ export function deriveQueryUpdate(
   // Liveness is judged against the raw token end (above), the query against
   // the trimmed one: a caret resting after the `;` in `@plan.md;` is still
   // inside its token, so the session stays open on a query of "plan.md".
-  const query = trimTrailingPunctuation(raw);
+  const query = trimTrailingPunctuation(raw, state.trigger);
   const resolved = resolveQueryBound(
     state.trigger,
     query,
-    caretBoundedQuery(doc, queryStart, selection.head, tokenEnd),
+    caretBoundedQuery(doc, state.trigger, queryStart, selection.head, tokenEnd),
     probe,
   );
   if (
@@ -720,6 +737,7 @@ export function detectRejoin(
   if (sel.head > queryEnd) return null;
   const query = trimTrailingPunctuation(
     tr.state.doc.sliceString(found.anchorOffset + 1, queryEnd),
+    found.trigger,
   );
   return {
     provider,
@@ -926,12 +944,14 @@ function completionExtender(
       );
       const query = trimTrailingPunctuation(
         tr.state.doc.sliceString(detected.anchorOffset + 1, queryEnd),
+        detected.trigger,
       );
       const resolved = resolveQueryBound(
         detected.trigger,
         query,
         caretBoundedQuery(
           tr.state.doc,
+          detected.trigger,
           detected.anchorOffset + 1,
           tr.state.selection.main.head,
           queryEnd,
@@ -959,6 +979,7 @@ function completionExtender(
         rejoin.query,
         caretBoundedQuery(
           tr.state.doc,
+          rejoin.trigger,
           rejoin.anchorOffset + 1,
           tr.state.selection.main.head,
           rejoin.anchorOffset + 1 + rejoin.query.length,

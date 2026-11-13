@@ -1,6 +1,6 @@
 //! The session lifecycle family of CONTROL actions: `spawn_session`,
 //! `close_session`, `reset_session`, `list_sessions`, `list_card_bindings`,
-//! `resolve_sessions`, and `request_replay`. The spawn itself
+//! `resolve_sessions`, `search_sessions`, and `request_replay`. The spawn itself
 //! (`do_spawn_session`) lives in the parent with its spawn-state machinery.
 
 use super::super::*;
@@ -29,6 +29,42 @@ fn parse_session_ids_payload(payload: &[u8]) -> Result<Vec<String>, ControlError
         .take(MAX_IDS)
         .map(str::to_owned)
         .collect())
+}
+
+/// A `search_sessions` request: the fragment typed after `@`, the project it
+/// was typed in, how many rows to answer with, and the caller's own id for
+/// the ask, echoed so an answer for a query the user has typed past can be
+/// told from the one still wanted.
+///
+/// Every field is optional — an absent query is the recents list, an absent
+/// project ranks by recency alone — so the only malformed request is one that
+/// is not a JSON object.
+struct SearchSessionsRequest {
+    query: String,
+    project_dir: String,
+    limit: usize,
+    request_id: Option<String>,
+}
+
+fn parse_search_sessions_payload(payload: &[u8]) -> Result<SearchSessionsRequest, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    if !value.is_object() {
+        return Err(ControlError::Malformed);
+    }
+    let text = |key: &str| -> Option<String> {
+        value.get(key).and_then(|v| v.as_str()).map(str::to_owned)
+    };
+    Ok(SearchSessionsRequest {
+        query: text("query").unwrap_or_default(),
+        project_dir: text("project_dir").unwrap_or_default(),
+        limit: value
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(crate::feeds::session_search::DEFAULT_LIMIT),
+        request_id: text("request_id"),
+    })
 }
 
 /// Extract the optional recency `window` from a `request_replay` CONTROL
@@ -154,6 +190,13 @@ impl AgentSupervisor {
             ControlAction::ResolveSessions => match parse_session_ids_payload(payload) {
                 Ok(ids) => {
                     self.do_resolve_sessions(&ids).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            ControlAction::SearchSessions => match parse_search_sessions_payload(payload) {
+                Ok(request) => {
+                    self.do_search_sessions(request).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -624,6 +667,63 @@ impl AgentSupervisor {
             "elsewhere": elsewhere,
             "unknown": unknown,
         });
+        send_control(&self.control_tx, body);
+    }
+
+    /// Answer "which sessions on this machine does this fragment name?" — the
+    /// read behind the composer's `@` popup.
+    ///
+    /// The answer echoes the query, the project and the caller's request id,
+    /// because CONTROL answers are broadcast and a popup must tell its own
+    /// current answer from another composer's and from one it has typed past.
+    /// A ledger-less build answers empty rather than staying silent, as every
+    /// read in this family does. The search reads sqlite twice over, so it
+    /// runs off the reactor.
+    async fn do_search_sessions(&self, request: SearchSessionsRequest) {
+        let SearchSessionsRequest {
+            query,
+            project_dir,
+            limit,
+            request_id,
+        } = request;
+        let outcome = match self.session_ledger.as_ref() {
+            None => Ok(Vec::new()),
+            Some(ledger) => {
+                let ledger = Arc::clone(ledger);
+                let index_path = tugcore::instance::session_index_db_path();
+                let (query, project_dir) = (query.clone(), project_dir.clone());
+                tokio::task::spawn_blocking(move || {
+                    crate::feeds::session_search::search_sessions(
+                        &ledger,
+                        &index_path,
+                        &query,
+                        &project_dir,
+                        limit,
+                    )
+                })
+                .await
+                .unwrap_or_else(|err| Err(format!("search task failed: {err}")))
+            }
+        };
+        let body = match outcome {
+            Ok(sessions) => serde_json::json!({
+                "action": "search_sessions_ok",
+                "query": query,
+                "project_dir": project_dir,
+                "request_id": request_id,
+                "sessions": sessions,
+            }),
+            Err(err) => {
+                warn!(error = %err, "search_sessions: ledger read failed");
+                serde_json::json!({
+                    "action": "search_sessions_err",
+                    "query": query,
+                    "project_dir": project_dir,
+                    "request_id": request_id,
+                    "reason": "ledger_read_failed",
+                })
+            }
+        };
         send_control(&self.control_tx, body);
     }
 

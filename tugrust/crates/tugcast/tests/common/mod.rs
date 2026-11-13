@@ -646,6 +646,24 @@ impl TestWs {
             .expect("send git_log_query frame");
     }
 
+    /// [`Self::send_git_log_query`] with a `query`: a search over the whole
+    /// history rather than a page of the log.
+    pub async fn send_git_log_search(&mut self, root: &Path, request_id: &str, query: &str) {
+        let payload = serde_json::json!({
+            "requestId": request_id,
+            "root": root.to_string_lossy(),
+            "query": query,
+        });
+        let bytes = serde_json::to_vec(&payload).expect("git_log_query json");
+        let frame = Frame::new(FeedId::GIT_LOG_QUERY, bytes);
+        self.sink
+            .lock()
+            .await
+            .send(Message::Binary(frame.encode().into()))
+            .await
+            .expect("send git_log_query frame");
+    }
+
     /// Wait for the single-shot GIT_LOG response whose `request_id` matches,
     /// returning its payload and removing it from the buffer.
     pub async fn await_git_log(

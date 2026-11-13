@@ -60,6 +60,7 @@ control_actions! {
     ListSessions => "list_sessions",
     ListCardBindings => "list_card_bindings",
     ResolveSessions => "resolve_sessions",
+    SearchSessions => "search_sessions",
     RequestReplay => "request_replay",
     RequestInflight => "request_inflight",
 

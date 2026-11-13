@@ -2250,6 +2250,7 @@ impl AgentSupervisor {
             | A::ListSessions
             | A::ListCardBindings
             | A::ResolveSessions
+            | A::SearchSessions
             | A::RequestReplay
             | A::RequestInflight => {
                 self.handle_session_control(action, payload, client_id)

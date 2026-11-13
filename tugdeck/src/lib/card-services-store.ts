@@ -38,6 +38,7 @@ import { TranscriptSettingsStore } from "./transcript-settings-store";
 import { SessionMetadataStore } from "./session-metadata-store";
 import { FileTreeStore, workspaceFeedFilter } from "./filetree-store";
 import { SessionFileCompletion } from "./session-file-completion";
+import { createOwnedResources } from "./owned-resources";
 import { acquireWorkspace, getWorkspace, subscribeWorkspaces } from "./default-workspace-store";
 import { ChangesRouteController } from "./changes-route-controller";
 import { SkillsInventoryStore } from "./skills-inventory-store";
@@ -88,6 +89,8 @@ export interface CardServices {
    * a rebind builds a new bag.
    */
   readonly tugSessionId: string;
+  /** The project directory the card's session is bound to. */
+  readonly projectDir: string;
   readonly codeSessionStore: CodeSessionStore;
   readonly editorStore: EditorSettingsStore;
   readonly transcriptStore: TranscriptSettingsStore;
@@ -251,6 +254,11 @@ class CardServicesStore {
    * wire cut short can be made again for the same one.
    */
   private readonly _transcriptRequested = new WeakMap<CardServices, ReloadReason>();
+  /**
+   * What a layer above this store built for one bag and asked to have
+   * released with it ({@link resourceFor}), keyed by the asker's own symbol.
+   */
+  private readonly _bagResources = createOwnedResources<CardServices>();
   private readonly _listeners = createSubscribable();
   private _bindingUnsub: (() => void) | null = null;
   private _deckUnsub: (() => void) | null = null;
@@ -287,6 +295,23 @@ class CardServicesStore {
       this._reconcile();
     });
     this._reconcile();
+  }
+
+  /**
+   * A resource that lives exactly as long as `services`: made by `make` on
+   * the first ask under `key`, the same value on every ask after, and
+   * released when the bag is torn down ([L27]). This is how a layer this store
+   * may not import — the composer's `@` mention provider, which holds
+   * listeners on the connection — rides the bag's lifetime rather than a
+   * React effect's ([L02]). Asked of a bag already torn down, the resource is
+   * made and released at once, so a late render holds nothing open.
+   */
+  resourceFor<T>(
+    services: CardServices,
+    key: symbol,
+    make: () => { value: T; release: () => void },
+  ): T {
+    return this._bagResources.get(services, key, make);
   }
 
   /**
@@ -865,6 +890,7 @@ class CardServicesStore {
     }
     const services: CardServices = {
       tugSessionId: binding.tugSessionId,
+      projectDir: binding.projectDir,
       codeSessionStore,
       editorStore,
       transcriptStore,
@@ -1005,6 +1031,7 @@ class CardServicesStore {
     services.fileTreeStore.dispose();
     services.fileTreeFeedStore.dispose();
     services.sessionFileCompletion.dispose();
+    this._bagResources.release(services);
     services.skillsInventoryStore.dispose();
     services.hooksInventoryStore.dispose();
     services.sideQuestionStore.dispose();

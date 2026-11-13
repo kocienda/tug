@@ -551,6 +551,74 @@ describe("session ledger CONTROL encoders / decoders", () => {
     expect(decoded?.unknown).toEqual(["0badf00d"]);
   });
 
+  test("encodeSearchSessions carries the query, the project and the caller's mark", async () => {
+    const { encodeSearchSessions } = await import("../protocol");
+    const payload = (frame: { payload: Uint8Array }) =>
+      JSON.parse(new TextDecoder().decode(frame.payload));
+    expect(
+      payload(encodeSearchSessions({ query: "curly", projectDir: "/proj", requestId: "r-1" })),
+    ).toEqual({
+      action: "search_sessions",
+      query: "curly",
+      project_dir: "/proj",
+      request_id: "r-1",
+    });
+    expect(
+      payload(
+        encodeSearchSessions({ query: "", projectDir: "/proj", requestId: "r-2", limit: 3 }),
+      ).limit,
+    ).toBe(3);
+  });
+
+  test("decodeSearchSessionsOk reads the rows and drops one it cannot name", async () => {
+    const { decodeSearchSessionsOk } = await import("../protocol");
+    const decoded = decodeSearchSessionsOk({
+      action: "search_sessions_ok",
+      query: "curly",
+      project_dir: "/proj/alpha",
+      request_id: "r-1",
+      sessions: [
+        {
+          session_id: "0f3c1e5a-1111-2222-3333-444455556666",
+          callsign: "curly-apple",
+          title: "Parser rewrite",
+          project_dir: "/proj/eucit",
+          project_leaf: "eucit",
+          last_used_at_ms: 5000,
+          source: "index",
+          instance: "debug-b",
+        },
+        // No callsign, no project, and not an object: none can be an atom.
+        { session_id: "a", project_dir: "/p" },
+        { session_id: "b", callsign: "odd-kiln" },
+        null,
+      ],
+    });
+    expect(decoded).toEqual({
+      query: "curly",
+      projectDir: "/proj/alpha",
+      requestId: "r-1",
+      sessions: [
+        {
+          sessionId: "0f3c1e5a-1111-2222-3333-444455556666",
+          callsign: "curly-apple",
+          title: "Parser rewrite",
+          projectDir: "/proj/eucit",
+          projectLeaf: "eucit",
+          lastUsedAtMs: 5000,
+          instance: "debug-b",
+        },
+      ],
+    });
+    expect(decodeSearchSessionsOk({ action: "resolve_sessions_ok" })).toBeNull();
+    expect(decodeSearchSessionsOk({ action: "search_sessions_ok" })).toEqual({
+      query: "",
+      projectDir: "",
+      requestId: null,
+      sessions: [],
+    });
+  });
+
   test("decodeResolveSessionsOk returns null for wrong action, and empty for a bare ok", async () => {
     const { decodeResolveSessionsOk } = await import("../protocol");
     expect(decodeResolveSessionsOk({ action: "session_updated" })).toBeNull();

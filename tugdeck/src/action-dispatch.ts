@@ -86,6 +86,7 @@ import {
 import { sessionTagStore } from "./lib/session-tag-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
+import { deliverSessionSearchAnswer } from "./lib/session-search-answers";
 import {
   applyAuthResultPayload,
   applyDownloadEnded,
@@ -117,6 +118,7 @@ import { getAppLifecycle } from "./lib/app-lifecycle";
 import { keyboardAccessStore } from "./keyboard-access-store";
 import {
   decodeResolveSessionsOk,
+  decodeSearchSessionsOk,
   normalizeSessionRow,
 } from "./protocol";
 import type {
@@ -1870,6 +1872,23 @@ export function registerStoreTailActions(): void {
       return;
     }
     sessionCitationStore.applyResolved(decoded);
+  });
+
+  // search_sessions_ok / _err: the answer to a composer's `@` session search.
+  // Every session-mention provider on the page hears it and keeps the one
+  // whose request id is its own. An error is logged and delivered to nobody:
+  // the provider's ask stays unanswered, so its popup offers no sessions and
+  // the next keystroke asks again.
+  registerAction("search_sessions_ok", (payload) => {
+    const decoded = decodeSearchSessionsOk(payload);
+    if (decoded === null) {
+      console.warn("search_sessions_ok: undecodable payload", payload);
+      return;
+    }
+    deliverSessionSearchAnswer(decoded);
+  });
+  registerAction("search_sessions_err", (payload) => {
+    console.warn("search_sessions_err", payload.reason, payload.query);
   });
 
   // session_index_changed: some instance on this machine wrote the shared

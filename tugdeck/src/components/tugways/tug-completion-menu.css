@@ -114,6 +114,30 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+   Item kind mark — a session's dot, a commit's ring
+   ---------------------------------------------------------------------------
+   The same two marks the pills lead with, at the pill's diameter and in the
+   row's own ink, so they follow the selected row's foreground with no rule
+   of their own. A session row's dot is filled; it says "a session" here and
+   carries no phase colour, which a search answer does not know. */
+
+.tug-completion-menu-mark {
+  display: inline-block;
+  box-sizing: border-box;
+  inline-size: var(--tugx-atom-dot-size, 6px);
+  block-size: var(--tugx-atom-dot-size, 6px);
+  margin-inline-end: 6px;
+  border: 1.5px solid currentcolor;
+  border-radius: 999px;
+  /* Centre on the label's x-height rather than sitting on its baseline. */
+  vertical-align: 0.12em;
+}
+
+.tug-completion-menu-mark[data-mark="dot"] {
+  background-color: currentcolor;
+}
+
+/* ---------------------------------------------------------------------------
    Item description — muted second column, wraps to at most two lines
    --------------------------------------------------------------------------- */
 

@@ -27,6 +27,7 @@ export const CONTROL_ACTIONS = [
   "list_sessions",
   "list_card_bindings",
   "resolve_sessions",
+  "search_sessions",
   "request_replay",
   "request_inflight",
 

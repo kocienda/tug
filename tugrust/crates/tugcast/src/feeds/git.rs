@@ -506,12 +506,27 @@ const LOG_TRAILER_SEP: char = '\u{1e}';
 /// than the page needs and reports whether that probe came back, then drops it.
 /// A count (`git rev-list --count`) would walk the whole history to answer a
 /// yes/no question; the extra commit costs one more record.
+///
+/// A `query` that is not empty once trimmed narrows the snapshot to the
+/// commits it names, over the whole of HEAD's history rather than the pages a
+/// client has loaded. A commit matches when its **subject** contains the query
+/// as a fixed string, case-insensitively — and a hex query of four or more
+/// characters is also resolved as a commit prefix, whose commit leads the
+/// matches when it names exactly one ([`resolve_commit_prefix`]).
+///
+/// Under a query `offset` and `limit` page the *matches*, and `has_more` is
+/// measured the same way: one match more than the page is asked for and
+/// dropped. The matches are found first, as bare shas
+/// ([`matching_commit_shas`]), and only the page's own commits are then read in
+/// full, so a query that matches thousands of commits costs one line each
+/// rather than a record with its changed paths.
 pub async fn build_git_log_snapshot(
     repo_dir: &Path,
     request_id: String,
     workspace_key: &str,
     offset: u32,
     limit: u32,
+    query: &str,
 ) -> GitLogSnapshot {
     if !is_within_git_worktree(repo_dir).await {
         return GitLogSnapshot {
@@ -527,54 +542,22 @@ pub async fn build_git_log_snapshot(
     let branch = run_git_line(repo_dir, &["branch", "--show-current"])
         .await
         .unwrap_or_else(|| "(detached)".to_string());
-    let limit_arg = format!("-n{}", limit.saturating_add(1));
-    let skip_arg = format!("--skip={offset}");
-    let mut commits = match git_records(
-        repo_dir,
-        &[
-            "log",
-            // `-z` NUL-terminates each commit record so the final `%b` body
-            // field can span multiple lines without a newline-split
-            // mis-parsing it as a fresh commit.
-            "-z",
-            &skip_arg,
-            &limit_arg,
-            // Fields are `%x1f`-delimited: sha, author name, author date
-            // (short), committer name, committer email, committer date (strict
-            // ISO), subject, the three Tug trailers (the arc trailer for the
-            // History join badge [P09]; `Tug-Session` / `Tug-Session-Id` for
-            // the session citation [P10]) — each empty when absent — then the
-            // multi-line body (`%b`). A trailer's own multi-value separator is
-            // `%x1e` (RS) — NOT `%x00`, which `-z` owns as the record
-            // terminator.
-            //
-            // The arc trailer is read under **both** keys, and git accepts a
-            // repeated `key=` for exactly this: `Tug-Arc:` is what this build
-            // writes, and `Tug-Dash:` is what every commit already on the base
-            // wears. A landed commit is never rewritten, so the retired key is
-            // a read for life rather than a transition.
-            //
-            // Adding a trailer field here REQUIRES widening `parse_git_log`'s
-            // `splitn` cap in the same edit, or the new values glue themselves
-            // to the front of every body.
-            "--format=%H%x1f%an%x1f%ad%x1f%cn%x1f%ce%x1f%cI%x1f%s\
-             %x1f%(trailers:key=Tug-Arc,key=Tug-Dash,valueonly,separator=%x1e)\
-             %x1f%(trailers:key=Tug-Session,valueonly,separator=%x1e)\
-             %x1f%(trailers:key=Tug-Session-Id,valueonly,separator=%x1e)\
-             %x1f%b",
-            // Each commit's changed paths follow its record, so the History
-            // filter can match on the files a commit touched. Paths only —
-            // statuses and line counts stay on the `GIT_COMMIT_FILES` route.
-            "--name-only",
-            "--date=short",
-        ],
-    )
-    .await
-    {
-        Ok(records) => parse_git_log(&records),
-        Err(e) => {
-            warn!(error = %e, "git log failed");
+    let query = query.trim();
+    let mut commits = if query.is_empty() {
+        let limit_arg = format!("-n{}", limit.saturating_add(1));
+        let skip_arg = format!("--skip={offset}");
+        read_git_log(repo_dir, &[&skip_arg, &limit_arg]).await
+    } else {
+        let shas = matching_commit_shas(repo_dir, query, offset, limit.saturating_add(1)).await;
+        if shas.is_empty() {
             Vec::new()
+        } else {
+            // `--no-walk=unsorted` reads exactly the commits named, in the
+            // order named — the order the matches were ranked in — instead of
+            // walking back from each.
+            let mut selection: Vec<&str> = vec!["--no-walk=unsorted"];
+            selection.extend(shas.iter().map(String::as_str));
+            read_git_log(repo_dir, &selection).await
         }
     };
     // The probe commit answered "is there more"; it is not part of this page.
@@ -588,6 +571,120 @@ pub async fn build_git_log_snapshot(
         offset,
         has_more,
         commits,
+    }
+}
+
+/// The commits a search `query` names, as full shas in result order: the
+/// commit a hex query resolves to as a prefix, then every commit on HEAD's
+/// history whose subject contains the query, newest first. `offset` matches
+/// are skipped and at most `take` returned.
+///
+/// Git does the walk and the first cut (`--grep -i -F`), which reads the whole
+/// message; the subject is then checked here, because git has no filter that
+/// reads the subject line alone and a commit whose body merely mentions the
+/// query is not what a typed fragment of a subject is asking for.
+async fn matching_commit_shas(repo_dir: &Path, query: &str, offset: u32, take: u32) -> Vec<String> {
+    let mut shas: Vec<String> = Vec::new();
+    if let Some(sha) = resolve_commit_prefix(repo_dir, query).await {
+        shas.push(sha);
+    }
+    let needle = query.to_lowercase();
+    let grep_arg = format!("--grep={query}");
+    match git_records(
+        repo_dir,
+        &["log", "-z", "-i", "-F", &grep_arg, "--format=%H%x1f%s"],
+    )
+    .await
+    {
+        Ok(records) => {
+            for record in &records {
+                let Some((sha, subject)) =
+                    record.trim_start_matches('\n').split_once(LOG_FIELD_SEP)
+                else {
+                    continue;
+                };
+                // The prefix-resolved commit already leads; a subject match on
+                // the same commit is not a second result.
+                if subject.to_lowercase().contains(&needle) && shas.first().is_none_or(|s| s != sha)
+                {
+                    shas.push(sha.to_string());
+                }
+            }
+        }
+        Err(e) => warn!(error = %e, "git log search failed"),
+    }
+    shas.into_iter()
+        .skip(offset as usize)
+        .take(take as usize)
+        .collect()
+}
+
+/// Resolve a hex `query` of four or more characters as a commit-sha prefix,
+/// returning the full sha when it names exactly one commit.
+///
+/// `^{commit}` tells git which kind of object is wanted, so a prefix shared
+/// with a blob or a tree still resolves. The answer must also *begin* with the
+/// query: `rev-parse` reads a ref of that name before it reads a prefix, and a
+/// branch called `cafe` is not the commit `cafe…` the user typed.
+async fn resolve_commit_prefix(repo_dir: &Path, query: &str) -> Option<String> {
+    if !(4..=40).contains(&query.len()) || !query.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let prefix = query.to_ascii_lowercase();
+    let rev = format!("{prefix}^{{commit}}");
+    run_git_line(repo_dir, &["rev-parse", "--verify", "--quiet", &rev])
+        .await
+        .filter(|sha| sha.starts_with(&prefix))
+}
+
+/// Run the one `git log` whose records [`parse_git_log`] reads, over the
+/// commits `selection` names — a `--skip`/`-n` window for a page of the log, or
+/// `--no-walk` and a list of shas for the commits a search found.
+async fn read_git_log(repo_dir: &Path, selection: &[&str]) -> Vec<GitLogCommit> {
+    let mut args: Vec<&str> = vec![
+        "log",
+        // `-z` NUL-terminates each commit record so the final `%b` body
+        // field can span multiple lines without a newline-split
+        // mis-parsing it as a fresh commit.
+        "-z",
+    ];
+    args.extend_from_slice(selection);
+    args.extend_from_slice(&[
+        // Fields are `%x1f`-delimited: sha, author name, author date
+        // (short), committer name, committer email, committer date (strict
+        // ISO), subject, the three Tug trailers (the arc trailer for the
+        // History join badge [P09]; `Tug-Session` / `Tug-Session-Id` for
+        // the session citation [P10]) — each empty when absent — then the
+        // multi-line body (`%b`). A trailer's own multi-value separator is
+        // `%x1e` (RS) — NOT `%x00`, which `-z` owns as the record
+        // terminator.
+        //
+        // The arc trailer is read under **both** keys, and git accepts a
+        // repeated `key=` for exactly this: `Tug-Arc:` is what this build
+        // writes, and `Tug-Dash:` is what every commit already on the base
+        // wears. A landed commit is never rewritten, so the retired key is
+        // a read for life rather than a transition.
+        //
+        // Adding a trailer field here REQUIRES widening `parse_git_log`'s
+        // `splitn` cap in the same edit, or the new values glue themselves
+        // to the front of every body.
+        "--format=%H%x1f%an%x1f%ad%x1f%cn%x1f%ce%x1f%cI%x1f%s\
+             %x1f%(trailers:key=Tug-Arc,key=Tug-Dash,valueonly,separator=%x1e)\
+             %x1f%(trailers:key=Tug-Session,valueonly,separator=%x1e)\
+             %x1f%(trailers:key=Tug-Session-Id,valueonly,separator=%x1e)\
+             %x1f%b",
+        // Each commit's changed paths follow its record, so the History
+        // filter can match on the files a commit touched. Paths only —
+        // statuses and line counts stay on the `GIT_COMMIT_FILES` route.
+        "--name-only",
+        "--date=short",
+    ]);
+    match git_records(repo_dir, &args).await {
+        Ok(records) => parse_git_log(&records),
+        Err(e) => {
+            warn!(error = %e, "git log failed");
+            Vec::new()
+        }
     }
 }
 
@@ -2037,7 +2134,7 @@ index 1111111..2222222 100644
             git(&repo, &["commit", "-m", &format!("subject\n\n{trailer}")]);
         }
 
-        let snapshot = build_git_log_snapshot(&repo, "gl-t".to_string(), "ws", 0, 20).await;
+        let snapshot = build_git_log_snapshot(&repo, "gl-t".to_string(), "ws", 0, 20, "").await;
         let values: Vec<Option<&str>> = snapshot
             .commits
             .iter()
@@ -2061,7 +2158,7 @@ index 1111111..2222222 100644
     async fn test_build_git_log_snapshot_recent_commits_most_recent_first() {
         let temp = init_log_fixture_repo().await;
         let snapshot =
-            build_git_log_snapshot(temp.path(), "gl-1".to_string(), "ws-key", 0, 20).await;
+            build_git_log_snapshot(temp.path(), "gl-1".to_string(), "ws-key", 0, 20, "").await;
 
         assert!(!snapshot.no_repo);
         assert_eq!(snapshot.request_id, "gl-1");
@@ -2087,7 +2184,8 @@ index 1111111..2222222 100644
     #[tokio::test]
     async fn test_build_git_log_snapshot_honors_limit() {
         let temp = init_log_fixture_repo().await;
-        let snapshot = build_git_log_snapshot(temp.path(), "gl-2".to_string(), "ws", 0, 2).await;
+        let snapshot =
+            build_git_log_snapshot(temp.path(), "gl-2".to_string(), "ws", 0, 2, "").await;
         let subjects: Vec<&str> = snapshot
             .commits
             .iter()
@@ -2103,14 +2201,14 @@ index 1111111..2222222 100644
         let temp = init_log_fixture_repo().await;
 
         // Page two picks up exactly where page one stopped — no overlap, no gap.
-        let page2 = build_git_log_snapshot(temp.path(), "gl-p2".to_string(), "ws", 2, 2).await;
+        let page2 = build_git_log_snapshot(temp.path(), "gl-p2".to_string(), "ws", 2, 2, "").await;
         let subjects: Vec<&str> = page2.commits.iter().map(|c| c.subject.as_str()).collect();
         assert_eq!(subjects, ["first"], "the third commit back, alone");
         assert_eq!(page2.offset, 2, "the request's offset is echoed");
         assert!(!page2.has_more, "the root commit ends the walk");
 
         // Paging past the end is empty, not an error.
-        let past = build_git_log_snapshot(temp.path(), "gl-p3".to_string(), "ws", 99, 2).await;
+        let past = build_git_log_snapshot(temp.path(), "gl-p3".to_string(), "ws", 99, 2, "").await;
         assert!(past.commits.is_empty());
         assert!(!past.has_more);
         assert_eq!(past.offset, 99);
@@ -2121,9 +2219,151 @@ index 1111111..2222222 100644
         // A page that ends flush with the root commit has nothing after it —
         // the probe commit is what proves that, not arithmetic on the count.
         let temp = init_log_fixture_repo().await;
-        let snapshot = build_git_log_snapshot(temp.path(), "gl-b".to_string(), "ws", 0, 3).await;
+        let snapshot =
+            build_git_log_snapshot(temp.path(), "gl-b".to_string(), "ws", 0, 3, "").await;
         assert_eq!(snapshot.commits.len(), 3);
         assert!(!snapshot.has_more);
+    }
+
+    #[tokio::test]
+    async fn test_git_log_search_matches_the_subject_alone() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        GitFixture::init(repo);
+        for message in [
+            "Fix the Parser (a.b) case",
+            "Add a renderer\n\nThe parser is untouched.",
+            "Fix the parser (axb) case",
+        ] {
+            git(repo, &["commit", "--allow-empty", "-m", message]);
+        }
+
+        // Case-insensitive, and a body that mentions the word is not a match.
+        let by_word = build_git_log_snapshot(repo, "s-1".to_string(), "ws", 0, 20, "parser").await;
+        assert_eq!(
+            subjects_of(&by_word),
+            ["Fix the parser (axb) case", "Fix the Parser (a.b) case"],
+            "newest first, subject matches only"
+        );
+        assert!(!by_word.has_more);
+        assert_eq!(by_word.branch, "main");
+
+        // A fixed string: the `.` is a dot, never "any character".
+        let literal = build_git_log_snapshot(repo, "s-2".to_string(), "ws", 0, 20, " (a.b) ").await;
+        assert_eq!(subjects_of(&literal), ["Fix the Parser (a.b) case"]);
+    }
+
+    #[tokio::test]
+    async fn test_git_log_search_resolves_a_sha_prefix_and_leads_with_it() {
+        let temp = init_log_fixture_repo().await;
+        let repo = temp.path();
+        let all = build_git_log_snapshot(repo, "s-all".to_string(), "ws", 0, 20, "").await;
+        let first = all.commits.last().expect("the root commit");
+        assert_eq!(first.subject, "first");
+
+        // Seven characters, upper-cased: a prefix is hex, whatever its case.
+        let prefix = first.sha[..7].to_ascii_uppercase();
+        let found = build_git_log_snapshot(repo, "s-sha".to_string(), "ws", 0, 20, &prefix).await;
+        assert_eq!(
+            found.commits.len(),
+            1,
+            "one commit: {:?}",
+            subjects_of(&found)
+        );
+        assert_eq!(found.commits[0].sha, first.sha);
+        assert_eq!(
+            found.commits[0].files,
+            ["first.txt"],
+            "a found commit is a whole record, changed paths included"
+        );
+
+        // A subject that happens to contain the same hex follows the commit the
+        // prefix names; the prefix's own commit is not listed twice.
+        let subject = format!("revert {}", &first.sha[..7]);
+        git(repo, &["commit", "--allow-empty", "-m", &subject]);
+        let both =
+            build_git_log_snapshot(repo, "s-both".to_string(), "ws", 0, 20, &first.sha[..7]).await;
+        assert_eq!(subjects_of(&both), ["first", subject.as_str()]);
+
+        // Three hex characters are a subject fragment, not a prefix.
+        let short =
+            build_git_log_snapshot(repo, "s-short".to_string(), "ws", 0, 20, &first.sha[..3]).await;
+        assert!(
+            short
+                .commits
+                .iter()
+                .all(|c| c.subject.contains(&first.sha[..3])),
+            "no prefix resolve under four characters: {:?}",
+            subjects_of(&short)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_log_search_reaches_a_commit_far_past_any_page() {
+        let temp = init_deep_log_repo(60);
+        let repo = temp.path();
+
+        // `commit 2` is 58 commits back; a three-row page finds it anyway.
+        let deep = build_git_log_snapshot(repo, "s-deep".to_string(), "ws", 0, 3, "commit 2").await;
+        assert_eq!(
+            subjects_of(&deep),
+            ["commit 29", "commit 28", "commit 27"],
+            "the newest three of the eleven subjects containing the fragment"
+        );
+        assert!(deep.has_more, "eight more matches lie past this page");
+
+        // Offset and limit page the matches, not the log.
+        let last = build_git_log_snapshot(repo, "s-last".to_string(), "ws", 9, 3, "commit 2").await;
+        assert_eq!(subjects_of(&last), ["commit 20", "commit 2"]);
+        assert_eq!(last.offset, 9);
+        assert!(!last.has_more, "the matches end here");
+    }
+
+    #[tokio::test]
+    async fn test_git_log_search_with_no_match_is_empty_not_an_error() {
+        let temp = init_log_fixture_repo().await;
+        for query in ["nothing here says this", "deadbeef"] {
+            let none =
+                build_git_log_snapshot(temp.path(), "s-none".to_string(), "ws", 0, 20, query).await;
+            assert!(none.commits.is_empty(), "{query}: {:?}", subjects_of(&none));
+            assert!(!none.has_more);
+            assert!(!none.no_repo, "an empty answer is still a repository");
+            assert_eq!(none.branch, "main");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_git_log_blank_query_is_the_unfiltered_log() {
+        let temp = init_log_fixture_repo().await;
+        let blank = build_git_log_snapshot(temp.path(), "s-b".to_string(), "ws", 1, 1, "  ").await;
+        assert_eq!(
+            subjects_of(&blank),
+            ["second"],
+            "offset and limit page the log"
+        );
+        assert!(blank.has_more);
+    }
+
+    // -- commit search over the whole history: fixtures --
+
+    fn subjects_of(snapshot: &GitLogSnapshot) -> Vec<&str> {
+        snapshot
+            .commits
+            .iter()
+            .map(|c| c.subject.as_str())
+            .collect()
+    }
+
+    /// A repo of `count` empty commits, `commit 1` oldest, so a search can be
+    /// asked for a commit far deeper than any page a client would hold.
+    fn init_deep_log_repo(count: usize) -> TempDir {
+        let temp = TempDir::new().unwrap();
+        GitFixture::init(temp.path());
+        for n in 1..=count {
+            let subject = format!("commit {n}");
+            git(temp.path(), &["commit", "--allow-empty", "-m", &subject]);
+        }
+        temp
     }
 
     #[tokio::test]
@@ -2149,7 +2389,7 @@ index 1111111..2222222 100644
 
         git(&repo, &["commit", "--allow-empty", "-m", "nothing"]);
 
-        let snapshot = build_git_log_snapshot(&repo, "gl-f".to_string(), "ws", 0, 20).await;
+        let snapshot = build_git_log_snapshot(&repo, "gl-f".to_string(), "ws", 0, 20, "").await;
         let by_subject: Vec<(&str, Vec<&str>)> = snapshot
             .commits
             .iter()
@@ -2179,7 +2419,8 @@ index 1111111..2222222 100644
         // Fresh `git init` (unborn HEAD): a real repo with no commits.
         let temp = TempDir::new().unwrap();
         git(temp.path(), &["init", "-b", "trunk"]);
-        let snapshot = build_git_log_snapshot(temp.path(), "gl-3".to_string(), "ws", 0, 20).await;
+        let snapshot =
+            build_git_log_snapshot(temp.path(), "gl-3".to_string(), "ws", 0, 20, "").await;
         assert!(
             !snapshot.no_repo,
             "an initialized repo is not flagged no_repo"
@@ -2194,7 +2435,8 @@ index 1111111..2222222 100644
     #[tokio::test]
     async fn test_build_git_log_snapshot_non_repo_flags_no_repo() {
         let temp = TempDir::new().unwrap();
-        let snapshot = build_git_log_snapshot(temp.path(), "gl-4".to_string(), "ws", 0, 20).await;
+        let snapshot =
+            build_git_log_snapshot(temp.path(), "gl-4".to_string(), "ws", 0, 20, "").await;
         assert!(snapshot.no_repo);
         assert!(snapshot.commits.is_empty());
         assert_eq!(snapshot.branch, "");
@@ -2207,7 +2449,7 @@ index 1111111..2222222 100644
         let repo = temp.path();
         let head = run_git_line(repo, &["rev-parse", "HEAD"]).await.unwrap();
         git(repo, &["checkout", &head]);
-        let snapshot = build_git_log_snapshot(repo, "gl-5".to_string(), "ws", 0, 20).await;
+        let snapshot = build_git_log_snapshot(repo, "gl-5".to_string(), "ws", 0, 20, "").await;
         assert_eq!(snapshot.branch, "(detached)");
         assert_eq!(
             snapshot.commits.len(),
@@ -2237,7 +2479,7 @@ index 1111111..2222222 100644
             ],
         );
 
-        let snapshot = build_git_log_snapshot(&repo, "gl-6".to_string(), "ws", 0, 20).await;
+        let snapshot = build_git_log_snapshot(&repo, "gl-6".to_string(), "ws", 0, 20, "").await;
         assert_eq!(snapshot.commits.len(), 1);
         assert_eq!(snapshot.commits[0].author, "Ünïcode Nàme");
         assert_eq!(snapshot.commits[0].subject, "", "empty subject stays empty");

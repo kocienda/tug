@@ -54,6 +54,7 @@ pub mod session_digest;
 pub mod session_index_watch;
 pub mod session_metadata;
 pub mod session_scoped;
+pub mod session_search;
 pub mod shell;
 pub mod shell_words;
 pub mod terminal;

@@ -467,7 +467,7 @@ pub(crate) fn feeds(
     });
 
     // Adapter: router sends each GIT_LOG_QUERY frame with its sender's id. Parse `{root,
-    // requestId, offset, limit}`, then run one `git log` there and publish the
+    // requestId, offset, limit, query}`, then run one `git log` there and publish the
     // `GitLogSnapshot` on GIT_LOG to the page that asked. Each request runs in
     // its own task so a slow git invocation never head-of-line-blocks another
     // card's history; within the page, correlation is by `request_id`.
@@ -492,6 +492,10 @@ pub(crate) fn feeds(
             /// first page.
             offset: Option<u32>,
             limit: Option<u32>,
+            /// A search over the whole history: a fragment of a subject, or a
+            /// sha prefix. Absent or empty ⇒ the plain log, and `offset` and
+            /// `limit` then page the log rather than the matches.
+            query: Option<String>,
         }
         while let Some(ClientFrame { client_id, frame }) = gl_input_rx.recv().await {
             let raw = match serde_json::from_slice::<RawLogQuery>(&frame.payload) {
@@ -531,6 +535,7 @@ pub(crate) fn feeds(
             // has already scrolled through, in one shot, so the list never
             // shrinks under the reader.
             let limit = raw.limit.unwrap_or(20).clamp(1, 1000);
+            let query = raw.query.unwrap_or_default();
             let response_tx = gl_response_tx_loop.clone();
             tokio::spawn(async move {
                 let snapshot = crate::feeds::git::build_git_log_snapshot(
@@ -539,6 +544,7 @@ pub(crate) fn feeds(
                     &workspace_key,
                     offset,
                     limit,
+                    &query,
                 )
                 .await;
                 match serde_json::to_vec(&snapshot) {
