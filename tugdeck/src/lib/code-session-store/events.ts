@@ -637,12 +637,12 @@ export interface ClearJobsActionEvent {
 export type ContextBreakdownEvent = WireEvent<Wire.ContextBreakdown>;
 
 /**
- * `add_directory_result` — tugcode's answer to an `/add-dir` grant: granted,
- * or refused with the reason. Projected onto
- * `CodeSessionSnapshot.lastDirectoryGrant`; no phase transition, since a
- * grant can be answered in any phase.
+ * `directory_result` — tugcode's answer to an `/add-dir` grant or a folder
+ * removal: done, or refused with the reason. Projected onto
+ * `CodeSessionSnapshot.lastDirectoryResult`; no phase transition, since
+ * either can be answered in any phase.
  */
-export type AddDirectoryResultEvent = WireEvent<Wire.AddDirectoryResult>;
+export type DirectoryResultEvent = WireEvent<Wire.DirectoryResult>;
 
 /**
  * `cost_update` — telemetry frame carrying cumulative dollar cost and
@@ -1616,7 +1616,7 @@ export type CodeSessionEvent =
   | CostUpdateEvent
   | StreamingUsageEvent
   | ContextBreakdownEvent
-  | AddDirectoryResultEvent
+  | DirectoryResultEvent
   | ApiRetryEvent
   | ModelRefusalFallbackEvent
   | OutputTruncatedEvent

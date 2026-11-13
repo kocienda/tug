@@ -16,6 +16,7 @@ import type {
   ModelChange,
   EffortChange,
   AddDirectory,
+  RemoveDirectory,
   SessionCommand,
   SessionStageSpec,
   StopTask,
@@ -42,6 +43,7 @@ export type {
   ModelChange,
   EffortChange,
   AddDirectory,
+  RemoveDirectory,
   SessionCommand,
   SessionStageSpec,
   StopTask,
@@ -105,6 +107,10 @@ export function isEffortChange(msg: InboundMessage): msg is EffortChange {
 
 export function isAddDirectory(msg: InboundMessage): msg is AddDirectory {
   return msg.type === "add_directory";
+}
+
+export function isRemoveDirectory(msg: InboundMessage): msg is RemoveDirectory {
+  return msg.type === "remove_directory";
 }
 
 export function isSessionCommand(msg: InboundMessage): msg is SessionCommand {

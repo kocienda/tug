@@ -1,6 +1,7 @@
 /**
  * add-directory.test.ts — a folder grant is applied live, keeps the whole
- * list, and survives every respawn as `--add-dir`.
+ * list, and survives every respawn as `--add-dir`; a removal takes it back
+ * out, live or by a respawn in place.
  *
  * Claude Code's `apply_flag_settings` replaces the directory list it last
  * received, validates nothing, and dies with the process. So tugcode must
@@ -8,9 +9,13 @@
  * keep a folder only once claude has accepted it, and re-apply the list as
  * `--add-dir` flags when it spawns again.
  *
- * Every grant is answered on an `add_directory_result` frame — granted with
- * the whole list, or refused with the reason — never an `error` frame, which
- * would put the card in its errored state over a mistyped path.
+ * The request cannot withdraw a folder claude was spawned with, since
+ * `--add-dir` is a layer it does not replace; removing one of those respawns
+ * claude with a list that leaves it out.
+ *
+ * Every grant and removal is answered on a `directory_result` frame — done
+ * with the whole list, or refused with the reason — never an `error` frame,
+ * which would put the card in its errored state over a mistyped path.
  *
  * The manager runs for real; only the two spawn primitives (`Bun.which`,
  * `Bun.spawn`) are stubbed, claude's stdin is a recorder, and stdout is
@@ -142,10 +147,10 @@ async function tick(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
-/** The `add_directory_result` frames written so far, once flushed. */
+/** The `directory_result` frames written so far, once flushed. */
 async function results(): Promise<any[]> {
   await drainPendingWrites();
-  return frames.filter((f) => f.type === "add_directory_result");
+  return frames.filter((f) => f.type === "directory_result");
 }
 
 /** The `system_metadata` frames written so far, once flushed. */
@@ -177,6 +182,7 @@ describe("a grant is applied live", () => {
     expect(spawns.length).toBe(0);
     const [result] = await results();
     expect(result).toMatchObject({
+      op: "add",
       directory: dirA,
       ok: true,
       additional_directories: [dirA],
@@ -289,7 +295,7 @@ describe("the deck learns the session's folders", () => {
     await grant;
     await drainPendingWrites();
     const kinds = frames.map((f) => f.type);
-    expect(kinds.indexOf("system_metadata")).toBeLessThan(kinds.indexOf("add_directory_result"));
+    expect(kinds.indexOf("system_metadata")).toBeLessThan(kinds.indexOf("directory_result"));
     const [meta] = await metadata();
     expect(meta.additional_directories).toEqual([dirA]);
     expect(meta.model).toBeUndefined();
@@ -386,5 +392,175 @@ describe("the folders a session holds across launches", () => {
     await m.handleNewSession();
     expect(m.additionalDirectories).toEqual([]);
     expect(addDirs(spawns[spawns.length - 1]).length).toBe(1);
+  });
+});
+
+/** A manager whose live claude was spawned with `dirs` by `--add-dir`. */
+async function spawnedWith(dirs: string[]): Promise<{ m: any; written: string[] }> {
+  const m = manager([], dirs);
+  const written: string[] = [];
+  (Bun as unknown as { spawn: unknown }).spawn = (cmd: string[]) => {
+    spawns.push(cmd.slice(1));
+    return fakeProcess(written);
+  };
+  await m.handleEffortChange("high");
+  await drainPendingWrites();
+  spawns = [];
+  frames = [];
+  return { m, written };
+}
+
+describe("a removal takes a granted folder back out", () => {
+  test("a folder only the flag layer granted goes with the shorter list, no respawn", async () => {
+    const written: string[] = [];
+    const m = manager(written);
+    const grant = m.handleAddDirectory(dirA);
+    const grantB = m.handleAddDirectory(dirB);
+    await tick();
+    answer(m, flagRequests(written)[0].request_id);
+    await grant;
+    await tick();
+    answer(m, flagRequests(written)[1].request_id);
+    await grantB;
+    await drainPendingWrites();
+    frames = [];
+    const removal = m.handleRemoveDirectory(dirA + "/");
+    await tick();
+    const requests = flagRequests(written);
+    expect(requests.length).toBe(3);
+    expect(requests[2].list).toEqual([dirB]);
+    answer(m, requests[2].request_id);
+    await removal;
+    expect(m.additionalDirectories).toEqual([dirB]);
+    expect(spawns.length).toBe(0);
+    const [result] = await results();
+    expect(result).toMatchObject({
+      op: "remove",
+      directory: dirA + "/",
+      ok: true,
+      additional_directories: [dirB],
+    });
+    expect((await metadata()).at(-1).additional_directories).toEqual([dirB]);
+  });
+
+  test("the folder leaves the reported list too, so the deck stops showing it", async () => {
+    const written: string[] = [];
+    const m = manager(written, [dirA]);
+    m.handleClaudeLine(
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: SID,
+        cwd: "/tmp",
+        additional_directories: [tugDataRoot(), dirA],
+      }),
+    );
+    frames = [];
+    const removal = m.handleRemoveDirectory(dirA);
+    await tick();
+    answer(m, flagRequests(written)[0].request_id);
+    await removal;
+    expect(m.reportedDirectories).toEqual([]);
+    expect((await metadata()).at(-1).additional_directories).toEqual([]);
+    const kinds = frames.map((f) => f.type);
+    expect(kinds.indexOf("system_metadata")).toBeLessThan(kinds.indexOf("directory_result"));
+  });
+
+  test("a removal waits behind a grant in flight, and its list carries that grant", async () => {
+    const written: string[] = [];
+    const m = manager(written, [dirA]);
+    const grant = m.handleAddDirectory(dirB);
+    const removal = m.handleRemoveDirectory(dirA);
+    await tick();
+    expect(flagRequests(written).length).toBe(1);
+    answer(m, flagRequests(written)[0].request_id);
+    await grant;
+    await tick();
+    const requests = flagRequests(written);
+    expect(requests.length).toBe(2);
+    expect(requests[1].list).toEqual([dirB]);
+    answer(m, requests[1].request_id);
+    await removal;
+    expect(m.additionalDirectories).toEqual([dirB]);
+  });
+
+  test("a folder claude was spawned with is removed by a respawn that leaves it out", async () => {
+    const { m, written } = await spawnedWith([dirA, dirB]);
+    frames = [];
+    await m.handleRemoveDirectory(dirA);
+    expect(flagRequests(written).length).toBe(0);
+    expect(spawns.length).toBe(1);
+    expect(addDirs(spawns[0]).slice(1)).toEqual([dirB]);
+    expect(m.additionalDirectories).toEqual([dirB]);
+    const [result] = await results();
+    expect(result).toMatchObject({ op: "remove", ok: true, additional_directories: [dirB] });
+  });
+
+  test("a folder granted since the spawn does not respawn", async () => {
+    const { m, written } = await spawnedWith([dirA]);
+    const grant = m.handleAddDirectory(dirB);
+    await tick();
+    answer(m, flagRequests(written)[0].request_id);
+    await grant;
+    const removal = m.handleRemoveDirectory(dirB);
+    await tick();
+    expect(flagRequests(written)[1].list).toEqual([dirA]);
+    answer(m, flagRequests(written)[1].request_id);
+    await removal;
+    expect(spawns.length).toBe(0);
+    expect(m.additionalDirectories).toEqual([dirA]);
+  });
+
+  test("a removal that needs a respawn is refused while a turn is running", async () => {
+    const { m } = await spawnedWith([dirA]);
+    m.activeTurn = {};
+    frames = [];
+    await m.handleRemoveDirectory(dirA);
+    expect(spawns.length).toBe(0);
+    expect(m.additionalDirectories).toEqual([dirA]);
+    const [result] = await results();
+    expect(result).toMatchObject({ op: "remove", ok: false, additional_directories: [dirA] });
+    expect(result.reason).toContain("only between turns");
+    m.activeTurn = null;
+  });
+
+  test("before claude is up the folder is dropped and the first spawn never carries it", async () => {
+    const m = manager([], [dirA, dirB]);
+    m.claudeProcess = null;
+    await m.handleRemoveDirectory(dirA);
+    expect(m.additionalDirectories).toEqual([dirB]);
+    await m.handleEffortChange("high");
+    expect(addDirs(spawns[0]).slice(1)).toEqual([dirB]);
+  });
+});
+
+describe("a removal that cannot be done is refused", () => {
+  test("a folder the session does not hold, or a relative path, is refused before anything is sent", async () => {
+    const written: string[] = [];
+    const m = manager(written, [dirA]);
+    await m.handleRemoveDirectory(dirB);
+    await m.handleRemoveDirectory("relative/dir");
+    expect(written.length).toBe(0);
+    expect(m.additionalDirectories).toEqual([dirA]);
+    const refused = await results();
+    expect(refused.map((r) => [r.op, r.ok])).toEqual([
+      ["remove", false],
+      ["remove", false],
+    ]);
+    expect(refused[0].reason).toContain("is not a folder this session was granted");
+    expect(refused[1].reason).toContain("is not an absolute path");
+    expect(await metadata()).toEqual([]);
+  });
+
+  test("an error answer refuses the removal and keeps the folder", async () => {
+    const written: string[] = [];
+    const m = manager(written, [dirA]);
+    const removal = m.handleRemoveDirectory(dirA);
+    await tick();
+    answer(m, flagRequests(written)[0].request_id, "settings rejected");
+    await removal;
+    expect(m.additionalDirectories).toEqual([dirA]);
+    const [result] = await results();
+    expect(result.reason).toBe(`${dirA}: settings rejected`);
   });
 });

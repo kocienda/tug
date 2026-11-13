@@ -884,17 +884,20 @@ export interface ContextBreakdownCategory {
 }
 
 /**
- * The answer to the session's latest `/add-dir` grant
- * (`add_directory_result`): whether the folder was granted, and why not when
+ * The answer to the session's latest folder grant or removal
+ * (`directory_result`): which it was, whether it was done, and why not when
  * it was refused. The session's folder list itself is the metadata store's
  * (`SessionMetadataSnapshot.additionalDirectories`), which a granted folder
- * has already reached when this lands. A fresh object per answer, so two
- * refusals of the same folder are two answers.
+ * has already reached, and a removed one already left, when this lands. A
+ * fresh object per answer, so two refusals of the same folder are two
+ * answers.
  */
-export interface DirectoryGrantSnapshot {
+export interface DirectoryResultSnapshot {
+  /** `add` for a grant, `remove` for a removal. */
+  op: "add" | "remove";
   directory: string;
   ok: boolean;
-  /** Why the grant was refused; `null` when granted. */
+  /** Why the request was refused; `null` when it was done. */
   reason: string | null;
 }
 
@@ -1351,10 +1354,10 @@ export interface CodeSessionSnapshot {
    */
   lastContextBreakdown: ContextBreakdownSnapshot | null;
   /**
-   * The answer to the latest `/add-dir` grant, `null` until one lands. The
-   * reference changes only when a new answer does ([L02]).
+   * The answer to the latest folder grant or removal, `null` until one
+   * lands. The reference changes only when a new answer does ([L02]).
    */
-  lastDirectoryGrant: DirectoryGrantSnapshot | null;
+  lastDirectoryResult: DirectoryResultSnapshot | null;
   lastError: {
     cause:
       | "session_state_errored"

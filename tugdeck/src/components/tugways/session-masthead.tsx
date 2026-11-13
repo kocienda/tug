@@ -70,20 +70,23 @@
 import "./masthead-frame.css";
 import "./session-masthead.css";
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createPortal } from "react-dom";
 import { TugKeyValueRow } from "@/components/tugways/tug-key-value-row";
-import { FolderOpenDot, Summary } from "lucide-react";
+import { FolderOpenDot, Summary, X } from "lucide-react";
 
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   TugPopover,
   TugPopoverAnchor,
   TugPopoverContent,
   TugPopoverTrigger,
+  type TugPopoverHandle,
 } from "@/components/tugways/tug-popover";
+import { registerSessionSummaryOpener } from "@/lib/session-summary-door";
 import {
   TugPopupListEmpty,
   TugPopupListFrame,
@@ -121,6 +124,15 @@ import { cardServicesStore } from "@/lib/card-services-store";
 import { bodyFactsStore } from "@/lib/body-facts-store";
 import { hostFactsStore } from "@/lib/host-facts-store";
 import { displayPath } from "@/lib/memory-destinations";
+import {
+  classifyDirectory,
+  directoryRemover,
+  foreignDirectoryNote,
+  removalQuestion,
+  type DirectoryOrigin,
+} from "@/lib/directory-grant";
+import { PermissionRulesStore } from "@/lib/permission-rules-store";
+import type { PermissionsSnapshot } from "@/lib/permission-rules";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useSessionBranch } from "@/lib/changeset-all-store";
 import { useOverview } from "@/lib/overview-store";
@@ -470,14 +482,27 @@ const NO_DIRECTORIES: readonly string[] = Object.freeze([]);
 
 /**
  * A folder named in the summary, as a link that opens it in the Finder. The
- * full canonical path rides the tooltip; the row shows it `~`-abbreviated.
+ * full canonical path rides the tooltip, with `note` below it when the folder
+ * has more to say; the row shows it `~`-abbreviated.
  */
-function TelemetryFolderLink({ path, home }: { path: string; home: string }): React.ReactElement {
+function TelemetryFolderLink({
+  path,
+  home,
+  note,
+  lineRef,
+}: {
+  path: string;
+  home: string;
+  note?: string;
+  lineRef?: React.Ref<HTMLButtonElement>;
+}): React.ReactElement {
   return (
     <button
+      ref={lineRef}
       type="button"
       className="session-masthead-telemetry-directory"
-      title={path}
+      data-path={path}
+      title={note === undefined ? path : `${path}\n${note}`}
       onClick={() => openPathInOS(path, "folder")}
     >
       {displayPath(path, home)}
@@ -523,14 +548,36 @@ function TelemetryProjectRow({ projectDir }: { projectDir: string }): React.Reac
  * wire reports Claude holds, granted folders, remembered ones and ones from
  * settings alike — rather than what Tug believes it sent. A body card's
  * metadata store lives in its own page, so its folders arrive on the card's
- * facts. There is no remove affordance: Claude Code has no remove, a
- * session's grant ends with the session, and a remembered folder is removed
- * in the Permission Rules editor's Workspace tab.
+ * facts.
+ *
+ * Each folder Tug can take away carries an always-visible `x` at the end of
+ * its line, in the row's action track: a slot per line, the line's own
+ * height, so each `x` sits beside its folder. Whether a folder can be taken
+ * away is its origin ({@link classifyDirectory}), read against the project's
+ * settings once they have been read — before that no `x` is offered, since
+ * an unread file cannot say a folder is not also granted there. A folder a
+ * user or shared-project scope grants has no `x`; its tooltip names the scope
+ * and points at Permission Rules. Where the card's stores are in another page
+ * (a body card read from the shell), nothing here can remove, so no `x`.
+ *
+ * The `x` opens one controlled confirm, anchored to the folder's line rather
+ * than the `x`, as the confirm's own notes ask. The Summary does not close
+ * under it: the confirm is rendered inside the Summary's React tree, so the
+ * press that lands in it is not outside the Summary. Confirming hands the
+ * removal to the card ({@link directoryRemover}), whose turn guard refuses it
+ * mid-turn — at the `x` and again at the confirm — and whose bulletin says
+ * "removed" only once the folder has left the list.
  *
  * A LEAF for the reason `TelemetryBirthRow` is one: its subscriptions exist
  * only while the panel is open.
  */
-function TelemetryDirectoriesRow({ cardId }: { cardId: string | undefined }): React.ReactElement | null {
+function TelemetryDirectoriesRow({
+  cardId,
+  projectDir,
+}: {
+  cardId: string | undefined;
+  projectDir: string;
+}): React.ReactElement | null {
   const services = useSyncExternalStore(cardServicesStore.subscribe, () =>
     cardId === undefined ? null : cardServicesStore.getServices(cardId),
   );
@@ -545,7 +592,28 @@ function TelemetryDirectoriesRow({ cardId }: { cardId: string | undefined }): Re
   );
   const home = useHome();
   const directories = metadata !== null ? own : body;
+  const rules = useProjectRules(metadata !== null ? projectDir : "", directories);
+  const lines = useRef(new Map<string, HTMLElement>());
+  const [pending, setPending] = React.useState<{
+    directory: string;
+    origin: DirectoryOrigin;
+    anchor: HTMLElement;
+  } | null>(null);
   if (directories.length === 0) return null;
+  const project = displayPath(projectDir, home);
+  const folders = directories.map((dir) => ({
+    dir,
+    origin:
+      rules === null
+        ? null
+        : classifyDirectory({ directory: dir, sessionDirectories: directories, rules, home }),
+  }));
+  const ask = (dir: string, origin: DirectoryOrigin): void => {
+    const remover = cardId === undefined ? undefined : directoryRemover(cardId);
+    const anchor = lines.current.get(dir);
+    if (remover === undefined || anchor === undefined || !remover.ready()) return;
+    setPending({ directory: dir, origin, anchor });
+  };
   return (
     <TugKeyValueRow
       className="session-masthead-telemetry-row"
@@ -553,16 +621,95 @@ function TelemetryDirectoriesRow({ cardId }: { cardId: string | undefined }): Re
       label="DIRECTORIES"
       labelClassName="session-masthead-telemetry-label"
       valueClassName="session-masthead-telemetry-value"
-      trailing={null}
+      trailing={
+        <>
+          {folders.map(({ dir, origin }) => (
+            <span key={dir} className="session-masthead-telemetry-remove-slot">
+              {origin !== null && (origin.kind === "session" || origin.kind === "remembered") ? (
+                <TugIconButton
+                  size="2xs"
+                  icon={<X />}
+                  data-slot="session-masthead-telemetry-remove"
+                  data-path={dir}
+                  aria-label={`Remove ${displayPath(dir, home)}`}
+                  onClick={() => ask(dir, origin)}
+                />
+              ) : null}
+            </span>
+          ))}
+          <TugConfirmPopover
+            open={pending !== null}
+            anchorEl={pending?.anchor ?? null}
+            message={
+              pending === null
+                ? ""
+                : removalQuestion({
+                    shown: displayPath(pending.directory, home),
+                    origin: pending.origin,
+                    project,
+                  })
+            }
+            confirmLabel="Remove"
+            cancelLabel="Cancel"
+            confirm={{ role: "danger" }}
+            side="bottom"
+            align="start"
+            arrow
+            onConfirm={() => {
+              const armed = pending;
+              setPending(null);
+              if (armed === null || cardId === undefined) return;
+              void directoryRemover(cardId)?.remove(armed.directory, armed.origin);
+            }}
+            onCancel={() => setPending(null)}
+          />
+        </>
+      }
       trailingClassName="session-masthead-telemetry-action"
     >
       <span className="session-masthead-telemetry-directories">
-        {directories.map((dir) => (
-          <TelemetryFolderLink key={dir} path={dir} home={home} />
+        {folders.map(({ dir, origin }) => (
+          <TelemetryFolderLink
+            key={dir}
+            path={dir}
+            home={home}
+            note={origin?.kind === "foreign" ? foreignDirectoryNote(origin.scope) : undefined}
+            lineRef={(el) => {
+              if (el === null) lines.current.delete(dir);
+              else lines.current.set(dir, el);
+            }}
+          />
         ))}
       </span>
     </TugKeyValueRow>
   );
+}
+
+/**
+ * The project's settings, as the Permission Rules editor reads them, or null
+ * until a read has landed (and for no project). Read when the row mounts and
+ * again whenever the session's list moves, since a grant remembered or a
+ * rule forgotten changes what the files hold.
+ */
+function useProjectRules(
+  projectDir: string,
+  directories: readonly string[],
+): PermissionsSnapshot | null {
+  const rulesStore = React.useMemo(
+    () => (projectDir.length > 0 ? new PermissionRulesStore(projectDir) : null),
+    [projectDir],
+  );
+  useEffect(() => {
+    void rulesStore?.load();
+  }, [rulesStore, directories]);
+  // One read: the snapshot once a load has landed, `null` before it. The
+  // store assigns a fresh snapshot only on a change, so the reference holds
+  // still between them ([L02]).
+  const readRules = useCallback(
+    () => (rulesStore !== null && rulesStore.isLoaded() ? rulesStore.getSnapshot() : null),
+    [rulesStore],
+  );
+  return useSyncExternalStore(rulesStore?.subscribe ?? NOOP_SUBSCRIBE, readRules, () => null);
 }
 
 /** Stable no-op subscribe for a card whose services aren't constructed yet. */
@@ -606,6 +753,20 @@ export const SessionMasthead = React.memo(function SessionMasthead({
       [cardId],
     ),
   );
+  // The Summary's door for commands that show it (a bare `/remove-dir`). It
+  // opens only when the widget is on screen — with no accessory host there
+  // is no trigger for the popover to hang from. Registered before any
+  // command can reach it ([L03]).
+  const summaryRef = useRef<TugPopoverHandle | null>(null);
+  useLayoutEffect(() => {
+    if (cardId === undefined) return undefined;
+    return registerSessionSummaryOpener(cardId, () => {
+      const summary = summaryRef.current;
+      if (summary === null) return false;
+      summary.open();
+      return true;
+    });
+  }, [cardId]);
   // The branch is telemetry: it rides the record for the panel and never
   // reaches a rendered name.
   const branch = useSessionBranch(projectDir.length > 0 ? projectDir : null);
@@ -905,7 +1066,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
           order for the verbs a card publishes through the items store. */}
       <TugTooltip content="Show this session's summary">
       <span className="tug-pane-title-bar-tooltip-anchor">
-      <TugPopover dismissOnChainActivity={false}>
+      <TugPopover ref={summaryRef} dismissOnChainActivity={false}>
         <TugPopoverTrigger>
           <TugIconButton
             size="sm"
@@ -949,7 +1110,7 @@ export const SessionMasthead = React.memo(function SessionMasthead({
               <TelemetryBirthRow cardId={cardId} createdAtMs={createdAtMs} />
               <TelemetryRow label="BRANCH">{identity.branch ?? "—"}</TelemetryRow>
               <TelemetryProjectRow projectDir={projectDir} />
-              <TelemetryDirectoriesRow cardId={cardId} />
+              <TelemetryDirectoriesRow cardId={cardId} projectDir={projectDir} />
               {/* The two copyable forms sit TOGETHER, the atom directly above
                   the flat citation, each labeled by what a paste of it yields:
                   the atom returns the chip, the citation is flat text for

@@ -665,9 +665,9 @@ export interface SystemMetadata {
    * directory, the Tug data root excluded (it is plumbing every spawn
    * grants). Claude's `system/init` reports them; tugcode also sends its
    * own list on the spawn-time frame and after every granted
-   * `add_directory`, since Claude reports nothing between turns. Present
-   * means the whole list, so an empty one is "none"; absent says nothing
-   * and tugcast's merge keeps the list it holds.
+   * `add_directory` or `remove_directory`, since Claude reports nothing
+   * between turns. Present means the whole list, so an empty one is
+   * "none"; absent says nothing and tugcast's merge keeps the list it holds.
    */
   additional_directories?: string[];
 }
@@ -1068,31 +1068,42 @@ export interface SideQuestionAnswer {
 }
 
 /**
- * tugcode → client answer to an `add_directory` grant: whether the folder
- * was granted, and the session's whole granted list afterwards.
+ * tugcode → client answer to an `add_directory` grant or a
+ * `remove_directory` removal, told apart by `op`: whether it was done, and
+ * the session's whole granted list afterwards.
  *
- * `ok` is `true` when claude accepted the `apply_flag_settings` request that
- * carried the folder, or the folder was already granted, or claude was not
- * yet up and the folder will ride the first spawn's `--add-dir`. It is
- * `false`, with `reason`, when the path is not an absolute path to a
- * directory or claude refused or did not answer the request.
+ * For an `add`, `ok` is `true` when claude accepted the
+ * `apply_flag_settings` request that carried the folder, or the folder was
+ * already granted, or claude was not yet up and the folder will ride the
+ * first spawn's `--add-dir`. It is `false`, with `reason`, when the path is
+ * not an absolute path to a directory or claude refused or did not answer
+ * the request.
+ *
+ * For a `remove`, `ok` is `true` once claude no longer holds the folder:
+ * claude accepted the request carrying the shorter list, or claude was
+ * respawned in place without it, or claude was not up. It is `false`, with
+ * `reason`, when the path is not absolute, the bridge never granted it, a
+ * turn is running and the removal needs a respawn, or claude refused or did
+ * not answer.
  *
  * `additional_directories` is tugcode's own list, the folders this session
- * was granted through the bridge in grant order, after the grant (unchanged
- * by a refusal). It is the confirmation between turns: claude emits no
+ * was granted through the bridge in grant order, afterwards (unchanged by a
+ * refusal). It is the confirmation between turns: claude emits no
  * `system:init` until the next turn, and that `init`'s
  * `additional_directories` is the authority that supersedes this one.
  *
  * Deliberately not an `error` frame, which puts the card in its errored
  * state: a refused folder is a caution, not a broken session.
  */
-export interface AddDirectoryResult {
-  type: "add_directory_result";
+export interface DirectoryResult {
+  type: "directory_result";
+  /** Which request this answers: a grant or a removal. */
+  op: "add" | "remove";
   tug_session_id: string;
-  /** The folder the grant named, as the client sent it. */
+  /** The folder the request named, as the client sent it. */
   directory: string;
   ok: boolean;
-  /** Why the grant was refused; present only when `ok` is false. */
+  /** Why the request was refused; present only when `ok` is false. */
   reason?: string;
   additional_directories: string[];
   ipc_version: number;
@@ -1826,7 +1837,7 @@ export type OutboundMessage =
   | SkillsInventory
   | HooksInventory
   | SideQuestionAnswer
-  | AddDirectoryResult
+  | DirectoryResult
   | StopAllWorkDone
   | PromptAnchor
   | UnknownEvent;
@@ -1891,7 +1902,7 @@ export const OUTBOUND_TAGS = [
   "skills_inventory",
   "hooks_inventory",
   "side_question_answer",
-  "add_directory_result",
+  "directory_result",
   "stop_all_work_done",
   "prompt_anchor",
   "unknown_event",

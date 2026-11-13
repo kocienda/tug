@@ -1,10 +1,12 @@
 /**
- * The answer to an `/add-dir` grant reaches the Session card's snapshot.
+ * The answer to a folder grant or removal reaches the Session card's
+ * snapshot.
  *
- * tugcode answers every grant with an `add_directory_result` — granted, or
- * refused with the reason — on CODE_OUTPUT. The store admits it and projects
- * it onto `lastDirectoryGrant`, a fresh object per answer. It is never an
- * error: a refused folder leaves the session where it was.
+ * tugcode answers every grant and removal with a `directory_result` — done,
+ * or refused with the reason, and which it was on `op` — on CODE_OUTPUT. The
+ * store admits it and projects it onto `lastDirectoryResult`, a fresh object
+ * per answer. It is never an error: a refused folder leaves the session
+ * where it was.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -25,28 +27,30 @@ function constructStore(conn: TestFrameChannel): CodeSessionStore {
   });
 }
 
-/** An `add_directory_result` as tugcode writes it. */
+/** A grant's `directory_result` as tugcode writes it. */
 function result(extra: Record<string, unknown>): Record<string, unknown> {
   return {
-    type: "add_directory_result",
+    type: "directory_result",
+    op: "add",
     tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
     ipc_version: 2,
     ...extra,
   };
 }
 
-describe("CodeSessionStore — add_directory_result", () => {
+describe("CodeSessionStore — directory_result", () => {
   it("a granted folder is the latest answer, with no reason", () => {
     const conn = new TestFrameChannel();
     const store = constructStore(conn);
-    expect(store.getSnapshot().lastDirectoryGrant).toBeNull();
+    expect(store.getSnapshot().lastDirectoryResult).toBeNull();
 
     conn.dispatchDecoded(
       FeedId.CODE_OUTPUT,
       result({ directory: "/u/shared", ok: true, additional_directories: ["/u/shared"] }),
     );
 
-    expect(store.getSnapshot().lastDirectoryGrant).toEqual({
+    expect(store.getSnapshot().lastDirectoryResult).toEqual({
+      op: "add",
       directory: "/u/shared",
       ok: true,
       reason: null,
@@ -69,7 +73,8 @@ describe("CodeSessionStore — add_directory_result", () => {
     );
 
     const snap = store.getSnapshot();
-    expect(snap.lastDirectoryGrant).toEqual({
+    expect(snap.lastDirectoryResult).toEqual({
+      op: "add",
       directory: "/u/missing",
       ok: false,
       reason: "/u/missing does not exist",
@@ -89,12 +94,29 @@ describe("CodeSessionStore — add_directory_result", () => {
     });
 
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, refusal);
-    const first = store.getSnapshot().lastDirectoryGrant;
+    const first = store.getSnapshot().lastDirectoryResult;
     conn.dispatchDecoded(FeedId.CODE_OUTPUT, { ...refusal });
-    const second = store.getSnapshot().lastDirectoryGrant;
+    const second = store.getSnapshot().lastDirectoryResult;
 
     expect(second).toEqual(first);
     expect(second).not.toBe(first);
+  });
+
+  it("a removal's answer says it was a removal", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+
+    conn.dispatchDecoded(
+      FeedId.CODE_OUTPUT,
+      result({ op: "remove", directory: "/u/shared", ok: true, additional_directories: [] }),
+    );
+
+    expect(store.getSnapshot().lastDirectoryResult).toEqual({
+      op: "remove",
+      directory: "/u/shared",
+      ok: true,
+      reason: null,
+    });
   });
 
   it("an answer for another session is not this card's", () => {
@@ -111,6 +133,6 @@ describe("CodeSessionStore — add_directory_result", () => {
       }),
     );
 
-    expect(store.getSnapshot().lastDirectoryGrant).toBeNull();
+    expect(store.getSnapshot().lastDirectoryResult).toBeNull();
   });
 });

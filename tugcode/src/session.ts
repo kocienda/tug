@@ -39,7 +39,7 @@ import type {
   ReplayRelocationOrigin,
   SideQuestion,
   SideQuestionAnswer,
-  AddDirectoryResult,
+  DirectoryResult,
   InterruptNoop,
   StopAllWorkDone,
   SessionStageSpec,
@@ -531,19 +531,30 @@ export class SessionManager {
    */
   private additionalDirectories: string[] = [];
   /**
+   * The `--add-dir` list the live claude was spawned with — what
+   * {@link additionalDirectories} held at its spawn. `apply_flag_settings`
+   * cannot withdraw a folder claude got this way: `--add-dir` is a layer the
+   * flag request does not replace, so a folder in it is still readable after
+   * a request that leaves it out. A removal of one respawns claude in place.
+   */
+  private spawnedDirectories: string[] = [];
+  /**
    * The folders claude's last `system/init` reported, the Tug data root
-   * excluded. They include folders granted other ways — a project's
-   * `permissions.additionalDirectories`, say — that {@link additionalDirectories}
-   * never sees, so the list sent between turns is this and that together.
+   * excluded: those it was spawned with by `--add-dir` and those the flag
+   * layer granted since. A folder granted only by a settings file's
+   * `permissions.additionalDirectories` is readable and not reported. It
+   * lags a grant or a removal until the next turn's `init`, so the list sent
+   * between turns is this and {@link additionalDirectories} together, and a
+   * removal drops its folder from here as well.
    */
   private reportedDirectories: string[] = [];
   /**
-   * The tail of the grants in flight. Grants run one after another so each
-   * request's list includes every folder accepted before it: two sent at once
-   * would each carry a list missing the other's folder, and the later one
-   * would revoke it.
+   * The tail of the grants and removals in flight. They run one after
+   * another so each request's list includes every folder accepted before it
+   * and none removed before it: two sent at once would each carry a list
+   * missing the other's change, and the later one would undo it.
    */
-  private addDirectoryChain: Promise<void> = Promise.resolve();
+  private directoryChain: Promise<void> = Promise.resolve();
   /**
    * In-flight `apply_flag_settings` requests, keyed by control `request_id`,
    * each settled by claude's turn-free `control_response` — caught in
@@ -967,6 +978,9 @@ export class SessionManager {
    * model came to be applied at none of them: a field added beside
    * `currentEffort` reaches only the call site whose author remembered it.
    * Spread this instead, and the next flag lands everywhere at once.
+   *
+   * Every spawn reads its flags here, so this is also where the `--add-dir`
+   * list the spawn carries is recorded, as {@link spawnedDirectories}.
    */
   private liveSpawnConfig(): Pick<
     ClaudeSpawnConfig,
@@ -977,6 +991,7 @@ export class SessionManager {
     | "additionalDirectories"
     | "pluginPrompts"
   > {
+    this.spawnedDirectories = [...this.additionalDirectories];
     return {
       pluginDir: this.getPluginDir(),
       permissionMode: this.permissionManager.getMode(),
@@ -4183,25 +4198,50 @@ export class SessionManager {
    * answers `success`. Before claude is up the folder is simply kept, and the
    * first spawn's `--add-dir` grants it.
    *
-   * Every grant is answered with an `add_directory_result`: granted, with the
-   * whole list, or refused, with the reason — when the path is not a
-   * directory, when claude answers with an error, or when it does not answer
-   * at all.
+   * Every grant is answered with a `directory_result` of `op: "add"`:
+   * granted, with the whole list, or refused, with the reason — when the
+   * path is not a directory, when claude answers with an error, or when it
+   * does not answer at all.
    */
   handleAddDirectory(directory: string): Promise<void> {
-    const grant = this.addDirectoryChain.then(async () => {
+    const grant = this.directoryChain.then(async () => {
       try {
         await this.addDirectory(directory);
         this.emitSessionDirectories();
-        this.emitAddDirectoryResult(directory, null);
+        this.emitDirectoryResult("add", directory, null);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         console.log(`Directory grant refused: ${reason}`);
-        this.emitAddDirectoryResult(directory, reason);
+        this.emitDirectoryResult("add", directory, reason);
       }
     });
-    this.addDirectoryChain = grant;
+    this.directoryChain = grant;
     return grant;
+  }
+
+  /**
+   * Take a folder the bridge granted back out of the session (the bridge's
+   * `/remove-dir`), on the same chain as the grants so neither request
+   * carries a list missing the other's change.
+   *
+   * Answered with a `directory_result` of `op: "remove"`: removed, with the
+   * whole list, once claude no longer holds the folder; or refused, with the
+   * reason, and nothing changed.
+   */
+  handleRemoveDirectory(directory: string): Promise<void> {
+    const removal = this.directoryChain.then(async () => {
+      try {
+        await this.removeDirectory(directory);
+        this.emitSessionDirectories();
+        this.emitDirectoryResult("remove", directory, null);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.log(`Directory removal refused: ${reason}`);
+        this.emitDirectoryResult("remove", directory, reason);
+      }
+    });
+    this.directoryChain = removal;
+    return removal;
   }
 
   /**
@@ -4231,10 +4271,15 @@ export class SessionManager {
     });
   }
 
-  /** Emit the {@link AddDirectoryResult} for one grant; `reason` null is granted. */
-  private emitAddDirectoryResult(directory: string, reason: string | null): void {
-    const frame: AddDirectoryResult = {
-      type: "add_directory_result",
+  /** Emit the {@link DirectoryResult} for one grant or removal; `reason` null is done. */
+  private emitDirectoryResult(
+    op: DirectoryResult["op"],
+    directory: string,
+    reason: string | null,
+  ): void {
+    const frame: DirectoryResult = {
+      type: "directory_result",
+      op,
       tug_session_id: this.sessionId,
       directory,
       ok: reason === null,
@@ -4271,6 +4316,61 @@ export class SessionManager {
     }
     console.log(`Granted directory: ${dir}`);
     this.additionalDirectories = list;
+  }
+
+  /**
+   * Withdraw a granted folder from claude and drop it from the session's
+   * lists. The path need not still exist — a folder deleted from disk is
+   * still one to give back — but it must be one the bridge granted: a folder
+   * held another way is not the bridge's to withdraw.
+   *
+   * How it is withdrawn depends on how the live claude holds it. A folder
+   * only `apply_flag_settings` granted goes with a request carrying the
+   * shorter list. A folder claude was spawned with
+   * ({@link spawnedDirectories}) cannot be withdrawn that way, because
+   * `--add-dir` is a layer the request does not replace, so claude is
+   * respawned in place with a list that leaves it out — refused while a turn
+   * is running, since the respawn would end it. Before claude is up the
+   * folder is simply dropped, and the first spawn never carries it.
+   */
+  private async removeDirectory(directory: string): Promise<void> {
+    const raw = directory.trim();
+    if (!isAbsolute(raw)) {
+      throw new Error(`${raw === "" ? "(empty)" : raw} is not an absolute path`);
+    }
+    const dir = resolvePath(raw);
+    if (!this.additionalDirectories.includes(dir)) {
+      throw new Error(`${dir} is not a folder this session was granted`);
+    }
+    const prior = this.additionalDirectories;
+    const list = prior.filter((d) => d !== dir);
+    if (this.claudeProcess && this.spawnedDirectories.includes(dir)) {
+      if (this.activeTurn !== null) {
+        throw new Error(`${dir} can be removed only between turns`);
+      }
+      // The respawn reads the list through `liveSpawnConfig`, so it is
+      // shortened first and put back if the respawn fails.
+      this.additionalDirectories = list;
+      try {
+        await this.respawn(() => this.respawnInPlace());
+      } catch (err) {
+        this.additionalDirectories = prior;
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(`${dir}: ${reason}`);
+      }
+    } else {
+      if (this.claudeProcess) {
+        try {
+          await this.applyFlagSettings({ permissions: { additionalDirectories: list } });
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          throw new Error(`${dir}: ${reason}`);
+        }
+      }
+      this.additionalDirectories = list;
+    }
+    this.reportedDirectories = this.reportedDirectories.filter((d) => d !== dir);
+    console.log(`Removed directory: ${dir}`);
   }
 
   /**
@@ -4484,6 +4584,16 @@ export class SessionManager {
     // pick it up via `buildClaudeArgs`.
     if (this.sessionId === null || this.sessionId === "") return;
 
+    await this.respawnInPlace();
+  }
+
+  /**
+   * Kill claude and spawn it again on the same conversation, carrying the
+   * live settings — the respawn a setting with no live control request
+   * needs (an effort, a folder claude was spawned with). Run under
+   * {@link respawn}.
+   */
+  private async respawnInPlace(): Promise<void> {
     await this.killAndCleanup();
     const mode = this.liveRespawnMode();
     this.claudeProcess = this.spawnClaude(this.liveRespawnId(mode), mode);

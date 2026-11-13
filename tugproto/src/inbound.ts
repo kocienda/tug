@@ -160,10 +160,27 @@ export interface EffortChange {
  * itself refuses. tugcode checks the path is a directory, adds it to the
  * session's list, and applies the whole list live through an
  * `apply_flag_settings` control request; no respawn. The answer comes back
- * as an `add_directory_result` frame, granted or refused.
+ * as a `directory_result` frame with `op: "add"`, granted or refused.
  */
 export interface AddDirectory {
   type: "add_directory";
+  /** An absolute path to the folder. */
+  directory: string;
+}
+
+/**
+ * Take a folder the bridge granted back out of the session — the inverse of
+ * {@link AddDirectory}. tugcode drops it from the session's list and
+ * withdraws it from claude: a folder only `apply_flag_settings` granted goes
+ * with a request carrying the shorter list, and one the live claude was
+ * spawned with by `--add-dir`, which that request cannot withdraw, goes with
+ * a respawn in place whose `--add-dir` leaves it out. Refused while a turn
+ * is running when it needs that respawn, and for a folder the bridge did not
+ * grant. The answer comes back as a `directory_result` frame with
+ * `op: "remove"`.
+ */
+export interface RemoveDirectory {
+  type: "remove_directory";
   /** An absolute path to the folder. */
   directory: string;
 }
@@ -476,6 +493,7 @@ export type InboundMessage =
   | ModelChange
   | EffortChange
   | AddDirectory
+  | RemoveDirectory
   | SessionCommand
   | StopTask
   | StopAllWork
@@ -505,6 +523,7 @@ export const INBOUND_VERBS = [
   "model_change",
   "effort_change",
   "add_directory",
+  "remove_directory",
   "session_command",
   "stop_task",
   "stop_all_work",

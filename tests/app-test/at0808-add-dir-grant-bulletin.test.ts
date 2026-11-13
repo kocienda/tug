@@ -13,7 +13,7 @@
  *
  *   A. **A grant is said once the session holds the folder.** tugcode sends
  *      the session's list on `system_metadata` (the metadata store's) and its
- *      answer on `add_directory_result` (the Session card's). The success
+ *      answer on `directory_result` (the Session card's). The success
  *      bulletin waits for both, so it is never said of a folder the session
  *      does not hold.
  *
@@ -32,6 +32,19 @@
  *      gateway's spelling, never the alias: the bulletin only lands when the
  *      answer for the canonical folder matches what the card sent.
  *
+ *   E. **The Summary's `x` removes a folder, and says so once it is gone.**
+ *      Each removable folder carries an `x`; pressing it opens a confirm
+ *      inside the Summary — which stays open under it — asking "Remove this
+ *      directory?" with Cancel and Remove. Confirming sends the removal, and
+ *      the success bulletin waits for tugcode's answer AND the folder leaving
+ *      the session's list; the row then no longer names it.
+ *
+ *   F. **`/remove-dir` asks the same question as a pane-modal sheet.** Named
+ *      a held folder, it asks "Remove this directory?" with Cancel and
+ *      Remove and removes it the way the `x` does; named a folder the
+ *      session doesn't hold, it is a caution saying so; bare, it opens the
+ *      Session Summary.
+ *
  * The command runs through `run-card-command`, the menu's door and the same
  * body typing it would reach; the frames tugcode would write are injected,
  * since a harness bind has no tugcode. tugcode's half — the live
@@ -40,6 +53,7 @@
  * @covers tugdeck/src/lib/directory-grant.ts
  * @covers tugdeck/src/components/tugways/tug-alert-sheet.tsx
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
+ * @covers tugdeck/src/lib/permission-rules-store.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -137,7 +151,7 @@ async function readSummary(app: App, click?: string): Promise<SummaryReading> {
          var row = document.querySelector(selector);
          if (row === null) return null;
          return Array.from(row.querySelectorAll(".session-masthead-telemetry-directory")).map(
-           function (d) { return d.getAttribute("title") || ""; });
+           function (d) { return d.getAttribute("data-path") || ""; });
        };
        var collisions = Array.from(document.querySelectorAll(${JSON.stringify(`${PANEL} .session-masthead-telemetry-row`)}))
          .filter(function (row) {
@@ -157,7 +171,7 @@ async function readSummary(app: App, click?: string): Promise<SummaryReading> {
   if (click !== undefined) {
     await app.body("S").evalJS(
       `Array.from(document.querySelectorAll(${JSON.stringify(`${PANEL} .session-masthead-telemetry-directory`)}))
-        .find(function (d) { return d.getAttribute("title") === ${JSON.stringify(click)}; }).click()`,
+        .find(function (d) { return d.getAttribute("data-path") === ${JSON.stringify(click)}; }).click()`,
     );
   }
   await app.nativeKey("Escape");
@@ -166,6 +180,54 @@ async function readSummary(app: App, click?: string): Promise<SummaryReading> {
     { timeoutMs: 8_000 },
   );
   return { project: read.project, directories: read.directories };
+}
+
+/** What the removal's confirm showed, and whether the Summary stayed open under it. */
+interface ConfirmReading {
+  message: string;
+  buttons: string[];
+  summaryOpen: boolean;
+}
+
+/**
+ * Open the Session Summary, press the `x` on `dir`'s line, read the confirm,
+ * press Remove, and close the Summary again.
+ */
+async function removeThroughSummary(app: App, dir: string): Promise<ConfirmReading> {
+  const remove = `${PANEL} [data-slot="session-masthead-telemetry-remove"][data-path=${JSON.stringify(dir)}]`;
+  const confirm = '[data-slot="tug-confirm-popover"]';
+  await app.body("S").revealPaneControls(".body-chrome-frame");
+  await app.body("S").nativeClickAtElement(WIDGET);
+  // The `x` appears once the project's settings have been read.
+  await app.body("S").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(remove)}) !== null`,
+    { timeoutMs: 8_000 },
+  );
+  await app.body("S").click(remove);
+  await app.body("S").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(confirm)}) !== null`,
+    { timeoutMs: 8_000 },
+  );
+  const reading = await app.body("S").evalJS<ConfirmReading>(
+    `({
+      message: (document.querySelector('[data-slot="tug-confirm-message"]').textContent || "").trim(),
+      buttons: Array.from(document.querySelectorAll(${JSON.stringify(`${confirm} button`)})).map(function (b) {
+        return (b.textContent || "").trim();
+      }),
+      summaryOpen: document.querySelector(${JSON.stringify(PANEL)}) !== null,
+    })`,
+  );
+  await app.body("S").click('[data-slot="tug-confirm-confirm"]');
+  await app.body("S").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(confirm)}) === null`,
+    { timeoutMs: 8_000 },
+  );
+  await app.nativeKey("Escape");
+  await app.body("S").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(PANEL)}) === null`,
+    { timeoutMs: 8_000 },
+  );
+  return reading;
 }
 
 /**
@@ -274,7 +336,8 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
           op: "ingestFrame",
           feedId: CODE_OUTPUT,
           decoded: {
-            type: "add_directory_result",
+            type: "directory_result",
+            op: "add",
             tug_session_id: SESSION_ID,
             directory: GRANTED,
             ok: true,
@@ -310,7 +373,8 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
           op: "ingestFrame",
           feedId: CODE_OUTPUT,
           decoded: {
-            type: "add_directory_result",
+            type: "directory_result",
+            op: "add",
             tug_session_id: SESSION_ID,
             directory: REFUSED,
             ok: false,
@@ -338,7 +402,8 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
             op: "ingestFrame",
             feedId: CODE_OUTPUT,
             decoded: {
-              type: "add_directory_result",
+              type: "directory_result",
+              op: "add",
               tug_session_id: SESSION_ID,
               directory: canonical,
               ok: true,
@@ -355,6 +420,104 @@ describe.skipIf(!SHOULD_RUN)("at0808 — /add-dir <path>", () => {
           });
           await waitForBulletin(app, "success", "real");
           expect(await readDirectoriesRow(app)).toEqual([GRANTED, canonical]);
+
+          // ---- E. The Summary's `x` removes a folder. -----------------------
+          const asked = await removeThroughSummary(app, GRANTED);
+          expect(asked).toEqual({
+            message: `Remove this directory?\n${GRANTED} is no longer readable or writable by this session.`,
+            buttons: ["Cancel", "Remove"],
+            summaryOpen: true,
+          });
+          await app.body("S").driveSession({
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT,
+            decoded: {
+              type: "directory_result",
+              op: "remove",
+              tug_session_id: SESSION_ID,
+              directory: GRANTED,
+              ok: true,
+              additional_directories: [canonical],
+              ipc_version: 2,
+            },
+          });
+          expect(
+            (await bulletins(app)).some((b) => b.includes("removed")),
+            "no \"removed\" before the folder has left the session's list",
+          ).toBe(false);
+          await app.ingestSessionMetadata("S", {
+            type: "system_metadata",
+            tug_session_id: SESSION_ID,
+            cwd: PROJECT_DIR,
+            additional_directories: [canonical],
+            ipc_version: 2,
+          });
+          await waitForBulletin(app, "success", "removed");
+          expect(await readDirectoriesRow(app), "the removed folder leaves the row").toEqual([canonical]);
+
+          // ---- F. `/remove-dir` asks pane-modal and removes the same way. --
+          await app.dispatchControlAction("run-card-command", { name: "remove-dir", args: GRANTED });
+          await waitForBulletin(app, "warning", `This session doesn't hold ${GRANTED}`);
+
+          await app.dispatchControlAction("run-card-command", { name: "remove-dir", args: canonical });
+          await app.body("S").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(ALERT_TITLE)}) !== null`,
+            { timeoutMs: 8_000 },
+          );
+          const sheet = await app.body("S").evalJS<{ title: string; message: string; buttons: string[] }>(
+            `({
+              title: (document.querySelector(${JSON.stringify(ALERT_TITLE)}).textContent || "").trim(),
+              message: (document.querySelector('.tug-alert-message').textContent || "").trim(),
+              buttons: Array.from(document.querySelectorAll('.tug-alert-actions button')).map(function (b) {
+                return (b.textContent || "").trim();
+              }),
+            })`,
+          );
+          expect(sheet).toEqual({
+            title: "Remove this directory?",
+            message: `${canonical} is no longer readable or writable by this session.`,
+            buttons: ["Cancel", "Remove"],
+          });
+          await app.body("S").click('[data-testid="alert-confirm"]');
+          await app.body("S").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(ALERT_TITLE)}) === null`,
+            { timeoutMs: 8_000 },
+          );
+          await app.body("S").driveSession({
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT,
+            decoded: {
+              type: "directory_result",
+              op: "remove",
+              tug_session_id: SESSION_ID,
+              directory: canonical,
+              ok: true,
+              additional_directories: [],
+              ipc_version: 2,
+            },
+          });
+          await app.ingestSessionMetadata("S", {
+            type: "system_metadata",
+            tug_session_id: SESSION_ID,
+            cwd: PROJECT_DIR,
+            additional_directories: [],
+            ipc_version: 2,
+          });
+          await waitForBulletin(app, "success", `removed: ${canonical}`);
+          expect(await readDirectoriesRow(app), "the last folder gone, the row goes too").toBeNull();
+
+          // Bare, it opens the Session Summary.
+          await app.body("S").revealPaneControls(".body-chrome-frame");
+          await app.dispatchControlAction("run-card-command", { name: "remove-dir", args: "" });
+          await app.body("S").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
+            { timeoutMs: 8_000 },
+          );
+          await app.nativeKey("Escape");
+          await app.body("S").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(PANEL)}) === null`,
+            { timeoutMs: 8_000 },
+          );
         } finally {
           rmSync(scratch, { recursive: true, force: true });
         }

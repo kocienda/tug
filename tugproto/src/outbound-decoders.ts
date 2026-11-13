@@ -365,9 +365,10 @@ const systemMetadata = obj({
   additional_directories: opt(arr(str)),
 });
 
-const addDirectoryResult = obj({
-  type: lit("add_directory_result"),
+const directoryResult = obj({
+  type: lit("directory_result"),
   ...envelope,
+  op: lit("add", "remove"),
   tug_session_id: str,
   directory: str,
   ok: bool,
@@ -756,7 +757,7 @@ export const OUTBOUND_DECODERS = {
   goal_feedback: goalFeedback,
   streaming_usage: streamingUsage,
   context_breakdown: contextBreakdown,
-  add_directory_result: addDirectoryResult,
+  directory_result: directoryResult,
   unknown_event: unknownEvent,
   error: errorFrame,
   resume_failed: resumeFailed,

@@ -172,22 +172,26 @@ describe("turn content", () => {
 });
 
 describe("decoders the catalog has not captured", () => {
-  test("add_directory_result: granted, refused, and a list of paths", () => {
+  test("directory_result: granted, refused, removed, and a list of paths", () => {
     const granted = {
-      type: "add_directory_result",
+      type: "directory_result",
+      op: "add",
       tug_session_id: "tug",
       directory: "/u/shared",
       ok: true,
       additional_directories: ["/u/shared"],
       ipc_version: 2,
     };
-    expect(failPath("add_directory_result", granted)).toBeNull();
+    expect(failPath("directory_result", granted)).toBeNull();
     const refused = { ...granted, ok: false, reason: "/u/shared does not exist", additional_directories: [] };
-    expect(failPath("add_directory_result", refused)).toBeNull();
-    expect(failPath("add_directory_result", { ...granted, additional_directories: [3] })).toBe(
+    expect(failPath("directory_result", refused)).toBeNull();
+    const removed = { ...granted, op: "remove", additional_directories: [] };
+    expect(failPath("directory_result", removed)).toBeNull();
+    expect(failPath("directory_result", { ...granted, op: "drop" })).toBe("$.op");
+    expect(failPath("directory_result", { ...granted, additional_directories: [3] })).toBe(
       "$.additional_directories[0]",
     );
-    expect(failPath("add_directory_result", { ...granted, ok: "yes" })).toBe("$.ok");
+    expect(failPath("directory_result", { ...granted, ok: "yes" })).toBe("$.ok");
   });
 
   test("system_metadata: the granted folders are a list of paths", () => {

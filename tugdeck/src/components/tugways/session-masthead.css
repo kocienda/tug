@@ -448,6 +448,26 @@
   min-width: 0;
 }
 
+/* Each folder line and its `x` slot share one height, the `x`'s own, so the
+   action track's column of slots lines up with the value's column of folders
+   one for one. A slot with no `x` (a folder Tug cannot remove) still holds
+   its line. */
+.session-masthead-telemetry-row[data-row="directories"] .session-masthead-telemetry-directory {
+  block-size: 20px;
+  line-height: 20px;
+}
+
+.session-masthead-telemetry-row[data-row="directories"] .session-masthead-telemetry-action {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.session-masthead-telemetry-remove-slot {
+  display: inline-flex;
+  align-items: center;
+  block-size: 20px;
+}
+
 /* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-masthead-telemetry-directory {
   /* A folder is a link that opens it in the Finder: link ink, an underline on

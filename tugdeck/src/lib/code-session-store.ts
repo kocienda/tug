@@ -840,7 +840,7 @@ export class CodeSessionStore extends Subscribable {
       // across quiescent snapshot rebuilds ([L02]).
       lastContextBreakdown: this.state.lastContextBreakdown,
       // A fresh object per grant answer, the same reference otherwise ([L02]).
-      lastDirectoryGrant: this.state.lastDirectoryGrant,
+      lastDirectoryResult: this.state.lastDirectoryResult,
       lastError: this.state.lastError,
       lastReplayResult: this.state.lastReplayResult,
       replayEverCompleted: this.state.replayEverCompleted,
@@ -1417,15 +1417,33 @@ export class CodeSessionStore extends Subscribable {
   /**
    * Grant the session a further folder (`/add-dir`). Emits an
    * `add_directory` CODE_INPUT frame and changes no transcript state: tugcode
-   * applies the grant live through `apply_flag_settings` and answers with an
-   * `add_directory_result`, which lands on `lastDirectoryGrant`, after a
-   * granted folder has reached the metadata store's `additionalDirectories`.
+   * applies the grant live through `apply_flag_settings` and answers with a
+   * `directory_result` of `op: "add"`, which lands on `lastDirectoryResult`,
+   * after a granted folder has reached the metadata store's
+   * `additionalDirectories`.
    */
   addDirectory(directory: string): void {
     if (this._disposed) return;
     this.write(
       FeedId.CODE_INPUT,
       encodeCodeInputPayload({ type: "add_directory", directory }, this.tugSessionId),
+    );
+  }
+
+  /**
+   * Take a folder the session was granted back out (`/remove-dir`, the
+   * Session Summary's remove control). Emits a `remove_directory` CODE_INPUT
+   * frame and changes no transcript state: tugcode withdraws the folder from
+   * claude — live, or by a respawn in place when claude was spawned with it —
+   * and answers with a `directory_result` of `op: "remove"`, which lands on
+   * `lastDirectoryResult` after the folder has left the metadata store's
+   * `additionalDirectories`.
+   */
+  removeDirectory(directory: string): void {
+    if (this._disposed) return;
+    this.write(
+      FeedId.CODE_INPUT,
+      encodeCodeInputPayload({ type: "remove_directory", directory }, this.tugSessionId),
     );
   }
 

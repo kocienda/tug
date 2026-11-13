@@ -151,7 +151,7 @@ import { TugPushButton } from "../tug-push-button";
 import { TugActionTooltip } from "../tug-action-tooltip";
 import { TugTooltip } from "../tug-tooltip";
 import { TugInlineAlert } from "../tug-inline-alert";
-import { AlertTriangle, FolderPlus, GitBranch, Unplug } from "lucide-react";
+import { AlertTriangle, FolderMinus, FolderPlus, GitBranch, Unplug } from "lucide-react";
 
 import {
   TugSheet,
@@ -160,7 +160,19 @@ import {
   type TugSheetHandle,
 } from "../tug-sheet";
 import { presentAlertSheet, presentAlertSheetWithCheckbox } from "../tug-alert-sheet";
-import { awaitDirectoryGrant, rememberDirectory } from "@/lib/directory-grant";
+import {
+  awaitDirectoryGrant,
+  classifyDirectory,
+  directoryRemover,
+  registerDirectoryRemover,
+  rememberDirectory,
+  removalConsequence,
+  removalRefusal,
+  removeDirectory,
+  REMOVAL_TITLE,
+} from "@/lib/directory-grant";
+import { PermissionRulesStore } from "@/lib/permission-rules-store";
+import { openSessionSummary } from "@/lib/session-summary-door";
 import { canonicalizeDirPath } from "@/lib/dir-existence";
 import { displayPath } from "@/lib/memory-destinations";
 import { useResponderChain } from "../responder-chain-provider";
@@ -3920,6 +3932,107 @@ export function SessionCardBody({
     });
   };
 
+  // Removing a folder: the Session Summary's `x` asks, and this
+  // card does the removal, because the turn guard, the stores and the
+  // bulletin are all its own. A removal may respawn claude, so it waits for
+  // the turn to end like a grant does; the guard runs when the `x` is
+  // pressed and again once the confirm is answered. The bulletin says
+  // "removed" only once the folder has left the session's list, and a
+  // remembered folder's rule is taken out of the project's local settings
+  // too. Registered in a layout effect so it is in place before any press
+  // ([L03]); reads live ([L07]).
+  useLayoutEffect(
+    () => {
+      // `guardTurnIdleForSetting`'s check, read off the store this effect
+      // holds rather than a closure that is new every render.
+      const idle = (): boolean => {
+        if (codeSessionStore.getSnapshot().canSubmit) return true;
+        paneBulletinRef.current?.caution("Can't change the directories while a turn is in flight");
+        return false;
+      };
+      return registerDirectoryRemover(cardId, {
+        ready: idle,
+        remove: async (directory, origin) => {
+          const binding = cardSessionBindingStore.getBinding(cardId);
+          if (binding === undefined || getConnection() === null) return;
+          if (!idle()) return;
+          // The send leaves in this same task, so tugcode's answer can never
+          // arrive before the wait for it has begun. The project path is
+          // used as bound: it names the local settings file either way.
+          const outcome = await removeDirectory({
+            store: codeSessionStore,
+            directories: sessionMetadataStore,
+            cwd: binding.projectDir,
+            directory,
+            origin,
+          });
+          const shown = displayPath(outcome.directory, hostFactsStore.getSnapshot()?.home ?? "");
+          if (outcome.ok) paneBulletinRef.current?.success(`Directory removed: ${shown}`);
+          else paneBulletinRef.current?.caution(`Couldn't remove the directory: ${outcome.reason}`);
+        },
+      });
+    },
+    [cardId, codeSessionStore, sessionMetadataStore],
+  );
+
+  // `/remove-dir` — the Summary's `x` as a command. The folder is read the
+  // way `/add-dir` reads its own (a path atom, else the argument) and put
+  // through the canonicalization gateway before it is compared ([L29]); a
+  // folder that no longer exists on disk has no canonical spelling, and is
+  // compared as typed, since only a folder the session's own list holds is
+  // ever sent. Bare, it opens the Session Summary, whose DIRECTORIES row is
+  // the list of what can be removed. A folder the session doesn't hold, or
+  // one a scope Tug does not write grants too, is a caution; anything else
+  // asks pane-modal, the same question the `x` asks, and the removal is the
+  // `x`'s own. Refused mid-turn, at the command and again at the answer.
+  const removeDirectoryCommand = (args: string, draft?: SlashCommandDraft): void => {
+    const notify = paneBulletinRef.current;
+    const invoked = cardSessionBindingStore.getBinding(cardId);
+    if (invoked === undefined || getConnection() === null) return;
+    if (!guardTurnIdleForSetting("the directories")) return;
+    const home = hostFactsStore.getSnapshot()?.home ?? "";
+    const target = resolveDirectoryTarget({
+      atomPath: firstPathAtomValue(draft?.atoms ?? []),
+      argText: args,
+      projectDir: invoked.projectDir,
+      home: home === "" ? null : home,
+    });
+    if (target === null) {
+      if (!openSessionSummary(cardId)) notify?.caution("The Session Summary isn't on screen");
+      return;
+    }
+    void (async () => {
+      const dir = (await canonicalizeDirPath(target)) ?? target;
+      const rules = new PermissionRulesStore(invoked.projectDir);
+      await rules.load();
+      if (!rules.isLoaded()) {
+        paneBulletinRef.current?.caution("Couldn't read the project's settings to remove the directory");
+        return;
+      }
+      const origin = classifyDirectory({
+        directory: dir,
+        sessionDirectories: sessionMetadataStore.getSnapshot().additionalDirectories,
+        rules: rules.getSnapshot(),
+        home,
+      });
+      const shown = displayPath(dir, home);
+      const refusal = removalRefusal(origin, shown);
+      if (refusal !== null) {
+        paneBulletinRef.current?.caution(refusal);
+        return;
+      }
+      const confirmed = await presentAlertSheet(cardPickerSheet.showSheet, {
+        title: REMOVAL_TITLE,
+        message: removalConsequence({ shown, origin, project: displayPath(invoked.projectDir, home) }),
+        icon: <FolderMinus aria-hidden="true" />,
+        confirmLabel: "Remove",
+        confirm: { role: "danger" },
+        cancelLabel: "Cancel",
+      });
+      if (confirmed) void directoryRemover(cardId)?.remove(dir, origin);
+    })();
+  };
+
   const slashCommandSurfaces: Record<
     LocalCommandName,
     (args: string, draft?: SlashCommandDraft) => void
@@ -4206,6 +4319,7 @@ export function SessionCardBody({
     // ([L07]).
     cd: (args, draft) => changeDirectory(args, draft),
     "add-dir": (args, draft) => addDirectory(args, draft),
+    "remove-dir": (args, draft) => removeDirectoryCommand(args, draft),
     "change-directory": (args, draft) => changeDirectory(args, draft),
     // `/rename <text>` names the session directly; bare `/rename` opens the
     // one-field dialog seeded with the current name ([#step-13d]). The

@@ -54,7 +54,7 @@ import type {
   CodeSessionEvent,
   ContentBlockStartEvent,
   ContextBreakdownEvent,
-  AddDirectoryResultEvent,
+  DirectoryResultEvent,
   ControlRequestForwardEvent,
   CostUpdateEvent,
   ReplayCompleteEvent,
@@ -108,7 +108,7 @@ import type {
   CardSessionMode,
   CodeSessionPhase,
   ContextBreakdownSnapshot,
-  DirectoryGrantSnapshot,
+  DirectoryResultSnapshot,
   ControlRequestForward,
   CostSnapshot,
   InterruptReason,
@@ -995,8 +995,8 @@ export interface CodeSessionState {
    * stability.
    */
   lastContextBreakdown: ContextBreakdownSnapshot | null;
-  /** The answer to the latest `/add-dir` grant; see `handleAddDirectoryResult`. */
-  lastDirectoryGrant: DirectoryGrantSnapshot | null;
+  /** The answer to the latest folder grant or removal; see `handleDirectoryResult`. */
+  lastDirectoryResult: DirectoryResultSnapshot | null;
   /**
    * Set of msg_ids already committed to the transcript. Used to
    * dedupe `turn_complete` events whose msg_id has already produced a
@@ -2091,7 +2091,7 @@ export function createInitialState(
     permissionDenials: [],
     sessionInitTokens: null,
     lastContextBreakdown: null,
-    lastDirectoryGrant: null,
+    lastDirectoryResult: null,
     committedMsgIds: new Set(),
     lastReplayResult: null,
     replayEverCompleted: false,
@@ -6131,21 +6131,22 @@ function captureSessionInit(
 }
 
 /**
- * `add_directory_result` reducer handler. Records the grant's answer on
- * `state.lastDirectoryGrant` and nothing else: the folder list is the
- * metadata store's, carried on `system_metadata`, which tugcode sends ahead
- * of a granted answer. Fires no effect.
+ * `directory_result` reducer handler. Records the answer to a grant or a
+ * removal on `state.lastDirectoryResult` and nothing else: the folder list
+ * is the metadata store's, carried on `system_metadata`, which tugcode sends
+ * ahead of a done answer. Fires no effect.
  */
-function handleAddDirectoryResult(
+function handleDirectoryResult(
   state: CodeSessionState,
-  event: AddDirectoryResultEvent,
+  event: DirectoryResultEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  const grant: DirectoryGrantSnapshot = {
+  const grant: DirectoryResultSnapshot = {
+    op: event.op,
     directory: event.directory,
     ok: event.ok,
     reason: event.ok ? null : (event.reason ?? null),
   };
-  return { state: { ...state, lastDirectoryGrant: grant }, effects: [] };
+  return { state: { ...state, lastDirectoryResult: grant }, effects: [] };
 }
 
 /**
@@ -9454,8 +9455,8 @@ function reduceEvent(
       return handleStreamingUsage(state, event);
     case "context_breakdown":
       return handleContextBreakdown(state, event);
-    case "add_directory_result":
-      return handleAddDirectoryResult(state, event);
+    case "directory_result":
+      return handleDirectoryResult(state, event);
     case "system_metadata":
       // [D09] SessionMetadataStore owns this feed — drop explicitly.
       return { state, effects: [] };

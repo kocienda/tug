@@ -66,6 +66,7 @@ function applyLocal(
 export class PermissionRulesStore extends Subscribable {
   private snapshot: PermissionsSnapshot;
   private readonly cwd: string;
+  private loaded = false;
 
   constructor(cwd: string) {
     super();
@@ -74,6 +75,13 @@ export class PermissionRulesStore extends Subscribable {
   }
 
   getSnapshot = (): PermissionsSnapshot => this.snapshot;
+
+  /**
+   * Whether a read has landed. Before it, the snapshot is the empty one and
+   * says nothing about what the files hold, so a reader that decides on what
+   * they DON'T grant waits for this.
+   */
+  isLoaded = (): boolean => this.loaded;
 
   private set(next: PermissionsSnapshot): void {
     this.snapshot = next;
@@ -90,7 +98,9 @@ export class PermissionRulesStore extends Subscribable {
         console.warn(`[permission-rules] GET failed: ${res.status}`);
         return;
       }
-      this.set(parsePermissionsResponse(await res.json()));
+      const next = parsePermissionsResponse(await res.json());
+      this.loaded = true;
+      this.set(next);
     } catch (err) {
       console.warn("[permission-rules] GET errored:", err);
     }

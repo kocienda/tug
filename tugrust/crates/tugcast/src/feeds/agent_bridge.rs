@@ -2942,14 +2942,14 @@ async fn relay_session_io_tracked(
                             line.as_bytes().to_vec()
                         };
 
-                        // `add_directory_result` peek: a grant tugcode
+                        // `directory_result` peek: a grant or removal tugcode
                         // confirmed moves the folders the session holds, on
                         // the entry (so a crash respawn carries them) and on
                         // the ledger row (so a resume across launches does).
                         // Keyed by claude's id, as the title below is.
                         // Best-effort, like the title: the frame forwards
                         // either way.
-                        if line.contains("\"type\":\"add_directory_result\"") {
+                        if line.contains("\"type\":\"directory_result\"") {
                             if let Some(dirs) = parse_granted_dirs(line.as_bytes()) {
                                 let row_id = {
                                     let mut entry = ledger_entry.lock().await;
@@ -2966,7 +2966,7 @@ async fn relay_session_io_tracked(
                                             session = %tug_session_id,
                                             row = %row_id,
                                             error = %err,
-                                            "set_granted_dirs failed; the grant holds until the process ends"
+                                            "set_granted_dirs failed; the grant or removal holds until the process ends"
                                         );
                                     }
                                 }
@@ -3955,9 +3955,10 @@ fn parse_session_segment(line: &[u8]) -> Option<SessionSegmentAnnouncement> {
     })
 }
 
-/// The session's whole granted list from a granted `add_directory_result`
-/// IPC line, or `None` for a refused grant or a line that does not parse —
-/// a refusal leaves the list where it was, so there is nothing to record.
+/// The session's whole granted list from a done `directory_result` IPC
+/// line, a grant or a removal alike, or `None` for a refusal or a line that
+/// does not parse — a refusal leaves the list where it was, so there is
+/// nothing to record.
 ///
 /// The list is persisted on the session's row, so every folder passes the
 /// [L29] gateway here, whatever spelling tugcode reported; two spellings of
@@ -7082,22 +7083,48 @@ mod tests {
     fn granted_dirs_are_read_only_from_a_granted_result() {
         assert_eq!(
             parse_granted_dirs(
-                br#"{"type":"add_directory_result","directory":"/b","ok":true,"additional_directories":["/a","/b"]}"#
+                br#"{"type":"directory_result","op":"add","directory":"/b","ok":true,"additional_directories":["/a","/b"]}"#
             ),
             Some(vec!["/a".to_string(), "/b".to_string()])
         );
         // A refusal leaves the list where it was: nothing to record.
         assert_eq!(
             parse_granted_dirs(
-                br#"{"type":"add_directory_result","directory":"/x","ok":false,"reason":"no","additional_directories":["/a"]}"#
+                br#"{"type":"directory_result","op":"add","directory":"/x","ok":false,"reason":"no","additional_directories":["/a"]}"#
             ),
             None
         );
+        assert_eq!(parse_granted_dirs(br#"{"type":"directory_result"}"#), None);
+        assert_eq!(parse_granted_dirs(b"not json"), None);
+    }
+
+    #[test]
+    fn granted_dirs_are_read_from_a_removal_too() {
+        // A removal's list is the session's whole list after it, so a
+        // relaunch re-applies the folders that remain and not the one given
+        // back.
         assert_eq!(
-            parse_granted_dirs(br#"{"type":"add_directory_result"}"#),
+            parse_granted_dirs(
+                br#"{"type":"directory_result","op":"remove","directory":"/a","ok":true,"additional_directories":["/b"]}"#
+            ),
+            Some(vec!["/b".to_string()])
+        );
+        // The removal that empties the list is an empty list to record, not
+        // nothing to record: `None` would leave the removed folder on the
+        // row, and the next respawn would grant it again.
+        assert_eq!(
+            parse_granted_dirs(
+                br#"{"type":"directory_result","op":"remove","directory":"/a","ok":true,"additional_directories":[]}"#
+            ),
+            Some(Vec::new())
+        );
+        // A refused removal changed nothing.
+        assert_eq!(
+            parse_granted_dirs(
+                br#"{"type":"directory_result","op":"remove","directory":"/a","ok":false,"reason":"no","additional_directories":["/a"]}"#
+            ),
             None
         );
-        assert_eq!(parse_granted_dirs(b"not json"), None);
     }
 
     #[test]
@@ -7114,7 +7141,8 @@ mod tests {
             .to_string_lossy()
             .into_owned();
         let line = serde_json::json!({
-            "type": "add_directory_result",
+            "type": "directory_result",
+            "op": "add",
             "directory": alias,
             "ok": true,
             "additional_directories": [alias, real],

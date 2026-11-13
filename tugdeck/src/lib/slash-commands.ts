@@ -194,6 +194,13 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Let this session read and write another directory",
     takesArgs: true,
   },
+  // `/add-dir` undone. Bare, it opens the Session Summary, whose DIRECTORIES
+  // row lists the folders that can be removed, each with its own `x`.
+  {
+    name: "remove-dir",
+    description: "Stop this session reading and writing a directory it was given",
+    takesArgs: true,
+  },
   {
     name: "cd",
     description: "Move this card into another directory, carrying the conversation",
