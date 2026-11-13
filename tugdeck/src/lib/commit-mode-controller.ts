@@ -16,10 +16,14 @@
  * the sheet can be up as a read-only glance with no mode active, and the
  * session card owns the coupling (⌃⌘C toggles the sheet and, only when the
  * composer is empty, the mode). This controller no longer knows about the
- * shade. The mode is transient / in-memory; the composer force-exits on
- * deactivate so the editor's own persistence only ever sees the prompt draft.
- * The commit message itself is durable in the changeset draft store (the
- * debounced `persistMessage` write), so re-entering the mode resumes it.
+ * shade. The mode is in-memory only: it does not survive a transcript restore
+ * that remounts the composer, or a relaunch, and the card comes back on the
+ * Prompt tab. What keeps the composer's card-state persistence on the prompt
+ * draft while the mode is up is the composer's own read seam, which files the
+ * prompt it stashed on entry rather than the message on screen. The commit
+ * message itself is durable in the changeset draft store (the debounced
+ * `persistMessage` write, flushed as well when the composer unmounts with the
+ * mode up), so re-entering the mode resumes it.
  *
  * @module lib/commit-mode-controller
  */

@@ -268,8 +268,14 @@ golden:
 # from the corpus and the newest stream-json catalog, then hold the page's
 # pipeline to it. A changed golden is a changed rendering: review its diff.
 tugmark-golden:
-    cd tugrust && TUGMARK_GOLDEN_WRITE=1 cargo nextest run -p tugcast --test tugmark_drift
-    cd tugdeck && bun test --timeout {{BUN_HANG_GUARD_MS}} src/lib/markdown/__tests__/tugmark-drift.test.ts
+    #!/usr/bin/env bash
+    set -euo pipefail
+    report="{{justfile_directory()}}/tugrust/scripts/report-phase.sh"
+    bash "$report" tugmark-golden 0 "write golden" --of "write golden" "page drift"
+    (cd tugrust && TUGMARK_GOLDEN_WRITE=1 cargo nextest run -p tugcast --test tugmark_drift)
+    bash "$report" tugmark-golden 1 "page drift"
+    (cd tugdeck && bun test --timeout {{BUN_HANG_GUARD_MS}} src/lib/markdown/__tests__/tugmark-drift.test.ts)
+    bash "$report" tugmark-golden 2
 
 # Fuzz tugcast's sanitizer at a fresh seed (`just tugmark-fuzz 1234` repeats
 # one): its renderer and sanitizer run 200,000 cases reparsed by html5ever. CI

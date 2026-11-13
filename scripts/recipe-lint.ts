@@ -40,6 +40,7 @@ export const LONG_RECIPES = [
   "notarize",
   "golden",
   "tugmark-fuzz",
+  "tugmark-golden",
   "operator-eval",
   "test-swift",
   "test-standalone",

@@ -152,6 +152,7 @@ import { useCardDirty } from "@/components/chrome/tug-pane";
 import { CardDeckContext } from "@/card-deck-context";
 import { selectionGuard } from "@/components/tugways/selection-guard";
 import { deckTrace } from "@/deck-trace";
+import type { SaveCallbackSource } from "@/deck-trace";
 import { getCardDeck } from "@/lib/deck-store-registry";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -629,6 +630,140 @@ export function computeCommandChipInsert(
             end: current.selection.end + SHIFT,
           },
   };
+}
+
+/**
+ * The prompt draft, wherever it currently lives. While a landing mode is up
+ * the editor holds the landing message and the prompt sits in the stash the
+ * mode's entry took, so the stash is the prompt; otherwise the live editor is,
+ * and with no editor mounted the last draft this entry saw stands in for it.
+ * What is on screen never decides what the prompt is. Pure; exported for unit
+ * tests.
+ */
+export function resolvePromptDraft(input: {
+  landingUp: boolean;
+  stash: TugTextEditingState | null;
+  live: TugTextEditingState | null;
+  lastKnown: TugTextEditingState | null;
+}): TugTextEditingState | null {
+  if (input.landingUp) return input.stash ?? input.lastKnown;
+  return input.live ?? input.lastKnown;
+}
+
+/**
+ * Whether the prompt draft is empty: the stash during a landing (a null stash
+ * is an empty prompt), the editor otherwise. The landing message never counts.
+ * Pure; exported for unit tests.
+ */
+export function isPromptDraftEmpty(input: {
+  landingUp: boolean;
+  stash: TugTextEditingState | null;
+  editorEmpty: boolean;
+}): boolean {
+  if (input.landingUp) return (input.stash?.text.length ?? 0) === 0;
+  return input.editorEmpty;
+}
+
+/**
+ * What a pending command insert does now ([B04]). Outside a landing it is
+ * `seed`: written into the editor, and submitted when it asks to be. During a
+ * landing a plain insert is `hold`: written into the prompt stash, shown on
+ * the return to the Prompt tab. A run that asks to submit is `wait`: its slot
+ * is left set until the landing ends, because submitting during a landing
+ * would land the command line as the commit message, and leaving the landing
+ * on the run's behalf would throw away a mode the user opened. Pure; exported
+ * for unit tests.
+ */
+export function commandInsertDisposition(input: {
+  landingUp: boolean;
+  submit: boolean;
+}): "seed" | "hold" | "wait" {
+  if (!input.landingUp) return "seed";
+  return input.submit ? "wait" : "hold";
+}
+
+/**
+ * What the composer's landing swap does on a render ([B06]). `enter` stashes
+ * the prompt and seeds the landing message; `exit` restores the prompt. A
+ * landing that stays active while the controller behind it changes — commit
+ * handing off to join in one tick — is a `handoff`: the outgoing message is
+ * persisted through the outgoing controller and the document reseeded from
+ * the incoming one, the stash untouched. A controller change with no landing
+ * up is `none`; nothing is on screen for it. Pure; exported for unit tests.
+ */
+export function landingSwapTransition(input: {
+  wasActive: boolean;
+  isActive: boolean;
+  controllerChanged: boolean;
+}): "enter" | "exit" | "handoff" | "none" {
+  if (input.isActive && !input.wasActive) return "enter";
+  if (!input.isActive && input.wasActive) return "exit";
+  if (input.isActive && input.controllerChanged) return "handoff";
+  return "none";
+}
+
+/**
+ * The landing message a composer unmounting mid-landing still owes the
+ * changeset draft store ([B07]), or `null` when it owes nothing. Only an edit
+ * still inside the save debounce is unsaved; the live document is preferred
+ * and the text captured at the edit stands in when the substrate has already
+ * gone. A blank message is never written, matching `leave()`. Pure; exported
+ * for unit tests.
+ */
+export function unmountCommitFlush(input: {
+  pending: boolean;
+  landingUp: boolean;
+  live: string | null;
+  captured: string | null;
+}): string | null {
+  if (!input.pending || !input.landingUp) return null;
+  const message = input.live ?? input.captured ?? "";
+  return message.trim().length > 0 ? message : null;
+}
+
+/**
+ * The draft a card-state save files, built from the prompt draft alone.
+ *
+ * `inactiveSnapshot` lends its scroll axes when the card is inactive (its live
+ * scroller has been zeroed by `display: none`); it is ignored while a landing is
+ * up, because it was taken of the landing document and its scroll belongs to
+ * that, not to the stashed prompt. On the `termination` source, every unsent
+ * prompt — a pulled-back submission and the queued sends — is appended to the
+ * prompt, since the process is about to drop them; steady-state saves never do,
+ * because those are still on screen. Pure; exported for unit tests.
+ */
+export function composeSavedPromptDraft(input: {
+  source: SaveCallbackSource | undefined;
+  prompt: TugTextEditingState | null;
+  landingUp: boolean;
+  inactiveSnapshot: TugTextEditingState | null;
+  captureUnsent: () => readonly string[];
+}): TugTextEditingState | null {
+  let draft = input.prompt;
+  const snap = input.landingUp ? null : input.inactiveSnapshot;
+  if (draft !== null && snap !== null) {
+    draft = {
+      ...draft,
+      scrollTop: snap.scrollTop,
+      scrollLeft: snap.scrollLeft,
+      scrollAnchor: snap.scrollAnchor ?? null,
+    };
+  }
+  if (input.source === "termination") {
+    const unsent = input.captureUnsent();
+    if (unsent.length > 0) {
+      const existing = draft?.text ?? "";
+      // Appended at the end so every atom position in the draft (indices into
+      // `text`) and the saved selection stay valid.
+      const text = existing.length > 0
+        ? `${existing}\n\n${unsent.join("\n\n")}`
+        : unsent.join("\n\n");
+      draft = draft !== null
+        ? { ...draft, text }
+        : { text, atoms: [], selection: null };
+    }
+  }
+  return draft;
 }
 
 /**
@@ -1557,19 +1692,9 @@ export const PromptEntry = React.forwardRef<
   // [L07] the effect reads the substrate delegate via the ref so a
   // late mount doesn't lose its restore — the slot survives until
   // consumed, so a re-mount after the slot was set still seeds the
-  // editor on its first effect tick.
+  // editor on its first effect tick. The effect sits below the prompt
+  // draft's write seam, which it writes through.
   const restoreSlot = snap.pendingDraftRestore;
-  useLayoutEffect(() => {
-    if (restoreSlot === null) return;
-    const editor = textEditorRef.current;
-    if (editor === null) return;
-    if (isEffectivelyEmpty(editor.view() ?? null)) {
-      editor.restoreState(
-        buildEditingStateFromDraftRestore(restoreSlot.text, restoreSlot.atoms),
-      );
-    }
-    codeSessionStore.consumePendingDraftRestore();
-  }, [restoreSlot, codeSessionStore]);
 
   // Code is the only resting mode ([P01]); prompt history keys entries by
   // this scalar and the Code provider recalls only these ([P11]).
@@ -1590,6 +1715,10 @@ export const PromptEntry = React.forwardRef<
   const landingDrafting = landingActive && landingSnap?.draftPhase === "drafting";
   const inLandingModeRef = useRef(false);
   const prevLandingActiveRef = useRef(false);
+  // The controller whose landing the editor holds — the one live when the swap
+  // last ran. A different controller arriving while a landing stays active is a
+  // hand-off (commit → join), not a continuation of the same landing.
+  const prevLandingControllerRef = useRef<LandingMode | undefined>(undefined);
   // The pending return-to-top, held so a second generation, an exit from
   // landing mode, or an unmount cancels it rather than scrolling a field the
   // reader has since taken back.
@@ -1635,6 +1764,49 @@ export const PromptEntry = React.forwardRef<
   // The in-progress prompt stashed on mode entry, restored verbatim on exit —
   // opening Changes over a typed draft never clobbers it ([P03]).
   const preCommitDraftRef = useRef<TugTextEditingState | null>(null);
+  // The one write seam for the prompt draft ([B01]): a prompt-addressed write
+  // lands in the stash while a landing mode holds the editor, and in the
+  // editor otherwise — so a restore, a pulled-back send or a command insert
+  // made during a landing is held and shows when the user returns to the
+  // Prompt tab, never in the landing editor. `null` clears the prompt.
+  // Reads refs live ([L07]); stable identity.
+  const writePromptDraft = useCallback(
+    (state: TugTextEditingState | null): "held" | "shown" | "none" => {
+      if (inLandingModeRef.current) {
+        preCommitDraftRef.current = state;
+        return "held";
+      }
+      const editor = textEditorRef.current;
+      if (editor === null) return "none";
+      if (state === null) editor.clear();
+      else editor.restoreState(state);
+      return "shown";
+    },
+    [],
+  );
+  // Whether the prompt draft is empty, wherever it lives — the stash during a
+  // landing, the editor otherwise. Never the landing message.
+  const promptDraftIsEmpty = useCallback(
+    (): boolean =>
+      isPromptDraftEmpty({
+        landingUp: inLandingModeRef.current,
+        stash: preCommitDraftRef.current,
+        editorEmpty: isEffectivelyEmpty(textEditorRef.current?.view() ?? null),
+      }),
+    [],
+  );
+  // The pulled-back prompt seeds the prompt draft, only when that draft is
+  // empty, through the write seam: during a landing it waits in the stash.
+  useLayoutEffect(() => {
+    if (restoreSlot === null) return;
+    if (textEditorRef.current === null) return;
+    if (promptDraftIsEmpty()) {
+      writePromptDraft(
+        buildEditingStateFromDraftRestore(restoreSlot.text, restoreSlot.atoms),
+      );
+    }
+    codeSessionStore.consumePendingDraftRestore();
+  }, [restoreSlot, codeSessionStore, promptDraftIsEmpty, writePromptDraft]);
   const [commitConfirmOpen, setCommitConfirmOpen] = useState(false);
   // The land confirm's open flag ([P05], [L22]) — local because it is a
   // transient of *this* press and nothing outside the composer has any use for
@@ -1677,16 +1849,22 @@ export const PromptEntry = React.forwardRef<
   // whose `entry.draft.message` is the source of truth). Fired from the editor
   // update listener, so it lives outside React ([L22]).
   const commitPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The message as of the last scheduled save — read when the edit is made, so
+  // an unmount flush has the typed text even if the substrate is already gone.
+  const pendingCommitMessageRef = useRef<string | null>(null);
   const clearCommitPersistTimer = useCallback(() => {
     if (commitPersistTimerRef.current !== null) {
       clearTimeout(commitPersistTimerRef.current);
       commitPersistTimerRef.current = null;
     }
+    pendingCommitMessageRef.current = null;
   }, []);
   const scheduleCommitPersist = useCallback(() => {
     clearCommitPersistTimer();
+    pendingCommitMessageRef.current = readCommitMessage();
     commitPersistTimerRef.current = setTimeout(() => {
       commitPersistTimerRef.current = null;
+      pendingCommitMessageRef.current = null;
       const controller = landingModeRef.current;
       if (controller === undefined || !inLandingModeRef.current) return;
       controller.persistMessage(readCommitMessage());
@@ -1694,7 +1872,30 @@ export const PromptEntry = React.forwardRef<
   }, [clearCommitPersistTimer, readCommitMessage]);
   const commitPersistRef = useRef(scheduleCommitPersist);
   commitPersistRef.current = scheduleCommitPersist;
-  useLayoutEffect(() => clearCommitPersistTimer, [clearCommitPersistTimer]);
+  // A composer unmounting mid-landing — a transcript restore swaps the whole
+  // body out — keeps its last keystrokes: an edit still inside the debounce is
+  // written now, the same write `leave()` makes, instead of being dropped with
+  // the timer. The live document is read when it is still there, the text
+  // captured at the edit otherwise.
+  useLayoutEffect(
+    () => () => {
+      const pending = commitPersistTimerRef.current !== null;
+      const captured = pendingCommitMessageRef.current;
+      const controller = landingModeRef.current;
+      const view = textEditorRef.current?.view() ?? null;
+      const live = view !== null ? readCommitMessage() : null;
+      clearCommitPersistTimer();
+      if (controller === undefined) return;
+      const message = unmountCommitFlush({
+        pending,
+        landingUp: inLandingModeRef.current,
+        live,
+        captured,
+      });
+      if (message !== null) controller.persistMessage(message);
+    },
+    [clearCommitPersistTimer, readCommitMessage],
+  );
 
   // Editor swap on the active transition ([L03] so the doc change lands in
   // the same paint as the mode flip). Enter: stash the current prompt draft,
@@ -1703,12 +1904,41 @@ export const PromptEntry = React.forwardRef<
   // draft (the `/commit` slash path clears the composer first, so that stash is
   // empty; ⌃⌘C over a typed prompt stashes and restores it). The message itself
   // is durable in the changeset draft store, so a cancel/re-enter resumes it.
+  //
+  // Hand-off: a different controller taking over while a landing stays active
+  // (commit → join, which flips one off and the other on in one tick) is an
+  // exit followed by an enter. The outgoing message is persisted through the
+  // outgoing controller, the prompt stash is kept, and the document is
+  // reseeded from the incoming one — so one mode's message never becomes the
+  // other's.
   useLayoutEffect(() => {
     const editor = textEditorRef.current;
     if (editor === null) return;
     const prev = prevLandingActiveRef.current;
     prevLandingActiveRef.current = landingActive;
-    if (landingActive && !prev) {
+    const prevController = prevLandingControllerRef.current;
+    prevLandingControllerRef.current = landingMode;
+    const transition = landingSwapTransition({
+      wasActive: prev,
+      isActive: landingActive,
+      controllerChanged: prevController !== landingMode,
+    });
+    // Seed the document from the live controller's message.
+    const seedFromController = () => {
+      const seed =
+        landingSnapRef.current?.seedMessage ??
+        landingSnapRef.current?.persistedMessage ??
+        "";
+      editor.restoreState(buildCommitModeState(seed));
+      // Seed the `data-commit-empty` gate explicitly: an empty seed over an
+      // empty doc fires no update, so the listener alone can't be trusted to
+      // refresh it on entry.
+      rootRef.current?.setAttribute(
+        "data-commit-empty",
+        String(seed.trim().length === 0),
+      );
+    };
+    if (transition === "enter") {
       inLandingModeRef.current = true;
       preCommitDraftRef.current = editor.captureState();
       // Borrow the composer's current rendered height: a switch to commit mode
@@ -1720,23 +1950,26 @@ export const PromptEntry = React.forwardRef<
       const scroller = editor.view()?.scrollDOM ?? null;
       // Layout px: it is written back as `min-height`.
       const borrowedHeight = scroller === null ? 0 : layoutRectOf(scroller).height;
-      const seed =
-        landingSnapRef.current?.seedMessage ??
-        landingSnapRef.current?.persistedMessage ??
-        "";
-      editor.restoreState(buildCommitModeState(seed));
+      seedFromController();
       if (scroller !== null && borrowedHeight > 0) {
         scroller.style.minHeight = `${Math.round(borrowedHeight)}px`;
       }
-      // Seed the `data-commit-empty` gate explicitly: an empty seed over an
-      // empty doc fires no update, so the listener alone can't be trusted to
-      // refresh it on entry.
-      rootRef.current?.setAttribute(
-        "data-commit-empty",
-        String(seed.trim().length === 0),
-      );
       editor.focus();
-    } else if (!landingActive && prev) {
+    } else if (transition === "handoff") {
+      // The pending debounced save would write through the incoming
+      // controller; cancel it and persist through the outgoing one instead,
+      // the same write its `leave()` makes. The stash and the borrowed
+      // height stay: the prompt is still away and the entry stays put.
+      clearCommitPersistTimer();
+      const outgoing = readCommitMessage();
+      if (prevController !== undefined && outgoing.trim().length > 0) {
+        prevController.persistMessage(outgoing);
+      }
+      editor.view()?.dispatch({ effects: setWaveCaretActive.of(false) });
+      cancelLandingTopReveal();
+      seedFromController();
+      editor.focus();
+    } else if (transition === "exit") {
       inLandingModeRef.current = false;
       clearCommitPersistTimer();
       const restored = preCommitDraftRef.current ?? EMPTY_EDIT_STATE;
@@ -1752,7 +1985,7 @@ export const PromptEntry = React.forwardRef<
       cancelLandingTopReveal();
       editor.focus();
     }
-  }, [landingActive, clearCommitPersistTimer, cancelLandingTopReveal]);
+  }, [landingActive, landingMode, clearCommitPersistTimer, cancelLandingTopReveal, readCommitMessage]);
 
   // Auto-Message stream ([P06]): the scribe's draft fills the editor live while
   // `drafting`. The editor is read-only
@@ -2001,13 +2234,27 @@ export const PromptEntry = React.forwardRef<
     const editor = textEditorRef.current;
     if (editor === null) return;
     const { name, args, submit } = pendingCommandInsert;
+    const disposition = commandInsertDisposition({
+      landingUp: inLandingModeRef.current,
+      submit,
+    });
+    // A run asked for during a landing waits, slot intact, for the Prompt tab:
+    // seeding it would put a command line where the landing message is, and
+    // submitting it would land that line as the commit ([B04]). `landingActive`
+    // in the deps re-runs this on the exit, after the swap has put the prompt
+    // back.
+    if (disposition === "wait") return;
     const seededArgs = atomizeCommandArgs(args, TUG_ATOM_CHAR);
-    editor.restoreState(
+    writePromptDraft(
       buildEditingStateFromDraftRestore(`${TUG_ATOM_CHAR} ${seededArgs.text}`, [
         { kind: "atom", type: "command", label: name, value: name },
         ...seededArgs.atoms,
       ]),
     );
+    if (disposition === "hold") {
+      codeSessionStore.consumePendingCommandInsert();
+      return;
+    }
     editor.focus();
     if (!submit) {
       codeSessionStore.consumePendingCommandInsert();
@@ -2016,7 +2263,7 @@ export const PromptEntry = React.forwardRef<
     const live = codeSessionStore.getSnapshot();
     if (live.canSubmit || live.canInterrupt) void performSubmitRef.current?.();
     else pendingSubmitRef.current = true;
-  }, [pendingCommandInsert, codeSessionStore]);
+  }, [pendingCommandInsert, codeSessionStore, landingActive, writePromptDraft]);
 
   // Jot insert ([P05]). A jot dragged from the Jots card onto the prompt
   // entry (or double-clicked) parks `{ text, at }` here; this effect inserts
@@ -3370,9 +3617,12 @@ export const PromptEntry = React.forwardRef<
   useLayoutEffect(() => {
     if (!snap.canSubmit) return;
     if (!pendingSubmitRef.current) return;
+    // A deferred prompt submit never fires into a landing: there `submit`
+    // lands the commit. It stays armed and fires on the exit ([B04]).
+    if (inLandingModeRef.current) return;
     pendingSubmitRef.current = false;
     void performSubmit();
-  }, [snap.canSubmit, performSubmit]);
+  }, [snap.canSubmit, performSubmit, landingActive]);
 
   // [L07] Register the responder node.
   //
@@ -3661,6 +3911,21 @@ export const PromptEntry = React.forwardRef<
   // substrate isn't mounted) — returning `draft: null` there would clobber
   // a previously-good persisted draft with nothing. [L23]
   const lastKnownDraftRef = useRef<TugTextEditingState | null>(null);
+  // The one read seam for the prompt draft ([B01]): the stash while a landing
+  // mode holds the editor, the live editor otherwise, and with no editor
+  // mounted the last draft this entry saw — so a save never clobbers a good
+  // persisted draft with `null` [L23]. Every reader that files the prompt
+  // reads through here and nothing else.
+  const readPromptDraft = useCallback(
+    (): TugTextEditingState | null =>
+      resolvePromptDraft({
+        landingUp: inLandingModeRef.current,
+        stash: preCommitDraftRef.current,
+        live: textEditorRef.current?.captureState() ?? null,
+        lastKnown: lastKnownDraftRef.current,
+      }),
+    [],
+  );
 
   // Phase E.11 Step 4e — engine-hook registration channel.
   //
@@ -3700,12 +3965,16 @@ export const PromptEntry = React.forwardRef<
         if (editor === null) return;
         const pending = pendingActivationDraftRef.current;
         pendingActivationDraftRef.current = null;
+        // A saved draft replayed into a landing goes to the stash; the
+        // landing editor paints from its own live state.
+        const held =
+          pending !== null && inLandingModeRef.current && writePromptDraft(pending) === "held";
         deckTrace.record({
           kind: "engine-paint-mirror-active",
           cardId: cardIdForTrace,
           caller: "via-engine-hook",
         });
-        editor.paintMirrorAsActive(pending ?? undefined);
+        editor.paintMirrorAsActive(held ? undefined : pending ?? undefined);
       },
       paintMirrorAsInactive: () => {
         const editor = textEditorRef.current;
@@ -3718,7 +3987,7 @@ export const PromptEntry = React.forwardRef<
       },
     });
     return unregister;
-  }, [cardIdForTrace, publishToSelectionGuard]);
+  }, [cardIdForTrace, publishToSelectionGuard, writePromptDraft]);
 
   // TugPane state preservation [L23]. PromptEntry is the sole
   // preserver for this compound — the embedded `TugTextEditor` is
@@ -3763,27 +4032,21 @@ export const PromptEntry = React.forwardRef<
       editor?.paintMirrorAsInactive(publishToSelectionGuard);
     },
     onSave: (source) => {
-      const editor = textEditorRef.current;
-      // No live substrate: forward the last draft this entry saw rather
-      // than writing `draft: null` over a good persisted draft. [L23]
-      const liveDraft =
-        editor !== null ? editor.captureState() : lastKnownDraftRef.current;
-      const snap = inactiveDraftSnapshotRef.current;
-      // Card is inactive: prefer the snapshot's scroll axes (the
-      // live scroller has been zeroed by display:none). Selection,
-      // text, atoms come from the live capture — selection-guard's
-      // paintMirrorAsInactive has already routed the user's range
-      // into selectionGuard.cardRanges, so the engine's live state
-      // is still the right source for those axes.
-      let draft = liveDraft;
-      if (draft !== null && snap !== null) {
-        draft = {
-          ...draft,
-          scrollTop: snap.scrollTop,
-          scrollLeft: snap.scrollLeft,
-          scrollAnchor: snap.scrollAnchor ?? null,
-        };
-      }
+      // The draft is the prompt, read through the one seam — never the
+      // document on screen, which during a landing is the landing message.
+      // Card is inactive: prefer the snapshot's scroll axes (the live
+      // scroller has been zeroed by display:none). Selection, text, atoms
+      // come from the prompt itself — selection-guard's
+      // paintMirrorAsInactive has already routed the user's range into
+      // selectionGuard.cardRanges. On termination the unsent prompts are
+      // appended. [L23]
+      const draft = composeSavedPromptDraft({
+        source,
+        prompt: readPromptDraft(),
+        landingUp: inLandingModeRef.current,
+        inactiveSnapshot: inactiveDraftSnapshotRef.current,
+        captureUnsent: () => codeSessionStore.captureUnsentText(),
+      });
       // Snapshot the bytes-store alongside the draft so a card that
       // restores from disk (or HMR cycle) rehydrates its in-flight
       // image attachments with bytes intact. The store's `snapshot`
@@ -3793,27 +4056,6 @@ export const PromptEntry = React.forwardRef<
       const attachmentBytes = Object.keys(bytesSnap).length > 0
         ? bytesSnap
         : undefined;
-      // The app is exiting: text the user committed but that is not in
-      // the composer — a pulled-back submission still sitting in the
-      // restore slot, and every queued send — has no other durable home,
-      // so it is appended to the draft rather than dropped with the
-      // process. Steady-state saves must not do this: the queue is still
-      // on screen as ghost rows and the restore slot is about to seed the
-      // editor, so folding it in would duplicate the text. [L23].
-      if (source === "termination") {
-        const unsent = codeSessionStore.captureUnsentText();
-        if (unsent.length > 0) {
-          const existing = draft?.text ?? "";
-          // Appended at the end so every atom position in the draft
-          // (indices into `text`) and the saved selection stay valid.
-          const text = existing.length > 0
-            ? `${existing}\n\n${unsent.join("\n\n")}`
-            : unsent.join("\n\n");
-          draft = draft !== null
-            ? { ...draft, text }
-            : { text, atoms: [], selection: null };
-        }
-      }
       lastKnownDraftRef.current = draft;
       // Mid-walk, `draft` is the recalled entry on screen; the words typed
       // before walking are in the provider. Carry the walk so a reload keeps
@@ -3864,8 +4106,13 @@ export const PromptEntry = React.forwardRef<
       const runPending =
         codeSessionStore.getSnapshot().pendingCommandInsert?.submit === true;
       if (editor !== null && !runPending) {
-        if (restored.draft !== null) {
-          // restoreState updates the substrate's doc + atoms +
+        // The saved prompt is written through the prompt draft's seam.
+        // During a landing it is held in the stash and nothing is painted
+        // or replayed at activation: the editor holds the landing message.
+        if (restored.draft === null) {
+          writePromptDraft(null);
+        } else if (writePromptDraft(restored.draft) === "shown") {
+          // The seam's restoreState updates the substrate's doc + atoms +
           // selection without touching DOM Selection or focus
           // (mirror-only restore). [L23].
           //
@@ -3878,7 +4125,6 @@ export const PromptEntry = React.forwardRef<
           // calls `paintMirrorAsActive`. Stash the draft for BOTH
           // active and inactive paths so the engine hook has a
           // uniform read source.
-          editor.restoreState(restored.draft);
           pendingActivationDraftRef.current = restored.draft;
           if (!isActive) {
             // Inactive mount: also publish the saved selection
@@ -3906,8 +4152,6 @@ export const PromptEntry = React.forwardRef<
               domSelectionAfter: domRange,
             });
           }
-        } else {
-          editor.clear();
         }
       }
       const root = rootRef.current;
@@ -3926,9 +4170,13 @@ export const PromptEntry = React.forwardRef<
   const seedCommandChip = useCallback((name: string, arg?: string) => {
     const editor = textEditorRef.current;
     if (editor === null) return;
-    editor.restoreState(computeCommandChipInsert(editor.captureState(), name, arg));
-    editor.focus();
-  }, []);
+    // The chip is seeded into the prompt draft, wherever it lives: during a
+    // landing it is computed over and written to the stash, and the landing
+    // message on screen is left alone.
+    const current = readPromptDraft() ?? EMPTY_EDIT_STATE;
+    const placed = writePromptDraft(computeCommandChipInsert(current, name, arg));
+    if (placed === "shown") editor.focus();
+  }, [readPromptDraft, writePromptDraft]);
 
   // ⌘/ — the keyboard door to command discovery: focus the editor and seed a
   // leading `/`, which opens the slash-command completion popup. The `"/"`

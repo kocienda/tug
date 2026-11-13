@@ -21,13 +21,20 @@ import {
   buildEditingStateFromDraftRestore,
   classifyBlockedSubmit,
   coerceRestorePayload,
+  commandInsertDisposition,
+  composeSavedPromptDraft,
   computeCommandChipInsert,
   computeSideQuestionArg,
+  isPromptDraftEmpty,
+  landingSwapTransition,
+  resolvePromptDraft,
+  unmountCommitFlush,
 } from "@/components/tugways/cards/prompt-entry";
 import type { CommandLineAtom } from "@/lib/slash-commands";
 import type { TugTextEditingState } from "@/lib/tug-text-types";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
+import type { SaveCallbackSource } from "@/deck-trace";
 
 // ---------------------------------------------------------------------------
 // Commit mode ([P03]): the editor holds the message alone — no chip
@@ -576,5 +583,191 @@ describe("coerceRestorePayload — durable attachment references", () => {
     });
     expect(result.draft?.text).toBe("pic ");
     expect(result.draft?.atoms).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The prompt draft has one owner: a save during a landing files the stash,
+// never the landing message on screen
+// ---------------------------------------------------------------------------
+
+describe("prompt draft read seam", () => {
+  const prompt: TugTextEditingState = {
+    text: "the prompt I was typing",
+    atoms: [],
+    selection: { start: 4, end: 4 },
+    scrollTop: 12,
+  };
+  const message: TugTextEditingState = {
+    text: "Fix the leak",
+    atoms: [],
+    selection: { start: 12, end: 12 },
+    scrollTop: 0,
+  };
+
+  function saveDuringLanding(source: SaveCallbackSource, unsent: string[] = []) {
+    return composeSavedPromptDraft({
+      source,
+      prompt: resolvePromptDraft({
+        landingUp: true,
+        stash: prompt,
+        live: message,
+        lastKnown: message,
+      }),
+      landingUp: true,
+      inactiveSnapshot: { ...message, scrollTop: 99 },
+      captureUnsent: () => unsent,
+    });
+  }
+
+  it("files the stashed prompt on an ordinary save while a landing is up", () => {
+    expect(saveDuringLanding("debounced")).toEqual(prompt);
+  });
+
+  it("files the stashed prompt on a termination save, unsent prompts appended to it", () => {
+    const draft = saveDuringLanding("termination", ["queued send"]);
+    expect(draft?.text).toBe("the prompt I was typing\n\nqueued send");
+    expect(draft?.selection).toEqual({ start: 4, end: 4 });
+    expect(draft?.scrollTop).toBe(12);
+  });
+
+  it("reads the live editor once no landing is up", () => {
+    expect(
+      resolvePromptDraft({ landingUp: false, stash: null, live: prompt, lastKnown: message }),
+    ).toBe(prompt);
+  });
+
+  it("falls back to the last known draft when no editor is mounted", () => {
+    expect(
+      resolvePromptDraft({ landingUp: false, stash: null, live: null, lastKnown: prompt }),
+    ).toBe(prompt);
+  });
+
+  it("lends the inactive snapshot's scroll only outside a landing", () => {
+    const draft = composeSavedPromptDraft({
+      source: "debounced",
+      prompt,
+      landingUp: false,
+      inactiveSnapshot: { ...prompt, scrollTop: 40, scrollLeft: 3 },
+      captureUnsent: () => [],
+    });
+    expect(draft?.scrollTop).toBe(40);
+    expect(draft?.scrollLeft).toBe(3);
+  });
+
+  it("appends nothing on a steady-state save", () => {
+    const draft = composeSavedPromptDraft({
+      source: "debounced",
+      prompt,
+      landingUp: false,
+      inactiveSnapshot: null,
+      captureUnsent: () => ["queued send"],
+    });
+    expect(draft?.text).toBe(prompt.text);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prompt-addressed writes during a landing go to the stash, and a run that
+// asks to submit waits for the Prompt tab rather than landing a commit
+// ---------------------------------------------------------------------------
+
+describe("prompt draft write seam", () => {
+  it("judges emptiness by the stash during a landing, never the landing message", () => {
+    expect(isPromptDraftEmpty({ landingUp: true, stash: null, editorEmpty: false })).toBe(true);
+    expect(
+      isPromptDraftEmpty({
+        landingUp: true,
+        stash: { text: "", atoms: [], selection: null },
+        editorEmpty: false,
+      }),
+    ).toBe(true);
+    expect(
+      isPromptDraftEmpty({
+        landingUp: true,
+        stash: { text: "typed", atoms: [], selection: null },
+        editorEmpty: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("judges emptiness by the editor outside a landing", () => {
+    const stash = { text: "stale", atoms: [], selection: null };
+    expect(isPromptDraftEmpty({ landingUp: false, stash, editorEmpty: true })).toBe(true);
+    expect(isPromptDraftEmpty({ landingUp: false, stash: null, editorEmpty: false })).toBe(false);
+  });
+
+  it("seeds a command insert outside a landing, submit or not", () => {
+    expect(commandInsertDisposition({ landingUp: false, submit: false })).toBe("seed");
+    expect(commandInsertDisposition({ landingUp: false, submit: true })).toBe("seed");
+  });
+
+  it("holds a plain command insert in the stash during a landing", () => {
+    expect(commandInsertDisposition({ landingUp: true, submit: false })).toBe("hold");
+  });
+
+  it("leaves a run that asks to submit waiting during a landing, so it never lands", () => {
+    expect(commandInsertDisposition({ landingUp: true, submit: true })).toBe("wait");
+  });
+
+  it("seeds a command chip over the stashed prompt, not the landing message", () => {
+    const EMPTY: TugTextEditingState = { text: "", atoms: [], selection: null };
+    const stash: TugTextEditingState = { text: "draft", atoms: [], selection: null };
+    const prompt = resolvePromptDraft({
+      landingUp: true,
+      stash,
+      live: { text: "Fix the leak", atoms: [], selection: null },
+      lastKnown: null,
+    });
+    const seeded = computeCommandChipInsert(prompt ?? EMPTY, "compact");
+    expect(seeded.text).toBe(`${TUG_ATOM_CHAR} draft`);
+    expect(seeded.atoms[0]?.value).toBe("compact");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The landing swap is keyed on the live controller as well as the flag: a
+// commit → join hand-off reseeds rather than carrying the message across
+// ---------------------------------------------------------------------------
+
+describe("landingSwapTransition", () => {
+  it("enters and exits on the active edge, whatever the controller does", () => {
+    expect(landingSwapTransition({ wasActive: false, isActive: true, controllerChanged: false })).toBe("enter");
+    expect(landingSwapTransition({ wasActive: false, isActive: true, controllerChanged: true })).toBe("enter");
+    expect(landingSwapTransition({ wasActive: true, isActive: false, controllerChanged: false })).toBe("exit");
+    expect(landingSwapTransition({ wasActive: true, isActive: false, controllerChanged: true })).toBe("exit");
+  });
+
+  it("hands off when the controller changes under a landing that stays active", () => {
+    expect(landingSwapTransition({ wasActive: true, isActive: true, controllerChanged: true })).toBe("handoff");
+  });
+
+  it("does nothing for a steady landing, or a controller change with no landing up", () => {
+    expect(landingSwapTransition({ wasActive: true, isActive: true, controllerChanged: false })).toBe("none");
+    expect(landingSwapTransition({ wasActive: false, isActive: false, controllerChanged: true })).toBe("none");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A composer unmounting mid-landing writes the edit still inside the debounce
+// ---------------------------------------------------------------------------
+
+describe("unmountCommitFlush", () => {
+  it("writes the live message when an edit is still unsaved", () => {
+    expect(
+      unmountCommitFlush({ pending: true, landingUp: true, live: "Fix it", captured: "Fix" }),
+    ).toBe("Fix it");
+  });
+
+  it("falls back to the text captured at the edit when the substrate is gone", () => {
+    expect(
+      unmountCommitFlush({ pending: true, landingUp: true, live: null, captured: "Fix" }),
+    ).toBe("Fix");
+  });
+
+  it("writes nothing when no edit is pending, no landing is up, or the message is blank", () => {
+    expect(unmountCommitFlush({ pending: false, landingUp: true, live: "Fix", captured: null })).toBeNull();
+    expect(unmountCommitFlush({ pending: true, landingUp: false, live: "Fix", captured: null })).toBeNull();
+    expect(unmountCommitFlush({ pending: true, landingUp: true, live: "  ", captured: "x" })).toBeNull();
   });
 });

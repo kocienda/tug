@@ -128,7 +128,7 @@
 
 /* The title run inherits the pane's title color, exactly as every other card's
    title does — the row's own list-row ink is a rail's. */
-/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+/* @tug-renders-on: --tugx-pane-title-bar-bg-active */
 .session-masthead-title {
   display: inline-flex;
   min-width: 0;
@@ -152,7 +152,7 @@
    different ground, which is what the band needed — and it tracks the band in
    both directions, so the light themes' pale lid gets a dark tape from the
    same rule that gives the dark themes a light one. */
-/* @tug-renders-on var(--tugx-pane-title-bar-bg-active) */
+/* @tug-renders-on: --tugx-pane-title-bar-bg-active */
 .session-masthead-row .tug-activity-line-trailing {
   color: var(--tugx-pane-title-fg-active);
 }
@@ -297,7 +297,7 @@
 /* The goal heading over a run of beats. Shown ONCE per group. Prose, so it
    drops the frame's mono body face for the ambient sans and wraps rather than
    ellipsizing; muted so the beats beneath read as the primary data. */
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-beat-history-intent {
   font-family: var(--tug-font-family-sans);
   font-size: 0.6875rem;
@@ -404,7 +404,7 @@
    logs), which turned this panel into a wall of monospace no other identity
    surface wears; the two rules below take the panel's own type back, and the
    citation opts into mono deliberately further down. */
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-masthead-telemetry-label {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-2xs, 10px);
@@ -412,7 +412,7 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-masthead-telemetry-value {
   display: inline-flex;
   align-items: center;
@@ -448,7 +448,7 @@
   min-width: 0;
 }
 
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-masthead-telemetry-directory {
   /* A folder is a link that opens it in the Finder: link ink, an underline on
      hover, and none of a button's chrome. */
@@ -467,7 +467,7 @@
   white-space: nowrap;
 }
 
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-overlay-rest) */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
 .session-masthead-telemetry-directory:hover {
   color: var(--tug7-element-global-text-normal-link-hover);
   text-decoration: underline;
