@@ -3089,6 +3089,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // only the actions map, never an intervening `canHandle`), so this one
       // handler covers every text-bearing surface: transcript, markdown /
       // code views, terminal output, the prompt editor, and native inputs.
+      // That is every surface in THIS page; a body card's selection is its
+      // own page's, so `BodyRoot` answers the action there (`body-root.tsx`).
       [TUG_ACTIONS.COPY_AS_PLAIN_TEXT]: (_event: ActionEvent) => {
         copySelectionAsPlainText();
       },

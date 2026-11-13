@@ -225,10 +225,13 @@ const SELECT_DISPLAY_MATH = `(function(){
  */
 const COPY_SENTINEL = "at0188-sentinel-nothing-copied";
 
-async function copyAndRead(app: Awaited<ReturnType<typeof launchTugApp>>): Promise<string> {
+async function copyAndRead(
+  app: Awaited<ReturnType<typeof launchTugApp>>,
+  modifiers: Parameters<Awaited<ReturnType<typeof launchTugApp>>["nativeKey"]>[1] = ["cmd"],
+): Promise<string> {
   Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(COPY_SENTINEL) });
   await app.body("A").evalJS<unknown>(`(window.__copyEvent = null, true)`);
-  await app.nativeKey("c", ["cmd"]);
+  await app.nativeKey("c", modifiers);
   const deadline = Date.now() + 3000;
   let seen = COPY_SENTINEL;
   while (seen === COPY_SENTINEL && Date.now() < deadline) {
@@ -460,6 +463,14 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(numberedFlavors?.plain).toBe(numberedMd);
           expect(numberedFlavors?.html).toContain("<ol>");
+
+          // ---- Copy as Plain Text (⌥⇧⌘C) in a body card: the selection is
+          // the body page's, so the body must answer the command itself.
+          // Handed to the shell, the deck canvas read the shell's own empty
+          // selection and the pasteboard never changed. The context menu's
+          // row ends at the same body-root handler. ----
+          await app.body("A").evalJS<string>(selectExactNodeScript("bold"));
+          expect(await copyAndRead(app, ["alt", "shift", "cmd"])).toBe("bold");
         } catch (err) {
           const tail = app.tailLog(200);
           if (tail !== "") process.stderr.write(`\n[at0188-transcript-copy-wiring] log tail:\n${tail}\n`);

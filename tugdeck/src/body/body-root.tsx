@@ -47,6 +47,7 @@ import type { CardTitleBarHandle } from "../components/chrome/card-title-bar";
 import { BodyChromeFrame } from "./body-chrome-frame";
 import { UsageContext } from "../lib/usage-context";
 import { isDictionaryLookupRequest, lookUpInDictionary } from "../lib/dictionary-lookup";
+import { copySelectionAsPlainText } from "../lib/copy-as-plain-text";
 import type { UsageStore } from "../lib/usage-store";
 
 export interface BodyRootProps {
@@ -165,6 +166,14 @@ function BodyPane({
       [TUG_ACTIONS.LOOK_UP_IN_DICTIONARY]: (event: ActionEvent) => {
         if (!isDictionaryLookupRequest(event.value)) return;
         lookUpInDictionary(event.value);
+      },
+      // Copy as Plain Text reads the live document selection, which in a
+      // body card is THIS page's: the shell answers the action at the deck's
+      // root over its own selection, so handed there it copied nothing. Like
+      // Look Up, it is answered here and never forwarded. ⌥⇧⌘C reaches this
+      // too — the shell routes the key-card command to this body's chain.
+      [TUG_ACTIONS.COPY_AS_PLAIN_TEXT]: (_event: ActionEvent) => {
+        copySelectionAsPlainText();
       },
     }),
     [deck, paneId, cardId],
