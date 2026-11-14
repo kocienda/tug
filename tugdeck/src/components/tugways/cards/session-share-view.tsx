@@ -143,10 +143,10 @@ export function useShareFormFit(formRef: React.RefObject<HTMLElement | null>): v
   }, [formRef]);
 }
 
-/** "1 turn marked", "3 turns marked", or "No turns marked". */
+/** "1 turn selected", "3 turns selected", or "No turns selected". */
 export function shareCountLabel(count: number): string {
-  if (count === 0) return "No turns marked";
-  return count === 1 ? "1 turn marked" : `${count} turns marked`;
+  if (count === 0) return "No turns selected";
+  return count === 1 ? "1 turn selected" : `${count} turns selected`;
 }
 
 export interface SessionShareViewProps {
@@ -262,7 +262,7 @@ export function SessionShareView({
                   onClick={onMarkAll}
                   data-testid="session-share-mark-all"
                 >
-                  Mark All
+                  Select All
                 </TugPushButton>
                 <TugPushButton
                   size="sm"
@@ -277,7 +277,7 @@ export function SessionShareView({
               </div>
             </div>
             <p className="tug-sheet-description" data-testid="session-share-instruction">
-              Check the box at the right of each turn you want to share. Shift-click a box to mark
+              Check the box at the right of each turn you want to share. Shift-click a box to select
               every turn between it and the last one you clicked, or use the buttons above to
               select turns.
             </p>

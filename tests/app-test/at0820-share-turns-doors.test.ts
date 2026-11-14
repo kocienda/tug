@@ -120,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
         expect(
           await card.evalJS<string>(`(document.querySelector(${JSON.stringify(COUNT)})?.textContent || "")`),
           "the menu door marks nothing",
-        ).toBe("No turns marked");
+        ).toBe("No turns selected");
 
         // ── D. /share typed in the composer ────────────────────────────────
         // Cancel leaves the mode (Escape is at0819's), and the composer is back.

@@ -253,13 +253,13 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             { timeoutMs: 4_000 },
           );
         await clickMark(app, k1);
-        await countIs("1 turn marked");
+        await countIs("1 turn selected");
         await clickMark(app, k3);
-        await countIs("2 turns marked");
+        await countIs("2 turns selected");
         await clickMark(app, k4, true);
-        await countIs("3 turns marked");
+        await countIs("3 turns selected");
         await clickMark(app, k5);
-        await countIs("4 turns marked");
+        await countIs("4 turns selected");
         expect(
           (await card.evalJS<Layout>(layoutJs)).markAllLeft,
           "the Mark All row holds still as the count changes",
@@ -327,10 +327,10 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
 
         // ── E2. Mark All, then Clear ───────────────────────────────────────
         await card.nativeClickAtElement(MARK_ALL);
-        await countIs("5 turns marked");
+        await countIs("5 turns selected");
         expect((await card.evalJS<Mark[]>(marksJs())).every((m) => m.checked), "every turn is marked").toBe(true);
         await card.nativeClickAtElement(CLEAR);
-        await countIs("No turns marked");
+        await countIs("No turns selected");
         expect((await card.evalJS<Mark[]>(marksJs())).some((m) => m.checked), "no turn is marked").toBe(false);
         expect(await card.evalJS<boolean>(`!!document.querySelector(${JSON.stringify(SHADE)})`), "the mode stays on").toBe(true);
 

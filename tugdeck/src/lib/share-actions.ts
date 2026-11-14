@@ -76,7 +76,7 @@ export const SHARE_NEEDS_APP_TEXT = "Sharing needs the Tug app";
 /** The bulletin a render that failed reads. */
 export const RENDER_FAILED_TEXT = "Couldn't render the turns";
 /** The bulletin a press with nothing marked reads. */
-export const NOTHING_MARKED_TEXT = "Mark a turn to share";
+export const NOTHING_MARKED_TEXT = "Select a turn to share";
 
 /** An artifact, and the selection signature it was made from. */
 interface MadeArtifact {

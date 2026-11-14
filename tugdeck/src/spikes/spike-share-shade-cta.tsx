@@ -63,7 +63,7 @@ import type { SpikeDef } from "./spike-registry";
 
 const LEAD = "Check the box at the right of each turn you want to share.";
 const MORE =
-  "Shift-click a box to mark every turn between it and the last one you clicked, or use the buttons above to select turns.";
+  "Shift-click a box to select every turn between it and the last one you clicked, or use the buttons above to select turns.";
 const COUNT = "3 turns";
 
 const TOOL_MODE_ITEMS: TugChoiceItem[] = [
@@ -136,9 +136,9 @@ function WorkingDesign(): React.ReactElement {
             <div className="sp-ssc-title-row">
               <div className="tug-sheet-title">Share Turns</div>
               <div className="sp-ssc-marks">
-                <span className="sp-ssc-count">3 turns marked</span>
+                <span className="sp-ssc-count">3 turns selected</span>
                 <TugPushButton size="sm" emphasis="outlined" role="action">
-                  Mark All
+                  Select All
                 </TugPushButton>
                 <TugPushButton size="sm" emphasis="outlined" role="action">
                   Clear All
