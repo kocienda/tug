@@ -16,7 +16,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { copyAppTestTree } from "./copy-app-test-tree";
@@ -71,6 +71,26 @@ function lines(s: string): string[] {
     return s.split("\n").filter((l) => l.length > 0);
 }
 
+/**
+ * What the cut counts a file as: the `@family` its header declares, or itself. The cap is
+ * a count of families, and every member of a family that makes the cut runs wherever it
+ * ranked, so a capped selection holds exactly MAX_SELECTED units.
+ */
+function unitOf(file: string): string {
+    const m = /^\s*\*?\s*@family\s+(\S+)/m.exec(readFileSync(join(APP_TEST_DIR, file), "utf8"));
+    return m === null ? file : m[1];
+}
+
+/** The ranking's files whose unit is among the first MAX_SELECTED distinct ones. */
+function aboveTheLine(ranked: string[]): string[] {
+    const units = new Set<string>();
+    for (const f of ranked) {
+        if (units.size === MAX_SELECTED) break;
+        units.add(unitOf(f));
+    }
+    return ranked.filter((f) => units.has(unitOf(f)));
+}
+
 describe("--print writes the selection to stdout", () => {
     test("an under-budget selection reaches stdout, one file per line", () => {
         const r = run(["--print", UNDER_BUDGET]);
@@ -101,7 +121,7 @@ describe("without --print the cap governs", () => {
     test("an over-cap selection exits 0 and writes exactly the cap, the rest below the line", () => {
         const r = run([OVER_BUDGET]);
         expect(r.code).toBe(0);
-        expect(lines(r.out).length).toBe(MAX_SELECTED);
+        expect(new Set(lines(r.out).map(unitOf)).size).toBe(MAX_SELECTED);
         expect(r.err).toContain("below the line");
         expect(r.err).not.toContain("REFUSED");
     });
@@ -110,7 +130,7 @@ describe("without --print the cap governs", () => {
         const bare = lines(run([OVER_BUDGET]).out);
         const printed = lines(run(["--print", OVER_BUDGET]).out);
         expect(printed.length).toBeGreaterThan(bare.length);
-        expect(printed.slice(0, bare.length)).toEqual(bare);
+        expect(aboveTheLine(printed)).toEqual(bare);
     });
 
     test("an under-budget selection writes the same lines --print does", () => {

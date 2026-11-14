@@ -177,6 +177,30 @@ function head(): string {
     return Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root }).stdout.toString().trim();
 }
 
+/**
+ * What the cut counts a file as: the `@family` its header declares, or itself. The cap is
+ * a count of families, and every member of a family that makes the cut runs wherever it
+ * ranked, so a selection holds at least MAX_SELECTED files and exactly MAX_SELECTED units.
+ */
+function unitOf(file: string): string {
+    const m = /^\s*\*?\s*@family\s+(\S+)/m.exec(readFileSync(join(root, "tests", "app-test", file), "utf8"));
+    return m === null ? file : m[1];
+}
+
+function unitCount(files: string[]): number {
+    return new Set(files.map(unitOf)).size;
+}
+
+/** The units above the line: the first MAX_SELECTED distinct ones in rank order. */
+function unitsIn(ranked: string[]): Set<string> {
+    const units = new Set<string>();
+    for (const f of ranked) {
+        if (units.size === MAX_SELECTED) break;
+        units.add(unitOf(f));
+    }
+    return units;
+}
+
 function rankLines(err: string): RankLine[] {
     return err
         .split("\n")
@@ -232,15 +256,17 @@ describe("a change inside a function no candidate names", () => {
         expect(ranked.map((l) => l.rank)).toEqual(ranked.map((_, i) => i + 1));
         expect(r.err).toContain(`---- cap: ${MAX_SELECTED} — below the line, in rank order ----`);
         // Above the line nothing lost; below it, every line says on which axis.
-        for (const l of ranked) expect(l.lost === undefined).toBe(l.rank <= MAX_SELECTED);
+        const above = unitsIn(ranked.map((l) => l.file));
+        for (const l of ranked) expect(l.lost === undefined).toBe(above.has(unitOf(l.file)));
     });
 
     test("bare mode cuts at the cap, exits 0, and is the head of the ranking", () => {
         const bare = run([FOCUS]);
         const printed = run(["--print", FOCUS]);
         expect(bare.code).toBe(0);
-        expect(bare.out.length).toBe(MAX_SELECTED);
-        expect(printed.out.slice(0, MAX_SELECTED)).toEqual(bare.out);
+        expect(unitCount(bare.out)).toBe(MAX_SELECTED);
+        const above = unitsIn(printed.out);
+        expect(printed.out.filter((f) => above.has(unitOf(f)))).toEqual(bare.out);
         expect(rankLines(printed.err).map((l) => l.file)).toEqual(printed.out);
     });
 });
@@ -321,7 +347,7 @@ describe("with recorded reach maps", () => {
             ...F02.map((file) => ({ file, headSha: head(), hits: false })),
         ]);
         const r = run([FOCUS]);
-        expect(r.out.length).toBe(MAX_SELECTED);
+        expect(unitCount(r.out)).toBe(MAX_SELECTED);
         for (const f of F02) expect(r.out).not.toContain(f);
         const ranked = rankLines(r.err);
         for (const f of F02) {
@@ -367,7 +393,7 @@ describe("a covered file with no hunks", () => {
         const r = run([FOCUS]);
         expect(r.code).toBe(0);
         expect(r.err).toContain(`${FOCUS} → no hunks`);
-        expect(r.out.length).toBe(MAX_SELECTED);
+        expect(unitCount(r.out)).toBe(MAX_SELECTED);
         for (const l of rankLines(r.err)) {
             expect(l.reach).toBe(0);
             expect(l.note).toBe("no hunks");
