@@ -263,7 +263,11 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // of `ShellTurnCell` (an arc-note row renders as one sentence, not as an
     // exchange entry) — that branch lives here, so the declaration is honest
     // and the alternative was leaving the new row shape covered by nothing.
-    "tugdeck/src/components/tugways/cards/session-card-transcript.tsx": 21,
+    // Recorded at 22 when at0821 (share turns rendered to the PDF page)
+    // arrived: `SessionShareTranscript`, the share page's own transcript,
+    // lives in this file and renders shell and refs rows through its cells,
+    // so the share render has nowhere narrower to name either.
+    "tugdeck/src/components/tugways/cards/session-card-transcript.tsx": 22,
 
     // The composer. It is the single field every route types into — the plain
     // prompt, the `$` shell route, the `/` command route, commit mode and the

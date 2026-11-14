@@ -448,6 +448,18 @@ pub enum ArcAction {
         stage: ArcStage,
         steps: Option<(usize, usize)>,
     },
+    /// Say that a resumed stage is running again, **while its own session is
+    /// mid-turn**, and send it nothing.
+    ///
+    /// A resume that lands on the stage's own session with a turn in flight
+    /// has nothing to ask for: the stage is seated and already moving, which
+    /// is the state `arc-continue` records. What it is owed is the record of
+    /// that and the line on the card that answers the stop row's Resume offer
+    /// — at once, rather than at the end of a turn that may run for an hour
+    /// under an offer that says the arc is still stopped.
+    PickUp {
+        stage: ArcStage,
+    },
 }
 
 /// Decide the arc's next act, or `None` when it should sit still.
@@ -519,7 +531,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // turn's end. But a turn that never ends is not a resume that is merely
     // *early*, and returning `None` to it left the one arm that exists for a
     // hung turn unreachable from a resumed record. So the not-idle branch
-    // consults the clock before it returns nothing. A stalled one stops as
+    // consults the clock before anything else. A stalled one stops as
     // `Stalled` and keeps its `resume` — the fold's `arc-stop` arm does not
     // clear it — so the next press still means something.
     if let Some(resumed) = record.resume {
@@ -560,6 +572,15 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
                     stage: resumed,
                     reason: ArcStopReason::Stalled,
                 });
+            }
+            // **The stage's own session, already working** — there is no
+            // turn's end to wait for, because there is nothing to ask. The
+            // resume is answered now, as a continue with no prompt, so the
+            // stop row it answers stops offering Resume over a running arc.
+            // The seam's audit is excluded as it is below: that resume wants
+            // a fresh seat, and a rotation waits for the turn.
+            if facts.stage_session_current && !seam_audit {
+                return Some(ArcAction::PickUp { stage });
             }
             return None;
         }
@@ -1555,8 +1576,16 @@ mod tests {
         mid_turn.session_idle = false;
         assert_eq!(
             arc_action(&resuming, &mid_turn),
+            Some(ArcAction::PickUp {
+                stage: ArcStage::Review,
+            }),
+            "mid-turn on the stage's own session it is said at once, with nothing sent",
+        );
+        mid_turn.stage_session_current = false;
+        assert_eq!(
+            arc_action(&resuming, &mid_turn),
             None,
-            "which lands at the end of the turn that asked for it",
+            "and a rotation onto a taken card lands at the end of the turn that asked for it",
         );
 
         // A side question changes no document, so nothing decides. The stage
@@ -2533,7 +2562,52 @@ mod tests {
         record.resume = Some(ArcStage::Devise);
         let mut facts = facts();
         facts.session_idle = false;
+        // A card that is not the stage's own: the turn in flight is somebody
+        // else's, and the rotation it is owed waits for that turn's end.
+        facts.stage_session_current = false;
         assert_eq!(arc_action(&record, &facts), None);
+    }
+
+    /// **A resume onto a stage that is already working is a continue, said at
+    /// once.** The stage's own session with a turn in flight has nothing to be
+    /// asked: it is seated and moving. Waiting for the turn's end left the
+    /// stop row offering Resume over a running arc for as long as the turn
+    /// ran, so the pick-up is decided on the tick that reads the resume.
+    #[test]
+    fn a_resume_onto_the_stages_own_working_session_is_picked_up_at_once() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+        let mut facts = implementing(None, false);
+        facts.session_idle = false;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::PickUp {
+                stage: ArcStage::Implement,
+            }),
+        );
+
+        // A seat that is not the stage's own keeps the wait: there is a
+        // rotation to make, and it goes at the turn's end.
+        let mut taken = facts.clone();
+        taken.stage_session_current = false;
+        assert_eq!(arc_action(&record, &taken), None);
+
+        // The seam's audit is never the implement session's to continue, mid
+        // turn or between turns.
+        let mut seam = facts.clone();
+        seam.ledger.first_pending = None;
+        seam.ledger.run_complete = true;
+        assert_eq!(arc_action(&record, &seam), None);
+
+        // And the hung turn is still the clock's.
+        facts.stalled = true;
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Implement,
+                reason: ArcStopReason::Stalled,
+            }),
+        );
     }
 
     /// **A resume from a stop at the seam opens the audit.** The stop landed
@@ -2689,8 +2763,17 @@ mod tests {
         facts.stalled = false;
         assert_eq!(
             arc_action(&record, &facts),
+            Some(ArcAction::PickUp {
+                stage: ArcStage::Implement,
+            }),
+            "a resume mid-turn on the stage's own session is picked up — it never becomes a stop",
+        );
+
+        facts.stage_session_current = false;
+        assert_eq!(
+            arc_action(&record, &facts),
             None,
-            "a resume mid-turn waits for the turn to end — it never becomes a stop",
+            "and on a taken card it waits for the turn to end — it never becomes a stop",
         );
     }
 

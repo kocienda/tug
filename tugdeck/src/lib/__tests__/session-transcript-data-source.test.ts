@@ -24,6 +24,10 @@ import {
   userRowIndexForTurn,
   sameTranscriptRowData,
 } from "@/lib/session-transcript-data-source";
+import {
+  parseArcReceipt,
+  shouldOfferResume,
+} from "@/components/tugways/cards/session-arc-receipt-block";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type {
   ActiveTurnSnapshot,
@@ -1080,6 +1084,38 @@ describe("superseded arc stop receipts (Spec S04)", () => {
     const after = buildRowLayout(snapshotWith({ transcript: [stop], activeTurn: live }));
     expect(before.slots[0].arcStopSuperseded).toBe(false);
     expect(after.slots[0].arcStopSuperseded).toBe(true);
+  });
+
+  test("a resume onto a working stage withdraws the stop's Resume offer mid-turn", () => {
+    // The runner's line for a resume that found the stage's own session
+    // mid-turn, in the exact command and sentence it writes
+    // (`announce_pickup` with `ALREADY_WORKING` in tugcast's `arc_runner.rs`).
+    // It lands inside the turn that is running, and the stalled stop before
+    // that turn must stop offering Resume at once: the receipt reads only its
+    // own row and this flag, so the flag is the whole of what withdraws it.
+    const stop = shellTurn("s1", "/arc-run", 1, stopReceipt("alpha"));
+    const parsed = parseArcReceipt(stopReceipt("alpha"));
+    expect(parsed).not.toBeNull();
+    const open = activeTurn({ turnKey: "L", isWake: false, withText: "go on", submitAt: 5 });
+    const live: ActiveTurnSnapshot = {
+      ...open,
+      messages: [
+        ...open.messages,
+        {
+          kind: "system_note",
+          messageKey: "arc-note-live",
+          createdAt: 6,
+          text: "alpha: picked back up · its session is already working",
+          command: "arc resume alpha",
+          source: "arc",
+        },
+      ],
+    };
+    const before = buildRowLayout(snapshotWith({ transcript: [stop], activeTurn: open }));
+    const after = buildRowLayout(snapshotWith({ transcript: [stop], activeTurn: live }));
+    expect(shouldOfferResume(parsed!, before.slots[0].arcStopSuperseded)).toBe(true);
+    expect(after.slots[0].arcStopSuperseded).toBe(true);
+    expect(shouldOfferResume(parsed!, after.slots[0].arcStopSuperseded)).toBe(false);
   });
 });
 
