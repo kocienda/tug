@@ -47,14 +47,15 @@ import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
  * ------------------------------------------------------------------------- */
 
 /**
- * A chord's identity is `KeyboardEvent.code` plus the exact state of the
- * four modifier flags — the rule the key pipeline already matches on.
- * `label` is display data only and never participates in matching, so it
- * can be corrected for a keyboard layout without changing what the chord
- * matches ([P09]).
+ * A chord's identity is a key name plus the exact state of the four
+ * modifier flags. The name is spelled as a US-layout `KeyboardEvent.code`,
+ * and an event is matched to it by `effectiveCode` in `chord-format.ts`: a
+ * letter names the key that types it on the user's layout, and every other
+ * name is a physical key. `label` is display data only and never
+ * participates in matching ([P09]).
  */
 export interface Chord {
-  /** KeyboardEvent.code — layout-independent. */
+  /** A US-layout `KeyboardEvent.code` name; a letter follows the user's layout. */
   readonly key: string;
   readonly ctrl?: boolean;
   readonly meta?: boolean;

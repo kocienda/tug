@@ -35,6 +35,7 @@ import { keyboardAccessStore } from "../../keyboard-access-store";
 import { focusRingModalityStore } from "../../focus-ring-modality-store";
 import { keymapRegistry, type ScopedBinding } from "./keymap-registry";
 import { chordCaptureState } from "@/lib/chord-capture-state";
+import { forwardedKeydown } from "./forwarded-keydown";
 import { COMMANDS_BY_ID } from "./command-registry";
 import { dispatchCommand } from "../../command-dispatch";
 import { TUG_ACTIONS } from "./action-vocabulary";
@@ -553,17 +554,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       ) {
         return false;
       }
-      const forwarded = new KeyboardEvent("keydown", {
-        key: event.key,
-        code: event.code,
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        altKey: event.altKey,
-        ctrlKey: event.ctrlKey,
-        metaKey: event.metaKey,
-        shiftKey: event.shiftKey,
-      });
+      const forwarded = forwardedKeydown(event);
       deliveringToLeaf = true;
       try {
         leaf.dispatchEvent(forwarded);

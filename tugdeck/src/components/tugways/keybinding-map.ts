@@ -26,11 +26,13 @@ import type { TugAction } from "./action-vocabulary";
 /**
  * A single keybinding entry.
  *
- * `key` uses the KeyboardEvent.code value (layout-independent), e.g.
- * "Backquote", "KeyN". Modifier flags default to false when absent.
+ * `key` is a US-layout KeyboardEvent.code name, e.g. "Backquote", "KeyN",
+ * matched by `effectiveCode` in `chord-format.ts`: a letter names the key
+ * that types it on the user's layout, anything else a physical key.
+ * Modifier flags default to false when absent.
  */
 export interface KeyBinding {
-  /** KeyboardEvent.code (layout-independent key identifier) */
+  /** US-layout KeyboardEvent.code name; a letter follows the user's layout. */
   key: string;
   ctrl?: boolean;
   meta?: boolean;

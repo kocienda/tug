@@ -13,12 +13,14 @@
  *
  * ## Why shadowing is the point
  *
- * A chord in Tug can be claimed at four layers, and they are not peers. In
- * the shipped app AppKit resolves an `NSMenuItem` key equivalent *before the
- * web view sees a keydown at all*, so a menu-eligible chord preempts every
- * scoped binding regardless of focus ([P15]). Below that, the JS pipeline
+ * A chord in Tug can be claimed at four layers, and they are not peers. An
+ * `NSMenuItem` key equivalent is modelled as the outermost, preempting every
+ * scoped binding regardless of focus ([P15]); below it, the JS pipeline
  * resolves focus mode first, then the responder walk innermost-first, then
- * global ([P08]).
+ * global ([P08]). The model's ranking of the native layer predates the
+ * reading of WebKit recorded in `tuglaws/commands.md` — the page is offered a
+ * ⌘ or ⌃ keydown first, and AppKit matches what the page leaves unhandled —
+ * and has not been audited against it.
  *
  * The codebase already knows this and reasons about it by hand: `pdf-view.tsx`
  * declines ⌘1–⌘3 because the deck wants them, and declines the zoom chords
@@ -60,8 +62,8 @@ import {
 /** Which layer a claim on a chord lives at. */
 export type ResolutionLayer =
   /**
-   * An `NSMenuItem` carries this chord. AppKit resolves it before the web
-   * view sees a keydown, so this layer sits above all three JS layers.
+   * An `NSMenuItem` carries this chord. The model ranks this layer above all
+   * three JS layers; see the header for what that ranking rests on.
    */
   | {
       readonly kind: "native";

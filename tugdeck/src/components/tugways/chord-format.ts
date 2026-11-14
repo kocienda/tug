@@ -1,8 +1,11 @@
 /**
  * chord-format.ts — the only place either key alphabet is spelled.
  *
- * Tug identifies a chord by `KeyboardEvent.code` plus the exact state of the
- * four modifier flags ([P09]). AppKit identifies one by an `NSMenuItem`
+ * Tug spells a chord as a US-layout `KeyboardEvent.code` name plus the exact
+ * state of the four modifier flags ([P09]), and matches an event against it
+ * by the event's *effective* code ({@link effectiveCode}): a letter chord
+ * names the key that types that letter on the user's layout, and every other
+ * chord names a physical key. AppKit identifies a chord by an `NSMenuItem`
  * key-equivalent *character* plus a modifier mask. They are different
  * alphabets — `"ArrowUp"` is `NSUpArrowFunctionKey`, `"Escape"` is `\u{1b}`,
  * and shifted punctuation is genuinely ambiguous — and every place that
@@ -22,7 +25,7 @@ import type { Chord } from "./command-registry";
  * ------------------------------------------------------------------------- */
 
 /**
- * A chord's lookup identity: the `code` plus all four modifier flags, in a
+ * A chord's lookup identity: its key name plus all four modifier flags, in a
  * fixed order. This is the key an O(1) chord index is built on, and it is
  * exactly the identity {@link chordMatchesEvent} tests pairwise — one
  * definition, so an index lookup and a scan can never disagree.
@@ -33,15 +36,43 @@ export function chordKey(chord: Chord): string {
   }${chord.alt === true ? 1 : 0}`;
 }
 
+/**
+ * The code an event is matched by: the key that types a letter on the user's
+ * layout for a letter, the physical key for everything else.
+ *
+ * The layout is read from the event's legacy `keyCode`, which WebKit resolves
+ * per event against the current input source: from the typed character first,
+ * then the character without modifiers, then the physical key. So A–Z arrive
+ * as 65–90 on the key that types them on AZERTY, QWERTZ and Dvorak, on the
+ * QWERTY position while ⌘ is held on "Dvorak – QWERTY ⌘", and on the
+ * US position on a layout with no Roman letters, which is where a Russian
+ * keyboard's user expects ⌘C. Neither `code` nor `key` can say this: `code`
+ * is the position alone, and `key` is the composed character once ⌥ is
+ * held (⌥C arrives as "ç").
+ *
+ * Digits and punctuation stay positional. A digit chord fires on the
+ * number-row key whatever the layout types there unshifted, since some
+ * layouts reach a digit only through Shift; which punctuation keys carry a
+ * character-derived `keyCode` is not established, so none is trusted.
+ *
+ * An absent or zero `keyCode` — an event synthesized without one — falls
+ * back to `code`.
+ */
+export function effectiveCode(event: Pick<KeyboardEvent, "code" | "keyCode">): string {
+  const keyCode = event.keyCode;
+  if (keyCode >= 65 && keyCode <= 90) return `Key${String.fromCharCode(keyCode)}`;
+  return event.code;
+}
+
 /** The same identity, read off a live event. */
-export function eventChordKey(event: KeyboardEvent): string {
-  return `${event.code}|${event.ctrlKey ? 1 : 0}${event.metaKey ? 1 : 0}${
+export function eventChordKey(event: ChordEventFields): string {
+  return `${effectiveCode(event)}|${event.ctrlKey ? 1 : 0}${event.metaKey ? 1 : 0}${
     event.shiftKey ? 1 : 0
   }${event.altKey ? 1 : 0}`;
 }
 
 /**
- * The five fields chord matching reads off an event.
+ * The six fields chord matching reads off an event.
  *
  * Declared as a structural type rather than `KeyboardEvent` so one predicate
  * serves native listeners and React synthetic events alike — both satisfy it,
@@ -49,12 +80,12 @@ export function eventChordKey(event: KeyboardEvent): string {
  */
 export type ChordEventFields = Pick<
   KeyboardEvent,
-  "code" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey"
+  "code" | "keyCode" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey"
 >;
 
 /**
- * Whether an event is this chord: exact `code`, and the exact state of all
- * four modifiers.
+ * Whether an event is this chord: its {@link effectiveCode} equal to the
+ * chord's key, and the exact state of all four modifiers.
  *
  * Exactness is what keeps ⌘C and ⌥⇧⌘C distinct commands rather than one
  * command with stray modifiers, and it is why a chord can be a *superset* of
@@ -62,7 +93,7 @@ export type ChordEventFields = Pick<
  */
 export function chordMatchesEvent(event: ChordEventFields, chord: Chord): boolean {
   return (
-    event.code === chord.key &&
+    effectiveCode(event) === chord.key &&
     event.ctrlKey === (chord.ctrl === true) &&
     event.metaKey === (chord.meta === true) &&
     event.shiftKey === (chord.shift === true) &&
@@ -73,13 +104,17 @@ export function chordMatchesEvent(event: ChordEventFields, chord: Chord): boolea
 /**
  * The chord a user just pressed.
  *
+ * `key` is the event's {@link effectiveCode}, so a chord recorded on a
+ * layout matches the same key it was recorded from.
+ *
  * `label` is captured from `event.key` — the character the key produced on
  * *their* layout — because that is the only trustworthy source of a display
- * string for a physical key. It never participates in matching ([P09]).
+ * string for a key the tables do not name. It never participates in matching
+ * ([P09]).
  */
 export function chordFromEvent(event: KeyboardEvent): Chord {
   return {
-    key: event.code,
+    key: effectiveCode(event),
     ...(event.ctrlKey ? { ctrl: true } : {}),
     ...(event.metaKey ? { meta: true } : {}),
     ...(event.shiftKey ? { shift: true } : {}),

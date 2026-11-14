@@ -44,15 +44,18 @@
 
 import type { TugAction } from "./action-vocabulary";
 import { TUG_ACTIONS } from "./action-vocabulary";
+import { effectiveCode } from "./chord-format";
 
 // ---- EditingKeybinding interface ----
 
 /**
  * A single text-editing keybinding entry.
  *
- * `key` uses the `KeyboardEvent.code` value (layout-independent),
- * matching `Chord` in `command-registry.ts`. Modifier flags default
- * to false when absent.
+ * `key` is a US-layout `KeyboardEvent.code` name, as on `Chord` in
+ * `command-registry.ts`, and is matched the same way, by
+ * `effectiveCode` in `chord-format.ts`: a letter names the key that
+ * types it on the user's layout. Modifier flags default to false
+ * when absent.
  *
  * `shiftExtends` is the only field new to this module: when true,
  * the matcher accepts the keystroke regardless of `event.shiftKey`,
@@ -62,7 +65,7 @@ import { TUG_ACTIONS } from "./action-vocabulary";
  * not hard-coded per handler.
  */
 export interface EditingKeybinding {
-  /** KeyboardEvent.code (layout-independent key identifier). */
+  /** US-layout KeyboardEvent.code name; a letter follows the user's layout. */
   key: string;
   ctrl?: boolean;
   meta?: boolean;
@@ -140,7 +143,9 @@ export function setEditingKeybindings(next: EditingKeybinding[]): void {
  * Returns the matched `EditingKeybinding` so the caller can read
  * `action` and `shiftExtends`, or `null` if no binding matches.
  *
- * Modifier matching mirrors `chordMatchesEvent` in
+ * The key is compared by the event's `effectiveCode`, the one rule
+ * every chord is matched by, so ⌃W is the key that types W on the
+ * user's layout. Modifier matching mirrors `chordMatchesEvent` in
  * `chord-format.ts` for `ctrl` / `meta` / `alt` (exact match; absent
  * flag means false). The shift comparison branches on
  * `shiftExtends`:
@@ -159,8 +164,9 @@ export function setEditingKeybindings(next: EditingKeybinding[]): void {
  * keystroke without any caller refresh.
  */
 export function matchEditingKeybinding(event: KeyboardEvent): EditingKeybinding | null {
+  const code = effectiveCode(event);
   for (const binding of EDITING_KEYBINDINGS) {
-    if (event.code !== binding.key) continue;
+    if (code !== binding.key) continue;
     if (!!event.ctrlKey !== (binding.ctrl ?? false)) continue;
     if (!!event.metaKey !== (binding.meta ?? false)) continue;
     if (!!event.altKey !== (binding.alt ?? false)) continue;
