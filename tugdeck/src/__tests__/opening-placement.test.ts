@@ -126,8 +126,28 @@ describe("readOpeningDeck", () => {
   });
 
   test("the fit anchor is the arrangement's middle, cheating left", () => {
-    expect(read(deckOf("three-up", [])).deckAnchor).toBe(1);
-    expect(read(deckOf("four-up", [])).deckAnchor).toBe(1);
+    expect(read(deckOf("three-up", ["stack"])).deckAnchor).toBe(1);
+    expect(read(deckOf("four-up", ["stack"])).deckAnchor).toBe(1);
+  });
+
+  test("an empty arrangement anchors at its leftmost slot", () => {
+    for (const kind of ["two-up", "three-up", "four-up", "six-up"] as const) {
+      const deck = read(deckOf(kind, []));
+      expect(deck.deckAnchor).toBe(0);
+      expect(fromDeck(deck)).toBe(0);
+    }
+  });
+
+  test("a slot held by an arriving card ends the empty deck's left anchor", () => {
+    const state = deckOf("three-up", []);
+    const deck = read({
+      ...state,
+      cards: [card("card-arr")],
+      panes: [pane("arr", 0)],
+      arriving: { arr: true },
+    });
+    expect(deck.deckAnchor).toBe(1);
+    expect(fromDeck(deck)).toBe(1);
   });
 
   test("an arriving pane is not standing, but its slot is not empty", () => {
@@ -230,6 +250,16 @@ describe("chooseOpeningSlot — from the deck", () => {
       expect(deck.band?.whole).toEqual([2, 3, 4]);
       expect(deck.deckAnchor).toBe(3);
       expect(fromDeck(deck)).toBe(3);
+    });
+
+    test("an empty strip anchors at the leftmost slot the band shows", () => {
+      const deck = flowDeck(
+        ["empty", "empty", "empty", "empty", "empty"],
+        (s) => ({ offset: left(s, 2), band: right(s, 4) - left(s, 2) }),
+      );
+      expect(deck.band?.whole).toEqual([2, 3, 4]);
+      expect(deck.deckAnchor).toBe(2);
+      expect(fromDeck(deck)).toBe(2);
     });
 
     test("a clipped slot answers when no whole one qualifies", () => {

@@ -4,7 +4,9 @@
  * One rule for every unaddressed arrival in an arrangement: read the deck's
  * slots once ({@link readOpeningDeck}), then rank them from an anchor
  * ({@link chooseOpeningSlot}). The anchor is the card the gesture was made in
- * when it holds a slot, and the deck itself otherwise.
+ * when it holds a slot, and the deck itself otherwise. The deck anchors at its
+ * middle once any slot holds a card, and at its leftmost slot while none does,
+ * so an empty arrangement fills from the left.
  *
  * The ranking, in key order: nearest to the anchor; an empty slot before a
  * stacked one; right before left. A split slot is not a landing place, so a
@@ -64,8 +66,10 @@ export interface OpeningDeck {
   /** In flow, the slots the band holds whole and the ones it only clips;
    *  `null` in fit, where every slot is on screen. */
   band: OpeningBand | null;
-  /** Where an open with no origin is anchored: the arrangement's middle in
-   *  fit, the middle of what the band shows in flow. */
+  /** Where an open with no origin is anchored. While every slot is empty it
+   *  is the leftmost: slot 0 in fit, the leftmost slot the band shows in
+   *  flow. Otherwise it is the middle: the arrangement's middle in fit, the
+   *  middle of what the band shows in flow. */
   deckAnchor: number;
 }
 
@@ -123,12 +127,24 @@ export function readOpeningDeck(
   }
 
   const layout = impositionLayout(state.imposition);
+  // An empty arrangement fills from the left: the first card opened into it
+  // takes the leftmost slot rather than the middle one. A slot held by a card
+  // still arriving is not empty, so a second open in the same breath ranks
+  // from the middle as any occupied deck does.
+  const empty = slots.every((s) => s.class === "empty");
   const strip = deckFlowStrip(state);
   if (strip === null) {
-    return { kind, layout, slots, band: null, deckAnchor: centerSlot(kind) };
+    return {
+      kind,
+      layout,
+      slots,
+      band: null,
+      deckAnchor: empty ? 0 : centerSlot(kind),
+    };
   }
   const input = { strip, band, offset: state.flowOffset ?? 0 };
   const visible = flowVisibleSlots(input);
+  const leftmostShown = visible?.whole[0] ?? visible?.touched[0] ?? 0;
   return {
     kind,
     layout,
@@ -137,7 +153,9 @@ export function readOpeningDeck(
       whole: visible?.whole ?? [],
       touched: visible?.touched ?? [],
     },
-    deckAnchor: centerVisibleFlowSlot(input) ?? centerSlot(kind),
+    deckAnchor: empty
+      ? leftmostShown
+      : centerVisibleFlowSlot(input) ?? centerSlot(kind),
   };
 }
 
