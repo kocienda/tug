@@ -77,8 +77,8 @@
  *    wrapper branches on `toolName` to pick the verb and body
  *    shape.
  *  - [D100] cross-link — this family is *separate* from the user-
- *    task list whose canonical surface is the TASKS status-bar
- *    cell. The `Background Task ·` header prefix is the visible
+ *    task list, whose surface is the transcript's inline markers.
+ *    The `Background Task ·` header prefix is the visible
  *    disambiguation.
  *  - [D101] visibility policy — `tasklist` / `taskget` /
  *    `taskoutput` / `taskstop` move from `default-intent` to
@@ -197,8 +197,8 @@ export function deriveTaskMgmtVerb(toolName: string): TaskMgmtVerb | null {
  * are wrapper-specific knowledge.
  *
  * The `Background Task` prefix is the visible disambiguation
- * from the [D100] user-task list — the TASKS status-bar cell is
- * the canonical surface for that family.
+ * from the [D100] user-task list, which reads as inline markers in
+ * the transcript.
  */
 export function composeTaskMgmtToolName(verb: TaskMgmtVerb | null): string {
   if (verb === null) return "Background Task";

@@ -113,10 +113,6 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Show the context-window breakdown in the status-bar popover",
   },
   {
-    name: "tasks",
-    description: "Show the session's numbered task list in the TASKS popover",
-  },
-  {
     name: "bashes",
     description: "Show the session's background work — goal, jobs, scheduled — in the JOBS popover",
   },

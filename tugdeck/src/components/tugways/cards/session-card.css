@@ -373,7 +373,6 @@
        --tugx-z2-cell-gap        between adjacent cells
        --tugx-z2-cell-*          each cell's width (a `min-width` on both of its
                                  rows, in `ch` of the row's 10px sans)
-       --tugx-z2-cell-*-arc      the widths while the row reads ARC
        --tugx-z2-occupant-height the height the folded row's one occupant holds
                                  — the resting cells' own height, so the strip
                                  is the same depth whether it shows the
@@ -386,7 +385,7 @@
                                  panel and has no such number.
 
      Two things do NOT read from here. The `@container` rungs in
-     `session-telemetry-cell.css` that hide TIME, TASKS and JOBS as the card narrows
+     `session-telemetry-cell.css` that hide TIME, ARC and JOBS as the card narrows
      are literal pixel widths, because a container query cannot read a custom
      property; retune them by hand after these. And the folded tier —
      `FOLDED_CARD_HEIGHT_PX` in `card-registry.ts` — is the
@@ -399,12 +398,9 @@
   --tugx-z2-cell-gap: 27px;
   --tugx-z2-cell-state: 18ch;
   --tugx-z2-cell-time: 15ch;
-  --tugx-z2-cell-context: 18ch;
-  --tugx-z2-cell-tasks: 17ch;
-  --tugx-z2-cell-jobs: 14ch;
-  --tugx-z2-cell-tasks-arc: 17ch;
-  --tugx-z2-cell-jobs-arc: 9ch;
-  --tugx-z2-cell-context-arc: 14ch;
+  --tugx-z2-cell-context: 14ch;
+  --tugx-z2-cell-arc: 17ch;
+  --tugx-z2-cell-jobs: 9ch;
   /* Measured: the resting cells' own row is 35.8px (an 11px legend apparatus,
      its 5px tick excursion, the 2px stack gap, the 18px value row, and the
      fraction the cell stack's own boxes carry), which builds the 53.8px strip

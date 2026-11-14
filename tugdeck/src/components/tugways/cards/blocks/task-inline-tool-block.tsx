@@ -2,14 +2,12 @@
  * `TaskInlineToolBlock` — Layer-2 marker for `TaskCreate` and
  * `TaskUpdate` events.
  *
- * The [D100] task list has two complementary surfaces. The TASKS
- * status-bar cell on `Z2` is the canonical surface for *current
- * state* (the assembled list, one fixed glance away). This wrapper
- * is the second surface — a per-call inline marker in the
- * transcript so a reader scrolling back can see *when in the
- * conversation flow* each task action happened. The two surfaces
- * never duplicate work: the cell answers "what's on the list now?";
- * the marker answers "when did this happen?".
+ * This wrapper is the [D100] task list's surface — a per-call inline
+ * marker in the transcript, so a reader scrolling back can see *when
+ * in the conversation flow* each task action happened. The `Z2`
+ * status bar once carried a TASKS cell for the assembled list; it was
+ * withdrawn, and the assembled list now shows only in the ARC placard
+ * of an arc that drives no plan.
  *
  * Folded runs. One marker per event is the right grain at the volume
  * [D100] assumed and the wrong one at the volume long sessions reach:
@@ -70,7 +68,7 @@
  * Completed — colored accents per event. The audit volume of these
  * events in a real session is high enough (often 8–12 per turn for
  * a multi-task plan) that role-coloring pulls weight away from the
- * TASKS cell. So the state is carried by icon *shape*, not hue: the
+ * prose around them. So the state is carried by icon *shape*, not hue: the
  * icon stays muted and the verb reads in the header's normal text
  * tone. Color is reserved for the rare error case, where it earns
  * the visual interrupt.
@@ -100,9 +98,9 @@
  * Decisions:
  *  - [D05] two-layer hybrid — but the chrome layer is intentionally
  *    absent here; the wrapper IS the body.
- *  - [D100] two-surface task list — this wrapper is the second
- *    surface (TASKS cell is the first); D100's prose was amended to
- *    acknowledge both.
+ *  - [D100] task list — this wrapper is its surface in the
+ *    transcript; the `Z2` TASKS cell that was once the first surface
+ *    is withdrawn, and D100's prose records both.
  *  - [D101] visibility policy — `taskcreate` / `taskupdate` move
  *    from `hidden` to bespoke when this wrapper ships; the policy
  *    entries are removed in the same change.

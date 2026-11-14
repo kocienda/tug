@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ARC_CELL_WIDEST_FRACTION,
+  ARC_CELL_NONE_WORD,
   ARC_CELL_WIDEST_WORD,
   arcCellRestClause,
   arcCellState,
@@ -581,6 +582,10 @@ describe("the Z2 cell's word", () => {
       const reading = reauditCellReading(restamp);
       if (reading !== null) readings.add(reading.word);
     }
+    // And the word the cell says with no arc at all, which sits in the same
+    // box: binding an arc changes the reading, never the cell.
+    readings.add(ARC_CELL_NONE_WORD);
+    expect(readings).toContain("None");
     expect(readings).toContain("Stopped");
     expect(readings).toContain("Cut");
     expect(readings).toContain("Review");

@@ -1,10 +1,10 @@
 /**
- * select-work.test.ts — pure-logic coverage for the TASKS and JOBS
- * cell derivations: fractions, counts, pose truth-tables, and the
- * per-cell linger.
+ * select-work.test.ts — pure-logic coverage for the ARC and JOBS
+ * cell derivations: numerals, counts, pose truth-tables, and the
+ * JOBS linger.
  *
- * Each cell keeps its source's semantics: TASKS holds [D100]'s idle
- * demotion, while JOBS never idle-demotes ([D102]'s divergence) and a
+ * Each cell keeps its source's semantics: a hand-run arc's ARC reading
+ * idles with the session, while JOBS never idle-demotes ([D102]) and a
  * failed job holds the `aborted` pose past any linger.
  */
 
@@ -12,21 +12,17 @@ import { describe, expect, test } from "bun:test";
 
 import type { GoalState } from "@/lib/code-session-store/select-goal";
 import { countJobs, type JobItem } from "@/lib/code-session-store/select-jobs";
-import type { TaskItem } from "@/lib/code-session-store/select-task-list";
 import {
   cellDisplayCount,
   composeJobsCellSummary,
   formatCellCount,
   WORK_CELL_WIDEST_WORD,
-  formatTaskFraction,
   jobsCellActiveCount,
   jobsCellDisplayPose,
   jobsRecentlyDone,
   nextLingerExpiryMs,
   arcCellPose,
   arcCellNumerals,
-  tasksCellPose,
-  tasksRecentlyDone,
 } from "@/lib/code-session-store/select-work";
 
 function job(overrides: Partial<JobItem> & { jobId: string }): JobItem {
@@ -40,10 +36,6 @@ function job(overrides: Partial<JobItem> & { jobId: string }): JobItem {
     endedAtMs: null,
     ...overrides,
   } as JobItem;
-}
-
-function task(id: string, status: TaskItem["status"]): TaskItem {
-  return { taskId: id, subject: `task ${id}`, status };
 }
 
 function goal(status: GoalState["status"] = "active"): GoalState {
@@ -60,59 +52,23 @@ function goal(status: GoalState["status"] = "active"): GoalState {
 describe("nextLingerExpiryMs", () => {
   const NOW = 1_000_000;
   const L = 300_000;
-  const doneTask = (id: string, completedAtMs: number | undefined): TaskItem => ({
-    taskId: id,
-    subject: `task ${id}`,
-    status: "completed",
-    ...(completedAtMs !== undefined ? { completedAtMs } : {}),
-  });
+  const doneJob = (id: string, endedAtMs: number | null): JobItem =>
+    job({ jobId: id, status: "completed", endedAtMs });
 
   test("earliest future expiry, else null", () => {
-    const tasks = [doneTask("a", NOW - 60_000), doneTask("b", NOW - 120_000)];
-    // earliest completion (b, older) ages out first.
-    expect(nextLingerExpiryMs(tasks, [], NOW, L)).toBe(NOW - 120_000 + L);
+    const jobs = [doneJob("a", NOW - 60_000), doneJob("b", NOW - 120_000)];
+    // earliest finish (b, older) ages out first.
+    expect(nextLingerExpiryMs(jobs, NOW, L)).toBe(NOW - 120_000 + L);
     // nothing lingering → null.
-    expect(nextLingerExpiryMs([doneTask("c", NOW - L - 1)], [], NOW, L)).toBe(null);
-    expect(nextLingerExpiryMs([], [], NOW, L)).toBe(null);
+    expect(nextLingerExpiryMs([doneJob("c", NOW - L - 1)], NOW, L)).toBe(null);
+    expect(nextLingerExpiryMs([doneJob("d", null)], NOW, L)).toBe(null);
+    expect(nextLingerExpiryMs([], NOW, L)).toBe(null);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Per-cell derivations — TASKS and JOBS
+// Per-cell derivations — ARC and JOBS
 // ---------------------------------------------------------------------------
-
-describe("formatTaskFraction", () => {
-  test("empty list reads None", () => {
-    expect(formatTaskFraction({ completed: 0, total: 0 })).toBe("None");
-  });
-
-  test("partial and full fractions", () => {
-    expect(formatTaskFraction({ completed: 3, total: 7 })).toBe("3/7");
-    expect(formatTaskFraction({ completed: 12, total: 17 })).toBe("12/17");
-    expect(formatTaskFraction({ completed: 4, total: 4 })).toBe("4/4");
-    expect(formatTaskFraction({ completed: 0, total: 2 })).toBe("0/2");
-  });
-});
-
-describe("tasksCellPose", () => {
-  test("no tasks is quiet", () => {
-    const empty = { hasTasks: false, allTasksComplete: false, isIdle: false };
-    expect(tasksCellPose(empty, false)).toBe("stopped");
-    expect(tasksCellPose(empty, true)).toBe("stopped");
-  });
-
-  test("in-flight runs, and idle demotes it", () => {
-    const open = { hasTasks: true, allTasksComplete: false, isIdle: false };
-    expect(tasksCellPose(open, false)).toBe("running");
-    expect(tasksCellPose({ ...open, isIdle: true }, false)).toBe("stopped");
-  });
-
-  test("all complete reads green only while the finish is recent", () => {
-    const done = { hasTasks: true, allTasksComplete: true, isIdle: true };
-    expect(tasksCellPose(done, true)).toBe("completed");
-    expect(tasksCellPose(done, false)).toBe("stopped");
-  });
-});
 
 describe("arcCellPose", () => {
   type Wheel = { stage?: string; stopped?: string; done?: boolean };
@@ -235,21 +191,14 @@ describe("arcCellNumerals", () => {
   });
 });
 
-describe("per-cell recently-done splits", () => {
+describe("jobsRecentlyDone", () => {
   const now = 10_000;
   const linger = 5_000;
 
-  test("tasks count by completedAtMs; jobs never leak into the tasks half", () => {
-    const tasks: TaskItem[] = [
-      { ...task("t1", "completed"), completedAtMs: 8_000 },
-      { ...task("t2", "completed"), completedAtMs: 1_000 },
-      { ...task("t3", "completed") },
-      task("t4", "pending"),
-    ];
+  test("a terminal job inside the window counts", () => {
     const jobs = [job({ jobId: "f1", status: "completed", endedAtMs: 9_000 })];
-    expect(tasksRecentlyDone(tasks, now, linger)).toBe(1);
     expect(jobsRecentlyDone(jobs, now, linger)).toBe(1);
-    expect(tasksRecentlyDone([], now, linger)).toBe(0);
+    expect(jobsRecentlyDone([], now, linger)).toBe(0);
   });
 
   test("terminal jobs outside the window and running jobs do not count", () => {
@@ -339,7 +288,7 @@ describe("composeJobsCellSummary", () => {
 });
 
 /**
- * The work cells (TASKS, JOBS) reserve their box from two ghosts — the zero
+ * The JOBS work cell reserves its box from two ghosts — the zero
  * word and a two-digit shape — so the readings the formatter produces are
  * closed against them ([D168]): the zero word IS the declaration, and every
  * count up to 99 is no wider than the digit shape the cells reserve.

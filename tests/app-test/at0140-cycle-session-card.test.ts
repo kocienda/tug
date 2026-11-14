@@ -25,12 +25,12 @@
  *      Tab wraps to the route (the editor is the LAST stop and the route is
  *      the FIRST, now that the fold seat has moved into Z2, [B03]);
  *      touring the live stops (route → Claude Code → AI → fold → STATE → TIME
- *      → CONTEXT → TASKS → JOBS → editor → wrap) never lands on the
+ *      → CONTEXT → ARC → JOBS → editor → wrap) never lands on the
  *      submit, because its empty-input gate disables it. ⌥⇥ off restores caret.
  *   3. **typed editor:** with content, the same entry — ring on the editor's
  *      stop, Tab to the route — and now the submit is live.
  *   4. **Tab tours the stops:** route → Claude Code → AI → mic → submit →
- *      fold → STATE → TIME → CONTEXT → TASKS → JOBS → editor → wrap
+ *      fold → STATE → TIME → CONTEXT → ARC → JOBS → editor → wrap
  *      (trapped). The Session and Project chips are not on this route (the Z4B
  *      diet), and there is no BTW cell (the Z2 diet). Every Z4B chip and Z2 status cell
  *      is its own leaf stop ([P10] revised — no arrow-roving): Tab steps
@@ -110,7 +110,7 @@ const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const Z2_STATE = `${CARD} [data-priority="state"]`;
 const Z2_TIME = `${CARD} [data-priority="time"]`;
 const Z2_CONTEXT = `${CARD} [data-priority="context"]`;
-const Z2_TASKS = `${CARD} [data-priority="tasks"]`;
+const Z2_ARC = `${CARD} [data-priority="arc"]`;
 const Z2_JOBS = `${CARD} [data-priority="jobs"]`;
 // A settings sheet opened from a cycle-stop chip (here the permission-mode chip,
 // which populates reliably headless) and one of its option rows.
@@ -230,7 +230,7 @@ function effortModelCapabilities() {
 
 describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", () => {
   test(
-    "⌥⇥ rings the stop the caret was in, Tab tours route → Claude Code → AI → mic → submit → STATE → TIME → CONTEXT → TASKS → JOBS → editor → wrap (each Z4B chip + Z2 cell a leaf stop), skips the disabled submit when empty, and the editor stop parks",
+    "⌥⇥ rings the stop the caret was in, Tab tours route → Claude Code → AI → mic → submit → STATE → TIME → CONTEXT → ARC → JOBS → editor → wrap (each Z4B chip + Z2 cell a leaf stop), skips the disabled submit when empty, and the editor stop parks",
     async () => {
       const app = await launchTugApp({ testName: "at0140-cycle-session-card" });
       try {
@@ -294,7 +294,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_CONTEXT), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TASKS), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_ARC), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
@@ -351,7 +351,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.body("A").waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // submit → the five cells, each its own leaf stop ([P10] revised):
-        // STATE → TIME → CONTEXT → TASKS → JOBS. Each carries the leaf key
+        // STATE → TIME → CONTEXT → ARC → JOBS. Each carries the leaf key
         // view (and the blue ring) in turn — no arrow-roving. The fold
         // control follows JOBS at the row's trailing edge ([B03]).
         await app.nativeKey("Tab");
@@ -363,7 +363,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_CONTEXT), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TASKS), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_ARC), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");

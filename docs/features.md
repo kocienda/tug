@@ -82,7 +82,7 @@ Control-Command-Left Bracket and Control-Command-Right Bracket move between turn
 
 ### The status row
 
-Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, its **tasks** as a fraction, and its background **jobs** as they appear, run and finish. `/context`, `/tasks` and `/bashes` open the last three from the composer. A `/btw` side question's answers open from under this row too.
+Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, the **arc** it is driving, or `None`, and its background **jobs** as they appear, run and finish. `/context` and `/bashes` open the context and jobs panels from the composer. A `/btw` side question's answers open from under this row too.
 
 The state reads one of: **Idle** or **Ready**, with no turn in flight; **Sending** and **Waiting**, on the way to the model; **Streaming** while it writes; **Working** while it runs tools; **Running** when a turn has ended and background work carries on; **Awaiting** when it needs your answer; **Interrupting** while a stop is on its way, and **Unanswered** if it goes unheeded; **Restoring** while an earlier session is read back; **Reconnecting** and **Disconnected** for the link to the session; and **Error**.
 
@@ -110,7 +110,7 @@ Command-Slash, or Session > Open Command Picker, opens the command picker; typin
 - **Asking and looking aside.** `/btw <question>` asks a side question without disturbing the work in hand. `/shell <command>` runs one shell command. `/match <name>` and `/search <text>` find files and lines as numbered rows, and `/ref 3` opens rows by number.
 - **The conversation.** `/compact` reduces the session's context, and `/rewind` cuts back to an earlier message. `/clear`, `/new` or `/reset` starts a fresh session on the same card, and `/resume` or `/continue` brings an earlier one back. `/rename <name>` or `/name` names the session and `/unname` clears it. `/private` keeps it out of the Overview. `/copy` and `/export` copy and save it.
 - **Its settings.** `/ai` (Control-Command-I) opens the AI settings, with `/model`, `/effort` and `/mode` at their own rows. `/permissions` or `/allowed-tools` edits the tool rules. `/cd <path>` or `/change-directory` moves the card to another directory, and `/add-dir <path>` or Session > Add Project Directory lets the session read and write another one as well, listed in the Session Summary. `/memory` and `/hooks` open what those name.
-- **Its readings.** `/context`, `/tasks`, `/bashes`, `/usage` (Control-Command-U) and `/diff`.
+- **Its readings.** `/context`, `/bashes`, `/usage` (Control-Command-U) and `/diff`.
 - **Landing.** `/commit` opens the commit editor and `/push` pushes the branch.
 
 ### Model and permission mode

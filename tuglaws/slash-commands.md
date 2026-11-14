@@ -210,8 +210,9 @@ TUI picker is meaningless over the bridge). `/vim` is hidden (pure TUI state).
 The slash-command work exercised every path
 on probe evidence: `/goal` and `/loop` graduated from hidden-as-marker to
 pass-throughs with lifecycle plumbing (goal state tracking, wake-trigger
-chips); `/tasks` and `/bashes` graduated to supported-local, each with its own
-surface — the TASKS popover ([D100]) and the JOBS popover ([D102]); and
+chips); `/bashes` graduated to supported-local with its own surface, the
+JOBS popover ([D102]) — `/tasks` graduated beside it and was later withdrawn
+with its placard, so it is hidden again ([D100]'s History); and
 `/btw` graduated to supported-local via a
 **fourth support mechanism** — a native **control-request** (see below), a
 different door than the user-text path that claude refuses headless.

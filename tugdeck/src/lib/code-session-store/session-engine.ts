@@ -833,7 +833,7 @@ export class SessionEngine {
         return { ...frame, turnKey: mintTurnKey() };
       case "task_started":
         // Background-job lifecycle frames (the JOBS cell's feed — unrelated
-        // to the TaskCreate/TaskUpdate tool calls behind TASKS), folded into
+        // to the TaskCreate/TaskUpdate tool calls of the task list), folded into
         // the session-lifetime jobs ledger. An empty id is refused by the
         // mapping and the frame dropped.
         return taskStartedEvent(frame) ?? null;

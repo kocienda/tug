@@ -126,7 +126,7 @@ const STAGE_DIVIDERS = `${CARD} [data-boundary="stage"]`;
 const MASTHEAD_ARC =
   '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
 /** The Z2 ARC cell — the placard the incident blanked. */
-const Z2_ARC_VALUE = `${CARD} [data-slot="tug-status-cell"][data-priority="tasks"] [data-slot="session-telemetry-arc-value"]`;
+const Z2_ARC_VALUE = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"] [data-slot="session-telemetry-arc-value"]`;
 
 /**
  * **Whether the deck moves the card's seat onto the segment a rotation

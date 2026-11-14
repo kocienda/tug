@@ -76,9 +76,9 @@ const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
 /** The Z2 work cell's ARC reading — the value span, where the arc rides. */
 const ARC_VALUE =
-  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="tasks"] [data-slot="session-telemetry-arc-value"]';
+  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"] [data-slot="session-telemetry-arc-value"]';
 const ARC_CELL =
-  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="tasks"]';
+  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
 const PLACARD = '[data-slot="session-arc-popover-body"]';
 /** The placard's own reading of a stopped arc: the note leads with the stop,
  *  and the strip tints the cell it stopped in. The line drops the two arc
@@ -161,9 +161,9 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
           env: project!.cli.env,
         });
 
-        // The cell reads ARC once the binding reaches the aggregate. Until
-        // then it is TASKS, and asserting the arc on it would be asserting
-        // against the wrong reading entirely.
+        // The cell reads the arc once the binding reaches the aggregate.
+        // Until then it says `None`, and asserting the arc on it would be
+        // asserting against the wrong reading entirely.
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARC_VALUE)}) !== null`,
           { timeoutMs: 40_000 },

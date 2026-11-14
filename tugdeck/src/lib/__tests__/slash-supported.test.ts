@@ -93,11 +93,15 @@ describe("classifySlashCommand", () => {
     }
   });
 
-  test("/tasks and /bashes are supported-local (the TASKS and JOBS popovers)", () => {
-    for (const name of ["tasks", "bashes"]) {
-      expect(classifySlashCommand(name)).toBe("supported-local");
-      expect(HIDDEN_SLASH_COMMANDS.has(name)).toBe(false);
-    }
+  test("/bashes is supported-local (the JOBS placard)", () => {
+    expect(classifySlashCommand("bashes")).toBe("supported-local");
+    expect(HIDDEN_SLASH_COMMANDS.has("bashes")).toBe(false);
+  });
+
+  test("/tasks is refused: the Session card has no Tasks surface", () => {
+    expect(HIDDEN_SLASH_COMMANDS.has("tasks")).toBe(true);
+    expect(classifySlashCommand("tasks")).not.toBe("supported-local");
+    expect(classifySlashCommand("tasks")).not.toBe("pass-through");
   });
 
   test("/goal and /loop are pass-throughs (probe-verified on 2.1.204)", () => {

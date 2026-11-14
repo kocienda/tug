@@ -1263,8 +1263,8 @@ export type AssistantOpenerEvent = WireEvent<Wire.AssistantOpener> & { turnKey: 
  *
  * **Terminology guard:** despite the `task_` wire spelling, this is
  * the *background-jobs* vocabulary (the JOBS cell), unrelated to the
- * `TaskCreate` / `TaskUpdate` *tool calls* that drive the TASKS cell's
- * todo list ([D100]).
+ * `TaskCreate` / `TaskUpdate` *tool calls* that drive the todo list
+ * ([D100]).
  *
  * The frame fires for foreground subagents too (shape-identical — the
  * wire carries no backgrounded discriminant), so the reducer gates

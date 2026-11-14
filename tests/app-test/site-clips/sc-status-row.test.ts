@@ -8,15 +8,16 @@
  * site variables are set.
  *
  * The scene: one Session card in a one-up, bound to a stub transcript of
- * two turns. The first, played before the burst, writes three tasks, so the
- * row starts the clip reading 0 of 3. The second is the one recorded, and
+ * two turns. The first, played before the burst, writes three tasks, which
+ * the transcript's inline marker follows; the status row has no cell for
+ * them. The second is the one recorded, and
  * it does what a working turn does, in order: it takes the first task,
  * streams prose while its usage climbs, starts a shell command in the
  * background, finishes the first task and takes the second, streams on,
  * sees the job end, finishes the rest, and ends. On the row that is STATE
  * going from Streaming to Idle, TIME counting while it does, CONTEXT
- * climbing with each usage frame, TASKS filling in, and JOBS taking one job
- * and letting it go.
+ * climbing with each usage frame, ARC reading `None` throughout since the
+ * session drives no arc, and JOBS taking one job and letting it go.
  *
  * Every tool call in the recorded turn is held open for a moment
  * ({@link HOLD_BEATS} heartbeats) before its result: a call that opens and

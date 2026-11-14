@@ -3,7 +3,7 @@
  * dots, numbers before words, and a row that never moves.
  *
  * The cell is authored as STATE is — a dot pinned to each edge of the value
- * wrap and a reading centred between them — rather than as TASKS is, whose
+ * wrap and a reading centred between them — rather than as JOBS is, whose
  * glyphs and count live inside one indicator. That difference is the design,
  * so its shape is asserted structurally: three children in the wrap, an
  * indicator at each end, the reading in the middle.
@@ -22,21 +22,25 @@
  *  - **A cut says `Cut`**, not `Implement`: it has no plan and never will,
  *    so a phase word would name a stage of a lifecycle it does not have.
  *
+ * **With no arc the cell still reads ARC, and says `None`.** That reading's
+ * own assertions — the label, the dimmed word, the placard — are in
+ * `at0192-z2-cold-replay`; here it is the state the row is measured in before
+ * the bind and after the release.
+ *
  * **The two dots are one reading, so they breathe as one.** The pair only
  * phase-locks by mounting in the same commit — the loops take their start
- * time from the style flush that gates them on. An unkeyed fragment let React
- * reconcile the ARC branch positionally against the TASKS indicator that was
- * in the same slot and carry its left glyph across, already breathing on an
- * older clock, while the right one started fresh. So the bare glyphs are
- * marked before the bind and neither may survive it.
+ * time from the style flush that gates them on. The cell has one construction
+ * with or without an arc, so the pair that stands beside `None` is the pair
+ * that stands beside the arc's reading: the glyphs are marked before the bind
+ * and both must survive it, since a remounted dot would start a clock of its
+ * own against a partner still on the old one.
  *
- * **The widths are the row's promise, and the promise is that the ROW does not
- * move.** Binding takes the ARC cell from 13ch to 17ch and the give-back comes
- * from JOBS as far as JOBS can go and from CONTEXT for the rest, so the five
- * cells and their gaps occupy the same row they did and nothing outside them
- * moves under the reader's eye.
+ * **The widths are the row's promise, and the promise is that nothing moves.**
+ * The cell is one box whether or not an arc is bound, so the five rendered
+ * boxes with no arc are the five boxes at every reading and the five boxes
+ * after the release.
  *
- * **And once bound, no reading moves a cell.** Every word-bearing cell is sized
+ * **No reading moves a cell.** Every word-bearing cell is sized
  * from a widest reading declared beside the table that produces it — a hidden
  * face under the live text — so the box is the widest reading's from the first
  * paint and the reading swaps inside it ([D168]). This test walks the bound
@@ -122,11 +126,13 @@ const CARD = '[data-card-id="A"]';
 const ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
 const cell = (priority: string): string =>
   `${CARD} [data-slot="tug-status-cell"][data-priority="${priority}"]`;
-const WRAP = `${cell("tasks")} .session-telemetry-status-value-wrap`;
-const VALUE = `${cell("tasks")} [data-slot="session-telemetry-arc-value"]`;
+const WRAP = `${cell("arc")} .session-telemetry-status-value-wrap`;
+const VALUE = `${cell("arc")} [data-slot="session-telemetry-arc-value"]`;
+/** The same span with no arc running: the dimmed `None`. */
+const NONE = `${cell("arc")} [data-slot="session-telemetry-arc-none"]`;
 
-/** The five cells, left to right, and the widths they hold with no arc up. */
-const PRIORITIES = ["state", "time", "context", "tasks", "jobs"] as const;
+/** The five cells, left to right. */
+const PRIORITIES = ["state", "time", "context", "arc", "jobs"] as const;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -171,7 +177,6 @@ afterAll(() => {
 });
 
 interface RowWidths {
-  arc: string | null;
   cells: Record<string, { width: string; display: string; box: number }>;
   /** The gap between two cells, and the row's own content box. */
   gap: number;
@@ -210,7 +215,6 @@ const widths = (app: App): Promise<RowWidths> =>
        const row = document.querySelector(${JSON.stringify(ROW)});
        const rowStyle = row === null ? null : getComputedStyle(row);
        return {
-         arc: row === null ? null : row.getAttribute("data-arc"),
          cells,
          gap: rowStyle === null ? -1 : parseFloat(rowStyle.gap),
          rowContent: row === null || rowStyle === null
@@ -227,7 +231,7 @@ const readingText = (app: App): Promise<string> =>
     `(document.querySelector(${JSON.stringify(VALUE)})?.textContent ?? "").trim()`,
   );
 
-/** Wait for the ARC face to say a given word. The cell reads TASKS for a
+/** Wait for the ARC face to say a given word. The cell reads `None` for a
  *  beat after a bind, so every reading is preceded by one of these. */
 const awaitReading = (app: App, text: string): Promise<boolean> =>
   app.body("A").waitForCondition<boolean>(
@@ -262,24 +266,32 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
           { timeoutMs: 20000 },
         );
 
-        // ── With no arc up, the cell is TASKS at its own width ───────────
-        const bare = await widths(app);
-        note("at0484 bare row", JSON.stringify(bare));
-        expect(bare.arc).toBeNull();
-
-        // ── A reviewed plan nobody has started: the stage's word, not 0/4 ─
-        // Mark the TASKS glyphs first: what makes the pair below a PAIR is
-        // that both of them are new (see the header). The cell reads `—`
-        // while the replay is inert, and that reading has no glyphs at all —
-        // so wait for the pair that the ARC branch will displace.
-        const TASKS_GLYPHS = `${cell("tasks")} [data-slot="tug-progress-pulsing-dot"]`;
+        // ── With no arc up, the cell reads ARC and says None ─────────────
+        // The cell reads `—` while the replay is inert, and that reading has
+        // no glyphs at all — so wait for the pair that flanks `None`.
+        const GLYPHS = `${cell("arc")} [data-slot="tug-progress-pulsing-dot"]`;
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}).length === 2`,
+          `document.querySelectorAll(${JSON.stringify(GLYPHS)}).length === 2`,
           { timeoutMs: 30000 },
         );
+        const bare = await widths(app);
+        note("at0484 bare row", JSON.stringify(bare));
+        // Every reading below, and the row after the release, is held against
+        // this one: the five boxes with no arc are the five boxes always.
+        const boxesAt = (w: RowWidths): Record<string, number> =>
+          Object.fromEntries(PRIORITIES.map((p) => [p, Math.round(w.cells[p].box * 100) / 100]));
+        const bareBoxes = boxesAt(bare);
+        for (const p of PRIORITIES) {
+          expect(bare.cells[p].display, `${p} is drawn with no arc`).not.toBe("none");
+        }
+
+        // ── A reviewed plan nobody has started: the stage's word, not 0/4 ─
+        // Mark the glyphs first: what makes the pair below a PAIR is that
+        // both of them were mounted together and neither is remounted by the
+        // bind (see the header).
         const markedBefore = await app.body("A").evalJS<number>(
           `(() => {
-             const dots = Array.from(document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}));
+             const dots = Array.from(document.querySelectorAll(${JSON.stringify(GLYPHS)}));
              dots.forEach((el) => { el.dataset.at0484Before = "1"; });
              return dots.length;
            })()`,
@@ -316,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
            })()`,
         );
         note("at0484 instrument shape", JSON.stringify(shape));
-        // STATE's construction, not TASKS': a dot pinned to each edge with the
+        // STATE's construction, not JOBS': a dot pinned to each edge with the
         // reading centred between them, as three siblings — never one
         // indicator carrying a label.
         expect(shape.children).toBe(3);
@@ -325,19 +337,19 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         expect(shape.last).toBe("tug-progress-indicator");
 
         // ── …and the two dots are welded ─────────────────────────────────
-        // A glyph carried over from the TASKS indicator would be breathing on
-        // whatever clock it started under, against a partner that started at
-        // the bind — the pair reading as two mechanisms rather than one
-        // status. Identity is the assertion that does not depend on catching
-        // motion mid-cycle; the phases are compared too, whenever both dots
-        // are actually breathing when the read lands.
+        // A dot remounted by the bind would start a clock of its own against
+        // a partner still on the one it mounted under — the pair reading as
+        // two mechanisms rather than one status. Identity is the assertion
+        // that does not depend on catching motion mid-cycle; the phases are
+        // compared too, whenever both dots are actually breathing when the
+        // read lands.
         const pair = await app.body("A").evalJS<{
           count: number;
           inherited: number;
           progress: ReadonlyArray<number | null>;
         }>(
           `(() => {
-             const dots = Array.from(document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}));
+             const dots = Array.from(document.querySelectorAll(${JSON.stringify(GLYPHS)}));
              const breath = (el) => {
                const anim = el
                  .getAnimations({ subtree: true })
@@ -354,7 +366,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         );
         note("at0484 arc pair", JSON.stringify(pair));
         expect(pair.count).toBe(2);
-        expect(pair.inherited, "neither dot outlived the TASKS reading").toBe(0);
+        expect(pair.inherited, "the bind remounted neither dot").toBe(2);
         const [left, right] = pair.progress;
         if (left !== null && right !== null) {
           const gap = Math.abs(left - right);
@@ -366,25 +378,16 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
 
         const bound = await widths(app);
         note("at0484 bound row", JSON.stringify(bound));
-        // The cell takes what its widest face measures — `Executing` between
-        // two dots — and the width comes back out of JOBS and CONTEXT, the two
-        // cells with wings to spend. JOBS alone could not pay it: it is already
-        // standing on its own reading, so four characters off its budget buy
-        // 2px.
-        expect(bound.arc).toBe("true");
-        // Every bound reading below is held against this one: the five boxes
-        // at `Review` are the five boxes at every other word and fraction.
-        const boxesAt = (w: RowWidths): Record<string, number> =>
-          Object.fromEntries(PRIORITIES.map((p) => [p, Math.round(w.cells[p].box * 100) / 100]));
-        const boundBoxes = boxesAt(bound);
+        // Binding moved nothing: the cell was already the box its widest face
+        // measures, so the five boxes at `Review` are the five with no arc.
+        expect(boxesAt(bound), "the five boxes across the bind").toEqual(bareBoxes);
         const holdStill = async (reading: string): Promise<void> => {
           const now = await widths(app);
           note(`at0484 boxes at ${reading}`, JSON.stringify(boxesAt(now)));
-          expect(now.arc, `${reading} is a bound row`).toBe("true");
           for (const p of PRIORITIES) {
             expect(now.cells[p].display, `${p} is drawn at ${reading}`).not.toBe("none");
           }
-          expect(boxesAt(now), `the five boxes at ${reading}`).toEqual(boundBoxes);
+          expect(boxesAt(now), `the five boxes at ${reading}`).toEqual(bareBoxes);
         };
 
         // ── The label rule is centred over the value it names ─────────────
@@ -468,15 +471,16 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         await holdStill("Cut");
         note("at0484 z2 at the listless reading", (await app.screenshot()).path);
 
-        // ── Unbinding gives the width back ───────────────────────────────
+        // ── Unbinding returns the reading to None and moves nothing ──────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 3);
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(VALUE)}) === null`,
+          `document.querySelector(${JSON.stringify(VALUE)}) === null &&
+             (document.querySelector(${JSON.stringify(NONE)})?.textContent ?? "").trim() === "None"`,
           { timeoutMs: 30000 },
         );
         const unbound = await widths(app);
         note("at0484 unbound row", JSON.stringify(unbound));
-        expect(unbound.arc).toBeNull();
+        expect(boxesAt(unbound), "the five boxes across the release").toEqual(bareBoxes);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

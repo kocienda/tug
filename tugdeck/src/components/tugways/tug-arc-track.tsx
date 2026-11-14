@@ -46,6 +46,7 @@ import {
 } from "@/lib/arc-track-model";
 
 export {
+  ARC_CELL_NONE_WORD,
   ARC_CELL_WIDEST_FRACTION,
   ARC_CELL_WIDEST_WORD,
   ARC_PHASES,

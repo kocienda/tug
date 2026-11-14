@@ -117,15 +117,16 @@ import {
   ContextPopoverContent,
   ArcPopoverContent,
   useArcPopoverVerbs,
+  ArcNonePopoverContent,
   JobsPopoverContent,
   StateChangeLogPopoverContent,
-  TasksPopoverContent,
   TimePopoverContent,
   type ScrollToRowHandler,
 } from "./session-card-telemetry-popovers";
 import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import { arcMarkFraction } from "@/components/tugways/arc-lifecycle-mark";
 import {
+  ARC_CELL_NONE_WORD,
   ARC_CELL_WIDEST_FRACTION,
   ARC_CELL_WIDEST_WORD,
   arcCellRestClause,
@@ -151,19 +152,12 @@ import {
   arcCellPose,
   formatCellCount,
   WORK_CELL_WIDEST_WORD,
-  formatTaskFraction,
   jobsCellActiveCount,
   jobsCellDisplayPose,
   jobsRecentlyDone,
   nextLingerExpiryMs,
-  tasksCellPose,
-  tasksRecentlyDone,
   WORK_LINGER_MS,
 } from "@/lib/code-session-store/select-work";
-import {
-  composeTaskSummary,
-  countTasks,
-} from "@/components/tugways/body-kinds/todo-list-block";
 import {
   COMPACTION_CANCEL_FOCUS_GROUP,
   COMPACTION_CANCEL_FOCUS_KEY,
@@ -234,7 +228,7 @@ export interface SessionTelemetryStatusRowProps extends SessionTelemetryProps {
   focusGroup?: string;
   /**
    * Order of the FIRST cell (STATE) within {@link focusGroup}; the cells
-   * take consecutive orders left→right (STATE, TIME, CONTEXT, TASKS,
+   * take consecutive orders left→right (STATE, TIME, CONTEXT, ARC,
    * JOBS = base + 0…4).
    */
   focusOrderBase?: number;
@@ -264,7 +258,6 @@ export type PlacardKind =
   | "state"
   | "time"
   | "context"
-  | "tasks"
   | "arc"
   | "jobs"
   | "btw";
@@ -297,26 +290,12 @@ const STATUS_ROW_FIELDS = [
   ...INFLIGHT_CLOCK_FIELDS,
 ] as const;
 
-/**
- * The cell a placard anchors under, when that is not the cell its own key
- * names.
- *
- * `arc` is the one entry: the ARC reading is the TASKS cell wearing a
- * different label, so it keeps `data-priority="tasks"` — the width table and
- * the anchor query are both keyed on that attribute, and moving it would cost
- * the cell its measured box as well as its anchor.
- */
-const PLACARD_ANCHOR_PRIORITY: Partial<Record<PlacardKind, string>> = {
-  arc: "tasks",
-};
-
 /** Placard header title per surface — the placard header carries these now
  *  that the composed `TugPopupList` frames render headerless. */
 const PLACARD_TITLES: Record<PlacardKind, string> = {
   state: "State",
   time: "Time",
   context: "Context",
-  tasks: "Tasks",
   // The arc's own name rides inside the body: these are static strings, and
   // the placard header is the surface's legend rather than its subject.
   arc: "Arc",
@@ -327,7 +306,7 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
 /**
  * Imperative handle for {@link SessionTelemetryStatusRow}. Lets the session card open a
  * status-row placard programmatically — the surfaces the `/context` and
- * `/tasks` slash commands map to (they show the same breakdown a click on the
+ * `/bashes` slash commands map to (they show the same breakdown a click on the
  * cell shows, no separate sheet). The session card passes the ref straight to
  * the row it renders into Z2; a null ref (an owner supplying its own
  * `statusBarContent` instead) makes these no-ops.
@@ -335,9 +314,6 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
 export interface SessionTelemetryStatusRowHandle {
   /** Open the CONTEXT placard (the `/context`-style breakdown). */
   openContext(): void;
-  /** Open the TASKS placard (the numbered checklist) — the `/tasks`
-   *  surface. */
-  openTasks(): void;
   /** Open the JOBS placard (goal / running / scheduled / finished) —
    *  the `/bashes` surface. */
   openJobs(): void;
@@ -818,7 +794,7 @@ function CompactionOccupant({
  * Combined session status row — production Z2 surface promoted from
  * the workshop gallery. Layout:
  *
- *     STATE   TIME   CONTEXT   TASKS   JOBS
+ *     STATE   TIME   CONTEXT   ARC   JOBS
  *
  * Measurements sit left, work sits right, and the two work cells are
  * neighbors so the split reads as one story. Five cell anchors, each
@@ -835,7 +811,8 @@ function CompactionOccupant({
  *     5-segment `cost_update`-derived fallback otherwise. Its
  *     `messages` segment is where the session's conversation total
  *     reads.
- *   - **TASKS** → `TasksPopoverContent` — the numbered checklist.
+ *   - **ARC** → `ArcPopoverContent` — the arc this session drives, its
+ *     ledger and its verbs; `ArcNonePopoverContent` when it drives none.
  *   - **JOBS** → `JobsPopoverContent` — goal, running, scheduled and
  *     finished rows with their management actions.
  *
@@ -864,10 +841,9 @@ function CompactionOccupant({
  * mirror-image reason: a session whose arc has finished reads "Ready",
  * green and pulsing, until the user lands or discards it.
  *
- * The two work cells divide along the checklist / everything-else
- * seam, each keeping its own source's semantics (`select-work.ts`).
- * TASKS is the [D100] todo list alone, reading `done/total` and
- * holding that decision's idle demotion. JOBS is the [D102]
+ * ARC reads the one arc this session drives — a step fraction while steps
+ * are walked, the lifecycle's word otherwise, and a dimmed `None` when no
+ * arc is running in the session. JOBS is the [D102]
  * background-jobs ledger (`useJobsState`) plus the `/goal`, counting
  * running rows, scheduled rows and one active goal; it never
  * idle-demotes, because a background job genuinely runs between turns.
@@ -1056,9 +1032,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         anchorCenter =
           container === statusBar ? statusBar.clientWidth : barRect.right - originX;
       } else {
-        const priority = PLACARD_ANCHOR_PRIORITY[key] ?? key;
         const cell = row.querySelector<HTMLElement>(
-          `[data-slot="tug-status-cell"][data-priority="${priority}"]`,
+          `[data-slot="tug-status-cell"][data-priority="${key}"]`,
         );
         if (cell === null) return nowhere;
         const cellRect = layoutRectOf(cell);
@@ -1176,7 +1151,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     ref,
     () => ({
       openContext: () => showPlacard("context"),
-      openTasks: () => showPlacard("tasks"),
       openJobs: () => showPlacard("jobs"),
       openSideQuestions: () => showPlacard("btw"),
     }),
@@ -1234,11 +1208,10 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const stateChangeSnap = useSessionStateChanges(snap.tugSessionId);
 
   // ── The ARC reading ──────────────────────────────────────────────────
-  // While the bound session is driving an arc, the fourth cell reads ARC
-  // instead of TASKS: the arc is what the session IS doing, and during a plan
-  // run the checklist the TASKS reading showed *is* the arc's step list, so
-  // nothing is lost by promoting the arc to the label. The cell keeps its box
-  // and its `data-priority`, so the row's geometry is untouched.
+  // The fourth cell reads ARC, always: the one arc this session drives, or a
+  // dimmed `None` when it drives none. The label, the box and the
+  // construction are the same in both, so binding or releasing an arc changes
+  // the reading and nothing else in the row.
   const arcFact = useArcForSession(snap.tugSessionId);
   // The session's dark calls, read afresh each time the JOBS placard opens.
   const darkCalls = useSessionGaps(snap.tugSessionId, placard?.key === "jobs");
@@ -1307,7 +1280,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     arcClauseLabel === null ? "" : `, ${arcClauseLabel.toLowerCase()}`;
   const arcCellLabel =
     arcFact === null
-      ? ""
+      ? "no arc"
       : arcFraction === null
         ? `arc ${arcFact.name}${arcRestLabel}${arcReadyLabel}${arcReauditLabel}${arcRunLabel}`
         : `arc ${arcFact.name}, step ${arcFraction.current} of ${arcFraction.total}${arcReadyLabel}${arcReauditLabel}${arcRunLabel}`;
@@ -1447,45 +1420,26 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // what state the session is in, not how it got there.
   const stateLabelText = SESSION_PHASE_LABELS[statePhaseKey];
 
-  // TASKS cell — the numbered checklist alone ([D100]'s derived
-  // turn-scoped fold, keeping its idle demotion: a half-done list does
-  // not glow over an idle session). The label is the `done/total`
-  // fraction, which is the reading a plan-following session tracks.
-  //
   // JOBS cell — everything else the session has outstanding ([D102]'s
   // session-lifetime ledger plus the `/goal`): running jobs, scheduled
   // rows, and one active goal. Never idle-demoted — a job genuinely
   // runs between turns.
   //
-  // Both cells linger their recently-finished work for WORK_LINGER_MS
-  // rather than snapping to "None" the instant the last item finishes,
-  // and each lingers only its own half. `nowMs` is read at render;
-  // while idle-and-lingering a single bounded timeout (below)
-  // recomputes once at the earliest expiry across the two — no ticker.
+  // It lingers its recently-finished work for WORK_LINGER_MS rather than
+  // snapping to "None" the instant the last item finishes. `nowMs` is read
+  // at render; while idle-and-lingering a single bounded timeout (below)
+  // recomputes once at the earliest expiry — no ticker. The task list is
+  // read here for the placards that show it.
   const taskListState = useTaskListState(codeSessionStore);
-  const taskCounts = countTasks(taskListState.tasks);
-  const hasTasks = taskCounts.total > 0;
   const isIdle = snap.phase === "idle";
-  const allTasksComplete =
-    hasTasks && taskCounts.completed === taskCounts.total;
   const goal = snap.goal;
   const jobCounts = countJobs(jobsLedger);
   const nowMs = Date.now();
 
-  const tasksRecent = tasksRecentlyDone(
-    taskListState.tasks,
-    nowMs,
-    WORK_LINGER_MS,
-  );
-  const tasksLabelText = formatTaskFraction(taskCounts);
-  const tasksIndicatorState: TugProgressIndicatorState = tasksCellPose(
-    { hasTasks, allTasksComplete, isIdle },
-    tasksRecent > 0,
-  );
-  const tasksSummary = composeTaskSummary(taskCounts);
   // The ARC reading's flanking dots: a stopped arc paints danger, a
-  // wheel-driven one runs across turn ends, and only a hand-run arc takes
-  // the TASKS idle demotion. The pose function owns all four.
+  // wheel-driven one runs across turn ends, only a hand-run arc is demoted
+  // to still dots while the session idles, and no arc at all is still dots.
+  // The pose function owns all of them.
   // A re-audit the engine holds runs the dots whatever the session is doing.
   const arcIndicatorState: TugProgressIndicatorState = reauditHeld
     ? reaudit.pose
@@ -1509,8 +1463,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // whole first half of an arc's life. A direct arc that wrote a task list has
   // a fraction while it walks it, and the phase word once it stops walking.
   const arcReading =
-    arcModel === null
-      ? ""
+    arcFact === null
+      ? // No arc running in the session: the one word, dimmed by the cell's
+        // `valueEmpty`, in the same span the arc's reading takes.
+        ARC_CELL_NONE_WORD
+      : arcModel === null
+        ? ""
       : // While a join offer stands the cell reads the REGISTER's word rather
         // than the lifecycle's ([B08]). `Finished` is true and useless here —
         // it is what the arc did, and what the reader needs is what the arc
@@ -1536,30 +1494,23 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     jobsRecent > 0,
   );
   const jobsSummary = composeJobsCellSummary(jobCounts, goal);
-  // A settled cell needs one nudge to leave its lingered reading:
-  // TASKS to drop its green dot once a finished list ages out, JOBS to
+  // A settled JOBS cell needs one nudge to leave its lingered reading and
   // fall back to "None". Active work needs none — the row already
-  // re-renders on its own (the live TIME clock). One timeout serves
-  // both, scheduled at the earliest expiry across them; when it fires,
-  // a recompute drops that item and reschedules for the next.
-  const tasksLingering = allTasksComplete && tasksRecent > 0;
+  // re-renders on its own (the live TIME clock). One timeout, scheduled at
+  // the earliest expiry; when it fires, a recompute drops that item and
+  // reschedules for the next.
   const jobsLingering = jobsActiveCount === 0 && jobsRecent > 0;
   const [, setLingerTick] = useState(0);
   useEffect(() => {
-    if (!tasksLingering && !jobsLingering) return;
-    const expiry = nextLingerExpiryMs(
-      taskListState.tasks,
-      jobsLedger,
-      Date.now(),
-      WORK_LINGER_MS,
-    );
+    if (!jobsLingering) return;
+    const expiry = nextLingerExpiryMs(jobsLedger, Date.now(), WORK_LINGER_MS);
     if (expiry === null) return;
     const id = setTimeout(
       () => setLingerTick((n) => n + 1),
       Math.max(0, expiry - Date.now()),
     );
     return () => clearTimeout(id);
-  }, [tasksLingering, jobsLingering, taskListState.tasks, jobsLedger]);
+  }, [jobsLingering, jobsLedger]);
   // Popover actions — fire-and-forget control-style callbacks onto the
   // store's named methods (stop/cancel/stop-loop/clear-goal ride the
   // wire; clear is deck-local).
@@ -1630,11 +1581,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const statePopover = (
     <StateChangeLogPopoverContent rows={stateChangeSnap.rows} />
   );
-  const tasksPopover = (
-    <TasksPopoverContent state={taskListState} idle={isIdle} />
-  );
+  // With no arc the placard says the one word the cell says; the empty click
+  // does nothing else.
   const arcPopover =
-    arcFact === null || arcVerbs.verbs === null ? null : (
+    arcFact === null ? (
+      <ArcNonePopoverContent />
+    ) : arcVerbs.verbs === null ? null : (
       <ArcPopoverContent
         fact={arcFact}
         tasks={taskListState.tasks}
@@ -1674,15 +1626,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           ? timePopover
           : placard.key === "context"
             ? contextPopover
-            : placard.key === "tasks"
-              ? tasksPopover
-              : placard.key === "arc"
-                ? arcPopover
-                : placard.key === "jobs"
-                ? jobsPopover
-                : sideQuestionStore !== undefined
-                  ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
-                  : null;
+            : placard.key === "arc"
+              ? arcPopover
+              : placard.key === "jobs"
+              ? jobsPopover
+              : sideQuestionStore !== undefined
+                ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
+                : null;
 
   // The placard element itself, before it is placed. On a showing card it is
   // portaled to the pane frame: open it stands up off the Z2 row's top, over
@@ -1725,7 +1675,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       </SessionPlacard>
     );
 
-  // Flat 5-cell flex row — STATE + TIME + CONTEXT + TASKS + JOBS as
+  // Flat 5-cell flex row — STATE + TIME + CONTEXT + ARC + JOBS as
   // direct siblings. The row's `justify-content: center` (declared in
   // CSS) packs the cells as one group with a fixed inter-item `gap`;
   // the leftover width splits into equal flexing margins on the row's
@@ -1736,10 +1686,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       ref={rowRef}
       className="session-telemetry-status-row"
       data-slot="session-telemetry-status-row"
-      // The fourth cell's reading. It widens for a word, and JOBS gives back
-      // exactly what it takes, so the row's total is the same 80ch either way
-      // and every `@container` rung below keeps its measured value.
-      data-arc={arcFact !== null ? "true" : undefined}
       data-replay-inert={replayInert ? "true" : undefined}
       // The occupant hides the cells through CSS rather than unmounting them:
       // the five-cell row is unconditionally mounted ([L26]), and a fold is no
@@ -1878,21 +1824,20 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         </span>
       </SessionTelemetryCell>
       <SessionTelemetryCell
-        priority="tasks"
-        label={arcFact === null ? "TASKS" : "ARC"}
-        onActivate={() => togglePlacard(arcFact === null ? "tasks" : "arc")}
-        valueEmpty={arcFact === null && !hasTasks}
+        priority="arc"
+        label="ARC"
+        onActivate={() => togglePlacard("arc")}
+        valueEmpty={arcFact === null}
         focusGroup={focusGroup}
         focusOrder={cellOrder(3)}
         focusPolicy={focusPolicy}
       >
         {replayInert ? (
           <span className="session-telemetry-status-value">—</span>
-        ) : arcFact !== null ? (
-          // The arc's reading, in the box TASKS holds when no arc is up:
-          // `data-priority` is unchanged, so the placard's anchor query keeps
-          // working. The box itself widens for the word — see `data-arc` on
-          // the row, where JOBS gives back exactly what this cell takes.
+        ) : (
+          // The arc's reading, or `None` with no arc: one construction and
+          // one box for both, so nothing in the row moves when an arc is
+          // bound or released.
           //
           // **No name.** The cell is ~110px, and a name is the one fact here
           // that can be arbitrarily long — so it ate the box and elided, which
@@ -1916,7 +1861,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // **Authored exactly as STATE is.** Three siblings inside the value
           // wrap — a dot, the reading, a dot — not one indicator carrying a
           // `label`. That is the difference between the two shapes in this
-          // row: TASKS and JOBS put their glyphs and their count inside one
+          // row: JOBS puts its glyphs and its count inside one
           // indicator that stretches to the cell; STATE pins two glyphs to the
           // wrap's edges with `space-between` and centres a WORD between them.
           // The arc reading is a word, so it is STATE's shape, from STATE's
@@ -1924,18 +1869,19 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           //
           // A stopped arc turns both dots danger and holds them still.
           //
-          // **Keyed, and the TASKS branch below is keyed too.** An UNKEYED
-          // top-level fragment is unwrapped by React, so this branch's
-          // children reconcile positionally against the branch that was here
-          // before — and slot 0 of the TASKS branch is a `pulsing-dot` too.
-          // React kept it: the left dot arrived already breathing, on a clock
-          // it started whenever the card mounted, while the right dot mounted
-          // fresh and started its own. Two dots of one reading, permanently a
-          // fraction of a cycle apart. The loops phase-lock by SHARING A START
-          // TIME (`tug-progress-pulsing-dot.tsx`), and the only way this pair
-          // gets one is by mounting in the same commit — which distinct keys
-          // on the two branches are what guarantee.
-          <React.Fragment key="arc">
+          // **The two dots mount in one commit and stay mounted.** The loops
+          // phase-lock by SHARING A START TIME
+          // (`tug-progress-pulsing-dot.tsx`), and the pair gets one by
+          // mounting together. This is the only value branch besides the
+          // replay's dash, which has no dots, so no bind or release ever
+          // carries one dot across from another reading and leaves its
+          // partner to start a clock of its own.
+          //
+          // **The reading's slot names what it is.** An arc's reading is
+          // `session-telemetry-arc-value`; the `None` of no arc is
+          // `session-telemetry-arc-none`, on the same span, so a reader that
+          // asks for the arc's value finds none where there is no arc.
+          <>
             <TugProgressIndicator
               variant="pulsing-dot"
               size={12}
@@ -1944,7 +1890,11 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             />
             <span
               className="session-telemetry-status-value"
-              data-slot="session-telemetry-arc-value"
+              data-slot={
+                arcFact === null
+                  ? "session-telemetry-arc-none"
+                  : "session-telemetry-arc-value"
+              }
               aria-label={arcCellLabel}
               data-widest={ARC_CELL_WIDEST_WORD}
               data-widest-alt={ARC_CELL_WIDEST_FRACTION}
@@ -1957,26 +1907,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               state={arcIndicatorState}
               aria-hidden
             />
-          </React.Fragment>
-        ) : (
-          <TugProgressIndicator
-            key="tasks"
-            variant="pulsing-dot"
-            glyphPosition="both"
-            size={12}
-            state={tasksIndicatorState}
-            label={tasksLabelText}
-            labelAlign="center"
-            // Width-stabilize ghosts: under `labelAlign="center"` every
-            // entry renders hidden and the label box sizes to the
-            // widest, so a fraction needs a fraction-shaped reservation
-            // or it shifts as digits accrue.
-            phaseLabels={{
-              none: WORK_CELL_WIDEST_WORD,
-              max: "00/00",
-            }}
-            aria-label={tasksSummary}
-          />
+          </>
         )}
       </SessionTelemetryCell>
       <SessionTelemetryCell

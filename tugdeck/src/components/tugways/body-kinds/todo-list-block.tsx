@@ -137,8 +137,8 @@ export interface TodoListBlockProps {
    * Quiescent gate — when `true`, the in_progress row's progress
    * indicator renders in its `stopped` state instead of the default
    * running animation. Use to keep the row visually quiet when the
-   * surrounding session is idle (matching the status-bar TASKS
-   * ring's stopped gate). Pending and completed rows are unaffected.
+   * surrounding session is idle. Pending and completed rows are
+   * unaffected.
    * @default false
    */
   idle?: boolean;

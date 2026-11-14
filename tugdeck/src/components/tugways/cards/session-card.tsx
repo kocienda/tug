@@ -548,9 +548,8 @@ export interface SessionCardContentProps {
    * Collapses to zero height when `undefined`. Layout shift on
    * telemetry update is contained (the row grows into space the
    * transcript ceded; no scroll repositioning). Per [D100] this slot
-   * houses `SessionTelemetryStatusRow`, which carries a `TASKS` cell
-   * (TugProgressIndicator ring + `N/M`) and an associated popover —
-   * superseding the prior Z2A/Z2B split.
+   * houses `SessionTelemetryStatusRow` — superseding the prior Z2A/Z2B
+   * split.
    */
   statusBarContent?: React.ReactNode;
   /**
@@ -4339,10 +4338,8 @@ export function SessionCardBody({
       });
     },
     context: () => statusRowRef.current?.openContext(),
-    // The two finally mean different things: `/tasks` is the numbered
-    // checklist, `/bashes` (upstream: running shells + subagents) is
-    // the background-work surface those rows live in here.
-    tasks: () => statusRowRef.current?.openTasks(),
+    // `/bashes` (upstream: running shells + subagents) is the
+    // background-work surface those rows live in here.
     bashes: () => statusRowRef.current?.openJobs(),
     skills: () => skillsSheet.openSkillsSheet(),
     agents: () => agentsSheet.openAgentsSheet(),

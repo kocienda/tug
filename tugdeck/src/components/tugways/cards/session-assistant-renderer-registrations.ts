@@ -108,8 +108,8 @@ const BESPOKE_REGISTRATIONS: ReadonlyArray<
   // lowercased wire names.
   ["shareonboardingguide", ShareOnboardingGuideToolBlock],
   ["remotetrigger", RemoteTriggerToolBlock],
-  // [D100] two-surface task list ([#step-24-3-5]) — TaskInlineToolBlock
-  // is the second surface (the TASKS status-bar cell is the first).
+  // [D100] task list ([#step-24-3-5]) — TaskInlineToolBlock is its
+  // surface in the transcript.
   // Both `taskcreate` and `taskupdate` point at the same wrapper;
   // the wrapper branches on the original `toolName` to pick the
   // event reading. These names were previously hidden via

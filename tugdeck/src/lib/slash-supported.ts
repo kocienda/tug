@@ -111,8 +111,13 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   // tugcode/probes/goal-loop/FINDINGS.md.)
   "branch",
   "plan",
-  // (`/tasks` and `/bashes` graduated to Tug-local commands — they open
-  // the TASKS and JOBS popovers respectively; see LOCAL_SLASH_COMMANDS.)
+  // `/tasks` is refused: claude's task list is a TUI panel with nothing to
+  // answer over the bridge, and the Session card has no Tasks surface of its
+  // own — the checklist reads inline in the transcript as it is written, and
+  // an arc's step list in the ARC placard.
+  "tasks",
+  // (`/bashes` graduated to a Tug-local command — it opens the JOBS
+  // placard; see LOCAL_SLASH_COMMANDS.)
   // (`/btw` graduated to a Tug-local command — it drives claude's native
   // `side_question` control-request and renders the answer in a non-modal
   // overlay; see LOCAL_SLASH_COMMANDS and tugcode/probes/btw/FINDINGS.md.

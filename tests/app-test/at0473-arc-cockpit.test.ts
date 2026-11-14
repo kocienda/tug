@@ -116,9 +116,9 @@ const PLAN_ROWS = `${SECTION} [data-slot="arc-document-row"]`;
 const EMPTY = `${SECTION} [data-slot="arcs-empty"]`;
 const planRow = (name: string): string => `${PLAN_ROWS}[data-arc="${name}"]`;
 
-/** The Z2 work cell — TASKS or ARC, one `data-priority` either way. */
+/** The Z2 ARC cell. */
 const CELL =
-  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="tasks"]';
+  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
 const ARC_PLACARD = '[data-slot="session-arc-popover-body"]';
 const ARC_NAME = "at0473-cockpit";
 
@@ -425,22 +425,24 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 40000 },
           );
 
-          // ── Z2: the fourth cell reads ARC while an arc is up ─────────────
-          // The TASKS reading first, so the switch has something to be a switch
-          // FROM. The box is not the same one: a ARC reading takes STATE's
-          // width and JOBS gives exactly that back ([D168]).
-          const tasksBox = await app.body("A").evalJS<{ label: string; width: number }>(
+          // ── Z2: the fourth cell reads ARC, with an arc or without ────────
+          // The reading with no arc first, so the bind has something to
+          // arrive over: the label is already ARC and no arc's reading
+          // stands under it.
+          const quietBox = await app.body("A").evalJS<{ label: string; width: number; arcValue: boolean }>(
             `(() => {
              const cell = document.querySelector(${JSON.stringify(CELL)});
              return {
                label: (cell?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
                width: cell?.getBoundingClientRect().width ?? 0,
+               arcValue: cell?.querySelector('[data-slot="session-telemetry-arc-value"]') != null,
              };
            })()`,
           );
-          note("at0473 Z2 as TASKS", JSON.stringify(tasksBox));
-          expect(tasksBox.label).toBe("TASKS");
-          expect(tasksBox.width).toBeGreaterThan(0);
+          note("at0473 Z2 with no arc", JSON.stringify(quietBox));
+          expect(quietBox.label).toBe("ARC");
+          expect(quietBox.arcValue).toBe(false);
+          expect(quietBox.width).toBeGreaterThan(0);
 
           // The cell's reading, whether it fits its box, and the pose of the two
           // dots flanking it — read the same way at every reading below. The
@@ -485,13 +487,15 @@ describe.skipIf(!SHOULD_RUN)(
           // ── Z2 before the door's turn ends ([B02]) ────────────────────────
           // The door's first act binds the session to an arc that has nothing
           // yet but an empty documents directory — no branch, no brief. The
-          // cell reads ARC from that first command, not from the door's last.
+          // cell reads the arc from that first command, not from the door's
+          // last. The label is ARC with no arc too, so the wait is on the
+          // arc's own reading standing in the cell.
           bindArcAtTheDoor(dirA(), ARC_NAME, SID_A, {
             binaryRoot: CHECKOUT,
             env: projectA!.cli.env,
           });
           await app.body("A").waitForCondition<boolean>(
-            `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "ARC"`,
+            `document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)}) !== null`,
             { timeoutMs: 60000 },
           );
           const atTheDoor = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);

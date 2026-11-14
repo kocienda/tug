@@ -82,7 +82,7 @@
    word-bearing cells declare their widest reading in TypeScript, beside the
    table that produces it — `SESSION_PHASE_WIDEST_LABEL` for STATE,
    `ARC_CELL_WIDEST_WORD` and `ARC_CELL_WIDEST_FRACTION` for the ARC reading,
-   `WORK_CELL_WIDEST_WORD` for TASKS and JOBS — and render it as a hidden
+   `WORK_CELL_WIDEST_WORD` for JOBS — and render it as a hidden
    sizing face under the live text (see `[data-widest]` below and the
    indicator's `phaseLabels` ghosts), so the value is the widest reading's
    width from the first paint whatever it currently says ([D168]). A `ch`
@@ -91,6 +91,12 @@
    budgets settle is the row's design — the wings, the pair rule, the sum
    the `@container` rungs are asked against — and they hold as long as the
    faces fit inside them, which the measurements below record.
+
+   **From here to the table, this comment is the record of how the budgets
+   were reached**, written while the fourth cell was the TASKS checklist cell
+   and its box was half of an equal pair with JOBS. Where it says TASKS, read
+   the cell that is ARC now; its own box, and what replaced the pair rule, is
+   settled in the comment under the table.
 
    Widest face → measured need, at 1ch ≈ 6.8px:
      STATE    "Disconnected"   61px  (value wins; between STATE's two dots the
@@ -181,19 +187,28 @@
   --tugx-session-status-cell-width: var(--tugx-z2-cell-time, 15ch);
 }
 .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-context, 17ch);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-context, 14ch);
 }
-.session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks, 13ch);
+.session-telemetry-status-cell[data-priority="arc"] {
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-arc, 17ch);
 }
 .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs, 13ch);
+  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs, 9ch);
 }
 
-/* The ARC reading needs STATE's box, because it wears STATE's shape.
+/* The ARC cell needs STATE's box, because it wears STATE's shape — and the
+   three widths above are the row's only widths.
 
-   The fourth cell reads ARC while the bound session drives one, and its
-   reading is a fraction while a step is in hand and a WORD otherwise —
+   The cell once read TASKS with no arc bound, at 13ch, and widened to these
+   numbers through a `data-arc` switch on the row when a session picked an arc
+   up, taking the difference from JOBS and CONTEXT. It reads ARC always now,
+   `None` when no arc is running, so the bound widths are the table: the cell
+   is one box in both states and no boundary in the row moves when an arc is
+   bound or released. The history below is why the three numbers are what
+   they are.
+
+   The fourth cell's reading is a fraction while a step is in hand and a
+   WORD otherwise —
    `Briefed`, `Devising`, `Reviewing` / `Review`, `Executing`, `Auditing` /
    `Audit`, `Finished`, `Stopped`, `Cut`, `Ready`, and the engine's re-audit
    readings `Re-auditing` / `Waiting` — flanked by the same pair
@@ -232,35 +247,17 @@
    wings to spend. Its widest face is a numerator like `236.2K` with `/ 1M`
    beside it, about 80px, and 14ch holds 94.
 
-   Measured at the slim preset with every sizing face in place: the unbound
-   row's five cells need 616.6px of the 617px content box, and the bound row's
-   596px. That is the slack the row has, and it is why no budget here moved
-   when the faces went in.
-
-   TWO internal boundaries move when a session picks an arc up rather than
-   one, and that is what the row's outer edges standing still actually costs.
-   The edges are the promise — the slim preset is the width Z2 was sized to
-   show everything at — and a boundary moving inside them is not; the
-   alternative, a permanent 18ch for a reading most rows never show, spends
-   the surplus on nothing for every card with no arc on it.
+   Measured at the slim preset with every sizing face in place, the five
+   cells need 596px of the 617px content box. The `@container` rungs at the
+   foot of this file were measured against the wider row the TASKS reading
+   made (616.6px), so each hides its cell a little before this row strictly
+   needs it to; they err toward hiding early, never toward overflow.
 
    All of these widths are hand-tuned from the Z2 TUNING block on
    `.session-card-status-bar` in `session-card.css`; the numbers here are the
    fallbacks only. `at0484-arc-z2-instrument` pins the rendered boxes: it
-   walks a bound session through the ARC cell's readings and asserts the five
-   cells are the same five numbers at each. */
-.session-telemetry-status-row[data-arc="true"]
-  .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-tasks-arc, 17ch);
-}
-.session-telemetry-status-row[data-arc="true"]
-  .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-jobs-arc, 9ch);
-}
-.session-telemetry-status-row[data-arc="true"]
-  .session-telemetry-status-cell[data-priority="context"] {
-  --tugx-session-status-cell-width: var(--tugx-z2-cell-context-arc, 14ch);
-}
+   walks a session from `None` through the ARC cell's readings and back and
+   asserts the five cells are the same five numbers at each. */
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value across the whole cell — so values
      can change character count freely and remain centered on the same axis
@@ -275,12 +272,12 @@
 
      The two constructions in this row do not agree on a natural height. STATE,
      TIME and CONTEXT put a `.session-telemetry-status-value` span in the wrap
-     and the wrap takes that span's line box: 14px, measured. TASKS and JOBS
-     put one `.tug-progress-indicator` there, stretched to the cell, carrying
+     and the wrap takes that span's line box: 14px, measured. JOBS puts
+     one `.tug-progress-indicator` there, stretched to the cell, carrying
      its two 12px glyphs and its count inside itself: 18px, measured. The row
      centres its cells vertically, so a 4px difference in the value row puts
-     the endcap rule above it 2px higher — which is what was visible as TASKS
-     and JOBS sitting a smidge high against the other three.
+     the endcap rule above it 2px higher — which is what was visible as the
+     work cells sitting a smidge high against the other three.
 
      Declared at the taller of the two, so nothing is squeezed: the indicator
      keeps the box it needs and the three spans centre inside it. A
@@ -293,12 +290,21 @@
   height: var(--tugx-session-status-value-row-height);
 }
 
-/* STATE value row — the phase title centered between two label-less
+/* STATE and ARC value rows — a word centered between two label-less
    indicator glyphs pinned to either end of the value area.
    `space-between` pins the glyphs to the edges; with equal-width glyphs
-   the title stays centered as its text changes width. `gap` guarantees
-   a minimum channel so the longest title never crowds a glyph. */
+   the word stays centered as its text changes width. `gap` guarantees
+   a minimum channel so the longest word never crowds a glyph.
+
+   ARC takes STATE's shape, not JOBS's, because its reading is a WORD: three
+   siblings in the value wrap rather than one indicator carrying its glyphs
+   and its count inside itself. The strip that once sat in the ARC cell — a
+   five-cell track retuned to survive a 78px box — was a graphic drawn too
+   small to read, and it lives on the surfaces whose subject is the arc, this
+   cell's own placard first among them. */
 .session-telemetry-status-cell[data-priority="state"]
+  .session-telemetry-status-value-wrap,
+.session-telemetry-status-cell[data-priority="arc"]
   .session-telemetry-status-value-wrap {
   justify-content: space-between;
   gap: var(--tug-space-md);
@@ -306,21 +312,19 @@
 
 /* Nudge the two flanking indicator glyphs a couple of px inward from the
    value-wrap edges. A margin on the glyphs only — the value-wrap keeps
-   its `--tugx-session-status-cell-width`, so the STATE cell stays the same
-   width as every other cell and nothing relays out. */
-.session-telemetry-status-cell[data-priority="state"] .tug-progress-indicator {
+   its `--tugx-session-status-cell-width`, so the cell keeps its box and
+   nothing relays out. */
+.session-telemetry-status-cell[data-priority="state"] .tug-progress-indicator,
+.session-telemetry-status-cell[data-priority="arc"] .tug-progress-indicator {
   margin-inline: 2px;
 }
 
-/* Work-cell value rows — TASKS and JOBS. Each is a single
-   `TugProgressIndicator` (pulsing-dot variant) whose `label` carries the
-   cell's reading (a `done/total` fraction, a count, or `None`), flanked
-   by its two glyphs. The four rules below apply to both cells: their
-   value rows are built the same way, and a rule that reached only one of
-   them would leave the other silently untreated.
+/* The JOBS value row. It is a single `TugProgressIndicator` (pulsing-dot
+   variant) whose `label` carries the cell's reading (a count, or `None`),
+   flanked by its two glyphs.
 
-   Unlike STATE, whose two glyphs and title are three siblings of the
-   value-wrap, a work cell's whole row is ONE element — so `space-between`
+   Unlike STATE and ARC, whose two glyphs and word are three siblings of the
+   value-wrap, this cell's whole row is ONE element — so `space-between`
    has to be declared on the indicator itself, which stretches to the cell
    width here. Without it the indicator sizes to its content and centers,
    which parks the two dots ~30px inside the endcap ticks: their pulse
@@ -329,26 +333,21 @@
    excursion past the label apparatus is identical in every cell by
    construction rather than by arithmetic. The two glyphs are equal-width,
    so the label stays centered as its reading changes. */
-.session-telemetry-status-cell[data-priority="tasks"] .tug-progress-indicator,
 .session-telemetry-status-cell[data-priority="jobs"] .tug-progress-indicator {
   display: flex;
   width: 100%;
   justify-content: space-between;
 }
 
-.session-telemetry-status-cell[data-priority="tasks"]
-  .tug-progress-indicator-glyph,
 .session-telemetry-status-cell[data-priority="jobs"]
   .tug-progress-indicator-glyph {
   margin-inline: 2px;
 }
 
-/* The indicator's label inside a work cell takes the same focal "value"
+/* The indicator's label inside JOBS takes the same focal "value"
    treatment as every other cell: bold, tabular-nums, step-up size.
-   `tabular-nums` is what keeps a ticking fraction from reflowing. */
+   `tabular-nums` is what keeps a ticking count from reflowing. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
-.session-telemetry-status-cell[data-priority="tasks"]
-  .tug-progress-indicator-label-active,
 .session-telemetry-status-cell[data-priority="jobs"]
   .tug-progress-indicator-label-active {
   font-size: 0.75rem;
@@ -357,48 +356,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The ARC reading of the work cell — the same apparatus, a different subject.
-
-   While the bound session drives an arc the fourth cell reads ARC rather than
-   TASKS — and it takes STATE's shape, not TASKS's, because its reading is a
-   WORD. The two shapes in this row are genuinely different constructions:
-   TASKS and JOBS are one indicator that stretches to the cell and carries its
-   glyphs and its count inside itself; STATE is three siblings in the value
-   wrap, with `space-between` pinning the two glyphs to the wrap's edges and
-   the title centred between them, staying centred as its text changes width.
-
-   So the two rules below are STATE's two rules, aimed at the fourth cell while
-   it reads ARC. They also have to OUTRANK the work-cell rules above, which
-   select `[data-priority="tasks"] .tug-progress-indicator` and would stretch
-   each of the two dots to the full cell — hence the row's `data-arc` in the
-   selector, which is a third attribute rather than a `!important`.
-
-   The strip that used to sit here — a five-cell track retuned by its own knobs
-   to survive a 78px box — is gone, with its four knob overrides and its tick
-   flex rule. It was a graphic drawn too small to read; the cell it needed to
-   fit in is the wrong room for it, and it now lives on the surfaces whose
-   subject is the arc, this cell's own placard first among them. */
-.session-telemetry-status-row[data-arc="true"]
-  .session-telemetry-status-cell[data-priority="tasks"]
-  .session-telemetry-status-value-wrap {
-  justify-content: space-between;
-  gap: var(--tug-space-md);
-}
-
-.session-telemetry-status-row[data-arc="true"]
-  .session-telemetry-status-cell[data-priority="tasks"]
-  .tug-progress-indicator {
-  display: inline-flex;
-  width: auto;
-  justify-content: center;
-  margin-inline: 2px;
-}
-
 /* Dim the indicator + label when the cell is empty so it reads as a
-   quiet placeholder. */
+   quiet placeholder. ARC's `None` is a `.session-telemetry-status-value`
+   span, which sets its own color, so it is named beside the wrap. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
-.session-telemetry-status-cell[data-priority="tasks"]
+.session-telemetry-status-cell[data-priority="arc"]
   .session-telemetry-status-value-wrap[data-empty="true"],
+.session-telemetry-status-cell[data-priority="arc"]
+  .session-telemetry-status-value-wrap[data-empty="true"]
+  .session-telemetry-status-value,
 .session-telemetry-status-cell[data-priority="jobs"]
   .session-telemetry-status-value-wrap[data-empty="true"] {
   color: var(--tug7-element-global-text-normal-muted-rest);
@@ -434,7 +400,7 @@
    The span is a column flex so the two faces stack under the live text at
    zero height and contribute width alone; the `ch` budget on the cell stays
    as the floor the `@container` rungs are measured against, and this face
-   is what keeps the reading inside it. The work cells (TASKS, JOBS) get the
+   is what keeps the reading inside it. The JOBS work cell gets the
    same guarantee from the indicator's own `phaseLabels` ghost set, fed the
    same declaration. */
 .session-telemetry-status-value[data-widest] {
@@ -633,9 +599,9 @@
    declares `container-type: inline-size` + `container-name: session-status`
    so these `@container` rules can target it. As the host narrows, whole
    cells (label apparatus + value together) hide in priority order — TIME
-   first, then TASKS, with JOBS the last collapsible: a running job / live
-   goal is live "something is happening" signal, while a checklist is a
-   standing reading that keeps. STATE / CONTEXT stay as the most-persistent
+   first, then ARC, with JOBS the last collapsible: a running job / live
+   goal is live "something is happening" signal, while an arc's reading is
+   a standing one the masthead also carries. STATE / CONTEXT stay as the most-persistent
    set.
 
    Five cells at the budgets above measure 614px including the 24px gaps, and
@@ -668,7 +634,7 @@
 }
 
 @container session-status (max-width: 527px) {
-  .session-telemetry-status-cell[data-priority="tasks"] {
+  .session-telemetry-status-cell[data-priority="arc"] {
     display: none;
   }
 }

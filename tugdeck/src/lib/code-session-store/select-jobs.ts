@@ -5,7 +5,7 @@
  *
  * **Terminology guard.** Two unrelated "task" vocabularies cross this
  * store. The `TaskCreate` / `TaskUpdate` *tool calls* are the todo
- * list behind the TASKS cell ([D100], `select-task-list.ts`). The
+ * list behind the inline task markers ([D100], `select-task-list.ts`). The
  * `system/task_started` / `system/task_updated` *frames* handled here
  * are the background-job lifecycle (`Bash` / `Agent` with
  * `run_in_background: true`) behind the JOBS cell. Deck-side names use
@@ -776,7 +776,7 @@ export function countJobs(jobs: readonly JobItem[]): JobCounts {
  * The JOBS cell's indicator pose. A pure function of the ledger only
  * — deliberately NO session-phase input: a background job genuinely
  * runs between turns, so an idle session must not demote a running
- * dot (the one semantic divergence from the TASKS cell).
+ * dot (unlike a hand-run arc's ARC reading, which idles).
  *
  *  - empty ledger    → `stopped` (quiet placeholder)
  *  - any running     → `running` (the one pose that claims execution)

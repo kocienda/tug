@@ -28,6 +28,10 @@
  * the fixture's `message.usage`. The model/CONTEXT-max + compaction-reset
  * assertions ride this same vehicle in later steps.
  *
+ * The session it replays drives no arc, so it is also where the ARC cell's
+ * quiet state is read: the fixed label, the dimmed `None`, and the placard
+ * that says the same word.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/code-session-store/
@@ -256,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The shipped lineup: five cells, left to right, all laid out.
           // The retired TOKENS cell and the merged WORK cell are gone;
-          // TASKS and JOBS stand in their place.
+          // ARC and JOBS stand in their place.
           const lineup = await app.body("A").evalJS<
             Array<{ priority: string; shown: boolean }>
           >(LINEUP_JS);
@@ -264,10 +268,63 @@ describe.skipIf(!SHOULD_RUN)(
             "state",
             "time",
             "context",
-            "tasks",
+            "arc",
             "jobs",
           ]);
           expect(lineup.every((c) => c.shown)).toBe(true);
+
+          // The fourth cell reads ARC whether or not an arc is bound. This
+          // session drives none, so the value is the one dimmed word, in a
+          // span that is not the arc's value slot, and the placard the cell
+          // opens says the same word.
+          const ARC_CELL = '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
+          const ARC_NONE = `${ARC_CELL} [data-slot="session-telemetry-arc-none"]`;
+          const Z2_PLACARD = ".session-telemetry-status-placard";
+          await app.body("A").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(ARC_NONE)}) !== null`,
+            { timeoutMs: 15_000 },
+          );
+          const quiet = await app.body("A").evalJS<{
+            label: string;
+            none: string;
+            arcValue: boolean;
+            empty: string | null;
+            dimmed: boolean;
+            dots: number;
+          }>(
+            `(() => {
+               const cell = document.querySelector(${JSON.stringify(ARC_CELL)});
+               const none = document.querySelector(${JSON.stringify(ARC_NONE)});
+               const live = document.querySelector(
+                 '[data-card-id="A"] [data-priority="state"] .session-telemetry-status-value',
+               );
+               return {
+                 label: (cell?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
+                 none: (none?.textContent ?? "").trim(),
+                 arcValue: cell?.querySelector('[data-slot="session-telemetry-arc-value"]') != null,
+                 empty: cell?.querySelector(".session-telemetry-status-value-wrap")?.getAttribute("data-empty") ?? null,
+                 dimmed: none !== null && live !== null &&
+                   getComputedStyle(none).color !== getComputedStyle(live).color,
+                 dots: cell?.querySelectorAll('[data-slot="tug-progress-pulsing-dot"]').length ?? 0,
+               };
+             })()`,
+          );
+          expect(quiet.label, "the label with no arc").toBe("ARC");
+          expect(quiet.none, "the value with no arc").toBe("None");
+          expect(quiet.arcValue, "no arc's reading where there is no arc").toBe(false);
+          expect(quiet.empty).toBe("true");
+          expect(quiet.dimmed, "None is dimmed against a live value").toBe(true);
+          expect(quiet.dots, "None sits between the arc reading's two dots").toBe(2);
+          await app.body("A").click(ARC_CELL);
+          await app.body("A").waitForCondition<boolean>(
+            `(document.querySelector(${JSON.stringify(Z2_PLACARD)})?.textContent ?? "").includes("None")`,
+            { timeoutMs: 10_000 },
+          );
+          await app.body("A").click(ARC_CELL);
+          await app.body("A").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(Z2_PLACARD)}) === null`,
+            { timeoutMs: 10_000 },
+          );
 
           // Active-model delivery (#step-7): the replayed `claude-opus-5`
           // reaches the metadata store through the SESSION_SIDEBAND feed and
@@ -326,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)(
               spawnError: q('[data-testid="session-card-spawn-error-retry"]'),
               ctxUsed: txt('[data-priority="context"] .session-telemetry-status-context-numerator'),
               ctxMax: txt('[data-priority="context"] .session-telemetry-status-context-denominator'),
-              tasks: txt('[data-priority="tasks"] .tug-progress-indicator-label-active'),
+              arc: txt('[data-priority="arc"] .session-telemetry-status-value'),
               jobs: txt('[data-priority="jobs"] .tug-progress-indicator-label-active'),
               ai: txt('[data-slot="ai-chip-value"]'),
               cardHtmlHead: card ? (card.outerHTML || '').slice(0, 1200) : null,

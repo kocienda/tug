@@ -720,8 +720,8 @@ export function registerGalleryCards(): void {
   // background-task family (TaskList / TaskGet / TaskOutput / TaskStop).
   // Management trio ([#step-24-3-4]) — CronToolBlock (3 aliases) +
   // ShareOnboardingGuideToolBlock + RemoteTriggerToolBlock.
-  // TaskInlineToolBlock ([#step-24-3-5]) — the [D100] second surface
-  // (inline marker; the TASKS status-bar cell is the first surface).
+  // TaskInlineToolBlock ([#step-24-3-5]) — the [D100] inline marker,
+  // the task list's surface in the transcript.
 
   // File tool blocks — Read + Edit + Write + NotebookEdit side by
   // side. Extended in [#step-29-5] with Write + NotebookEdit

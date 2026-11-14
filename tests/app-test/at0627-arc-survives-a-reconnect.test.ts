@@ -126,9 +126,9 @@ const TAG = "wary-otter";
 // addresses it — the marker is not nested under the `data-card-id` element.
 const MASTHEAD_ARC =
   '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
-/** The Z2 work cell — TASKS or ARC, one `data-priority` either way. */
+/** The Z2 ARC cell. */
 const CELL =
-  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="tasks"]';
+  '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
 const ARC_PLACARD = '[data-slot="session-arc-popover-body"]';
 const SUBMIT = '[data-card-id="A"] .tug-prompt-entry-submit-button';
 

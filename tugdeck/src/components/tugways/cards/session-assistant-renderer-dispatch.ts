@@ -291,9 +291,9 @@ const AUDIT_CONFIRMED_DEFAULT_TOOLS: ReadonlySet<string> =
  * `DefaultToolBlock`. `detectToolCallDrift` checks this set so a
  * hidden tool also never raises an `unknown_tool` caution.
  *
- * Per [D100], `taskcreate` and `taskupdate` are hidden — the TASKS
- * status-bar cell is the sole surface for the post-`TodoWrite` task
- * system. Per [D101], control-channel tools like `toolsearch` /
+ * `taskcreate` and `taskupdate` are not here: per [D100] as amended
+ * they render as inline markers, the task list's surface in the
+ * transcript. Per [D101], control-channel tools like `toolsearch` /
  * `schedulewakeup` / `enterplanmode` / `exitplanmode` /
  * `pushnotification` are hidden — they are user-irrelevant plumbing
  * whose user-visible event lives elsewhere (a chrome banner, a

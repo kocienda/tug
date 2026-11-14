@@ -61,8 +61,8 @@ const SID = randomUUID();
 const CARD = '[data-card-id="A"]';
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-/** The Z2 work cell — TASKS or ARC, one `data-priority` either way. */
-const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="tasks"]`;
+/** The Z2 ARC cell. */
+const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
 /** The placard's own frame, which is where its footer lives — the body slot
  *  is the scroller above it and does not contain the cluster. */
 const PLACARD = ".session-arc-popover";
@@ -196,11 +196,11 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
 
         // ── The Z2 cell opens the placard ─────────────────────────────────
         //
-        // The cell is TASKS or ARC under one `data-priority`, and only the
-        // ARC reading opens this placard — so the wait is on the endcap's
-        // word rather than on the cell's presence.
+        // The cell reads ARC with no arc too, and only a bound arc opens this
+        // placard — so the wait is on the arc's own reading standing in the
+        // cell rather than on the cell's presence or its label.
         await app.body("A").waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "ARC"`,
+          `document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)}) !== null`,
           { timeoutMs: 30_000 },
         );
         await app.body("A").click(CELL);

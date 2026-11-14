@@ -1,26 +1,18 @@
 /**
- * The Z2 work cells' view-model — the derivations behind TASKS and
+ * The Z2 work cells' view-model — the derivations behind ARC and
  * JOBS.
  *
- * The two cells split along the checklist / everything-else seam:
- * TASKS is the numbered checklist alone, JOBS is the session's
+ * ARC reads the arc the session is driving; JOBS is the session's
  * background machinery (running jobs, scheduled rows, the `/goal`).
- * Their storage stays separate and untouched — the task list is a
- * derived turn-scoped fold (`select-task-list.ts`), the jobs ledger is
- * session-lifetime state (`select-jobs.ts`), the goal its own snapshot
- * field (`select-goal.ts`). Everything here is pure projection over
- * those sources; no new persistence.
- *
- * Task counts arrive as a structural `{ completed, total }` rather than
- * as the components layer's `TaskCounts`, so the library boundary
- * stays one-way: `lib` does not depend on `components`.
+ * The jobs ledger is session-lifetime state (`select-jobs.ts`), the
+ * goal its own snapshot field (`select-goal.ts`). Everything here is
+ * pure projection over those sources; no new persistence.
  */
 
 import type { GoalState } from "./select-goal";
 import { goalIsActive } from "./select-goal";
 import type { JobCounts, JobItem } from "./select-jobs";
 import { isTerminalJobStatus, jobsCellPose } from "./select-jobs";
-import type { TaskItem } from "./select-task-list";
 
 /**
  * How long a finished item keeps contributing to its cell's reading
@@ -39,7 +31,6 @@ export const WORK_LINGER_MS = 300_000;
  * considered, so the returned time is always `> nowMs`.
  */
 export function nextLingerExpiryMs(
-  tasks: readonly TaskItem[],
   jobs: readonly JobItem[],
   nowMs: number,
   lingerMs: number,
@@ -51,11 +42,6 @@ export function nextLingerExpiryMs(
       earliest = expiry;
     }
   };
-  for (const t of tasks) {
-    if (t.status === "completed" && t.completedAtMs !== undefined) {
-      consider(t.completedAtMs);
-    }
-  }
   for (const j of jobs) {
     if (isTerminalJobStatus(j.status) && j.endedAtMs !== null) {
       consider(j.endedAtMs);
@@ -65,53 +51,8 @@ export function nextLingerExpiryMs(
 }
 
 // ---------------------------------------------------------------------------
-// Per-cell derivations — TASKS and JOBS
+// Per-cell derivations — ARC and JOBS
 // ---------------------------------------------------------------------------
-
-/** The checklist inputs the TASKS pose reads. */
-export interface TasksChecklistPose {
-  readonly hasTasks: boolean;
-  readonly allTasksComplete: boolean;
-  /** Session idle — demotes an in-progress checklist to quiet. */
-  readonly isIdle: boolean;
-}
-
-/**
- * The TASKS cell's label: `completed/total`, or "None" for an empty
- * list. The fraction is the reading a plan-following session tracks —
- * an incomplete count alone hides how far along the list is.
- *
- * Counts arrive structurally so this module stays free of a
- * `components/` import; the caller supplies them from `countTasks`.
- */
-export function formatTaskFraction(counts: {
-  completed: number;
-  total: number;
-}): string {
-  if (counts.total === 0) return "None";
-  return `${counts.completed}/${counts.total}`;
-}
-
-/**
- * The TASKS cell's indicator pose — the checklist grammar:
- *
- *  - no tasks → `stopped`;
- *  - all complete → `completed` while the finish is recent, else
- *    `stopped` (the dot agrees with the lingered label rather than
- *    sitting green beside a settled list);
- *  - otherwise `running`, demoted to `stopped` while the session is
- *    idle — a half-done checklist does not glow over an idle session.
- */
-export function tasksCellPose(
-  checklist: TasksChecklistPose,
-  recentlyCompleted: boolean,
-): "stopped" | "running" | "completed" {
-  if (!checklist.hasTasks) return "stopped";
-  if (checklist.allTasksComplete) {
-    return recentlyCompleted ? "completed" : "stopped";
-  }
-  return checklist.isIdle ? "stopped" : "running";
-}
 
 /**
  * The stages that are a resting point of the arc — the arc has
@@ -125,8 +66,8 @@ const ARC_SETTLED_STAGES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The ARC reading's indicator pose — the arc lifecycle in the same
- * poses the TASKS reading it replaces uses, plus danger for a stop:
+ * The ARC reading's indicator pose — the arc lifecycle in the work
+ * cells' poses, plus danger for a stop:
  *
  *  - a recorded stop (`wheel.stopped`) → `aborted`, which outranks every
  *    other reading;
@@ -135,7 +76,7 @@ const ARC_SETTLED_STAGES: ReadonlySet<string> = new Set([
  *  - an arc the wheel is driving — a wheel record present, not `done`,
  *    not stopped → `running`, **whatever the session is doing**;
  *  - an arc under way with no wheel record → `running`, demoted to
- *    `stopped` while the session is idle, on the same grounds as TASKS:
+ *    `stopped` while the session is idle:
  *    nothing else is acting on it between turns, and a dot still
  *    pulsing over an idle session would say something was;
  *  - an arc nobody has begun — no arc, and no stage or `created` →
@@ -205,28 +146,9 @@ export function arcCellNumerals(
 }
 
 /**
- * How many tasks completed within `lingerMs` of `nowMs`. A task with
- * no completion timestamp (a resumed fold) never counts as recent.
+ * How many jobs finished within `lingerMs` of `nowMs` — terminal rows by
+ * `endedAtMs`.
  */
-export function tasksRecentlyDone(
-  tasks: readonly TaskItem[],
-  nowMs: number,
-  lingerMs: number,
-): number {
-  let n = 0;
-  for (const t of tasks) {
-    if (
-      t.status === "completed" &&
-      t.completedAtMs !== undefined &&
-      nowMs - t.completedAtMs < lingerMs
-    ) {
-      n += 1;
-    }
-  }
-  return n;
-}
-
-/** The jobs half of the same window — terminal rows by `endedAtMs`. */
 export function jobsRecentlyDone(
   jobs: readonly JobItem[],
   nowMs: number,
@@ -286,7 +208,7 @@ export function cellDisplayCount(
 }
 
 /**
- * The widest reading a work cell (TASKS, JOBS) can show, declared beside the
+ * The widest reading the JOBS work cell can show, declared beside the
  * formatter that produces it: at zero the cell reads this word, and any count
  * it shows is narrower than the fraction-shaped reservation beside it. The
  * cells render it as a hidden sizing face, so the box is set from the word

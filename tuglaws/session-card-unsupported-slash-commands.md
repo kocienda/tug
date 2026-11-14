@@ -63,10 +63,15 @@ claude now calls its deprecated alias. Typed in a git repository, it starts a
 billed cloud review with no confirmation. Plain `/code-review`, a local review,
 passes through; only the `ultra` argument is refused.
 
-(`/tasks` and `/bashes` graduated to Tug-local commands, and they open
-different surfaces: `/tasks` the numbered checklist, `/bashes` the JOBS
-popover where running shells, subagents, scheduled work, and the `/goal`
-live.)
+`/tasks` is refused with this group. claude's task list is a terminal panel
+with nothing to answer over the bridge, and the Session card has no Tasks
+surface of its own: the checklist reads inline in the transcript as it is
+written, and an arc's step list reads in the ARC placard. It was a Tug-local
+command for a time, opening a Tasks placard under the status row; that
+placard and the cell it hung from were withdrawn ([D100]'s History).
+
+(`/bashes` graduated to a Tug-local command: it opens the JOBS placard,
+where running shells, subagents, scheduled work, and the `/goal` live.)
 
 (`/goal` and `/loop` — alias `/proactive` — graduated out of this group as
 pass-throughs, probe-verified on claude 2.1.204; see

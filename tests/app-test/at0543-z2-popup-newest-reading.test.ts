@@ -16,7 +16,7 @@
  * scroller its rows live in, so until it could forward `stickToBottom` there
  * was no way for a grid-shaped log to open anywhere but the top.
  *
- * The item lists (TASKS, JOBS, ARC) take `useRevealRow` instead, which centres
+ * The item lists (JOBS, ARC) take `useRevealRow` instead, which centres
  * the row under way and falls back to the last row; `at0473-arc-cockpit` pins
  * that mechanism over the ARC placard's sixteen-step ledger.
  *

@@ -192,15 +192,16 @@ describe("dispatch — tool_call routing", () => {
     expect(result.caution).toBeUndefined();
   });
 
-  it("routes TaskCreate / TaskUpdate to TaskInlineToolBlock per the amended [D100] — second surface, no caution", () => {
-    // Canary for the [D100] two-surface decision: the TASKS cell is
-    // the canonical surface for *current state*, the inline marker
-    // is the second surface for *event-in-context*. Before
+  it("routes TaskCreate / TaskUpdate to TaskInlineToolBlock per the amended [D100] — the inline marker is the surface, no caution", () => {
+    // Canary for [D100] as amended: the inline marker is the task
+    // list's surface in the transcript, *event-in-context*, and since
+    // the Z2 TASKS cell and its placard were removed it is the only
+    // one outside an arc's own placard. Before
     // [#step-24-3-5] this assertion pinned routing to `NullToolBlock`
     // (the original hide-everything-per-D100 reading). After the
     // step, both names are bespoke — registered via
     // `BESPOKE_REGISTRATIONS` against `TaskInlineToolBlock`. If a
-    // future change reverses the second-surface decision (back to
+    // future change reverses the inline-marker decision (back to
     // hidden, or to two different wrappers), this test fails loudly
     // rather than letting the routing drift quietly.
     //

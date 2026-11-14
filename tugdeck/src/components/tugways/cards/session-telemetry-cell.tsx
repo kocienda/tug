@@ -85,7 +85,7 @@ export interface SessionTelemetryCellProps {
    * Priority key — sets `data-priority`, which selects the cell's static
    * `--tugx-session-status-cell-width` and drives the container-query
    * collapse order. One of the row's cell ids (`state` / `time` /
-   * `tokens` / `context` / `tasks` / `jobs`).
+   * `tokens` / `context` / `arc` / `jobs`).
    */
   priority: string;
   /** Letterspaced uppercase legend rendered in the endcap-rule apparatus. */
@@ -103,8 +103,8 @@ export interface SessionTelemetryCellProps {
   onActivate?: () => void;
   /**
    * Marks the value as empty (`data-empty="true"` on the value wrap) so
-   * the cell can read as a quiet placeholder. The TASKS cell uses this
-   * when no tasks exist.
+   * the cell can read as a quiet placeholder. The ARC cell uses this
+   * when no arc is running in the session.
    */
   valueEmpty?: boolean;
   /** Accessible name for the cell button. */

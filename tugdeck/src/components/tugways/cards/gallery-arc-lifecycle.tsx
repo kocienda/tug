@@ -957,14 +957,10 @@ export function GalleryArcLifecycle(): React.ReactElement {
         <TugLabel className="cg-section-title">
           Z2 · the ARC cell — an instrument, not a graphic
         </TugLabel>
-        <Stage caption="STATE's shape, exactly: a dot pinned to each edge of the value wrap and the reading centered between them. NUMBERS whenever there are numbers — the declared run, else the plan's own pair, so a reviewed plan reads 0/10 rather than a word. The word is only for an arc with no plan at all. The cell takes STATE's 18ch because it wears STATE's construction, and JOBS gives back exactly that, so the row's total is the same 80ch either way and every container rung keeps its measured value">
+        <Stage caption="STATE's shape, exactly: a dot pinned to each edge of the value wrap and the reading centered between them. NUMBERS whenever there are numbers — the declared run, else the plan's own pair, so a reviewed plan reads 0/10 rather than a word. The word is only for an arc with no plan at all. The cell holds one box whether or not an arc is bound, so no reading and no bind moves the row">
           {/* The real row class, so the cells sit in the row's own 10px font
-              and endcap apparatus, and the real `data-arc` flag, so the
-              widths under test are the ones the app applies. */}
-          <div
-            className="session-telemetry-status-row cg-arc-z2-row"
-            data-arc="true"
-          >
+              and endcap apparatus, at the widths the app applies. */}
+          <div className="session-telemetry-status-row cg-arc-z2-row">
             {MOMENTS.map((m) => {
               const model = arcTrackModelFromEntry(m.entry);
               const pair =
@@ -975,7 +971,7 @@ export function GalleryArcLifecycle(): React.ReactElement {
                   : arcCellWord(model);
               const state = model.stopped !== null ? "aborted" : "running";
               return (
-                <SessionTelemetryCell key={m.key} priority="tasks" label="ARC">
+                <SessionTelemetryCell key={m.key} priority="arc" label="ARC">
                   <TugProgressIndicator
                     variant="pulsing-dot"
                     size={12}

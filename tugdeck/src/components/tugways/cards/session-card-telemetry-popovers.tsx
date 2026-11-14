@@ -1,6 +1,6 @@
 /**
  * session-card-telemetry-popovers.tsx — popup content for the five Z2
- * status-row anchors (STATE, TIME, CONTEXT, TASKS, JOBS).
+ * status-row anchors (STATE, TIME, CONTEXT, ARC, JOBS).
  *
  * Every popup composes the shared `TugPopupList` vocabulary — frame,
  * log grid, item rows, footer — so the five surfaces read with one
@@ -24,7 +24,7 @@
  * saying *now* — and a scroller left at the top is the one place a
  * long list does not say it. The two chronological logs (STATE, TIME)
  * take the scroller's `stickToBottom`, whose newest row is always its
- * last; the item lists (TASKS, JOBS, ARC) take {@link useRevealRow},
+ * last; the item lists (JOBS, ARC) take {@link useRevealRow},
  * which brings the row under way into view and falls back to the last
  * row when nothing is under way. CONTEXT is exempt for the only reason
  * that exempts anything here: it is a gauge, not a list, and has no
@@ -125,11 +125,6 @@ import {
   jobRowState,
   taskRowState,
 } from "@/lib/code-session-store/indicator-liveness";
-import {
-  composeTaskCopyText,
-  composeTaskSummary,
-  countTasks,
-} from "@/components/tugways/body-kinds/todo-list-block";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances";
 import type { TaskListState } from "@/lib/code-session-store/select-task-list";
 import {
@@ -1520,33 +1515,19 @@ function useRevealRow(
 }
 
 // ---------------------------------------------------------------------------
-// Tasks popover
+// Task list rows
 // ---------------------------------------------------------------------------
 
 /**
- * `TASKS` popup — opened from the `TASKS` cell in the status row.
- * Renders the full assembled task list ([D100]) as popup-list item
- * rows, each numbered `1.`–`N.` in source order and led by a
- * {@link TugProgressIndicator} pulsing dot. Each row's status drives
- * its `(role, state)` pair through {@link taskRowState}; an `idle`
- * session demotes any `in_progress` row to `state="stopped"` (same
- * gate that stops the status-bar TASKS dot). Rows with descriptions
- * wrap in a `TugTooltip` so the longer prose surfaces on hover.
- * Footer: count summary + COPY.
- *
- * There is no clear affordance: the list is transcript-derived, so
- * there is nothing deck-local to clear.
- *
- * An empty `tasks` array renders the standard popup empty message.
- */
-/**
  * The [D100] task list as numbered popup-list items.
  *
- * Its own component because two placards render it: TASKS, whose whole body it
- * is, and ARC, where the same list *is* the arc's step list — a plan run
- * creates one task per step, so the checklist and the ledger are the same walk
- * seen from two sides. Composed rather than copied, so the two readings cannot
- * drift into two vocabularies.
+ * Each row is numbered `1.`–`N.` in source order and led by a pulsing dot
+ * whose pose {@link taskRowState} reads off the row's status; an `idle`
+ * session demotes an `in_progress` row to still. A row with a description
+ * surfaces it in a tooltip.
+ *
+ * One placard renders it: ARC, for an arc driving no plan, where the task
+ * list is the only checklist there is.
  */
 export function TaskListItems({
   tasks,
@@ -1606,47 +1587,14 @@ export function TaskListItems({
   );
 }
 
-export function TasksPopoverContent({
-  state,
-  idle,
-}: {
-  state: TaskListState;
-  idle: boolean;
-}): React.ReactElement {
-  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
-  // The row under way, or the last one on a finished checklist — the same
-  // reveal the ARC placard makes over the same rows. Hooks run before the
-  // empty-list return so the order holds across a list that fills up.
-  useRevealRow(scrollerRef, newestRowIndex(state.tasks.map((t) => t.status)));
-  if (state.tasks.length === 0) {
-    return (
-      <TugPopupListFrame kind="item">
-        <TugPopupListEmpty form="word">None</TugPopupListEmpty>
-      </TugPopupListFrame>
-    );
-  }
-  // `composeTaskSummary` produces "3 done, 1 in progress, 2 pending"
-  // with zero-bucket drop, so the footer reads cleanly whether the
-  // list is all-done, mid-flight, or untouched.
-  const summary = composeTaskSummary(countTasks(state.tasks));
+/**
+ * The ARC placard's body when no arc is running in the session: the one word
+ * the cell itself reads, in the form this file's other empty lists take.
+ */
+export function ArcNonePopoverContent(): React.ReactElement {
   return (
-    <TugPopupListFrame
-      kind="item"
-      footer={
-        <TugPopupListFooter summary={summary}>
-          <PopupCopyButton
-            aria-label="Copy task list"
-            getText={() => composeTaskCopyText(state.tasks, false)}
-          />
-        </TugPopupListFooter>
-      }
-    >
-      <TugPopupListScroller
-        ref={scrollerRef}
-        data-slot="session-tasks-popover-body"
-      >
-        <TaskListItems tasks={state.tasks} idle={idle} />
-      </TugPopupListScroller>
+    <TugPopupListFrame kind="item">
+      <TugPopupListEmpty form="word">None</TugPopupListEmpty>
     </TugPopupListFrame>
   );
 }
@@ -2043,9 +1991,9 @@ function JobRow({
  * management action lives here — stop job, cancel cron, stop a
  * wakeup-paced loop, clear the goal, clear finished rows.
  *
- * The checklist is the TASKS popup's subject and appears nowhere in
- * this one: a checklist is turn-scoped plan-following, while
- * everything here is session-lifetime background machinery.
+ * The checklist appears nowhere in this one: a checklist is turn-scoped
+ * plan-following, while everything here is session-lifetime background
+ * machinery.
  *
  * The footer's CLEAR wipes terminal rows only — running and scheduled
  * rows always survive — and is disabled while nothing is clearable.
@@ -2267,7 +2215,7 @@ function ArcPopoverHead({ fact }: { fact: ArcSessionFact }): React.ReactElement 
 
 /**
  * `ARC` popup — opened from the status row's fourth cell while the session is
- * driving an arc, in place of the `TASKS` reading.
+ * driving an arc.
  *
  * The cockpit detail for one arc, in the vocabulary the Arcs card and the Changes
  * shade already speak: a head that is the Arcs card's row block — the arc
@@ -2302,10 +2250,6 @@ function ArcPopoverHead({ fact }: { fact: ArcSessionFact }): React.ReactElement 
  * ([D178]); Start never appears here, because the placard exists only for the
  * arc the card is already bound to. The verbs are derived by the host's
  * {@link useArcPopoverVerbs}, which also owns Discard's confirm.
- *
- * `/tasks` still opens the TASKS placard while this one is reachable by click.
- * Two readings from one cell is intended: the click asks what the arc is
- * doing, the command asks what the checklist says.
  */
 export function ArcPopoverContent({
   fact,

@@ -389,6 +389,14 @@ export const ARC_CELL_WIDEST_WORD = "Re-auditing";
  */
 export const ARC_CELL_WIDEST_FRACTION = "00/00";
 
+/**
+ * What the cell reads when no arc is running in the session. One word, dimmed,
+ * the way `JOBS` reads with nothing outstanding; it sits in the box
+ * {@link ARC_CELL_WIDEST_WORD} reserves, so binding and releasing an arc
+ * changes the reading and never the cell.
+ */
+export const ARC_CELL_NONE_WORD = "None";
+
 /** {@link ArcReading} for a model. Pure. */
 export function arcReading(model: ArcTrackModel): ArcReading {
   if (model.stopped !== null) {

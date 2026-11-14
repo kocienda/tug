@@ -58,8 +58,8 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000713";
 const ARC = "row13-run";
 const READ_MS = 30_000;
 
-/** In the body: Z2's ARC reading, in the TASKS cell that wears it once bound. */
-const ARC_VALUE = '[data-slot="tug-status-cell"][data-priority="tasks"] [data-slot="session-telemetry-arc-value"]';
+/** In the body: Z2's ARC reading, present once an arc is bound. */
+const ARC_VALUE = '[data-slot="tug-status-cell"][data-priority="arc"] [data-slot="session-telemetry-arc-value"]';
 /** In the shell: the masthead's lifecycle mark, and its step fraction. */
 const MASTHEAD_MARK = '[data-slot="session-masthead"] [data-slot="session-identity-row-progress"] [data-slot="tug-arc-lifecycle-mark"]';
 const MASTHEAD_FRACTION = `${MASTHEAD_MARK} [data-slot="tug-step-fraction"]`;
@@ -93,7 +93,7 @@ function deck(): Record<string, unknown> {
         id: `${A}-pane`,
         position: { x: 40, y: 40 },
         // Wide enough that no `@container` rung in `session-telemetry-cell.css` hides
-        // the TASKS cell the ARC reading rides.
+        // the ARC cell.
         size: { width: 900, height: 720 },
         cardIds: [A],
         activeCardId: A,

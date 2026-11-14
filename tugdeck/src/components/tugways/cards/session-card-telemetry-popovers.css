@@ -1,7 +1,6 @@
 /**
  * session-card-telemetry-popovers.css — session-card-specific styling for the
- * six Z2 status-row popups (STATE / TIME / TOKENS / CONTEXT / TASKS /
- * JOBS).
+ * Z2 status-row popups (STATE / TIME / CONTEXT / ARC / JOBS).
  *
  * The frame / log-grid / item-row / footer vocabulary lives in
  * `tug-popup-list.css`; this file carries only what is dev-specific:
