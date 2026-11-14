@@ -847,7 +847,7 @@ export function wantsBodyShown(deck: IDeckManagerStore, cardId: string): boolean
 
 /**
  * `bodies` in the order a reader takes the deck: left to right, then top to
- * bottom within a column. The host reads the posted order as the window's
+ * bottom within a slot. The host reads the posted order as the window's
  * VoiceOver order, after the shell's own view; the placeholders' document
  * order is the canvas's pane-id order, which says nothing about where a
  * pane stands.
@@ -1046,7 +1046,7 @@ export interface ArrangementWrites {
 /**
  * Call `wake` on every inline `style` write under `container`, itself
  * included: the stand-ins' own geometry and pins, and the arrangement's
- * custom properties on the canvas, its layers and a column's readers. That is
+ * custom properties on the canvas, its layers and a slot's readers. That is
  * the whole of how a gesture moves a stand-in without a commit, so it is the
  * one wake the placer needs for all of them ([B06]). A write of the value
  * already standing queues a record too; the measurement it wakes posts
@@ -1208,7 +1208,7 @@ export class CardPlacer {
     const placement = namePlans(measurePlacements(this.deck, container), this.inFlight);
     this.paneBoxes = this.readPaneBoxes(container);
     const state = this.deck.getSnapshot();
-    const run = this.deck.getColumnRunHeight();
+    const run = this.deck.getSlotRunHeight();
     this.facts = readCardFacts(
       placement,
       container,

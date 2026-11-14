@@ -115,7 +115,7 @@ const PRE_MIGRATION_MECHANISM: Readonly<Record<string, CommandRouting>> = {
  *
  * This is a routing change, which is exactly what the table above exists to
  * catch — so it is declared here rather than by editing the history. The
- * pre-migration column stays honest, and a move nobody declared still fails.
+ * pre-migration slot stays honest, and a move nobody declared still fails.
  */
 const RE_HOMED_ONTO_THE_CHAIN: ReadonlySet<string> = new Set([
   TUG_ACTIONS.NEW_TEXT_CARD,
@@ -368,8 +368,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "go-to-slot": { bridgeFor: TUG_ACTIONS.GO_TO_SLOT },
   "focus-card": { bridgeFor: TUG_ACTIONS.FOCUS_CARD },
   "toggle-bullseye": "command",
-  "toggle-column-split": "command",
-  "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
+  "toggle-slot-split": "command",
+  "move-in-slot": { bridgeFor: TUG_ACTIONS.MOVE_IN_SLOT },
   "toggle-rail": { bridgeFor: TUG_ACTIONS.TOGGLE_RAIL },
   "toggle-sidebars": "command",
   "resize-sidebars-to-fit": "command",
@@ -511,7 +511,7 @@ const SHIPPED_CHORDS: ReadonlyArray<readonly [chord: string, commandId: string]>
  *
  * Declared here rather than edited into `SHIPPED_CHORDS`, for the same reason
  * `RE_HOMED_ONTO_THE_CHAIN` is declared rather than back-written: the
- * historical column is only worth having while it stays historical, and a move
+ * historical slot is only worth having while it stays historical, and a move
  * nobody declared should still fail.
  *
  * Insert File gave the ⌃ seat on I to AI Model and kept the letter, moving to
@@ -598,7 +598,7 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘5", `${TUG_ACTIONS.GO_TO_SLOT}:5`],
   ["⌃⌘6", `${TUG_ACTIONS.GO_TO_SLOT}:6`],
   // Directional card focus. ⌃⌘ arrows move the FURNITURE — a rail on that side,
-  // a card up its column — and ⌥⌘ arrows move the READER through that same
+  // a card up its slot — and ⌥⌘ arrows move the READER through that same
   // geometry, so on the horizontal pair the two read as a pair: ⌃⌘← opens the
   // left side, ⌥⌘← walks into it ([D184]). All four or none: the family's only
   // mnemonic is the geometry itself, and ⌥⌘↑/↓ is what the turn family vacated
@@ -637,11 +637,11 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // which reserves plain ⌃-arrows for Spaces rather than the ⌘ composition.
   // ⌃⇧⌘ is the counterpart set of the ⌃⌘ base — top/bottom is the ⇧-extreme
   // of up/down, the same shape ⌃⇧⌘[/] First/Last Turn has one key class over.
-  ["⌃⌘/", TUG_ACTIONS.TOGGLE_COLUMN_SPLIT],
-  ["⌃⌘↑", `${TUG_ACTIONS.MOVE_IN_COLUMN}:up`],
-  ["⌃⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:down`],
-  ["⌃⇧⌘↑", `${TUG_ACTIONS.MOVE_IN_COLUMN}:top`],
-  ["⌃⇧⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`],
+  ["⌃⌘/", TUG_ACTIONS.TOGGLE_SLOT_SPLIT],
+  ["⌃⌘↑", `${TUG_ACTIONS.MOVE_IN_SLOT}:up`],
+  ["⌃⌘↓", `${TUG_ACTIONS.MOVE_IN_SLOT}:down`],
+  ["⌃⇧⌘↑", `${TUG_ACTIONS.MOVE_IN_SLOT}:top`],
+  ["⌃⇧⌘↓", `${TUG_ACTIONS.MOVE_IN_SLOT}:bottom`],
   // The rail pair, completing the same axis horizontally: ⌃⌘↑/↓ moves a card
   // within a place, ⌃⌘←/→ shows or hides a whole side. The never-bind list
   // reserves plain ⌃-arrows, not the ⌘ composition — the argument the split
@@ -650,15 +650,15 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘→", `${TUG_ACTIONS.TOGGLE_RAIL}:right`],
   // The rails as rails, and the pair they make: ⌃⌘S takes both sides away and
   // brings them back — S for *Sidebars*, on the layout tier, in the seat Split
-  // or Stack Column vacated for ⌃⌘/ — and ⌥⇧⌘S stands the cards left on a
+  // or Stack Slot vacated for ⌃⌘/ — and ⌥⇧⌘S stands the cards left on a
   // rail at their content heights, the same key under a different set. Resize
   // held ⌃⌥⌘R and then ⌃⌥⌘S, neither of which a Keyboard Maestro machine ever
   // delivered, and ⌃⇧⌘S briefly, which the hand would not form.
   ["⌃⌘S", TUG_ACTIONS.TOGGLE_SIDEBARS],
   ["⌥⇧⌘S", TUG_ACTIONS.RESIZE_SIDEBARS_TO_FIT],
-  // The column's division, on the same key-twice shape: ⌃⌘E equalizes the
-  // column the selection stands in — E for *Equalize*, on the layout tier
-  // beside ⌃⌘/ — and ⌥⇧⌘E every split column, the deck-wide form on the set
+  // The slot's division, on the same key-twice shape: ⌃⌘E equalizes the
+  // slot the selection stands in — E for *Equalize*, on the layout tier
+  // beside ⌃⌘/ — and ⌥⇧⌘E every split slot, the deck-wide form on the set
   // ⌥⇧⌘S already reads as one. ⌃⇧⌘E is the hand shape the user declines.
   ["⌃⌘E", TUG_ACTIONS.EQUALIZE_HEIGHTS],
   ["⌥⇧⌘E", TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS],

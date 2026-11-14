@@ -13,7 +13,7 @@
  *
  * Body cards are bound to stub sessions and each is sent a prompt whose
  * turn streams for minutes. While they stream, the row drives a flow slide
- * out and back (three bodies) and a cross-column stack move (two, one per
+ * out and back (three bodies) and a cross-slot stack move (two, one per
  * column of a two-up), each judged by row 14's motion bar. Across each
  * gesture it taps the shell's trace for the gate's close and open rows, and
  * each body's trace for its `ingest-batch` rows, each stamped on the wall
@@ -203,7 +203,7 @@ export async function streamFlow(leg: "out" | "back"): Promise<void> {
   }
 }
 
-/** Two streaming bodies through a cross-column stack move. */
+/** Two streaming bodies through a cross-slot stack move. */
 export async function streamStack(): Promise<void> {
   const stubDir = stubDirectory();
   const bodies = ["r19-s", "r19-m"];
@@ -216,7 +216,7 @@ export async function streamStack(): Promise<void> {
     await app.seedDeckState({ state: twoUpDeck(bodies), focusCardId: mover });
     await bindStubs(app, bodies, stubDir);
     // Slot 0 stacks, so the mover crosses into it as one move beat.
-    await app.evalJS<null>(`(${action("set-column-mode", { slot: 0, mode: "stack" })}, null)`);
+    await app.evalJS<null>(`(${action("set-slot-mode", { slot: 0, mode: "stack" })}, null)`);
     await pollFor(
       () => app.evalJS<boolean>(`document.querySelector("[data-deck-canvas-background]")?.hasAttribute("data-imposer-settling") ?? false`),
       (v) => !v,

@@ -42,7 +42,7 @@ describe("a parked workspace's arrangement", () => {
     manager.activateSpace(one);
     const shown = manager.getSnapshot();
     expect(shown.panes).toEqual(parked!.panes);
-    expect([shown.flowOffset, shown.columnOffsets, shown.railOffsets]).toEqual([parked!.flowOffset, parked!.columnOffsets, parked!.railOffsets]);
+    expect([shown.flowOffset, shown.slotOffsets, shown.railOffsets]).toEqual([parked!.flowOffset, parked!.slotOffsets, parked!.railOffsets]);
   });
 
   test("a re-solve that moves nothing writes nothing and tells nobody", () => {

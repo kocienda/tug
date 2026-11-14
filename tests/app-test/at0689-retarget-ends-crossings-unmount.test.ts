@@ -19,7 +19,7 @@
  * the fold's spring lands from about three pixels out, with the mark still
  * standing until it does, so a frame caught while marked always still has a
  * height term and is adopted. The path that reaches the gap is a column mode
- * flip: stacking a split column mid-fold commits the folding member behind its
+ * flip: stacking a split slot mid-fold commits the folding member behind its
  * survivor, and a covered member carries no tween and no crossing of its own.
  *
  * The probe splits a column, folds (and then unfolds) its first member, and on

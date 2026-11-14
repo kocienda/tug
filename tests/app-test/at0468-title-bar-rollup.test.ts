@@ -15,7 +15,7 @@
  *      be made without revealing anything.
  *   2. **The reveal moves nothing.** The row is an overlay anchored to the
  *      rollup's trailing edge, unfurling leftward across the bar's dead middle. The slot
- *      badge, the column badge and the close box hold their exact rects
+ *      badge, the stack badge and the close box hold their exact rects
  *      between the hidden and the shown state — the failure this catches is a
  *      row grown in the flex flow, which would widen the cluster and
  *      re-truncate the card's title on every pass of the pointer.
@@ -70,7 +70,7 @@ const WIDTH_BUTTON = '[data-testid="tug-pane-title-bar-width-button"]';
 const WIDTH_MENU = '[data-testid="tug-pane-title-bar-width-menu"]';
 const BULLSEYE = '[data-testid="tug-pane-title-bar-bullseye-button"]';
 const SLOT_BADGE = '[data-testid="card-slot-badge"]';
-const COLUMN_BADGE = '[data-testid="tug-pane-title-bar-stack-badge"]';
+const STACK_BADGE = '[data-testid="tug-pane-title-bar-stack-badge"]';
 const CLOSE_BUTTON = '[data-testid="tug-pane-close-button"]';
 
 const wait = (ms: number): Promise<void> =>
@@ -135,7 +135,7 @@ async function anchoredRects(page: BodyApp): Promise<Record<string, number[]>> {
       }
       return {
         slot: rect(${JSON.stringify(SLOT_BADGE)}),
-        column: rect(${JSON.stringify(COLUMN_BADGE)}),
+        stack: rect(${JSON.stringify(STACK_BADGE)}),
         close: rect(${JSON.stringify(CLOSE_BUTTON)})
       };
     })()`,
@@ -205,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
           `anchored end before ${JSON.stringify(before)} after ${JSON.stringify(after)}`,
         );
         expect(before.slot, "the slot badge is on the cluster").not.toBe(null);
-        expect(before.column, "and so is the column badge").not.toBe(null);
+        expect(before.stack, "and so is the stack badge").not.toBe(null);
         expect(before.close, "and the close box").not.toBe(null);
         expect(
           after,

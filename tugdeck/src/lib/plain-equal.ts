@@ -9,7 +9,7 @@
  * Value equality for the plain-data props the canvas hands a pane.
  *
  * The canvas derives its arrangement afresh on every deck commit, so
- * `placement`, `slotStack`, `columnMember`, `sidebarStack`, `sizePolicy` and
+ * `placement`, `slotStack`, `slotMember`, `sidebarStack`, `sizePolicy` and
  * `cards` arrive as new objects each time — equal in content for every pane
  * the commit did not move. Compared by identity they never match, and a fold
  * of one card re-rendered all eleven frames on the user's deck before its

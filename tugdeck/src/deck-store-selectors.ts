@@ -35,9 +35,9 @@ import {
 import {
   allocatePlaceHeights,
   clampSlot,
-  columnModeOf,
+  slotModeOf,
   DEFAULT_CONTENT_WIDTH,
-  effectiveColumnOrder,
+  effectiveSlotOrder,
   effectiveRailOrder,
   impositionGapPx,
   isRailRemembered,
@@ -51,7 +51,7 @@ import {
   resolveContentWidthPx,
   slotCount,
   vacancyExtent,
-  type ColumnMode,
+  type SlotMode,
   type FlowSlotExtent,
   type FlowStrip,
   type PlaceAllocation,
@@ -419,7 +419,7 @@ export function deckSlotStrip(
   for (const pane of state.panes) {
     if (pane.slot === undefined) continue;
     // A pane still marked ARRIVING takes no place in the strip, for the same
-    // reason it takes no share of its column's run ([B08]): it is drawn
+    // reason it takes no share of its slot's run ([B08]): it is drawn
     // hidden at the seat it will occupy, and nobody can see it. Counted, its
     // render width became its slot's extent the instant the card was added —
     // so a newcomer wider than the sitter it is joining slid every slot to its
@@ -469,31 +469,31 @@ export function deckVacancyExtent(state: DeckState): number {
 }
 
 /**
- * One slot's column: the panes standing in it, how they stand against one
+ * One slot: the panes standing in it, how they stand against one
  * another, and — when they divide the run — where the seams fall.
  *
  * The content-side twin of `deck-canvas.tsx`'s `SidebarRail`, and deliberately
  * the same shape: both are a place several panes either take turns in or
  * divide.
  */
-export interface DeckColumn {
+export interface DeckSlot {
   slot: number;
-  mode: ColumnMode;
+  mode: SlotMode;
   /** The members' pane ids, top to bottom when split. */
   members: readonly string[];
   /** Where the gaps fall, as fractions of the run: `members.length - 1` values
    *  in split mode, empty in a stack (a stack has no gaps to place). */
   seams: readonly number[];
-  /** How the column divides its run among its members, or `null` when it has
+  /** How the slot divides its run among its members, or `null` when it has
    *  nothing to divide — a stack, or a canvas with no measured run. */
   allocation: PlaceAllocation | null;
 }
 
 /**
- * `deckColumnsOf(state)` — the occupied slots of the imposed chain, in slot
+ * `deckSlotsOf(state)` — the occupied slots of the imposed chain, in slot
  * order, each with the arrangement its panes stand under.
  *
- * **This is the deck's one reading of its columns**, for the reason
+ * **This is the deck's one reading of its slots**, for the reason
  * {@link deckFlowStrip} is the deck's one strip: the frames' member pins, the
  * seam handles, the arrangement signature, and the seam-property writer all
  * have to agree about which member is at which index, and four independent
@@ -502,38 +502,38 @@ export interface DeckColumn {
  * Empty when nothing is imposed: a slot is a place in an arrangement, and a
  * free deck has none.
  *
- * The fallback order — what a column with no stored `order` gets — is the
+ * The fallback order — what a slot with no stored `order` gets — is the
  * slot's panes **sorted by pane id**, NOT their order in `state.panes`. That
  * array is z-order, and `activateCard` rewrites it: taking it here would make
- * two unarranged members of a split column trade places when the user clicked
+ * two unarranged members of a split slot trade places when the user clicked
  * the lower one. Sorting by id is arbitrary between two panes that arrived
  * together and, far more importantly, is fixed under a raise. It is the same
  * hazard `sidebarRailsOf` avoids by sorting into registration order; a pane has
  * no registration to sort into, and its id is what it has instead.
  *
- * A split column normally never reaches that fallback anyway:
- * `DeckManager.setColumnMode` materializes the order in the same commit that
+ * A split slot normally never reaches that fallback anyway:
+ * `DeckManager.setSlotMode` materializes the order in the same commit that
  * writes the split, so the members land in the front-to-back order they stood
  * in at the moment of the split, and the stored order governs from there.
  */
-export function deckColumnsOf(
+export function deckSlotsOf(
   state: DeckState,
-  columnRun: number | null,
-): readonly DeckColumn[] {
+  slotRun: number | null,
+): readonly DeckSlot[] {
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
-  const bySlot = columnStandingBySlot(state, kind);
-  const columns: DeckColumn[] = [];
+  const bySlot = slotStandingBySlot(state, kind);
+  const deckSlots: DeckSlot[] = [];
   for (const slot of [...bySlot.keys()].sort((a, b) => a - b)) {
-    const members = effectiveColumnOrder(
+    const members = effectiveSlotOrder(
       state.imposition,
       slot,
       [...(bySlot.get(slot) ?? [])].sort(),
     );
-    const mode = columnModeOf(state.imposition, slot);
+    const mode = slotModeOf(state.imposition, slot);
     const allocation =
-      mode === "split" ? columnAllocationOf(state, slot, columnRun) : null;
-    columns.push({
+      mode === "split" ? slotAllocationOf(state, slot, slotRun) : null;
+    deckSlots.push({
       slot,
       mode,
       members,
@@ -542,19 +542,19 @@ export function deckColumnsOf(
         mode === "split" ? placeSeamFractions(allocation, members) : [],
     });
   }
-  return columns;
+  return deckSlots;
 }
 
 /** Every occupied slot's panes, keyed by the slot they actually stand in —
- *  clamped exactly as the strip and `resolvePlacement` clamp it, so a column
+ *  clamped exactly as the strip and `resolvePlacement` clamp it, so a slot
  *  and a placement never disagree about which slot a pane is in.
  *
  *  An ARRIVING pane is not standing ([B08]): it is mounted hidden at the seat
- *  it will take, and the column divides its run among the members the user
+ *  it will take, and the slot divides its run among the members the user
  *  can see. Leaving it out here, at the one place membership is read, is what
  *  keeps every derivation downstream — the order, the allocation, the seams,
  *  the move chords — agreeing that nothing moved when it was appended. */
-function columnStandingBySlot(
+function slotStandingBySlot(
   state: DeckState,
   kind: NonNullable<DeckState["imposition"]["kind"]>,
 ): Map<number, string[]> {
@@ -570,31 +570,31 @@ function columnStandingBySlot(
   return bySlot;
 }
 
-/** One slot's members in the column's own top-to-bottom order — what
- *  {@link deckColumnsOf} reads for that slot, without building the rest. */
-export function columnMembersOf(
+/** One slot's members in the slot's own top-to-bottom order — what
+ *  {@link deckSlotsOf} reads for that slot, without building the rest. */
+export function slotMembersOf(
   state: DeckState,
   slot: number,
 ): readonly string[] {
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
-  const standing = columnStandingBySlot(state, kind).get(slot);
+  const standing = slotStandingBySlot(state, kind).get(slot);
   if (standing === undefined) return [];
-  return effectiveColumnOrder(state.imposition, slot, [...standing].sort());
+  return effectiveSlotOrder(state.imposition, slot, [...standing].sort());
 }
 
 /** The slots Equalize Heights has something to do in: split, with two or more
  *  members standing. A stacked slot draws every member over the same run, and
  *  a lone member takes the whole of it, so neither has a division to write —
- *  the same rule {@link DeckManager.equalizeColumn} refuses on. Ascending. */
+ *  the same rule {@link DeckManager.equalizeSlot} refuses on. Ascending. */
 export function equalizableSlotsOf(state: DeckState): readonly number[] {
   const kind = state.imposition.kind;
   if (kind === undefined) return [];
-  const bySlot = columnStandingBySlot(state, kind);
+  const bySlot = slotStandingBySlot(state, kind);
   return [...bySlot.keys()]
     .filter(
       (slot) =>
-        columnModeOf(state.imposition, slot) === "split" &&
+        slotModeOf(state.imposition, slot) === "split" &&
         (bySlot.get(slot)?.length ?? 0) >= 2,
     )
     .sort((a, b) => a - b);
@@ -610,7 +610,7 @@ export function equalizableSlotsOf(state: DeckState): readonly number[] {
  */
 export interface PlaceRuns {
   rail: number | null;
-  column: number | null;
+  slot: number | null;
 }
 
 /**
@@ -631,7 +631,7 @@ export interface PlaceRuns {
 export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
   const moved = (was: number | null, is: number | null): boolean =>
     was !== null && is !== null && Math.abs(is - was) >= 1;
-  return moved(last.rail, next.rail) || moved(last.column, next.column);
+  return moved(last.rail, next.rail) || moved(last.slot, next.slot);
 }
 
 /**
@@ -643,7 +643,7 @@ export function placeRunsMoved(last: PlaceRuns, next: PlaceRuns): boolean {
  * pane holding exactly ONE card, whose card type declares
  * {@link CardRegistration.openingForm}, with a sheet reservation STANDING on
  * the member. No binding store is read — binding lives in
- * `cardSessionBindingStore`, which notifies separately, and a column that
+ * `cardSessionBindingStore`, which notifies separately, and a slot that
  * re-divides one notify after the card bound is a motion ([F05], [B03]).
  *
  * The invariant it rests on, and the reason the derivation is sound rather
@@ -682,7 +682,7 @@ export function isUnboundMember(state: DeckState, memberId: string): boolean {
  * Each member of a place, as the allocator reads it: its floor from the stack
  * size policy, and the weight the user's own seam drags stored.
  *
- * A rail member is named by componentId and a column member by pane id, which
+ * A rail member is named by componentId and a slot member by pane id, which
  * is the one thing the two places differ by here — a sidebar card is a
  * singleton, and a slot holds panes that may each be a tab stack.
  *
@@ -702,7 +702,7 @@ export function isUnboundMember(state: DeckState, memberId: string): boolean {
  * A card that is standing UNBOUND declares its own height the same way and
  * reads into the same `Math.max` ([B01]). It used to be read ahead of both of
  * these as an exact height — floor, ceiling, and no share of the run — which
- * is what held a new Session card at its declared number while the column
+ * is what held a new Session card at its declared number while the slot
  * around it had hundreds of pixels to spare. It is a floor now: the largest
  * thing standing on the member wins, the member keeps its weight, and the
  * measurement that arrives a commit later supersedes the declaration by being
@@ -716,13 +716,13 @@ export function isUnboundMember(state: DeckState, memberId: string): boolean {
  * the ladder is the reservation and the bid, which is to say the picker's own
  * height and nothing else.
  *
- * The one member that reads differently is a FOLDED column member ([P05]).
+ * The one member that reads differently is a FOLDED slot member ([P05]).
  * Its floor is its stack's folded policy, its ceiling is the same number —
  * the two together are what pin it at its tier — and its weight is zero
  * whatever the stored shares say, because a folded card asks for no share of
  * the run. All three are DERIVED from the flag on every allocation, so the
  * stored share is never written from the folded height and comes back the
- * moment the card is open again — unless a seam elsewhere in the same column
+ * moment the card is open again — unless a seam elsewhere in the same slot
  * is dragged while the card is folded, which re-inverts the WHOLE place's
  * heights ({@link placeSharesFromHeights} through `handleSeamCommit`) and
  * records the tier's fraction for the folded member along with the two the
@@ -732,15 +732,15 @@ export function isUnboundMember(state: DeckState, memberId: string): boolean {
  */
 export function placeMembers(
   state: DeckState,
-  kind: "rail" | "column",
+  kind: "rail" | "slot",
   memberIds: readonly string[],
   shares: Readonly<Record<string, number>> | undefined,
 ): PlaceMember[] {
-  // An arriving pane is drawn but not divided ([B08]): the column's readers
+  // An arriving pane is drawn but not divided ([B08]): the slot's readers
   // already leave it out of `memberIds`, and a caller that hands one in
   // anyway gets the standing members back, so the division never sees it.
   const standing =
-    kind === "column" && state.arriving !== undefined
+    kind === "slot" && state.arriving !== undefined
       ? memberIds.filter((id) => state.arriving?.[id] !== true)
       : memberIds;
   return standing.map((id) => {
@@ -755,8 +755,8 @@ export function placeMembers(
             .filter((card) => pane.cardIds.includes(card.id))
             .map((card) => card.componentId);
     // Rails do not fold (`setPaneFolded` refuses one), so this is a
-    // column-only reading and the rail branch is untouched by it.
-    const folded = kind === "column" && pane?.folded === true;
+    // slot-only reading and the rail branch is untouched by it.
+    const folded = kind === "slot" && pane?.folded === true;
     if (folded) {
       const policy = getStackSizePolicy(componentIds, { folded: true });
       // No reservation is read here, and that is deliberate: a folded card
@@ -771,20 +771,20 @@ export function placeMembers(
       };
     }
     // An unbound card's DECLARED height is one more contributor to the floor
-    // ([B01]), not a band: the member keeps its weight, so a column with room
+    // ([B01]), not a band: the member keeps its weight, so a slot with room
     // to spare gives it to the card that can use it. It is read AFTER the
     // folded branch because folding is the stronger statement: a folded card
     // is not showing the sheet the declaration was written for, so its tier
     // wins.
     //
     // The guard is a GUARD rather than a required drop: the height is declared
-    // for a card standing alone in a column member, and a pane that has since
+    // for a card standing alone in a slot member, and a pane that has since
     // gained a second card is a box that has to fit them both. Making the
     // writer drop it on every such transition would put the condition in two
     // places and leave a stale binding wherever one was missed; ignoring it
     // here is the same answer with one reader.
     const declared =
-      kind === "column" && pane?.cardIds.length === 1
+      kind === "slot" && pane?.cardIds.length === 1
         ? state.openingBids?.[id]
         : undefined;
     // An UNBOUND member reads its card type's unbound policy rather than its
@@ -798,12 +798,12 @@ export function placeMembers(
     // bid takes, for the same two reasons: folding is the stronger statement,
     // and an unbound height is the one card's own sheet rather than a box that
     // has to fit two.
-    const unbound = kind === "column" && isUnboundMember(state, id);
+    const unbound = kind === "slot" && isUnboundMember(state, id);
     // The sheet's claim and the opening bid are the picker's WANT rather than
     // its floor ([B07], [B08]): the height the card asks for when the run has
-    // room, paid only after every member's hard floor. A column too short to
+    // room, paid only after every member's hard floor. A slot too short to
     // pay it gives the card less, and the picker lays out for less — its list
-    // gives way — instead of the column overflowing into a strip with the
+    // gives way — instead of the slot overflowing into a strip with the
     // card's bottom off the canvas.
     const floor = getStackSizePolicy(componentIds, { unbound }).min.height;
     const want = Math.max(state.sheetReservations?.[id] ?? 0, declared ?? 0);
@@ -883,23 +883,23 @@ export function railAllocationOf(
   );
 }
 
-/** {@link railAllocationOf}'s slot-keyed twin, over a column's panes and the
- *  gap a column divides at. */
-export function columnAllocationOf(
+/** {@link railAllocationOf}'s slot-keyed twin, over a slot's panes and the
+ *  gap a slot divides at. */
+export function slotAllocationOf(
   state: DeckState,
   slot: number,
   run: number | null,
 ): PlaceAllocation | null {
   if (run === null || !(run > 0)) return null;
-  if (columnModeOf(state.imposition, slot) !== "split") return null;
-  const members = columnMembersOf(state, slot);
+  if (slotModeOf(state.imposition, slot) !== "split") return null;
+  const members = slotMembersOf(state, slot);
   if (members.length === 0) return null;
   return allocatePlaceHeights(
     placeMembers(
       state,
-      "column",
+      "slot",
       members,
-      state.imposition.columns?.[slot]?.shares,
+      state.imposition.slots?.[slot]?.shares,
     ),
     run,
     impositionGapPx(),
@@ -910,7 +910,7 @@ export function columnAllocationOf(
  * A place's allocation as one string — how it stands, and the heights it gave
  * its members, rounded to the pixel they are drawn at.
  *
- * The arrangement signature's rail and column terms, and the reason they are
+ * The arrangement signature's rail and slot terms, and the reason they are
  * the HEIGHTS rather than the weights behind them: what a settle interpolates
  * is frames, and a place crossing between sharing its run and stacking a strip
  * moves every one of them without any weight changing at all. Rounding is what
@@ -962,13 +962,13 @@ export function placeSeamFractions(
 }
 
 /**
- * `columnDrawsSplit(column)` — whether the column is DRAWING as a split, which
+ * `slotDrawsSplit(slot)` — whether the slot is DRAWING as a split, which
  * is not the same question as whether `mode` says split.
  *
- * A column of one renders its member across the whole undivided run, and it
+ * A slot of one renders its member across the whole undivided run, and it
  * does so identically in either mode — membership churn never destroys the
  * arrangement, so a slot that was split and lost a member keeps `mode:
- * "split"` waiting for the member to come back. Nothing about that column is
+ * "split"` waiting for the member to come back. Nothing about that slot is
  * divided while it stands alone, and anything describing what is ON SCREEN has
  * to say so.
  *
@@ -979,19 +979,19 @@ export function placeSeamFractions(
  * this one answer.
  *
  * **The badges do not read it.** A badge names the arrangement the place is
- * SET to — `columnBadgeFactsOf` asks `columnModeOf` — for the same reason the
+ * SET to — `slotBadgeFactsOf` asks `slotModeOf` — for the same reason the
  * Layout card's marks do: a slot set to split and standing one card deep is a
  * split slot, the user having just said so, and a badge answering `1` there
  * reported the act as having failed. The two surfaces that once contradicted
  * each other about that lone card now agree in the other direction: both `A`.
  */
-export function columnDrawsSplit(column: DeckColumn): boolean {
-  return column.mode === "split" && column.members.length >= 2;
+export function slotDrawsSplit(deckSlot: DeckSlot): boolean {
+  return deckSlot.mode === "split" && deckSlot.members.length >= 2;
 }
 
-/** What a column badge draws for one card: which kind of place it stands in,
+/** What a slot badge draws for one card: which kind of place it stands in,
  *  how many panes share that place, and — for a split — which band it is. */
-export interface ColumnBadgeFacts {
+export interface SlotBadgeFacts {
   kind: "stack" | "split";
   count: number;
   /** 0-based, front of the run first: a split's topmost band, a stack's
@@ -1000,7 +1000,7 @@ export interface ColumnBadgeFacts {
 }
 
 /**
- * `columnBadgeFactsOf(state, cardId)` — what the card's place is, for the badge
+ * `slotBadgeFactsOf(state, cardId)` — what the card's place is, for the badge
  * that says so. `null` when there is nothing to say: no host pane, or no
  * imposition to stand in.
  *
@@ -1014,7 +1014,7 @@ export interface ColumnBadgeFacts {
  * that it can.
  *
  * **The kind is the arrangement the place is SET to, not what the geometry is
- * drawing** — `columnModeOf`, never {@link columnDrawsSplit}. Splitting a slot
+ * drawing** — `slotModeOf`, never {@link slotDrawsSplit}. Splitting a slot
  * that holds one card is a legal act committing `mode: "split"`, and a badge
  * gated on a second member left the masthead reading `1` afterwards: the user
  * pressed Split, nothing on the badge moved, and the letter arrived only when
@@ -1022,14 +1022,14 @@ export interface ColumnBadgeFacts {
  * undivided run a lone member takes is geometry's business, and geometry says
  * so by drawing the one card across the whole slot.
  *
- * Read over {@link deckColumnsOf} and nothing else, which is the deck's one
- * reading of its columns — so a rail row and the pane's own cluster cannot
+ * Read over {@link deckSlotsOf} and nothing else, which is the deck's one
+ * reading of its slots — so a rail row and the pane's own cluster cannot
  * disagree about which member is at which index.
  *
  * **Rails are deliberately out of reach here, and do not need to be in it.**
  * `DeckManager.assignCardsToSlots` and `movePaneToSlot` both refuse a
  * sidebar-hosted pane, so a rail pane carries no `slot` and can never appear in
- * a column; the rails' own membership lives behind `sidebarRailsOf`, which is
+ * a slot; the rails' own membership lives behind `sidebarRailsOf`, which is
  * module-private to `components/chrome/deck-canvas.tsx` and reads the boot-time
  * card registry rather than deck state — not something a pure `(state, cardId)`
  * selector can call without dragging the registry into this layer. It would buy
@@ -1037,17 +1037,17 @@ export interface ColumnBadgeFacts {
  * Overview, none of which is a Session row, and a rail member's badge is
  * already drawn on its own pane from `sidebarStack`.
  */
-export function columnBadgeFactsOf(
+export function slotBadgeFactsOf(
   state: DeckState,
   cardId: string,
-): ColumnBadgeFacts | null {
+): SlotBadgeFacts | null {
   const host = state.panes.find((pane) => pane.cardIds.includes(cardId));
   if (host === undefined) return null;
   // The badge is about membership and standing, never about heights, so it
   // reads the members alone rather than allocating a run it does not have.
   const kind = state.imposition.kind;
   if (kind === undefined || host.slot === undefined) return null;
-  const members = columnMembersOf(state, clampSlot(kind, host.slot));
+  const members = slotMembersOf(state, clampSlot(kind, host.slot));
   if (!members.includes(host.id)) return null;
   const count = members.length;
   // Where the card stands in its place, for BOTH kinds. A stack answered 0
@@ -1055,33 +1055,33 @@ export function columnBadgeFactsOf(
   // and the one thing a reader of a list wants to know — which of these is in
   // front — was the one thing it would not say.
   //
-  // Read through `columnMoveOrder` rather than off `column.members`, because
+  // Read through `slotMoveOrder` rather than off `slot.members`, because
   // for a stack those are different orders and only one of them is visible:
   // members is the split band order (panes sorted by id), while a stack's only
-  // perceptible ordering is z. It is also the order *Move Up in Column*
+  // perceptible ordering is z. It is also the order *Move Up in Slot*
   // walks, so the marked end and the direction that verb travels agree by
   // construction rather than by two functions happening to match.
-  const index = Math.max(columnMoveOrder(state, host.id).indexOf(host.id), 0);
+  const index = Math.max(slotMoveOrder(state, host.id).indexOf(host.id), 0);
   const split =
-    columnModeOf(state.imposition, clampSlot(kind, host.slot)) === "split";
+    slotModeOf(state.imposition, clampSlot(kind, host.slot)) === "split";
   return { kind: split ? "split" : "stack", count, index };
 }
 
 /**
- * `columnMoveOrder(state, paneId)` — the sequence a move-in-column verb walks
- * for the pane, or empty when the pane stands in no column.
+ * `slotMoveOrder(state, paneId)` — the sequence a move-in-slot verb walks
+ * for the pane, or empty when the pane stands in no slot.
  *
- * Split, that is the column's member order, top to bottom. Stacked, nothing is
+ * Split, that is the slot's member order, top to bottom. Stacked, nothing is
  * above anything — every member draws the same rect — so the only ordering the
  * user can see is z, reversed so index 0 is the front and "up" is one index
  * earlier in both arrangements.
  *
- * One reading, because two callers ask: `DeckManager.moveInColumn` performs the
- * move, and the menu's `column` fact says whether the move would be refused. A
+ * One reading, because two callers ask: `DeckManager.moveInSlot` performs the
+ * move, and the menu's `slot` fact says whether the move would be refused. A
  * fact derived from a second walk would disagree with the verb exactly at the
  * ends, which is the only place either answer is interesting.
  */
-export function columnMoveOrder(
+export function slotMoveOrder(
   state: DeckState,
   paneId: string,
 ): readonly string[] {
@@ -1090,8 +1090,8 @@ export function columnMoveOrder(
   const pane = state.panes.find((p) => p.id === paneId);
   if (pane?.slot === undefined) return [];
   const slot = clampSlot(kind, pane.slot);
-  if (columnModeOf(state.imposition, slot) === "split") {
-    return columnMembersOf(state, slot);
+  if (slotModeOf(state.imposition, slot) === "split") {
+    return slotMembersOf(state, slot);
   }
   return state.panes
     .filter((p) => p.slot !== undefined && clampSlot(kind, p.slot) === slot)

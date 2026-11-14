@@ -2,7 +2,7 @@
  * picker-card-arrival-fixture.ts — the deck shapes, the frame census and the
  * trace readings the at0571-picker-card-arrival-* files share.
  *
- * A Session card's arrival into a split column is TWO motions — the column
+ * A Session card's arrival into a split slot is TWO motions — the slot
  * re-dividing to seat the newcomer (`room`) and the newcomer's own entrance
  * (`arrive`) — and the height it arrives at was measured before the commit.
  * The claims are read over the frames the imposer itself marks, against the
@@ -155,15 +155,15 @@ export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * A two-up whose slot 0 holds one `hello` card in a SPLIT column, and whose
- * slot 1 is SEALED: it holds the focused card, in a split column of its own.
+ * A two-up whose slot 0 holds one `hello` card in a SPLIT slot, and whose
+ * slot 1 is SEALED: it holds the focused card, in a split slot of its own.
  *
  * Slot 0 is split with a single member on purpose: splitting a slot that holds
  * one card is a legal committed state, and it is what makes the card added
  * below join as a second MEMBER rather than as a second card on a stack. A
  * stacked arrival moves nothing and would make every claim here vacuous.
  *
- * A split column is not a landing place, so a new card goes to one only when
+ * A split slot is not a landing place, so a new card goes to one only when
  * nothing else will take it — and this fixture is that deck. The new card is
  * ranked from the focused card, whose own slot it never covers, and the one
  * slot left is the split at slot 0; slot 1 being split as well means no
@@ -194,7 +194,7 @@ export function deckShape() {
     imposition: {
       kind: "two-up",
       sidebars: {},
-      columns: {
+      slots: {
         0: { mode: "split", order: ["p1"] },
         1: { mode: "split", order: ["p3"] },
       },
@@ -204,7 +204,7 @@ export function deckShape() {
 }
 
 /**
- * The same sitter's split column, with an EMPTY slot 1 beside it and the other
+ * The same sitter's split slot, with an EMPTY slot 1 beside it and the other
  * card moved out to slot 2 — the deck a new card should never open into a
  * split on. Focus stays on the sitter, so the arrival is ranked from slot 0.
  */
@@ -217,7 +217,7 @@ export function openDeckShape() {
     imposition: {
       kind: "three-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p1"] } },
+      slots: { 0: { mode: "split", order: ["p1"] } },
     },
   };
 }
@@ -554,12 +554,12 @@ export async function arrivedPaneId(app: App): Promise<string | null> {
 }
 
 /** The weights `slot`'s column holds, or `null` when it holds none. */
-export async function columnShares(
+export async function slotShares(
   app: App,
   slot: number,
 ): Promise<Record<string, number> | null> {
   return app.evalJS<Record<string, number> | null>(
-    `(((window.tugdeck.diag.getDeckState().imposition.columns || {})[${slot}] || {}).shares || null)`,
+    `(((window.tugdeck.diag.getDeckState().imposition.slots || {})[${slot}] || {}).shares || null)`,
   );
 }
 

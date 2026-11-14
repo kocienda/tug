@@ -5,9 +5,9 @@
  * One piece of the at0571 split; the deck shapes, the frame census and the
  * trace readings are `picker-card-arrival-fixture.ts`.
  *
- * Opening a Session card into a split column used to be one commit's worth of
+ * Opening a Session card into a split slot used to be one commit's worth of
  * everything at once, then three motions. An arrival is one thing happening —
- * the column re-dividing to seat a newcomer — so the arrangement change and
+ * the slot re-dividing to seat a newcomer — so the arrangement change and
  * the newcomer's entrance are FUSED into a single `room` beat, the card's own
  * entrance rides the second, and the picker rides the frame rather than
  * waiting behind a beat it cannot see ([P07], [P08]). The height the card
@@ -84,7 +84,7 @@ afterAll(removeArrivalPickerSessions);
 
 describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
-    "the column makes room and the card rides in on the picker it already measured",
+    "the slot makes room and the card rides in on the picker it already measured",
     async () => {
       const app = await launchArrivalApp("at0571-arrival");
       try {
@@ -161,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "addCard measured the opening form and the deck holds the number, on the production path",
         ).toBeGreaterThan(0);
         // The bid is a FLOOR, so the newcomer stands at least there — this
-        // fixture's column has nothing spare to lift it past, but the claim is
+        // fixture's slot has nothing spare to lift it past, but the claim is
         // written the way the allocator reads the number rather than the way
         // this run happens to land ([P02]).
         expect(
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           { timeoutMs: 8_000 },
         );
 
-        // The split column was not joined: its one member is still its only one.
+        // The split slot was not joined: its one member is still its only one.
         expect(
           await app.evalJS<number>(
             `window.tugdeck.diag.getDeckState().panes.filter(function (p) {

@@ -162,12 +162,12 @@
   display: flex;
   justify-content: flex-start;
   padding-inline: 2px;
-  --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-stroke: var(--sp-mp-card);
+  --tugx-slot-badge-fill: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-slot-badge-accent: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-slot-badge-stroke: var(--sp-mp-card);
 }
 
-.sp-mp-mark .tug-column-badge-glyph {
+.sp-mp-mark .tug-slot-badge-glyph {
   inline-size: 17px;
   block-size: 20px;
   flex: none;
@@ -358,14 +358,14 @@
   justify-content: center;
 }
 
-.sp-mp-glyph-row .tug-column-badge-glyph {
+.sp-mp-glyph-row .tug-slot-badge-glyph {
   inline-size: 13px;
   block-size: 16px;
   flex: none;
   overflow: visible;
-  --tugx-column-badge-fill: currentcolor;
-  --tugx-column-badge-accent: currentcolor;
-  --tugx-column-badge-stroke: var(--tug7-surface-global-primary-normal-default-rest);
+  --tugx-slot-badge-fill: currentcolor;
+  --tugx-slot-badge-accent: currentcolor;
+  --tugx-slot-badge-stroke: var(--tug7-surface-global-primary-normal-default-rest);
 }
 
 /* B2 — the two-storey pill: a slot chip grown a second storey. Drawn in the
@@ -411,14 +411,14 @@
     var(--tug7-element-control-border-tinted-action-rest);
 }
 
-.sp-mp-storey-glyph .tug-column-badge-glyph {
+.sp-mp-storey-glyph .tug-slot-badge-glyph {
   inline-size: 10px;
   block-size: 12px;
   flex: none;
   overflow: visible;
-  --tugx-column-badge-fill: currentcolor;
-  --tugx-column-badge-accent: currentcolor;
-  --tugx-column-badge-stroke: var(--tug7-surface-control-primary-tinted-action-rest);
+  --tugx-slot-badge-fill: currentcolor;
+  --tugx-slot-badge-accent: currentcolor;
+  --tugx-slot-badge-stroke: var(--tug7-surface-control-primary-tinted-action-rest);
 }
 
 .sp-mp-storey:hover {

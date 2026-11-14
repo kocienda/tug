@@ -295,7 +295,7 @@ import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
 import { flashCardPane, setPaneFlashRelay } from "./flash-pane-border";
 import { cardsSelectionStore, shareLayoutSelection, subscribeLayoutCursorCard } from "./cards-selection-store";
-import { resolveColumnMenuFact } from "./layout-selection";
+import { resolveSlotMenuFact } from "./layout-selection";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore, isCardHeld, refuseCardModalHold } from "./card-modal-hold-store";
 import { closeGuardWalk } from "./close-guard-walk";
@@ -495,11 +495,11 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFactsValue {
  * for itself: the gates a body posts for its card's Go, View and Window items
  * read these ([F19]).
  *
- * `column` is the slot verbs' fact — Split or Stack Slot, the four Move Card
+ * `slot` is the slot verbs' fact — Split or Stack Slot, the four Move Card
  * rows and Equalize Heights. It reads the layout selection's ladder (the
  * Cards selection, the Cards list's cursor, the first responder), all of
  * which live in the shell. Without it a body's gates for those rows read
- * `column: null` and posted them dark over the shell's live answer whenever a
+ * `slot: null` and posted them dark over the shell's live answer whenever a
  * body card was key — which is every time a content card has the keyboard.
  */
 function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
@@ -508,10 +508,10 @@ function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
     projection: projectDeckState(state, deck.getSpacesSnapshot()),
     focusTravel: focusTravelDirections(
       state,
-      { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
+      { rail: deck.getRailRunHeight(), slot: deck.getSlotRunHeight() },
       deck.getFirstResponderCardId(),
     ),
-    column: resolveColumnMenuFact(deck),
+    slot: resolveSlotMenuFact(deck),
   };
 }
 

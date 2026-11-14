@@ -10,7 +10,7 @@
  *
  * A card that already had a slot taking a different one is not that gesture.
  * Chain membership does not change, nothing new needs room — and yet the solve
- * ran, saw the chain pack into fewer columns, and handed the freed width to the
+ * ran, saw the chain pack into fewer slots, and handed the freed width to the
  * rails. Pressing ⌘3 on the middle of three cards moved the card AND grew the
  * left rail by most of a card width, which reads as the deck rearranging itself
  * behind a gesture that named one card.
@@ -183,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── The guard on the guard ──────────────────────────────────────
           // Re-assert the layout, which IS one of the allocator's moments. The
-          // chain now packs into fewer columns than it did, so a licensed
+          // chain now packs into fewer slots than it did, so a licensed
           // solve has width to spend — and spends it. Without this the block
           // above would pass on a fixture where nothing wanted to move.
           await app.evalJS<null>(

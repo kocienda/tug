@@ -15,7 +15,7 @@
  *
  * The scene: a two-up under Flow at Slim width in a window the shape of
  * half a 4K frame, with both rails standing and all five factory rail cards
- * up from the first frame. Two Session cards divide slot 1 (a split column,
+ * up from the first frame. Two Session cards divide slot 1 (a split slot,
  * so the upper card's composer sits beside the Jots card) and two Harbor
  * files share slot 2, so the Workspaces card has four rows and a file row's
  * click fronts a card the reader could not see.
@@ -169,7 +169,7 @@ const arcsRow = (arc: Arc): string => `[data-slot="arcs-row"][data-arc="${arc.na
 const foldCue = (arc: Arc): string => `${arcsRow(arc)} [data-slot="arcs-steps-fold"]`;
 const jotLabel = (jotId: string): string => `.jot-row-content[data-jot-id="${jotId}"] .jot-row-label`;
 const widthChoice = (value: string): string => `[data-testid="layout-card-width"] [data-choice-value="${value}"]`;
-/** A miniature target: a split column's member by its row, or an unsplit slot's block; `miniSlot` takes whichever a slot draws. */
+/** A miniature target: a split slot's member by its row, or an unsplit slot's block; `miniSlot` takes whichever a slot draws. */
 const miniMember = (slot: number, index: number): string => `[data-testid="layout-card-places"] [data-testid="layout-card-target-member-${slot}-${index}"]`;
 const miniBlock = (slot: number): string => `[data-testid="layout-card-places"] [data-testid="layout-card-target-block-${slot}"]`;
 const miniSlot = (slot: number): string => `${miniBlock(slot)}, ${miniMember(slot, 0)}`;
@@ -213,7 +213,7 @@ function deck(): Record<string, unknown> {
       kind: "two-up",
       layout: "flow",
       contentWidth: "slim",
-      columns: { 0: { mode: "split", order: [`${S1.id}-pane`, `${S2.id}-pane`] } },
+      slots: { 0: { mode: "split", order: [`${S1.id}-pane`, `${S2.id}-pane`] } },
       sidebars: rails.sidebars,
       rails: rails.rails,
     },

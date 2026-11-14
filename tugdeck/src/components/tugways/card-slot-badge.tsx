@@ -235,7 +235,7 @@ function CardSlotBadgeFor({ cardId, given }: { cardId: string; given: SlotFacts 
               the control. Rest, hover, pressed, menu-open, focused pane,
               background pane all arrive from the cluster's own rules with
               nothing restated, and the chip's ink rides `currentColor` — it
-              simply IS the row's ink, exactly as the column badge beside it
+              simply IS the row's ink, exactly as the slot badge beside it
               already was. The pair reads as one coordinate because they are
               now two icons in one row rather than a chip and an icon.
 

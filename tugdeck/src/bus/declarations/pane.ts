@@ -22,7 +22,7 @@
  */
 
 import type { CloseAsks } from "../../lib/close-asks";
-import type { ColumnMode, ContentWidth } from "../../lib/layout-imposer";
+import type { SlotMode, ContentWidth } from "../../lib/layout-imposer";
 import { arr, bool, empty, literal, nullable, num, obj, optional, str } from "../codec";
 import { defineAction } from "../routed-action";
 import { defineRequest } from "../request";
@@ -48,8 +48,8 @@ export interface PaneChromeStackEntry {
 
 /** The pane's place in its run, as the badge draws it. */
 export interface PaneChromePlace {
-  mode: ColumnMode;
-  kind: "column" | "rail";
+  mode: SlotMode;
+  kind: "slot" | "rail";
   /** This pane's band in a split, topmost first; 0 in a stack. */
   index: number;
   /** The band's letter in a split, or null in a stack. */
@@ -119,7 +119,7 @@ export const paneChrome = defineSharedStore<PaneChromeValue | null>({
       placeArrangement: nullable(
         obj({
           mode: literal("stack", "split"),
-          kind: literal("column", "rail"),
+          kind: literal("slot", "rail"),
           index: num,
           band: nullable(str),
           count: num,
@@ -197,7 +197,7 @@ export const paneFillHeight = defineAction({
   codec: empty,
 });
 
-/** Split, stack or equalize the column the sender's pane stands in. */
+/** Split, stack or equalize the slot the sender's pane stands in. */
 export const paneArrangePlace = defineAction({
   id: "pane.arrangePlace",
   owner: "shell",

@@ -299,7 +299,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Depth is no longer the condition. The badge is the only door to
           // the arrange verbs, so gating it on already having a neighbour left
           // the one card that most needs "Split Vertically" — a card alone in
-          // its column — with no way to reach it. A place one card deep is
+          // its slot — with no way to reach it. A place one card deep is
           // still a place, and the badge says so with a quiet `1`.
           expect(await badgeCount(app, "p1"), "front pane of the 2-deep slot has a badge").toBe(1);
           expect(await badgeCount(app, "p0"), "buried pane of the same slot has one too").toBe(1);

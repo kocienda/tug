@@ -52,7 +52,7 @@ function deckOf(
   extra: Partial<DeckState["imposition"]> = {},
 ): DeckState {
   const panes: TugPaneState[] = [];
-  const columns: NonNullable<DeckState["imposition"]["columns"]> = {};
+  const arrangements: NonNullable<DeckState["imposition"]["slots"]> = {};
   specs.forEach((spec, slot) => {
     if (spec === "empty") return;
     if (spec === "stack") {
@@ -61,12 +61,12 @@ function deckOf(
     }
     panes.push(pane(`s${slot}a`, slot, spec === "wall" ? true : undefined));
     panes.push(pane(`s${slot}b`, slot));
-    columns[slot] = { mode: "split" };
+    arrangements[slot] = { mode: "split" };
   });
   return {
     cards: panes.flatMap((p) => p.cardIds.map(card)),
     panes,
-    imposition: { kind, layout: "fit", sidebars: {}, columns, ...extra },
+    imposition: { kind, layout: "fit", sidebars: {}, slots: arrangements, ...extra },
     hasFocus: true,
   };
 }
@@ -120,7 +120,7 @@ describe("readOpeningDeck", () => {
     expect(fromOrigin(deck, 1)).toBe(0);
   });
 
-  test("a split column with nothing folded is not a wall", () => {
+  test("a split slot with nothing folded is not a wall", () => {
     const deck = read(deckOf("two-up", ["split", "stack"]));
     expect(deck.slots[0].class).toBe("split");
   });

@@ -170,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
         );
         // The focus family rides the same answer, and it is the ⌥⌘ half of the
         // arrow bands: ⌃⌘ arrows move the furniture, ⌥⌘ arrows move the reader
-        // through it ([D184]). One card in no column has nowhere to go in any
+        // through it ([D184]). One card in no slot has nowhere to go in any
         // direction, so all four validate dark and all four keep their chords —
         // nothing in the JS funnel wants ⌥⌘ arrows either. The horizontal pair
         // is the conversion this adds to the two vertical ones above:

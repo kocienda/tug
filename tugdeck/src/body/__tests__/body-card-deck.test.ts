@@ -155,7 +155,7 @@ function arrangement(bandWidth: number, spaceName = "Main"): { value: Arrangemen
     hasFocus: true,
   };
   return {
-    value: { spaceId: "s1", deck, bandWidth, columnRunHeight: 900, railRunHeight: 880 },
+    value: { spaceId: "s1", deck, bandWidth, slotRunHeight: 900, railRunHeight: 880 },
     spaces: {
       activeSpaceId: "s1",
       spaces: [{ id: "s1", name: spaceName }],
@@ -507,8 +507,8 @@ const DECK_VIEW_EVIDENCE: {
     r.deck.set({ ...r.deck.getSnapshot()!, bandWidth: 1200 });
     expect(v.getBandWidth()).toBe(1200);
   },
-  getColumnRunHeight: (v) => {
-    expect(v.getColumnRunHeight()).toBe(900);
+  getSlotRunHeight: (v) => {
+    expect(v.getSlotRunHeight()).toBe(900);
   },
   getRailRunHeight: (v) => {
     expect(v.getRailRunHeight()).toBe(880);
@@ -820,7 +820,7 @@ describe("an arrangement card", () => {
     // The shell sets `arrangement.deck` first: s2's deck, live, while the
     // workspaces still name s1 active and hold s2 parked. Taken, s2's card
     // would list under s1 as its live deck and under s2 as its parked one.
-    r.deck.set({ spaceId: "s2", deck: away, bandWidth: 1600, columnRunHeight: 900, railRunHeight: 880 });
+    r.deck.set({ spaceId: "s2", deck: away, bandWidth: 1600, slotRunHeight: 900, railRunHeight: 880 });
     expect(b.getSnapshot()).toBe(settled);
     expect(v.getSpacesSnapshot().activeSpaceId).toBe("s1");
     expect(v.getSpaceDeck("s1")).toBe(settled);
@@ -880,7 +880,7 @@ describe("seenFrom", () => {
   const deckOf = (id: string): DeckState => ({ cards: [{ id, componentId: "layout", title: id, closable: true }], panes: [] }) as unknown as DeckState;
   const home = deckOf("home-card");
   const away = deckOf("away-card");
-  const live = { spaceId: "home", deck: home, bandWidth: 900, columnRunHeight: 700, railRunHeight: 680 };
+  const live = { spaceId: "home", deck: home, bandWidth: 900, slotRunHeight: 700, railRunHeight: 680 };
   const spaces = {
     activeSpaceId: "home",
     spaces: [{ id: "home", name: "Home" }, { id: "away", name: "Away" }],

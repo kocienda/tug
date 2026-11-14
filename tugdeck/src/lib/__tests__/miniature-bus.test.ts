@@ -29,7 +29,7 @@ import type { DeckState } from "../../layout-tree";
 import { createTestBus, type TestBus } from "../../bus/test-bus";
 import { MINIATURE_ZONES_MS, miniatureGauges } from "../../bus/declarations/relays";
 import { answerMiniature, bodyMiniatureHost, followMiniatureGauges } from "../miniature-bus";
-import { publishColumnOffset, publishDragFrame, publishFlowOffset, registerGauge } from "../imposer-gauges";
+import { publishSlotOffset, publishDragFrame, publishFlowOffset, registerGauge } from "../imposer-gauges";
 import type { DropZone, DropZoneHost, DropZoneSet } from "../drop-zones";
 
 registerCard({
@@ -94,13 +94,13 @@ describe("the gauges", () => {
     const primed = gaugeFrames();
 
     publishFlowOffset(0.3);
-    publishColumnOffset(7, 0.5);
+    publishSlotOffset(7, 0.5);
     publishFlowOffset(0.35);
     await bus.flush();
     expect(gaugeFrames()).toBe(primed + 1);
     const sent = miniatureGauges.on(layout.bus).getSnapshot();
     expect(sent).toContainEqual(["flow-offset", { "--gauge-flow-offset": "0.3500" }]);
-    expect(sent).toContainEqual(["column-offset:7", { "--gauge-column-offset-7": "0.5000" }]);
+    expect(sent).toContainEqual(["slot-offset:7", { "--gauge-slot-offset-7": "0.5000" }]);
 
     off();
     await tick();
@@ -108,7 +108,7 @@ describe("the gauges", () => {
     publishFlowOffset(0.4);
     await bus.flush();
     expect(gaugeFrames()).toBe(primed + 1);
-    publishColumnOffset(7, null);
+    publishSlotOffset(7, null);
   });
 
   test("what the shell sends lands on the body's element, drag attributes included", async () => {

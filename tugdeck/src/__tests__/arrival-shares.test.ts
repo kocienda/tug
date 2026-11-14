@@ -1,5 +1,5 @@
 /**
- * arrival-shares.test.ts — what a newcomer to a split column is worth, and
+ * arrival-shares.test.ts — what a newcomer to a split slot is worth, and
  * what the sitters it lands among keep ([B01]–[B04], `arrival-even-division`).
  *
  * `arrivalSharesOf` is the weight the arrival writes, and it is tested here
@@ -25,7 +25,7 @@ import {
 } from "../lib/layout-imposer";
 
 const SEAM = IMPOSITION_GAP_PX;
-/** The harness canvas's column run, near enough — the screenshot's own. */
+/** The harness canvas's slot run, near enough — the screenshot's own. */
 const RUN = 1041;
 /** A folded Session card's tier, and the whole of what it claims. */
 const TIER = 144;
@@ -57,7 +57,7 @@ function folded(id: string, tier: number): PlaceMember {
 describe("arrivalSharesOf: the newcomer divides what nobody claimed", () => {
   test("a folded sitter claims its TIER and the newcomer takes the rest", () => {
     // The screenshot: a folded Session card above a fresh one on a tall
-    // column. The sitter's ceiling claims 144px of 1041 and every pixel it
+    // slot. The sitter's ceiling claims 144px of 1041 and every pixel it
     // does not claim is the newcomer's — where the arrival used to stand at
     // its declared 618 with a dead band beneath it ([F01]).
     const members = [folded("pane-a", TIER), open("pane-b", 618)];
@@ -84,9 +84,9 @@ describe("arrivalSharesOf: the newcomer divides what nobody claimed", () => {
   test("an UNWEIGHED sitter claims nothing and divides the run with the newcomer", () => {
     // Re-pointed deliberately ([B01], [B07]), which is the only way a pinned
     // decision moves. This case used to assert that a sitter standing at the
-    // whole column claims the whole column, leaving the newcomer its own floor
+    // whole slot claims the whole slot, leaving the newcomer its own floor
     // and nothing more — and that read a DEFAULT as though it were a decision.
-    // A card alone in a column draws at the whole run because there was nobody
+    // A card alone in a slot draws at the whole run because there was nobody
     // to divide with, not because anybody chose it the whole run, and an
     // arrival is exactly the moment that stops being true. Nobody has weighed
     // either member here, so the run divides in two.
@@ -97,8 +97,8 @@ describe("arrivalSharesOf: the newcomer divides what nobody claimed", () => {
   });
 
   test("three unweighed sitters taking a fourth come out in QUARTERS", () => {
-    // [B02] read at a larger count: the sentence that divides a column of one
-    // sitter in two divides a column of three in four. Nobody has divided this
+    // [B02] read at a larger count: the sentence that divides a slot of one
+    // sitter in two divides a slot of three in four. Nobody has divided this
     // place, so an arrival divides it, and the count is not a case.
     const members = [
       open("pane-a", 100),
@@ -111,7 +111,7 @@ describe("arrivalSharesOf: the newcomer divides what nobody claimed", () => {
     for (const height of heights) expect(height).toBeCloseTo(quarter, 6);
   });
 
-  test("a column too short for an even division falls back to the floors", () => {
+  test("a slot too short for an even division falls back to the floors", () => {
     // The boundary on the case above, and the at0571 geometry it used to pin:
     // the newcomer's 618px floor is more than half of the 1041 run less its
     // seam, so the even division is not representable and the allocator's

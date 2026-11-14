@@ -48,7 +48,7 @@ export const TugPanePortalContext = createContext<HTMLDivElement | null>(null);
  * React context: the pane frame element (`HTMLDivElement`, the `.tug-pane`
  * outer frame, parent of the chrome). Pane-modal surfaces (`TugSheet`,
  * future modal-class surfaces) portal into this element so their panel
- * moves with the pane through drags, resizes and column reflows with no
+ * moves with the pane through drags, resizes and slot reflows with no
  * applier of its own [D19, D20]. Paint ORDER against peer panes is a
  * separate question and the frame answers it the other way: while a
  * pane-modal surface is up the frame wears `data-sheet-open` and is
@@ -102,7 +102,7 @@ export interface PaneChromeModel {
   width: { preset: ContentWidth | null } | null;
   /** The Fill Height row with whether the pane fills its run; null when it is not offered. Read only beside {@link width}. */
   fillHeight: { fills: boolean } | null;
-  /** The place badge's arrangement; null for a pane standing in no place. A column's offers its verbs, a rail's does not. */
+  /** The place badge's arrangement; null for a pane standing in no place. A slot's offers its verbs, a rail's does not. */
   placeArrangement: NonNullable<CardTitleBarProps["placeArrangement"]> | null;
   /** The pane whose place the badge reads off the deck; omitted where no deck stands behind the chrome. */
   placePaneId?: string;
@@ -258,7 +258,7 @@ export function PaneChrome({
                 })}
             // A rail is always divided, so its badge lists the side's members
             // and passes no `onArrangePlace`, which is what keeps the verbs off
-            // its menu ([B02]). A column's badge is the door to arranging it.
+            // its menu ([B02]). A slot's badge is the door to arranging it.
             {...(place === null
               ? {}
               : place.kind === "rail"

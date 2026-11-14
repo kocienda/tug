@@ -169,26 +169,26 @@ describe("miniatureZoneRects", () => {
 
   test("a lone sitter's two positions split its slot into halves", () => {
     const zones: DropZone[] = [0, 1].map((index) => ({
-      kind: "column-index",
+      kind: "slot-index",
       slot: 2,
       index,
       rect: canvasRect,
     }));
     const placed = miniatureZoneRects(zones, { slots, rails: {} });
-    expect(rectOf(placed, "column:2:0")).toEqual({ x: 120, y: 0, width: 40, height: 50 });
-    expect(rectOf(placed, "column:2:1")).toEqual({ x: 120, y: 50, width: 40, height: 50 });
+    expect(rectOf(placed, "slot:2:0")).toEqual({ x: 120, y: 0, width: 40, height: 50 });
+    expect(rectOf(placed, "slot:2:1")).toEqual({ x: 120, y: 50, width: 40, height: 50 });
   });
 
-  test("a split column of three splits into thirds", () => {
+  test("a split slot of three splits into thirds", () => {
     const zones: DropZone[] = [0, 1, 2].map((index) => ({
-      kind: "column-index",
+      kind: "slot-index",
       slot: 2,
       index,
       rect: canvasRect,
     }));
     const placed = miniatureZoneRects(zones, { slots, rails: {} });
-    expect(rectOf(placed, "column:2:1")?.y).toBeCloseTo(100 / 3, 9);
-    expect(rectOf(placed, "column:2:2")?.height).toBeCloseTo(100 / 3, 9);
+    expect(rectOf(placed, "slot:2:1")?.y).toBeCloseTo(100 / 3, 9);
+    expect(rectOf(placed, "slot:2:2")?.height).toBeCloseTo(100 / 3, 9);
   });
 
   test("the other rail of N members splits into N+1 bands", () => {

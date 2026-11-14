@@ -318,7 +318,7 @@ Press Command-1 through Command-6, click the slot badge in the card's masthead a
 Press Control-Command-1 through Control-Command-6 to go to a slot, or Shift-Command-Left Bracket and Shift-Command-Right Bracket to step across the deck. Option-Command-Left Bracket and Option-Command-Right Bracket step through a stack, and Command-R shows what is in it. Option-Command with an arrow key goes to the card to the left, above, right or below. All of these are in the Go menu. To jump to a session you can name, use its row in the Workspaces sidebar.
 
 ### Show two cards in one slot at once
-<!-- source: tugdeck/src/components/tugways/command-registry.ts (TOGGLE_COLUMN_SPLIT Control-Command-Slash, Move Card in Slot, Equalize Heights); tugapp/Sources/MenuStateSync.swift (view.slotSplit) -->
+<!-- source: tugdeck/src/components/tugways/command-registry.ts (TOGGLE_SLOT_SPLIT Control-Command-Slash, Move Card in Slot, Equalize Heights); tugapp/Sources/MenuStateSync.swift (view.slotSplit) -->
 
 Press Control-Command-Slash, or choose View > Split or Stack Slot, and the slot's stack becomes a split, each card lettered from the top. The same chord turns it back. Control-Command-Up Arrow and Control-Command-Down Arrow move a card up or down, Control-Shift-Command-Up Arrow and Control-Shift-Command-Down Arrow send it to the top or bottom, and View > Equalize Heights evens them out. Drag the seam between two cards to size them by hand.
 

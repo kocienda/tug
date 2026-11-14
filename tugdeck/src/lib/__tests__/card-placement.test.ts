@@ -95,7 +95,7 @@ describe("wantsPicture", () => {
 });
 
 describe("the order cards are posted in", () => {
-  test("is the deck's reading order, left to right and then down a column, whatever order they came in", () => {
+  test("is the deck's reading order, left to right and then down a slot, whatever order they came in", () => {
     // Pane-id order — the canvas's — is a, b, text; the deck stands a, text, b.
     const posted = inReadingOrder([view("a", 0, 40), view("b", 640, 40), view("text", 320, 40), view("under-a", 0, 260)]);
     expect(posted.map((b) => b.cardId)).toEqual(["a", "under-a", "text", "b"]);

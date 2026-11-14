@@ -2,7 +2,7 @@
  * Layout imposition: the deck's gestures over its structured arrangement.
  *
  * Choosing an arrangement, choosing how it resolves, assigning cards and panes
- * to slots, and the seating a crossing card takes in a split column. Each is a
+ * to slots, and the seating a crossing card takes in a split slot. Each is a
  * function over an {@link ImpositionDeps} the `DeckManager` builds once — the
  * live deck, the store's public surface, and the handful of the manager's own
  * commit primitives these gestures go through — rather than a method reaching
@@ -13,7 +13,7 @@
 import type { DeckState, TugPaneState } from "./layout-tree";
 import type { CardLifecycle } from "./lib/card-lifecycle";
 import type { IDeckManagerStore, MovePaneOptions } from "./deck-manager-store";
-import { columnMembersOf, findSidebarPanes, placeMembers } from "./deck-store-selectors";
+import { slotMembersOf, findSidebarPanes, placeMembers } from "./deck-store-selectors";
 import { isSidebarCard } from "./card-registry";
 import { paneCanvasOf } from "./components/chrome/space-layer";
 import { pageZoomFactor } from "./lib/page-zoom-store";
@@ -21,12 +21,12 @@ import { transferFocusForActivation } from "./focus-transfer";
 import {
   arrivalSharesOf,
   clampSlot,
-  columnModeOf,
+  slotModeOf,
   impositionLayout,
   impositionResizeSlot,
   impositionGapPx,
   slotCount,
-  withColumnShares,
+  withSlotShares,
   withMemberSeated,
   type DeckImposition,
   type ImpositionKind,
@@ -53,7 +53,7 @@ export type SlotAssignment =
 export interface CommitImpositionOptions {
   readonly retuneRails: boolean;
   readonly revealPaneId?: string | null;
-  readonly columnReveal?: { slot: number; offset: number };
+  readonly slotReveal?: { slot: number; offset: number };
 }
 
 export interface ImpositionDeps {
@@ -76,7 +76,7 @@ export interface ImpositionDeps {
   pinSidebars(): void;
   detachCard(paneId: string, cardId: string, position: { x: number; y: number }): string | null;
   clearBullseyeFor(paneId: string): void;
-  placeRunHeight(kind: "column" | "rail"): number;
+  placeRunHeight(kind: "slot" | "rail"): number;
   revealAfterTravel(cardId: string): void;
   movePane(
     paneId: string,
@@ -415,7 +415,7 @@ export function assignCardsToSlots(
   // resize, and a change to who is in the chain.
   const joinsChain = [...targets.keys()].some((id) => !chainBefore.has(id));
   // Every pane that CROSSED into a slot is seated at the bottom of that
-  // slot's column ([D194]), in the order the batch named them. A pane the
+  // slot ([D194]), in the order the batch named them. A pane the
   // batch re-assigned to the slot it already stood in has not arrived
   // anywhere and keeps its place.
   let imposition = deck.imposition;
@@ -429,7 +429,7 @@ export function assignCardsToSlots(
   deps.commitImposition(imposition, panes, {
     retuneRails: joinsChain,
     // The batch leaves its last card first responder, and that is the card
-    // the user is looking for; a slot whose column overflows must scroll it
+    // the user is looking for; a slot whose slot overflows must scroll it
     // into the run or the assignment lands somewhere nobody can see.
     revealPaneId: [...targets.keys()][targets.size - 1],
   });
@@ -437,20 +437,20 @@ export function assignCardsToSlots(
 }
 
 /**
- * The imposition the arriving pane's column should hold, with the pane
+ * The imposition the arriving pane's slot should hold, with the pane
  * seated at the index a drop asked for, and at the bottom otherwise
  * ([D194]). The rule itself is `withMemberSeated`; this reads the
- * column the way the deck draws it and hands the reading over.
+ * slot the way the deck draws it and hands the reading over.
  *
  * Folded into the assignment's own commit rather than written after it,
- * because a card crossing into a split column changes two things about the
+ * because a card crossing into a split slot changes two things about the
  * arrangement — which slot it stands in and where in that slot's order it
  * stands — and the settle can only animate them as one motion if they arrive
  * as one commit. Two commits would measure the deck once with the card
  * arrived but unplaced, which is a frame nobody asked to see.
  *
  * `panes` already carries the arrival, so a slot that held one pane reads
- * back as a column of two: the arrival plus the sitter it divides with.
+ * back as a slot of two: the arrival plus the sitter it divides with.
  * Takes the imposition it seats into rather than reading the store's, so a
  * batch can seat several panes into one commit.
  *
@@ -459,7 +459,7 @@ export function assignCardsToSlots(
  * arrives on — read here rather than off the store because the store does
  * not hold them yet and the seating has to be answered against the deck as
  * the commit will leave it. A pane marked arriving is left out of the
- * column's reading ([B08]): it is seated in the order, so it lands at the
+ * slot's reading ([B08]): it is seated in the order, so it lands at the
  * bottom when revealed, but it takes no weight until then.
  */
 export function impositionSeating(
@@ -481,8 +481,8 @@ export function impositionSeating(
     // last mark, so the reveal's cleared record IS `undefined` — and a
     // `!== undefined` test read that as "the caller passed nothing" and left
     // the store's own record standing. At the reveal that record still
-    // carried the mark, so `columnMembersOf` went on leaving the newcomer
-    // out, `arrivalShares` saw a column of one, and the weight the reveal
+    // carried the mark, so `slotMembersOf` went on leaving the newcomer
+    // out, `arrivalShares` saw a slot of one, and the weight the reveal
     // exists to write was never written ([B05]). The two encodings are both
     // right and they collide only here.
     ...(session !== undefined && "openingBids" in session
@@ -495,22 +495,22 @@ export function impositionSeating(
   const seated = withMemberSeated(
     imposition,
     slot,
-    columnMembersOf(state, slot),
+    slotMembersOf(state, slot),
     paneId,
     index,
   );
   // Unchanged means the ORDER did not move, which for a card crossing into a
-  // column means nothing arrived anywhere the column can divide — no
-  // sitters, or a stacked column no drop asked to split — so there is no
+  // slot means nothing arrived anywhere the slot can divide — no
+  // sitters, or a stacked slot no drop asked to split — so there is no
   // division to write either.
   //
   // `weighSeated` is the one case where that reading is wrong. A card that
   // arrived HIDDEN was seated in the order a commit ago and takes its weight
   // at the reveal ([B04]/[B08]), so at the reveal the order is already right
   // and this shortcut would skip the very write the reveal exists to make —
-  // leaving the newcomer unweighted, and the column's next division handing
+  // leaving the newcomer unweighted, and the slot's next division handing
   // it the unnamed default's fraction instead of the room the eye just saw
-  // it take ([B05]). `arrivalShares` refuses a stacked column and a column
+  // it take ([B05]). `arrivalShares` refuses a stacked slot and a slot
   // of one on its own, so nothing the shortcut guarded is lost by passing it.
   if (seated === imposition && !weighSeated) return seated;
   return arrivalShares(deps, { ...state, imposition: seated }, paneId, slot);
@@ -522,7 +522,7 @@ export function impositionSeating(
  * commit as the seating that earned it.
  *
  * In the SAME commit for {@link impositionSeating}'s own reason: which slot
- * the card stands in, where in the column it stands, and how much of the run
+ * the card stands in, where in the slot it stands, and how much of the run
  * it takes are three things about one arrangement change, and the settle can
  * animate them as one motion only if they arrive together. A weight written
  * a commit later would re-target a settle already in flight.
@@ -540,29 +540,29 @@ function arrivalShares(
   slot: number,
 ): DeckImposition {
   const imposition = state.imposition;
-  if (columnModeOf(imposition, slot) !== "split") return imposition;
-  const run = deps.placeRunHeight("column");
+  if (slotModeOf(imposition, slot) !== "split") return imposition;
+  const run = deps.placeRunHeight("slot");
   if (!(run > 0)) return imposition;
-  const members = columnMembersOf(state, slot);
+  const members = slotMembersOf(state, slot);
   if (members.length < 2) return imposition;
   const shares = arrivalSharesOf(
     placeMembers(
       state,
-      "column",
+      "slot",
       members,
-      imposition.columns?.[slot]?.shares,
+      imposition.slots?.[slot]?.shares,
     ),
     paneId,
     run,
     impositionGapPx(),
   );
   if (Object.keys(shares).length === 0) return imposition;
-  return withColumnShares(imposition, slot, shares);
+  return withSlotShares(imposition, slot, shares);
 }
 
 /**
  * Move a whole pane to `slot`, optionally landing it at `index` in that
- * slot's split column — the drop-zone drag's commit for a card crossing
+ * slot's split slot — the drop-zone drag's commit for a card crossing
  * places ([P10]).
  *
  * Pane-addressed, where {@link assignCardsToSlots} is card-addressed, because
@@ -573,7 +573,7 @@ function arrivalShares(
  * of the stack behind at the place the user just dragged away from.
  *
  * One call and one commit, which is the point of taking the index here rather
- * than in a `setColumnOrder` afterwards: the slot write and the order write
+ * than in a `setSlotOrder` afterwards: the slot write and the order write
  * are the same arrangement change, and the settle animates an arrangement
  * change once. Two commits would show the deck a frame with the pane arrived
  * but unplaced.
@@ -637,7 +637,7 @@ export function movePaneToSlot(
     p.id === paneId ? ({ ...p, slot: placed } as TugPaneState) : p,
   );
   // A pane dropped into the slot it already stands in, with no index named,
-  // has not arrived anywhere and keeps its place in the column.
+  // has not arrived anywhere and keeps its place in the slot.
   const stayed =
     pane.slot !== undefined && clampSlot(kind, pane.slot) === placed;
   deps.commitImposition(

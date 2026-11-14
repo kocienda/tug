@@ -14,7 +14,7 @@
  * The signals:
  *
  * - `flow-offset` — how far the flow strip has slid under the band.
- * - `column-offset:<slot>` — how far an overflowing column's strip has slid.
+ * - `slot-offset:<slot>` — how far an overflowing slot's strip has slid.
  * - `drag-frame` — where the dragged frame stands.
  * - `drag-zone` — where the indicated drop zone stands.
  *
@@ -34,7 +34,7 @@
  * length: there is no `calc(var(--x) / var(--band))`. A fraction needs no
  * conversion at all. It multiplies straight into whatever unit the consumer
  * draws in (`calc(var(--gauge-drag-x, 0) * 100%)`), which is the same reason the
- * miniature's committed column slides have always been passed as fractions.
+ * miniature's committed slot slides have always been passed as fractions.
  *
  * Committed values keep flowing through the store as they do today; the gauges
  * carry the motion BETWEEN commits. So a consumer's CSS composes
@@ -72,11 +72,11 @@ export interface GaugeRect {
   height: number;
 }
 
-/** The name of a signal. `column-offset` is per-slot because each column
+/** The name of a signal. `slot-offset` is per-slot because each slot
  *  slides on its own. */
 export type GaugeSignal =
   | "flow-offset"
-  | `column-offset:${number}`
+  | `slot-offset:${number}`
   | "drag-frame"
   | "drag-zone";
 
@@ -87,9 +87,9 @@ export type GaugeSignal =
  */
 export type GaugeListener = (values: ReadonlyMap<string, string> | null) => void;
 
-/** The signal a given slot's column offset publishes on. */
-export function columnOffsetSignal(slot: number): GaugeSignal {
-  return `column-offset:${slot}`;
+/** The signal a given slot's offset publishes on. */
+export function slotOffsetSignal(slot: number): GaugeSignal {
+  return `slot-offset:${slot}`;
 }
 
 /**
@@ -104,7 +104,7 @@ export function gaugeProperties(signal: GaugeSignal): readonly string[] {
   if (signal === "drag-zone") {
     return ["--gauge-zone-x", "--gauge-zone-y", "--gauge-zone-w", "--gauge-zone-h"];
   }
-  return [`--gauge-column-offset-${signal.slice("column-offset:".length)}`];
+  return [`--gauge-slot-offset-${signal.slice("slot-offset:".length)}`];
 }
 
 /** Registered elements, per signal. Module-level and deliberately not a store:
@@ -222,7 +222,7 @@ export function observeGaugeDemand(fn: (wanted: boolean) => void): () => void {
 /** Whether `name` is a signal this channel carries. */
 export function isGaugeSignal(name: string): name is GaugeSignal {
   if (name === "flow-offset" || name === "drag-frame" || name === "drag-zone") return true;
-  return /^column-offset:\d+$/.test(name);
+  return /^slot-offset:\d+$/.test(name);
 }
 
 /**
@@ -350,9 +350,9 @@ export function publishFlowOffset(fraction: number | null): void {
   );
 }
 
-/** How far one column's strip stands, as a fraction of the run. */
-export function publishColumnOffset(slot: number, fraction: number | null): void {
-  const signal = columnOffsetSignal(slot);
+/** How far one slot's strip stands, as a fraction of the run. */
+export function publishSlotOffset(slot: number, fraction: number | null): void {
+  const signal = slotOffsetSignal(slot);
   publish(
     signal,
     fraction === null

@@ -93,7 +93,7 @@ import "../components/tugways/commit-masthead.css";
 import "../components/tugways/card-slot-badge.css";
 import "../components/tugways/tug-slot.css";
 import "../components/tugways/tug-slot-layout.css";
-import "../components/tugways/tug-column-badge.css";
+import "../components/tugways/tug-slot-badge.css";
 import "../components/tugways/cards/compaction-progress-sheet.css";
 import "../components/tugways/tug-icon-button.css";
 import "../components/tugways/cards/session-placard.css";

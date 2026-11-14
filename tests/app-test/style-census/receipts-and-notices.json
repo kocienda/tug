@@ -1,27 +1,27 @@
 {
-  ".cards-list [data-testid=\"cards-column-badge\"]": {
-    "--tugx-column-badge-accent": "oklch(.65 .2 250)",
-    "--tugx-column-badge-fg": "oklch(.9 .05 250)",
-    "--tugx-column-badge-fill": "oklch(.6 .09 250 / .2)",
-    "--tugx-column-badge-knockout": "oklch(.6 .09 250 / .2)",
-    "--tugx-column-badge-lit-fill": "oklch(.65 .2 250)",
-    "--tugx-column-badge-stroke": "oklch(.6 .09 250 / .35)",
+  ".cards-list [data-testid=\"cards-slot-badge\"]": {
+    "--tugx-slot-badge-accent": "oklch(.65 .2 250)",
+    "--tugx-slot-badge-fg": "oklch(.9 .05 250)",
+    "--tugx-slot-badge-fill": "oklch(.6 .09 250 / .2)",
+    "--tugx-slot-badge-knockout": "oklch(.6 .09 250 / .2)",
+    "--tugx-slot-badge-lit-fill": "oklch(.65 .2 250)",
+    "--tugx-slot-badge-stroke": "oklch(.6 .09 250 / .35)",
     "color": "oklch(0.9 0.05 250)",
     "margin-left": "4px"
   },
-  ".cards-list [data-testid=\"cards-column-badge\"] [data-region=\"bottom\"]": {
+  ".cards-list [data-testid=\"cards-slot-badge\"] [data-region=\"bottom\"]": {
     "fill": "oklch(0.6 0.09 250 / 0.2)",
     "opacity": "1",
     "stroke": "oklch(0.6 0.09 250 / 0.35)",
     "stroke-width": "1px"
   },
-  ".cards-list [data-testid=\"cards-column-badge\"] [data-region=\"middle\"]": {
+  ".cards-list [data-testid=\"cards-slot-badge\"] [data-region=\"middle\"]": {
     "fill": "oklch(0.6 0.09 250 / 0.2)",
     "opacity": "1",
     "stroke": "oklch(0.6 0.09 250 / 0.35)",
     "stroke-width": "1px"
   },
-  ".cards-list [data-testid=\"cards-column-badge\"] [data-region=\"top\"]": {
+  ".cards-list [data-testid=\"cards-slot-badge\"] [data-region=\"top\"]": {
     "fill": "oklch(0.65 0.2 250)",
     "opacity": "1",
     "stroke": "oklch(0.65 0.2 250)",

@@ -12,8 +12,8 @@ import { describe, test, expect } from "bun:test";
 import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import {
   bullseyePaneIdOf,
-  columnBadgeFactsOf,
-  deckColumnsOf,
+  slotBadgeFactsOf,
+  deckSlotsOf,
   deckFlowStrip,
   equalizableSlotsOf,
   isFocusDestination,
@@ -282,16 +282,16 @@ describe("bullseyePaneIdOf", () => {
   });
 });
 
-/** The run these fixtures' columns divide. Any positive number does: the
+/** The run these fixtures' slots divide. Any positive number does: the
  *  assertions below are about membership, order and where the seams fall, and
  *  a seam fraction is the same fraction of any run. */
-const COLUMN_RUN = 1000;
+const SLOT_RUN = 1000;
 
-/** `deckColumnsOf` at that run — the one measurement these fixtures make. */
-const columnsOf = (state: DeckState): ReturnType<typeof deckColumnsOf> =>
-  deckColumnsOf(state, COLUMN_RUN);
+/** `deckSlotsOf` at that run — the one measurement these fixtures make. */
+const slotsOf = (state: DeckState): ReturnType<typeof deckSlotsOf> =>
+  deckSlotsOf(state, SLOT_RUN);
 
-describe("deckColumnsOf", () => {
+describe("deckSlotsOf", () => {
   /** A three-up deck whose slots hold the panes named, at the widths named. */
   function slottedState(
     slots: Record<string, { slot: number; width: number }>,
@@ -314,48 +314,48 @@ describe("deckColumnsOf", () => {
     };
   }
 
-  test("a free deck has no columns", () => {
+  test("a free deck has no slots", () => {
     // A slot is a place in an arrangement, and a deck with no imposition has
     // none — not even for the panes carrying a stale slot from a previous one.
     const state = slottedState({ "pane-a": { slot: 0, width: 800 } });
-    expect(columnsOf({ ...state, imposition: { sidebars: {} } })).toEqual([]);
+    expect(slotsOf({ ...state, imposition: { sidebars: {} } })).toEqual([]);
   });
 
-  test("one column per OCCUPIED slot, in slot order", () => {
-    const columns = columnsOf(
+  test("one slot per OCCUPIED slot, in slot order", () => {
+    const deckSlots = slotsOf(
       slottedState({
         "pane-c": { slot: 2, width: 800 },
         "pane-a": { slot: 0, width: 800 },
       }),
     );
-    expect(columns.map((c) => c.slot)).toEqual([0, 2]);
+    expect(deckSlots.map((c) => c.slot)).toEqual([0, 2]);
     // Slot 1 is empty, and an empty place has nothing to arrange.
-    expect(columns.every((c) => c.members.length === 1)).toBe(true);
+    expect(deckSlots.every((c) => c.members.length === 1)).toBe(true);
   });
 
-  test("a stacked column has no seams", () => {
+  test("a stacked slot has no seams", () => {
     // A stack has no gaps to place: every member draws the same rect and
     // z-order decides which you see.
-    const columns = columnsOf(
+    const deckSlots = slotsOf(
       slottedState({
         "pane-a": { slot: 0, width: 800 },
         "pane-b": { slot: 0, width: 800 },
       }),
     );
-    expect(columns[0].mode).toBe("stack");
-    expect(columns[0].seams).toEqual([]);
-    expect(columns[0].members.length).toBe(2);
+    expect(deckSlots[0].mode).toBe("stack");
+    expect(deckSlots[0].seams).toEqual([]);
+    expect(deckSlots[0].members.length).toBe(2);
   });
 
-  test("a split column's seam sits where the ladder put its members", () => {
-    const columns = columnsOf(
+  test("a split slot's seam sits where the ladder put its members", () => {
+    const deckSlots = slotsOf(
       slottedState(
         {
           "pane-a": { slot: 0, width: 800 },
           "pane-b": { slot: 0, width: 800 },
         },
         {
-          columns: {
+          slots: {
             0: {
               mode: "split",
               order: ["pane-a", "pane-b"],
@@ -365,72 +365,72 @@ describe("deckColumnsOf", () => {
         },
       ),
     );
-    expect(columns[0].members).toEqual(["pane-a", "pane-b"]);
+    expect(deckSlots[0].members).toEqual(["pane-a", "pane-b"]);
     // A share divides the RUN less its gaps ([P04]): the 1000px run less one
     // gap, of which the upper member takes three quarters — well clear of
     // the 180 floor. The gap's centre is half a gap past its bottom edge, and
     // the fraction the seam property carries is that centre over the run.
     const upper = (1000 - impositionGapPx()) * 0.75;
-    expect(columns[0].seams).toHaveLength(1);
-    expect(columns[0].seams[0]).toBeCloseTo((upper + impositionGapPx() / 2) / 1000, 9);
+    expect(deckSlots[0].seams).toHaveLength(1);
+    expect(deckSlots[0].seams[0]).toBeCloseTo((upper + impositionGapPx() / 2) / 1000, 9);
   });
 
   test("the fallback order is NOT the panes array's order", () => {
     // The panes array is z-order and `activateCard` rewrites it. Taking it
-    // here would make two unarranged members of a split column trade places
+    // here would make two unarranged members of a split slot trade places
     // when the user clicked the lower one. The same state with the array
-    // reversed must read the same column.
+    // reversed must read the same slot.
     const state = slottedState(
       {
         "pane-b": { slot: 0, width: 800 },
         "pane-a": { slot: 0, width: 800 },
       },
-      { columns: { 0: { mode: "split" } } },
+      { slots: { 0: { mode: "split" } } },
     );
     const raised: DeckState = { ...state, panes: [...state.panes].reverse() };
-    expect(columnsOf(state)[0].members).toEqual(
-      columnsOf(raised)[0].members,
+    expect(slotsOf(state)[0].members).toEqual(
+      slotsOf(raised)[0].members,
     );
   });
 
   test("a stored order governs, and residue leaves no hole", () => {
-    const columns = columnsOf(
+    const deckSlots = slotsOf(
       slottedState(
         {
           "pane-a": { slot: 0, width: 800 },
           "pane-b": { slot: 0, width: 800 },
         },
         {
-          columns: {
+          slots: {
             0: { mode: "split", order: ["closed-long-ago", "pane-b", "pane-a"] },
           },
         },
       ),
     );
-    expect(columns[0].members).toEqual(["pane-b", "pane-a"]);
+    expect(deckSlots[0].members).toEqual(["pane-b", "pane-a"]);
     // Two members, one seam — the gone pane contributes no gap.
-    expect(columns[0].seams.length).toBe(1);
+    expect(deckSlots[0].seams.length).toBe(1);
   });
 
-  test("a slot past the kind's last one pulls in, and shares the column there", () => {
-    // `clampSlot` is what places the pane, so the column has to be keyed by
+  test("a slot past the kind's last one pulls in, and shares the slot there", () => {
+    // `clampSlot` is what places the pane, so the slot has to be keyed by
     // the same clamped number or a pulled-in pane would arrange under a slot
     // it does not stand in.
-    const columns = columnsOf(
+    const deckSlots = slotsOf(
       slottedState({
         "pane-a": { slot: 2, width: 800 },
         "pane-b": { slot: 9, width: 800 },
       }),
     );
-    expect(columns.map((c) => c.slot)).toEqual([2]);
-    expect(columns[0].members.length).toBe(2);
+    expect(deckSlots.map((c) => c.slot)).toEqual([2]);
+    expect(deckSlots[0].members.length).toBe(2);
   });
 });
 
 describe("equalizableSlotsOf", () => {
   function deck(
     slots: Record<string, number>,
-    columns: DeckState["imposition"]["columns"],
+    arrangements: DeckState["imposition"]["slots"],
   ): DeckState {
     const ids = Object.keys(slots);
     return {
@@ -442,7 +442,7 @@ describe("equalizableSlotsOf", () => {
       imposition: {
         kind: "three-up",
         sidebars: { dashes: { side: "right" } },
-        columns,
+        slots: arrangements,
       },
       hasFocus: true,
     };
@@ -474,9 +474,9 @@ describe("equalizableSlotsOf", () => {
   });
 });
 
-describe("a split column in flow", () => {
+describe("a split slot in flow", () => {
   test("contributes ONE extent to the strip: its widest member", () => {
-    // [P11]: panes sharing a slot share its place in the strip. A split column
+    // [P11]: panes sharing a slot share its place in the strip. A split slot
     // is still one slot, so it takes the width of the widest frame in it —
     // summing the members would open a gap the deck has nothing to put in.
     const state: DeckState = {
@@ -490,7 +490,7 @@ describe("a split column in flow", () => {
         kind: "three-up",
         layout: "flow",
         sidebars: { dashes: { side: "right" } },
-        columns: { 0: { mode: "split", order: ["pane-a", "pane-b"] } },
+        slots: { 0: { mode: "split", order: ["pane-a", "pane-b"] } },
       },
       hasFocus: true,
     };
@@ -504,7 +504,7 @@ describe("a split column in flow", () => {
     const slot2 = 900 + impositionGapPx() + 400 + impositionGapPx();
     expect(strip?.positions.get(2)).toBe(slot2);
     // The reserved extent is the widest card standing in the chain — 900, the
-    // split column's wider member — not the deck's content preset: a place among
+    // split slot's wider member — not the deck's content preset: a place among
     // cards should look like the cards it is among.
     expect(strip?.extents.get(2)).toBe(900);
     expect(strip?.width).toBe(slot2 + 900);
@@ -537,12 +537,12 @@ describe("a split column in flow", () => {
   });
 });
 
-describe("columnBadgeFactsOf", () => {
+describe("slotBadgeFactsOf", () => {
   /** A three-up deck: `slots` maps pane id → slot, one card per pane, with the
-   *  column arrangement handed in whole. */
+   *  slot arrangement handed in whole. */
   function state(
     slots: Record<string, number>,
-    columns: DeckState["imposition"]["columns"] = undefined,
+    arrangements: DeckState["imposition"]["slots"] = undefined,
   ): DeckState {
     const ids = Object.keys(slots);
     return {
@@ -554,7 +554,7 @@ describe("columnBadgeFactsOf", () => {
       imposition: {
         kind: "three-up",
         sidebars: { dashes: { side: "right" } },
-        ...(columns === undefined ? {} : { columns }),
+        ...(arrangements === undefined ? {} : { slots: arrangements }),
       },
       hasFocus: true,
     };
@@ -565,13 +565,13 @@ describe("columnBadgeFactsOf", () => {
     // unconditional; a rail row that answered null for the same card said the
     // opposite about it.
     expect(
-      columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 1 }), "card-pane-a"),
+      slotBadgeFactsOf(state({ "pane-a": 0, "pane-b": 1 }), "card-pane-a"),
     ).toEqual({ kind: "stack", count: 1, index: 0 });
   });
 
   test("a stacked slot says how many cards share it", () => {
     expect(
-      columnBadgeFactsOf(
+      slotBadgeFactsOf(
         state({ "pane-a": 0, "pane-b": 0, "pane-c": 0 }),
         "card-pane-b",
       ),
@@ -585,7 +585,7 @@ describe("columnBadgeFactsOf", () => {
     // not say the one thing a reader of a list wants: which is in front.
     const deck = state({ "pane-a": 0, "pane-b": 0, "pane-c": 0 });
     expect(
-      ["a", "b", "c"].map((id) => columnBadgeFactsOf(deck, `card-pane-${id}`)?.index),
+      ["a", "b", "c"].map((id) => slotBadgeFactsOf(deck, `card-pane-${id}`)?.index),
     ).toEqual([2, 1, 0]);
   });
 
@@ -599,14 +599,14 @@ describe("columnBadgeFactsOf", () => {
     // other side: a split slot that LOST a member is still split, waiting for
     // one to come back, and says so.
     const deck = state({ "pane-a": 0, "pane-b": 1 }, { 0: { mode: "split" } });
-    expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual({
+    expect(slotBadgeFactsOf(deck, "card-pane-a")).toEqual({
       kind: "split",
       count: 1,
       index: 0,
     });
     // And the slot next to it, set to nothing, is the control: one card deep
     // in a stacked place still reads `1`.
-    expect(columnBadgeFactsOf(deck, "card-pane-b")).toEqual({
+    expect(slotBadgeFactsOf(deck, "card-pane-b")).toEqual({
       kind: "stack",
       count: 1,
       index: 0,
@@ -617,12 +617,12 @@ describe("columnBadgeFactsOf", () => {
     const deck = state({ "pane-a": 0, "pane-b": 0 }, { 0: { mode: "split" } });
     // The fallback member order is the panes sorted by id, so pane-a is the
     // topmost band and pane-b the one below it.
-    expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual({
+    expect(slotBadgeFactsOf(deck, "card-pane-a")).toEqual({
       kind: "split",
       count: 2,
       index: 0,
     });
-    expect(columnBadgeFactsOf(deck, "card-pane-b")).toEqual({
+    expect(slotBadgeFactsOf(deck, "card-pane-b")).toEqual({
       kind: "split",
       count: 2,
       index: 1,
@@ -634,15 +634,15 @@ describe("columnBadgeFactsOf", () => {
       { "pane-a": 0, "pane-b": 0, "pane-c": 0 },
       { 0: { mode: "split", order: ["pane-c", "pane-a", "pane-b"] } },
     );
-    expect(columnBadgeFactsOf(deck, "card-pane-c")?.index).toBe(0);
-    expect(columnBadgeFactsOf(deck, "card-pane-a")?.index).toBe(1);
-    expect(columnBadgeFactsOf(deck, "card-pane-b")?.index).toBe(2);
+    expect(slotBadgeFactsOf(deck, "card-pane-c")?.index).toBe(0);
+    expect(slotBadgeFactsOf(deck, "card-pane-a")?.index).toBe(1);
+    expect(slotBadgeFactsOf(deck, "card-pane-b")?.index).toBe(2);
   });
 
   test("no imposition, no place", () => {
     const deck = state({ "pane-a": 0, "pane-b": 0 });
     expect(
-      columnBadgeFactsOf(
+      slotBadgeFactsOf(
         { ...deck, imposition: { sidebars: {} } },
         "card-pane-a",
       ),
@@ -651,7 +651,7 @@ describe("columnBadgeFactsOf", () => {
 
   test("a card with no host pane answers nothing", () => {
     expect(
-      columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 0 }), "card-nowhere"),
+      slotBadgeFactsOf(state({ "pane-a": 0, "pane-b": 0 }), "card-nowhere"),
     ).toBeNull();
   });
 });
@@ -703,11 +703,11 @@ describe("placeMembers reads the folded flag", () => {
     };
   }
 
-  test("a folded column member is a share of zero, pinned at its tier", () => {
+  test("a folded slot member is a share of zero, pinned at its tier", () => {
     registerFoldable();
     const members = placeMembers(
       wallState(true),
-      "column",
+      "slot",
       ["pane-a", "pane-b"],
       { "pane-a": 3, "pane-b": 1 },
     );
@@ -721,7 +721,7 @@ describe("placeMembers reads the folded flag", () => {
     registerFoldable();
     const members = placeMembers(
       wallState(true),
-      "column",
+      "slot",
       ["pane-a", "pane-b"],
       { "pane-a": 3, "pane-b": 1 },
     );
@@ -737,7 +737,7 @@ describe("placeMembers reads the folded flag", () => {
     registerFoldable();
     const members = placeMembers(
       wallState(false),
-      "column",
+      "slot",
       ["pane-a", "pane-b"],
       { "pane-a": 3, "pane-b": 1 },
     );
@@ -791,19 +791,19 @@ describe("placeMembers reads a reservation as the member's want", () => {
     };
   }
 
-  function columnMembers(
+  function slotMembers(
     state: DeckState,
     shares?: Record<string, number>,
   ): PlaceMember[] {
-    return placeMembers(state, "column", ["pane-a", "pane-b"], shares);
+    return placeMembers(state, "slot", ["pane-a", "pane-b"], shares);
   }
 
   test("a reserving member wants the reservation, over its stack policy's floor", () => {
     // The claim is a SOFT floor ([B07], [B08]): the height the card asks for
     // when the run has room. Its hard floor stays its stack policy's, so a
-    // column too short to pay the claim gives it less rather than overflowing.
+    // slot too short to pay the claim gives it less rather than overflowing.
     registerPlain();
-    const members = columnMembers(splitState({ "pane-b": RESERVED }));
+    const members = slotMembers(splitState({ "pane-b": RESERVED }));
     expect(members[1].want).toBe(RESERVED);
     expect(members[1].floor).toBe(FLOOR);
     // Only the member that claimed. Its neighbour is untouched.
@@ -813,7 +813,7 @@ describe("placeMembers reads a reservation as the member's want", () => {
 
   test("a claim under the floor asks for nothing the floor does not hold", () => {
     registerPlain();
-    const members = columnMembers(splitState({ "pane-b": FLOOR - 50 }));
+    const members = slotMembers(splitState({ "pane-b": FLOOR - 50 }));
     expect(members[1].floor).toBe(FLOOR);
     expect(members[1].want).toBeUndefined();
   });
@@ -836,7 +836,7 @@ describe("placeMembers reads a reservation as the member's want", () => {
         preferred: { width: 600, height: 173 },
       },
     });
-    const members = columnMembers(splitState({ "pane-a": RESERVED }, true));
+    const members = slotMembers(splitState({ "pane-a": RESERVED }, true));
     expect(members[0].floor).toBe(173);
     expect(members[0].ceiling).toBe(173);
   });
@@ -929,18 +929,18 @@ describe("placeMembers reads an unbound card's declared height as one more floor
     };
   }
 
-  const columnMembers = (state: DeckState): PlaceMember[] =>
-    placeMembers(state, "column", ["pane-a", "pane-b"], {
+  const slotMembers = (state: DeckState): PlaceMember[] =>
+    placeMembers(state, "slot", ["pane-a", "pane-b"], {
       "pane-a": 3,
       "pane-b": 1,
     });
 
   test("the declared height is the member's want, with NO ceiling and its weight kept", () => {
     registerPinnable();
-    const members = columnMembers(splitState({ "pane-a": DECLARED }));
+    const members = slotMembers(splitState({ "pane-a": DECLARED }));
     expect(members[0].want).toBe(DECLARED);
     expect(members[0].floor).toBe(FLOOR);
-    // The whole of what changed: no ceiling, so a column with room to spare
+    // The whole of what changed: no ceiling, so a slot with room to spare
     // can give it to this member instead of leaving a band beneath.
     expect(members[0].ceiling).toBeUndefined();
     // And the weight the stored shares say, rather than the zero a band takes.
@@ -958,7 +958,7 @@ describe("placeMembers reads an unbound card's declared height as one more floor
     // case all along — read as a ceiling it made the card SMALLER than its own
     // floor, which is the one thing no member's height may do.
     registerPinnable();
-    const members = columnMembers(
+    const members = slotMembers(
       splitState({ "pane-a": DECLARED_UNDER_FLOOR }),
     );
     expect(DECLARED_UNDER_FLOOR).toBeLessThan(FLOOR);
@@ -971,12 +971,12 @@ describe("placeMembers reads an unbound card's declared height as one more floor
     // [B01] in one assertion: both contributors go into the same `max`, so
     // neither is read ahead of the other.
     registerPinnable();
-    const under = columnMembers({
+    const under = slotMembers({
       ...splitState({ "pane-a": DECLARED }),
       sheetReservations: { "pane-a": DECLARED - 50 },
     });
     expect(under[0].want).toBe(DECLARED);
-    const over = columnMembers({
+    const over = slotMembers({
       ...splitState({ "pane-a": DECLARED }),
       sheetReservations: { "pane-a": DECLARED + 50 },
     });
@@ -989,7 +989,7 @@ describe("placeMembers reads an unbound card's declared height as one more floor
     // declaration was written for, so its tier wins and the branch order says
     // so. This is the ONE member that still reads floor = ceiling ([P05]).
     registerPinnable();
-    const members = columnMembers(
+    const members = slotMembers(
       splitState({ "pane-a": DECLARED }, { folded: true }),
     );
     expect(members[0].floor).toBe(TIER);
@@ -1001,7 +1001,7 @@ describe("placeMembers reads an unbound card's declared height as one more floor
     // The guard: the height is declared for a card standing alone, and a pane
     // that has gained a second card is a box that has to fit them both.
     registerPinnable();
-    const members = columnMembers(
+    const members = slotMembers(
       splitState({ "pane-a": DECLARED }, { twoCardsInA: true }),
     );
     expect(members[0].floor).toBe(FLOOR);
@@ -1010,7 +1010,7 @@ describe("placeMembers reads an unbound card's declared height as one more floor
   });
 
   test("a RAIL member ignores a declaration standing under its name", () => {
-    // Column-only, like the folded branch above it: the declaration is written
+    // Slot-only, like the folded branch above it: the declaration is written
     // by `addCard`, which opens panes into slots rather than onto rails.
     _resetForTest();
     registerCard({
@@ -1036,7 +1036,7 @@ describe("placeMembers reads an unbound card's declared height as one more floor
 
   test("no declaration at all is the term not contributed", () => {
     registerPinnable();
-    const members = columnMembers(splitState(undefined));
+    const members = slotMembers(splitState(undefined));
     expect(members[0].floor).toBe(FLOOR);
     expect(members[0].ceiling).toBeUndefined();
     expect(members[0].weight).toBe(3);
@@ -1089,7 +1089,7 @@ describe("a reserving member's place divides around the claim", () => {
     shares?: Record<string, number>,
   ): readonly number[] {
     return allocatePlaceHeights(
-      placeMembers(state, "column", ["pane-a", "pane-b"], shares),
+      placeMembers(state, "slot", ["pane-a", "pane-b"], shares),
       RUN,
       SEAM,
     ).heights;
@@ -1127,14 +1127,14 @@ describe("a reserving member's place divides around the claim", () => {
     // A claim is a want, not a floor ([B07], [B08]): the run pays every hard
     // floor and the seam first, and the claims share what is left in
     // proportion to what each is short. This reverses the earlier reading, in
-    // which a claim reached the strip by the floor door: a column too short
+    // which a claim reached the strip by the floor door: a slot too short
     // for the picker it holds overflowed with the card's bottom off the
     // canvas, where the picker can lay itself out for less.
     registerPlain();
     const allocation = allocatePlaceHeights(
       placeMembers(
         splitState({ "pane-a": 700, "pane-b": 700 }),
-        "column",
+        "slot",
         ["pane-a", "pane-b"],
         { "pane-a": 1, "pane-b": 1 },
       ),
@@ -1150,13 +1150,13 @@ describe("a reserving member's place divides around the claim", () => {
 
   test("one claim the run cannot pay stands at everything the neighbour's floor leaves", () => {
     // The short split row: the neighbour holds its hard floor, and the
-    // claimant takes the rest of the run rather than pushing the column into
+    // claimant takes the rest of the run rather than pushing the slot into
     // a strip.
     registerPlain();
     const allocation = allocatePlaceHeights(
       placeMembers(
         splitState({ "pane-b": RUN }),
-        "column",
+        "slot",
         ["pane-a", "pane-b"],
         { "pane-a": 3, "pane-b": 1 },
       ),
@@ -1173,7 +1173,7 @@ describe("a reserving member's place divides around the claim", () => {
     const allocation = allocatePlaceHeights(
       placeMembers(
         splitState({ "pane-b": RESERVED }),
-        "column",
+        "slot",
         ["pane-a", "pane-b"],
         { "pane-a": 1, "pane-b": 1 },
       ),
@@ -1326,11 +1326,11 @@ describe("placeMembers floors an unbound member at its own sheet's height", () =
   }
 
   test("a 524 reservation is the want while the card is unbound, over no floor at all", () => {
-    // The defect this arc is about: the picker measured 524 and the column
-    // floored it at 600, so the panel carried 76 px of dead air and the column
+    // The defect this arc is about: the picker measured 524 and the slot
+    // floored it at 600, so the panel carried 76 px of dead air and the slot
     // overflowed further than it needed to ([F03]).
     registerOpener();
-    const members = placeMembers(state(), "column", ["pane-a"], undefined);
+    const members = placeMembers(state(), "slot", ["pane-a"], undefined);
     expect(members[0].want).toBe(RESERVED);
     expect(members[0].floor).toBe(0);
   });
@@ -1341,7 +1341,7 @@ describe("placeMembers floors an unbound member at its own sheet's height", () =
     registerOpener();
     const members = placeMembers(
       state({ reserved: false }),
-      "column",
+      "slot",
       ["pane-a"],
       undefined,
     );
@@ -1354,7 +1354,7 @@ describe("placeMembers floors an unbound member at its own sheet's height", () =
     registerOpener();
     const members = placeMembers(
       state({ bid: 560 }),
-      "column",
+      "slot",
       ["pane-a"],
       undefined,
     );
@@ -1363,7 +1363,7 @@ describe("placeMembers floors an unbound member at its own sheet's height", () =
 
   test("the member keeps its weight — an unbound floor is not a band", () => {
     registerOpener();
-    const members = placeMembers(state(), "column", ["pane-a"], {
+    const members = placeMembers(state(), "slot", ["pane-a"], {
       "pane-a": 0.4,
     });
     expect(members[0].weight).toBe(0.4);

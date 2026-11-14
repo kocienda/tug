@@ -59,15 +59,15 @@ describe("resolveGesture", () => {
     });
   });
 
-  test("split sets the slot's column mode, split by default", () => {
+  test("split sets the slot's mode, split by default", () => {
     expect(resolveGesture("split", { slot: 0 })).toEqual({
       kind: "action",
-      action: "set-column-mode",
+      action: "set-slot-mode",
       payload: { slot: 0, mode: "split" },
     });
     expect(resolveGesture("split", { slot: 2, mode: "stack" })).toEqual({
       kind: "action",
-      action: "set-column-mode",
+      action: "set-slot-mode",
       payload: { slot: 2, mode: "stack" },
     });
   });

@@ -19,7 +19,7 @@
  * the fold's spring lands from about three pixels out, with the mark still
  * standing until it does, so a frame caught while marked always still has a
  * height term and is adopted. The path that reaches the gap is a column mode
- * flip: stacking a split column mid-fold commits the folding member behind its
+ * flip: stacking a split slot mid-fold commits the folding member behind its
  * survivor, and a covered member carries no tween and no crossing of its own.
  *
  * The probe splits a column, folds (and then unfolds) its first member, and on
@@ -38,7 +38,7 @@
  * with nothing behind them to end it later.
  *
  * Cut from `at0689-retarget-ends-crossings` to fit the 20 s budget. This file
- * carries a fold interrupted by stacking its column;
+ * carries a fold interrupted by stacking its slot;
  * `at0689-retarget-ends-crossings-stack-unfold` carries the unfold,
  * `-sweep` the window sweep and `-unmount` the teardown. The deck, the
  * interrupted fold and the crossing check are `retarget-crossings-fixture.ts`.
@@ -61,7 +61,7 @@ const TEST_NAME = "at0689-retarget-ends-crossings-stack-fold";
 
 describe.skipIf(!SHOULD_RUN)("at0689 — every exit ends the crossings a settle holds open: a stacked fold", () => {
   test(
-    "a fold interrupted by stacking its column leaves no crossing standing",
+    "a fold interrupted by stacking its slot leaves no crossing standing",
     async () => {
       const { app, tugbankPath, open, folded } = await standUp(TEST_NAME);
       try {

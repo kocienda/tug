@@ -10,18 +10,18 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  columnOffsetSignal,
+  slotOffsetSignal,
   gaugeSubscriberCount,
   gaugeListenerCount,
-  publishColumnOffset,
+  publishSlotOffset,
   publishFlowOffset,
   registerGaugeListener,
 } from "../imposer-gauges";
 
 /** Each test takes its own signal, since the channel is module state. */
 let nextSlot = 900;
-function freshSignal(): ReturnType<typeof columnOffsetSignal> {
-  return columnOffsetSignal(nextSlot++);
+function freshSignal(): ReturnType<typeof slotOffsetSignal> {
+  return slotOffsetSignal(nextSlot++);
 }
 
 function heard(): {
@@ -35,27 +35,27 @@ function heard(): {
 describe("registerGaugeListener", () => {
   test("a listener registered before a publish receives it", () => {
     const signal = freshSignal();
-    const slot = Number(signal.slice("column-offset:".length));
+    const slot = Number(signal.slice("slot-offset:".length));
     const log = heard();
     const off = registerGaugeListener(signal, log.fn);
 
-    publishColumnOffset(slot, 0.25);
+    publishSlotOffset(slot, 0.25);
 
     expect(log.calls).toHaveLength(1);
-    expect(log.calls[0]?.get(`--gauge-column-offset-${slot}`)).toBe("0.2500");
+    expect(log.calls[0]?.get(`--gauge-slot-offset-${slot}`)).toBe("0.2500");
     off();
   });
 
   test("a listener registered mid-gesture is primed with the standing value", () => {
     const signal = freshSignal();
-    const slot = Number(signal.slice("column-offset:".length));
-    publishColumnOffset(slot, 0.5);
+    const slot = Number(signal.slice("slot-offset:".length));
+    publishSlotOffset(slot, 0.5);
 
     const log = heard();
     const off = registerGaugeListener(signal, log.fn);
 
     expect(log.calls).toHaveLength(1);
-    expect(log.calls[0]?.get(`--gauge-column-offset-${slot}`)).toBe("0.5000");
+    expect(log.calls[0]?.get(`--gauge-slot-offset-${slot}`)).toBe("0.5000");
     off();
   });
 
@@ -70,12 +70,12 @@ describe("registerGaugeListener", () => {
 
   test("a null publish reaches listeners", () => {
     const signal = freshSignal();
-    const slot = Number(signal.slice("column-offset:".length));
+    const slot = Number(signal.slice("slot-offset:".length));
     const log = heard();
     const off = registerGaugeListener(signal, log.fn);
 
-    publishColumnOffset(slot, 0.1);
-    publishColumnOffset(slot, null);
+    publishSlotOffset(slot, 0.1);
+    publishSlotOffset(slot, null);
 
     expect(log.calls).toHaveLength(2);
     expect(log.calls[1]).toBeNull();
@@ -84,29 +84,29 @@ describe("registerGaugeListener", () => {
 
   test("teardown stops delivery and empties the count", () => {
     const signal = freshSignal();
-    const slot = Number(signal.slice("column-offset:".length));
+    const slot = Number(signal.slice("slot-offset:".length));
     const log = heard();
     const off = registerGaugeListener(signal, log.fn);
 
-    publishColumnOffset(slot, 0.1);
+    publishSlotOffset(slot, 0.1);
     expect(gaugeListenerCount(signal)).toBe(1);
 
     off();
     expect(gaugeListenerCount(signal)).toBe(0);
 
-    publishColumnOffset(slot, 0.2);
+    publishSlotOffset(slot, 0.2);
     expect(log.calls).toHaveLength(1);
   });
 
   test("two listeners on one signal both hear it", () => {
     const signal = freshSignal();
-    const slot = Number(signal.slice("column-offset:".length));
+    const slot = Number(signal.slice("slot-offset:".length));
     const one = heard();
     const two = heard();
     const offOne = registerGaugeListener(signal, one.fn);
     const offTwo = registerGaugeListener(signal, two.fn);
 
-    publishColumnOffset(slot, 0.75);
+    publishSlotOffset(slot, 0.75);
 
     expect(one.calls).toHaveLength(1);
     expect(two.calls).toHaveLength(1);

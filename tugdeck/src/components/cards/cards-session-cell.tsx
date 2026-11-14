@@ -42,7 +42,7 @@ import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { SlotPicker } from "./slot-picker";
-import { CardsColumnBadge } from "./cards-column-badge";
+import { CardsSlotBadge } from "./cards-slot-badge";
 import { groupRunKey } from "./cards-groups";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
@@ -162,7 +162,7 @@ export function CardsSessionRow({
         slots={
           <>
             <SlotPicker cardId={cardId} />
-            <CardsColumnBadge cardId={cardId} />
+            <CardsSlotBadge cardId={cardId} />
           </>
         }
         // The row is its own reorder handle — a vertical drag from anywhere on
@@ -248,7 +248,7 @@ export function CardsUnconnectedSessionRow({
       slots={
         <>
           <SlotPicker cardId={cardId} />
-          <CardsColumnBadge cardId={cardId} />
+          <CardsSlotBadge cardId={cardId} />
         </>
       }
       onPointerDown={(e) => onRowPointerDown(orderKey, e)}

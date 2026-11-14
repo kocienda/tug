@@ -124,7 +124,7 @@ const SETTLE_TAIL_MS = 900;
 const PANE_WIDTH = 1000;
 /**
  * The window content height asked for. A session card's floor is 600px, so
- * two of them standing split need a column run past 1200px before the seam
+ * two of them standing split need a slot run past 1200px before the seam
  * between them can move at all, and the harness's default 80%-of-screen
  * window is about 1050px tall on a 1800px-tall display. The ask is clamped to
  * the screen; what the window actually took is noted, and the fixture is
@@ -144,7 +144,7 @@ const WINDOW_HEIGHT = 1700;
  * that shrank with the zoom would be read against a cheaper drag. On a tall
  * enough display the zoom stays 1.0 and nothing here changes.
  */
-const COLUMN_CSS_HEIGHT = 1400;
+const SLOT_CSS_HEIGHT = 1400;
 
 /** The two session cards, upper then lower, standing split in slot 0 — the
  *  members the seam divides, and the ones every reading is about. */
@@ -195,7 +195,7 @@ const KNOWN_RATES_HZ = [120, 90, 60, 50, 30] as const;
 const ROOT = '[data-slot="session-card"]';
 const LIST = '[data-slot="tug-list-view"]';
 
-const SEAM = `[data-column-seam="0:0"]`;
+const SEAM = `[data-slot-seam="0:0"]`;
 
 const sid = (card: SessionId): string => `at0626-session-${card}`;
 const pane = (card: SessionId): string =>
@@ -247,7 +247,7 @@ function deckShape(paneWidth: number) {
     activePaneId: PANE_OF.S1,
     imposition: {
       kind: "three-up",
-      columns: { 0: { mode: "split" } },
+      slots: { 0: { mode: "split" } },
       sidebars: {
         cards: { side: "right" },
         jots: { side: "right" },
@@ -317,13 +317,13 @@ async function settled(app: App): Promise<void> {
 }
 
 /** Stand the column up, bind the sessions, load them, and let it all land. */
-async function openColumn(app: App): Promise<void> {
+async function openSlot(app: App): Promise<void> {
   await app.enableDeckTrace(true);
   const took = await app.setWindowContentSize({ height: WINDOW_HEIGHT });
   const zoom =
-    took.height >= COLUMN_CSS_HEIGHT
+    took.height >= SLOT_CSS_HEIGHT
       ? 1
-      : await app.setPageZoom(Math.floor((took.height / COLUMN_CSS_HEIGHT) * 100) / 100);
+      : await app.setPageZoom(Math.floor((took.height / SLOT_CSS_HEIGHT) * 100) / 100);
   const paneWidth = Math.round(PANE_WIDTH / zoom);
   note(
     "at0626 window",
@@ -366,7 +366,7 @@ async function openColumn(app: App): Promise<void> {
  * is a `transform: scale(f)` on its root, so a rect here is viewport px and
  * is divided back by the root's scale, read off the root itself.
  */
-async function columnRoom(app: App): Promise<{ heights: number[]; slack: number }> {
+async function slotRoom(app: App): Promise<{ heights: number[]; slack: number }> {
   const heights = await app.evalJS<number[]>(
     `(function () {
       var root = document.getElementById("deck-container");
@@ -748,9 +748,9 @@ describe.skipIf(!SHOULD_RUN)(
           env: { TUG_JOTS_PATH: jotsPath },
         });
         try {
-          await openColumn(app);
+          await openSlot(app);
 
-          const room = await columnRoom(app);
+          const room = await slotRoom(app);
           note(
             "at0626 column",
             `members stand at ${room.heights.map(fmt).join(" / ")}px; ` +

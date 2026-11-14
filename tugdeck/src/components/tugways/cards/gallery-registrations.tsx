@@ -120,7 +120,7 @@ import { GalleryTugActionTooltip } from "./gallery-tug-action-tooltip";
 import { GalleryTugAlertSheet } from "./gallery-tug-alert-sheet";
 import { GalleryTugAtomRef } from "./gallery-tug-atom-ref";
 import { GalleryTugCodeView } from "./gallery-tug-code-view";
-import { GalleryTugColumnBadge } from "./gallery-tug-column-badge";
+import { GalleryTugSlotBadge } from "./gallery-tug-slot-badge";
 import { GalleryTugEditorContextMenu } from "./gallery-tug-editor-context-menu";
 import { GalleryTugEntryShell } from "./gallery-tug-entry-shell";
 import { GalleryTugFindBar } from "./gallery-tug-find-bar";
@@ -1484,7 +1484,7 @@ export function registerGalleryCards(): void {
     { componentId: "gallery-tug-alert-sheet", title: "TugAlertSheet", icon: "TriangleAlert", category: CATEGORIES.overlays, render: () => <GalleryTugAlertSheet /> },
     { componentId: "gallery-tug-atom-ref", title: "TugAtomRef", icon: "AtSign", category: CATEGORIES.dataViews, render: () => <GalleryTugAtomRef /> },
     { componentId: "gallery-tug-code-view", title: "TugCodeView", icon: "Code", category: CATEGORIES.textInput, complex: true, render: () => <GalleryTugCodeView /> },
-    { componentId: "gallery-tug-column-badge", title: "TugColumnBadge", icon: "Columns2", category: CATEGORIES.layout, render: () => <GalleryTugColumnBadge /> },
+    { componentId: "gallery-tug-slot-badge", title: "TugSlotBadge", icon: "Columns2", category: CATEGORIES.layout, render: () => <GalleryTugSlotBadge /> },
     { componentId: "gallery-tug-editor-context-menu", title: "TugEditorContextMenu", icon: "MousePointer2", category: CATEGORIES.overlays, render: () => <GalleryTugEditorContextMenu /> },
     { componentId: "gallery-tug-entry-shell", title: "TugEntryShell", icon: "PanelBottom", category: CATEGORIES.textInput, render: () => <GalleryTugEntryShell /> },
     { componentId: "gallery-tug-find-bar", title: "TugFindBar", icon: "Search", category: CATEGORIES.textInput, complex: true, render: () => <GalleryTugFindBar /> },

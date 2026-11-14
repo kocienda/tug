@@ -140,7 +140,7 @@ export function useOverviewWindow<P extends { key: string }>(
   // The whole column the previous unheld commit rendered — its first and
   // last post, spacers included — and the spacer heights it rendered, for a
   // commit under a closed motion gate to render again verbatim.
-  const prevColumnSpanRef = useRef<PostKeyRange | null>(null);
+  const prevSlotSpanRef = useRef<PostKeyRange | null>(null);
   const prevSpacersRef = useRef<OverviewSpacers | null>(null);
   // The posts holding the selection's endpoints and keyboard focus ([L23]):
   // the window clamps outward to keep them mounted.
@@ -338,7 +338,7 @@ export function useOverviewWindow<P extends { key: string }>(
     motionHeld: gestureScope.isMotionHeld(),
     prevWindow: prevWindowRef.current,
     prevSegment: prevSegmentRef.current,
-    prevSpan: prevColumnSpanRef.current,
+    prevSpan: prevSlotSpanRef.current,
     prevSpacers: prevSpacersRef.current,
     pinnedRange: pinnedRangeFor(
       postKeys,
@@ -395,7 +395,7 @@ export function useOverviewWindow<P extends { key: string }>(
     if (resolved === null) {
       prevWindowRef.current = null;
       prevSegmentRef.current = null;
-      prevColumnSpanRef.current = null;
+      prevSlotSpanRef.current = null;
       prevSpacersRef.current = null;
       return;
     }
@@ -404,14 +404,14 @@ export function useOverviewWindow<P extends { key: string }>(
       return;
     }
     // The first post the last unheld commit had, for the prepend read below.
-    const prevFirstKey = prevColumnSpanRef.current?.firstKey ?? null;
+    const prevFirstKey = prevSlotSpanRef.current?.firstKey ?? null;
     const keyRange = (run: RowRun | null): PostKeyRange | null =>
       run === null || run.lastIndex <= run.firstIndex
         ? null
         : { firstKey: postKeys[run.firstIndex]!, lastKey: postKeys[run.lastIndex - 1]! };
     prevWindowRef.current = keyRange(resolved.window);
     prevSegmentRef.current = keyRange(resolved.segment);
-    prevColumnSpanRef.current = keyRange({ firstIndex: 0, lastIndex: postKeys.length });
+    prevSlotSpanRef.current = keyRange({ firstIndex: 0, lastIndex: postKeys.length });
     prevSpacersRef.current = spacers;
     // Older posts prepended with heights still to measure: the drain above
     // would walk the reader's line down, so hold it. The card's own prepend

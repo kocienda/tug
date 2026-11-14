@@ -1,15 +1,15 @@
 /**
- * layout-selection.test.ts — the menu's `column` fact ([P05], Spec S02).
+ * layout-selection.test.ts — the menu's `slot` fact ([P05], Spec S02).
  *
  * The fact exists so a Window-menu item is live exactly when its chord would
  * act, which makes the interesting cases the ones where the two could part: a
  * layout selection standing somewhere other than the fronted card, a cursor in
  * the Cards list with the Cards card itself holding the keyboard, and the ends of a
- * column where the verb refuses.
+ * slot where the verb refuses.
  *
  * The deck is a `DeckState` fixture read through the same two queries
  * `DeckManager` answers — `getSnapshot` and the active pane's active card —
- * because the ladder and the column math are the code under test, not the
+ * because the ladder and the slot math are the code under test, not the
  * store's mutation paths. The selection store and the cursor are the real
  * module singletons.
  */
@@ -21,7 +21,7 @@ import {
   setLayoutCursorCard,
 } from "@/lib/cards-selection-store";
 import { CARDS_CARD_ID } from "../cards-card-id";
-import { resolveColumnMenuFact } from "../layout-selection";
+import { resolveSlotMenuFact } from "../layout-selection";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 
@@ -48,7 +48,7 @@ function makePane(
 
 /**
  * A three-up deck: two panes stacked in slot 0, one alone in slot 1, and the
- * Cards card on its rail. `columns` overrides the arrangement of slot 0.
+ * Cards card on its rail. `slots` overrides the arrangement of slot 0.
  */
 function threeUp(overrides: Partial<DeckState> = {}): DeckState {
   return {
@@ -87,7 +87,7 @@ afterEach(() => {
   setLayoutCursorCard(null);
 });
 
-describe("resolveColumnMenuFact", () => {
+describe("resolveSlotMenuFact", () => {
   test("a layout selection outranks the fronted card", () => {
     // The fronted card stands alone in slot 1, which is stacked; the selection
     // stands in slot 0, which is split. The menu has to follow the selection,
@@ -99,13 +99,13 @@ describe("resolveColumnMenuFact", () => {
         imposition: {
           kind: "three-up",
           sidebars: { cards: { side: "right" } },
-          columns: { 0: { mode: "split" } },
+          slots: { 0: { mode: "split" } },
         },
       }),
     );
-    expect(resolveColumnMenuFact(deck)?.mode).toBe("stack");
+    expect(resolveSlotMenuFact(deck)?.mode).toBe("stack");
     cardsSelectionStore.pickOnly("card-a");
-    expect(resolveColumnMenuFact(deck)?.mode).toBe("split");
+    expect(resolveSlotMenuFact(deck)?.mode).toBe("split");
   });
 
   test("the Cards list's cursor answers when the Cards card holds the keyboard", () => {
@@ -113,29 +113,29 @@ describe("resolveColumnMenuFact", () => {
     // without the cursor rung the fact would be null and the five items dark
     // while the user arrows through the very list they mean to act on.
     const deck = storeOver(threeUp({ activePaneId: "pane-cards" }));
-    expect(resolveColumnMenuFact(deck)).toBeNull();
+    expect(resolveSlotMenuFact(deck)).toBeNull();
     setLayoutCursorCard("card-a");
-    expect(resolveColumnMenuFact(deck)?.mode).toBe("stack");
+    expect(resolveSlotMenuFact(deck)?.mode).toBe("stack");
   });
 
   test("no content card resolves to null, not to a false-filled fact", () => {
     // Null and all-false are different sentences: null is "there is nothing
     // to act on", which is what a deselected deck holds.
-    expect(resolveColumnMenuFact(storeOver(threeUp()))).toBeNull();
+    expect(resolveSlotMenuFact(storeOver(threeUp()))).toBeNull();
   });
 
-  test("a free deck has no column, whatever is selected", () => {
+  test("a free deck has no slot, whatever is selected", () => {
     const state = threeUp({ activePaneId: "pane-a" });
     const free = storeOver({ ...state, imposition: { sidebars: {} } });
-    expect(resolveColumnMenuFact(free)).toBeNull();
+    expect(resolveSlotMenuFact(free)).toBeNull();
   });
 
-  test("a column of one has nowhere to travel, but still names its mode", () => {
+  test("a slot of one has nowhere to travel, but still names its mode", () => {
     // `mode` is a fact about the place, not about how many cards fill it: a
     // slot one card deep is stacked until someone splits it, and splitting it
     // is a legal act the menu must be willing to name.
     const deck = storeOver(threeUp({ activePaneId: "pane-c" }));
-    expect(resolveColumnMenuFact(deck)).toEqual({
+    expect(resolveSlotMenuFact(deck)).toEqual({
       mode: "stack",
       canMoveUp: false,
       canMoveDown: false,
@@ -143,17 +143,17 @@ describe("resolveColumnMenuFact", () => {
     });
   });
 
-  test("a split column refuses at its ends, in member order", () => {
+  test("a split slot refuses at its ends, in member order", () => {
     const state = threeUp({
       activePaneId: "pane-a",
       imposition: {
         kind: "three-up",
         sidebars: { cards: { side: "right" } },
-        columns: { 0: { mode: "split", order: ["pane-b", "pane-a"] } },
+        slots: { 0: { mode: "split", order: ["pane-b", "pane-a"] } },
       },
     });
     // `pane-a` is the bottom member: it can rise, and it has nowhere to fall.
-    expect(resolveColumnMenuFact(storeOver(state))).toEqual({
+    expect(resolveSlotMenuFact(storeOver(state))).toEqual({
       mode: "split",
       canMoveUp: true,
       canMoveDown: false,
@@ -161,7 +161,7 @@ describe("resolveColumnMenuFact", () => {
       canEqualize: true,
     });
     cardsSelectionStore.pickOnly("card-b");
-    expect(resolveColumnMenuFact(storeOver(state))).toEqual({
+    expect(resolveSlotMenuFact(storeOver(state))).toEqual({
       mode: "split",
       canMoveUp: false,
       canMoveDown: true,
@@ -169,12 +169,12 @@ describe("resolveColumnMenuFact", () => {
     });
   });
 
-  test("a stacked column travels in z, front-first", () => {
+  test("a stacked slot travels in z, front-first", () => {
     // Stacked, nothing is above anything, so "up" is toward the front and the
     // order is the panes array reversed. `pane-b` is last in that array —
     // frontmost — so it cannot rise.
     const deck = storeOver(threeUp({ activePaneId: "pane-b" }));
-    expect(resolveColumnMenuFact(deck)).toEqual({
+    expect(resolveSlotMenuFact(deck)).toEqual({
       mode: "stack",
       canMoveUp: false,
       canMoveDown: true,

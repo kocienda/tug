@@ -81,7 +81,7 @@ function slotRect(slot: number): Rect {
   return { x: SLOT_X[slot], y: RUN_TOP, width: SLOT_WIDTH, height: RUN_HEIGHT };
 }
 
-/** Members of a split column, stacked down the slot's run at the given
+/** Members of a split slot, stacked down the slot's run at the given
  *  heights — the geometry the imposer would have produced. A rail's members
  *  stack at the rail's own seam instead, so a rail fixture passes
  *  `RAIL_SEAM_PX`. */
@@ -170,7 +170,7 @@ function measured(overrides: Partial<DropZoneMeasurements> = {}): DropZoneMeasur
     // The deck's own run measurement, which the engine reads instead of
     // summing frames. The fixtures' places are tiled to fill RUN_HEIGHT
     // unless a test says otherwise.
-    runs: { column: RUN_HEIGHT, rail: RUN_HEIGHT },
+    runs: { slot: RUN_HEIGHT, rail: RUN_HEIGHT },
     // Only read when the dragged card is the sole member of its place; a
     // test that exercises that case supplies the real rect.
     draggedAtStart: { x: 0, y: 0, width: 0, height: 0 },
@@ -210,8 +210,8 @@ describe("a card only ever sees the places its own kind can stand in", () => {
     );
     expect(keys(zones)).toEqual([
       "slot:0",
-      "column:1:0",
-      "column:1:1",
+      "slot:1:0",
+      "slot:1:1",
       "slot:2",
     ]);
     expect(origin).not.toBeNull();
@@ -381,7 +381,7 @@ describe("a card only ever sees the places its own kind can stand in", () => {
     ]);
     expect(dropZoneKey(set.origin!)).toBe("rail:right:0");
     // A third member on the left rail puts its floors past the run, so the
-    // left tiles are the overflowing strip down the LEFT rail's own column.
+    // left tiles are the overflowing strip down the LEFT rail's own slot.
     const arrivals = set.zones.filter((zone) => zone.kind === "rail-index" && zone.side === "left");
     for (const zone of arrivals) {
       expect(zone.rect.x).toBeCloseTo(SLOT_X[0], 6);
@@ -434,10 +434,10 @@ describe("a card only ever sees the places its own kind can stand in", () => {
 
 // ---- Own-column positions ----
 
-describe("a split column advertises one position per place a member can stand", () => {
-  const split = { kind: "three-up" as const, columns: { 0: { mode: "split" as const } } };
+describe("a split slot advertises one position per place a member can stand", () => {
+  const split = { kind: "three-up" as const, slots: { 0: { mode: "split" as const } } };
 
-  it("a two-member column offers both positions and starts on the card's own", () => {
+  it("a two-member slot offers both positions and starts on the card's own", () => {
     const state = deck([pane("p1", 0), pane("p2", 0)], split);
     const half = IMPOSITION_GAP_PX / 2;
     const rects = splitRects(0, [RUN_HEIGHT / 2 - half, RUN_HEIGHT / 2 - half]);
@@ -452,8 +452,8 @@ describe("a split column advertises one position per place a member can stand", 
         ]),
       }),
     );
-    expect(keys(zones)).toEqual(["column:0:0", "column:0:1"]);
-    expect(dropZoneKey(origin!)).toBe("column:0:0");
+    expect(keys(zones)).toEqual(["slot:0:0", "slot:0:1"]);
+    expect(dropZoneKey(origin!)).toBe("slot:0:0");
   });
 
   it("the tiles are the division the commit would produce, shares travelling with the card", () => {
@@ -462,7 +462,7 @@ describe("a split column advertises one position per place a member can stand", 
     // the measured rects are what the ladder gives those weights.
     const state = deck([pane("p1", 0), pane("p2", 0)], {
       kind: "three-up",
-      columns: { 0: { mode: "split", shares: { p1: 0.5, p2: 1.5 } } },
+      slots: { 0: { mode: "split", shares: { p1: 0.5, p2: 1.5 } } },
     });
     const heights = sharedHeights([0.5, 1.5], RUN_HEIGHT, IMPOSITION_GAP_PX);
     const rects = splitRects(0, heights);
@@ -498,7 +498,7 @@ describe("a split column advertises one position per place a member can stand", 
     // lands somewhere other than the outline promised ([P06]).
     const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
       kind: "three-up",
-      columns: { 1: { mode: "split", shares: { p2: 1.6, p3: 0.4 } } },
+      slots: { 1: { mode: "split", shares: { p2: 1.6, p3: 0.4 } } },
     });
     const sitting = sharedHeights([1.6, 0.4], RUN_HEIGHT, IMPOSITION_GAP_PX);
     const rects = splitRects(1, sitting);
@@ -519,7 +519,7 @@ describe("a split column advertises one position per place a member can stand", 
     // said about the two who were already there.
     const third = (RUN_HEIGHT - 2 * IMPOSITION_GAP_PX) / 3;
     const tileAt = (index: number) =>
-      zones.find((zone) => dropZoneKey(zone) === `column:1:${index}`)!.rect;
+      zones.find((zone) => dropZoneKey(zone) === `slot:1:${index}`)!.rect;
     for (const index of [0, 1, 2]) {
       expect(tileAt(index).height).toBeCloseTo(third, 6);
       expect(tileAt(index).y).toBeCloseTo(
@@ -533,7 +533,7 @@ describe("a split column advertises one position per place a member can stand", 
     expect(tileAt(1).y).toBeLessThan(RUN_TOP + sitting[0]);
   });
 
-  it("an overflowing column's positions are the strip its floors force", () => {
+  it("an overflowing slot's positions are the strip its floors force", () => {
     const state = deck([pane("p1", 0), pane("p2", 0), pane("p3", 0)], split);
     const memberH = overflowHeightOf(RUN_HEIGHT);
     const rects = splitRects(0, [memberH, memberH, memberH]);
@@ -549,17 +549,17 @@ describe("a split column advertises one position per place a member can stand", 
         ]),
       } as Partial<DropZoneMeasurements>),
     );
-    expect(keys(zones)).toEqual(["column:0:0", "column:0:1", "column:0:2"]);
+    expect(keys(zones)).toEqual(["slot:0:0", "slot:0:1", "slot:0:2"]);
     for (const [i, zone] of zones.entries()) {
       expect(zone.rect.height).toBeCloseTo(memberH, 6);
       expect(zone.rect.y).toBeCloseTo(RUN_TOP + i * (memberH + IMPOSITION_GAP_PX), 6);
     }
   });
 
-  it("a foreign split column advertises one more position than it has members", () => {
+  it("a foreign split slot advertises one more position than it has members", () => {
     const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
       kind: "three-up",
-      columns: { 1: { mode: "split" } },
+      slots: { 1: { mode: "split" } },
     });
     const rects = splitRects(1, [300, 295]);
     const { zones, origin } = enumerateDropZones(
@@ -576,21 +576,21 @@ describe("a split column advertises one position per place a member can stand", 
     );
     expect(keys(zones)).toEqual([
       "slot:0",
-      "column:1:0",
-      "column:1:1",
-      "column:1:2",
+      "slot:1:0",
+      "slot:1:1",
+      "slot:1:2",
     ]);
     expect(dropZoneKey(origin!)).toBe("slot:0");
   });
 
-  it("arriving in a two-member column makes it three, so the tiles overflow", () => {
-    // The column divides its run between two members today. A third arriving
+  it("arriving in a two-member slot makes it three, so the tiles overflow", () => {
+    // The slot divides its run between two members today. A third arriving
     // puts their floors past the run and stops the division ([P08]), so the
     // zones must be drawn against the standing that will govern after the
     // drop — not the one governing before it.
     const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
       kind: "three-up",
-      columns: { 1: { mode: "split" } },
+      slots: { 1: { mode: "split" } },
     });
     // Two members filling the run: 300 on top, the rest under one seam.
     const rects = splitRects(1, [300, RUN_HEIGHT - 300 - IMPOSITION_GAP_PX]);
@@ -608,21 +608,21 @@ describe("a split column advertises one position per place a member can stand", 
       }),
     );
     const memberH = overflowHeightOf(RUN_HEIGHT);
-    const columnZones = zones.filter((zone) => zone.kind === "column-index");
-    expect(columnZones).toHaveLength(3);
-    for (const zone of columnZones) {
+    const slotZones = zones.filter((zone) => zone.kind === "slot-index");
+    expect(slotZones).toHaveLength(3);
+    for (const zone of slotZones) {
       expect(zone.rect.height).toBeCloseTo(memberH, 6);
     }
   });
 
-  it("arriving in a one-member column previews the halves the drop makes", () => {
+  it("arriving in a one-member slot previews the halves the drop makes", () => {
     // The zone is a preview of the world after the drop: the standing member
     // shrinks to share its run, so the tiles are the two equal halves the
     // commit's seam will divide at — never the arrival stacked below the
     // member's current height, hanging off the run's bottom edge.
     const state = deck([pane("p1", 0), pane("p2", 1)], {
       kind: "three-up",
-      columns: { 1: { mode: "split" } },
+      slots: { 1: { mode: "split" } },
     });
     const { zones } = enumerateDropZones(
       state,
@@ -635,31 +635,31 @@ describe("a split column advertises one position per place a member can stand", 
         ]),
       }),
     );
-    const columnZones = zones.filter((zone) => zone.kind === "column-index");
-    expect(columnZones).toHaveLength(2);
+    const slotZones = zones.filter((zone) => zone.kind === "slot-index");
+    expect(slotZones).toHaveLength(2);
     const half = (RUN_HEIGHT - IMPOSITION_GAP_PX) / 2;
-    expect(columnZones[0].rect.y).toBeCloseTo(RUN_TOP, 6);
-    expect(columnZones[0].rect.height).toBeCloseTo(half, 6);
-    expect(columnZones[1].rect.y).toBeCloseTo(
+    expect(slotZones[0].rect.y).toBeCloseTo(RUN_TOP, 6);
+    expect(slotZones[0].rect.height).toBeCloseTo(half, 6);
+    expect(slotZones[1].rect.y).toBeCloseTo(
       RUN_TOP + half + IMPOSITION_GAP_PX,
       6,
     );
-    expect(columnZones[1].rect.height).toBeCloseTo(half, 6);
+    expect(slotZones[1].rect.height).toBeCloseTo(half, 6);
     // Nothing hangs: the last tile's bottom edge is the run's own.
-    const last = columnZones[1].rect;
+    const last = slotZones[1].rect;
     expect(last.y + last.height).toBeCloseTo(RUN_TOP + RUN_HEIGHT, 6);
     // And the halves are what ask for the positions, so the switch to the
     // bottom position happens at the run's middle, not the member's.
     const x = SLOT_X[1] + SLOT_WIDTH / 2;
     const live = pickLiveZone(zones, { x, y: RUN_TOP + half + 30 }, zones[0]);
-    expect(dropZoneKey(live!)).toBe("column:1:1");
+    expect(dropZoneKey(live!)).toBe("slot:1:1");
   });
 });
 
 // ---- Where a position is asked for ----
 
 describe("a position is asked for at the tile the preview draws", () => {
-  // The column p2 (300 tall from RUN_TOP) over p3 (295 tall), and p1 arriving
+  // The slot p2 (300 tall from RUN_TOP) over p3 (295 tall), and p1 arriving
   // from slot 0. Three positions under the overflow rule, whose tiles stack
   // the overflowing strip — and the run divides at each tile's top edge, so the
   // region that asks for a position is the region the indicator draws for it.
@@ -670,7 +670,7 @@ describe("a position is asked for at the tile the preview draws", () => {
   function arriving() {
     const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
       kind: "three-up",
-      columns: { 1: { mode: "split" } },
+      slots: { 1: { mode: "split" } },
     });
     const rects = splitRects(1, [300, 295]);
     return enumerateDropZones(
@@ -689,10 +689,10 @@ describe("a position is asked for at the tile the preview draws", () => {
   }
 
   it("the bands divide the run at the tiles' top edges", () => {
-    const columnZones = arriving().zones.filter(
-      (zone) => zone.kind === "column-index",
+    const slotZones = arriving().zones.filter(
+      (zone) => zone.kind === "slot-index",
     );
-    const bands = columnZones.map(hitRectOf);
+    const bands = slotZones.map(hitRectOf);
     expect(bands[0].y).toBeCloseTo(RUN_TOP, 6);
     expect(bands[0].y + bands[0].height).toBeCloseTo(RUN_TOP + STRIDE, 6);
     expect(bands[1].y).toBeCloseTo(RUN_TOP + STRIDE, 6);
@@ -717,19 +717,19 @@ describe("a position is asked for at the tile the preview draws", () => {
       { x, y: RUN_TOP + 2 * STRIDE + 20 },
       origin,
     );
-    expect(dropZoneKey(below!)).toBe("column:1:2");
+    expect(dropZoneKey(below!)).toBe("slot:1:2");
     const above = pickLiveZone(
       zones,
       { x, y: RUN_TOP + 2 * STRIDE - 30 },
       origin,
     );
-    expect(dropZoneKey(above!)).toBe("column:1:1");
+    expect(dropZoneKey(above!)).toBe("slot:1:1");
   });
 
   it("a rail's positions are asked for the same way", () => {
     // No shares, so every candidate order divides the measured run in half —
-    // a two-member rail is division-true like a two-member column. The seam
-    // is the rail's own, `RAIL_SEAM_PX`, not the column gap: the tiles pin
+    // a two-member rail is division-true like a two-member slot. The seam
+    // is the rail's own, `RAIL_SEAM_PX`, not the slot gap: the tiles pin
     // at the 0 seam the imposer divides a rail with. The fixture is the
     // geometry the imposer draws for that division: equal halves of the run.
     const state = deck([pane("s1"), pane("s2")], {
@@ -747,7 +747,7 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s2", rects[1]],
         ]),
         rails: [{ side: "left", members: ["s1", "s2"] }],
-        runs: { column: RUN_HEIGHT, rail: run },
+        runs: { slot: RUN_HEIGHT, rail: run },
       }),
     );
     const bands = zones.map(hitRectOf);
@@ -766,7 +766,7 @@ describe("a position is asked for at the tile the preview draws", () => {
 
   it("an overflowing rail's positions are the strip its floors force", () => {
     // Three members whose floors no longer fit, so the side stands under the
-    // overflow rule a column stands under too: every tile the same height,
+    // overflow rule a slot stands under too: every tile the same height,
     // stacked a rail seam apart down a strip that runs past the run's bottom
     // edge.
     const state = deck([pane("s1"), pane("s2"), pane("s3")], {
@@ -786,7 +786,7 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s3", rects[2]],
         ]),
         rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
-        runs: { column: RUN_HEIGHT, rail: run },
+        runs: { slot: RUN_HEIGHT, rail: run },
       }),
     );
     expect(zones).toHaveLength(3);
@@ -828,7 +828,7 @@ describe("a position is asked for at the tile the preview draws", () => {
             shares: { s1: 1, s2: 2 },
           },
         ],
-        runs: { column: RUN_HEIGHT, rail: run },
+        runs: { slot: RUN_HEIGHT, rail: run },
       }),
     );
     const last = zones[1].rect;
@@ -861,7 +861,7 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s2", seated[1]],
         ]),
         rails: [{ side: "left", members: ["s1", "s2"] }],
-        runs: { column: RUN_HEIGHT, rail: run },
+        runs: { slot: RUN_HEIGHT, rail: run },
       }),
     );
     expect(zones).toHaveLength(2);
@@ -903,7 +903,7 @@ describe("a position is asked for at the tile the preview draws", () => {
           ["s3", at(2)],
         ]),
         rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
-        runs: { column: RUN_HEIGHT, rail: run },
+        runs: { slot: RUN_HEIGHT, rail: run },
       }),
     );
     expect(zones).toHaveLength(3);
@@ -926,7 +926,7 @@ describe("a position is asked for at the tile the preview draws", () => {
       measured({
         panes: new Map([["s1", { ...atStart, x: atStart.x + 200, y: atStart.y + 150 }]]),
         rails: [{ side: "left", members: ["s1"] }],
-        runs: { column: RUN_HEIGHT, rail: 380 },
+        runs: { slot: RUN_HEIGHT, rail: 380 },
         draggedAtStart: atStart,
       }),
     );
@@ -940,13 +940,13 @@ describe("a position is asked for at the tile the preview draws", () => {
 
 describe("the indication moves once the pointer has committed to it", () => {
   const a: DropZone = {
-    kind: "column-index",
+    kind: "slot-index",
     slot: 0,
     index: 0,
     rect: { x: 0, y: 0, width: 100, height: 100 },
   };
   const b: DropZone = {
-    kind: "column-index",
+    kind: "slot-index",
     slot: 0,
     index: 1,
     rect: { x: 0, y: 200, width: 100, height: 100 },
@@ -954,17 +954,17 @@ describe("the indication moves once the pointer has committed to it", () => {
 
   it("with no incumbent the nearest zone is live", () => {
     expect(dropZoneKey(pickLiveZone([a, b], { x: 50, y: 20 }, null)!)).toBe(
-      "column:0:0",
+      "slot:0:0",
     );
     expect(dropZoneKey(pickLiveZone([a, b], { x: 50, y: 280 }, null)!)).toBe(
-      "column:0:1",
+      "slot:0:1",
     );
   });
 
   it("a pointer at the midpoint keeps the incumbent", () => {
     const midpoint = { x: 50, y: 150 };
-    expect(dropZoneKey(pickLiveZone([a, b], midpoint, a)!)).toBe("column:0:0");
-    expect(dropZoneKey(pickLiveZone([a, b], midpoint, b)!)).toBe("column:0:1");
+    expect(dropZoneKey(pickLiveZone([a, b], midpoint, a)!)).toBe("slot:0:0");
+    expect(dropZoneKey(pickLiveZone([a, b], midpoint, b)!)).toBe("slot:0:1");
   });
 
   it("the challenger takes over only once it beats the incumbent by the margin", () => {
@@ -972,8 +972,8 @@ describe("the indication moves once the pointer has committed to it", () => {
     // every 1px the pointer travels past the midpoint.
     const shy = { x: 50, y: 150 + (ZONE_HYSTERESIS_PX / 2 - 1) };
     const past = { x: 50, y: 150 + (ZONE_HYSTERESIS_PX / 2 + 1) };
-    expect(dropZoneKey(pickLiveZone([a, b], shy, a)!)).toBe("column:0:0");
-    expect(dropZoneKey(pickLiveZone([a, b], past, a)!)).toBe("column:0:1");
+    expect(dropZoneKey(pickLiveZone([a, b], shy, a)!)).toBe("slot:0:0");
+    expect(dropZoneKey(pickLiveZone([a, b], past, a)!)).toBe("slot:0:1");
   });
 
   it("a smaller picture passes its own margin", () => {
@@ -981,23 +981,23 @@ describe("the indication moves once the pointer has committed to it", () => {
     // the canvas's margin, past a margin of 3.
     const nearerBy10 = { x: 50, y: 155 };
     expect(dropZoneKey(pickLiveZone([a, b], nearerBy10, a)!)).toBe(
-      "column:0:0",
+      "slot:0:0",
     );
     expect(dropZoneKey(pickLiveZone([a, b], nearerBy10, a, 3)!)).toBe(
-      "column:0:1",
+      "slot:0:1",
     );
   });
 
   it("an incumbent that is no longer advertised yields to the nearest", () => {
     expect(dropZoneKey(pickLiveZone([b], { x: 50, y: 20 }, a)!)).toBe(
-      "column:0:1",
+      "slot:0:1",
     );
   });
 
   it("an incumbent is matched by place, not by rect — autoscroll moves tiles", () => {
     const slid: DropZone = { ...a, rect: { x: 0, y: -40, width: 100, height: 100 } };
     const live = pickLiveZone([slid, b], { x: 50, y: 60 }, a);
-    expect(dropZoneKey(live!)).toBe("column:0:0");
+    expect(dropZoneKey(live!)).toBe("slot:0:0");
     expect(live!.rect.y).toBe(-40);
   });
 
@@ -1007,14 +1007,14 @@ describe("the indication moves once the pointer has committed to it", () => {
     // edge. A pointer resting on the title bar of the card standing in slot 1
     // measures NEARER to the middle of slot 0's upper member than to the middle
     // of the slot it is physically inside — and a release there would land the
-    // card in a column the user never pointed at.
+    // card in a slot the user never pointed at.
     const tall: DropZone = {
       kind: "slot",
       slot: 1,
       rect: { x: 460, y: 5, width: 380, height: 1220 },
     };
     const neighbour: DropZone = {
-      kind: "column-index",
+      kind: "slot-index",
       slot: 0,
       index: 0,
       rect: { x: 5, y: 5, width: 380, height: 607 },
@@ -1099,17 +1099,17 @@ describe("a strip advances while the pointer holds at its edge", () => {
   });
 
   it("each strip keeps its own running offset across one drag", () => {
-    const column: AutoscrollTarget = {
-      kind: "column", slot: 2, axis: "y",
+    const slotTarget: AutoscrollTarget = {
+      kind: "slot", slot: 2, axis: "y",
       bandStart: 5, bandEnd: 605, offset: 0, maxOffset: 400,
     };
     const flow: AutoscrollTarget = {
       kind: "flow", axis: "x",
       bandStart: 5, bandEnd: 1200, offset: 0, maxOffset: 900,
     };
-    expect(autoscrollKey(column)).toBe("column:2");
+    expect(autoscrollKey(slotTarget)).toBe("slot:2");
     expect(autoscrollKey(flow)).toBe("flow");
-    expect(autoscrollKey({ ...column, slot: 0 })).not.toBe(autoscrollKey(column));
+    expect(autoscrollKey({ ...slotTarget, slot: 0 })).not.toBe(autoscrollKey(slotTarget));
   });
 });
 
@@ -1190,7 +1190,7 @@ describe("a content card's zones are clipped to the band", () => {
         band: BAND,
       }),
     );
-    const halves = zones.filter((z) => z.kind === "column-index" && z.slot === 1);
+    const halves = zones.filter((z) => z.kind === "slot-index" && z.slot === 1);
     expect(halves.length).toBe(2);
     for (const half of halves) {
       expect(half.rect.x + half.rect.width).toBe(SLOT_X[1] + SLOT_WIDTH);

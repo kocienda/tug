@@ -33,7 +33,7 @@ export type ArrangementDeck = Pick<
   | "spaceHoldsLiveSessions"
   | "spaceCardCount"
   | "getBandWidth"
-  | "getColumnRunHeight"
+  | "getSlotRunHeight"
   | "getRailRunHeight"
 >;
 
@@ -102,7 +102,7 @@ export function projectArrangementDeck(deck: ArrangementDeck): ArrangementDeckVa
     spaceId: deck.getSpacesSnapshot().activeSpaceId,
     deck: deck.getSnapshot(),
     bandWidth: deck.getBandWidth(),
-    columnRunHeight: deck.getColumnRunHeight(),
+    slotRunHeight: deck.getSlotRunHeight(),
     railRunHeight: deck.getRailRunHeight(),
   };
 }

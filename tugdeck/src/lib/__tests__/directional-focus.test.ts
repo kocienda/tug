@@ -73,7 +73,7 @@ function pane(
 
 /** One content pane per card id, each in the slot it is listed under. The pane
  *  id is the card id prefixed, so a returned card id reads as itself. */
-function columns(bySlot: Record<number, string[]>): {
+function inSlots(bySlot: Record<number, string[]>): {
   cards: CardState[];
   panes: TugPaneState[];
 } {
@@ -103,7 +103,7 @@ function deck(
 }
 
 /** Nothing measured — every place stands at the equal division. */
-const UNMEASURED: PlaceRuns = { rail: null, column: null };
+const UNMEASURED: PlaceRuns = { rail: null, slot: null };
 
 /** The arriving card id alone — what most of these ask about. */
 function go(
@@ -128,7 +128,7 @@ function travel(
 
 describe("across the slots", () => {
   test("left and right step one slot, and the ends refuse", () => {
-    const { cards, panes } = columns({ 0: ["a"], 1: ["b"], 2: ["c"] });
+    const { cards, panes } = inSlots({ 0: ["a"], 1: ["b"], 2: ["c"] });
     const state = deck(cards, panes, { kind: "three-up", sidebars: {} });
     expect(go(state, "b", "left")).toBe("a");
     expect(go(state, "b", "right")).toBe("c");
@@ -140,7 +140,7 @@ describe("across the slots", () => {
     // Slot 1 holds nothing, so it is not a place: the nearest candidate beyond
     // slot 0 is slot 2, and the move goes there rather than refusing. A slot is
     // a place in an arrangement only while something stands in it.
-    const { cards, panes } = columns({ 0: ["a"], 2: ["c"] });
+    const { cards, panes } = inSlots({ 0: ["a"], 2: ["c"] });
     const state = deck(cards, panes, { kind: "three-up", sidebars: {} });
     expect(go(state, "a", "right")).toBe("c");
     expect(go(state, "c", "left")).toBe("a");
@@ -151,7 +151,7 @@ describe("across the slots", () => {
     // using it, so a slot it has slid past is inside the mental model. Nothing
     // here reads `flowOffset` — travel is the caller's job, and the proof is
     // that an offset far past the strip changes no answer.
-    const { cards, panes } = columns({ 0: ["a"], 1: ["b"] });
+    const { cards, panes } = inSlots({ 0: ["a"], 1: ["b"] });
     const state = deck(cards, panes, {
       kind: "two-up",
       layout: "flow",
@@ -163,7 +163,7 @@ describe("across the slots", () => {
   });
 
   test("a free pane in no place is neither a source nor a target", () => {
-    const { cards, panes } = columns({ 0: ["a"] });
+    const { cards, panes } = inSlots({ 0: ["a"] });
     const state = deck(
       [...cards, card("loose")],
       [...panes, pane("p-loose", ["loose"])],
@@ -176,19 +176,19 @@ describe("across the slots", () => {
   });
 
   test("a card id nothing hosts resolves to nothing", () => {
-    const { cards, panes } = columns({ 0: ["a"] });
+    const { cards, panes } = inSlots({ 0: ["a"] });
     const state = deck(cards, panes, { kind: "one-up", sidebars: {} });
     expect(go(state, "ghost", "left")).toBeNull();
   });
 });
 
-describe("inside a split column", () => {
+describe("inside a split slot", () => {
   const split = (): DeckState => {
-    const { cards, panes } = columns({ 0: ["top", "mid", "bot"] });
+    const { cards, panes } = inSlots({ 0: ["top", "mid", "bot"] });
     return deck(cards, panes, {
       kind: "one-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p-top", "p-mid", "p-bot"] } },
+      slots: { 0: { mode: "split", order: ["p-top", "p-mid", "p-bot"] } },
     });
   };
 
@@ -200,26 +200,26 @@ describe("inside a split column", () => {
     expect(go(state, "bot", "below")).toBeNull();
   });
 
-  test("a vertical move never leaves the column it started in", () => {
+  test("a vertical move never leaves the slot it started in", () => {
     // No two places overlap in x, so the perpendicular-overlap rule confines a
     // vertical move to its own place. A neighbour slot is not below anything.
-    const { cards, panes } = columns({ 0: ["a"], 1: ["b"] });
+    const { cards, panes } = inSlots({ 0: ["a"], 1: ["b"] });
     const state = deck(cards, panes, { kind: "two-up", sidebars: {} });
     expect(go(state, "a", "below")).toBeNull();
     expect(go(state, "a", "above")).toBeNull();
   });
 });
 
-describe("a stacked column", () => {
+describe("a stacked slot", () => {
   // Pane order is z order — `state.panes` is the array a raise reorders, so
   // the LAST pane listed is the frontmost.
   const stack = (): DeckState => {
-    const { cards, panes } = columns({ 0: ["back", "front"], 1: ["side"] });
+    const { cards, panes } = inSlots({ 0: ["back", "front"], 1: ["side"] });
     return deck(cards, panes, { kind: "two-up", sidebars: {} });
   };
 
   test("above and below read as z, front and back", () => {
-    // The `move-in-column` reading exactly ([P12]): nothing is above anything
+    // The `move-in-slot` reading exactly ([P12]): nothing is above anything
     // when every member draws the same rect, so up is toward the front. The
     // chord is never dead on an unsplit slot.
     const state = stack();
@@ -242,15 +242,15 @@ describe("a stacked column", () => {
     expect(go(state, "front", "right")).toBe("side");
   });
 
-  test("a split column of one is one rect, in either mode", () => {
+  test("a split slot of one is one rect, in either mode", () => {
     // Membership churn never destroys an arrangement, so a slot that was split
     // and lost a member keeps `mode: "split"` waiting for it. Nothing about
-    // that column draws divided, and nothing about it is stepped vertically.
-    const { cards, panes } = columns({ 0: ["only"], 1: ["side"] });
+    // that slot draws divided, and nothing about it is stepped vertically.
+    const { cards, panes } = inSlots({ 0: ["only"], 1: ["side"] });
     const state = deck(cards, panes, {
       kind: "two-up",
       sidebars: {},
-      columns: { 0: { mode: "split" } },
+      slots: { 0: { mode: "split" } },
     });
     expect(go(state, "only", "below")).toBeNull();
     expect(go(state, "side", "left")).toBe("only");
@@ -272,11 +272,11 @@ describe("a ragged arrangement", () => {
    *     └────────┘        └────────┘
    */
   const ragged = (): DeckState => {
-    const { cards, panes } = columns({ 0: ["a0", "a1", "a2"], 1: ["b0", "b1"] });
+    const { cards, panes } = inSlots({ 0: ["a0", "a1", "a2"], 1: ["b0", "b1"] });
     return deck(cards, panes, {
       kind: "two-up",
       sidebars: {},
-      columns: {
+      slots: {
         0: { mode: "split", order: ["p-a0", "p-a1", "p-a2"] },
         1: { mode: "split", order: ["p-b0", "p-b1"] },
       },
@@ -311,11 +311,11 @@ describe("a ragged arrangement", () => {
     // overlaps any source span. Pushed as far apart as shares go — one member
     // in the top ninth of slot 0, its neighbour in the bottom ninth of slot 1 —
     // the crossing still lands, on the band the fill leaves in the way.
-    const { cards, panes } = columns({ 0: ["a", "aFill"], 1: ["bFill", "b"] });
+    const { cards, panes } = inSlots({ 0: ["a", "aFill"], 1: ["bFill", "b"] });
     const state = deck(cards, panes, {
       kind: "two-up",
       sidebars: {},
-      columns: {
+      slots: {
         // `a` takes the top ninth of slot 0, `b` the bottom ninth of slot 1.
         0: {
           mode: "split",
@@ -329,7 +329,7 @@ describe("a ragged arrangement", () => {
         },
       },
     });
-    const runs: PlaceRuns = { rail: null, column: 900 };
+    const runs: PlaceRuns = { rail: null, slot: 900 };
     expect(go(state, "a", "right", runs)).toBe("bFill");
     expect(go(state, "b", "left", runs)).toBe("aFill");
     // So the refusal branch is the ARRANGEMENT'S EDGE and nothing else — there
@@ -340,9 +340,9 @@ describe("a ragged arrangement", () => {
 });
 
 describe("crossing into a rail", () => {
-  /** The left rail holds both sidebars; one content column stands beside it. */
+  /** The left rail holds both sidebars; one content slot stands beside it. */
   const railed = (side: "left" | "right"): DeckState => {
-    const { cards, panes } = columns({ 0: ["a"] });
+    const { cards, panes } = inSlots({ 0: ["a"] });
     return deck(
       [...cards, card("rt", "railTop"), card("rb", "railBottom")],
       [...panes, pane("p-rt", ["rt"]), pane("p-rb", ["rb"])],
@@ -391,7 +391,7 @@ describe("crossing into a rail", () => {
   });
 
   test("both rails stand, one at each end", () => {
-    const { cards, panes } = columns({ 0: ["a"] });
+    const { cards, panes } = inSlots({ 0: ["a"] });
     const state = deck(
       [...cards, card("rt", "railTop"), card("rb", "railBottom")],
       [...panes, pane("p-rt", ["rt"]), pane("p-rb", ["rb"])],
@@ -403,7 +403,7 @@ describe("crossing into a rail", () => {
     expect(go(state, "a", "left")).toBe("rt");
     expect(go(state, "a", "right")).toBe("rb");
     // And each rail's single member spans its whole run, so the crossing
-    // reaches the other one right through the column between them.
+    // reaches the other one right through the slot between them.
     expect(go(state, "rt", "right")).toBe("a");
     expect(go(state, "rb", "left")).toBe("a");
   });
@@ -459,11 +459,11 @@ describe("the travel's memory", () => {
    * bands b0 overlaps. From `a1` (⅓..⅔) the round trip is where it shows.
    */
   const ragged = (): DeckState => {
-    const { cards, panes } = columns({ 0: ["a0", "a1", "a2"], 1: ["b0", "b1"] });
+    const { cards, panes } = inSlots({ 0: ["a0", "a1", "a2"], 1: ["b0", "b1"] });
     return deck(cards, panes, {
       kind: "two-up",
       sidebars: {},
-      columns: {
+      slots: {
         0: { mode: "split", order: ["p-a0", "p-a1", "p-a2"] },
         1: { mode: "split", order: ["p-b0", "p-b1"] },
       },
@@ -495,9 +495,9 @@ describe("the travel's memory", () => {
   });
 
   test("a run of three crossings holds one line", () => {
-    // ← ← then → → over three columns of different divisions: the goal is the
+    // ← ← then → → over three slots of different divisions: the goal is the
     // whole reason the return is a return and not a drift.
-    const { cards, panes } = columns({
+    const { cards, panes } = inSlots({
       0: ["x0", "x1", "x2"],
       1: ["y0", "y1"],
       2: ["z0", "z1", "z2", "z3"],
@@ -505,7 +505,7 @@ describe("the travel's memory", () => {
     const state = deck(cards, panes, {
       kind: "three-up",
       sidebars: {},
-      columns: {
+      slots: {
         0: { mode: "split", order: ["p-x0", "p-x1", "p-x2"] },
         1: { mode: "split", order: ["p-y0", "p-y1"] },
         2: { mode: "split", order: ["p-z0", "p-z1", "p-z2", "p-z3"] },
@@ -523,10 +523,10 @@ describe("the travel's memory", () => {
 });
 
 describe("the target names its place", () => {
-  test("a column member reports its slot and a rail member reports none", () => {
+  test("a slot member reports its slot and a rail member reports none", () => {
     // What the band travel reads: a slot can be off-band and is traveled to, a
     // rail is pinned to an edge and never is.
-    const { cards, panes } = columns({ 0: ["a"], 2: ["c"] });
+    const { cards, panes } = inSlots({ 0: ["a"], 2: ["c"] });
     const state = deck(
       [...cards, card("rt", "railTop")],
       [...panes, pane("p-rt", ["rt"])],

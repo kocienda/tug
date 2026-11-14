@@ -33,7 +33,7 @@ import { launchTugApp, note, type App } from "./_harness";
 import { onTestRunEnd } from "./_harness/test-cleanup";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "./_harness/tugbank-helpers";
 import { overlayReady } from "./overlay-fixture";
-import { BODY_READY_MS, PLACED_MS, column, pollFor, promptPhase, spawnStub } from "./session-body-fixture";
+import { BODY_READY_MS, PLACED_MS, oneSlot, pollFor, promptPhase, spawnStub } from "./session-body-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "./streaming-stub-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -77,7 +77,7 @@ describe.skipIf(!SHOULD_RUN)("at0777: ⌘Q and the quit guard", () => {
       const stubDir = stubDirectory();
       const app = await launch("at0777-turn", { [STUB_TRANSCRIPT_DIR_ENV]: stubDir });
       try {
-        await app.seedDeckState({ state: column([CARD]), focusCardId: CARD });
+        await app.seedDeckState({ state: oneSlot([CARD]), focusCardId: CARD });
         await spawnStub(app, CARD, stubDir, STREAM_MESSAGES);
         const readyBody = await pollFor(
           async () => (await app.bodies()).find((b) => b.cardId === CARD) ?? null,

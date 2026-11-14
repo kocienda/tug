@@ -43,7 +43,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { CardDeckContext, useDeckView } from "@/card-deck-context";
 import { dispatchCommand, sendToCardContent } from "@/command-dispatch";
 import {
-  type ColumnMode,
+  type SlotMode,
   readSettleMs,
   CONTENT_WIDTH_PRESETS,
   CONTENT_WIDTH_LABELS,
@@ -61,9 +61,9 @@ import { CommitMasthead } from "@/components/tugways/commit-masthead";
 import { CardSlotBadge } from "@/components/tugways/card-slot-badge";
 import type { SlotFacts } from "@/lib/slot-facts";
 import {
-  TugColumnBadge,
-  columnBadgeCharacter,
-} from "@/components/tugways/tug-column-badge";
+  TugSlotBadge,
+  slotBadgeCharacter,
+} from "@/components/tugways/tug-slot-badge";
 import { paneTitleBarItemsStore, type PaneTitleBarItem } from "@/lib/pane-title-bar-items-store";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import {
@@ -473,7 +473,7 @@ export interface CardTitleBarProps {
   onToggleBullseye?: () => void;
   /**
    * How the PLACE this pane shares is arranged — a side's rail or a numbered
-   * slot's column, whichever {@link slotStack} names. Present → the stack badge
+   * slot, whichever {@link slotStack} names. Present → the stack badge
    * is also the gateway to arranging that place, which is the one piece of
    * chrome a shared place already puts on screen.
    *
@@ -484,8 +484,8 @@ export interface CardTitleBarProps {
    * the verb to the right command.
    */
   placeArrangement?: {
-    mode: ColumnMode;
-    kind: "rail" | "column";
+    mode: SlotMode;
+    kind: "rail" | "slot";
     /** This pane's place in the run, topmost first — the band letter the badge
      *  draws when the place is split. Omitted when {@link placePaneId} is
      *  given: the badge reads it from the deck. */
@@ -495,7 +495,7 @@ export interface CardTitleBarProps {
     count?: number;
   };
   /**
-   * Arrange the COLUMN this pane stands in. `"split"` / `"stack"` set the mode;
+   * Arrange the SLOT this pane stands in. `"split"` / `"stack"` set the mode;
    * `"equalize"` writes an equal division. Wired by `TugPane` to the registered
    * commands, never to a store method ([L30]) — the same path
    * {@link onSetWidth} takes.
@@ -517,7 +517,7 @@ export interface CardTitleBarProps {
    * Give this slotted card its run's full height again — the Fill Height row
    * at the foot of the width popup, wired to the `fill-card-height` command.
    * Present only where a card's bottom edge can give it a height of its own:
-   * alone or stacked in a slot. A split column's heights are its shares, and a
+   * alone or stacked in a slot. A split slot's heights are its shares, and a
    * free pane's height is not a slot's.
    */
   onFillHeight?: () => void;
@@ -634,10 +634,10 @@ const PlaceArrangementContext = createContext<CardTitleBarProps["placeArrangemen
  * The Fill Height row's two facts, for the width menu alone. Provided by
  * {@link CardTitleBar} and read by {@link CardWidthMenu}, for the reason
  * {@link PlaceArrangementContext} exists: a split or a stack flips whether a
- * slotted card's height is its own on every member of the column, and as
+ * slotted card's height is its own on every member of the slot, and as
  * props the pair re-rendered each member's whole bar — its buttons, tooltips
  * and poppers — to redraw one check in a closed menu. The census read that
- * commit at 971–2,123 performed fibres on a nine-pane column flip, landing
+ * commit at 971–2,123 performed fibres on a nine-pane slot flip, landing
  * inside the motion on every retarget.
  */
 const FillHeightContext = createContext<
@@ -723,7 +723,7 @@ interface CardPlaceBadgeProps {
 }
 
 /**
- * The column badge and the picker it opens: the one part of the title bar
+ * The slot badge and the picker it opens: the one part of the title bar
  * that draws the pane's place in its run.
  *
  * Its own component so that it can read that place itself. The count, this
@@ -798,13 +798,13 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
     // named whether the place is stacked or split — it is the way back
     // as much as the way in.
     <TugActionTooltip
-      action={TUG_ACTIONS.TOGGLE_COLUMN_SPLIT}
+      action={TUG_ACTIONS.TOGGLE_SLOT_SPLIT}
       content={
         onArrangePlace !== undefined && placeArrangement !== undefined
           ? placeSplit
             ? placeAlone
-              ? `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in this split ${placeArrangement.kind} — press to re-stack it`
-              : `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
+              ? `Band ${slotBadgeCharacter("split", badgeCount, badgeIndex)}, alone in this split ${placeArrangement.kind} — press to re-stack it`
+              : `Band ${slotBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
             : placeAlone
               ? `One card in this ${placeArrangement.kind} — press to split it`
               : `${badgeCount} cards in this ${placeArrangement.kind} — press to show one, or split it`
@@ -824,7 +824,7 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
                  because every band of a split is visible and the badge's
                  job there is naming rather than revealing. */
               icon={
-                <TugColumnBadge
+                <TugSlotBadge
                   kind={badgeKind}
                   count={badgeCount}
                   index={badgeIndex}
@@ -843,15 +843,15 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
               aria-label={
                 placeSplit
                   ? placeAlone
-                    ? `Split place, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}, alone in it`
-                    : `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
+                    ? `Split place, band ${slotBadgeCharacter("split", badgeCount, badgeIndex)}, alone in it`
+                    : `Split of ${badgeCount} cards, band ${slotBadgeCharacter("split", badgeCount, badgeIndex)}`
                   : placeAlone
                     ? "Alone in this place"
                     : `Stack of ${badgeCount} cards`
               }
               data-testid="tug-pane-title-bar-stack-badge"
               // The badge is a door into the OTHER cards in this place —
-              // showing one, splitting the column. A held card is not a
+              // showing one, splitting the slot. A held card is not a
               // card to be navigated away from.
               disabled={modalHeld}
             />
@@ -872,7 +872,7 @@ const CardPlaceBadge = memo(function CardPlaceBadge({
                   ? {}
                   : { icon: React.createElement(RowIcon) }),
                 // Set on every row, not just the checked one, so the check
-                // column aligns across the menu.
+                // slot aligns across the menu.
                 selected: entry.selected,
               };
             }),
@@ -964,7 +964,7 @@ function CardTitleBarBody({
 }: CardTitleBarBodyProps, ref) {
   // Whether this pane stands in a PLACE at all — a slot, or a rail. That is
   // the badge's whole condition now, and depth is no part of it: a card alone
-  // in its column is standing in a place one card deep, which is a true fact
+  // in its slot is standing in a place one card deep, which is a true fact
   // worth stating and, more to the point, the only door to the verb that gives
   // it a neighbour. A free pane holds no place, so it draws nothing rather
   // than a chip claiming a position it does not have — the same rule
@@ -1841,7 +1841,7 @@ function CardTitleBarBody({
             // belong. The phrase carries the current width instead, which is the
             // fact the closed control cannot show; at a custom width `widthPreset`
             // is null and the phrase says nothing rather than claiming the
-            // nearest preset, the same rule the menu's check column follows.
+            // nearest preset, the same rule the menu's check slot follows.
             <TugTooltip
               content={
                 widthPreset === null || widthPreset === undefined
@@ -1966,7 +1966,7 @@ function CardTitleBarBody({
         {/* THE PLACE PAIR, pinned against the trailing edge behind only the
             close box. Two controls that report where you are, reading
             outward-in: the slot badge names the place the PANE stands in the
-            imposition, the column badge names where this CARD stands inside
+            imposition, the slot badge names where this CARD stands inside
             that place. They sit at the cluster's one fixed end because a
             readout you glance at is worthless if you have to find it first,
             and the cluster's leading edge — where these two used to live —
@@ -1977,13 +1977,13 @@ function CardTitleBarBody({
             a pane holding no slot, a sidebar — and those are its guards to
             hold, not this bar's to duplicate. */}
         <CardSlotBadge cardId={activeCardId} {...(slot === undefined ? {} : { facts: slot })} />
-        {/* The column badge, on every pane that stands in a place — and now at
+        {/* The slot badge, on every pane that stands in a place — and now at
             depth one as well as depth many.
 
             The old condition was `slotStack.length > 1`, which read as
             economy and was really a hole: the badge is the only door to the
-            arrange verbs, so a card alone in its column had no way to split it
-            and no way to learn that splitting was a thing columns did. A place
+            arrange verbs, so a card alone in its slot had no way to split it
+            and no way to learn that splitting was a thing slots did. A place
             one card deep is still a place. The badge draws `1` over the three
             slices, which is a quiet sentence but a true one, and its menu
             carries the verb that makes it a bigger number.

@@ -9,7 +9,7 @@ import { describe, test, expect } from "bun:test";
 import { registerCard } from "../../card-registry";
 import type { CardState, DeckState, TugPaneState } from "../../layout-tree";
 import { validateDeckState } from "../../layout-tree";
-import { deckColumnsOf, sidebarRailsOf } from "../../deck-store-selectors";
+import { deckSlotsOf, sidebarRailsOf } from "../../deck-store-selectors";
 import type { SpacesState } from "../../spaces";
 import {
   EMPTY_WINDOW_RAIL,
@@ -150,12 +150,12 @@ describe("splitRail / joinRail", () => {
 describe("parked parity", () => {
   test("a parked deck joined with the rail stands its content as the shown deck does", () => {
     const shown = deck("a");
-    const runs = { rail: 800, column: 700 };
+    const runs = { rail: 800, slot: 700 };
     const { deck: parked, rail } = splitRail(shown);
     const joined = joinRail(parked, rail);
     const widths = (d: DeckState) => sidebarRailsOf(d, runs).map((r) => [r.side, r.width]);
     expect(widths(joined)).toEqual(widths(shown));
-    expect(deckColumnsOf(joined, runs.column)).toEqual(deckColumnsOf(shown, runs.column));
+    expect(deckSlotsOf(joined, runs.slot)).toEqual(deckSlotsOf(shown, runs.slot));
     // Without the rail the content would stand on the whole canvas.
     expect(sidebarRailsOf(parked, runs)).toEqual([]);
   });

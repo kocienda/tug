@@ -414,7 +414,7 @@ describe("planSettleBeats", () => {
   });
 
   test("a frame with only a size term plans to no move beat", () => {
-    // The sitting member of a split column, when a card arrives beside it.
+    // The sitting member of a split slot, when a card arrives beside it.
     const shrinkOnly = planSettleBeats({ dx: 0, dy: 0, height: [1220, 607] });
     expect(kinds(shrinkOnly)).toEqual(["shrink"]);
     expect(shrinkOnly[0].held).toEqual({});
@@ -425,7 +425,7 @@ describe("planSettleBeats", () => {
   });
 
   test("a shrink-then-move never puts a size term and a translate in one beat", () => {
-    // A card crossing from a wide column into a split one: it shrinks where
+    // A card crossing from a wide slot into a split one: it shrinks where
     // it stands, then travels.
     const terms = { dx: -640, dy: 0, height: [1220, 607] as const };
     const beats = planSettleBeats(terms);

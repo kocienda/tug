@@ -3,7 +3,7 @@
  * closes with it.
  *
  * The bar's third row ([B02] row 3). A body card standing above a neighbour
- * in a column is closed through File › Close Card — the real menu item,
+ * in a slot is closed through File › Close Card — the real menu item,
  * performed — and every composited frame of its content rect is read from
  * the close on. The shell hides the body at the commit that starts the
  * departure, with the rect it had: the floor's hole closes and the lid goes

@@ -109,7 +109,7 @@ function fitDeck() {
     imposition: {
       kind: "four-up",
       ...RAIL_IMPOSITION,
-      columns: { 2: { mode: "split" } },
+      slots: { 2: { mode: "split" } },
     },
     hasFocus: true,
   };

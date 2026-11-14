@@ -57,7 +57,7 @@ function deckShape(): Record<string, unknown> {
       kind: "two-up",
       sidebars: {},
       layout: "flow",
-      columns: { 0: { mode: "split", order: ["pA", "pB"] } },
+      slots: { 0: { mode: "split", order: ["pA", "pB"] } },
     },
     hasFocus: true,
   };

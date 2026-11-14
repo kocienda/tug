@@ -36,7 +36,7 @@ import {
   BODY_READY_MS,
   PLACED_MS,
   PROMPT_INPUT,
-  column,
+  oneSlot,
   composerFocused,
   pollFor,
   spawnStub,
@@ -64,7 +64,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const DRAFT = "at0738 draft survives the quit";
       let quit = false;
       try {
-        await app.seedDeckState({ state: column([SAFE]), focusCardId: SAFE });
+        await app.seedDeckState({ state: oneSlot([SAFE]), focusCardId: SAFE });
         const tugSessionId = await spawnStub(app, SAFE, stubDir);
         const readyBody = (b: BodyViewSnapshot | null): boolean => b !== null && b.state === "ready" && b.visible;
         const safeBody = async () => (await app.bodies()).find((b) => b.cardId === SAFE) ?? null;

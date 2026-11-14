@@ -4,7 +4,7 @@
  * slot run window to three chips without losing the glance?
  *
  * Everything on display is the shipping vocabulary — real `TugSlot`,
- * `TugSlotLayout`, `TugColumnBadge`, real cluster classes from `tug-pane.css`
+ * `TugSlotLayout`, `TugSlotBadge`, real cluster classes from `tug-pane.css`
  * and `card-slot-badge.css` — so "now" is drawn by the same rules the deck
  * draws it with, and "proposed" differs only where the proposal differs. The
  * fixtures are live: hover the clusters, press the chips, open the doors.
@@ -16,7 +16,7 @@
  *     with the cluster's own hover box instead of `TugSlot`'s accent outline.
  *  2. The Lens run windowed to three chips, the held slot always centre —
  *     a neighbour press nudges one over, the centre press opens the full run.
- *  3. The Lens column badge as a door: the same place popup the masthead
+ *  3. The Lens slot badge as a door: the same place popup the masthead
  *     already has (members, split/stack/equalize), plus in-column reorder.
  */
 
@@ -44,9 +44,9 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import {
-  TugColumnBadge,
-  columnBadgeCharacter,
-} from "@/components/tugways/tug-column-badge";
+  TugSlotBadge,
+  slotBadgeCharacter,
+} from "@/components/tugways/tug-slot-badge";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   TugPopover,
@@ -164,7 +164,7 @@ function applyPlaceMenu(facts: PlaceFacts, id: string): PlaceFacts {
 function doorTip(facts: PlaceFacts): string {
   const n = facts.members.length;
   if (facts.kind === "split")
-    return `Band ${columnBadgeCharacter("split", n, facts.index)} of ${n} — press to arrange this split`;
+    return `Band ${slotBadgeCharacter("split", n, facts.index)} of ${n} — press to arrange this split`;
   if (n <= 1) return "Alone here — press to split";
   return `${n} cards stacked here — press to arrange the stack`;
 }
@@ -365,7 +365,7 @@ function MastheadFixture({
                     size="sm"
                     className="tug-pane-title-bar-stack-badge"
                     icon={
-                      <TugColumnBadge
+                      <TugSlotBadge
                         kind={facts.kind}
                         count={facts.members.length}
                         index={facts.index}
@@ -462,8 +462,8 @@ function LensRowNow({ row }: { row: LensRowFixture }): React.ReactElement {
         action={TUG_ACTIONS.SELECT_SLOT}
       />
       </SlotPress>
-      <TugColumnBadge
-        className="lens-column-badge"
+      <TugSlotBadge
+        className="lens-slot-badge"
         kind={facts.kind}
         count={facts.members.length}
         index={facts.index}
@@ -473,7 +473,7 @@ function LensRowNow({ row }: { row: LensRowFixture }): React.ReactElement {
 }
 
 /** The proposed row: a three-chip window with the held slot always centre,
- *  and the column badge grown into a door. */
+ *  and the slot badge grown into a door. */
 function LensRowProposed({
   row,
   count,
@@ -551,8 +551,8 @@ function LensRowProposed({
                 size="sm"
                 className="sp-pc-place-door"
                 icon={
-                  <TugColumnBadge
-                    className="lens-column-badge"
+                  <TugSlotBadge
+                    className="lens-slot-badge"
                     kind={facts.kind}
                     count={facts.members.length}
                     index={facts.index}
@@ -585,7 +585,7 @@ function SpikePlaceCoordinate(): React.ReactElement {
           and becomes a ghost button like every neighbour — hover each cluster:
           the current chip answers with an accent outline of its own while the
           proposed one takes the same hover box as the buttons beside it. The
-          column badge slims to match, so the pair still reads as one
+          slot badge slims to match, so the pair still reads as one
           coordinate. Both badges stay doors: chip opens the slot run, glyph
           opens the place menu.
         </p>
@@ -675,7 +675,7 @@ function SpikePlaceCoordinate(): React.ReactElement {
       </section>
 
       <section className="sp-section">
-        <h2 className="sp-section-title">The column badge becomes a door</h2>
+        <h2 className="sp-section-title">The slot badge becomes a door</h2>
         <p className="sp-pc-note">
           In the proposed rows above, press the stack/split glyph: the same
           place menu the masthead's badge opens — the place's members with the

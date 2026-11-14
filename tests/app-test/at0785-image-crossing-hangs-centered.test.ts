@@ -6,7 +6,7 @@
  * crosses, the host shows the old frame's snapshot over the page laid out at
  * the new size, and a card naming no split held that snapshot at the top: the
  * old centering stood over the new one, the two meeting at the cover's edge,
- * and splitting a column with an image in it broke the picture in two.
+ * and splitting a slot with an image in it broke the picture in two.
  *
  * The image card's scroller now says its content is centered
  * (`data-crossing-scroller="center"`), the solved page names the scroller's
@@ -39,10 +39,10 @@ import {
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   deckShape,
-  setColumnMode,
+  setSlotMode,
   splitFrameCount,
   wait,
-} from "./column-split-fixture";
+} from "./slot-split-fixture";
 
 const FIGURE = '[data-slot="file-view-card"] [data-slot="image-body"]';
 
@@ -148,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("at0785 — an image card's crossing hangs from its
         );
         note("viewer slot", slot);
         expect(slot, "the viewer stands in a numbered slot").not.toBeNull();
-        await setColumnMode(app, slot as number, "split");
+        await setSlotMode(app, slot as number, "split");
         expect(await splitFrameCount(app), "the slot is split").toBeGreaterThanOrEqual(2);
 
         const body = (await app.bodies()).find((b) => b.componentId === "file-view");

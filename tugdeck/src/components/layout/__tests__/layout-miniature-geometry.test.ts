@@ -340,7 +340,7 @@ describe("miniatureGeometry — flow", () => {
 });
 
 describe("miniatureGeometry — what a split does not touch", () => {
-  test("a slot's band is the same whether or not the column is divided", () => {
+  test("a slot's band is the same whether or not the slot is divided", () => {
     // A split divides the RUN, which is the field's height; it must never move
     // an edge along the band. The geometry takes the splits only to span the
     // members down the run, and this is the claim that it does nothing else.
@@ -348,7 +348,7 @@ describe("miniatureGeometry — what a split does not touch", () => {
     const split = miniatureGeometry({
       kind: "three-up",
       rails: { right: 2 },
-      columnSplits: { 1: 3 },
+      slotSplits: { 1: 3 },
     });
     const edges = (blocks: typeof whole.blocks) =>
       blocks.map(({ slot, leftPct, widthPct }) => ({ slot, leftPct, widthPct }));
@@ -358,13 +358,13 @@ describe("miniatureGeometry — what a split does not touch", () => {
 });
 
 describe("miniatureGeometry — members", () => {
-  test("a split column's members divide its run in proportion to their heights", () => {
+  test("a split slot's members divide its run in proportion to their heights", () => {
     const { blocks } = miniatureGeometry({
       kind: "three-up",
-      columnSplits: { 1: 2 },
-      columnAllocations: { 1: place("shared", [300, 600], 904) },
+      slotSplits: { 1: 2 },
+      slotAllocations: { 1: place("shared", [300, 600], 904) },
     });
-    // Only the split column carries members; a whole one carries none.
+    // Only the split slot carries members; a whole one carries none.
     expect(blocks[0].members).toBeUndefined();
     expect(blocks[0].overflow).toBe(false);
     const members = blocks[1].members!;
@@ -379,11 +379,11 @@ describe("miniatureGeometry — members", () => {
     expect(members[1].spanPct).toBeCloseTo(members[0].spanPct * 2, 6);
   });
 
-  test("an overflowing column spans every member, and the run cuts the last", () => {
+  test("an overflowing slot spans every member, and the run cuts the last", () => {
     const { blocks } = miniatureGeometry({
       kind: "two-up",
-      columnSplits: { 0: 3 },
-      columnAllocations: { 0: place("overflow", [400, 400, 400], 1000) },
+      slotSplits: { 0: 3 },
+      slotAllocations: { 0: place("overflow", [400, 400, 400], 1000) },
     });
     const members = blocks[0].members!;
     expect(members.length).toBe(3);
@@ -396,10 +396,10 @@ describe("miniatureGeometry — members", () => {
     expect(last.topPct + last.spanPct).toBeGreaterThan(100);
   });
 
-  test("with no allocation, a split column takes the anonymous equal division", () => {
+  test("with no allocation, a split slot takes the anonymous equal division", () => {
     const { blocks } = miniatureGeometry({
       kind: "two-up",
-      columnSplits: { 1: 2 },
+      slotSplits: { 1: 2 },
     });
     const members = blocks[1].members!;
     expect(members.length).toBe(2);

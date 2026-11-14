@@ -100,7 +100,7 @@ function railPane(cardId: string) {
 /**
  * Three slots and a right rail. Slot 0 is DIVIDED — A above B — so the deck
  * holds all three kinds of place a move can start in or land on: a band of a
- * split column, a whole column, and a rail member.
+ * split slot, a whole slot, and a rail member.
  *
  * Left to right the places read: slot 0 (A, B), slot 1 (C), slot 2 (D), rail (L).
  */
@@ -124,7 +124,7 @@ function crossingShape() {
       kind: "three-up",
       layout: "fit",
       sidebars: { layout: { side: "right" } },
-      columns: { 0: { mode: "split", order: ["p0a", "p0b"] } },
+      slots: { 0: { mode: "split", order: ["p0a", "p0b"] } },
     },
     hasFocus: true,
   };
@@ -217,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seed(app, crossingShape(), 5, "A");
 
-          // ── Down inside the divided column: a band move, not a ring step.
+          // ── Down inside the divided slot: a band move, not a ring step.
           await move(app, "below");
           await app.expectFocusedCard("B", { timeoutMs: 8_000 });
 

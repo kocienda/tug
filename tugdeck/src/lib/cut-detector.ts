@@ -57,7 +57,7 @@ export interface PaneSample {
   readonly visible: boolean;
   /**
    * Whether the settle had committed the frame BEHIND another that covers it
-   * — `data-imposer-covered`, which a column mode flip puts on every member
+   * — `data-imposer-covered`, which a slot mode flip puts on every member
    * but its survivor, from the commit until the survivor's release.
    *
    * A revealed member is committed at its tile in the same layout pass that

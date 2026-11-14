@@ -15,7 +15,7 @@
  *   next Overview body seeds its composer from the replica.
  * - **The miniature** (`miniature.*`). The Layout card's miniature is drawn
  *   in its body, and what it mirrors and drives is the shell's: the gauge
- *   channel (the deck's flow offset, the canvas's column slides, drag frame
+ *   channel (the deck's flow offset, the canvas's slot slides, drag frame
  *   and drop zone) and the canvas's drop-zone host. A body with any gauge
  *   registration says so (`miniature.demand`); while any does, the shell
  *   publishes every standing gauge at most once per task
@@ -334,7 +334,7 @@ export const miniatureGauges = defineSharedStore<GaugeEntry[]>({
 function isZone(value: unknown): value is DropZone {
   if (!isRecord(value)) return false;
   const kind = value.kind;
-  return kind === "slot" || kind === "column-index" || kind === "rail-index" || kind === "tab-bar";
+  return kind === "slot" || kind === "slot-index" || kind === "rail-index" || kind === "tab-bar";
 }
 
 const SAMPLE_ZONE: DropZone = { kind: "slot", slot: 0, rect: { x: 0, y: 0, width: 0, height: 0 } };

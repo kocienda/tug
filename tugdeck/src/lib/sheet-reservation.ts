@@ -5,7 +5,7 @@
  * A modal surface whose natural height is content-bounded may declare that
  * height ([B02] of the sheet-reservation brief), and the place its host card
  * stands in then holds the card's floor at it for as long as the sheet is up
- * ([B01]) — so a picker on a member of a split column or rail opens at the
+ * ([B01]) — so a picker on a member of a split slot or rail opens at the
  * size it needs, the neighbour keeps whatever the picker did not take, and the
  * card settles back into its stored share when the sheet goes.
  *
@@ -58,7 +58,7 @@ export const PANE_TITLE_BAR_AND_CLIP_PX = 37;
  * number; every other term between a panel and the member under it is the
  * deck's — the pane's title bar and the clip's drop above the panel, the gap
  * the clamp keeps against the canvas below it, less the gap the imposition
- * already leaves under a column's last member, which the clamp's canvas
+ * already leaves under a slot's last member, which the clamp's canvas
  * reading gets for free. The card knows none of those and should not.
  *
  * This function exists because there were two answers to one question. The

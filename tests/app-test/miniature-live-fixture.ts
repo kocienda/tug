@@ -119,13 +119,13 @@ export async function gauge(app: App, property: string): Promise<number | null> 
   );
 }
 
-/** The vertical translation the first overflowing column member is drawing
+/** The vertical translation the first overflowing slot member is drawing
  *  with, in pixels — the live half of its position. */
 export async function memberSlidePx(app: App): Promise<number> {
   return (await cardPage(app, LAYOUT_CARD_ID)).evalJS<number>(
     `(function () {
       var block = document.querySelector(
-        ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-column-overflow]"
+        ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-slot-overflow]"
       );
       if (block === null) return NaN;
       var transform = getComputedStyle(block).transform;

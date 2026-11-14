@@ -72,7 +72,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
       try {
         // No Session card and no seeded bid in this fixture: the card arrives
         // through `addCard`, which is the only thing that MEASURES one. Slot 0
-        // is a split column holding a single `hello` card, so the newcomer
+        // is a split slot holding a single `hello` card, so the newcomer
         // joins it as a second member rather than stacking.
         await app.seedDeckState({
           state: {
@@ -106,7 +106,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
             imposition: {
               kind: "two-up",
               sidebars: {},
-              columns: { 0: { mode: "split", order: ["p1"] } },
+              slots: { 0: { mode: "split", order: ["p1"] } },
             },
             hasFocus: true,
           },

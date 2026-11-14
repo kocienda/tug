@@ -213,11 +213,11 @@ describe("the vocabulary is fully accounted for", () => {
     }
   });
 
-  test("the column verbs are registry-routed and bind no chord", () => {
+  test("the slot verbs are registry-routed and bind no chord", () => {
     // Named verbs a menu row and a column control dispatch, and neither takes a
     // default binding ([L30]) — the deck's chord budget is not spent on an
     // arrangement the user reaches by pointing at it.
-    for (const id of [TUG_ACTIONS.SET_COLUMN_MODE, TUG_ACTIONS.EQUALIZE_COLUMN]) {
+    for (const id of [TUG_ACTIONS.SET_SLOT_MODE, TUG_ACTIONS.EQUALIZE_SLOT]) {
       const entry = COMMANDS_BY_ID.get(id);
       expect(entry?.routing).toBe("registry");
       expect(entry?.bindings ?? []).toEqual([]);
@@ -290,11 +290,11 @@ describe("promoted commands", () => {
     [TUG_ACTIONS.OPEN_COMMAND_PICKER, "session.commandPicker", "detach"],
     [TUG_ACTIONS.TOGGLE_DICTATION, "session.dictate", "detach"],
     [TUG_ACTIONS.STOP_DICTATION_AND_SEND, "session.dictateAndSend", "detach"],
-    [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "view.slotSplit", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:up`, "view.slotMoveUp", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:down`, "view.slotMoveDown", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:top`, "view.slotMoveTop", "keep"],
-    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`, "view.slotMoveBottom", "keep"],
+    [TUG_ACTIONS.TOGGLE_SLOT_SPLIT, "view.slotSplit", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_SLOT}:up`, "view.slotMoveUp", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_SLOT}:down`, "view.slotMoveDown", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_SLOT}:top`, "view.slotMoveTop", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_SLOT}:bottom`, "view.slotMoveBottom", "keep"],
   ];
 
   test("each drives its item and records its disabled-state chord", () => {

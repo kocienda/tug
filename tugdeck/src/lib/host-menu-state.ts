@@ -65,7 +65,7 @@ import { bodyChordCaptureStore } from "./body-chord-capture-store";
 import { appModalStore } from "./app-modal-store";
 import { dictationStore } from "./dictation-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
-import { resolveColumnMenuFact } from "./layout-selection";
+import { resolveSlotMenuFact } from "./layout-selection";
 import { focusTravelDirections } from "./directional-focus";
 import type { DeckMenuValue } from "../bus/declarations/deck";
 import {
@@ -234,7 +234,7 @@ export interface MenuCommandGate {
   readonly enabled?: boolean;
   /**
    * Checkmark; absent means "this item does not participate in the check
-   * column".
+   * slot".
    *
    * Three readings rather than two, because a row that stands for a card
    * has three things to say and a checkbox has two: `false` is the empty
@@ -666,11 +666,11 @@ export interface MenuStateDeckProjection {
    */
   reachableSlots: number;
   /**
-   * How many split columns have two or more members standing. Gates View ▸
+   * How many split slots have two or more members standing. Gates View ▸
    * Equalize All Heights. Module-internal: the mirror carries the gates, so
    * this never rides the wire.
    */
-  equalizableColumns: number;
+  equalizableSlots: number;
   /**
    * Every registered sidebar card, keyed by component id. Gates and marks the
    * View menu's per-card rows. Module-internal: the mirror carries the
@@ -928,8 +928,8 @@ export function projectDeckState(
     cardFold,
     reachableSlots,
     // Like the slot count, a fact about the arrangement and not the
-    // selection: Equalize All Heights acts on every column.
-    equalizableColumns: equalizableSlotsOf(state).length,
+    // selection: Equalize All Heights acts on every slot.
+    equalizableSlots: equalizableSlotsOf(state).length,
     sidebars,
   };
 }
@@ -978,7 +978,7 @@ export class HostMenuStatePublisher {
     bullseye: null,
     cardFold: null,
     reachableSlots: 0,
-    equalizableColumns: 0,
+    equalizableSlots: 0,
     sidebars: {},
   };
   /**
@@ -1015,7 +1015,7 @@ export class HostMenuStatePublisher {
   /** The facts the last flush computed its gates from. */
   private lastFacts: CommandMenuFacts = EMPTY_MENU_FACTS;
   /**
-   * What the column verbs could do right now, asked rather than stored.
+   * What the slot verbs could do right now, asked rather than stored.
    *
    * A source and not a value because the fact reads the layout selection's
    * ladder, whose lower rungs are not deck state: the Cards list's cursor is a
@@ -1024,10 +1024,10 @@ export class HostMenuStatePublisher {
    * that move on their own — the selection store and the cursor — schedule one
    * (see {@link initHostMenuState}).
    */
-  private columnFactSource: (() => CommandMenuFacts["column"]) | null = null;
+  private slotFactSource: (() => CommandMenuFacts["slot"]) | null = null;
   /**
    * Which directions a focus move could take right now, asked rather than
-   * stored — for {@link columnFactSource}'s reason one axis over. The fact reads
+   * stored — for {@link slotFactSource}'s reason one axis over. The fact reads
    * the runs the deck's places divide, and a run is a MEASUREMENT off the store
    * rather than a field of `DeckState`, so it cannot be projected: it has to be
    * asked at flush time, where the answer is as fresh as whatever caused the
@@ -1061,8 +1061,8 @@ export class HostMenuStatePublisher {
   }
 
   /** Register the closure the flush asks for {@link CommandMenuFacts.column}. */
-  setColumnFactSource(source: () => CommandMenuFacts["column"]): void {
-    this.columnFactSource = source;
+  setSlotFactSource(source: () => CommandMenuFacts["slot"]): void {
+    this.slotFactSource = source;
     this.scheduleFlush();
   }
 
@@ -1230,7 +1230,7 @@ export class HostMenuStatePublisher {
       bullseye,
       cardFold,
       reachableSlots,
-      equalizableColumns,
+      equalizableSlots,
       sidebars,
     } = this.deckProjection;
     const session =
@@ -1294,9 +1294,9 @@ export class HostMenuStatePublisher {
           ? null
           : cardFold,
       reachableSlots,
-      equalizableColumns,
+      equalizableSlots,
       sidebars,
-      column: this.columnFactSource?.() ?? null,
+      slot: this.slotFactSource?.() ?? null,
       focusTravel: this.focusTravelFactSource?.() ?? null,
       // The same array the payload's Workspaces section is built from, so the
       // Delete row's gate and the rows it would delete from can never
@@ -1378,11 +1378,11 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // deck mutation — a rename, a new workspace, a reorder. Its own subscription
   // re-projects; the publisher's diff swallows a push that changed nothing.
   deck.subscribeSpaces(push);
-  // The column verbs act on the layout selection, so the fact that gates their
+  // The slot verbs act on the layout selection, so the fact that gates their
   // menu items is asked at flush time rather than projected from deck state
   // ([P05]). Its two non-deck inputs push a flush themselves: the selection
   // store, and the Cards list's cursor.
-  publisher.setColumnFactSource(() => resolveColumnMenuFact(deck));
+  publisher.setSlotFactSource(() => resolveSlotMenuFact(deck));
   // The focus family's gate, per direction. It needs no subscription of its own:
   // its one non-deck input is the pair of measured runs, and a run only moves
   // when the canvas re-lays out, which pushes a projection anyway. What it must
@@ -1391,7 +1391,7 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   publisher.setFocusTravelFactSource(() =>
     focusTravelDirections(
       deck.getSnapshot(),
-      { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
+      { rail: deck.getRailRunHeight(), slot: deck.getSlotRunHeight() },
       deck.getFirstResponderCardId(),
     ),
   );
@@ -1583,8 +1583,8 @@ export function initBodyHostMenuState(deck: CardDeck, view: DeckView | null): vo
   publisher.setFocusTravelFactSource(
     () => (shellMenuFacts?.focusTravel as CommandMenuFacts["focusTravel"] | undefined) ?? null,
   );
-  publisher.setColumnFactSource(
-    () => (shellMenuFacts?.column as CommandMenuFacts["column"] | undefined) ?? null,
+  publisher.setSlotFactSource(
+    () => (shellMenuFacts?.slot as CommandMenuFacts["slot"] | undefined) ?? null,
   );
   deck.subscribe(push);
   cardSessionBindingStore.subscribe(push);

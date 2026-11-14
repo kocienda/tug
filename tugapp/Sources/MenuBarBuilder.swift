@@ -780,7 +780,7 @@ struct MenuBarBuilder {
         // sides as keyboard entities, three-state like the card rows in the
         // View menu:
         // show and focus, focus, hide. The side rides `representedObject`, the
-        // shape the column-move rows use. Key equivalents left EMPTY for the
+        // shape the slot-move rows use. Key equivalents left EMPTY for the
         // reason every row here leaves them empty — `applyCommandChords` writes
         // them from the frontend's keymap, so the pair stays rebindable.
         for (title, side, id) in [

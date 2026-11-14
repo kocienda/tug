@@ -98,14 +98,14 @@ final class TestHarnessConnection {
     /// `1.10.0`: adds `setWindowContentSize` — the harness window sized
     /// to a content size of the test's choosing, clamped to the screen
     /// the window is on. A fixture whose members have tall floors (two
-    /// session cards standing split in one column) does not fit the
+    /// session cards standing split in one slot) does not fit the
     /// default 80%-of-screen window at all, and the drag under test
     /// cannot move until it does. Additive; major stays `1`.
     ///
     /// `1.11.0`: adds `setPageZoom` — the web view's page zoom set for
     /// this launch alone, never persisted. A fixture whose floors need more
     /// CSS height than the screen's window can give (two session cards
-    /// split in one column, on a laptop display) zooms out to fit rather
+    /// split in one slot, on a laptop display) zooms out to fit rather
     /// than reading a seam that cannot move. Gestures still land: native
     /// events map through `CoordMapping`, which scales by the zoom.
     /// Additive; major stays `1`.

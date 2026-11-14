@@ -319,7 +319,7 @@ const ACCEPTED_FANOUT: Record<string, number> = {
 
     // The pane frame. Every card in the deck is drawn inside one, and every
     // structural fact the deck has about a pane — its chrome tier, its rail
-    // role, its column membership, its bullseye posture — is stamped on that
+    // role, its slot membership, its bullseye posture — is stamped on that
     // frame as an attribute, so a test that reads ANY of them by selector
     // names this module. It sat at exactly 20, which is the budget holding by
     // luck rather than by design.

@@ -930,7 +930,7 @@ describe("computeFileMenuGates (Spec S02)", () => {
 // Last in the file: it installs the module's body publisher, which the
 // module-level publish functions then speak to.
 describe("initBodyHostMenuState", () => {
-  test("the slot rows a body posts follow the shell's column fact", () => {
+  test("the slot rows a body posts follow the shell's slot fact", () => {
     // A body page's deck is its one card, standing in no slot, so the fact it
     // could compute for itself is always `null`. The slot rows route to the
     // first responder, so the body's gates for them are posted over the
@@ -960,7 +960,7 @@ describe("initBodyHostMenuState", () => {
       applyShellMenuFacts({
         projection: projectDeckState(state),
         focusTravel: null,
-        column: { mode: "split", canMoveUp: false, canMoveDown: true, canEqualize: true },
+        slot: { mode: "split", canMoveUp: false, canMoveDown: true, canEqualize: true },
       });
       const gates = posted[posted.length - 1];
       expect(gates["view.slotSplit"]).toMatchObject({ enabled: true, title: "Stack Slot" });

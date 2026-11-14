@@ -46,7 +46,7 @@ import type { App } from "../_harness";
 import { settleFor } from "../body-grounding/_bodies";
 import { standUpKind } from "../body-grounding/_kind-bodies";
 import { cardKind, kindPane } from "../body-grounding/_kinds";
-import { SPLIT } from "../column-split-fixture";
+import { SPLIT } from "../slot-split-fixture";
 import { seedFixtureSession } from "../fixtures/resolve";
 import { placeholderCard, placeholderSettings, placeholderStates, standUpPlaceholders, type Placeholder } from "../site-clips/_placeholders";
 import { factoryRails, railsEnv, standUpRails } from "../site-clips/_rails";

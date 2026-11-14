@@ -337,7 +337,7 @@ export interface CardRegistration {
    * The card type's word on when its opening sheet's content has stopped
    * moving, for a card that arrives HIDDEN ([B01], [B03]).
    *
-   * A card type declaring {@link openingForm} is committed to its column
+   * A card type declaring {@link openingForm} is committed to its slot
    * hidden — the real card, laying out and reporting its height while nothing
    * the user sees moves — and revealed in one settle when its content is
    * quiet or the deck's bound expires. Only the card type knows what its

@@ -32,7 +32,7 @@ const SHELL_DECK_READERS: Record<string, string> = {
   "test-surface.ts": "the harness's door onto the shell's arrangement (offsets, bullseye, gestures)",
   "components/chrome/deck-canvas.tsx": "the shell's canvas, which draws the arrangement",
   "components/chrome/tug-pane.tsx": "the shell's pane stand-in, which answers a pane's tab and depth verbs on the shell's arrangement",
-  "components/chrome/settle-engine.ts": "settles the shell's flow, columns and departures",
+  "components/chrome/settle-engine.ts": "settles the shell's flow, slots and departures",
   "components/chrome/rail-width-draft.ts": "drags the shell's rail width",
   "components/chrome/pane-focus-controller.ts": "deselects and activates the shell's panes",
   "components/chrome/card-placement-beacon.tsx": "places every body from the shell's canvas",

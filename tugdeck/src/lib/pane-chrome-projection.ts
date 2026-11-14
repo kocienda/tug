@@ -15,9 +15,9 @@
  * Pure over the deck and the injected readers: the title override, the
  * durable identity, the workspace list. The place badge's facts come from
  * `panePlaceFactsOf`, the badge's own reading. The place runs are not
- * measured here — the canvas measures them — so a split column whose members
+ * measured here — the canvas measures them — so a split slot whose members
  * overflow its run reads as sharing it, which differs from the canvas only
- * in whether that column's seams are offered as grips.
+ * in whether that slot's seams are offered as grips.
  *
  * @module lib/pane-chrome-projection
  */
@@ -32,11 +32,11 @@ import type {
 import { getRegistration, getStackSizePolicy, type CardMeta } from "../card-registry";
 import { closeAsksOf } from "./close-asks";
 import { panePlaceFactsOf } from "./pane-place-facts";
-import { columnBadgeCharacter } from "./column-badge";
+import { slotBadgeCharacter } from "./slot-badge";
 import {
   bullseyePaneIdOf,
-  columnDrawsSplit,
-  deckColumnsOf,
+  slotDrawsSplit,
+  deckSlotsOf,
   deckFlowStrip,
   findSidebarPanes,
   isSidebarParked,
@@ -80,8 +80,8 @@ export interface KeepSlotGripFacts {
   layout: "fit" | "flow";
   /** The slot's travel fraction across the band (fit only). */
   fraction: number;
-  /** The pane's band in a split column sharing its run, when it stands in one. */
-  column: { index: number; count: number } | undefined;
+  /** The pane's band in a split slot sharing its run, when it stands in one. */
+  position: { index: number; count: number } | undefined;
   /** Whether the pane holds a slot height of its own (a Fill Height pane). */
   heightHeld: boolean;
   /** Whether the pane's width is locked by its size policy. */
@@ -94,16 +94,16 @@ export interface KeepSlotGripFacts {
  * left edge where the slot has travel to give up and a right edge where it is
  * not the last slot's; in flow the right edge alone; a width-locked card
  * neither; never a corner; and a top or bottom only where it borders a seam
- * of a split column sharing its run, or where the pane holds a height.
+ * of a split slot sharing its run, or where the pane holds a height.
  */
 export function keepSlotGripsOf(keep: KeepSlotGripFacts | null): ResizeEdge[] {
   if (keep === null) return [...ALL_RESIZE_EDGES];
   return ALL_RESIZE_EDGES.filter((edge) => {
-    const column = keep.column;
-    if (edge === "n") return column !== undefined && column.index > 0;
+    const position = keep.position;
+    if (edge === "n") return position !== undefined && position.index > 0;
     if (edge === "s") {
       if (keep.heightHeld) return true;
-      return column !== undefined && column.index < column.count - 1;
+      return position !== undefined && position.index < position.count - 1;
     }
     if (keep.widthPinned) return false;
     if (keep.layout === "flow") return edge === "e";
@@ -131,7 +131,7 @@ export interface PaneChromeReaders {
   runs?: PlaceRuns;
 }
 
-const UNMEASURED_RUNS: PlaceRuns = { rail: null, column: null };
+const UNMEASURED_RUNS: PlaceRuns = { rail: null, slot: null };
 
 /** The side `paneId` stands on as a rail member — seated, or parked with its rail — or undefined. */
 function barSideOf(state: DeckState, paneId: string, runs: PlaceRuns): SidebarSide | undefined {
@@ -157,8 +157,8 @@ export interface PaneStanding {
   bullseye: boolean;
   /** Whether it stands in a slot of the imposition (and is not a seated rail member). */
   slotted: boolean;
-  /** The column it stands in, when it is slotted. */
-  column: { mode: "stack" | "split" } | undefined;
+  /** The slot it stands in, when it is slotted. */
+  arrangement: { mode: "stack" | "split" } | undefined;
   /** Whether its geometry is derived — pinned, slotted or bullseyed — so a hand move or a released resize evicts it. */
   derived: boolean;
   /** Whether it holds a slot height of its own: alone or stacked in its slot, its height not locked. */
@@ -179,10 +179,10 @@ export function paneStandingOf(state: DeckState, paneId: string, runs: PlaceRuns
   const bullseye = bullseyePaneIdOf(state) === paneId;
   const arriving = state.arriving?.[paneId] === true && placement !== undefined;
 
-  const column = deckColumnsOf(state, runs.column).find((c) => c.members.includes(paneId));
-  const columnMember =
-    column !== undefined && columnDrawsSplit(column)
-      ? { index: column.members.indexOf(paneId), count: column.members.length, standing: column.allocation?.standing ?? "shared" }
+  const deckSlot = deckSlotsOf(state, runs.slot).find((c) => c.members.includes(paneId));
+  const slotMember =
+    deckSlot !== undefined && slotDrawsSplit(deckSlot)
+      ? { index: deckSlot.members.indexOf(paneId), count: deckSlot.members.length, standing: deckSlot.allocation?.standing ?? "shared" }
       : undefined;
 
   const cardsById = new Map(state.cards.map((c) => [c.id, c]));
@@ -192,7 +192,7 @@ export function paneStandingOf(state: DeckState, paneId: string, runs: PlaceRuns
   );
   const widthPinned = sizePolicy.max?.width === sizePolicy.min.width;
   const heightPinned = sizePolicy.max?.height === sizePolicy.min.height;
-  const slotHeightApplies = imposed && columnMember === undefined && !heightPinned && !bullseye && !seated && !arriving;
+  const slotHeightApplies = imposed && slotMember === undefined && !heightPinned && !bullseye && !seated && !arriving;
 
   const keepsSlot =
     impositionResizeSlot(state.imposition) === "keep" && imposed && placement !== undefined && !bullseye && !arriving;
@@ -203,9 +203,9 @@ export function paneStandingOf(state: DeckState, paneId: string, runs: PlaceRuns
       : {
           layout: flow ? "flow" : "fit",
           fraction: flow ? 0 : travelFraction(placement),
-          column:
-            columnMember !== undefined && columnMember.count > 1 && columnMember.standing === "shared"
-              ? { index: columnMember.index, count: columnMember.count }
+          position:
+            slotMember !== undefined && slotMember.count > 1 && slotMember.standing === "shared"
+              ? { index: slotMember.index, count: slotMember.count }
               : undefined,
           heightHeld: slotHeightApplies,
           widthPinned,
@@ -215,7 +215,7 @@ export function paneStandingOf(state: DeckState, paneId: string, runs: PlaceRuns
     barSide,
     bullseye,
     slotted: placement !== undefined,
-    column: column === undefined ? undefined : { mode: column.mode },
+    arrangement: deckSlot === undefined ? undefined : { mode: deckSlot.mode },
     derived: seated || imposed || bullseye,
     slotHeightApplies,
     keepSlot,
@@ -262,7 +262,7 @@ export function paneChromeFor(deck: DeckState, cardId: string, readers: PaneChro
   const standing = paneStandingOf(state, pane.id, runs);
   const barSide = standing.barSide;
   const bullseyed = standing.bullseye;
-  const column = standing.column;
+  const arrangement = standing.arrangement;
   const slotHeightApplies = standing.slotHeightApplies;
   const grips = barSide !== undefined ? railGripsOf(barSide, bullseyed) : keepSlotGripsOf(standing.keepSlot);
 
@@ -272,7 +272,7 @@ export function paneChromeFor(deck: DeckState, cardId: string, readers: PaneChro
     mode,
     kind: placeKind,
     index: place.index,
-    band: mode === "split" ? columnBadgeCharacter("split", count, place.index) : null,
+    band: mode === "split" ? slotBadgeCharacter("split", count, place.index) : null,
     count,
   });
   const placeArrangement: PaneChromePlace | null =
@@ -280,7 +280,7 @@ export function paneChromeFor(deck: DeckState, cardId: string, readers: PaneChro
       ? // A rail of one divides nothing, so its badge reads the count, as a slot of one does.
         placeOf(count > 1 ? "split" : "stack", "rail")
       : standing.slotted
-        ? placeOf(column?.mode ?? "stack", "column")
+        ? placeOf(arrangement?.mode ?? "stack", "slot")
         : null;
 
   const slotStack: PaneChromeStackEntry[] = place.slotStack.map((entry) => ({

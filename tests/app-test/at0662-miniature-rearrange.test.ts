@@ -12,9 +12,9 @@
  *       offered place and the canvas says a card is in the air; the release
  *       takes all three away;
  *   (a′) a block dropped a quarter of the way down a lone sitter's block
- *       divides that column, the arriving card on top;
+ *       divides that slot, the arriving card on top;
  *   (b) a drag released on its own block commits nothing;
- *   (c) a split member dragged to the top of its column goes first;
+ *   (c) a split member dragged to the top of its slot goes first;
  *   (d) the lower of two rail members dragged to the top of the rail goes
  *       first;
  *   (f) Escape mid-drag retires the drag: the release that follows over
@@ -37,7 +37,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { effectiveColumnOrder } from "../../tugdeck/src/lib/layout-imposer";
+import { effectiveSlotOrder } from "../../tugdeck/src/lib/layout-imposer";
 import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -62,7 +62,7 @@ interface Point {
 interface Snapshot {
   panes: { id: string; slot?: number }[];
   imposition: {
-    columns?: Record<string, { mode?: string; order?: string[] }>;
+    slots?: Record<string, { mode?: string; order?: string[] }>;
     rails?: Record<string, { order?: string[] }>;
   };
 }
@@ -84,7 +84,7 @@ function railPanes() {
 /** Three-up under fit, with the cards `[paneId, slot, cardId]` and the rail. */
 function deck(
   members: [string, number, string][],
-  columns?: Record<number, { mode: "split" }>,
+  slots?: Record<number, { mode: "split" }>,
 ) {
   return {
     cards: [
@@ -115,7 +115,7 @@ function deck(
       kind: "three-up",
       sidebars: { layout: { side: "right" }, jots: { side: "right" } },
       rails: { right: { mode: "split", order: ["layout", "jots"] } },
-      ...(columns === undefined ? {} : { columns }),
+      ...(slots === undefined ? {} : { slots: slots }),
     },
     hasFocus: true,
   };
@@ -286,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
         expect(panesInSlot(state, 2), "A stands alone in slot 2").toEqual(["p1"]);
 
         // (a′) A a quarter of the way down B's block: B is a lone sitter, so
-        // the column divides with A on top.
+        // the slot divides with A on top.
         await openDeck(app, deck([["p1", 0, "A"], ["p2", 1, "B"]]));
         const b = await rectOf(app, BLOCK(1));
         await drag(app, await centerOf(app, BLOCK(0)), {
@@ -294,13 +294,13 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
           y: b.top + b.height / 4,
         });
         state = await snapshot(app);
-        const order = effectiveColumnOrder(
+        const order = effectiveSlotOrder(
           state.imposition as never,
           1,
           panesInSlot(state, 1),
         );
-        note(`slot 1 after the divided drop: ${JSON.stringify(state.imposition.columns?.["1"])}, order ${order.join(",")}`);
-        expect(state.imposition.columns?.["1"]?.mode, "slot 1 is split").toBe(
+        note(`slot 1 after the divided drop: ${JSON.stringify(state.imposition.slots?.["1"])}, order ${order.join(",")}`);
+        expect(state.imposition.slots?.["1"]?.mode, "slot 1 is split").toBe(
           "split",
         );
         expect(order, "A on top of B").toEqual(["p1", "p2"]);
@@ -327,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
           before.imposition,
         );
 
-        // (c) A split column of two: the lower member to the top goes first.
+        // (c) A split slot of two: the lower member to the top goes first.
         await openDeck(
           app,
           deck([["p1", 0, "A"], ["p2", 0, "B"], ["p3", 1, "C"]], {
@@ -341,12 +341,12 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
           { x: top.left + top.width / 2, y: top.top + 2 },
         );
         state = await snapshot(app);
-        const members = effectiveColumnOrder(
+        const members = effectiveSlotOrder(
           state.imposition as never,
           0,
           panesInSlot(state, 0),
         );
-        note(`split column after the member drag: ${members.join(",")}`);
+        note(`split slot after the member drag: ${members.join(",")}`);
         expect(members, "B goes first").toEqual(["p2", "p1"]);
 
         // (d) The lower rail member to the top of the rail goes first.

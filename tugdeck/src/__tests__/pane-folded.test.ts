@@ -13,7 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import type { TugPaneState } from "../layout-tree";
 import {
-  columnIsWall,
+  slotIsWall,
   panesWithFolded,
   panesWithWallFolded,
 } from "../deck-manager";
@@ -104,12 +104,12 @@ describe("panesWithWallFolded", () => {
     expect(panesWithWallFolded(panes, "a", MEMBERS)).toBe(panes);
   });
 
-  test("a column of one has no siblings to fold", () => {
+  test("a slot of one has no siblings to fold", () => {
     const panes = [pane("a"), pane("b", true)];
     expect(panesWithWallFolded(panes, "a", ["a"])).toBe(panes);
   });
 
-  test("panes outside the column are never touched", () => {
+  test("panes outside the slot are never touched", () => {
     // The membership is the imposition's answer, not "every folded pane on
     // the deck": a wall in slot 0 says nothing about a card in slot 1.
     const panes = [pane("a"), pane("b"), pane("c", true), pane("elsewhere")];
@@ -133,33 +133,33 @@ describe("panesWithWallFolded", () => {
   });
 });
 
-describe("columnIsWall", () => {
+describe("slotIsWall", () => {
   const MEMBERS = ["a", "b", "c"];
 
   test("a settled wall is a wall even though nothing needs folding", () => {
     // The distinction the predicate exists for: `panesWithWallFolded` answers
     // by identity here, and the reveal is still owed. Reading the fold's
-    // identity as "not a wall" is what left the column unscrolled.
+    // identity as "not a wall" is what left the slot unscrolled.
     const panes = [pane("a"), pane("b", true), pane("c", true)];
-    expect(columnIsWall(panes, "a", MEMBERS)).toBe(true);
+    expect(slotIsWall(panes, "a", MEMBERS)).toBe(true);
     expect(panesWithWallFolded(panes, "a", MEMBERS)).toBe(panes);
   });
 
   test("one folded sibling is enough", () => {
     expect(
-      columnIsWall([pane("a"), pane("b"), pane("c", true)], "a", MEMBERS),
+      slotIsWall([pane("a"), pane("b"), pane("c", true)], "a", MEMBERS),
     ).toBe(true);
   });
 
   test("a plain split of full sessions is not a wall", () => {
-    expect(columnIsWall([pane("a"), pane("b"), pane("c")], "a", MEMBERS)).toBe(
+    expect(slotIsWall([pane("a"), pane("b"), pane("c")], "a", MEMBERS)).toBe(
       false,
     );
   });
 
   test("the opened pane's own flag is not evidence", () => {
     // It is the one member that is definitionally open by the time this is
-    // asked, and counting it would make every single-member column a wall.
-    expect(columnIsWall([pane("a", true)], "a", ["a"])).toBe(false);
+    // asked, and counting it would make every single-member slot a wall.
+    expect(slotIsWall([pane("a", true)], "a", ["a"])).toBe(false);
   });
 });

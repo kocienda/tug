@@ -35,7 +35,7 @@ import {
  * The order a close asks the arrangement for its successor.
  *
  * Down first because that is the direction the arrangement itself settles: in
- * a split column the members below rise into the vacated band, and in a
+ * a split slot the members below rise into the vacated band, and in a
  * stacked one "below" is the next card in z, which the close brings to the
  * front. Up is the same answer for the bottom member of a place. Only when the
  * closing pane was its place's whole population does the reckoning leave the

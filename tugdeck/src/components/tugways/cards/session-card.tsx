@@ -1277,7 +1277,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
       // a label, a list capped at 14.5rem, and the action row — so it declares
       // it ([B02]) and the deck holds its host pane's floor there while it is
       // up ([B01]). That is what keeps it from opening squeezed on a member of
-      // a split column or rail, where what bounds the panel is where the card
+      // a split slot or rail, where what bounds the panel is where the card
       // sits rather than what the panel needs. The report is cleared on close
       // and on unmount, so the card settles back into the share the hand gave
       // it ([B03]) the moment a session opens or the picker is cancelled.

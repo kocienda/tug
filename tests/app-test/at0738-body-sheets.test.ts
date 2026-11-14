@@ -33,7 +33,7 @@ import { copyFileSync } from "node:fs";
 
 import { launchTugApp, note } from "./_harness";
 import type { BodyViewSnapshot } from "./_harness/client";
-import { BODY_READY_MS, PLACED_MS, column, firstResponderJs, pollFor, spawnStub } from "./session-body-fixture";
+import { BODY_READY_MS, PLACED_MS, oneSlot, firstResponderJs, pollFor, spawnStub } from "./session-body-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "./streaming-stub-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -50,7 +50,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       });
       const SHEETS = "at0738-sheets";
       try {
-        await app.seedDeckState({ state: column([SHEETS]), focusCardId: SHEETS });
+        await app.seedDeckState({ state: oneSlot([SHEETS]), focusCardId: SHEETS });
         const readyBody = (all: BodyViewSnapshot[]) =>
           all.some((b) => b.cardId === SHEETS && b.state === "ready" && b.visible);
         await spawnStub(app, SHEETS, stubDir);

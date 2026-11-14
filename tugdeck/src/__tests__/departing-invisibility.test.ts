@@ -155,7 +155,7 @@ function pane(id: string, cardIds: readonly string[], extra: Partial<TugPaneStat
 }
 
 /**
- * A flow strip of three slots: slot 0 a split column of three members, slot 1
+ * A flow strip of three slots: slot 0 a split slot of three members, slot 1
  * one card holding two tabs, slot 2 one card; and a two-member left rail.
  */
 const D: DeckState = {
@@ -187,7 +187,7 @@ const D: DeckState = {
       invTop: { side: "left", pinned: true },
       invBottom: { side: "left", pinned: true },
     },
-    columns: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
+    slots: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
   },
   hasFocus: true,
 };

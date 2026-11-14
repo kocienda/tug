@@ -65,10 +65,10 @@ export function togglePaneBullseye(paneId: string): void {
 /** Split, stack or equalize the column at `slot`. */
 export function arrangePlace(slot: number, verb: "split" | "stack" | "equalize"): void {
   if (verb === "equalize") {
-    dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
+    dispatchCommand(TUG_ACTIONS.EQUALIZE_SLOT, { slot });
     return;
   }
-  dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: verb });
+  dispatchCommand(TUG_ACTIONS.SET_SLOT_MODE, { slot, mode: verb });
 }
 
 /** The slot `paneId` stands in, as the imposer clamps it, or null for a pane in none. */

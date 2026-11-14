@@ -101,7 +101,7 @@ export function deckShape() {
       sidebars: { layout: { side: "right" } },
       // Slot 1 is SET to split and holds one card. Slot 0 is shared and
       // stacked, which is what an untouched shared slot is.
-      columns: { 1: { mode: "split" } },
+      slots: { 1: { mode: "split" } },
     },
     hasFocus: true,
   };

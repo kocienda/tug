@@ -10,8 +10,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  adoptColumnProperties,
-  columnWriter,
+  adoptSlotProperties,
+  slotWriter,
 } from "@/components/chrome/place-properties";
 
 /** An inline style that is a map, and nothing else. */
@@ -52,33 +52,33 @@ describe("place-properties: adopting a slot's standing values", () => {
     const { layer, frame, readers } = fakeLayer();
     const standing = frame();
     readers.push(standing);
-    columnWriter(layer, 0, false)(SEAM, "0.3");
+    slotWriter(layer, 0, false)(SEAM, "0.3");
     expect(standing.style.values.get(SEAM)).toBe("0.3");
 
     const arriving = frame();
-    adoptColumnProperties(arriving as unknown as HTMLElement, 0);
+    adoptSlotProperties(arriving as unknown as HTMLElement, 0);
     expect(arriving.style.values.get(SEAM)).toBe("0.3");
   });
 
   test("a frame that already carries a slot value keeps it", () => {
     const { layer, frame } = fakeLayer();
-    columnWriter(layer, 0, false)(SEAM, "0.3");
+    slotWriter(layer, 0, false)(SEAM, "0.3");
 
     const returning = frame();
     returning.style.setProperty(SEAM, "0.3125");
-    adoptColumnProperties(returning as unknown as HTMLElement, 0);
+    adoptSlotProperties(returning as unknown as HTMLElement, 0);
     expect(returning.style.values.get(SEAM)).toBe("0.3125");
   });
 
   test("only the slot's own values are adopted, and a cleared one is not", () => {
     const { layer, frame } = fakeLayer();
-    columnWriter(layer, 1, false)(OTHER_SLOT, "0.5");
-    const write = columnWriter(layer, 0, false);
+    slotWriter(layer, 1, false)(OTHER_SLOT, "0.5");
+    const write = slotWriter(layer, 0, false);
     write(SEAM, "0.4");
     write(SEAM, null);
 
     const arriving = frame();
-    adoptColumnProperties(arriving as unknown as HTMLElement, 0);
+    adoptSlotProperties(arriving as unknown as HTMLElement, 0);
     expect([...arriving.style.values.keys()]).toEqual([]);
   });
 });

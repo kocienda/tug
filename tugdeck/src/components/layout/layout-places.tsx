@@ -4,7 +4,7 @@
  * Two components, one on the picture and one under it.
  *
  * **{@link LayoutPlaces} stands on the drawing** and makes every part of it a
- * target: one invisible target per column block, per split member and per
+ * target: one invisible target per slot block, per split member and per
  * rail member, at the spans `miniatureGeometry` gives the drawing. The drawing
  * is chrome at rest; a target draws nothing until the hand is on it, and then
  * lights the part under it. What a press does is not decided here: the target
@@ -23,9 +23,9 @@
  * belongs to.
  *
  * **A toggle wears what its slot is SET to, not what it is showing.** A slot's
- * glyph reads `columnModeOf` — the stored arrangement. The blocks are honest
+ * glyph reads `slotModeOf` — the stored arrangement. The blocks are honest
  * about what is on screen, and the two come apart below two cards: membership
- * churn preserves an arrangement (`columnDrawsSplit`), so a slot set to split
+ * churn preserves an arrangement (`slotDrawsSplit`), so a slot set to split
  * and standing one card deep draws as one undivided block. Every slot therefore
  * wears its glyph at one weight, whatever stands in it, and stays pressable so
  * the arrangement can be put back.
@@ -74,7 +74,7 @@ import { registerGauge } from "@/lib/imposer-gauges";
 import {
   SplitGlyph,
   StackGlyph,
-} from "@/components/tugways/tug-column-badge";
+} from "@/components/tugways/tug-slot-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useTooltipDelayAtMost } from "@/lib/tooltip-delay";
@@ -82,7 +82,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
 import { useItemGroupKeyboard } from "@/components/tugways/use-item-group-keyboard";
 import type {
-  ColumnMode,
+  SlotMode,
   ContentWidth,
   ImpositionKind,
   ImpositionLayout,
@@ -105,7 +105,7 @@ export interface LayoutPlace {
   /** Which numbered slot this is. */
   slot?: number;
   /** The arrangement the deck has stored for this place. */
-  mode: ColumnMode;
+  mode: SlotMode;
   /** What to call it out loud: "Slot 3". */
   label: string;
   /** The sender id the section's responder routes this place's presses by. */
@@ -132,13 +132,13 @@ export interface LayoutPlacesProps {
   flow?: MiniatureFlowStrip | null;
   /** Which slots the drawing divides, and into how many members — the same
    *  prop the drawing beneath was given, so the targets land on its members. */
-  columnSplits?: Readonly<Record<number, number>>;
-  /** The committed columns' own divisions, as the drawing was given them. */
-  columnAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
-  /** Each overflowing column's committed slide, as a fraction of the run. */
-  columnOffsets?: Readonly<Record<number, number>>;
-  /** Each split column's member pane ids, top to bottom, keyed by slot. */
-  columnMembers?: Readonly<Record<number, readonly string[]>>;
+  slotSplits?: Readonly<Record<number, number>>;
+  /** The committed slots' own divisions, as the drawing was given them. */
+  slotAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
+  /** Each overflowing slot's committed slide, as a fraction of the run. */
+  slotOffsets?: Readonly<Record<number, number>>;
+  /** Each split slot's member pane ids, top to bottom, keyed by slot. */
+  slotMembers?: Readonly<Record<number, readonly string[]>>;
   /** The committed rails' own divisions, as the drawing was given them. */
   railAllocations?: Partial<Record<SidebarSide, PlaceAllocation | null>>;
   /** Each side's rail members, in rail order. */
@@ -260,10 +260,10 @@ export function LayoutPlaces({
   layout = "fit",
   band,
   flow = null,
-  columnSplits,
-  columnAllocations,
-  columnOffsets,
-  columnMembers,
+  slotSplits,
+  slotAllocations,
+  slotOffsets,
+  slotMembers,
   railAllocations,
   railMembers,
   onTargetPointerDown,
@@ -277,8 +277,8 @@ export function LayoutPlaces({
     layout,
     band,
     flow,
-    columnSplits,
-    columnAllocations,
+    slotSplits,
+    slotAllocations,
     railAllocations,
   });
 
@@ -354,9 +354,9 @@ export function LayoutPlaces({
             </Target>
           );
         }
-        const ids = columnMembers?.[block.slot] ?? [];
+        const ids = slotMembers?.[block.slot] ?? [];
         const slide = block.overflow
-          ? (columnOffsets?.[block.slot] ?? 0) * 100
+          ? (slotOffsets?.[block.slot] ?? 0) * 100
           : 0;
         return block.members.map((member) => {
           const paneId = ids[member.index];
@@ -428,12 +428,12 @@ export function LayoutPlaces({
 
 /** The glyph a place's stored arrangement wears. Nothing is ever marked lit:
  *  the glyph is naming the arrangement, not a position within it. */
-function PlaceGlyph({ mode }: { mode: ColumnMode }): React.ReactElement {
+function PlaceGlyph({ mode }: { mode: SlotMode }): React.ReactElement {
   return mode === "split" ? <SplitGlyph lit={null} /> : <StackGlyph lit={null} />;
 }
 
 /** The other of the two arrangements — what pressing this toggle would set. */
-function otherMode(mode: ColumnMode): ColumnMode {
+function otherMode(mode: SlotMode): SlotMode {
   return mode === "split" ? "stack" : "split";
 }
 
@@ -457,9 +457,9 @@ function describePlace(place: LayoutPlace): string {
  * funnel that was already there ([L30]). Carrying the proposal rather than the
  * current value is what makes one control enough for a two-valued fact.
  *
- * Memoized on its props BY VALUE: the section rebuilds `columns` whenever the
+ * Memoized on its props BY VALUE: the section rebuilds `slots` whenever the
  * arrangement moves, and a toggle compared by identity re-rendered on every
- * change to any column, inside the settle the change was animating through.
+ * change to any slot, inside the settle the change was animating through.
  */
 const PlaceMark = memo(function PlaceMark({
   place,
@@ -494,7 +494,7 @@ export interface LayoutPlaceTogglesProps {
   /** Every slot the kind defines, occupied or not — an empty slot's stored
    *  arrangement is as real as a one-card slot's, and its toggle is the door
    *  back to it. */
-  columns: readonly LayoutPlace[];
+  slotPlaces: readonly LayoutPlace[];
   /** Each slot's span across the field, as fractions of it — the strip's own
    *  `spans`, so a toggle stands under its number. */
   spans: readonly ({ left: number; width: number } | undefined)[];
@@ -521,7 +521,7 @@ export interface LayoutPlaceTogglesProps {
  * DOM ([L06]), and Space commits the one under it.
  */
 export function LayoutPlaceToggles({
-  columns,
+  slotPlaces,
   spans,
   rails,
   layout = "fit",
@@ -576,7 +576,7 @@ export function LayoutPlaceToggles({
 
   // The toggle set changes with the deck — the kind gains a slot — so the
   // cursor's range is re-read whenever the row does.
-  const marksSignature = columns.map((c) => `${c.key}:${c.mode}`).join(",");
+  const marksSignature = slotPlaces.map((c) => `${c.key}:${c.mode}`).join(",");
   useLayoutEffect(() => {
     syncItems();
   }, [marksSignature, syncItems]);
@@ -608,7 +608,7 @@ export function LayoutPlaceToggles({
         />
       ) : null}
       <span className="layout-place-toggles-field">
-        {columns.map((place) => {
+        {slotPlaces.map((place) => {
           const span =
             place.slot === undefined ? undefined : spans[place.slot];
           if (span === undefined) return null;

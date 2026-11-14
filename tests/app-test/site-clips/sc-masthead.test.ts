@@ -15,7 +15,7 @@
  * the activity sparkline drawing the stream and the calls as they land, the
  * beat line changing under the name, and the dot settling when the turn
  * ends. The two-up is what gives the title bar its place to name: the slot
- * badge and the column badge stand at the cluster's fixed end beside the
+ * badge and the slot badge stand at the cluster's fixed end beside the
  * close box, and every other verb the pane offers is behind the `⋯` at rest.
  *
  * Four gestures, in order, while the turn streams: the pointer arrives in

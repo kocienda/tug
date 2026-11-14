@@ -1,12 +1,12 @@
 /**
- * arriving.test.ts — the ARRIVING mark: a pane drawn in its column but not yet
+ * arriving.test.ts — the ARRIVING mark: a pane drawn in its slot but not yet
  * part of its division ([B01], [B08]).
  *
  * `opening-bid.test.ts`'s shape over the third record, and for the same reason:
  * the pure core of the commit, `arrivingWith`, is testable without a live
  * DeckManager while the verb around it is not. What the record MEANS is pinned
  * here too, against the selectors that read it: a marked pane is left out of
- * `columnMembersOf`, `deckColumnsOf` and `placeMembers`, so the standing
+ * `slotMembersOf`, `deckSlotsOf` and `placeMembers`, so the standing
  * members divide the run exactly as they did before the pane was appended.
  * That is the whole point of the mark — the commit that appends a hidden card
  * moves nothing the user can see — and the claim is made the way
@@ -21,8 +21,8 @@
 import { describe, test, expect } from "bun:test";
 import { arrivingWith } from "../deck-manager";
 import {
-  columnMembersOf,
-  deckColumnsOf,
+  slotMembersOf,
+  deckSlotsOf,
   placeMembers,
 } from "../deck-store-selectors";
 import { serializeDeck, deserializeDeck } from "./deck-blob-helpers";
@@ -105,9 +105,9 @@ function makePane(id: string, slot: number): TugPaneState {
  *  the same run, so any positive number does. */
 const RUN = 1000;
 
-/** A split column in slot 0 holding `paneIds` in that order, with whatever
+/** A split slot in slot 0 holding `paneIds` in that order, with whatever
  *  shares are standing and whatever pane is marked arriving. */
-function splitColumn(
+function splitSlot(
   paneIds: readonly string[],
   opts: {
     shares?: Readonly<Record<string, number>>;
@@ -120,7 +120,7 @@ function splitColumn(
     imposition: {
       kind: "two-up",
       sidebars: {},
-      columns: {
+      slots: {
         0: {
           mode: "split",
           order: [...paneIds],
@@ -133,38 +133,38 @@ function splitColumn(
   };
 }
 
-/** Each standing member's height, keyed by pane id, as the column divides
+/** Each standing member's height, keyed by pane id, as the slot divides
  *  `RUN` — the thing the eye sees, and so the thing the claim is about. */
 function heightsOf(state: DeckState): Record<string, number> {
-  const column = deckColumnsOf(state, RUN).find((c) => c.slot === 0);
-  if (column === undefined || column.allocation === null) return {};
+  const deckSlot = deckSlotsOf(state, RUN).find((c) => c.slot === 0);
+  if (deckSlot === undefined || deckSlot.allocation === null) return {};
   return Object.fromEntries(
-    column.allocation.ids.map((id, i) => [id, column.allocation!.heights[i]]),
+    deckSlot.allocation.ids.map((id, i) => [id, deckSlot.allocation!.heights[i]]),
   );
 }
 
-describe("an arriving pane is left out of its column's division", () => {
+describe("an arriving pane is left out of its slot's division", () => {
   const SHARES = { "pane-a": 3, "pane-b": 1 };
 
-  test("columnMembersOf and deckColumnsOf list the standing members only", () => {
-    const state = splitColumn(["pane-a", "pane-b", "pane-c"], {
+  test("slotMembersOf and deckSlotsOf list the standing members only", () => {
+    const state = splitSlot(["pane-a", "pane-b", "pane-c"], {
       arriving: { "pane-c": true },
     });
-    expect(columnMembersOf(state, 0)).toEqual(["pane-a", "pane-b"]);
-    const column = deckColumnsOf(state, RUN).find((c) => c.slot === 0);
-    expect(column?.members).toEqual(["pane-a", "pane-b"]);
-    expect(column?.allocation?.ids).toEqual(["pane-a", "pane-b"]);
+    expect(slotMembersOf(state, 0)).toEqual(["pane-a", "pane-b"]);
+    const deckSlot = deckSlotsOf(state, RUN).find((c) => c.slot === 0);
+    expect(deckSlot?.members).toEqual(["pane-a", "pane-b"]);
+    expect(deckSlot?.allocation?.ids).toEqual(["pane-a", "pane-b"]);
     // And the seams: one gap between the two standing members, not two.
-    expect(column?.seams.length).toBe(1);
+    expect(deckSlot?.seams.length).toBe(1);
   });
 
   test("every standing rect is exactly what it was before the pane was appended", () => {
     // The claim the mark exists for: the commit that appends a hidden card
-    // changes no neighbour's height. Two states — the column before the
-    // arrival, and the column with the arrival appended and marked — divide
+    // changes no neighbour's height. Two states — the slot before the
+    // arrival, and the slot with the arrival appended and marked — divide
     // the run identically.
-    const before = splitColumn(["pane-a", "pane-b"], { shares: SHARES });
-    const withArrival = splitColumn(["pane-a", "pane-b", "pane-c"], {
+    const before = splitSlot(["pane-a", "pane-b"], { shares: SHARES });
+    const withArrival = splitSlot(["pane-a", "pane-b", "pane-c"], {
       shares: SHARES,
       arriving: { "pane-c": true },
     });
@@ -179,8 +179,8 @@ describe("an arriving pane is left out of its column's division", () => {
   test("the same pane unmarked joins the division and moves its neighbours", () => {
     // The control: without the mark a third member takes its share and the
     // standing rects shrink. This is the motion the mark defers to the reveal.
-    const before = splitColumn(["pane-a", "pane-b"], { shares: SHARES });
-    const revealed = splitColumn(["pane-a", "pane-b", "pane-c"], {
+    const before = splitSlot(["pane-a", "pane-b"], { shares: SHARES });
+    const revealed = splitSlot(["pane-a", "pane-b", "pane-c"], {
       shares: SHARES,
     });
     const standing = heightsOf(before);
@@ -194,12 +194,12 @@ describe("an arriving pane is left out of its column's division", () => {
     // Belt to the selectors' braces: a caller that reads membership some
     // other way and hands the marked id in still gets a division that never
     // saw it.
-    const state = splitColumn(["pane-a", "pane-b", "pane-c"], {
+    const state = splitSlot(["pane-a", "pane-b", "pane-c"], {
       arriving: { "pane-c": true },
     });
     const members = placeMembers(
       state,
-      "column",
+      "slot",
       ["pane-a", "pane-b", "pane-c"],
       undefined,
     );
@@ -208,11 +208,11 @@ describe("an arriving pane is left out of its column's division", () => {
 
   test("a mark on a pane in another slot changes nothing here", () => {
     const state: DeckState = {
-      ...splitColumn(["pane-a", "pane-b"], { shares: SHARES }),
+      ...splitSlot(["pane-a", "pane-b"], { shares: SHARES }),
       arriving: { "pane-elsewhere": true },
     };
     expect(heightsOf(state)).toEqual(
-      heightsOf(splitColumn(["pane-a", "pane-b"], { shares: SHARES })),
+      heightsOf(splitSlot(["pane-a", "pane-b"], { shares: SHARES })),
     );
   });
 });
@@ -223,12 +223,12 @@ describe("an arriving pane is left out of its column's division", () => {
 
 describe("sweptArriving", () => {
   test("returns the SAME object when every marked pane is live", () => {
-    const state = splitColumn(["pane-a", "pane-b"], {
+    const state = splitSlot(["pane-a", "pane-b"], {
       arriving: { "pane-b": true },
     });
     expect(sweptArriving(state)).toBe(state);
     // And when nothing is marked at all.
-    const unmarked = splitColumn(["pane-a"]);
+    const unmarked = splitSlot(["pane-a"]);
     expect(sweptArriving(unmarked)).toBe(unmarked);
   });
 
@@ -236,7 +236,7 @@ describe("sweptArriving", () => {
     // A card closed between its hidden commit and its reveal: the pane is
     // removed by the close, and the mark is swept at the next commit point.
     const state: DeckState = {
-      ...splitColumn(["pane-a", "pane-b"]),
+      ...splitSlot(["pane-a", "pane-b"]),
       arriving: { "pane-b": true, "pane-gone": true },
     };
     expect(sweptArriving(state).arriving).toEqual({ "pane-b": true });
@@ -244,7 +244,7 @@ describe("sweptArriving", () => {
 
   test("the field goes away with its last stale mark", () => {
     const state: DeckState = {
-      ...splitColumn(["pane-a"]),
+      ...splitSlot(["pane-a"]),
       arriving: { "pane-gone": true },
     };
     const swept = sweptArriving(state);
@@ -259,7 +259,7 @@ describe("sweptArriving", () => {
 
 describe("a mark does not survive serialization", () => {
   const marked: DeckState = {
-    ...splitColumn(["p1", "p2"]),
+    ...splitSlot(["p1", "p2"]),
     arriving: { p2: true },
   };
 

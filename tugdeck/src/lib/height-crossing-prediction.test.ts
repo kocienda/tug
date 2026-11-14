@@ -5,7 +5,7 @@
  * Each case builds the two arrangements the canvas would hand the settle, in
  * the shape `LayerArrangement` gives them, and asks which panes change height.
  * The four are the gestures that decide whether the hold at `arm` is right:
- * a column dividing (both members resize), a flow slide (nothing resizes), a
+ * a slot dividing (both members resize), a flow slide (nothing resizes), a
  * fold (the folding card resizes) and a bullseye (the width changes, the
  * height does not).
  */
@@ -17,7 +17,7 @@ import {
   type HeightArrangement,
   type PaneForHeight,
 } from "./height-crossing-prediction";
-import type { ColumnMemberPlacement, ImposedPlacement } from "./layout-imposer";
+import type { SlotMemberPlacement, ImposedPlacement } from "./layout-imposer";
 
 const A: PaneForHeight = { id: "a", slot: 1, size: { height: 800 } };
 const B: PaneForHeight = { id: "b", slot: 1, size: { height: 800 } };
@@ -26,7 +26,7 @@ const C: PaneForHeight = { id: "c", slot: 2, size: { height: 800 } };
 /** An arrangement over `panes`, each placed at its slot in a four-up flow. */
 function arrangement(opts: {
   strip?: Record<number, number>;
-  members?: Record<string, ColumnMemberPlacement>;
+  members?: Record<string, SlotMemberPlacement>;
   bullseye?: string | null;
 }): HeightArrangement {
   return {
@@ -34,7 +34,7 @@ function arrangement(opts: {
     stackByPaneId: new Map(),
     parkedRailSideByPaneId: new Map(),
     arrivingSeatByPaneId: new Map(),
-    columnMemberByPaneId: new Map(Object.entries(opts.members ?? {})),
+    slotMemberByPaneId: new Map(Object.entries(opts.members ?? {})),
     placementFor: (pane): ImposedPlacement | undefined => {
       if (pane.slot === undefined) return undefined;
       const stripLeft = opts.strip?.[pane.slot];
@@ -48,7 +48,7 @@ function arrangement(opts: {
 const same = (panes: readonly PaneForHeight[]) => panes.map((p) => ({ before: p, after: p }));
 
 describe("predictHeightCrossings", () => {
-  test("a column dividing predicts both members", () => {
+  test("a slot dividing predicts both members", () => {
     const before = arrangement({});
     const after = arrangement({
       members: {

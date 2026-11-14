@@ -123,7 +123,7 @@ describe("a parked member takes no seat", () => {
       "parkTop",
       "parkBottom",
     ]);
-    expect(sidebarRailsOf(deck, { rail: null, column: null }).map((r) => r.side)).toEqual([
+    expect(sidebarRailsOf(deck, { rail: null, slot: null }).map((r) => r.side)).toEqual([
       "left",
     ]);
   });
@@ -132,7 +132,7 @@ describe("a parked member takes no seat", () => {
     const deck = parkedDeck();
     expect(isSidebarSeated(deck.imposition, "parkTop")).toBe(false);
     expect(railMembersOf(deck, "left")).toEqual([]);
-    expect(sidebarRailsOf(deck, { rail: null, column: null })).toEqual([]);
+    expect(sidebarRailsOf(deck, { rail: null, slot: null })).toEqual([]);
   });
 
   test("clearing the memory seats the same panes again", () => {

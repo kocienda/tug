@@ -485,7 +485,7 @@ final class ClickThroughWebView: WKWebView {
     //
     // Cocoa's StandardKeyBinding.dict binds ⌃⌘↓ / ⌃⌘← / ⌃⌘→ to
     // `makeBaseWritingDirectionNatural:` / `RightToLeft:` / `LeftToRight:`, and
-    // those chords are the deck's own: ⌃⌘↓ is Move Card Down in Column and
+    // those chords are the deck's own: ⌃⌘↓ is Move Card Down in Slot and
     // ⌃⌘←/→ show and hide a side. `AppDelegate` allows the bindings (see
     // `NSAllowsBaseWritingDirectionKeyBindings` there), which is what stops
     // AppKit beeping at them; the selector then reaches this view. While the

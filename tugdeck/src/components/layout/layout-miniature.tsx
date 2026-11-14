@@ -35,7 +35,7 @@ import "./layout-miniature.css";
 import React, { useLayoutEffect, useRef } from "react";
 
 import {
-  columnOffsetSignal,
+  slotOffsetSignal,
   gaugeProperties,
   registerGauge,
   type GaugeSignal,
@@ -178,15 +178,15 @@ export interface LayoutMiniatureProps {
   /**
    * Which slots are drawn divided, and into how many members, keyed by slot
    * index. A slot absent here is drawn whole,
-   * which is what every column is until the user splits it.
+   * which is what every slot is until the user splits it.
    *
-   * Member counts rather than a mode word, because a column's membership is
+   * Member counts rather than a mode word, because a slot's membership is
    * what makes it divisible at all: two cards in a slot can be split, one
    * cannot, and the drawing should show how many shares the run is in.
    */
-  columnSplits?: Readonly<Record<number, number>>;
+  slotSplits?: Readonly<Record<number, number>>;
   /**
-   * How far each overflowing column has slid its strip up behind the run, as a
+   * How far each overflowing slot has slid its strip up behind the run, as a
    * FRACTION of the run — keyed by slot, absent reading as at rest.
    *
    * A fraction rather than pixels because the field IS the run: the drawing's
@@ -195,7 +195,7 @@ export interface LayoutMiniatureProps {
    * side's size. Only the committed drawing is given these, for the reason it
    * alone is given the flow offset ([P06]).
    */
-  columnOffsets?: Readonly<Record<number, number>>;
+  slotOffsets?: Readonly<Record<number, number>>;
   /**
    * How each side's rail actually divides its run, when this drawing is the
    * committed one ([P09]). Absent — on every proposal layer — the side is
@@ -205,7 +205,7 @@ export interface LayoutMiniatureProps {
    */
   railAllocations?: Partial<Record<SidebarSide, PlaceAllocation | null>>;
   /** {@link LayoutMiniatureProps.railAllocations}' slot-keyed twin. */
-  columnAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
+  slotAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
   /** Draw the cards. `false` draws the deck's frame and rails alone — the
    *  picture for a question that is only about which edge a sidebar holds. */
   cards?: boolean;
@@ -280,7 +280,7 @@ const NOMINAL_RUN = 1000;
 
 /**
  * Where each of a place's first `drawn` members stands in the drawing, in
- * percent of the field — the one span arithmetic both the rail and the column
+ * percent of the field — the one span arithmetic both the rail and the slot
  * blocks draw from.
  *
  * The members divide the field in proportion to the heights the allocator gave
@@ -354,7 +354,7 @@ export function slideExpression(
  * A rail whose floors stop fitting the run overflows, and the drawing follows
  * without a branch: the allocation it reads already stands as a strip, and
  * every member is drawn at its own span, a seam apart, running off the bottom
- * of the run and clipped by it — the same picture the column blocks below
+ * of the run and clipped by it — the same picture the slot blocks below
  * draw, and the same affordance.
  */
 function Rail({
@@ -377,7 +377,7 @@ function Rail({
   // Every member is drawn, not the first three: an overflowing rail's members
   // no longer share one height, so which of them the cut falls on is a fact
   // about their floors rather than a constant the drawing could know in
-  // advance. The run clips whatever hangs below it, exactly as the column
+  // advance. The run clips whatever hangs below it, exactly as the slot
   // blocks are clipped.
   return (
     <span
@@ -389,7 +389,7 @@ function Rail({
         // The members divide: segments with a seam between them, the first
         // flush with the top of the strip and the last with its bottom.
         //
-        // Drawn AT REST, unlike a column's, which slides by its live offset:
+        // Drawn AT REST, unlike a slot's, which slides by its live offset:
         // no rail offset rides the gauge channel, and a rail's question here
         // is what stands on the side rather than where its viewport stands.
         return (
@@ -413,13 +413,13 @@ export interface MiniatureRect {
 }
 
 /**
- * One member of a divided place — a split column's or a rail's — at rest.
+ * One member of a divided place — a split slot's or a rail's — at rest.
  *
  * Both the drawing and the overlay that stands targets on it place members
  * from these spans, so the two cannot disagree about where a member is.
  */
 export interface MiniatureMemberSpan {
-  /** Index in the place's own order: `DeckColumn.members` / `railMembersOf`. */
+  /** Index in the place's own order: `DeckSlot.members` / `railMembersOf`. */
   index: number;
   /** At-rest top and span, in percent of the run (the field's height). */
   topPct: number;
@@ -471,8 +471,8 @@ export interface MiniaturePlaceRects {
     >
   >;
   /**
-   * One entry per drawn block, placed within the field. A split column
-   * (`columnSplits[slot] >= 2`) also carries its members' at-rest spans down
+   * One entry per drawn block, placed within the field. A split slot
+   * (`slotSplits[slot] >= 2`) also carries its members' at-rest spans down
    * the run; `overflow` is false whenever `members` is absent.
    */
   blocks: readonly (MiniatureRect & {
@@ -494,10 +494,10 @@ export interface MiniaturePlaceRects {
  *
  * Everything here is the SETTLED geometry: where the parts stand once the deck
  * has stopped moving. The two live terms the committed drawing also carries —
- * the flow offset that slides the window, and a column's own slide — are
+ * the flow offset that slides the window, and a slot's own slide — are
  * deliberately not inputs, because neither moves a block along the band: the
  * offset moves the window element over a strip whose blocks stay put, and a
- * column's slide runs down the field. Both stay where they were, applied on top
+ * slot's slide runs down the field. Both stay where they were, applied on top
  * of these rects by the drawing alone.
  *
  * The live flow strip IS an input, though, and has to be: it decides where the
@@ -505,7 +505,7 @@ export interface MiniaturePlaceRects {
  * the real one would stand its parts over a picture that is not there. Absent,
  * the strip is the synthetic one every proposal draws.
  *
- * So are the places' allocations, which decide where a split column's or a
+ * So are the places' allocations, which decide where a split slot's or a
  * rail's members stand down the run. They are the one span arithmetic both
  * the drawing and the overlay place members from, so a target cannot stand
  * over a member the drawing put somewhere else.
@@ -518,8 +518,8 @@ export function miniatureGeometry({
   layout = "fit",
   band,
   flow,
-  columnSplits,
-  columnAllocations,
+  slotSplits,
+  slotAllocations,
   railAllocations,
 }: {
   kind: ImpositionKind | null;
@@ -535,10 +535,10 @@ export function miniatureGeometry({
   band?: number;
   /** The live places, when there are some. */
   flow?: MiniatureFlowStrip | null;
-  /** @see {@link LayoutMiniatureProps.columnSplits} */
-  columnSplits?: Readonly<Record<number, number>>;
-  /** @see {@link LayoutMiniatureProps.columnAllocations} */
-  columnAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
+  /** @see {@link LayoutMiniatureProps.slotSplits} */
+  slotSplits?: Readonly<Record<number, number>>;
+  /** @see {@link LayoutMiniatureProps.slotAllocations} */
+  slotAllocations?: Readonly<Record<number, PlaceAllocation | null>>;
   /** @see {@link LayoutMiniatureProps.railAllocations} */
   railAllocations?: Partial<Record<SidebarSide, PlaceAllocation | null>>;
 }): MiniaturePlaceRects {
@@ -628,7 +628,7 @@ export function miniatureGeometry({
   //
   // The deck's own gap is a fraction of a pixel at this scale (see
   // `cardGapFor`), so a run drawn at the deck's real positions and nothing else
-  // has no visible seam at all: the cards butt together and four columns read
+  // has no visible seam at all: the cards butt together and four slots read
   // as one grey slab. Adding air BETWEEN them instead is what made the strip
   // longer than the deck's and the window narrower than the band.
   //
@@ -654,17 +654,17 @@ export function miniatureGeometry({
           widthPct: Math.max(block.widthPct * flowScale - flowSeam, 0),
         }));
 
-  // A split column divides its RUN, not the band: its members keep the slot's
-  // left edge and width and stack down it. Past two members the column stops
+  // A split slot divides its RUN, not the band: its members keep the slot's
+  // left edge and width and stack down it. Past two members the slot stops
   // dividing and starts scrolling ([P08]), and every member is still spanned,
   // each at its own natural height, down a strip that runs off the bottom.
-  // The place is the column's own allocation when there is one, and the
+  // The place is the slot's own allocation when there is one, and the
   // anonymous one a proposal gets otherwise ([P09]).
   const blocks = placed.map((block) => {
-    const count = columnSplits?.[block.slot] ?? 1;
+    const count = slotSplits?.[block.slot] ?? 1;
     if (count < 2) return { ...block, overflow: false };
     const place =
-      columnAllocations?.[block.slot] ??
+      slotAllocations?.[block.slot] ??
       nominalPlaceAllocation(count, NOMINAL_RUN, 0);
     return { ...block, ...memberSpans(place, count) };
   });
@@ -744,10 +744,10 @@ export function miniatureWindowRect(
 export function LayoutMiniature({
   kind,
   rails = {},
-  columnSplits,
-  columnOffsets,
+  slotSplits,
+  slotOffsets,
   railAllocations,
-  columnAllocations,
+  slotAllocations,
   cards = true,
   width,
   layout = "fit",
@@ -798,8 +798,8 @@ export function LayoutMiniature({
     layout,
     band: flowBandPx,
     flow: flowLive,
-    columnSplits,
-    columnAllocations,
+    slotSplits,
+    slotAllocations,
     railAllocations,
   });
   const railPct =
@@ -823,8 +823,8 @@ export function LayoutMiniature({
       })
     : null;
 
-  // Which columns are drawn as sliding strips — the signals this drawing has
-  // anything to do with. A column that divides rather than overflows has no
+  // Which slots are drawn as sliding strips — the signals this drawing has
+  // anything to do with. A slot that divides rather than overflows has no
   // offset, and a drawing that is not the committed one is a proposal nobody
   // has stood under, so neither listens ([P06]).
   const overflowSlots = !committed
@@ -833,9 +833,9 @@ export function LayoutMiniature({
         .filter(
           (block) =>
             (
-              columnAllocations?.[block.slot] ??
+              slotAllocations?.[block.slot] ??
               nominalPlaceAllocation(
-                columnSplits?.[block.slot] ?? 1,
+                slotSplits?.[block.slot] ?? 1,
                 NOMINAL_RUN,
                 0,
               )
@@ -855,7 +855,7 @@ export function LayoutMiniature({
       "flow-offset",
       "drag-frame",
       "drag-zone",
-      ...overflowSlots.map(columnOffsetSignal),
+      ...overflowSlots.map(slotOffsetSignal),
     ];
     const releases = signals.map((signal) => registerGauge(signal, el));
     return () => {
@@ -884,7 +884,7 @@ export function LayoutMiniature({
       ) : null}
       <span className="layout-mini-field">
         {/* The run: the field's box, and the only thing in the drawing that
-            clips. The clip is the affordance an overflowing column depends on —
+            clips. The clip is the affordance an overflowing slot depends on —
             its third member is cut in half by running off the bottom — so it
             has to be here, and it must not reach the window. The window stands
             two pixels proud of the cards on purpose, as a bracket around them
@@ -895,7 +895,7 @@ export function LayoutMiniature({
             deck, and the window is the frame the deck is seen through. */}
         <span className="layout-mini-run">
           {blocks.map((block) => {
-            // A split column divides its RUN, not the band: the members keep the
+            // A split slot divides its RUN, not the band: the members keep the
             // slot's left edge and its width and stack down it, flush top and
             // bottom, with a seam between — the same equal division the rail's
             // split draws, and for the same reason. A hand-dragged ratio is not
@@ -925,7 +925,7 @@ export function LayoutMiniature({
                 </span>
               );
             }
-            // Past two members the column stops dividing and starts scrolling
+            // Past two members the slot stops dividing and starts scrolling
             // ([P08]), and the drawing says so rather than capping at three: EVERY
             // member is drawn, each at its own natural span, stacked down a strip
             // that runs off the bottom of the field. The spans are the deck's own
@@ -936,7 +936,7 @@ export function LayoutMiniature({
             // The spans are `miniatureGeometry`'s, so the overlay's targets
             // stand on exactly these members.
             const overflow = block.overflow;
-            const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
+            const fraction = overflow ? (slotOffsets?.[block.slot] ?? 0) : 0;
             const slide = fraction * 100;
             const memberFaces = faces?.members[block.slot];
             return block.members.map((member) => {
@@ -953,7 +953,7 @@ export function LayoutMiniature({
               // taller member by less than the strip it belongs to.
               const slideExpr = overflow
                 ? slideExpression(
-                    columnOffsetSignal(block.slot),
+                    slotOffsetSignal(block.slot),
                     fraction,
                     -10000 / span,
                   )
@@ -963,8 +963,8 @@ export function LayoutMiniature({
                   key={`${block.slot}:${m}`}
                   className="layout-mini-block"
                   data-band={block.slot % 2 === 0 ? "even" : "odd"}
-                  data-column-member=""
-                  data-column-overflow={overflow ? "" : undefined}
+                  data-slot-member=""
+                  data-slot-overflow={overflow ? "" : undefined}
                   data-faced={memberFaces?.[m] !== undefined ? "" : undefined}
                   style={
                     {

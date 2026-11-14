@@ -41,7 +41,7 @@ import type { IDeckManagerStore } from "./deck-manager-store";
 import type { DeckState, CardStateBag } from "./layout-tree";
 import {
   defaultSidebarSide,
-  columnOffsetProperty,
+  slotOffsetProperty,
 } from "./lib/layout-imposer";
 import { deckTrace, type DeckTraceEvent } from "./deck-trace";
 import { bulletin } from "./components/tugways/tug-bulletin";
@@ -54,7 +54,7 @@ import { BASE_FOCUS_MODE, getFocusManager } from "./components/tugways/focus-man
 import { currentGesture } from "./gesture-interpreter";
 import { gestureScope } from "./lib/gesture-scope";
 import { tearDownSettleForTest } from "./components/chrome/settle-engine";
-import { writeCanvasColumnProperty } from "./components/chrome/place-properties";
+import { writeCanvasSlotProperty } from "./components/chrome/place-properties";
 import {
   _ingestOverviewFrameForTest,
   _ingestOverviewPageForTest,
@@ -485,7 +485,7 @@ import {
  *
  * `2.31.0`: adds {@link TugTestSurface.overviewPosts}. The Overview column is
  * windowed, so the posts in its DOM are the ones near the scrollport, not the
- * ones it holds; a test that means "the column holds N posts" or "the column
+ * ones it holds; a test that means "the slot holds N posts" or "the slot
  * leads with this post" reads the store through this. Additive; major stays
  * `2`.
  *
@@ -1519,7 +1519,7 @@ export interface TugTestSurface {
 
   /**
    * The posts the Overview column holds, oldest first: each post's key and
-   * body (SURFACE_VERSION 2.31.0). The column mounts only the posts near its
+   * body (SURFACE_VERSION 2.31.0). The slot mounts only the posts near its
    * scrollport, so this — not a count of `.overview-cell` — is what says how
    * many posts it holds and which one leads it. `null` when no Overview store
    * is active.
@@ -2357,18 +2357,18 @@ export interface TugTestSurface {
   };
 
   /**
-   * Drive a column strip's scroll gesture in miniature (SURFACE_VERSION
+   * Drive a slot strip's scroll gesture in miniature (SURFACE_VERSION
    * 2.16.0), so a caller can census what the store told the deck.
    *
    * `landing` picks which of the two gestures this is, and the probe drives
    * the whole of that gesture rather than only the flag. A `"cut"` first
-   * writes the offset onto the column's own custom property the way
+   * writes the offset onto the slot's own custom property the way
    * `applyScroll` writes it every frame of a drag, so the deck really is
    * already drawn there when the commit lands. A `"cross"` writes no property:
    * the store hands over a number CSS was not showing, which is the strip
    * segment click's shape.
    *
-   * Either way it is one `setColumnOffset` and nothing is batched around it,
+   * Either way it is one `setSlotOffset` and nothing is batched around it,
    * which is what no real gesture offers: a drag's release commits an
    * arrangement change alongside the offset, so the batch resolves to
    * `"cross"` ([B02]) and the lone-cut path never runs under it.
@@ -4054,14 +4054,14 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           "[data-deck-canvas-background]",
         );
         if (el === null) return;
-        writeCanvasColumnProperty(
+        writeCanvasSlotProperty(
           el,
           slot,
-          columnOffsetProperty(slot),
+          slotOffsetProperty(slot),
           `${Math.round(offset)}px`,
         );
       }
-      store.setColumnOffset(slot, offset, landing);
+      store.setSlotOffset(slot, offset, landing);
     },
 
     probeBatchGesture(

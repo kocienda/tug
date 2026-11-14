@@ -50,7 +50,7 @@ import { rmTempTugbank } from "../_harness/tugbank-helpers";
 import {
   AFTER_LAND_MS,
   SHOULD_RUN,
-  columnBlob,
+  slotFlipBlob,
   home,
   launch,
   transcriptArms,
@@ -194,9 +194,9 @@ async function stopTween(app: App): Promise<void> {
   await wait(200);
 }
 
-async function columnMode(app: App, mode: string): Promise<void> {
+async function slotMode(app: App, mode: string): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "${mode}" }), null)`,
+    `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "${mode}" }), null)`,
   );
   await wait(AFTER_LAND_MS);
 }
@@ -207,7 +207,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
     test(
       "fold/unfold and split/stack each read a motion and a land, quiet and by phase",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, {
+        const { app, tugbankPath } = await launch(8, slotFlipBlob(), TEST_NAME, {
           transcripts: arm.size,
           whaleCards: [SUBJECT, NEIGHBOUR],
           foreground: true,
@@ -237,7 +237,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           const missing: string[] = [];
           for (const family of FAMILIES) {
             for (const instrument of ["--quiet-instruments", "--frame-phases"]) {
-              if (family.before !== undefined) await columnMode(app, family.before);
+              if (family.before !== undefined) await slotMode(app, family.before);
               const label = `${family.name} [${arm.size}] ${instrument === "--frame-phases" ? "instrumented" : "quiet"}`;
               const run = deckMotion(port, [
                 "settle",

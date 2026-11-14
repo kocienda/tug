@@ -97,7 +97,7 @@ describe.skipIf(!SHOULD_RUN)(
           const chrome = await cardChrome(app);
           await wait(AFTER_LAND_MS);
 
-          // --- The column badge: the count, then the acts, then the chord. -
+          // --- The slot badge: the count, then the acts, then the chord. -
           // The badge is small and its glyph is schematic, so a reader hovering
           // it is asking two questions at once — what am I looking at, and what
           // happens if I press. The phrase answers them in that order.
@@ -107,8 +107,8 @@ describe.skipIf(!SHOULD_RUN)(
           // slices at 11px, and the bubble is where it gets said in words.
           expect(
             await hoverPhrase(chrome, BADGE),
-            "the badge says how many cards share the column, then what pressing it does",
-          ).toBe("2 cards in this column — press to show one, or split it");
+            "the badge says how many cards share the slot, then what pressing it does",
+          ).toBe("2 cards in this slot — press to show one, or split it");
           expect(
             await chipText(chrome, BADGE),
             "and names the chord that splits without the mouse",

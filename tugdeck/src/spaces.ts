@@ -16,12 +16,12 @@
 import type { DeckState, TugPaneState } from "./layout-tree";
 import { isSidebarCard } from "./card-registry";
 import type { WindowRail } from "./lib/window-rail";
-import { columnMembersOf } from "./deck-store-selectors";
+import { slotMembersOf } from "./deck-store-selectors";
 import {
   clampSlot,
   slotCount,
   withMemberSeated,
-  type ColumnArrangement,
+  type SlotArrangement,
   type DeckImposition,
 } from "./lib/layout-imposer";
 
@@ -152,7 +152,7 @@ export const NO_SPACES: SpacesSnapshot = {
  * **The strip offsets are kept**, and they used to go. A parked workspace is
  * no longer off screen in the sense that mattered: its layer stays mounted
  * and LAID OUT, arranged from this very record ([B02] of
- * workspace-switch-cheap), so where its flow strip, its columns and its rails
+ * workspace-switch-cheap), so where its flow strip, its slots and its rails
  * stand is where the reader will find them the instant the layer is shown.
  * Stripped, a parked layer stood at offset zero and the return slid every
  * strip to reveal the active card — a whole-workspace move in the first
@@ -277,13 +277,13 @@ export function duplicateSpaceName(sourceName: string): string {
  * the rail is the window's ([B09]), so the copy is shown with the one rail
  * every workspace shares.
  *
- * `imposition.columns` is dropped rather than copied — its members are named
+ * `imposition.slots` is dropped rather than copied — its members are named
  * by PANE id, and the copy has no panes, so a copied record would name
  * nothing that exists. The rail's own fields are the window's and are not
  * the copy's to hold.
  */
 export function duplicatedDeck(source: DeckState): DeckState {
-  const { columns: _columns, rails: _rails, ...imposition } = source.imposition;
+  const { slots: _slots, rails: _rails, ...imposition } = source.imposition;
   return {
     cards: [],
     panes: [],
@@ -312,15 +312,15 @@ export function duplicatedDeck(source: DeckState): DeckState {
  * rather than assumed.
  *
  * What leaves the source is the pane, its cards, its place in
- * `imposition.columns`, and every session-only record that named it:
+ * `imposition.slots`, and every session-only record that named it:
  * `activePaneId`, `bullseyePaneId`, a sheet floor claim, an opening bid, an
  * arrival mark. All of those name a pane that is no longer there, and a record
  * naming a pane in another workspace is worse than an absent one.
  *
  * What arrives at the destination is the pane at **slot 0**, seated at the
- * BOTTOM of that column ([D194]) when the destination imposes more than one
+ * BOTTOM of that slot ([D194]) when the destination imposes more than one
  * slot — the same seat every other newcomer takes, so a moved card is not a
- * special case the column has to explain. A one-up destination imposes a
+ * special case the slot has to explain. A one-up destination imposes a
  * single place and the pane keeps its stored position and size instead, with
  * its old slot dropped. Either way the height it was given in that slot
  * (`slotHeight`) is dropped with it: it was a height in the source's run.
@@ -345,7 +345,7 @@ export function moveCardBetweenDecks(
       ...source,
       cards: source.cards.filter((c) => !movingIds.has(c.id)),
       panes: source.panes.filter((p) => p.id !== pane.id),
-      imposition: withoutColumnMember(source.imposition, pane.id),
+      imposition: withoutSlotMember(source.imposition, pane.id),
     },
     pane.id,
   );
@@ -375,7 +375,7 @@ export function moveCardBetweenDecks(
             seatSlot,
             // Read over the deck as it will be committed, including the
             // arriving pane, which is what `withMemberSeated` expects.
-            columnMembersOf(projected, seatSlot),
+            slotMembersOf(projected, seatSlot),
             arrived.id,
           ),
         };
@@ -424,22 +424,22 @@ function withoutRecordKey<T>(
 }
 
 /**
- * `imposition` with `paneId` dropped from every column's order and shares.
+ * `imposition` with `paneId` dropped from every slot's order and shares.
  *
- * Not {@link sweptColumnOrders}, which deliberately keeps an id whose pane has
+ * Not {@link sweptSlotOrders}, which deliberately keeps an id whose pane has
  * gone entirely — inert residue a reopened pane could never reclaim. Here the
  * pane has not gone: it is standing in ANOTHER deck, and a share held for it in
  * this one would divide a run among a member that will never draw.
  */
-function withoutColumnMember(
+function withoutSlotMember(
   imposition: DeckImposition,
   paneId: string,
 ): DeckImposition {
-  const columns = imposition.columns;
-  if (columns === undefined) return imposition;
+  const arrangements = imposition.slots;
+  if (arrangements === undefined) return imposition;
   let changed = false;
-  const next: Record<number, ColumnArrangement> = {};
-  for (const [key, arrangement] of Object.entries(columns)) {
+  const next: Record<number, SlotArrangement> = {};
+  for (const [key, arrangement] of Object.entries(arrangements)) {
     let entry = arrangement;
     if (entry.order !== undefined && entry.order.includes(paneId)) {
       entry = { ...entry, order: entry.order.filter((id) => id !== paneId) };
@@ -452,5 +452,5 @@ function withoutColumnMember(
     }
     next[Number(key)] = entry;
   }
-  return changed ? { ...imposition, columns: next } : imposition;
+  return changed ? { ...imposition, slots: next } : imposition;
 }

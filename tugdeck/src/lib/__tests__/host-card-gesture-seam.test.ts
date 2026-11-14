@@ -1,19 +1,19 @@
 /**
- * The seam branch of the host's card gesture: a split column member's inner
+ * The seam branch of the host's card gesture: a split slot member's inner
  * top or bottom edge, pressed in the card's own page and tracked by the host,
- * drives the seam it borders (`driveColumnSeam`), opened at the press point,
+ * drives the seam it borders (`driveSlotSeam`), opened at the press point,
  * moved by each report and committed at the release; any other edge, or a
- * card standing in no split column, is the resize's own.
+ * card standing in no split slot, is the resize's own.
  *
  * @covers tugdeck/src/lib/host-card-gesture.ts
- * @covers tugdeck/src/components/chrome/column-seam-drag.ts
+ * @covers tugdeck/src/components/chrome/slot-seam-drag.ts
  */
 
 import { describe, expect, test } from "bun:test";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { DeckState } from "../../layout-tree";
 import type { ResizeEdge } from "../../bus/declarations/pane";
-import type { ColumnSeamGesture } from "../../components/chrome/column-seam-drag";
+import type { SlotSeamGesture } from "../../components/chrome/slot-seam-drag";
 import { createHostCardGesture, type HostGestureReaders } from "../host-card-gesture";
 
 /** Two cards split in slot 0 and one alone in slot 1, as `at0694` seeds them. */
@@ -32,7 +32,7 @@ function splitDeck(): DeckState {
     cards: ["A", "B", "C"].map((id) => ({ id, componentId: "gallery-accordion", title: `Card ${id}`, closable: true })),
     panes: [pane("p1", 0, "A"), pane("p2", 0, "B"), pane("p3", 1, "C")],
     activePaneId: "p1",
-    imposition: { kind: "two-up", layout: "fit", sidebars: {}, columns: { 0: { mode: "split", order: ["p1", "p2"] } } },
+    imposition: { kind: "two-up", layout: "fit", sidebars: {}, slots: { 0: { mode: "split", order: ["p1", "p2"] } } },
     hasFocus: true,
   } as unknown as DeckState;
 }
@@ -44,7 +44,7 @@ function harness() {
     getSnapshot: () => state,
     batchGesture: (run: () => void) => run(),
     handlePaneMoved: (paneId: string) => calls.push(`resized ${paneId}`),
-    getColumnRunHeight: () => 900,
+    getSlotRunHeight: () => 900,
   } as unknown as IDeckManagerStore;
   const readers: HostGestureReaders = {
     canvas: () => ({ left: 0, top: 0, zoom: 1 }),
@@ -52,7 +52,7 @@ function harness() {
     paneRects: () => new Map(),
     revealStack: () => {},
     railEdge: () => null,
-    columnSeam: (slot, index, clientY): ColumnSeamGesture => {
+    slotSeam: (slot, index, clientY): SlotSeamGesture => {
       calls.push(`seam ${slot}:${index} from ${clientY}`);
       return {
         move: (y) => calls.push(`move ${y}`),

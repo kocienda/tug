@@ -25,8 +25,8 @@
 
 import { getRegistration } from "@/card-registry";
 import {
-  columnDrawsSplit,
-  deckColumnsOf,
+  slotDrawsSplit,
+  deckSlotsOf,
   findSidebarPanes,
   parkedSidebarPaneIds,
   sidebarRailsOf,
@@ -47,7 +47,7 @@ import type { DerivableStore } from "@/lib/use-store-derived";
 import type { DeckView } from "@/card-deck";
 import type { SpacesSnapshot } from "@/spaces";
 
-const UNMEASURED_RUNS: PlaceRuns = { rail: null, column: null };
+const UNMEASURED_RUNS: PlaceRuns = { rail: null, slot: null };
 
 /** What a pane's place badge draws. */
 export interface PanePlaceFacts {
@@ -153,15 +153,15 @@ function seatedPlaceFactsOf(deck: DeckState): Map<string, PanePlaceFacts> {
   for (const [paneId, slotStack] of stacks) {
     facts.set(paneId, { slotStack, index: 0, count: slotStack.length });
   }
-  // A divided column names each member's band. A stacked one has no member
+  // A divided slot names each member's band. A stacked one has no member
   // record and needs none: every pane in the stack draws the same depth.
-  for (const column of deckColumnsOf(deck, null)) {
-    if (!columnDrawsSplit(column)) continue;
-    column.members.forEach((paneId, index) => {
+  for (const deckSlot of deckSlotsOf(deck, null)) {
+    if (!slotDrawsSplit(deckSlot)) continue;
+    deckSlot.members.forEach((paneId, index) => {
       facts.set(paneId, {
         slotStack: stacks.get(paneId) ?? EMPTY_SLOT_STACK,
         index,
-        count: column.members.length,
+        count: deckSlot.members.length,
       });
     });
   }

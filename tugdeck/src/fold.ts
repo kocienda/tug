@@ -1,9 +1,9 @@
 /**
  * Fold: a content pane shown whole or folded to its masthead ([P01]), and the
- * wall a split column becomes once one of its members is folded ([P06]).
+ * wall a split slot becomes once one of its members is folded ([P06]).
  *
  * The pure pane-array writers — {@link panesWithFolded},
- * {@link panesWithWallFolded}, and the {@link columnIsWall} predicate — are the
+ * {@link panesWithWallFolded}, and the {@link slotIsWall} predicate — are the
  * whole of what a fold commit decides. {@link setPaneFolded} is the gesture
  * that composes them and commits, over a {@link FoldDeps} the `DeckManager`
  * builds from its imposition deps; the manager keeps its `setPaneFolded` and
@@ -12,7 +12,7 @@
 
 import type { TugPaneState } from "./layout-tree";
 import type { ImpositionDeps } from "./layout-imposition";
-import { columnDrawsSplit, deckColumnsOf } from "./deck-store-selectors";
+import { slotDrawsSplit, deckSlotsOf } from "./deck-store-selectors";
 import { mark as perfMark } from "@/lib/perf-marks";
 
 /**
@@ -49,7 +49,7 @@ export function panesWithFolded(
 }
 
 /**
- * Whether a column is a WALL: some member other than `openPaneId` is folded.
+ * Whether a slot is a WALL: some member other than `openPaneId` is folded.
  *
  * The definition [P06] rests on, and separate from {@link panesWithWallFolded}
  * because the two questions come apart. A wall whose siblings are ALREADY
@@ -59,7 +59,7 @@ export function panesWithFolded(
  * to prevent: the common case, opening a second card in a settled wall, is
  * the one where nothing needs folding.
  */
-export function columnIsWall(
+export function slotIsWall(
   panes: readonly TugPaneState[],
   openPaneId: string,
   memberIds: readonly string[],
@@ -71,15 +71,15 @@ export function columnIsWall(
 }
 
 /**
- * The pane array a WALL OPEN writes: every other member of the column folded,
+ * The pane array a WALL OPEN writes: every other member of the slot folded,
  * so the wall stays a wall ([P06]).
  *
- * A wall is a split column with at least one FOLDED member. Opening a card
+ * A wall is a split slot with at least one FOLDED member. Opening a card
  * in one folds its siblings, because the whole shape rests on a wall having
  * exactly one card being read at a time — a second open card takes the run the
  * first one needs and the wall stops being legible as a wall.
  *
- * The guard is the definition: a split column with no folded member is not
+ * The guard is the definition: a split slot with no folded member is not
  * a wall, it is two or three full sessions sharing a slot, and a fold there
  * would take away a division the user made with the seams. So `memberIds` is
  * checked for another folded member first, and the array comes back by
@@ -93,7 +93,7 @@ export function panesWithWallFolded(
   openPaneId: string,
   memberIds: readonly string[],
 ): readonly TugPaneState[] {
-  if (!columnIsWall(panes, openPaneId, memberIds)) return panes;
+  if (!slotIsWall(panes, openPaneId, memberIds)) return panes;
   const members = new Set(memberIds);
   members.delete(openPaneId);
   const toFold = panes.filter(
@@ -111,7 +111,7 @@ export interface FoldDeps
   extends Pick<ImpositionDeps, "deck" | "clearBullseyeFor" | "placeRunHeight" | "commitImposition"> {
   /** The sidebar component a pane hosts, if it is a rail. */
   sidebarComponentIdOfPane(paneId: string): string | undefined;
-  /** The column scroll that puts an opened wall card under its neighbour. */
+  /** The slot scroll that puts an opened wall card under its neighbour. */
   wallRevealFor(
     paneId: string,
     panes: readonly TugPaneState[],
@@ -137,15 +137,15 @@ export interface FoldDeps
  * a rail's height is the allocator's and it wears no masthead to fold
  * into.
  *
- * Showing a card in a WALL folds its siblings ([P06]) and scrolls the column
+ * Showing a card in a WALL folds its siblings ([P06]) and scrolls the slot
  * to put the opened card under its neighbour above ([B07]) — both in the
- * same commit, for the same one-notify reason. A split column with nothing
+ * same commit, for the same one-notify reason. A split slot with nothing
  * folded in it is not a wall and is left alone.
  */
 export function setPaneFolded(deps: FoldDeps, paneId: string, folded: boolean): void {
   // The gesture origin the settle's frame record measures from ([P02]).
   // Taken HERE so the number contains the mutator's own preamble — the
-  // `placeRunHeight`, the `deckColumnsOf` and the wall fold below are all
+  // `placeRunHeight`, the `deckSlotsOf` and the wall fold below are all
   // time the user waited through — and published only at the commit, so
   // none of the three refusals between here and there leaves a stamp behind
   // for the next settle to read as its own.
@@ -174,21 +174,21 @@ export function setPaneFolded(deps: FoldDeps, paneId: string, folded: boolean): 
   // Opening into a wall: fold the siblings, and take the reveal off the new
   // panes rather than the old ones — the strip this scrolls is the one the
   // fold just made, and computing it from the pre-fold heights would land
-  // the column at a coordinate that no longer exists.
-  let columnReveal: { slot: number; offset: number } | undefined;
+  // the slot at a coordinate that no longer exists.
+  let slotReveal: { slot: number; offset: number } | undefined;
   if (!folded) {
-    const run = deps.placeRunHeight("column");
-    const column = deckColumnsOf(
+    const run = deps.placeRunHeight("slot");
+    const deckSlot = deckSlotsOf(
       { ...deck, panes },
       run > 0 ? run : null,
     ).find((c) => c.members.includes(paneId));
-    if (column !== undefined && columnDrawsSplit(column)) {
+    if (deckSlot !== undefined && slotDrawsSplit(deckSlot)) {
       // The reveal is owed by the WALL, not by the fold: a settled wall
       // whose siblings are already folded has nothing to write and still
       // has to scroll.
-      if (columnIsWall(panes, paneId, column.members)) {
-        panes = panesWithWallFolded(panes, paneId, column.members);
-        columnReveal = deps.wallRevealFor(paneId, panes, column.slot);
+      if (slotIsWall(panes, paneId, deckSlot.members)) {
+        panes = panesWithWallFolded(panes, paneId, deckSlot.members);
+        slotReveal = deps.wallRevealFor(paneId, panes, deckSlot.slot);
       }
     }
   }
@@ -201,7 +201,7 @@ export function setPaneFolded(deps: FoldDeps, paneId: string, folded: boolean): 
   deps.commitImposition(deps.deck().imposition, panes, {
     retuneRails: false,
     revealPaneId: paneId,
-    ...(columnReveal !== undefined ? { columnReveal } : {}),
+    ...(slotReveal !== undefined ? { slotReveal } : {}),
   });
 }
 

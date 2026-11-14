@@ -44,7 +44,7 @@ function harness() {
     paneRects: () => new Map(),
     revealStack: () => {},
     railEdge: (paneId) => (paneId === "rail" ? driver : null),
-    columnSeam: () => null,
+    slotSeam: () => null,
     requestFrame: () => {},
     land: () => {},
     flowFollow: () => null,

@@ -15,7 +15,7 @@
  * `set_up_chains` counts the chain probe's read→write→read chains from the
  * settle mark's on to the gate's last close. Each read drive must show at
  * most one — the commit's own layout, paid by the read phase. `appear` (a
- * picker card arriving into a split column) and `fold` (a session card
+ * picker card arriving into a split slot) and `fold` (a session card
  * folding beside a neighbour that grows into the room, then unfolding) are
  * driven on the slice arm and the whale arm alike: a chain count is not a
  * timing, so the whale holds the slice's bar, and a chain only the whale
@@ -53,7 +53,7 @@ import { rmTempTugbank } from "../_harness/tugbank-helpers";
 import {
   AFTER_LAND_MS,
   SHOULD_RUN,
-  columnBlob,
+  slotFlipBlob,
   home,
   launch,
   transcriptArms,
@@ -196,16 +196,16 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
     test(
       "appear and fold each read at most one chain between the settle mark and the gate's close",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, {
+        const { app, tugbankPath } = await launch(8, slotFlipBlob(), TEST_NAME, {
           transcripts: arm.size,
           whaleCards: [SUBJECT, NEIGHBOUR],
         });
         try {
           await home(app);
-          // The subject's column split, so the fold has a neighbour that
+          // The subject's slot split, so the fold has a neighbour that
           // grows into its room and the appear has a division to arrive at.
           await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("set-column-mode", ` +
+            `(window.__tug.dispatchControlAction("set-slot-mode", ` +
               `{ slot: 0, mode: "split" }), null)`,
           );
           await wait(AFTER_LAND_MS);

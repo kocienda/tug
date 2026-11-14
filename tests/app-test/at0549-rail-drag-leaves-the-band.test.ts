@@ -7,7 +7,7 @@
  * the slot walk — but two readers beside the engine did not know which kind of
  * card was in the air, and both answered for the wrong one. The held-open
  * slots showed their numbered badges under a bare `data-carrying`, and
- * `autoscrollTargetFor` fell through the rails and the columns to the flow
+ * `autoscrollTargetFor` fell through the rails and the slots to the flow
  * strip unconditionally. So dragging a sidebar card from one deck edge to the
  * other lit every empty content slot and scrolled the content strip to its
  * end, offering a landing that could not happen and moving cards the reader

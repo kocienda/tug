@@ -13,7 +13,7 @@
  * - The data attributes the shell's stylesheets, queries and the host read:
  *   which edges the hand may resize from (`data-grips`), the floor
  *   (`data-min-*`), whether the pane is free, and its standing in a rail or a
- *   column.
+ *   slot.
  * - The pane's place in the responder chain, answering the verbs that are the
  *   deck's (tab selection, the slot's depth ring) and handing the close and
  *   reveal verbs to the card's page, which draws the confirm and the picker.
@@ -56,7 +56,7 @@ import { useDeckManager } from "@/deck-manager-context";
 import {
   imposeStyle,
   travelFraction,
-  type ColumnMemberPlacement,
+  type SlotMemberPlacement,
   imposeSidebarStyle,
   type PinnedFrame,
   type PlaceStanding,
@@ -66,7 +66,7 @@ import {
   DEFAULT_CONTENT_WIDTH,
   resolveContentWidthPx,
 } from "@/lib/layout-imposer";
-import { adoptColumnProperties } from "./place-properties";
+import { adoptSlotProperties } from "./place-properties";
 import { cardTitleStore } from "@/lib/card-title-store";
 import { selectTab, closeTab } from "@/lib/pane-verbs";
 import {
@@ -252,12 +252,12 @@ export interface TugPaneProps {
   departing?: boolean;
   /**
    * Set only on a pane standing in a SPLIT slot: which slot, which position in
-   * its column, and how many members divide the run. Absent on a stacked
-   * slot, on a column of one, on a free pane, and on a rail.
+   * its slot, and how many members divide the run. Absent on a stacked
+   * slot, on a slot of one, on a free pane, and on a rail.
    */
-  columnMember?: ColumnMemberPlacement;
+  slotMember?: SlotMemberPlacement;
   /**
-   * The pane is ARRIVING: appended to its column but not yet part of its
+   * The pane is ARRIVING: appended to its slot but not yet part of its
    * division, drawn hidden at the seat it will take ([B01], [B08]). The value
    * is the SEAT: `"bottom"` at the run's bottom at the floor, `"run"` the
    * undivided run. Projected onto the frame as `data-arriving` and
@@ -348,7 +348,7 @@ function TugPaneImpl({
   isSidebarPane = false,
   bullseye = false,
   bullseyeExit,
-  columnMember,
+  slotMember,
   arriving,
   folded = false,
 }: TugPaneProps) {
@@ -425,7 +425,7 @@ function TugPaneImpl({
     frameRef.current = el;
     setFrameEl(el);
   }, []);
-  // The slot this frame reads its column's seams, offset and strip from. They
+  // The slot this frame reads its slot's seams, offset and strip from. They
   // stand on the frame itself rather than on an ancestor
   // (`place-properties.ts`), so a frame that comes to stand in a slot adopts
   // the slot's standing values before paint.
@@ -434,7 +434,7 @@ function TugPaneImpl({
   useLayoutEffect(() => {
     const el = frameRef.current;
     if (el === null || imposedSlot === null) return;
-    adoptColumnProperties(el, imposedSlot);
+    adoptSlotProperties(el, imposedSlot);
   }, [imposedSlot]);
   // The content element the card's host portals into.
   const [contentEl, contentRef] = useState<HTMLDivElement | null>(null);
@@ -667,13 +667,13 @@ function TugPaneImpl({
       : renderWidth;
   // The height a card's bottom edge gave it in its slot ([B06]). Read where
   // the card stands alone or stacked in its slot, and nowhere else: a split
-  // column's heights are its shares, a height-pinned card's height is its
+  // slot's heights are its shares, a height-pinned card's height is its
   // own, and a bullseye, a rail, or a newcomer not yet seated has no slot run
   // to stand in. Anchored at the top of the run, and never taller than it.
   const slotHeightApplies =
     imposed &&
     placement !== undefined &&
-    columnMember === undefined &&
+    slotMember === undefined &&
     !heightPinned &&
     !bullseye &&
     sidebarSide === undefined &&
@@ -704,7 +704,7 @@ function TugPaneImpl({
       : imposed && placement !== undefined
         ? arriving === "bottom"
           ? // The seat a newcomer will take ([B08]): the bottom of the run at
-            // the stack's floor, at the column's width. The overlap with the
+            // the stack's floor, at the slot's width. The overlap with the
             // member above is invisible because the frame is hidden.
             imposeStyle(placement, slotWidth, {
               ...pinnedFrame,
@@ -714,7 +714,7 @@ function TugPaneImpl({
           : heldSlotHeight !== undefined
             ? heldSlotHeightStyle(placement, slotWidth, pinnedFrame, heldSlotHeight)
             : imposeStyle(placement, slotWidth, pinnedFrame, {
-                member: columnMember,
+                member: slotMember,
               })
         : {
             left: position.x,
@@ -736,7 +736,7 @@ function TugPaneImpl({
   // left edge where the slot has travel to give up and a right edge where it
   // is not the last slot's; in flow the right edge alone; a width-locked card
   // neither; never a corner; and a top or bottom only where it borders a seam
-  // of a split column sharing its run, or where the pane holds a height. A
+  // of a split slot sharing its run, or where the pane holds a height. A
   // pane whose resize releases it offers all eight.
   const keepsSlot = resizeKeepsSlot && imposed && placement !== undefined && !bullseye && arriving === undefined;
   const resizeEdges: readonly ResizeEdge[] = keepSlotGripsOf(
@@ -745,9 +745,9 @@ function TugPaneImpl({
       : {
           layout: placement.flow !== undefined ? "flow" : "fit",
           fraction: placement.flow !== undefined ? 0 : travelFraction(placement),
-          column:
-            columnMember !== undefined && columnMember.count > 1 && columnMember.standing === "shared"
-              ? { index: columnMember.index, count: columnMember.count }
+          position:
+            slotMember !== undefined && slotMember.count > 1 && slotMember.standing === "shared"
+              ? { index: slotMember.index, count: slotMember.count }
               : undefined,
           heightHeld: slotHeightApplies,
           widthPinned,
@@ -849,13 +849,13 @@ function TugPaneImpl({
               : {}),
           }
         : {})}
-      // A member of a column that is currently divided rather than stacked —
-      // what the column seams find their fellow members by. Suppressed under
-      // bullseye, which supersedes the column and takes the whole run.
-      {...(columnMember !== undefined && !bullseye
+      // A member of a slot that is currently divided rather than stacked —
+      // what the slot seams find their fellow members by. Suppressed under
+      // bullseye, which supersedes the slot and takes the whole run.
+      {...(slotMember !== undefined && !bullseye
         ? {
-            "data-column-split": "",
-            "data-column-member": String(columnMember.index),
+            "data-slot-split": "",
+            "data-slot-member": String(slotMember.index),
           }
         : {})}
       {...(imposed && placement !== undefined && !bullseye

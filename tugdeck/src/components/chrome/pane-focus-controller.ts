@@ -186,7 +186,7 @@ export function usePaneFocusController(
       //
       // `reveal: false`: this is the POINTER's activation, and the hand is
       // already on the card it named. A strip reveal here would slide an
-      // overflowing rail or column under the press, carrying the title bar
+      // overflowing rail or slot under the press, carrying the title bar
       // out from under a mouse that is still holding it.
       activate: ({ outgoingCardId, incomingCardId }) => {
         transferFocusForActivation({

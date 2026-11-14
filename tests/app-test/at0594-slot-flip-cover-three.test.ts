@@ -1,11 +1,11 @@
 /**
- * at0594-column-flip-cover-three.test.ts — a column mode flip is a cover, not
- * a fade; the three-member column.
+ * at0594-slot-flip-cover-three.test.ts — a slot mode flip is a cover, not
+ * a fade; the three-member slot.
  *
- * Split from `at0594-column-flip-cover`, one file per member count, each its
- * own launch: the two-member column in `at0594-column-flip-cover-two`, the
+ * Split from `at0594-slot-flip-cover`, one file per member count, each its
+ * own launch: the two-member slot in `at0594-slot-flip-cover-two`, the
  * three-member one here. The deck, the sampler and the claims are one body in
- * `column-flip-cover-fixture.ts`; the claims and the argument for them are in
+ * `slot-flip-cover-fixture.ts`; the claims and the argument for them are in
  * the two-member file's docblock.
  *
  * The three-member case — middle member frontmost, both directions — holds the
@@ -13,7 +13,7 @@
  * records the survivor's rect through each settle as `note()` lines so the
  * fused beat can be read from the report.
  *
- * @family at0594-column-flip-cover
+ * @family at0594-slot-flip-cover
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/cut-detector.ts
@@ -37,18 +37,18 @@ import {
   takeCuts,
   wait,
   type Sample,
-} from "./column-flip-cover-fixture";
+} from "./slot-flip-cover-fixture";
 
-describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover [three]", () => {
+describe.skipIf(!SHOULD_RUN)("at0594 — slot flip cover [three]", () => {
   test(
-    "a three-member column with the middle member frontmost flips both ways as a cover",
+    "a three-member slot with the middle member frontmost flips both ways as a cover",
     async () => {
       const paneIds = ["p1", "p2", "p3"];
-      const app = await launch(3, "at0594-column-flip-cover-three");
+      const app = await launch(3, "at0594-slot-flip-cover-three");
       try {
         // card-dom: shell — a deck command dispatched in the shell, reaching no card's DOM.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
+          `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "split" }), null)`,
         );
         await wait(AFTER_LAND_MS);
         const split = await readNow(app, paneIds);
@@ -92,7 +92,7 @@ describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover [three]", () => {
 
         expect(
           await takeCuts(app),
-          "stack and split on a three-member column produce no cut records",
+          "stack and split on a three-member slot produce no cut records",
         ).toBe("");
       } finally {
         await app.close();

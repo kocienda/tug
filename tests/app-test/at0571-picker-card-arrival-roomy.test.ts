@@ -47,7 +47,7 @@ import {
   TEST_TIMEOUT_MS,
   addSessionCard,
   arrivedPaneId,
-  columnShares,
+  slotShares,
   heldFor,
   isFolded,
   launchArrivalApp,
@@ -65,7 +65,7 @@ afterAll(removeArrivalPickerSessions);
 
 describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
   test(
-    "a newcomer onto a ROOMY split column takes the room, and leaves no band beneath it",
+    "a newcomer onto a ROOMY split slot takes the room, and leaves no band beneath it",
     async () => {
       const app = await launchArrivalApp("at0571-roomy-column");
       try {
@@ -89,14 +89,14 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           "roomy column",
           `sitter folded at ${before[SITTER].height.toFixed(1)} of run ${run.toFixed(1)}`,
         );
-        // A folded card stands at its tier wherever it is, alone in its column
+        // A folded card stands at its tier wherever it is, alone in its slot
         // included: the fold is the pane's, and floor and ceiling are both the
         // tier ([D185], amended when every content card gained a fold). So the
         // room is already there before anybody arrives — what this case pins is
         // who takes it once somebody does.
         expect(
           Math.abs(before[SITTER].height - SITTER_FOLDED_TIER_PX),
-          "alone in its column the folded sitter stands at its tier",
+          "alone in its slot the folded sitter stands at its tier",
         ).toBeLessThanOrEqual(PIXEL_TOL);
 
         await app.evalJS<null>(`(${addSessionCard}, null)`);
@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(newcomer, "the card arrived").not.toBeNull();
         const after = await paneRects(app, [SITTER, "p3", newcomer ?? ""]);
         const arrival = after[newcomer ?? ""];
-        const shares = await columnShares(app, 0);
+        const shares = await slotShares(app, 0);
         const bid = await heldFor(app, newcomer ?? "");
         note(
           "roomy arrival",

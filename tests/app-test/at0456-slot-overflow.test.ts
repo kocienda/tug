@@ -1,10 +1,10 @@
 /**
- * at0456-column-overflow.test.ts — a column with no room left stops dividing.
+ * at0456-slot-overflow.test.ts — a slot with no room left stops dividing.
  *
  * Two cards in a slot divide its run at a seam, and at0455 pins that. This file
  * is about what happens when the run runs out: three cards declaring a 400px
- * floor cannot all stand in the ~1040px run this canvas gives a column, so
- * division stops being possible and the column takes a different geometry
+ * floor cannot all stand in the ~1040px run this canvas gives a slot, so
+ * division stops being possible and the slot takes a different geometry
  * entirely ([P01], [P08]). Every member takes the height IT asked for —
  * its FLOOR, which is the whole of what a member declares about its own height
  * — and they stack down a virtual strip that slides up behind the run on a
@@ -18,7 +18,7 @@
  * rather than by the count.
  *
  * The fixture crosses the boundary in both directions rather than starting past
- * it, because the interesting claims are all about the crossing. A column of
+ * it, because the interesting claims are all about the crossing. A slot of
  * two is divided at a seam the user drags to a ratio they chose; a third member
  * arrives and the division is abandoned; the third leaves and the ratio the
  * user chose is governing again, unrewritten.
@@ -33,7 +33,7 @@
  *      that cannot hold the floors has no room to divide, so the record says
  *      nothing about this geometry — and it is kept whole rather than
  *      rewritten, which is what makes the crossing lossless in both directions.
- *   3. **Activating a below-the-run member slides the column, minimally.** The
+ *   3. **Activating a below-the-run member slides the slot, minimally.** The
  *      bottom member's bottom edge lands flush with the run's, which is the
  *      LEAST slide that shows it — not the top of the strip and not the whole
  *      travel. A member already fully in the run slides nothing at all, which
@@ -95,8 +95,8 @@ const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 
 const frame = (paneId: string): string => `.tug-pane[data-pane-id="${paneId}"]`;
-const columnSeam = (slot: number, index: number): string =>
-  `[data-column-seam="${slot}:${index}"]`;
+const slotSeam = (slot: number, index: number): string =>
+  `[data-slot-seam="${slot}:${index}"]`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -183,7 +183,7 @@ async function rects(app: App, paneIds: string[]): Promise<Record<string, Rect>>
   );
 }
 
-/** The run the column's members stand in, in viewport coordinates: the canvas
+/** The run the slot's members stand in, in viewport coordinates: the canvas
  *  less the gap it keeps at the top and the deeper one at the bottom. Read from
  *  the canvas the deck actually painted, the way at0454 reads the band. */
 async function run(
@@ -204,29 +204,29 @@ async function run(
 }
 
 /** Slot 0's stored offset in px, as the live store holds it. */
-async function columnOffset(app: App): Promise<number> {
+async function slotOffset(app: App): Promise<number> {
   return app.evalJS<number>(
-    `((window.tugdeck.diag.getDeckState().columnOffsets || {})[0] || 0)`,
+    `((window.tugdeck.diag.getDeckState().slotOffsets || {})[0] || 0)`,
   );
 }
 
 /** Slot 0's published offset property, in px — what the frames' `calc()`s
- *  actually read, off a slot-0 frame, where a column's properties stand
+ *  actually read, off a slot-0 frame, where a slot's properties stand
  *  (`place-properties.ts`). Asserted beside the stored number so a commit that
  *  never reached the DOM cannot pass. */
 async function offsetProperty(app: App): Promise<string> {
-  // card-dom: shell — a column's published property, on the shell's stand-in frame.
+  // card-dom: shell — a slot's published property, on the shell's stand-in frame.
   return app.evalJS<string>(
     `getComputedStyle(
        document.querySelector('.tug-space-layer[data-space-shown] .tug-pane[data-imposed="0"]')
-     ).getPropertyValue("--tug-slot-0-column-offset").trim()`,
+     ).getPropertyValue("--tug-slot-0-offset").trim()`,
   );
 }
 
 /** How many seam handles slot 0 is currently offering. */
 async function seamCount(app: App): Promise<number> {
   return app.evalJS<number>(
-    `document.querySelectorAll('[data-column-seam^="0:"]').length`,
+    `document.querySelectorAll('[data-slot-seam^="0:"]').length`,
   );
 }
 
@@ -251,33 +251,33 @@ async function stripProperties(app: App, count: number): Promise<number[]> {
   );
 }
 
-/** The `columns` record as the live store holds it. */
-async function columnsRecord(
+/** The `slots` record as the live store holds it. */
+async function slotsRecord(
   app: App,
 ): Promise<
   Record<string, { mode?: string; order?: string[]; shares?: Record<string, number> }>
 > {
   return app.evalJS(
-    `(window.tugdeck.diag.getDeckState().imposition.columns || {})`,
+    `(window.tugdeck.diag.getDeckState().imposition.slots || {})`,
   );
 }
 
-async function setColumnMode(
+async function setSlotMode(
   app: App,
   slot: number,
   mode: "stack" | "split",
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-column-mode", { slot: ${slot}, mode: ${JSON.stringify(mode)} }), null)`,
+    `(window.__tug.dispatchControlAction("set-slot-mode", { slot: ${slot}, mode: ${JSON.stringify(mode)} }), null)`,
   );
   await wait(AFTER_LAND_MS);
 }
 
-describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
+describe.skipIf(!SHOULD_RUN)("at0456 — slot overflow", () => {
   test(
     "a third member trades the division for a strip built from the members, and leaving restores it",
     async () => {
-      const app = await launchTugApp({ testName: "at0456-column-overflow" });
+      const app = await launchTugApp({ testName: "at0456-slot-overflow" });
       try {
         await app.evalJS<null>(
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
@@ -290,13 +290,13 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         await wait(AFTER_LAND_MS);
 
         // ── 0. Two members, divided at a ratio the user drags. ──
-        await setColumnMode(app, 0, "split");
+        await setSlotMode(app, 0, "split");
         expect(await seamCount(app)).toBe(1);
         {
           const before = await rects(app, ["p1", "p2"]);
-          const seam = await app.getElementBounds(columnSeam(0, 0));
-          // card-dom: shell — the column's seam is the shell's own.
-          await app.nativeDragElement(columnSeam(0, 0), {
+          const seam = await app.getElementBounds(slotSeam(0, 0));
+          // card-dom: shell — the slot's seam is the shell's own.
+          await app.nativeDragElement(slotSeam(0, 0), {
             x: Math.round(seam.x + seam.width / 2),
             y: Math.round(before.p1.top + before.p1.height * 0.5),
           });
@@ -312,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
           await wait(AFTER_LAND_MS);
         }
         const dragged = await rects(app, ["p1", "p2"]);
-        const draggedShares = (await columnsRecord(app))["0"]?.shares ?? {};
+        const draggedShares = (await slotsRecord(app))["0"]?.shares ?? {};
         expect(
           Object.keys(draggedShares).sort(),
           "the weights land keyed by pane id",
@@ -343,13 +343,13 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         ).toBe(3);
 
         // The nudge raised C, and raising the third member of an overflowing
-        // column reveals it — so the strip is already slid. Bring it home by
+        // slot reveals it — so the strip is already slid. Bring it home by
         // raising the first member, which is the same rule read the other way,
         // and measure the resting geometry from there.
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
         await wait(AFTER_LAND_MS);
         expect(
-          await columnOffset(app),
+          await slotOffset(app),
           "revealing the top member brings the strip back to rest",
         ).toBe(0);
 
@@ -361,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         // left to stand on. The stored weights say nothing about a run that
         // cannot hold the minimum, and the strip is as long as the floors
         // make it.
-        const overflowShares = (await columnsRecord(app))["0"]?.shares ?? {};
+        const overflowShares = (await slotsRecord(app))["0"]?.shares ?? {};
         const wanted = (_id: string): number => FLOOR;
         note(
           `overflow members: ${["p1", "p2", "p3"]
@@ -431,12 +431,12 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         ).toBeLessThan(EPSILON);
 
         // ── 3. The reveal, and its minimality. ──
-        expect(await columnOffset(app)).toBe(0);
+        expect(await slotOffset(app)).toBe(0);
         await app.evalJS<null>(`(window.__tug.activateCard("C"), null)`);
         await wait(AFTER_LAND_MS);
         const revealed = await rects(app, ["p1", "p2", "p3"]);
         const geometryAfter = await run(app);
-        const offset = await columnOffset(app);
+        const offset = await slotOffset(app);
         note(
           `reveal slid slot 0 by ${Math.round(offset)}px, property reads ${await offsetProperty(app)}`,
         );
@@ -452,7 +452,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
           Math.abs(revealed.p3.bottom - geometryAfter.bottom),
           "the revealed member's bottom edge is flush with the run's",
         ).toBeLessThan(EPSILON);
-        // The whole column moved, not the activated member alone.
+        // The whole slot moved, not the activated member alone.
         expect(revealed.p1.top).toBeLessThan(three.p1.top - EPSILON);
 
         // A member already fully in the run reveals nothing — activating it
@@ -474,7 +474,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
         await app.evalJS<null>(`(window.__tug.activateCard(${JSON.stringify(settledCard)}), null)`);
         await wait(AFTER_LAND_MS);
         expect(
-          Math.abs((await columnOffset(app)) - offset),
+          Math.abs((await slotOffset(app)) - offset),
           "an activation that reveals nothing commits no geometry",
         ).toBeLessThan(0.001);
         const still = await rects(app, ["p1"]);
@@ -496,12 +496,12 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
 
         expect(
           await seamCount(app),
-          "the seam returns the moment the column stops overflowing",
+          "the seam returns the moment the slot stops overflowing",
         ).toBe(1);
         const two = await rects(app, ["p1", "p2"]);
         const geometryEnd = await run(app);
         // Tiled run endpoint to run endpoint, and standing at the run's own top
-        // rather than wherever the strip had slid to — a shared column has no
+        // rather than wherever the strip had slid to — a shared slot has no
         // offset to hold.
         expect(
           Math.abs(two.p1.top - geometryEnd.top),

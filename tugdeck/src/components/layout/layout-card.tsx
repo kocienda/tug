@@ -29,13 +29,13 @@
  * press what it does not draw. This card used to re-describe every per-place
  * fact in a row of its own — one per side, one per shared slot, up to thirteen
  * rows under a picture that had just drawn every one of them — so the reader's
- * eye joined "Column 3" to the third block on every read, the count grew with
+ * eye joined "Slot 3" to the third block on every read, the count grew with
  * the deck, and the panel's height moved as cards did. The marks cost none of
  * that and scale sideways for free.
  *
- * The trade also closed a trap. The column rows were gated on a slot holding
- * two or more cards, on the argument that a column of one is already unsplit —
- * but membership churn PRESERVES an arrangement (`columnDrawsSplit`), so a slot
+ * The trade also closed a trap. The slot rows were gated on a slot holding
+ * two or more cards, on the argument that a slot of one is already unsplit —
+ * but membership churn PRESERVES an arrangement (`slotDrawsSplit`), so a slot
  * set to split and standing one card deep was invisible everywhere and
  * reachable from nowhere until a second card arrived and it resurfaced. A mark
  * is cheap enough to give every place the drawing draws, so every one of them
@@ -70,7 +70,7 @@
  * The drawing is chrome at rest and takes no pointer itself
  * (`pointer-events: none`) — it is drawn in chrome neutrals rather than the
  * control palette. What answers a hand is the places overlay standing over it:
- * an invisible target on every column block, split member and rail member,
+ * an invisible target on every slot block, split member and rail member,
  * which lights only while the pointer is on it, and the stack/split marks
  * above those. Pressing a block goes to its slot and raises the card standing
  * there (a second press in succession cycles a stack); pressing a member
@@ -108,7 +108,7 @@
  * event handlers and a `MutationObserver`, never React state; [L11] every
  * control emits `selectValue` through the responder chain, which this card
  * turns into `set-imposition` / `set-imposition-layout` / `set-content-width` /
- * `set-sidebar-side` / `set-column-mode` dispatches (the last from the place
+ * `set-sidebar-side` / `set-slot-mode` dispatches (the last from the place
  * toggles under the strip); [L19] every control is a `TugChoiceGroup` and
  * every caption a `TugLabel`, composed rather than hand-rolled; [L30] every
  * user-invocable act goes through the command funnel. The card touches the
@@ -183,8 +183,8 @@ import {
   GAP_LABELS,
   GAP_PRESETS,
   isImpositionKind,
-  isColumnMode,
-  columnModeOf,
+  isSlotMode,
+  slotModeOf,
   isImpositionLayout,
   impositionLayout,
   isSidebarSide,
@@ -203,10 +203,10 @@ import {
   type PlaceAllocation,
 } from "@/lib/layout-imposer";
 import {
-  deckColumnsOf,
+  deckSlotsOf,
   deckFlowStrip,
   deckSlotStrip,
-  type DeckColumn,
+  type DeckSlot,
   isSidebarParked,
   isSidebarStanding,
   railAllocationOf,
@@ -255,7 +255,7 @@ const ZOOM_SENDER_ID = "layout-card-zoom";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
 
-const COLUMN_SENDER_PREFIX = "layout-card-column:";
+const SLOT_SENDER_PREFIX = "layout-card-slot:";
 
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
  *  `TugLabel`. */
@@ -276,7 +276,7 @@ const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
  *
  *  Five deck rows, fixed, then the sidebar rows. A slot's stack or split has no
  *  row here: it is asked at the picture, by the place toggles under the strip,
- *  and a `Column N` row under Gap restated that toggle in words.
+ *  and a `Slot N` row under Gap restated that toggle in words.
  *
  *  A fourth stood here for a while: the slot window, how many places a Cards
  *  row draws around its card's own. It was the odd one — every other row
@@ -488,21 +488,21 @@ function useImposition(): DeckImposition {
  * overlay's marks dim on it.
  *
  * Every occupied slot is returned, whatever its membership. An earlier version
- * offered a column control only for a slot holding two or more cards, arguing
- * that a column of one is already unsplit and has nothing to restore. That was
+ * offered a slot control only for a slot holding two or more cards, arguing
+ * that a slot of one is already unsplit and has nothing to restore. That was
  * false, and the way it was false is the whole reason this overlay exists:
  * membership churn deliberately preserves the arrangement
- * (`columnDrawsSplit`), so a slot set to split and standing one card deep keeps
+ * (`slotDrawsSplit`), so a slot set to split and standing one card deep keeps
  * `mode: "split"` — invisible on every surface and, under that gate,
  * unreachable from any surface. It sat there until a second card arrived and
  * resurfaced as a surprise. The rails avoided exactly this trap by never gating
- * their rows on membership; the columns walked into it.
+ * their rows on membership; the slots walked into it.
  */
-function useDeckColumns(): readonly DeckColumn[] {
+function useDeckSlots(): readonly DeckSlot[] {
   return useDeckDerived((deck, store) =>
     deck === null
       ? []
-      : deckColumnsOf(deck, store?.getColumnRunHeight() ?? null),
+      : deckSlotsOf(deck, store?.getSlotRunHeight() ?? null),
   );
 }
 
@@ -514,9 +514,9 @@ function useDeckColumns(): readonly DeckColumn[] {
  * has stood in, so its members have no heights to read and the miniature draws
  * the anonymous division instead.
  */
-function useCommittedAllocations(columns: readonly DeckColumn[]): {
+function useCommittedAllocations(deckSlots: readonly DeckSlot[]): {
   rails: Partial<Record<SidebarSide, PlaceAllocation | null>>;
-  columns: Record<number, PlaceAllocation | null>;
+  slots: Record<number, PlaceAllocation | null>;
 } {
   const rails = useDeckDerived(
     (deck, store): Partial<Record<SidebarSide, PlaceAllocation | null>> => {
@@ -531,9 +531,9 @@ function useCommittedAllocations(columns: readonly DeckColumn[]): {
   );
   return useMemo(() => {
     const bySlot: Record<number, PlaceAllocation | null> = {};
-    for (const column of columns) bySlot[column.slot] = column.allocation;
-    return { rails, columns: bySlot };
-  }, [rails, columns]);
+    for (const deckSlot of deckSlots) bySlot[deckSlot.slot] = deckSlot.allocation;
+    return { rails, slots: bySlot };
+  }, [rails, deckSlots]);
 }
 
 /**
@@ -592,9 +592,9 @@ function useCommittedFaces(): MiniatureFaces | null {
     }
     const panesById = new Map(deck.panes.map((pane) => [pane.id, pane]));
     const members: Record<number, readonly MiniatureFace[]> = {};
-    for (const column of deckColumnsOf(deck, null)) {
-      if (column.mode !== "split" || column.members.length < 2) continue;
-      members[column.slot] = column.members.flatMap((paneId) => {
+    for (const deckSlot of deckSlotsOf(deck, null)) {
+      if (deckSlot.mode !== "split" || deckSlot.members.length < 2) continue;
+      members[deckSlot.slot] = deckSlot.members.flatMap((paneId) => {
         const pane = panesById.get(paneId);
         return pane === undefined ? [] : [faceOf(pane, pane.id === reader)];
       });
@@ -742,8 +742,8 @@ function CommittedWindowGrip({
 }
 
 /**
- * Each overflowing column's slide, as a fraction of the run — the vertical
- * half of what the committed drawing is told, and `null` when no column is
+ * Each overflowing slot's slide, as a fraction of the run — the vertical
+ * half of what the committed drawing is told, and `null` when no slot is
  * overflowing or the canvas has no run to measure against.
  *
  * A fraction rather than pixels for the reason the miniature's prop is one:
@@ -751,13 +751,13 @@ function CommittedWindowGrip({
  * number that crosses the scale change intact. Recomputed with the snapshot
  * ([L02]).
  */
-function useCommittedColumnOffsets(): Readonly<
+function useCommittedSlotOffsets(): Readonly<
   Record<number, number>
 > | null {
   return useDeckDerived((deck, store): Readonly<Record<number, number>> | null => {
-    const offsets = deck?.columnOffsets;
+    const offsets = deck?.slotOffsets;
     if (deck === null || store === null || offsets === undefined) return null;
-    const run = store.getColumnRunHeight();
+    const run = store.getSlotRunHeight();
     if (run === null) return null;
     const fractions: Record<number, number> = {};
     for (const [slot, px] of Object.entries(offsets)) {
@@ -939,7 +939,7 @@ interface PlanLayer {
   /** Which geometry this drawing stands under. */
   layout: ImpositionLayout;
   /** Which slots this drawing divides, and into how many shares. */
-  columnSplits: Record<number, number>;
+  slotSplits: Record<number, number>;
 }
 
 /**
@@ -952,14 +952,14 @@ interface PlanLayer {
  * arrangement, so any change to the deck re-rendered all twenty-six of them —
  * their miniatures, their marks, every mark's glyph and button — in the same
  * commit as the change, which is to say inside the settle the change was
- * animating through: 1100–1600 performed fibres per column division, twice
+ * animating through: 1100–1600 performed fibres per slot division, twice
  * again on a close (`at0654`'s commit census, 2026-09-30). None of them is on
  * screen while that happens. Behind {@link useAfterMotion} the urgent commit
  * keeps the previous layers and this component bails; once the motion gate
  * opens React renders the new ones at transition priority, in slices it yields
  * between, and a preview catches up just after the deck lands — before any
  * hand can reach its row. Plain `useDeferredValue` deferred the render but not
- * its commit, which React landed whenever it finished: on a column rejoin,
+ * its commit, which React landed whenever it finished: on a slot rejoin,
  * 677 fibres 70 ms into the motion the set-up had just launched.
  */
 const PreviewLayers = memo(function PreviewLayers({
@@ -998,7 +998,7 @@ const PreviewLayers = memo(function PreviewLayers({
             rails={layer.rails}
             width={layer.width}
             layout={layer.layout}
-            columnSplits={layer.columnSplits}
+            slotSplits={layer.slotSplits}
             flowBandPx={bandPx}
           />
         </div>
@@ -1077,9 +1077,9 @@ export function LayoutContent(
     (entry) => !(entry?.kind === "bool" && entry.value === false),
     true,
   );
-  // Every occupied slot, whatever its membership (see `useDeckColumns` for
+  // Every occupied slot, whatever its membership (see `useDeckSlots` for
   // why one card deep still counts).
-  const columns = useDeckColumns();
+  const deckSlots = useDeckSlots();
   // The rows list the Layout card's own last: its caption takes a second
   // line, and at the foot of the list that line pushes no row apart.
   const sidebarRows = [
@@ -1096,7 +1096,7 @@ export function LayoutContent(
   const rails = railsFor(imposition, openSidebars);
 
   // The committed places' own divisions, for the committed drawing alone.
-  const committedAllocations = useCommittedAllocations(columns);
+  const committedAllocations = useCommittedAllocations(deckSlots);
   // The sides whose run actually scrolls — read off the side's own STANDING,
   // which is a fact about what is on screen. A rail whose floors do not fit its
   // run stands as a strip by arithmetic and reads as scrolling on every face
@@ -1221,7 +1221,7 @@ export function LayoutContent(
   });
   const railMembers = useRailMembers();
   const { onWindowPointerDown } = useMiniatureWindowDrag();
-  const committedColumnOffsets = useCommittedColumnOffsets();
+  const committedSlotOffsets = useCommittedSlotOffsets();
   // What stands in each place — the committed drawing's faces.
   const faces = useCommittedFaces();
   // The arrangeable places, for the overlay that draws them on the picture:
@@ -1232,28 +1232,28 @@ export function LayoutContent(
   // rather than as a fact about the deck. Membership is deliberately not
   // passed down: the mark states the arrangement and nothing else, at one
   // weight for every place.
-  const occupiedColumnOf = (slot: number): DeckColumn | undefined =>
-    columns.find((column) => column.slot === slot);
-  const columnPlaces: LayoutPlace[] = Array.from(
+  const occupiedSlotOf = (slot: number): DeckSlot | undefined =>
+    deckSlots.find((deckSlot) => deckSlot.slot === slot);
+  const slotPlaces: LayoutPlace[] = Array.from(
     { length: slotCount(kind) },
     (_, slot) => ({
       key: `col-${slot}`,
       slot,
-      mode: occupiedColumnOf(slot)?.mode ?? columnModeOf(imposition, slot),
+      mode: occupiedSlotOf(slot)?.mode ?? slotModeOf(imposition, slot),
       label: slotCaption(slot),
-      senderId: `${COLUMN_SENDER_PREFIX}${slot}`,
+      senderId: `${SLOT_SENDER_PREFIX}${slot}`,
     }),
   );
 
   /** Which slots the miniature draws divided, and into how many shares. */
-  const columnSplits: Record<number, number> = {};
+  const slotSplits: Record<number, number> = {};
   /** …and which pane is each share, top to bottom — what a member target
    *  presses. */
-  const columnMembers: Record<number, readonly string[]> = {};
-  for (const column of columns) {
-    if (column.mode === "split" && column.members.length > 1) {
-      columnSplits[column.slot] = column.members.length;
-      columnMembers[column.slot] = column.members;
+  const slotMembers: Record<number, readonly string[]> = {};
+  for (const deckSlot of deckSlots) {
+    if (deckSlot.mode === "split" && deckSlot.members.length > 1) {
+      slotSplits[deckSlot.slot] = deckSlot.members.length;
+      slotMembers[deckSlot.slot] = deckSlot.members;
     }
   }
 
@@ -1269,12 +1269,12 @@ export function LayoutContent(
         const sender = event.sender;
         if (
           typeof sender === "string" &&
-          sender.startsWith(COLUMN_SENDER_PREFIX)
+          sender.startsWith(SLOT_SENDER_PREFIX)
         ) {
-          const slot = Number(sender.slice(COLUMN_SENDER_PREFIX.length));
+          const slot = Number(sender.slice(SLOT_SENDER_PREFIX.length));
           if (!Number.isInteger(slot) || slot < 0) return;
-          if (isColumnMode(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: value });
+          if (isSlotMode(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_SLOT_MODE, { slot, mode: value });
           }
           return;
         }
@@ -1441,7 +1441,7 @@ export function LayoutContent(
     ...(layout === DEFAULT_IMPOSITION_LAYOUT ? [] : [LAYOUT_LABELS[layout]]),
   ];
 
-  // Every layer draws the deck's CURRENT column arrangement — a preview changes
+  // Every layer draws the deck's CURRENT slot arrangement — a preview changes
   // one axis and states what the others would keep. Folded in once, after the
   // list, rather than repeated in each literal.
   const layers: PlanLayer[] = [
@@ -1512,14 +1512,14 @@ export function LayoutContent(
         layout,
       };
     }),
-  ].map((layer) => ({ ...layer, columnSplits }));
+  ].map((layer) => ({ ...layer, slotSplits }));
   // The preview layers render just behind the deck, after its settle lands —
   // see `PreviewLayers`.
   const deferredLayers = useAfterMotion(layers);
   const deferredBandPx = useAfterMotion(committedFlow?.bandPx);
 
   // There is deliberately no layer per ARRANGEMENT proposal — no
-  // `columnmode:<slot>:<mode>`, no `railmode:<side>:<mode>`. A layer exists to
+  // `slotmode:<slot>:<mode>`, no `railmode:<side>:<mode>`. A layer exists to
   // be auditioned, and the marks that would raise those do not audition: a
   // mark is a two-state toggle whose effect is the glyph it wears, so hovering
   // one to see what it would do shows a picture the reader can already read
@@ -1602,7 +1602,7 @@ export function LayoutContent(
         data-testid="layout-card-section"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        {/* The content element ([B01]): the column of everything the card
+        {/* The content element ([B01]): the slot of everything the card
             draws. The root above is the scroller and holds no padding or
             rhythm of its own, so this element's border-box height is exactly
             what the card paints — which is what the rail measures and stands
@@ -1648,13 +1648,13 @@ export function LayoutContent(
               rails={rails}
               width={contentWidth}
               layout={layout}
-              columnSplits={columnSplits}
+              slotSplits={slotSplits}
               flowBandPx={committedFlow?.bandPx}
               flowStripPx={committedFlow?.stripPx}
               flowSlots={committedFlow?.slots}
-              columnOffsets={committedColumnOffsets ?? undefined}
+              slotOffsets={committedSlotOffsets ?? undefined}
               railAllocations={committedAllocations.rails}
-              columnAllocations={committedAllocations.columns}
+              slotAllocations={committedAllocations.slots}
               faces={faces ?? undefined}
             />
           </div>
@@ -1680,10 +1680,10 @@ export function LayoutContent(
                   slots: committedFlow.slots,
                 }
           }
-          columnSplits={columnSplits}
-          columnAllocations={committedAllocations.columns}
-          columnOffsets={committedColumnOffsets ?? undefined}
-          columnMembers={columnMembers}
+          slotSplits={slotSplits}
+          slotAllocations={committedAllocations.slots}
+          slotOffsets={committedSlotOffsets ?? undefined}
+          slotMembers={slotMembers}
           railAllocations={committedAllocations.rails}
           railMembers={railMembers}
           onTargetPointerDown={onTargetPointerDown}
@@ -1724,7 +1724,7 @@ export function LayoutContent(
           faces, and the eye runs number → arrangement down one vertical.
           The picture's keyboard stop is this row. */}
       <LayoutPlaceToggles
-        columns={columnPlaces}
+        slotPlaces={slotPlaces}
         spans={stripGeometry.spans}
         rails={stripGeometry.basis}
         layout={layout}

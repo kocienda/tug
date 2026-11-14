@@ -28,7 +28,7 @@
 
 import type { TugAction } from "./action-vocabulary";
 import { TUG_ACTIONS } from "./action-vocabulary";
-import type { ColumnMode, ContentWidth, SidebarSide } from "@/lib/layout-imposer";
+import type { SlotMode, ContentWidth, SidebarSide } from "@/lib/layout-imposer";
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
@@ -209,16 +209,16 @@ export interface CommandMenuFacts {
    */
   readonly reachableSlots: number;
   /**
-   * How many columns are split with two or more members standing — the slots
+   * How many slots are split with two or more members standing — the slots
    * Equalize All Heights would divide. Like {@link reachableSlots} it takes no
    * selection gate: the verb is about the whole deck, so a deselected deck can
    * still be equalized.
    */
-  readonly equalizableColumns: number;
+  readonly equalizableSlots: number;
   /**
-   * What the column verbs could do to the card the layout selection resolves
+   * What the slot verbs could do to the card the layout selection resolves
    * to. `null` when none does — nothing selected, no cursor in the Cards list,
-   * no content card fronted, or a deck with no imposition to hold a column.
+   * no content card fronted, or a deck with no imposition to hold a slot.
    *
    * Unlike {@link cardWidth} and {@link bullseye}, this reads the layout
    * selection's full ladder rather than the focused pane, because that is what
@@ -228,8 +228,8 @@ export interface CommandMenuFacts {
    * equivalent is swallowed by AppKit before the web view ever sees it, so the
    * chord would stop firing to match ([P05]).
    */
-  readonly column: {
-    readonly mode: ColumnMode;
+  readonly slot: {
+    readonly mode: SlotMode;
     readonly canMoveUp: boolean;
     readonly canMoveDown: boolean;
     readonly canEqualize: boolean;
@@ -241,7 +241,7 @@ export interface CommandMenuFacts {
    * on.
    *
    * It reads the FIRST RESPONDER rather than the layout selection, unlike
-   * {@link column}, because that is what the verb acts on: the gesture moves the
+   * {@link slot}, because that is what the verb acts on: the gesture moves the
    * keyboard, so where the keyboard is IS the source. Same promotion argument
    * either way — AppKit resolves a key equivalent before the web view sees the
    * keydown, so an item this fact dims is a chord that stops firing, and a fact
@@ -341,8 +341,8 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   bullseye: null,
   cardFold: null,
   reachableSlots: 0,
-  equalizableColumns: 0,
-  column: null,
+  equalizableSlots: 0,
+  slot: null,
   focusTravel: null,
   sidebars: {},
   spaceCount: 0,
@@ -872,27 +872,27 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * objection that kept them off it was that a menu item's `validate` had
  * nothing to read: these act on the layout selection, which is a fact about
  * the Cards card's list rather than about the frontmost card. That was answerable,
- * and the answer costs a fact — `menu.column`, resolved through the same
+ * and the answer costs a fact — `menu.slot`, resolved through the same
  * ladder the handlers walk, so an item is live exactly when its chord would
  * act. The menu is where a chord is discovered, and a chord nobody can find is
  * a chord nobody uses.
  *
  * `disabledChord: "keep"`, matching the width family: a dimmed item holds its
  * key equivalent, so the beep is honest feedback that the user pressed the
- * right keys at a moment the column had no move to make. That is the ⌃⌘
+ * right keys at a moment the slot had no move to make. That is the ⌃⌘
  * arrows' case and not ⌃⌘/'s: splitting is never refused for want of a second
  * member — a slot one card deep is a place, and arming it to split is a legal
  * act that the next arrival lands into. ⌃⌘/ is dark only when the layout
- * selection resolves to no column at all. Nothing else in the
+ * selection resolves to no slot at all. Nothing else in the
  * JS funnel wants ⌃⌘/ or the ⌃⌘ arrows, so there is nothing for a detach to
  * hand them back to.
  *
  * The refusal stays where the user can see it — on the pane's own border —
  * for the gestures that still reach the handler.
  */
-const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
+const SLOT_SPLIT_COMMANDS: readonly CommandEntry[] = [
   {
-    id: TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
+    id: TUG_ACTIONS.TOGGLE_SLOT_SPLIT,
     title: "Split or Stack Slot",
     routing: "first-responder" as const,
     menuItemId: "view.slotSplit",
@@ -905,7 +905,7 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
       ),
     ],
     validate: (chain: CommandValidationSource) =>
-      chain.menu.column !== null,
+      chain.menu.slot !== null,
     // The item says which of its two verbs the next press performs. A slot's
     // arrangement is not legible from the menu bar, and "Split or Stack" made
     // the user press to find out which one they were asking for — the
@@ -915,7 +915,7 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
     // than an arbitrary verb: the row is dark there, and a dark row naming a
     // verb is a promise it is not keeping.
     dynamicTitle: (chain: CommandValidationSource) => {
-      const mode = chain.menu.column?.mode;
+      const mode = chain.menu.slot?.mode;
       if (mode === undefined) return "Split or Stack Slot";
       return mode === "split" ? "Stack Slot" : "Split Slot";
     },
@@ -952,10 +952,10 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
       },
     ] as const
   ).map(({ where, title, menuItemId, key, shift }) => ({
-    id: `${TUG_ACTIONS.MOVE_IN_COLUMN}:${where}`,
+    id: `${TUG_ACTIONS.MOVE_IN_SLOT}:${where}`,
     title,
     routing: "first-responder" as const,
-    action: TUG_ACTIONS.MOVE_IN_COLUMN,
+    action: TUG_ACTIONS.MOVE_IN_SLOT,
     payload: where,
     menuItemId,
     mirrored: true,
@@ -968,11 +968,11 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
     ],
     // Top and bottom read the same two fields as up and down: a member that
     // cannot step up is already at the top, and travelling to a place you
-    // already stand is the refusal `moveInColumn` returns false for.
+    // already stand is the refusal `moveInSlot` returns false for.
     validate: (chain: CommandValidationSource) =>
       where === "up" || where === "top"
-        ? chain.menu.column?.canMoveUp === true
-        : chain.menu.column?.canMoveDown === true,
+        ? chain.menu.slot?.canMoveUp === true
+        : chain.menu.slot?.canMoveDown === true,
   })),
 ];
 
@@ -1091,7 +1091,7 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
  *
  * **The band, derived** (tuglaws/chord-tiers.md, "Arrows are geometry, brackets
  * are series"): ⌃⌘ arrows move the FURNITURE — a rail on that side, a card up
- * its column — and ⌥⌘ arrows move the READER through that same geometry. On the
+ * its slot — and ⌥⌘ arrows move the READER through that same geometry. On the
  * horizontal pair the two read as a pair: ⌃⌘← opens the left side, ⌥⌘← walks
  * into it. Arrows are R1-exempt under R2, and the mnemonic is the geometry
  * itself — the chord points where you are going, which is the rail pair's own
@@ -1100,7 +1100,7 @@ const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
  * **All four or none** ([B01]). The family's only mnemonic IS the geometry, and
  * a mnemonic with a hole in it is a list again. ⌥⌘←/→ were free; ⌥⌘↑/↓ came from
  * the turn family, which moved to the bracket row where a series belongs
- * ([D184]). The ⇧-extremes are deliberately NOT granted: `move-in-column` keeps
+ * ([D184]). The ⇧-extremes are deliberately NOT granted: `move-in-slot` keeps
  * all four of its chords, so Focus Topmost / Bottommost are not commands and
  * ⌥⇧⌘↑/↓ stays free rather than being spent in the change that vacated it.
  *
@@ -1164,7 +1164,7 @@ const FOCUS_CARD_COMMANDS: readonly CommandEntry[] = (
  * does not grow at all — five sidebar cards need the same two keys three do.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): a rail is layout vocabulary,
- * which is what ⌃⌘ carries, alongside ⌃⌘↑/↓ `move-in-column` — whose vertical
+ * which is what ⌃⌘ carries, alongside ⌃⌘↑/↓ `move-in-slot` — whose vertical
  * axis these complete horizontally. Arrows are R1-exempt under R2 and the
  * mnemonic is the geometry itself: the chord points at the edge it opens. The
  * macOS never-bind list reserves PLAIN ⌃-arrows for Spaces and Mission Control,
@@ -2493,22 +2493,22 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
-  ...COLUMN_SPLIT_COMMANDS,
-  // ⌃⌘E — Equalize Heights: divide the column the layout selection's card
+  ...SLOT_SPLIT_COMMANDS,
+  // ⌃⌘E — Equalize Heights: divide the slot the layout selection's card
   // stands in equally again, the stack badge's row of the same name given a
   // chord and a View menu row of its own.
   //
-  // **The tier, derived** (tuglaws/chord-tiers.md): a column's division is
+  // **The tier, derived** (tuglaws/chord-tiers.md): a slot's division is
   // layout vocabulary, the tier ⌃⌘/ Split or Stack Slot already holds for
   // the same slot. E for *Equalize*, an initial, on a letter the tier had free
   // and macOS reserves nothing on.
   //
   // Routed first-responder and answered by the deck canvas, for ⌃⌘/'s reason:
   // which slot is meant is the layout selection's answer, and the canvas is
-  // where that ladder is walked. Gated on `column.canEqualize` — a split slot
+  // where that ladder is walked. Gated on `slot.canEqualize` — a split slot
   // with two members standing — which resolves the same ladder, so the row is
   // live exactly when the chord would act. `disabledChord: "keep"`, as the
-  // rest of the column family: nothing else in the funnel wants ⌃⌘E.
+  // rest of the slot family: nothing else in the funnel wants ⌃⌘E.
   {
     id: TUG_ACTIONS.EQUALIZE_HEIGHTS,
     title: "Equalize Heights",
@@ -2522,10 +2522,10 @@ export const COMMANDS: readonly CommandEntry[] = [
         { preventDefault: true, menuEligible: true },
       ),
     ],
-    validate: (chain) => chain.menu.column?.canEqualize === true,
+    validate: (chain) => chain.menu.slot?.canEqualize === true,
   },
-  // ⌥⇧⌘E — Equalize All Heights: every split column on the deck divided
-  // equally again, in one commit. Rails are not columns and take no part;
+  // ⌥⇧⌘E — Equalize All Heights: every split slot on the deck divided
+  // equally again, in one commit. Rails are not slots and take no part;
   // Resize Sidebars to Fit is their verb.
   //
   // **A grant with a reading, on the shape ⌃⌘S / ⌥⇧⌘S already makes** —
@@ -2534,7 +2534,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   // hand shape the user does not form ("A chord has to be typable").
   //
   // Routed through the registry: the verb names no card, so there is no
-  // selection to resolve. Gated on the deck-wide `equalizableColumns` count,
+  // selection to resolve. Gated on the deck-wide `equalizableSlots` count,
   // which takes no selection gate either.
   {
     id: TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS,
@@ -2549,7 +2549,7 @@ export const COMMANDS: readonly CommandEntry[] = [
         { preventDefault: true, menuEligible: true },
       ),
     ],
-    validate: (chain) => chain.menu.equalizableColumns > 0,
+    validate: (chain) => chain.menu.equalizableSlots > 0,
   },
   // ⌃⌘S — Hide Sidebars / Show Sidebars: take both of the deck's edges away,
   // or put back what the last press took ({@link toggleSidebars}).
@@ -2679,16 +2679,16 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   {
     // Its doors are the stack badge menu, the Layout card's per-slot
-    // column row, and ⌃⌘S; the slot set is the deck's, so the payload set is
+    // slot row, and ⌃⌘S; the slot set is the deck's, so the payload set is
     // runtime.
-    id: TUG_ACTIONS.SET_COLUMN_MODE,
+    id: TUG_ACTIONS.SET_SLOT_MODE,
     title: "Set Slot Mode",
     routing: "registry",
     internal: true,
   },
   {
     // Its door is the stack badge menu.
-    id: TUG_ACTIONS.EQUALIZE_COLUMN,
+    id: TUG_ACTIONS.EQUALIZE_SLOT,
     title: "Equalize Slot Heights",
     routing: "registry",
     internal: true,
@@ -3551,7 +3551,7 @@ export function validateCommand(
 /**
  * A command's state projection — a checkmark, a radio selection, a toggle
  * ([P07]). `undefined` means the command does not participate in a check
- * column at all.
+ * slot at all.
  */
 export function queryCommandState(
   entry: CommandEntry,

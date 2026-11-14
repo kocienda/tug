@@ -14,7 +14,7 @@
  * the standing reds, each a recorded finding with its reading beside it,
  * until 2026-10-03, when it was deleted: a test built to stay red is a carry
  * wearing a file's name, and its five readings (the warm flip's lead, the
- * unfold, a card's departure, showing a rail, and the column split — each one
+ * unfold, a card's departure, showing a rail, and the slot split — each one
  * large React commit landing inside the settle window) stand in
  * `briefs/zero-red-app-tests-brief.md`. The shared half lives here, exported,
  * so that a test file never imports another test file, and no test file
@@ -63,7 +63,7 @@
  * strip or the activation moves nothing and the claim is unfalsifiable. The
  * cards are `componentId: "session"` because a session card is the heaviest
  * thing the deck holds, and the per-frame cost this work is about is the cost
- * of settling those. `columnDeck` is the eight-card shared-column shape, where
+ * of settling those. `slotFlipDeck` is the eight-card shared-column shape, where
  * a column divides and every member carries a `height` term, and `railDeck`
  * stands two sidebar rails up for the hide, show and retune legs.
  *
@@ -253,7 +253,7 @@ export function blobFor(count: number): Record<string, unknown> {
  * cards to a slot is what makes a column able to divide, and dividing it is
  * what puts a height term on all eight frames at once.
  */
-export function columnDeck(): Record<string, unknown> {
+export function slotFlipDeck(): Record<string, unknown> {
   const ids = Array.from({ length: 8 }, (_, i) => `at0622-c${i + 1}`);
   return {
     cards: [
@@ -399,7 +399,7 @@ export function railDeck(): Record<string, unknown> {
 export function slotDeck(): Record<string, unknown> {
   const deck = flowDeck(4);
   const imposition = deck.imposition as Record<string, unknown>;
-  return { ...deck, imposition: { ...imposition, columns: { 1: { mode: "split" } } } };
+  return { ...deck, imposition: { ...imposition, slots: { 1: { mode: "split" } } } };
 }
 
 export function slotBlob(): Record<string, unknown> {
@@ -418,11 +418,11 @@ export function railBlob(): Record<string, unknown> {
   };
 }
 
-export function columnBlob(): Record<string, unknown> {
+export function slotFlipBlob(): Record<string, unknown> {
   return {
     version: 5,
     activeSpaceId: SPACE_ID,
-    spaces: [{ id: SPACE_ID, name: "One", deck: columnDeck() }],
+    spaces: [{ id: SPACE_ID, name: "One", deck: slotFlipDeck() }],
   };
 }
 
@@ -813,7 +813,7 @@ async function deckStanding(
  * walk's price scales with the mounted layer population and a promotion adds
  * to that population whether or not the gesture uses it.
  */
-export interface ColumnLeg {
+export interface SlotLeg {
   readonly probe: SettleFrameReading;
   /** Every settle the four dispatches armed, in release order. */
   readonly rows: readonly SettleFramesRow[];
@@ -821,17 +821,17 @@ export interface ColumnLeg {
   readonly window: WindowRow;
 }
 
-export async function sampleColumnGesture(
+export async function sampleSlotGesture(
   app: App,
   mode: "split" | "stack",
-): Promise<ColumnLeg> {
+): Promise<SlotLeg> {
   const mark = await traceMark(app);
   await app.armSettleFrameProbe();
   await armWindow(app);
   await wait(120);
   for (let slot = 0; slot < 4; slot += 1) {
     await app.evalJS<null>(
-      `(window.__tug.dispatchControlAction("set-column-mode", ` +
+      `(window.__tug.dispatchControlAction("set-slot-mode", ` +
         `{ slot: ${slot}, mode: ${JSON.stringify(mode)} }), null)`,
     );
   }
@@ -850,7 +850,7 @@ export async function sampleColumnGesture(
       { timeoutMs: 20_000 },
     );
   } catch {
-    // No row; `expectColumnBar`'s row clause is what says so.
+    // No row; `expectSlotBar`'s row clause is what says so.
   }
   const probe = await app.takeSettleFrameReading();
   await app.disarmSettleFrameProbe();
@@ -864,7 +864,7 @@ export async function sampleColumnGesture(
  *
  * The column leg used to assert only that the window was served, which is a
  * reading and not a bar — a division that cut every frame would have passed
- * it. The four `set-column-mode` dispatches arm up to four settles, each
+ * it. The four `set-slot-mode` dispatches arm up to four settles, each
  * retargeting the one before, so the bar is read over every row rather than
  * the last: a retarget that stalls is a stall the reader saw. The height
  * term itself is main-thread by construction ([D9]'s standing hit) and its
@@ -877,7 +877,7 @@ export async function sampleColumnGesture(
  * `height` tween, on 2026-09-30 at a clean tree run alone. Stacking them
  * again read exactly 2.00 frames — on the bar's edge.
  */
-export function expectColumnBar(leg: string, r: ColumnLeg): void {
+export function expectSlotBar(leg: string, r: SlotLeg): void {
   expect(
     r.probe.suspended,
     `${leg}: the window was served across the gesture — ${r.probe.ticks} ` +

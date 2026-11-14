@@ -2,7 +2,7 @@
  * retarget-crossings-fixture.ts — the deck, the interrupted fold and the
  * crossing check the at0689 files share.
  *
- * `standUp` launches the eight-card column deck, turns the trace on, goes
+ * `standUp` launches the eight-card slot deck, turns the trace on, goes
  * home, splits slot 0 and reads where each direction lands off one clean fold
  * and unfold. `foldInterrupted` dispatches the fold and, from inside a frame
  * sampler, runs the interrupting act on the first frame the crossing stands a
@@ -21,7 +21,7 @@ import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import {
   FOLD_CARD_ID,
   FOLD_PANE_ID,
-  columnBlob,
+  slotFlipBlob,
   home,
   launch,
   traceWithSettleFrames,
@@ -35,7 +35,7 @@ export const SAMPLE_MS = 2_000;
 export const SWEEP_SAMPLE_MS = 3_500;
 
 /** What interrupts the fold, planted on the sampler's trigger frame. */
-export const STACK_JS = `window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "stack" })`;
+export const STACK_JS = `window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "stack" })`;
 export const TEARDOWN_JS = `window.__tug.tearDownSettle()`;
 
 /** The frame's laid-out height, unrounded. */
@@ -49,8 +49,8 @@ export const dispatch = (app: App, action: string, payload: Record<string, unkno
     `(window.__tug.dispatchControlAction(${JSON.stringify(action)}, ${JSON.stringify(payload)}), null)`,
   );
 
-export const columnMode = (app: App, mode: "split" | "stack"): Promise<null> =>
-  dispatch(app, "set-column-mode", { slot: 0, mode });
+export const slotMode = (app: App, mode: "split" | "stack"): Promise<null> =>
+  dispatch(app, "set-slot-mode", { slot: 0, mode });
 
 export interface Sample {
   t: number;
@@ -189,10 +189,10 @@ export interface StoodUp {
 }
 
 /**
- * Launch the column deck, turn the trace on (the release rows the exit legs
+ * Launch the slot deck, turn the trace on (the release rows the exit legs
  * read are the deck trace's), go home, split slot 0, and read where each
  * direction lands off one clean fold and unfold. The card is left open and
- * the column split — or, with `leaveFolded`, left folded once the folded
+ * the slot split — or, with `leaveFolded`, left folded once the folded
  * height is read, which is where an unfold leg starts: it skips an unfold
  * and the fold back that the leg would otherwise make, and reads nothing
  * either of them would have set ([B07] of the bodies migration brief).
@@ -201,12 +201,12 @@ export async function standUp(
   testName: string,
   opts: { leaveFolded?: boolean } = {},
 ): Promise<StoodUp> {
-  const { app, tugbankPath } = await launch(8, columnBlob(), testName);
+  const { app, tugbankPath } = await launch(8, slotFlipBlob(), testName);
   try {
     await traceWithSettleFrames(app);
     await home(app);
     const stacked = await frameHeight(app);
-    await columnMode(app, "split");
+    await slotMode(app, "split");
     await landed(app, `h < ${stacked} - 1`);
     const open = await frameHeight(app);
     await dispatch(app, "set-card-folded", { cardId: FOLD_CARD_ID, folded: true });

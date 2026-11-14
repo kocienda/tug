@@ -28,7 +28,7 @@
 import {
   imposeSidebarStyle,
   imposeStyle,
-  type ColumnMemberPlacement,
+  type SlotMemberPlacement,
   type ImposedPlacement,
   type PlaceStanding,
   type SidebarSide,
@@ -62,7 +62,7 @@ export interface HeightArrangement<P extends PaneForHeight = PaneForHeight> {
   readonly stackByPaneId: ReadonlyMap<string, RailStandingForHeight>;
   readonly parkedRailSideByPaneId: ReadonlyMap<string, SidebarSide>;
   readonly arrivingSeatByPaneId: ReadonlyMap<string, "bottom" | "run">;
-  readonly columnMemberByPaneId: ReadonlyMap<string, ColumnMemberPlacement>;
+  readonly slotMemberByPaneId: ReadonlyMap<string, SlotMemberPlacement>;
   readonly placementFor: (pane: P) => ImposedPlacement | undefined;
 }
 
@@ -73,8 +73,8 @@ function vertical(style: React.CSSProperties): string {
 
 /**
  * The frame's vertical terms in `arr`, as one string, by the branch `TugPane`
- * takes: bullseye, a standing rail, a parked rail, an arrival at the column's
- * bottom, an imposed slot (its column share when it has one), or a free pane.
+ * takes: bullseye, a standing rail, a parked rail, an arrival at the slot's
+ * bottom, an imposed slot (its slot share when it has one), or a free pane.
  * Widths are passed as zero because nothing vertical reads them.
  */
 function verticalOf<P extends PaneForHeight>(arr: HeightArrangement<P>, pane: P): string {
@@ -104,7 +104,7 @@ function verticalOf<P extends PaneForHeight>(arr: HeightArrangement<P>, pane: P)
     if (arr.arrivingSeatByPaneId.get(pane.id) === "bottom") return "arriving";
     return `run:${vertical(
       imposeStyle(placement, 0, undefined, {
-        member: arr.columnMemberByPaneId.get(pane.id),
+        member: arr.slotMemberByPaneId.get(pane.id),
       }),
     )}`;
   }

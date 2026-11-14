@@ -95,7 +95,7 @@ describe("host card gesture: a flow card's right edge", () => {
       getSnapshot: () => state,
       batchGesture: (run: () => void) => run(),
       handlePaneMoved: (paneId: string) => calls.push(`commit ${paneId}`),
-      getColumnRunHeight: () => 900,
+      getSlotRunHeight: () => 900,
     } as unknown as IDeckManagerStore;
     const follow: FlowFollow = {
       move: (w) => calls.push(`move ${w}`),
@@ -108,7 +108,7 @@ describe("host card gesture: a flow card's right edge", () => {
       paneRects: () => new Map(),
       revealStack: () => {},
       railEdge: () => null,
-      columnSeam: () => null,
+      slotSeam: () => null,
       requestFrame: () => {},
       land: (cardId) => calls.push(`land ${cardId}`),
       flowFollow: (_state, paneId) => {

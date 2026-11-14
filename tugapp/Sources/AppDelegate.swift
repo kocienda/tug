@@ -247,7 +247,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // off — which it is on any Mac with no bidirectional input source —
         // `-[NSTextInputContext doCommandBySelector:completionHandler:]` answers
         // those selectors with NSBeep and never forwards them, so ⌃⌘↓ (Move Card
-        // Down in Column) moved the card and beeped. Allowing the bindings makes
+        // Down in Slot) moved the card and beeped. Allowing the bindings makes
         // AppKit hand the selector to the web view instead, where it is
         // collected as a keypress command the page's preventDefault discards
         // (and `ClickThroughWebView` answers the leftover as a no-op). The key
@@ -1246,8 +1246,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("equalize-heights")
     }
 
-    /// View ▸ Equalize All Heights. Every split column on the deck divided
-    /// equally again, in one commit; the rails are not columns.
+    /// View ▸ Equalize All Heights. Every split slot on the deck divided
+    /// equally again, in one commit; the rails are not slots.
     @objc func equalizeAllHeights(_ sender: Any) {
         sendControl("equalize-all-heights")
     }
@@ -1799,7 +1799,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// View ▸ ⟨Card⟩ ▸ Left / Right. Both halves of the address ride
-    /// `representedObject` together, the shape the column-move rows use with
+    /// `representedObject` together, the shape the slot-move rows use with
     /// one value instead of two. Enablement and the radio mark ride each
     /// item's registry gate on the menuState push: the pair is dark while the
     /// card is hidden, and the side the card stands on carries the check.
@@ -1830,16 +1830,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// when the layout selection resolves to no slot at all: a slot one card
     /// deep still splits, which arms the place for the card that arrives next.
     @objc func toggleSlotSplit(_ sender: Any?) {
-        sendControl("toggle-column-split")
+        sendControl("toggle-slot-split")
     }
 
     /// View ▸ Move Card Up / Down / to Top / to Bottom of Slot. The target
     /// rides `representedObject`; which card travels is again the frontend's
     /// answer. Enablement rides each item's registry gate on the menuState
-    /// push, so an item is dark exactly when `moveInColumn` would refuse.
+    /// push, so an item is dark exactly when `moveInSlot` would refuse.
     @objc func moveInSlotFromMenu(_ sender: NSMenuItem) {
         guard let target = sender.representedObject as? String else { return }
-        sendControl("move-in-column", params: ["value": target])
+        sendControl("move-in-slot", params: ["value": target])
     }
 
     /// Go ▸ Focus Card Left / Right / Above / Below. The direction rides

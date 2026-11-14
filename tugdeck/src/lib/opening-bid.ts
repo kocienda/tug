@@ -10,7 +10,7 @@
  * contributor to the member's floor, with its weight kept ([B01], [B04]). The
  * Session card's picker is the one declaration today: an unbound card is its
  * picker and nothing else, so it opens at the picker's own height rather than
- * at the transcript's 600px floor, and takes more where its column has more
+ * at the transcript's 600px floor, and takes more where its slot has more
  * to give.
  *
  * **It is a BID rather than a height, and that is the whole of its life

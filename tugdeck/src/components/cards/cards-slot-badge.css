@@ -1,10 +1,10 @@
 /**
- * The column badge on a Cards card row: the standoff from the slot run it
+ * The slot badge on a Cards card row: the standoff from the slot run it
  * follows. Its colours are the badge's own `tone="action"` — the slot chip's
- * paint, chip for chip (see `tug-column-badge.css`).
+ * paint, chip for chip (see `tug-slot-badge.css`).
  */
 
-.cards-column-badge {
+.cards-slot-badge {
   /* The run and the badge are one coordinate read left to right, so they stand
      closer to each other than either stands to the title. This is the ONLY
      thing that sets that distance on any row — the containers either side of

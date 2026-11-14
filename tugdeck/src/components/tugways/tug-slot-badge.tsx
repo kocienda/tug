@@ -1,5 +1,5 @@
 /**
- * TugColumnBadge — where a card stands within the place it shares, in the slot
+ * TugSlotBadge — where a card stands within the place it shares, in the slot
  * badge's footprint.
  *
  * A card's position on the deck is three coordinates, and the slot badge says
@@ -29,7 +29,7 @@
  *
  * The glyph names a REGION and the character names the position. Three elements
  * say top / middle / bottom however deep the run goes, so every interior member
- * of a deep column marks the same middle element while its letter stays exact.
+ * of a deep slot marks the same middle element while its letter stays exact.
  * That is the intended reading, and it is why neither glyph is drawn with one
  * element per member — at this size a subdivided badge stops being legible.
  *
@@ -61,28 +61,28 @@
  *       file guessing.
  * Decisions: [D121] layout imposition.
  *
- * @module components/tugways/tug-column-badge
+ * @module components/tugways/tug-slot-badge
  */
 
-import "./tug-column-badge.css";
+import "./tug-slot-badge.css";
 
 import React from "react";
 
 import { cn } from "@/lib/utils";
 import type { TugTone } from "./tug-vocabulary";
-import { columnBadgeCharacter, type TugColumnBadgeKind } from "@/lib/column-badge";
+import { slotBadgeCharacter, type TugSlotBadgeKind } from "@/lib/slot-badge";
 
-export { columnBadgeCharacter, type TugColumnBadgeKind };
+export { slotBadgeCharacter, type TugSlotBadgeKind };
 
 /* ---------------------------------------------------------------------------
  * Types
  * ---------------------------------------------------------------------------*/
 
-/** Whose paint the badge wears — see {@link TugColumnBadgeProps.tone}. */
-export type TugColumnBadgeTone = Extract<TugTone, "default" | "action">;
+/** Whose paint the badge wears — see {@link TugSlotBadgeProps.tone}. */
+export type TugSlotBadgeTone = Extract<TugTone, "default" | "action">;
 
 /** Which end of the glyph's run is lit — the region, not the ordinal. */
-export type TugColumnBadgeLit = "top" | "middle" | "bottom";
+export type TugSlotBadgeLit = "top" | "middle" | "bottom";
 
 /* ---------------------------------------------------------------------------
  * The two facts, as pure functions
@@ -104,26 +104,26 @@ export type TugColumnBadgeLit = "top" | "middle" | "bottom";
  * front slice there said *this card is on top* about a card that is not. The
  * pane cluster does not contradict this — it draws no lit element at all.
  *
- * The index is the same ordering `columnMoveOrder` walks, so the lit end and
- * the direction *Move Up in Column* travels cannot disagree.
+ * The index is the same ordering `slotMoveOrder` walks, so the lit end and
+ * the direction *Move Card Up in Slot* travels cannot disagree.
  */
-export function columnBadgeLit(count: number, index = 0): TugColumnBadgeLit {
+export function slotBadgeLit(count: number, index = 0): TugSlotBadgeLit {
   if (index <= 0) return "top";
   if (index >= count - 1) return "bottom";
   return "middle";
 }
 
 /* ---------------------------------------------------------------------------
- * TugColumnBadgeProps
+ * TugSlotBadgeProps
  * ---------------------------------------------------------------------------*/
 
-export interface TugColumnBadgeProps
+export interface TugSlotBadgeProps
   extends Omit<React.ComponentPropsWithoutRef<"span">, "children"> {
   /**
    * Which place this badge describes.
    * @selector [data-kind="stack"] | [data-kind="split"]
    */
-  kind: TugColumnBadgeKind;
+  kind: TugSlotBadgeKind;
   /** How many panes share the place. Drawn as the character for a stack. */
   count: number;
   /**
@@ -149,7 +149,7 @@ export interface TugColumnBadgeProps
    * region, a fact about the card, and it stays true whether or not the glyph
    * is drawing it.
    * @default true
-   * @selector [data-lit="true"] on .tug-column-badge-slice
+   * @selector [data-lit="true"] on .tug-slot-badge-slice
    */
   showLevel?: boolean;
   /**
@@ -161,25 +161,25 @@ export interface TugColumnBadgeProps
    * @selector [data-tone="action"]
    * @default "default"
    */
-  tone?: TugColumnBadgeTone;
+  tone?: TugSlotBadgeTone;
 }
 
 /* ---------------------------------------------------------------------------
- * TugColumnBadge
+ * TugSlotBadge
  * ---------------------------------------------------------------------------*/
 
-export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgeProps>(
-  function TugColumnBadge(
+export const TugSlotBadge = React.forwardRef<HTMLSpanElement, TugSlotBadgeProps>(
+  function TugSlotBadge(
     { kind, count, index = 0, showLevel = true, tone = "default", className, ...rest },
     ref,
   ) {
-    const lit = columnBadgeLit(count, index);
+    const lit = slotBadgeLit(count, index);
 
     return (
       <span
         ref={ref}
-        data-slot="tug-column-badge"
-        className={cn("tug-column-badge", className)}
+        data-slot="tug-slot-badge"
+        className={cn("tug-slot-badge", className)}
         {...rest}
         /* AFTER the spread, for the reason `TugSlot` states: these two are the
            badge's own facts — what every test reads the arrangement from — and
@@ -192,7 +192,7 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
         {/* Both glyphs are handed the same thing: which element of the run
             the card sits at, or `null` where the surface marks none. The stack
             once decided that for itself and always marked its top slice, which
-            outlived the rule it came from — `columnBadgeLit` would answer
+            outlived the rule it came from — `slotBadgeLit` would answer
             `middle`, the root would carry it, and the drawing would light the
             front slice anyway. */}
         {kind === "stack" ? (
@@ -200,8 +200,8 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
         ) : (
           <SplitGlyph lit={showLevel ? lit : null} />
         )}
-        <span className="tug-column-badge-character">
-          {columnBadgeCharacter(kind, count, index)}
+        <span className="tug-slot-badge-character">
+          {slotBadgeCharacter(kind, count, index)}
         </span>
       </span>
     );
@@ -231,9 +231,9 @@ export function StackGlyph({
   lit,
 }: {
   /** `null` marks no slice at all — the surface draws the run, not the depth. */
-  lit: TugColumnBadgeLit | null;
+  lit: TugSlotBadgeLit | null;
 }): React.ReactElement {
-  const slices: ReadonlyArray<{ key: TugColumnBadgeLit; dy: number }> = [
+  const slices: ReadonlyArray<{ key: TugSlotBadgeLit; dy: number }> = [
     { key: "bottom", dy: 11 },
     { key: "middle", dy: 6 },
     { key: "top", dy: 1 },
@@ -241,7 +241,7 @@ export function StackGlyph({
 
   return (
     <svg
-      className="tug-column-badge-glyph"
+      className="tug-slot-badge-glyph"
       viewBox="0 0 16 20"
       aria-hidden="true"
       focusable="false"
@@ -249,7 +249,7 @@ export function StackGlyph({
       {slices.map(({ key, dy }) => (
         <polygon
           key={key}
-          className="tug-column-badge-slice"
+          className="tug-slot-badge-slice"
           data-region={key}
           data-lit={key === lit ? "true" : undefined}
           points={`8,${dy} 15.5,${dy + 4} 8,${dy + 8} 0.5,${dy + 4}`}
@@ -283,9 +283,9 @@ export function SplitGlyph({
   lit,
 }: {
   /** `null` marks no band at all — the surface draws the run, not the band. */
-  lit: TugColumnBadgeLit | null;
+  lit: TugSlotBadgeLit | null;
 }): React.ReactElement {
-  const bands: ReadonlyArray<{ key: TugColumnBadgeLit; y: number }> = [
+  const bands: ReadonlyArray<{ key: TugSlotBadgeLit; y: number }> = [
     { key: "top", y: 0.5 },
     { key: "middle", y: 7.5 },
     { key: "bottom", y: 14.5 },
@@ -293,7 +293,7 @@ export function SplitGlyph({
 
   return (
     <svg
-      className="tug-column-badge-glyph"
+      className="tug-slot-badge-glyph"
       viewBox="0 0 16 20"
       aria-hidden="true"
       focusable="false"
@@ -301,7 +301,7 @@ export function SplitGlyph({
       {bands.map(({ key, y }) => (
         <rect
           key={key}
-          className="tug-column-badge-slice"
+          className="tug-slot-badge-slice"
           data-region={key}
           data-lit={key === lit ? "true" : undefined}
           x="0.5"

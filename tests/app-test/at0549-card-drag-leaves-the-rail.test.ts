@@ -3,8 +3,8 @@
  * leaves the rail alone.
  *
  * The mirror of at0549-rail-drag-leaves-the-band, and the same defect read from
- * the other side. A content card can only land in a column or in the band; the
- * drop-zone engine offers it `column-index`, `slot` and `tab-bar` zones and
+ * the other side. A content card can only land in a slot or in the band; the
+ * drop-zone engine offers it `slot-index`, `slot` and `tab-bar` zones and
  * never a `rail-index`. But the empty deck edge rang its hairline under a bare
  * `data-carrying`, and `autoscrollTargetFor` asked the rails first without ever
  * looking at what was in the air — so a content card held over an overflowing

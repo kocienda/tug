@@ -133,11 +133,11 @@ describe("factoryDeckImposition", () => {
     expect(imposition.layout).toBe("flow");
   });
 
-  test("leaves the columns alone", () => {
-    const columns = { 0: { mode: "stack" as const } };
-    const imposition = factoryDeckImposition({ sidebars: {}, columns });
+  test("leaves the slots alone", () => {
+    const arrangements = { 0: { mode: "stack" as const } };
+    const imposition = factoryDeckImposition({ sidebars: {}, slots: arrangements });
 
-    expect(imposition.columns).toEqual(columns);
+    expect(imposition.slots).toEqual(arrangements);
   });
 
   test("is pure — the imposition it was handed is untouched", () => {

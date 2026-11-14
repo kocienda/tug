@@ -1,11 +1,11 @@
 /**
- * column-flip-cover-fixture.ts — the body of at0594, a column mode flip is a
+ * slot-flip-cover-fixture.ts — the body of at0594, a slot mode flip is a
  * cover, not a fade.
  *
  * at0594 was one file running both member counts, one launch each, and the
  * two launches together sat at the 20 s file budget (19 s green on
  * 2026-10-18, 20–21 s and `OVERTIME` since). It is now one file per member
- * count — `at0594-column-flip-cover-two` and `-three` — and this module is
+ * count — `at0594-slot-flip-cover-two` and `-three` — and this module is
  * the deck, the sampler and the claims both register. The claims and the
  * argument for them are in the two-member file's docblock.
  */
@@ -56,7 +56,7 @@ export interface Sample {
 
 /**
  * N cards sharing slot 0, one card in slot 1, plus the Layout card on the
- * right — the shape at0455 already drives, so the column arithmetic under test
+ * right — the shape at0455 already drives, so the slot arithmetic under test
  * is the one that file pins.
  */
 function deckShape(memberCount: number) {
@@ -172,7 +172,7 @@ export async function census(
     })()`,
   );
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: ${JSON.stringify(mode)} }), null)`,
+    `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: ${JSON.stringify(mode)} }), null)`,
   );
   await wait(AFTER_LAND_MS);
   return app.evalJS<Sample[]>(`window.__at0594`);
@@ -328,7 +328,7 @@ export async function launch(memberCount: number, testName: string): Promise<App
   return app;
 }
 
-/** Bring one member to the front of its column — the raise, z-order only. */
+/** Bring one member to the front of its slot — the raise, z-order only. */
 export async function raise(app: App, paneId: string): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.activateCard(${JSON.stringify(cardOf(paneId))}), null)`,

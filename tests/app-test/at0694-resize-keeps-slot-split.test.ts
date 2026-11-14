@@ -1,21 +1,21 @@
 /**
- * at0694-resize-keeps-slot-split.test.ts — in a split column, dragging a
+ * at0694-resize-keeps-slot-split.test.ts — in a split slot, dragging a
  * member's inner top or bottom edge moves the seam it borders.
  *
- * A split column divides its run by shares, so a member's height is a share
+ * A split slot divides its run by shares, so a member's height is a share
  * and its inner edges are seams. Under the deck's keep-slot rule:
  *
  *  1. Only inner edges are height handles. The top member offers its bottom
- *     edge, the bottom member its top edge; the column's two outer edges, which
+ *     edge, the bottom member its top edge; the slot's two outer edges, which
  *     are the run's, offer nothing.
  *  2. Pressing the member's own edge — not the seam's hit strip beside it —
  *     drags the seam: both neighbours change height by the drag, the outer
- *     edges stand, and the column's shares record the new division.
+ *     edges stand, and the slot's shares record the new division.
  *  3. What the hand left is what stays: the frames at pointer-up equal the
  *     frames once every settle has run out.
  *  4. Neither member leaves its slot.
  *
- * @covers tugdeck/src/components/chrome/column-seam-drag.ts
+ * @covers tugdeck/src/components/chrome/slot-seam-drag.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -54,7 +54,7 @@ function deckShape(): Record<string, unknown> {
       kind: "two-up",
       layout: "fit",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p1", "p2"] } },
+      slots: { 0: { mode: "split", order: ["p1", "p2"] } },
     },
     hasFocus: true,
   };
@@ -118,7 +118,7 @@ async function slotOf(app: App, paneId: string): Promise<number | null> {
 
 async function sharesOf(app: App): Promise<unknown> {
   return app.evalJS<unknown>(
-    `window.tugdeck.diag.getDeckState().imposition.columns?.[0]?.shares ?? null`,
+    `window.tugdeck.diag.getDeckState().imposition.slots?.[0]?.shares ?? null`,
   );
 }
 
@@ -164,8 +164,8 @@ function expectSeamMoved(
   expectSameRect(drag.lower.atUp, drag.lower.settled, `${what}: lower held vs settled`);
   const upper = drag.upper.settled;
   const lower = drag.lower.settled;
-  expect(Math.abs(upper.top - before.upper.top), `${what}: the column's top stands`).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(lower.bottom - before.lower.bottom), `${what}: the column's bottom stands`).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(upper.top - before.upper.top), `${what}: the slot's top stands`).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(lower.bottom - before.lower.bottom), `${what}: the slot's bottom stands`).toBeLessThanOrEqual(0.5);
   expect(Math.abs(upper.bottom - before.upper.bottom - dy), `${what}: the upper member's bottom moved by the drag`).toBeLessThanOrEqual(1);
   expect(Math.abs(lower.top - before.lower.top - dy), `${what}: the lower member's top moved by the drag`).toBeLessThanOrEqual(1);
 }
@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `${gripsScript("p2")}.indexOf("n") >= 0 &&
-             document.querySelector('[data-column-seam="0:0"]') !== null`,
+             document.querySelector('[data-slot-seam="0:0"]') !== null`,
             { timeoutMs: 8_000 },
           );
 

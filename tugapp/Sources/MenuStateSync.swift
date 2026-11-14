@@ -365,7 +365,7 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
             cardMenu.addItem(NSMenuItem.separator())
             // Left / Right — a radio pair, dark while the card is hidden.
             // Both halves of the address ride `representedObject` together,
-            // the shape the column-move rows use with one value instead of
+            // the shape the slot-move rows use with one value instead of
             // two.
             for (label, side) in [("Left", "left"), ("Right", "right")] {
                 let item = NSMenuItem(title: label, action: #selector(AppDelegate.setSidebarSideFromMenu(_:)), keyEquivalent: "")

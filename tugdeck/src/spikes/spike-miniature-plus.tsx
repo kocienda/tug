@@ -13,7 +13,7 @@
  *    today, at the foot of each slot. The second section tries the same
  *    toggle in three other homes: a glyph row under the numbered pills, a
  *    two-storey pill that carries both the number and the glyph, and one
- *    segmented control for the column the reader is in.
+ *    segmented control for the slot the reader is in.
  *
  * The glyph buttons are live: pressing one flips that slot between stack and
  * split in the drawing above it, which is the whole gesture being relocated.
@@ -46,7 +46,7 @@ import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
 import {
   SplitGlyph,
   StackGlyph,
-} from "@/components/tugways/tug-column-badge";
+} from "@/components/tugways/tug-slot-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { useMotionHold } from "@/lib/motion-guard";
@@ -402,7 +402,7 @@ function ModeGlyph({ mode }: { mode: Mode }): React.ReactElement {
 function describe(slot: number, mode: Mode): string {
   const now = mode === "split" ? "split" : "stacked";
   const does = mode === "split" ? "stack" : "split";
-  return `Column ${slot + 1} is ${now} — click to ${does}`;
+  return `Slot ${slot + 1} is ${now} — click to ${does}`;
 }
 
 /** B1 — a glyph row under the pills, one toggle beneath each number. */
@@ -495,12 +495,12 @@ function TwoStoreyPills({
   );
 }
 
-/** B3 — one control, for the column the reader is in. */
-function ActiveColumnToggle({ slots }: { slots: MockSlot[] }): React.ReactElement {
+/** B3 — one control, for the slot the reader is in. */
+function ActiveSlotToggle({ slots }: { slots: MockSlot[] }): React.ReactElement {
   return (
     <span className="sp-mp-active-toggle">
       <TugLabel size="sm" emphasis="proposal">
-        Column {HERE_SLOT + 1}
+        Slot {HERE_SLOT + 1}
       </TugLabel>
       <TugChoiceGroup
         items={[
@@ -659,7 +659,7 @@ function SpikeMiniaturePlus(): React.ReactElement {
             <Mini slots={SLOTS} treatment="glyphs" />
             <div className="sp-mp-strip-row">
               <Pills count={SLOTS.length} />
-              <ActiveColumnToggle slots={SLOTS} />
+              <ActiveSlotToggle slots={SLOTS} />
             </div>
           </Plate>
         </div>

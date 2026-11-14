@@ -15,7 +15,7 @@
 
 import {
   bullseyePaneIdOf,
-  deckColumnsOf,
+  deckSlotsOf,
   placeAllocationTerm,
   type PlaceRuns,
   sidebarRailsOf,
@@ -86,12 +86,12 @@ export interface ArrangementSignature {
  * pointer is already writing the frame live, so a term for it would arm
  * windows full of no-ops; but folding is an arrangement gesture in every
  * sense that matters here — it re-pins the frame from the open card's tier to
- * the folded one ([P04]), and in a split column it re-allocates every
+ * the folded one ([P04]), and in a split slot it re-allocates every
  * sibling — and the Last pass has always been willing to interpolate a real
  * height delta.
  *
  * Without the term the fold armed nothing except where some OTHER term
- * happened to move: a split column's allocation changes, so a wall folded on
+ * happened to move: a split slot's allocation changes, so a wall folded on
  * the settle's clock, while the same card on a free pane or alone in a stacked
  * slot cut. The free pane looked animated only because `.tug-pane` carries the
  * [D07] window-shade ease, a 100ms snap underneath a 400ms interior collapse;
@@ -102,7 +102,7 @@ export interface ArrangementSignature {
  * The flag rather than the resolved height, because the flag is what the
  * gesture writes and the height is what the layout derives from it: a term
  * reading the derived value would have to be recomputed here against the size
- * policy, the slot, and the column's allocation — three answers this function
+ * policy, the slot, and the slot's allocation — three answers this function
  * does not otherwise need — and would go wrong exactly when one of them
  * changed. The frame's real before-and-after height is measured by the First
  * and Last passes, which is where a height belongs.
@@ -126,7 +126,7 @@ export interface ArrangementSignature {
  * each frame's first and last rects are the same one — which is the
  * coexistence the rail width terms already have.
  *
- * A side's OFFSET is a term for the reason a column's is: past two members a
+ * A side's OFFSET is a term for the reason a slot's is: past two members a
  * rail stops dividing and starts scrolling, and a reveal that slides its strip
  * moves every member's `top` while side, width, mode and order all hold still.
  *
@@ -151,7 +151,7 @@ export function arrangementSignature(
   state = standingDeck(state);
   const paneTerms = state.panes
     // A pane still marked ARRIVING is no term of the arrangement, on the same
-    // rule that keeps it out of its column's division ([B08]) and out of the
+    // rule that keeps it out of its slot's division ([B08]) and out of the
     // strip: it is drawn hidden at the seat it will take, so nothing about it
     // is on screen to cross to. With a term here the HIDDEN commit changed the
     // signature and armed a settle of its own — a whole arm, with First rects
@@ -208,34 +208,34 @@ export function arrangementSignature(
   // gesture the feature exists for would CUT.
   //
   // The MEMBER ORDER is a term too, and it is not redundant with the pane
-  // terms: reordering a split column swaps two frames' vertical pins while
+  // terms: reordering a split slot swaps two frames' vertical pins while
   // every pane keeps its slot and its width, so the sorted pane list is
   // identical either side of the move.
   //
-  // And the OFFSET is a term for the reason flow's is: an overflowing column
+  // And the OFFSET is a term for the reason flow's is: an overflowing slot
   // reveals a member by sliding its strip, which moves every member's `top`
   // while slot, width and order all hold still. Rounded to the pixel it is
   // written at, so a reveal that computes no move arms nothing ([P12]).
-  const columns = deckColumnsOf(state, runs.column)
-    .filter((column) => column.mode === "split")
+  const splitSlots = deckSlotsOf(state, runs.slot)
+    .filter((deckSlot) => deckSlot.mode === "split")
     .map(
-      (column) =>
-        `${column.slot}:${column.members.join("+")}:${placeAllocationTerm(
-          column.allocation,
-        )}:${Math.round(state.columnOffsets?.[column.slot] ?? 0)}`,
+      (deckSlot) =>
+        `${deckSlot.slot}:${deckSlot.members.join("+")}:${placeAllocationTerm(
+          deckSlot.allocation,
+        )}:${Math.round(state.slotOffsets?.[deckSlot.slot] ?? 0)}`,
     )
     .join(";");
   const kind = state.imposition.kind ?? "";
   return {
-    full: `${kind}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`,
-    // The rail and column terms stay in whole. Each carries an offset of its
+    full: `${kind}|${flow}|${bullseye}|${rails}|${splitSlots}|${panes.join(",")}`,
+    // The rail and slot terms stay in whole. Each carries an offset of its
     // own, and a strip that slides moves no frame's size — but each also
     // carries a mode and an allocation that move every member's HEIGHT, and
     // the terms are one string apiece. Keeping them is the conservative side
     // of the gate: an episode raised where none was needed costs what today
     // costs, where one skipped costs the reader their place.
-    size: `${kind}|${flowSize}|${bullseye}|${rails}|${columns}|${panesSize.join(",")}`,
-    sansOffset: `${kind}|${layout}|${bullseye}|${rails}|${columns}|${panes.join(",")}`,
+    size: `${kind}|${flowSize}|${bullseye}|${rails}|${splitSlots}|${panesSize.join(",")}`,
+    sansOffset: `${kind}|${layout}|${bullseye}|${rails}|${splitSlots}|${panes.join(",")}`,
   };
 }
 // ---- The arm: whether a commit settles, and how ----
@@ -349,7 +349,7 @@ export function armPath(inputs: ArmPathInputs): ArmPath {
  *
  * The two outer beats are fades and share `divide-join`: a frame appearing in
  * a place or leaving one is carried by opacity rather than by travel, so what
- * it needs from a recipe is a window rather than a spring. A column mode flip
+ * it needs from a recipe is a window rather than a spring. A slot mode flip
  * is not one of them — it is a cover, not a fade ([B02] of
  * `briefs/column-flip-cover-brief.md`), so its survivor rides the fused beat
  * and its other members hold still.

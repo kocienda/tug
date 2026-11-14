@@ -40,7 +40,7 @@ import type { BodyViewSnapshot } from "./_harness/client";
 import {
   BODY_READY_MS,
   PLACED_MS,
-  column,
+  oneSlot,
   mastheadDot,
   pagesOf,
   paintIn,
@@ -67,7 +67,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const TURN = "at0738-turn";
       const OTHER = "at0738-other";
       try {
-        await app.seedDeckState({ state: column([TURN, OTHER]), focusCardId: TURN });
+        await app.seedDeckState({ state: oneSlot([TURN, OTHER]), focusCardId: TURN });
         const readyBody = (id: string) => (all: BodyViewSnapshot[]) =>
           all.some((b) => b.cardId === id && b.state === "ready" && b.visible);
         // Two messages, about five seconds of streaming: long enough for every

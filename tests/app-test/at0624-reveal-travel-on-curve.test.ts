@@ -25,7 +25,7 @@
  * `SLIM_PX` wide, so the strip is far wider than the band and the far slot is
  * genuinely off screen. `opening-placement` walks `slotCount(kind)` slots and
  * no more, so four is the run a four-up deck HAS; the two middle slots are
- * SPLIT columns, which it passes over while anything else qualifies
+ * SPLIT slots, which it passes over while anything else qualifies
  * (`at0369`'s fourth claim), and the reader is homed on the first slot —
  * which is the origin, and is never the answer. That leaves exactly one
  * landing place, slot 3, and it is the one the band does not show. The travel
@@ -129,7 +129,7 @@ const wait = (ms: number): Promise<void> =>
 // ---------------------------------------------------------------------------
 
 /**
- * The four-up run: a stack at each end and a split column between, plus a
+ * The four-up run: a stack at each end and a split slot between, plus a
  * Layout rail.
  *
  * The shape is the whole forcing device. A split is not a landing place, and
@@ -159,7 +159,7 @@ function revealDeck(): Record<string, unknown> {
 
   // slot 0 — the origin, a plain stack.
   add(1, 0);
-  // slots 1..2 — split columns, which never qualify as a landing place.
+  // slots 1..2 — split slots, which never qualify as a landing place.
   let n = 2;
   for (const slot of [1, 2]) {
     const a = n;
@@ -196,7 +196,7 @@ function revealDeck(): Record<string, unknown> {
       kind: "four-up",
       sidebars: { layout: { side: "right" } },
       layout: "flow",
-      columns,
+      slots: columns,
     },
     hasFocus: true,
   };

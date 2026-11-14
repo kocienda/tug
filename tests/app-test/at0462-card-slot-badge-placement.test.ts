@@ -24,7 +24,7 @@
  *      sidebar gets no badge even when the state hands it a slot — the same
  *      guard the Cards card's own slot picker applies.
  *   4. **It stands at the cluster's anchored end.** The chip trails every verb
- *      in the pane's rollup, leads the column badge and the close box, and
+ *      in the pane's rollup, leads the slot badge and the close box, and
  *      sits on the row's own vertical. It led the row until that reasoning was
  *      checked against the layout: the title bar is `space-between` with a
  *      `flex-shrink: 0` cluster, so the cluster is anchored by its RIGHT edge
@@ -136,7 +136,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         // end that slides whenever one card carries one more verb than its
         // neighbour. A readout you are meant to take in at a glance cannot
         // live at the end that moves, so the chip now sits at the trailing
-        // end: behind every verb in the rollup, ahead of only the column badge
+        // end: behind every verb in the rollup, ahead of only the slot badge
         // that reads with it and the close box.
         // Card A's chrome is in A's own page.
         const geometry = await app.body("A").evalJS<{
@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           chip: { left: number; right: number; axis: number };
           /** Controls the chip must TRAIL — everything inside the rollup. */
           behind: { right: number; axis: number }[];
-          /** Controls the chip must LEAD — the column badge and the close box. */
+          /** Controls the chip must LEAD — the slot badge and the close box. */
           ahead: { left: number; axis: number }[];
         }>(
           `(function () {
@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         ).toBeGreaterThan(0);
         expect(
           geometry.ahead.length,
-          "the column badge and the close box stand behind the chip",
+          "the slot badge and the close box stand behind the chip",
         ).toBe(2);
 
         for (const other of geometry.behind) {
@@ -218,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         for (const other of geometry.ahead) {
           expect(
             geometry.chip.right,
-            "and still leads the column badge and the close box",
+            "and still leads the slot badge and the close box",
           ).toBeLessThanOrEqual(other.left);
         }
 

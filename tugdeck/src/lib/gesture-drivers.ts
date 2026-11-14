@@ -2,7 +2,7 @@
  * The settle gestures, driven through one door.
  *
  * Every gesture that arms a settle — the warm flip, fold and unfold, a
- * pane's close, showing the rails, a column split, a workspace switch, a
+ * pane's close, showing the rails, a slot split, a workspace switch, a
  * card sent to a slot (⌘n), the band sent to a slot (⌃⌘n), bullseye, one
  * sidebar hidden or shown, resize-to-fit, a card appearing, and a flow
  * slide that is guaranteed to travel — is named here once, and resolved to
@@ -89,10 +89,10 @@ function slotArg(
  * - `close` needs `pane`: the deck store's `handlePaneClosed(paneId)`.
  * - `rails` needs nothing: `toggle-sidebars {}`.
  * - `split` needs `slot` (a non-negative integer) and takes `mode`
- *   (`"split"` or `"stack"`, default `"split"`): `set-column-mode`.
+ *   (`"split"` or `"stack"`, default `"split"`): `set-slot-mode`.
  * - `switch` needs `space`: `activate-space { spaceId }`.
  * - `slot` needs `card` and `slot`: `assign-slot { cardId, slot }`, the ⌘n
- *   door, which seats the card at the bottom of a split column ([D194]).
+ *   door, which seats the card at the bottom of a split slot ([D194]).
  * - `go` needs `slot` (0-based): `go-to-slot { value: slot + 1 }`, the ⌃⌘n
  *   door, whose value is the 1-based slot number.
  * - `bullseye` needs `pane`: `set-bullseye { paneId }`, which toggles.
@@ -138,7 +138,7 @@ export function resolveGesture(
       if (mode !== "split" && mode !== "stack") {
         return { error: `split: "mode" must be "split" or "stack"` };
       }
-      return { kind: "action", action: "set-column-mode", payload: { slot, mode } };
+      return { kind: "action", action: "set-slot-mode", payload: { slot, mode } };
     }
     case "switch": {
       const spaceId = stringArg(gesture, args, "space");

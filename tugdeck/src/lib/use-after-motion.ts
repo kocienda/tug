@@ -6,7 +6,7 @@
  * renders it at transition priority and commits it the moment it finishes —
  * and when the urgent commit was a settle's set-up, that moment is inside the
  * motion the set-up just launched. The Layout card's preview layers were that
- * case: a 677-fibre commit landing 70 ms into a column rejoin, behind a motion
+ * case: a 677-fibre commit landing 70 ms into a slot rejoin, behind a motion
  * gate that holds every store's tell and cannot hold React's own scheduler.
  *
  * This hook is the gated form. A new value waits for the gate

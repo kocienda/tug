@@ -1,30 +1,30 @@
 /**
- * at0455-column-split-flow.test.ts — a content slot, divided: a split column in flow.
+ * at0455-slot-split-flow.test.ts — a content slot, divided: a split slot in flow.
  *
  * Two cards sharing a numbered slot stack front-to-back and z-order decides
  * which one you see, exactly as two sidebar cards on one edge do. The user may
  * instead SPLIT that slot, and then its vertical run is divided between them
  * and both are visible at once. Stack stays the default; the choice is per-slot
- * state on `imposition.columns`, keyed by pane id ([P11]).
+ * state on `imposition.slots`, keyed by pane id ([P11]).
  *
- * The rail already does all of this (at0401), and columns reuse its arithmetic
+ * The rail already does all of this (at0401), and slots reuse its arithmetic
  * rather than fork it — so what this file is for is the part that is NOT
  * shared: the place. Every assertion below is read from live
- * `getBoundingClientRect()`, because the failures a column-specific bug
+ * `getBoundingClientRect()`, because the failures a slot-specific bug
  * produces are geometric.
  *
- *   1. **A split column TILES its slot.** Top member at the imposition gap,
+ *   1. **A split slot TILES its run.** Top member at the imposition gap,
  *      bottom member at the deeper bottom gap, exactly one gap of air between
- *      them, and — the column-specific half — one shared width and LEFT edge,
+ *      them, and — the slot-specific half — one shared width and LEFT edge,
  *      unchanged from the stacked frame. A split divides the run; it must not
  *      touch the band.
  *   2. **The seams are per slot, not per deck.** Two slots split at once must
- *      divide independently: dragging one slot's seam moves that column's two
+ *      divide independently: dragging one slot's seam moves that slot's two
  *      members and nothing in the other. A single shared property would pass
- *      every single-column test and fail this one.
+ *      every single-slot test and fail this one.
  *   3. **The seam drags and clamps** against each member's own floor, and the
  *      weights land in the record keyed by pane id.
- *   4. **A column of one is byte-identical to an unsplit slot.** Split a slot,
+ *   4. **A split slot of one is byte-identical to an unsplit slot.** Split a slot,
  *      then take a member away, and the survivor stands exactly where a card
  *      that had never been split stands — no seam, no fractional pin.
  *
@@ -32,25 +32,25 @@
  * properties: a survivor pinned to a seam that is no longer drawn is precisely
  * what a missed sweep looks like on screen.
  *
- * Cut from `at0455-column-split` to fit the 20 s budget. This file carries a
- * split column standing in flow; `at0455-column-split-tiles` carries claims
+ * Cut from `at0455-slot-split` to fit the 20 s budget. This file carries a
+ * split slot standing in flow; `at0455-slot-split-tiles` carries claims
  * 1–4, `-doors` the Layout card's row and the badge menu, and `-chords` the
- * split chords. The deck and the readers are `column-split-fixture.ts`.
+ * split chords. The deck and the readers are `slot-split-fixture.ts`.
  *
  * Deliberately NOT declaring `@covers tugdeck/src/deck-manager.ts`, though this
- * file does drive `setColumnMode` and `setColumnShares` through the action
+ * file does drive `setSlotMode` and `setSlotShares` through the action
  * layer. That path is already at the selection budget's ceiling — naming it
  * here makes an edit to the store a 21-file run, which the budget refuses
  * outright and the lint fails on the commit that creates it. The rail twin of
  * every store verb used here is covered from at0401, which does name it.
  *
- * @family at0455-column-split
+ * @family at0455-slot-split
  * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
- * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
+ * @covers tugdeck/src/components/tugways/tug-slot-badge.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -64,19 +64,19 @@ import {
   RAIL_WIDTH,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
-  columnsRecord,
+  slotsRecord,
   deckShape,
   rects,
-  setColumnMode,
+  setSlotMode,
   splitFrameCount,
   wait,
-} from "./column-split-fixture";
+} from "./slot-split-fixture";
 
-describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
+describe.skipIf(!SHOULD_RUN)("at0455 — slot split: in flow", () => {
   test(
-    "a split column stands in flow, and the other layout verbs still reach its members",
+    "a split slot stands in flow, and the other layout verbs still reach its members",
     async () => {
-      const app = await launchTugApp({ testName: "at0455-column-split-flow" });
+      const app = await launchTugApp({ testName: "at0455-slot-split-flow" });
       try {
         await app.evalJS<null>(
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
@@ -87,12 +87,12 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
-        await setColumnMode(app, 0, "split");
+        await setSlotMode(app, 0, "split");
 
-        // ── In flow, a split column takes ONE place in the strip. ──
+        // ── In flow, a split slot takes ONE place in the strip. ──
         //
         // [P11]: panes sharing a slot share its place in either geometry, so a
-        // divided column contributes its widest member's width and no more. A
+        // divided slot contributes its widest member's width and no more. A
         // strip that summed the members would open a gap the deck has nothing
         // to put in — asserted against slot 1's frames, which stand right of
         // it and would be pushed a whole card further along.
@@ -113,7 +113,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
         const flowRects = await rects(app, ["p1", "p2", "p3", "p4"]);
         expect(
           Math.abs(flowRects.p1.left - flowRects.p2.left),
-          "the two members of the split column share one place in the strip",
+          "the two members of the split slot share one place in the strip",
         ).toBeLessThan(PIXEL_TOL);
         expect(
           Math.abs(flowRects.p3.left - flowRects.p4.left),
@@ -137,8 +137,8 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
 
         // ── The width verb reaches a split member, and the strip re-measures. ──
         //
-        // A width preset is card-addressed and knows nothing about columns, so
-        // what is under test is that the column re-reads the new width rather
+        // A width preset is card-addressed and knows nothing about slots, so
+        // what is under test is that the slot re-reads the new width rather
         // than holding the frame at the one it was built with — and that the
         // strip re-measures the SLOT from its widest member when that changes.
         //
@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
         ).toBeGreaterThan(PANE_WIDTH + 1);
         expect(
           Math.abs(resized.p2.width - PANE_WIDTH),
-          "its neighbour in the column kept its own width — a column shares a place, not a width",
+          "its neighbour in the slot kept its own width — a slot shares a place, not a width",
         ).toBeLessThan(PIXEL_TOL);
         expect(
           Math.abs(resized.p3.left - (resized.p1.left + resized.p1.width + GAP)),
@@ -168,30 +168,30 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
           "…which means slot 1 moved right rather than staying put",
         ).toBeGreaterThan(flowRects.p3.left + 1);
 
-        // ── The nudge verb moves a split member's whole column. ──
+        // ── The nudge verb moves a split member's whole slot. ──
         //
         // A slot move is per PANE, so nudging one member takes that member to
         // the next slot and leaves the other behind — which is the honest
         // behavior: the gesture named one card. What must hold is that the
-        // column it left drops to one member and un-divides.
+        // slot it left drops to one member and un-divides.
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("nudge-slot-selection", { cardIds: ["A"], delta: 1 }), null)`,
         );
         await wait(AFTER_LAND_MS);
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll('.tug-pane[data-pane-id="p2"][data-column-split]').length`,
+            `document.querySelectorAll('.tug-pane[data-pane-id="p2"][data-slot-split]').length`,
           ),
           "the member left behind is alone in slot 0 and no longer a split member",
         ).toBe(0);
-        const afterNudge = (await columnsRecord(app))["0"];
+        const afterNudge = (await slotsRecord(app))["0"];
         expect(
           afterNudge?.mode,
           "the arrangement survives the departure ([L23]) — it is the geometry that stopped dividing",
         ).toBe("split");
         // The order does NOT survive it. A slot move writes the new slot onto
         // the pane and commits the imposition it was handed, so without a
-        // sweep at the geometry commit the column goes on naming a member that
+        // sweep at the geometry commit the slot goes on naming a member that
         // now stands somewhere else — which invariant 9 refuses, taking the
         // whole deck to the error overlay on the next validate.
         //
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: in flow", () => {
         // directly.
         expect(
           afterNudge?.order ?? [],
-          "the column stopped naming the member that left its slot",
+          "the slot stopped naming the member that left its slot",
         ).not.toContain("p1");
       } finally {
         await app.close();

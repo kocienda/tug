@@ -66,8 +66,8 @@ export async function spawnStub(app: App, cardId: string, stubDir: string, messa
   return tugSessionId;
 }
 
-/** Unbound Session cards stacked in one flow column, each its own pane. */
-export function column(cardIds: string[]): unknown {
+/** Unbound Session cards stacked in one flow slot, each its own pane. */
+export function oneSlot(cardIds: string[]): unknown {
   return {
     cards: cardIds.map((id) => ({ id, componentId: "session", title: id, closable: true })),
     panes: cardIds.map((cardId) => ({

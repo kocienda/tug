@@ -108,11 +108,11 @@ import { getJotsStore } from "@/lib/jots-store";
 import { jotsNewJot } from "@/bus/declarations/verbs";
 import {
   bullseyePaneIdOf,
-  columnDrawsSplit,
-  deckColumnsOf,
+  slotDrawsSplit,
+  deckSlotsOf,
   deckFlowStrip,
   deckVacancyExtent,
-  type DeckColumn,
+  type DeckSlot,
   findSidebarPanes,
   isSidebarParked,
   isUnboundMember,
@@ -180,7 +180,7 @@ import {
 import { indicateDropZone } from "@/lib/drop-zone-indicator";
 import { indicate } from "@/lib/drag-indication";
 import {
-  publishColumnOffset,
+  publishSlotOffset,
   publishDragFrame,
   publishDragZone,
   publishFlowOffset,
@@ -193,7 +193,7 @@ import {
   writeCanvasFlowOffset,
   writeLayerFlowOffset,
 } from "./flow-offset";
-import { columnWriter, writeCanvasColumnProperty } from "./place-properties";
+import { slotWriter, writeCanvasSlotProperty } from "./place-properties";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
@@ -202,7 +202,7 @@ import {
   SpaceLayerShownContext,
   type SpaceLayerShownSource,
 } from "./space-layer";
-import { driveColumnSeam, registerColumnSeamDrag, type ColumnSeamGesture } from "./column-seam-drag";
+import { driveSlotSeam, registerSlotSeamDrag, type SlotSeamGesture } from "./slot-seam-drag";
 import {
   stillHiddenLayerLoops,
   stillLoopOnStart,
@@ -219,18 +219,18 @@ import {
   resolvePlacement,
   resolveContentWidthPx,
   clampSlot,
-  columnOffsetProperty,
+  slotOffsetProperty,
   type PlaceAllocation,
   type PlaceMember,
-  columnSeamProperty,
-  columnStripProperty,
+  slotSeamProperty,
+  slotStripProperty,
   placeSharesFromHeights,
   railOffsetProperty,
   imposeStyle,
-  isColumnMoveTarget,
+  isSlotMoveTarget,
   isSidebarSide,
-  type ColumnMemberPlacement,
-  type ColumnMode,
+  type SlotMemberPlacement,
+  type SlotMode,
   slotCount,
   DEFAULT_CONTENT_WIDTH,
   impositionGapPx,
@@ -270,33 +270,33 @@ import {
 export interface DeckCanvasProps {}
 
 /**
- * How deep a column's seam sweep reaches, per slot.
+ * How deep a slot's seam sweep reaches, per slot.
  *
  * A rail borrows {@link SIDEBAR_PANE_ZINDEX_MAX_RANK} for its sweep, because a
  * rail's members are z-ranked and that number already bounds them. A slot has
  * no z-rank ceiling to borrow, so the bound is stated here: it is the deepest
- * column the split UI will ever put seams in, and the sweep removes every index
- * from the live seam count up to it so a column going three members to two
+ * slot the split UI will ever put seams in, and the sweep removes every index
+ * from the live seam count up to it so a slot going three members to two
  * cannot leave seam 1 standing for a frame to pin itself against.
  *
  * Deliberately generous — nothing enforces a member limit, and an over-long
  * sweep costs a handful of `removeProperty` calls on a property that is not
  * there, while a short one leaves a live lie in the CSS.
  */
-const COLUMN_SEAM_MAX_INDEX = 9;
+const SLOT_SEAM_MAX_INDEX = 9;
 
 /** Every slot the sweep clears, whatever the current kind: the largest
  *  arrangement's slot count, so dropping from six-up to three-up removes the
- *  seams of the columns the deck no longer has. */
-const COLUMN_SEAM_MAX_SLOT = slotCount("six-up") - 1;
+ *  seams of the slots the deck no longer has. */
+const SLOT_SEAM_MAX_SLOT = slotCount("six-up") - 1;
 
-/** The offsets a deck with no overflowing column has. A shared constant rather
+/** The offsets a deck with no overflowing slot has. A shared constant rather
  *  than a fresh `{}` per render, so the memos reading it are not re-run by an
  *  identity that changes for no reason. */
-const EMPTY_COLUMN_OFFSETS: Readonly<Record<number, number>> = Object.freeze({});
+const EMPTY_SLOT_OFFSETS: Readonly<Record<number, number>> = Object.freeze({});
 const NO_DEPARTING: ReadonlySet<string> = new Set();
 
-/** The rail-offsets record's twin of {@link EMPTY_COLUMN_OFFSETS}, and a
+/** The rail-offsets record's twin of {@link EMPTY_SLOT_OFFSETS}, and a
  *  frozen singleton for the same reason. */
 const EMPTY_RAIL_OFFSETS: Readonly<Partial<Record<SidebarSide, number>>> =
   Object.freeze({});
@@ -355,12 +355,12 @@ function placeMembersByPaneId(
       map.set(paneId, { ...member, id: paneId });
     });
   }
-  for (const column of deckColumnsOf(state, null)) {
+  for (const deckSlot of deckSlotsOf(state, null)) {
     for (const member of placeMembers(
       state,
-      "column",
-      column.members,
-      state.imposition.columns?.[column.slot]?.shares,
+      "slot",
+      deckSlot.members,
+      state.imposition.slots?.[deckSlot.slot]?.shares,
     )) {
       map.set(member.id, member);
     }
@@ -371,7 +371,7 @@ function placeMembersByPaneId(
 /** The runs of a caller that is asking about membership or mode alone — a
  *  place with no run has no allocation, and asking for one would measure the
  *  canvas for an answer nobody reads. */
-const UNMEASURED_RUNS: PlaceRuns = { rail: null, column: null };
+const UNMEASURED_RUNS: PlaceRuns = { rail: null, slot: null };
 
 /**
  * Where a lateral focus run entered, and the card it last landed on ([B06]).
@@ -401,19 +401,19 @@ const RAIL_SEAM_HIT_PX = 10;
 
 /**
  * Which place a seam divides. The deck has two kinds — a side's rail and a
- * numbered slot's column — and the seam between two members is the same object
+ * numbered slot — and the seam between two members is the same object
  * in both: the same drag, the same clamp, the same equalize, over a different
  * custom property and a different commit.
  */
 type SeamPlace =
   | { kind: "rail"; side: SidebarSide }
-  | { kind: "column"; slot: number };
+  | { kind: "slot"; slot: number };
 
 /** The custom property carrying seam `index` of `place`. */
 function seamPropertyOf(place: SeamPlace, index: number): string {
   return place.kind === "rail"
     ? railSeamProperty(place.side, index)
-    : columnSeamProperty(place.slot, index);
+    : slotSeamProperty(place.slot, index);
 }
 
 /** The custom property carrying strip coordinate `index` of `place` — the
@@ -422,7 +422,7 @@ function seamPropertyOf(place: SeamPlace, index: number): string {
 function stripPropertyOf(place: SeamPlace, index: number): string {
   return place.kind === "rail"
     ? railStripProperty(place.side, index)
-    : columnStripProperty(place.slot, index);
+    : slotStripProperty(place.slot, index);
 }
 
 /** The custom property carrying how far `place`'s strip has slid up behind its
@@ -430,24 +430,24 @@ function stripPropertyOf(place: SeamPlace, index: number): string {
 function offsetPropertyOf(place: SeamPlace): string {
   return place.kind === "rail"
     ? railOffsetProperty(place.side)
-    : columnOffsetProperty(place.slot);
+    : slotOffsetProperty(place.slot);
 }
 
 /** Where `place`'s run begins, in px: a rail keeps the rail edge inset at its
- *  top and a column keeps the card gap — the same distinction the imposer's
+ *  top and a slot keeps the card gap — the same distinction the imposer's
  *  member pins draw. */
 function placeRunTopPx(place: SeamPlace): number {
   return place.kind === "rail" ? RAIL_EDGE_INSET_PX : impositionGapPx();
 }
 
 /** Where `place`'s run ends, in px from the foot: a rail keeps the strip's
- *  clearance and a column keeps the bottom gap. */
+ *  clearance and a slot keeps the bottom gap. */
 function placeRunBottomPx(place: SeamPlace): number {
   return place.kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
 }
 
 /** The air two of `place`'s members keep between them, in px: a rail's
- *  members meet at nothing, a column's at the card gap. */
+ *  members meet at nothing, a slot's at the card gap. */
 function placeSeamPx(place: SeamPlace): number {
   return place.kind === "rail" ? RAIL_SEAM_PX : impositionGapPx();
 }
@@ -519,7 +519,7 @@ interface PlaceSeamProps {
   index: number;
   /**
    * The place's own horizontal pins, straight from the imposer — the rail's
-   * pin for a rail, the slot's anchor for a column. Resolved by the caller
+   * pin for a rail, the slot's anchor for a slot. Resolved by the caller
    * rather than here so the seam reads the SAME expression its frames do
    * (including, on a flow deck, the strip position and viewport offset) rather
    * than a second expression that says the same thing.
@@ -554,7 +554,7 @@ interface PlaceSeamProps {
    */
   onCommit: (place: SeamPlace, index: number, value: number) => void;
   /**
-   * A column seam's {@link RAIL_TRAVEL_ATTR} — what its `frameStyle`'s `left`
+   * A slot seam's {@link RAIL_TRAVEL_ATTR} — what its `frameStyle`'s `left`
    * is a function of, so a rail width preview carries it with the frames it
    * divides. A rail seam has none; the preview pins it with its rail.
    */
@@ -603,9 +603,9 @@ function PlaceSeam({
   const seamRef = useRef<HTMLDivElement | null>(null);
 
   // The drag, for a press already in progress — the seam's own, or one a
-  // column member's inner edge hands over (`column-seam-drag.ts`).
+  // slot member's inner edge hands over (`slot-seam-drag.ts`).
   const beginDrag = useCallback(
-    (seam: HTMLElement, pointerId: number | null, startClientY: number): ColumnSeamGesture | null => {
+    (seam: HTMLElement, pointerId: number | null, startClientY: number): SlotSeamGesture | null => {
       const container = seam.parentElement;
       if (container === null) return null;
 
@@ -790,8 +790,8 @@ function PlaceSeam({
       const seamSelector =
         place.kind === "rail"
           ? `.tug-place-seam[data-rail-seam^="${place.side}:"]`
-          : `.tug-place-seam[data-column-seam^="${place.slot}:"]`;
-      const seamAttr = place.kind === "rail" ? "data-rail-seam" : "data-column-seam";
+          : `.tug-place-seam[data-slot-seam^="${place.slot}:"]`;
+      const seamAttr = place.kind === "rail" ? "data-rail-seam" : "data-slot-seam";
       const beginPins = (): void => {
         if (overflowing) return;
         for (const { member, el } of divided) {
@@ -885,16 +885,16 @@ function PlaceSeam({
       const shownLayer = container.querySelector<HTMLElement>(
         `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
       );
-      // A column's properties stand on its readers (`place-properties.ts`),
+      // A slot's properties stand on its readers (`place-properties.ts`),
       // resolved once for the drag: nothing joins or leaves the slot under
       // the hand. A rail's still stand on the canvas and the shown layer.
-      const columnWrite =
-        place.kind === "column"
-          ? columnWriter(container, place.slot, true)
+      const slotWrite =
+        place.kind === "slot"
+          ? slotWriter(container, place.slot, true)
           : null;
       const setArrangement = (name: string, value: string): void => {
-        if (columnWrite !== null) {
-          columnWrite(name, value);
+        if (slotWrite !== null) {
+          slotWrite(name, value);
           return;
         }
         container.style.setProperty(name, value);
@@ -944,7 +944,7 @@ function PlaceSeam({
 
       // The pointer's listeners, when a press on the seam (or a member's edge
       // in the shell) drives the drag; a gesture the host tracks drives it
-      // through the same three calls instead (`driveColumnSeam`).
+      // through the same three calls instead (`driveSlotSeam`).
       const detach = (): void => {
         if (pointerId === null) return;
         seam.removeEventListener("pointermove", onPointerMove);
@@ -1045,7 +1045,7 @@ function PlaceSeam({
     [beginDrag],
   );
 
-  // A column's seam is also the drag behind its members' inner edges: under
+  // A slot's seam is also the drag behind its members' inner edges: under
   // the keep-slot rule a member's top or bottom edge that borders this seam
   // starts this very gesture rather than one of its own.
   // Registered by the seam's address alone and read through a ref, because
@@ -1053,22 +1053,22 @@ function PlaceSeam({
   // would come off and go back on at every one.
   const beginDragRef = useRef(beginDrag);
   beginDragRef.current = beginDrag;
-  const columnSlot = place.kind === "column" ? place.slot : undefined;
+  const arrangedSlot = place.kind === "slot" ? place.slot : undefined;
   useLayoutEffect(() => {
-    if (columnSlot === undefined) return;
-    return registerColumnSeamDrag(columnSlot, index, (pointerId, clientY) => {
+    if (arrangedSlot === undefined) return;
+    return registerSlotSeamDrag(arrangedSlot, index, (pointerId, clientY) => {
       const seam = seamRef.current;
       return seam === null ? null : beginDragRef.current(seam, pointerId, clientY);
     });
-  }, [columnSlot, index]);
+  }, [arrangedSlot, index]);
 
-  // A double-click on a COLUMN seam divides the slot equally again — the one
+  // A double-click on a SLOT seam divides the slot equally again — the one
   // arithmetic a place has that is not the hand's own division. A rail's seam
   // does nothing on a double-click: its sashes are the hand's, and nothing but
   // the hand moves one ([B03]).
   const handleDoubleClick = useCallback(() => {
     if (place.kind === "rail") return;
-    dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot: place.slot });
+    dispatchCommand(TUG_ACTIONS.EQUALIZE_SLOT, { slot: place.slot });
   }, [place]);
 
   // Only the vertical placement is the seam's own, and it is the same
@@ -1098,11 +1098,11 @@ function PlaceSeam({
       ref={seamRef}
       className="tug-place-seam"
       data-testid={
-        place.kind === "rail" ? "tug-rail-seam" : "tug-column-seam"
+        place.kind === "rail" ? "tug-rail-seam" : "tug-slot-seam"
       }
       {...(place.kind === "rail"
         ? { "data-rail-seam": `${place.side}:${index}` }
-        : { "data-column-seam": `${place.slot}:${index}` })}
+        : { "data-slot-seam": `${place.slot}:${index}` })}
       {...(railTravel !== undefined ? { [RAIL_TRAVEL_ATTR]: railTravel } : {})}
       {...(parked && place.kind === "rail" ? { "data-rail-parked": place.side } : {})}
       role="separator"
@@ -1182,8 +1182,8 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.GO_TO_SLOT,
   TUG_ACTIONS.FOCUS_CARD,
   TUG_ACTIONS.NUDGE_SLOT,
-  TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
-  TUG_ACTIONS.MOVE_IN_COLUMN,
+  TUG_ACTIONS.TOGGLE_SLOT_SPLIT,
+  TUG_ACTIONS.MOVE_IN_SLOT,
   TUG_ACTIONS.EQUALIZE_HEIGHTS,
   TUG_ACTIONS.SET_PANE_WIDTH,
   TUG_ACTIONS.TOGGLE_BULLSEYE,
@@ -1220,7 +1220,7 @@ type PanePlacement = Parameters<typeof imposeStyle>[0];
 
 /**
  * Everything a workspace's panes are ARRANGED BY, derived from its deck and
- * nothing else — the rails and their allocation, the columns and theirs, the
+ * nothing else — the rails and their allocation, the slots and theirs, the
  * flow strip, every per-pane placement, and the maps the pane render reads.
  *
  * It exists as one value rather than a dozen memos because a hidden
@@ -1250,11 +1250,11 @@ interface LayerArrangement {
   readonly sidebarRails: ReturnType<typeof sidebarRailsOf>;
   readonly flowStrip: ReturnType<typeof deckFlowStrip>;
   readonly flowOffset: number;
-  readonly deckColumns: ReturnType<typeof deckColumnsOf>;
-  readonly columnOffsets: NonNullable<DeckState["columnOffsets"]>;
+  readonly deckSlots: ReturnType<typeof deckSlotsOf>;
+  readonly slotOffsets: NonNullable<DeckState["slotOffsets"]>;
   readonly railOffsets: NonNullable<DeckState["railOffsets"]>;
-  readonly columnMemberByPaneId: ReadonlyMap<string, ColumnMemberPlacement>;
-  readonly columnModeByPaneId: ReadonlyMap<string, ColumnMode>;
+  readonly slotMemberByPaneId: ReadonlyMap<string, SlotMemberPlacement>;
+  readonly slotModeByPaneId: ReadonlyMap<string, SlotMode>;
   readonly arrivingSeatByPaneId: ReadonlyMap<string, ArrivingSeat>;
   readonly railWidthOf: (side: SidebarSide) => number;
   readonly vacantRails: readonly { side: SidebarSide; style: React.CSSProperties }[];
@@ -1336,27 +1336,27 @@ function deriveLayerArrangement(
   const sidebarRails = sidebarRailsOf(deck, placeRuns);
   const flowStrip = deckFlowStrip(deck);
   const flowOffset = deck.flowOffset ?? 0;
-  const deckColumns = deckColumnsOf(deck, placeRuns.column);
-  const columnOffsets = deck.columnOffsets ?? EMPTY_COLUMN_OFFSETS;
+  const deckSlots = deckSlotsOf(deck, placeRuns.slot);
+  const slotOffsets = deck.slotOffsets ?? EMPTY_SLOT_OFFSETS;
   const railOffsets = deck.railOffsets ?? EMPTY_RAIL_OFFSETS;
 
-  const columnMemberByPaneId = new Map<string, ColumnMemberPlacement>();
-  for (const column of deckColumns) {
-    if (!columnDrawsSplit(column)) continue;
-    const strip = stripCoordinatesOf(column.allocation);
-    column.members.forEach((paneId, index) => {
-      columnMemberByPaneId.set(paneId, {
-        slot: column.slot,
+  const slotMemberByPaneId = new Map<string, SlotMemberPlacement>();
+  for (const deckSlot of deckSlots) {
+    if (!slotDrawsSplit(deckSlot)) continue;
+    const strip = stripCoordinatesOf(deckSlot.allocation);
+    deckSlot.members.forEach((paneId, index) => {
+      slotMemberByPaneId.set(paneId, {
+        slot: deckSlot.slot,
         index,
-        count: column.members.length,
-        standing: column.allocation?.standing ?? "shared",
+        count: deckSlot.members.length,
+        standing: deckSlot.allocation?.standing ?? "shared",
         ...(strip === undefined ? {} : { strip }),
       });
     });
   }
-  const columnModeByPaneId = new Map<string, ColumnMode>();
-  for (const column of deckColumns) {
-    for (const paneId of column.members) columnModeByPaneId.set(paneId, column.mode);
+  const slotModeByPaneId = new Map<string, SlotMode>();
+  for (const deckSlot of deckSlots) {
+    for (const paneId of deckSlot.members) slotModeByPaneId.set(paneId, deckSlot.mode);
   }
   const arrivingSeatByPaneId = new Map<string, ArrivingSeat>();
   {
@@ -1367,12 +1367,12 @@ function deriveLayerArrangement(
         if (marks[pane.id] !== true) continue;
         if (pane.slot === undefined) continue;
         const slot = clampSlot(kind, pane.slot);
-        const column = deckColumns.find((c) => c.slot === slot);
+        const deckSlot = deckSlots.find((c) => c.slot === slot);
         arrivingSeatByPaneId.set(
           pane.id,
-          column !== undefined &&
-            column.mode === "split" &&
-            column.members.length > 0
+          deckSlot !== undefined &&
+            deckSlot.mode === "split" &&
+            deckSlot.members.length > 0
             ? "bottom"
             : "run",
         );
@@ -1476,11 +1476,11 @@ function deriveLayerArrangement(
     sidebarRails,
     flowStrip,
     flowOffset,
-    deckColumns,
-    columnOffsets,
+    deckSlots,
+    slotOffsets,
     railOffsets,
-    columnMemberByPaneId,
-    columnModeByPaneId,
+    slotMemberByPaneId,
+    slotModeByPaneId,
     arrivingSeatByPaneId,
     railWidthOf,
     vacantRails,
@@ -1514,7 +1514,7 @@ function deriveLayerArrangement(
  * - the STANDING one, over the deck without the departing panes, which is
  *   where every survivor goes: they take the room the close gave up;
  * - the PICTURE, over the deck as if the departing panes still stood, which is
- *   where each departing pane is drawn — its placement, its column band, its
+ *   where each departing pane is drawn — its placement, its slot band, its
  *   rail seat.
  *
  * The collections come from the picture for EVERY pane while anything
@@ -1551,8 +1551,8 @@ function deriveShownArrangement(
   return {
     ...standing,
     sidebarPaneIds: picture.sidebarPaneIds,
-    columnMemberByPaneId: theirs(standing.columnMemberByPaneId, picture.columnMemberByPaneId),
-    columnModeByPaneId: theirs(standing.columnModeByPaneId, picture.columnModeByPaneId),
+    slotMemberByPaneId: theirs(standing.slotMemberByPaneId, picture.slotMemberByPaneId),
+    slotModeByPaneId: theirs(standing.slotModeByPaneId, picture.slotModeByPaneId),
     stackByPaneId: theirs(standing.stackByPaneId, picture.stackByPaneId),
     parkedRailSideByPaneId: theirs(
       standing.parkedRailSideByPaneId,
@@ -1585,7 +1585,7 @@ const parkedArrangements = new WeakMap<
   {
     windowRail: WindowRail;
     rail: PlaceRuns["rail"];
-    column: PlaceRuns["column"];
+    slot: PlaceRuns["slot"];
     value: LayerArrangement;
   }
 >();
@@ -1599,7 +1599,7 @@ function arrangementOfParkedDeck(
     hit !== undefined &&
     hit.windowRail === windowRail &&
     hit.rail === placeRuns.rail &&
-    hit.column === placeRuns.column
+    hit.slot === placeRuns.slot
   ) {
     return hit.value;
   }
@@ -1607,7 +1607,7 @@ function arrangementOfParkedDeck(
   parkedArrangements.set(deck, {
     windowRail,
     rail: placeRuns.rail,
-    column: placeRuns.column,
+    slot: placeRuns.slot,
     value,
   });
   return value;
@@ -1648,7 +1648,7 @@ const RAIL_LAYER_SHOWN_SOURCE: SpaceLayerShownSource = {
 
 /**
  * Write the custom properties an arrangement's `calc()` chains resolve
- * against — rail widths and insets, rail and column seams, strip coordinates,
+ * against — rail widths and insets, rail and slot seams, strip coordinates,
  * overflow offsets, the flow strip — onto `el`.
  *
  * Called on the CANVAS for the shown deck, where the seams, caps and drop
@@ -1659,19 +1659,19 @@ const RAIL_LAYER_SHOWN_SOURCE: SpaceLayerShownSource = {
  * and through the shown wrapper's `display: contents` alike. The shown
  * wrapper's values equal the canvas's, so nothing is written on a switch.
  *
- * A COLUMN's seams, offset and strip are the exception: they are written on
+ * A SLOT's seams, offset and strip are the exception: they are written on
  * the slot's readers alone (`place-properties.ts`) — the frames standing in
- * it, and on the canvas its seams — because a column's values changing on an
+ * it, and on the canvas its seams — because a slot's values changing on an
  * ancestor re-resolved the style of everything under it on every fold.
  *
- * `columnRun` is the column run's measured height, for the offset gauge; the
+ * `slotRun` is the slot run's measured height, for the offset gauge; the
  * gauges themselves (`publish*`) are the deck's and are published by the
  * canvas alone.
  */
 function writeArrangementVariables(
   el: HTMLElement,
   a: LayerArrangement,
-  columnRun: number | null,
+  slotRun: number | null,
   publish: boolean,
 ): void {
   for (const side of ["left", "right"] as const) {
@@ -1719,66 +1719,66 @@ function writeArrangementVariables(
       el.style.removeProperty(railStripProperty(side, index));
     }
   }
-  const overflowing = (column: DeckColumn): boolean =>
-    column.allocation?.standing === "overflow";
+  const overflowing = (deckSlot: DeckSlot): boolean =>
+    deckSlot.allocation?.standing === "overflow";
   const seamsBySlot = new Map(
-    a.deckColumns.map((column) => [
-      column.slot,
-      overflowing(column) ? [] : column.seams,
+    a.deckSlots.map((deckSlot) => [
+      deckSlot.slot,
+      overflowing(deckSlot) ? [] : deckSlot.seams,
     ]),
   );
   const offsetBySlot = new Map(
-    a.deckColumns
+    a.deckSlots
       .filter(overflowing)
-      .map((column) => [column.slot, a.columnOffsets[column.slot] ?? 0]),
+      .map((deckSlot) => [deckSlot.slot, a.slotOffsets[deckSlot.slot] ?? 0]),
   );
   const stripBySlot = new Map(
-    a.deckColumns.map((column) => [
-      column.slot,
-      stripCoordinatesOf(column.allocation) ?? [],
+    a.deckSlots.map((deckSlot) => [
+      deckSlot.slot,
+      stripCoordinatesOf(deckSlot.allocation) ?? [],
     ]),
   );
-  for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
+  for (let slot = 0; slot <= SLOT_SEAM_MAX_SLOT; slot += 1) {
     const seams = seamsBySlot.get(slot) ?? [];
     // On the slot's readers rather than on `el` (`place-properties.ts`): a
-    // column's seams written here inherited into every descendant, and a fold
+    // slot's seams written here inherited into every descendant, and a fold
     // that moved them re-resolved the whole deck's style.
-    const write = columnWriter(el, slot, publish);
+    const write = slotWriter(el, slot, publish);
     const set = (name: string, value: string): void => write(name, value);
     const remove = (name: string): void => write(name, null);
     seams.forEach((fraction, index) => {
-      set(columnSeamProperty(slot, index), String(fraction));
+      set(slotSeamProperty(slot, index), String(fraction));
     });
     for (
       let index = seams.length;
-      index <= COLUMN_SEAM_MAX_INDEX;
+      index <= SLOT_SEAM_MAX_INDEX;
       index += 1
     ) {
-      remove(columnSeamProperty(slot, index));
+      remove(slotSeamProperty(slot, index));
     }
     const offset = offsetBySlot.get(slot);
     if (offset === undefined) {
-      remove(columnOffsetProperty(slot));
+      remove(slotOffsetProperty(slot));
     } else {
-      set(columnOffsetProperty(slot), `${Math.round(offset)}px`);
+      set(slotOffsetProperty(slot), `${Math.round(offset)}px`);
     }
-    const columnStrip = stripBySlot.get(slot) ?? [];
-    columnStrip.forEach((coordinate, index) => {
-      set(columnStripProperty(slot, index), `${Math.round(coordinate)}px`);
+    const slotStrip = stripBySlot.get(slot) ?? [];
+    slotStrip.forEach((coordinate, index) => {
+      set(slotStripProperty(slot, index), `${Math.round(coordinate)}px`);
     });
     for (
-      let index = columnStrip.length;
-      index <= COLUMN_SEAM_MAX_INDEX + 1;
+      let index = slotStrip.length;
+      index <= SLOT_SEAM_MAX_INDEX + 1;
       index += 1
     ) {
-      remove(columnStripProperty(slot, index));
+      remove(slotStripProperty(slot, index));
     }
     if (publish) {
-      publishColumnOffset(
+      publishSlotOffset(
         slot,
-        offset === undefined || columnRun === null || columnRun <= 0
+        offset === undefined || slotRun === null || slotRun <= 0
           ? null
-          : offset / columnRun,
+          : offset / slotRun,
       );
     }
   }
@@ -1809,21 +1809,21 @@ function SpaceLayerWrapper({
   spaceId,
   shown,
   arrangement,
-  columnRun,
+  slotRun,
   children,
 }: {
   spaceId: string;
   shown: boolean;
   arrangement: LayerArrangement;
-  columnRun: number | null;
+  slotRun: number | null;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    writeArrangementVariables(el, arrangement, columnRun, false);
-  }, [arrangement, columnRun]);
+    writeArrangementVariables(el, arrangement, slotRun, false);
+  }, [arrangement, slotRun]);
   return (
     <div
       ref={ref}
@@ -2012,7 +2012,7 @@ const LayerPanes = memo(function LayerPanes({
               //
               // And an UNBOUND pane is sized by the unbound policy ([B04],
               // [D195]), on the same fact `placeMembers` reads, so the frame's
-              // resize floor and the column's member floor are one answer
+              // resize floor and the slot's member floor are one answer
               // rather than two. The unbound policy's height floor is zero, and
               // `TugPane` floors its chrome-measured `minSize` to
               // `sizePolicy.min` — so what stands is the chrome's own
@@ -2051,7 +2051,7 @@ const LayerPanes = memo(function LayerPanes({
             }
             contentWidthPx={arr.contentWidthPx}
             resizeKeepsSlot={impositionResizeSlot(deck.imposition) === "keep"}
-            columnMember={arr.columnMemberByPaneId.get(stackState.id)}
+            slotMember={arr.slotMemberByPaneId.get(stackState.id)}
             arriving={arr.arrivingSeatByPaneId.get(stackState.id)}
             // The pane's own field ([P01]) rather than `paneFoldedOf` over
             // the deck state: the selector exists for readers holding a state
@@ -2211,13 +2211,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // for every layer because every layer stands in the same canvas.
   const placeRuns: PlaceRuns = {
     rail: store.getRailRunHeight(),
-    column: store.getColumnRunHeight(),
+    slot: store.getSlotRunHeight(),
   };
   const shownArrangement = useMemo(
     () => deriveShownArrangement(picture, placeRuns),
     // `placeRuns` is minted per render; its two numbers are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `placeRuns` is minted per render; its two numbers are the dependency
-    [picture, placeRuns.rail, placeRuns.column],
+    [picture, placeRuns.rail, placeRuns.slot],
   );
   // The window's rail as the shown deck holds it, which every parked layer is
   // arranged against ([B09]).
@@ -2226,8 +2226,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     sidebarRails,
     flowStrip,
     flowOffset,
-    deckColumns,
-    columnOffsets,
+    deckSlots,
+    slotOffsets,
     railOffsets,
     railWidthOf,
     vacantRails,
@@ -2297,7 +2297,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     () =>
       installHostCardGesture(store, {
         railEdge: (paneId) => railEdgeDriverFor(store, railWidthDraft, paneId, paneFrameOf),
-        columnSeam: driveColumnSeam,
+        slotSeam: driveSlotSeam,
       }),
     [store, railWidthDraft],
   );
@@ -2485,7 +2485,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // and skips the transfer, leaving the caret in the card the reader just
       // left. **The travel that brings an off-band target into view ([B08]) is
       // that commit's own**, not a second move made here: `activateCard`
-      // reveals what it raises, sliding the flow band, the target's column and
+      // reveals what it raises, sliding the flow band, the target's slot and
       // its rail each by the least that shows the member ([P12]) and spreading
       // all three into the SAME commit as the raise, so the settle animates
       // them together ([P10]). A centering pass afterwards would be a second
@@ -2498,7 +2498,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       //
       // A refusal is VISIBLE ([B09]): at the arrangement's edge the pane the
       // reader is standing in flashes, which is the receipt a refused
-      // `move-in-column` already gives. A chord that does nothing and says
+      // `move-in-slot` already gives. A chord that does nothing and says
       // nothing cannot be told from one that never arrived ([P08]).
       [TUG_ACTIONS.FOCUS_CARD]: (event: ActionEvent) => {
         if (!isFocusDirection(event.value)) return;
@@ -2514,7 +2514,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           store.getSnapshot(),
           {
             rail: store.getRailRunHeight(),
-            column: store.getColumnRunHeight(),
+            slot: store.getSlotRunHeight(),
           },
           sourceCardId,
           event.value,
@@ -2556,7 +2556,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // nudge pair do, takes its FIRST card (a split names one place, and a
       // multi-card selection spanning two slots has no single answer), and
       // asks that card's pane which slot it stands in.
-      [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT]: () => {
+      [TUG_ACTIONS.TOGGLE_SLOT_SPLIT]: () => {
         const state = store.getSnapshot();
         if (state.imposition.kind === undefined) return;
         const cardIds = contentCardsInLayoutSelection(store);
@@ -2564,32 +2564,32 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
         if (host?.slot === undefined) return;
         const slot = clampSlot(state.imposition.kind, host.slot);
-        const column = deckColumnsOf(state, null).find((c) => c.slot === slot);
+        const deckSlot = deckSlotsOf(state, null).find((c) => c.slot === slot);
         // A slot one card deep is NOT refused. Splitting it is a legal act
         // that commits `mode: "split"` and arms the place for the next card
         // to land into — the same act the pane badge's own menu has always
         // performed, and the badge saying "press to split it" while the chord
         // flashed a refusal was one surface calling the other a liar.
         //
-        // The only refusal left is a slot that holds no column at all, which
-        // `deckColumnsOf` answers for. It stays VISIBLE — the pane flashes —
+        // The only refusal left is a slot that holds no slot at all, which
+        // `deckSlotsOf` answers for. It stays VISIBLE — the pane flashes —
         // because a chord that does nothing and says nothing is
         // indistinguishable from one that never arrived ([P08]).
-        if (column === undefined) {
+        if (deckSlot === undefined) {
           tugDevLogStore.debug(
-            "toggle-column-split",
+            "toggle-slot-split",
             "the selection's card stands in no slot",
             { slot, cardId: cardIds[0] },
           );
           flashCardPane(store, cardIds[0]);
           return;
         }
-        dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, {
+        dispatchCommand(TUG_ACTIONS.SET_SLOT_MODE, {
           slot,
-          mode: column.mode === "split" ? "stack" : "split",
+          mode: deckSlot.mode === "split" ? "stack" : "split",
         });
       },
-      // ⌃⌘E — equalize the column the layout selection stands in. The same
+      // ⌃⌘E — equalize the slot the layout selection stands in. The same
       // resolution as ⌃⌘/ above: the selection's FIRST card, its pane's slot.
       // A slot with no division to write — stacked, or one card deep — flashes
       // the pane rather than returning quietly; the menu row is dark there,
@@ -2602,26 +2602,26 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
         if (host?.slot === undefined) return;
         const slot = clampSlot(state.imposition.kind, host.slot);
-        const column = deckColumnsOf(state, null).find((c) => c.slot === slot);
-        if (column?.mode !== "split" || column.members.length < 2) {
+        const deckSlot = deckSlotsOf(state, null).find((c) => c.slot === slot);
+        if (deckSlot?.mode !== "split" || deckSlot.members.length < 2) {
           flashCardPane(store, cardIds[0]);
           return;
         }
-        dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
+        dispatchCommand(TUG_ACTIONS.EQUALIZE_SLOT, { slot });
       },
-      // ⌃⌘↑/↓ and ⌃⇧⌘↑/↓ — move the resolved card within its own column. What
+      // ⌃⌘↑/↓ and ⌃⇧⌘↑/↓ — move the resolved card within its own slot. What
       // "up" means is the store's to decide, not the chord's: split, it is the
       // member order; stacked, it is z. Refusal at an edge flashes the pane,
       // which is the same receipt the nudge pair gives.
-      [TUG_ACTIONS.MOVE_IN_COLUMN]: (event: ActionEvent) => {
-        if (!isColumnMoveTarget(event.value)) return;
+      [TUG_ACTIONS.MOVE_IN_SLOT]: (event: ActionEvent) => {
+        if (!isSlotMoveTarget(event.value)) return;
         const state = store.getSnapshot();
         if (state.imposition.kind === undefined) return;
         const cardIds = contentCardsInLayoutSelection(store);
         if (cardIds.length === 0) return;
         const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
         if (host === undefined) return;
-        if (!store.moveInColumn(host.id, event.value)) {
+        if (!store.moveInSlot(host.id, event.value)) {
           flashCardPane(store, cardIds[0]);
         }
       },
@@ -3032,7 +3032,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // ⌃⌘← / ⌃⌘→ — the same ladder over the RAIL rather than over a card:
       // show the side and focus its frontmost member, focus that member, hide
       // the side ({@link toggleSidebarRail}). The canvas owns it for the reason
-      // it owns the column verbs — a side is a property of the deck, and no
+      // it owns the slot verbs — a side is a property of the deck, and no
       // card can name one.
       [TUG_ACTIONS.TOGGLE_RAIL]: (event: ActionEvent) => {
         if (!isSidebarSide(event.value)) return;
@@ -3276,14 +3276,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // the next reflow — and the clamp `imposeStyle` writes over them is what
   // answers a window resize with no JS in the loop at all.
   //
-  // The COLUMN seams ride here too, for the fourth time the same reason a rail's
-  // do: a split column's member pins are fractions of the run, so the fractions
+  // The SLOT seams ride here too, for the fourth time the same reason a rail's
+  // do: a split slot's member pins are fractions of the run, so the fractions
   // are the one number a seam drag rewrites and a window resize re-resolves for
   // free.
   //
   // NOTE the dependency: this effect is keyed on the SUMMARY STRING below, not
   // on the values, so anything it writes has to be in the summary or the write
-  // never re-runs. The flow and column terms are appended for exactly that
+  // never re-runs. The flow and slot terms are appended for exactly that
   // reason.
   const railSummary = `${sidebarRails
     .map(
@@ -3296,13 +3296,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           .map((c) => Math.round(c))
           .join("+")}`,
     )
-    .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}|${deckColumns
+    .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}|${deckSlots
     .map(
-      (column) =>
-        `${column.slot}:${column.mode}:${column.seams
+      (deckSlot) =>
+        `${deckSlot.slot}:${deckSlot.mode}:${deckSlot.seams
           .map((f) => f.toFixed(4))
-          .join("+")}:${Math.round(columnOffsets[column.slot] ?? 0)}:${(
-          stripCoordinatesOf(column.allocation) ?? []
+          .join("+")}:${Math.round(slotOffsets[deckSlot.slot] ?? 0)}:${(
+          stripCoordinatesOf(deckSlot.allocation) ?? []
         )
           .map((c) => Math.round(c))
           .join("+")}`,
@@ -3311,7 +3311,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    writeArrangementVariables(el, shownArrangement, store.getColumnRunHeight(), true);
+    writeArrangementVariables(el, shownArrangement, store.getSlotRunHeight(), true);
     const flowBand = store.getBandWidth();
     publishFlowOffset(
       flowStrip === null || flowBand === null || flowBand <= 0
@@ -3533,15 +3533,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // coexistence a rail edge drag already has.
   const railMembersRef = useRef(sidebarRails);
   railMembersRef.current = sidebarRails;
-  const deckColumnsRef = useRef(deckColumns);
-  deckColumnsRef.current = deckColumns;
+  const deckSlotsRef = useRef(deckSlots);
+  deckSlotsRef.current = deckSlots;
   const deckStateRef = useRef(deckState);
   deckStateRef.current = deckState;
   const handleSeamCommit = useCallback(
     (place: SeamPlace, index: number, value: number) => {
       // One handler for both places, because one component raises both. The
       // fork is the record the weights land in and the ids they are keyed by —
-      // componentIds on a rail, pane ids in a column — and nothing else.
+      // componentIds on a rail, pane ids in a slot — and nothing else.
       const state = deckStateRef.current;
       if (place.kind === "rail") {
         const rail = railMembersRef.current.find((r) => r.side === place.side);
@@ -3564,21 +3564,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         );
         return;
       }
-      const column = deckColumnsRef.current.find((c) => c.slot === place.slot);
-      if (column === undefined || column.allocation === null) return;
+      const deckSlot = deckSlotsRef.current.find((c) => c.slot === place.slot);
+      if (deckSlot === undefined || deckSlot.allocation === null) return;
       const members = placeMembers(
         state,
-        "column",
-        column.members,
-        state.imposition.columns?.[place.slot]?.shares,
+        "slot",
+        deckSlot.members,
+        state.imposition.slots?.[place.slot]?.shares,
       );
-      store.setColumnShares(
+      store.setSlotShares(
         place.slot,
         placeSharesFromHeights(
           members,
-          draggedHeights(column.allocation, members, index, value),
-          column.allocation.run,
-          column.allocation.seam,
+          draggedHeights(deckSlot.allocation, members, index, value),
+          deckSlot.allocation.run,
+          deckSlot.allocation.seam,
         ),
       );
     },
@@ -3675,7 +3675,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           : draggedAtStart;
       if (startRect === undefined) return { zones: [], origin: null };
       // A slot's rect is the union of what stands in it — one pane's frame
-      // for a lone card or a stack, the whole divided run for a split column.
+      // for a lone card or a stack, the whole divided run for a split slot.
       // Read off the members rather than re-solved, for the reason above.
       const slots = new Map<number, Rect>();
       const kind = state.imposition.kind;
@@ -3749,7 +3749,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // frames above: a frame in flight is one of those frames, and the
         // store is the one reader a hand cannot move.
         runs: {
-          column: store.getColumnRunHeight(),
+          slot: store.getSlotRunHeight(),
           rail: store.getRailRunHeight(),
         },
         draggedAtStart: startRect,
@@ -3908,21 +3908,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
             return store.movePaneToSlot(draggedPaneId, zone.slot).ok;
           }
-          case "column-index": {
-            const column = deckColumnsOf(state, null).find(
+          case "slot-index": {
+            const deckSlot = deckSlotsOf(state, null).find(
               (c) => c.slot === zone.slot,
             );
-            if (column === undefined) return false;
-            if (!column.members.includes(draggedPaneId)) {
+            if (deckSlot === undefined) return false;
+            if (!deckSlot.members.includes(draggedPaneId)) {
               return store.movePaneToSlot(
                 draggedPaneId,
                 zone.slot,
                 zone.index,
               ).ok;
             }
-            const order = column.members.filter((id) => id !== draggedPaneId);
+            const order = deckSlot.members.filter((id) => id !== draggedPaneId);
             order.splice(zone.index, 0, draggedPaneId);
-            store.setColumnOrder(zone.slot, order, draggedPaneId);
+            store.setSlotOrder(zone.slot, order, draggedPaneId);
             return true;
           }
           case "rail-index": {
@@ -3964,7 +3964,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
 
         // Which strips are even askable is a fact about the card in the air,
         // decided once, here. A rail card can only land in a rail and a
-        // content card can only land in a column or the band, and a strip a
+        // content card can only land in a slot or the band, and a strip a
         // card cannot land in must not move under it ([B01], [B04]) — a rail
         // card carried across the band used to reach the flow branch below and
         // scroll the content strip to its end, and a content card held over an
@@ -3978,16 +3978,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           rail.members.some((member) => member.paneId === draggedPaneId),
         );
 
-        // A rail first, and for the reason a column comes before the band: a
+        // A rail first, and for the reason a slot comes before the band: a
         // pointer inside an overflowing rail's run is asking about that rail.
-        // Rails are asked about before columns because a rail's band is the
-        // deck's edge, which no column occupies — the two cannot both claim a
+        // Rails are asked about before slots because a rail's band is the
+        // deck's edge, which no slot occupies — the two cannot both claim a
         // pointer, and asking in a fixed order keeps that a fact rather than a
         // coincidence. The order is untouched by the gate above; the branches
         // that cannot apply are skipped, not reordered.
         const railRun = store.getRailRunHeight();
         if (railCard && railRun !== null) {
-          for (const rail of sidebarRailsOf(state, { rail: railRun, column: null })) {
+          for (const rail of sidebarRailsOf(state, { rail: railRun, slot: null })) {
             const allocation = rail.allocation;
             if (allocation === null || allocation.standing !== "overflow") {
               continue;
@@ -4022,24 +4022,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           }
         }
 
-        // A rail card has now been offered every rail there is. The column and
+        // A rail card has now been offered every rail there is. The slot and
         // the band are not places it can land, so it is asking about nothing.
         if (railCard) return null;
 
-        // A column first: it is the narrower question, and a pointer inside an
-        // overflowing column's run is asking about that column rather than
+        // A slot first: it is the narrower question, and a pointer inside an
+        // overflowing slot's run is asking about that slot rather than
         // about the band it happens to sit in.
-        const run = store.getColumnRunHeight();
+        const run = store.getSlotRunHeight();
         if (run !== null) {
-          for (const column of deckColumnsOf(state, run)) {
-            const allocation = column.allocation;
+          for (const deckSlot of deckSlotsOf(state, run)) {
+            const allocation = deckSlot.allocation;
             if (allocation === null || allocation.standing !== "overflow") {
               continue;
             }
             // Off a seated member, for the reason the rail's is ([B07]).
             const seated =
-              column.members.find((id) => id !== draggedPaneId) ??
-              column.members[0];
+              deckSlot.members.find((id) => id !== draggedPaneId) ??
+              deckSlot.members[0];
             const first = canvas.querySelector<HTMLElement>(
               `.tug-pane[data-pane-id="${seated}"]`,
             );
@@ -4051,12 +4051,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             const width = rect.width / zoom;
             if (pointer.x < left || pointer.x > left + width) continue;
             return {
-              kind: "column",
-              slot: column.slot,
+              kind: "slot",
+              slot: deckSlot.slot,
               axis: "y",
               bandStart: impositionGapPx(),
               bandEnd: impositionGapPx() + run,
-              offset: state.columnOffsets?.[column.slot] ?? 0,
+              offset: state.slotOffsets?.[deckSlot.slot] ?? 0,
               maxOffset: Math.max(0, allocation.stripLength - run),
             };
           }
@@ -4085,14 +4085,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (el === null) return;
         if (target.kind === "flow") {
           writeCanvasFlowOffset(el, Math.round(offset));
-        } else if (target.kind === "column") {
-          // On the column's readers, canvas seams and shown frames alike
+        } else if (target.kind === "slot") {
+          // On the slot's readers, canvas seams and shown frames alike
           // (`place-properties.ts`).
           const slot = target.slot ?? 0;
-          writeCanvasColumnProperty(
+          writeCanvasSlotProperty(
             el,
             slot,
-            columnOffsetProperty(slot),
+            slotOffsetProperty(slot),
             `${Math.round(offset)}px`,
           );
         } else {
@@ -4114,8 +4114,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // fraction is exact rather than re-measured off the DOM.
         const band = target.bandEnd - target.bandStart;
         if (band <= 0) return;
-        if (target.kind === "column") {
-          publishColumnOffset(target.slot ?? 0, offset / band);
+        if (target.kind === "slot") {
+          publishSlotOffset(target.slot ?? 0, offset / band);
         } else if (target.kind === "flow") {
           publishFlowOffset(offset / band);
         }
@@ -4125,8 +4125,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // `"cut"`: `applyScroll` has been writing this strip's custom property
         // every frame of the drag, so the deck is already drawn at this number
         // and there is nothing for the settle to carry ([B01], [B03]).
-        if (target.kind === "column")
-          store.setColumnOffset(target.slot ?? 0, offset, "cut");
+        if (target.kind === "slot")
+          store.setSlotOffset(target.slot ?? 0, offset, "cut");
         else if (target.kind === "rail")
           store.setRailOffset(target.side ?? "left", offset, "cut");
         else store.setFlowOffset(offset, "cut");
@@ -5121,7 +5121,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             spaceId={layer.spaceId}
             shown={layer.shown}
             arrangement={arr}
-            columnRun={placeRuns.column}
+            slotRun={placeRuns.slot}
           >
             {/* The one fact a card in here may need about its own standing:
                 whether the workspace it is mounted in is on screen. Read by
@@ -5152,7 +5152,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         spaceId={WINDOW_RAIL_LAYER_ID}
         shown
         arrangement={shownArrangement}
-        columnRun={placeRuns.column}
+        slotRun={placeRuns.slot}
       >
         <SpaceLayerShownContext.Provider value={RAIL_LAYER_SHOWN_SOURCE}>
           <LayerPanes
@@ -5209,43 +5209,43 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         ));
       })}
-      {/* And one per gap of every split COLUMN. Its horizontal pins are the
+      {/* And one per gap of every split SLOT. Its horizontal pins are the
           slot's own — through `placementFor`, so on a flow deck the seam rides
           the strip with the frames it divides rather than standing at a fit
           anchor nothing is at. */}
-      {deckColumns.flatMap((column) => {
+      {deckSlots.flatMap((deckSlot) => {
         // A sash between every pair, in both standings — the rail's rule above,
-        // for the reason a rail and a column are the same kind of place.
-        const allocation = column.allocation;
+        // for the reason a rail and a slot are the same kind of place.
+        const allocation = deckSlot.allocation;
         if (allocation === null || allocation.ids.length < 2) return [];
-        const pane = panes.find((p) => p.id === column.members[0]);
+        const pane = panes.find((p) => p.id === deckSlot.members[0]);
         const placement = pane === undefined ? undefined : placementFor(pane);
         if (placement === undefined) return [];
-        // The column's width is its widest member's, the same extent the strip
+        // The slot's width is its widest member's, the same extent the strip
         // reads — a seam narrower than the widest frame would stop short of the
         // edge it divides.
         const width = Math.max(
-          ...column.members.map(
+          ...deckSlot.members.map(
             (paneId) =>
               panes.find((p) => p.id === paneId)?.size.width ?? 0,
           ),
         );
         const members = placeMembers(
           deckState,
-          "column",
-          column.members,
-          deckState.imposition.columns?.[column.slot]?.shares,
+          "slot",
+          deckSlot.members,
+          deckState.imposition.slots?.[deckSlot.slot]?.shares,
         );
         return allocation.ids.slice(1).map((_id, index) => (
           <PlaceSeam
-            key={`column:${column.slot}:${index}`}
-            place={{ kind: "column", slot: column.slot }}
+            key={`slot:${deckSlot.slot}:${index}`}
+            place={{ kind: "slot", slot: deckSlot.slot }}
             index={index}
             frameStyle={imposeStyle(placement, width)}
             railTravel={railTravelOf(placement, width)}
             allocation={allocation}
             members={members}
-            memberPaneIds={column.members}
+            memberPaneIds={deckSlot.members}
             onCommit={handleSeamCommit}
           />
         ));

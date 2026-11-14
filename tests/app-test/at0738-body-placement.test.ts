@@ -13,7 +13,7 @@
  * sent to the first card's body, which binds it. A Session card draws its own
  * pane's chrome, so its body's frame is its whole card: the shell's stand-in
  * frame outset by the apron, within a point, after every commit — at zoom
- * 1.0, at 0.8, and after a column split, a settle, has landed (a body snaps
+ * 1.0, at 0.8, and after a slot split, a settle, has landed (a body snaps
  * at the land). A native click inside the body's rect must reach the body —
  * its composer takes focus — and make the card the shell's first responder;
  * a popover a card raises from its own chrome (a hello card's width menu)
@@ -62,13 +62,13 @@ const TEST_NAME = "at0738-body-placement";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-/** The spawned body card, and the unbound neighbour (a body too) sharing its column. */
+/** The spawned body card, and the unbound neighbour (a body too) sharing its slot. */
 const BODY_CARD = "at0738-a";
 const NEIGHBOUR = "at0738-b";
 /** A hello card in the next slot, whose title bar's width menu is a popover over its own body. */
 const HELLO = "at0738-c";
 
-const twoInAColumn = {
+const twoInASlot = {
   cards: [
     { id: BODY_CARD, componentId: "session", title: "Body", closable: true },
     { id: NEIGHBOUR, componentId: "session", title: "Neighbour", closable: true },
@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
-        await app.seedDeckState({ state: twoInAColumn, focusCardId: BODY_CARD });
+        await app.seedDeckState({ state: twoInASlot, focusCardId: BODY_CARD });
 
         // Spawn the card onto a stub session. The card is already a body
         // card, so the funnel sends the spawn to its body, which binds it.
@@ -275,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         await app.setPageZoom(1.0);
         const stacked = await expectPlaced(app, "zoom 1.0 again");
 
-        await app.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" });
+        await app.dispatchControlAction("set-slot-mode", { slot: 0, mode: "split" });
         const split = await expectPlaced(app, "after the split lands");
         expect(split.height, "the split gave the body card a share of the column").toBeLessThan(stacked.height - 20);
 

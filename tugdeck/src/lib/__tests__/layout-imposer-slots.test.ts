@@ -1,8 +1,8 @@
 /**
- * layout-imposer-columns.test.ts — a slot is a place, and a place can be
+ * layout-imposer-slots.test.ts — a slot is a place, and a place can be
  * divided.
  *
- * A column is the same arrangement a rail is — `{mode, order, shares}` — over
+ * A slot is the same arrangement a rail is — `{mode, order, shares}` — over
  * the panes standing in one numbered slot rather than the ones standing against
  * one edge. This file pins the three things that follow from "the same":
  *
@@ -11,15 +11,15 @@
  *     the weights and keeps everything else; and each wither touches one slot,
  *     never its neighbours.
  *  2. **The division math is genuinely shared.** `allocatePlaceHeights` and
- *     `placeSharesFromHeights` take a place's members, not a side, so a column
- *     calls them unchanged. Asserted over column-shaped inputs, and
+ *     `placeSharesFromHeights` take a place's members, not a side, so a slot
+ *     calls them unchanged. Asserted over slot-shaped inputs, and
  *     round-tripped, so a later "let me specialize this for rails" shows up
  *     here rather than in a crooked split.
- *  3. **`effectiveColumnOrder` tolerates residue.** A column is keyed by pane
+ *  3. **`effectiveSlotOrder` tolerates residue.** A slot is keyed by pane
  *     id and nothing ever cleans it up, so naming a pane that is gone must be
  *     inert rather than a hole in the order.
  *
- * The one place a column deliberately differs from a rail is what a member is
+ * The one place a slot deliberately differs from a rail is what a member is
  * called, and it is not cosmetic: a rail member is a componentId (a sidebar
  * card is a singleton), while a slot holds *panes*, each of which may be a tab
  * stack of several cards. Keying by card id would rename a member on a tab
@@ -30,13 +30,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  columnMemberPins,
-  columnModeOf,
-  columnOffsetProperty,
-  columnSeamProperty,
+  slotMemberPins,
+  slotModeOf,
+  slotOffsetProperty,
+  slotSeamProperty,
   allocatePlaceHeights,
   type PlaceAllocation,
-  effectiveColumnOrder,
+  effectiveSlotOrder,
   flowRevealOffset,
   seamDragBounds,
   wallRevealOffset,
@@ -45,15 +45,15 @@ import {
   IMPOSITION_GAP_PROPERTY,
   IMPOSITION_GAP_PX,
   imposeStyle,
-  isColumnMode,
+  isSlotMode,
   stripRevealOffset,
   placeSharesFromHeights,
   railWeightOf,
   type PlaceMember,
-  sweptColumnOrders,
-  withColumnMode,
-  withColumnOrder,
-  withColumnShares,
+  sweptSlotOrders,
+  withSlotMode,
+  withSlotOrder,
+  withSlotShares,
   type DeckImposition,
 } from "@/lib/layout-imposer";
 
@@ -63,22 +63,22 @@ const GAP_BOTTOM = `var(${IMPOSITION_GAP_BOTTOM_PROPERTY}, ${IMPOSITION_GAP_BOTT
 /** How they spell the card gap, on the same pattern. */
 const GAP_CSS = `var(${IMPOSITION_GAP_PROPERTY}, ${IMPOSITION_GAP_PX}px)`;
 
-/** A bare imposition — no columns, which is what every deck was before a slot
+/** A bare imposition — no slots, which is what every deck was before a slot
  *  could be divided. */
 const bare = (): DeckImposition => ({
   kind: "three-up",
   sidebars: { dashes: { side: "right" } },
 });
 
-describe("columnModeOf", () => {
-  test("absent columns, an absent slot, and an absent mode all read as a stack", () => {
-    expect(columnModeOf(bare(), 0)).toBe("stack");
-    expect(columnModeOf({ columns: { 1: { mode: "split" } } }, 0)).toBe("stack");
-    expect(columnModeOf({ columns: { 0: { order: ["p1"] } } }, 0)).toBe("stack");
+describe("slotModeOf", () => {
+  test("absent slots, an absent slot, and an absent mode all read as a stack", () => {
+    expect(slotModeOf(bare(), 0)).toBe("stack");
+    expect(slotModeOf({ slots: { 1: { mode: "split" } } }, 0)).toBe("stack");
+    expect(slotModeOf({ slots: { 0: { order: ["p1"] } } }, 0)).toBe("stack");
   });
 
   test("a split slot reads as split", () => {
-    expect(columnModeOf({ columns: { 2: { mode: "split" } } }, 2)).toBe("split");
+    expect(slotModeOf({ slots: { 2: { mode: "split" } } }, 2)).toBe("split");
   });
 
   test("a mode this build cannot read is not a split", () => {
@@ -86,27 +86,27 @@ describe("columnModeOf", () => {
     // "split" means the slot was not split, which is the only safe reading:
     // showing a division nobody chose is worse than showing the stack.
     const imposition = {
-      columns: { 0: { mode: "sideways" } },
+      slots: { 0: { mode: "sideways" } },
     } as unknown as DeckImposition;
-    expect(columnModeOf(imposition, 0)).toBe("stack");
+    expect(slotModeOf(imposition, 0)).toBe("stack");
   });
 });
 
-describe("isColumnMode", () => {
+describe("isSlotMode", () => {
   test("narrows exactly the two words", () => {
-    expect(isColumnMode("stack")).toBe(true);
-    expect(isColumnMode("split")).toBe(true);
-    expect(isColumnMode("splt")).toBe(false);
-    expect(isColumnMode(undefined)).toBe(false);
-    expect(isColumnMode(null)).toBe(false);
-    expect(isColumnMode(1)).toBe(false);
+    expect(isSlotMode("stack")).toBe(true);
+    expect(isSlotMode("split")).toBe(true);
+    expect(isSlotMode("splt")).toBe(false);
+    expect(isSlotMode(undefined)).toBe(false);
+    expect(isSlotMode(null)).toBe(false);
+    expect(isSlotMode(1)).toBe(false);
   });
 });
 
-describe("the column withers", () => {
+describe("the slot withers", () => {
   test("a first split writes only the mode, on only that slot", () => {
-    const next = withColumnMode(bare(), 1, "split");
-    expect(next.columns).toEqual({ 1: { mode: "split" } });
+    const next = withSlotMode(bare(), 1, "split");
+    expect(next.slots).toEqual({ 1: { mode: "split" } });
     // Everything else the imposition carries is untouched.
     expect(next.kind).toBe("three-up");
     expect(next.sidebars).toEqual({ dashes: { side: "right" } });
@@ -114,21 +114,21 @@ describe("the column withers", () => {
 
   test("re-stacking keeps the order and the shares", () => {
     // The rail's contract, and the reason it is worth having: a user who
-    // stacks a column and splits it again gets the arrangement back, not a
+    // stacks a slot and splits it again gets the arrangement back, not a
     // default. A wither that dropped these would be indistinguishable until
     // the second split.
-    const split = withColumnShares(
-      withColumnOrder(withColumnMode(bare(), 0, "split"), 0, ["p2", "p1"]),
+    const split = withSlotShares(
+      withSlotOrder(withSlotMode(bare(), 0, "split"), 0, ["p2", "p1"]),
       0,
       { p2: 2 },
     );
-    const stacked = withColumnMode(split, 0, "stack");
-    expect(stacked.columns?.[0]).toEqual({
+    const stacked = withSlotMode(split, 0, "stack");
+    expect(stacked.slots?.[0]).toEqual({
       mode: "stack",
       order: ["p2", "p1"],
       shares: { p2: 2 },
     });
-    expect(withColumnMode(stacked, 0, "split").columns?.[0]).toEqual({
+    expect(withSlotMode(stacked, 0, "split").slots?.[0]).toEqual({
       mode: "split",
       order: ["p2", "p1"],
       shares: { p2: 2 },
@@ -136,10 +136,10 @@ describe("the column withers", () => {
   });
 
   test("each wither leaves the other slots exactly as they stood", () => {
-    const two = withColumnMode(withColumnMode(bare(), 0, "split"), 3, "split");
-    const next = withColumnOrder(two, 0, ["p9"]);
-    expect(next.columns?.[3]).toEqual({ mode: "split" });
-    expect(next.columns?.[0]).toEqual({ mode: "split", order: ["p9"] });
+    const two = withSlotMode(withSlotMode(bare(), 0, "split"), 3, "split");
+    const next = withSlotOrder(two, 0, ["p9"]);
+    expect(next.slots?.[3]).toEqual({ mode: "split" });
+    expect(next.slots?.[0]).toEqual({ mode: "split", order: ["p9"] });
   });
 
   test("the withers copy what they are handed", () => {
@@ -149,24 +149,24 @@ describe("the column withers", () => {
     // repaint until something unrelated did.
     const order = ["p1", "p2"];
     const shares = { p1: 2 };
-    const next = withColumnShares(
-      withColumnOrder(bare(), 0, order),
+    const next = withSlotShares(
+      withSlotOrder(bare(), 0, order),
       0,
       shares,
     );
     order.push("p3");
     shares.p1 = 99;
-    expect(next.columns?.[0]?.order).toEqual(["p1", "p2"]);
-    expect(next.columns?.[0]?.shares).toEqual({ p1: 2 });
+    expect(next.slots?.[0]?.order).toEqual(["p1", "p2"]);
+    expect(next.slots?.[0]?.shares).toEqual({ p1: 2 });
   });
 });
 
 
 describe("the division math is shared, not forked {#member-keys}", () => {
-  // Column members are PANE ids. `allocatePlaceHeights` and
+  // Slot members are PANE ids. `allocatePlaceHeights` and
   // `placeSharesFromHeights` never look at what an id names — they take the
   // members and their appetites — which is exactly why one implementation
-  // serves both places. These assertions are over column-shaped inputs so a
+  // serves both places. These assertions are over slot-shaped inputs so a
   // change that quietly makes the pair side-specific fails here.
   //
   // The members here declare no appetite of their own, which is what a pane
@@ -192,7 +192,7 @@ describe("the division math is shared, not forked {#member-keys}", () => {
   ): readonly number[] =>
     allocatePlaceHeights(paneMembers(ids, shares), run, 0).heights;
 
-  test("an absent shares record divides the column equally", () => {
+  test("an absent shares record divides the slot equally", () => {
     expect(divide(["pane-a", "pane-b"])).toEqual([50, 50]);
   });
 
@@ -202,14 +202,14 @@ describe("the division math is shared, not forked {#member-keys}", () => {
     ]);
   });
 
-  test("a member the column does not name weighs 1", () => {
-    // What `setColumnShares` dropping a bad weight has to mean downstream: an
+  test("a member the slot does not name weighs 1", () => {
+    // What `setSlotShares` dropping a bad weight has to mean downstream: an
     // unnamed member is a full share, so a dropped weight and a missing one
     // are the same thing.
     expect(divide(["pane-a", "pane-b"], { "pane-a": 1 })).toEqual([50, 50]);
   });
 
-  test("heights and shares round-trip over a column", () => {
+  test("heights and shares round-trip over a slot", () => {
     // The allocator's fixed point ([P10]), over pane ids: the weights read back
     // out of a division reproduce that division exactly, which is what makes a
     // committed drag land where the hand let go of it.
@@ -235,7 +235,7 @@ describe("the division math is shared, not forked {#member-keys}", () => {
   });
 
   test("a drag on one seam leaves the members it did not touch in ratio", () => {
-    // The [P02] property, restated over a column: a drag moves ONE boundary, so
+    // The [P02] property, restated over a slot: a drag moves ONE boundary, so
     // it changes only the two members that boundary sits between. Four members
     // and an uneven division, so there are two members the drag did not touch
     // and their ratio is not 1 — either alone would let a broken implementation
@@ -261,36 +261,36 @@ describe("the division math is shared, not forked {#member-keys}", () => {
   });
 });
 
-describe("effectiveColumnOrder", () => {
+describe("effectiveSlotOrder", () => {
   test("an unarranged slot takes the panes in the order handed in", () => {
-    expect(effectiveColumnOrder(bare(), 0, ["p1", "p2"])).toEqual(["p1", "p2"]);
+    expect(effectiveSlotOrder(bare(), 0, ["p1", "p2"])).toEqual(["p1", "p2"]);
   });
 
   test("a stored order puts the members it names first, in its order", () => {
-    const imposition = withColumnOrder(bare(), 0, ["p2", "p1"]);
-    expect(effectiveColumnOrder(imposition, 0, ["p1", "p2"])).toEqual([
+    const imposition = withSlotOrder(bare(), 0, ["p2", "p1"]);
+    expect(effectiveSlotOrder(imposition, 0, ["p1", "p2"])).toEqual([
       "p2",
       "p1",
     ]);
   });
 
   test("residue is inert — a pane that is gone leaves no hole", () => {
-    // A column is keyed by pane id and is never cleaned up ([L23]-style), so
+    // A slot is keyed by pane id and is never cleaned up ([L23]-style), so
     // an order naming a closed pane is the normal resting state rather than an
     // error. It must not leave a gap in the run or an undefined member.
-    const imposition = withColumnOrder(bare(), 0, ["gone", "p2", "p1"]);
-    expect(effectiveColumnOrder(imposition, 0, ["p1", "p2"])).toEqual([
+    const imposition = withSlotOrder(bare(), 0, ["gone", "p2", "p1"]);
+    expect(effectiveSlotOrder(imposition, 0, ["p1", "p2"])).toEqual([
       "p2",
       "p1",
     ]);
   });
 
   test("a pane the order does not name follows the ones it does", () => {
-    // A card slotted into an already-split column joins at the bottom rather
+    // A card slotted into an already-split slot joins at the bottom rather
     // than vanishing from the layout — the order is a preference over members
     // that come and go, not a membership list.
-    const imposition = withColumnOrder(bare(), 0, ["p2"]);
-    expect(effectiveColumnOrder(imposition, 0, ["p1", "p2", "p3"])).toEqual([
+    const imposition = withSlotOrder(bare(), 0, ["p2"]);
+    expect(effectiveSlotOrder(imposition, 0, ["p1", "p2", "p3"])).toEqual([
       "p2",
       "p1",
       "p3",
@@ -298,47 +298,47 @@ describe("effectiveColumnOrder", () => {
   });
 
   test("a slot with no stored order is unaffected by its neighbour's", () => {
-    const imposition = withColumnOrder(bare(), 1, ["p2", "p1"]);
-    expect(effectiveColumnOrder(imposition, 0, ["p1", "p2"])).toEqual([
+    const imposition = withSlotOrder(bare(), 1, ["p2", "p1"]);
+    expect(effectiveSlotOrder(imposition, 0, ["p1", "p2"])).toEqual([
       "p1",
       "p2",
     ]);
   });
 });
 
-describe("columnSeamProperty", () => {
+describe("slotSeamProperty", () => {
   test("names the slot and the gap", () => {
-    expect(columnSeamProperty(0, 0)).toBe("--tug-slot-0-seam-0");
-    expect(columnSeamProperty(4, 2)).toBe("--tug-slot-4-seam-2");
+    expect(slotSeamProperty(0, 0)).toBe("--tug-slot-0-seam-0");
+    expect(slotSeamProperty(4, 2)).toBe("--tug-slot-4-seam-2");
   });
 
   test("no two places share a property", () => {
-    // The rails and the columns write into the same container element, so a
-    // collision here would have a rail seam drag move a column member.
+    // The rails and the slots write into the same container element, so a
+    // collision here would have a rail seam drag move a slot member.
     const names = new Set<string>();
     for (let slot = 0; slot < 6; slot += 1) {
       for (let index = 0; index < 4; index += 1) {
-        names.add(columnSeamProperty(slot, index));
+        names.add(slotSeamProperty(slot, index));
       }
     }
     expect(names.size).toBe(24);
   });
 });
 
-describe("columnMemberPins", () => {
+describe("slotMemberPins", () => {
   test("an absent member takes the undivided run", () => {
-    expect(columnMemberPins(undefined)).toEqual({
+    expect(slotMemberPins(undefined)).toEqual({
       top: GAP_CSS,
       bottom: GAP_BOTTOM,
     });
   });
 
-  test("a column of one takes the undivided run", () => {
-    // A slot the user split and then closed a card out of is a column of one,
+  test("a slot of one takes the undivided run", () => {
+    // A slot the user split and then closed a card out of is a slot of one,
     // and it must look exactly like a slot that was never split — otherwise
     // closing a card would leave the survivor pinned to a seam nothing draws.
-    expect(columnMemberPins({ slot: 2, index: 0, count: 1, standing: "shared" })).toEqual(
-      columnMemberPins(undefined),
+    expect(slotMemberPins({ slot: 2, index: 0, count: 1, standing: "shared" })).toEqual(
+      slotMemberPins(undefined),
     );
   });
 
@@ -346,8 +346,8 @@ describe("columnMemberPins", () => {
     // Not to fractions. This is what makes a split read as a division of the
     // card the eye already knew: the top member and a stacked card share a top
     // edge to the pixel.
-    const first = columnMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
-    const last = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
+    const first = slotMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
+    const last = slotMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
     expect(first.top).toBe(GAP_CSS);
     expect(last.bottom).toBe(GAP_BOTTOM);
     expect(first.bottom).toContain("--tug-slot-0-seam-0");
@@ -358,7 +358,7 @@ describe("columnMemberPins", () => {
     // The property is unregistered and is written by an effect, so a frame can
     // render before it lands. Without the fallback that frame would collapse
     // rather than tile evenly.
-    const lower = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
+    const lower = slotMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
     expect(lower.top).toContain("var(--tug-slot-0-seam-0, 0.5)");
   });
 
@@ -367,14 +367,14 @@ describe("columnMemberPins", () => {
     // other seam on the deck: one gap total, half from each neighbour — and
     // the live gap, read by property, so a moved setting moves the seam
     // without a render.
-    const upper = columnMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
-    const lower = columnMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
+    const upper = slotMemberPins({ slot: 0, index: 0, count: 2, standing: "shared" });
+    const lower = slotMemberPins({ slot: 0, index: 1, count: 2, standing: "shared" });
     expect(upper.bottom).toContain(`calc(${GAP_CSS} / 2)`);
     expect(lower.top).toContain(`calc(${GAP_CSS} / 2)`);
   });
 });
 
-describe("a column whose floors no longer fit overflows instead of dividing", () => {
+describe("a slot whose floors no longer fit overflows instead of dividing", () => {
   const RUN = `(100% - ${GAP_CSS} - ${GAP_BOTTOM})`;
   // A strip whose members are all different heights — 300, 360, 420, … — which
   // is the whole of the new rule: a member's height is what the member asked
@@ -389,20 +389,20 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
   const at = (slot: number, j: number, strip: number[]): string =>
     `var(--tug-slot-${slot}-strip-${j}, ${strip[j]}px)`;
   const offset = (slot: number, count: number, strip: number[]): string =>
-    `min(var(--tug-slot-${slot}-column-offset, 0px), ` +
+    `min(var(--tug-slot-${slot}-offset, 0px), ` +
     `max(0px, ${at(slot, count, strip)} - ${RUN}))`;
   const member = (
     slot: number,
     index: number,
     count: number,
     strip: number[] = stripOf(count),
-  ) => columnMemberPins({ slot, index, count, standing: "overflow", strip });
+  ) => slotMemberPins({ slot, index, count, standing: "overflow", strip });
 
   // The standing is the allocator's answer now, and it is about ROOM rather
   // than about the count ([P01]). These say so from both directions: the same
   // count stands both ways depending on the run, and the boundary is exactly
   // where the floors and the seams stop fitting.
-  const columnOf = (floors: readonly number[], run: number): PlaceAllocation =>
+  const slotOf = (floors: readonly number[], run: number): PlaceAllocation =>
     allocatePlaceHeights(
       floors.map((floor, index) => ({
         id: `pane-${index}`,
@@ -419,32 +419,32 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
   test("the standing is decided by the floors against the run, not by the count", () => {
     // Two members can overflow and six can share. The old rule could say
     // neither: it saw the count and nothing else.
-    expect(columnOf([600, 600], 900).standing).toBe("overflow");
-    expect(columnOf([100, 100, 100, 100, 100, 100], 2000).standing).toBe(
+    expect(slotOf([600, 600], 900).standing).toBe("overflow");
+    expect(slotOf([100, 100, 100, 100, 100, 100], 2000).standing).toBe(
       "shared",
     );
   });
 
   test("the boundary is exactly where the floors and the seams stop fitting", () => {
-    // Three floors of 240 and two seams need 720 plus two gaps. There the column
+    // Three floors of 240 and two seams need 720 plus two gaps. There the slot
     // divides with nothing left over; a pixel short and it stacks.
     const exact = 720 + 2 * IMPOSITION_GAP_PX;
-    expect(columnOf([240, 240, 240], exact).standing).toBe("shared");
-    expect(columnOf([240, 240, 240], exact - 1).standing).toBe("overflow");
+    expect(slotOf([240, 240, 240], exact).standing).toBe("shared");
+    expect(slotOf([240, 240, 240], exact - 1).standing).toBe("overflow");
   });
 
   test("a place of one or none never overflows", () => {
     // Nothing to divide and no strip to scroll: the undivided member IS the
     // run, however tall it says it must be.
-    expect(columnOf([], 100).standing).toBe("shared");
-    expect(columnOf([9000], 100).standing).toBe("shared");
+    expect(slotOf([], 100).standing).toBe("shared");
+    expect(slotOf([9000], 100).standing).toBe("shared");
   });
 
-  test("two members are byte-identical to what a column has always drawn", () => {
+  test("two members are byte-identical to what a slot has always drawn", () => {
     // The whole promise of the boundary: nothing a user has ever seen changes
     // shape. Shares, seams and drags at N <= 2 are the code they always were.
     for (const index of [0, 1]) {
-      const pins = columnMemberPins({ slot: 1, index, count: 2, standing: "shared" });
+      const pins = slotMemberPins({ slot: 1, index, count: 2, standing: "shared" });
       expect(String(pins.top) + String(pins.bottom)).toContain(
         "--tug-slot-1-seam-0",
       );
@@ -455,7 +455,7 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
     // Division has stopped meaning anything, so the seam properties are not
     // read — and step 12 stops writing them and stops drawing their handles.
     for (const index of [0, 1, 2]) {
-      const pins = columnMemberPins({ slot: 0, index, count: 3, standing: "overflow" });
+      const pins = slotMemberPins({ slot: 0, index, count: 3, standing: "overflow" });
       expect(String(pins.top) + String(pins.bottom)).not.toContain("seam");
     }
   });
@@ -523,35 +523,35 @@ describe("a column whose floors no longer fit overflows instead of dividing", ()
   });
 
   test("each slot's strip slides on its own property", () => {
-    expect(columnMemberPins({ slot: 0, index: 1, count: 3, standing: "overflow" }).top).toContain(
-      "var(--tug-slot-0-column-offset, 0px)",
+    expect(slotMemberPins({ slot: 0, index: 1, count: 3, standing: "overflow" }).top).toContain(
+      "var(--tug-slot-0-offset, 0px)",
     );
-    expect(columnMemberPins({ slot: 3, index: 1, count: 3, standing: "overflow" }).top).toContain(
-      "var(--tug-slot-3-column-offset, 0px)",
+    expect(slotMemberPins({ slot: 3, index: 1, count: 3, standing: "overflow" }).top).toContain(
+      "var(--tug-slot-3-offset, 0px)",
     );
-    expect(columnOffsetProperty(5)).toBe("--tug-slot-5-column-offset");
+    expect(slotOffsetProperty(5)).toBe("--tug-slot-5-offset");
   });
 
   test("the offset falls back to zero, so a frame before the write stands at the top", () => {
     // Same contract the seam fallbacks hold: the property is unregistered and
     // an effect writes it, so a frame can render first. It must render at the
     // strip's top rather than collapse.
-    expect(columnMemberPins({ slot: 0, index: 0, count: 3, standing: "overflow" }).top).toContain(
+    expect(slotMemberPins({ slot: 0, index: 0, count: 3, standing: "overflow" }).top).toContain(
       ", 0px)",
     );
   });
 });
 
-describe("imposeStyle takes a column member", () => {
+describe("imposeStyle takes a slot member", () => {
   const placement = { slot: 1, count: 3 };
 
-  test("no member is byte-identical to the frame before columns existed", () => {
+  test("no member is byte-identical to the frame before slots existed", () => {
     expect(imposeStyle(placement, 800, undefined, {})).toEqual(
       imposeStyle(placement, 800),
     );
   });
 
-  test("a member in a column of one is byte-identical too", () => {
+  test("a member in a slot of one is byte-identical too", () => {
     // The property the whole feature rests on: every deck that has never
     // split a slot, and every split slot that has dropped to one member,
     // produces exactly the frame it always did.
@@ -576,7 +576,7 @@ describe("imposeStyle takes a column member", () => {
   });
 
   test("a size-locked card centres inside its member's run, not the whole one", () => {
-    // About is 320 x 360 by registration. In a split column it must centre in
+    // About is 320 x 360 by registration. In a split slot it must centre in
     // the share it was given — centring it down the whole run would put it
     // through the seam and over its neighbour.
     const member = imposeStyle(placement, 800, { width: 320, height: 360 }, {
@@ -588,102 +588,102 @@ describe("imposeStyle takes a column member", () => {
   });
 });
 
-describe("sweptColumnOrders", () => {
+describe("sweptSlotOrders", () => {
   /** A pane, as the sweep reads one: an id and the slot it stands in. */
   const pane = (id: string, slot?: number): { id: string; slot?: number } =>
     slot === undefined ? { id } : { id, slot };
 
   test("drops a live member that has moved to another slot", () => {
     // The defect this exists for: `assignCardsToSlots` writes the new slot
-    // onto the pane and hands the imposition back untouched, so the column it
+    // onto the pane and hands the imposition back untouched, so the slot it
     // left still names it — and invariant 9 refuses exactly that, which takes
     // the whole deck to the error overlay on the next validate.
-    const imposition = withColumnOrder(
-      withColumnMode(bare(), 0, "split"),
+    const imposition = withSlotOrder(
+      withSlotMode(bare(), 0, "split"),
       0,
       ["p1", "p2", "p3"],
     );
-    const swept = sweptColumnOrders(imposition, [
+    const swept = sweptSlotOrders(imposition, [
       pane("p1", 0),
       pane("p2", 1),
       pane("p3", 0),
     ]);
-    expect(swept.columns?.[0]).toEqual({ mode: "split", order: ["p1", "p3"] });
+    expect(swept.slots?.[0]).toEqual({ mode: "split", order: ["p1", "p3"] });
   });
 
   test("a drop-created split stays honest when the arrival leaves again", () => {
     // The body-drop divide writes mode and order in one commit; dragging the
     // arrival away afterwards is an ordinary departure, and the sweep narrows
-    // the created record the same way it narrows any column's — the sitter
+    // the created record the same way it narrows any slot's — the sitter
     // keeps a one-member split rather than a record still naming the leaver.
-    const imposition = withColumnOrder(
-      withColumnMode(bare(), 1, "split"),
+    const imposition = withSlotOrder(
+      withSlotMode(bare(), 1, "split"),
       1,
       ["sitter", "arrival"],
     );
-    const swept = sweptColumnOrders(imposition, [
+    const swept = sweptSlotOrders(imposition, [
       pane("sitter", 1),
       pane("arrival", 2),
     ]);
-    expect(swept.columns?.[1]).toEqual({ mode: "split", order: ["sitter"] });
+    expect(swept.slots?.[1]).toEqual({ mode: "split", order: ["sitter"] });
   });
 
   test("keeps residue — a name with no live pane behind it", () => {
-    // The same tolerance `effectiveColumnOrder` and invariant 9 both hold. A
+    // The same tolerance `effectiveSlotOrder` and invariant 9 both hold. A
     // closed pane's id is inert; only a LIVE pane standing elsewhere is a lie
     // about membership, and only that is worth rewriting the record over.
-    const imposition = withColumnOrder(bare(), 0, ["p1", "gone"]);
-    expect(sweptColumnOrders(imposition, [pane("p1", 0)])).toBe(imposition);
+    const imposition = withSlotOrder(bare(), 0, ["p1", "gone"]);
+    expect(sweptSlotOrders(imposition, [pane("p1", 0)])).toBe(imposition);
   });
 
   test("drops a member that left the chain entirely", () => {
     // A pane pulled out of the arrangement into a free pane carries no slot,
     // which is not slot 0 — the invariant reads that as standing outside the
     // chain and refuses it just the same.
-    const imposition = withColumnOrder(bare(), 0, ["p1", "p2"]);
-    const swept = sweptColumnOrders(imposition, [pane("p1", 0), pane("p2")]);
-    expect(swept.columns?.[0]?.order).toEqual(["p1"]);
+    const imposition = withSlotOrder(bare(), 0, ["p1", "p2"]);
+    const swept = sweptSlotOrders(imposition, [pane("p1", 0), pane("p2")]);
+    expect(swept.slots?.[0]?.order).toEqual(["p1"]);
   });
 
   test("returns the same object when every member still stands where it is named", () => {
     // The commit path calls this on every geometry commit, and most of them
     // move nobody between slots. Identity is what keeps that free.
-    const imposition = withColumnOrder(bare(), 0, ["p1", "p2"]);
-    expect(sweptColumnOrders(imposition, [pane("p1", 0), pane("p2", 0)])).toBe(
+    const imposition = withSlotOrder(bare(), 0, ["p1", "p2"]);
+    expect(sweptSlotOrders(imposition, [pane("p1", 0), pane("p2", 0)])).toBe(
       imposition,
     );
   });
 
-  test("a deck with no columns is handed straight back", () => {
+  test("a deck with no slots is handed straight back", () => {
     const imposition = bare();
-    expect(sweptColumnOrders(imposition, [pane("p1", 0)])).toBe(imposition);
+    expect(sweptSlotOrders(imposition, [pane("p1", 0)])).toBe(imposition);
   });
 
   test("mode and shares survive the sweep, and the other slots are untouched", () => {
     // The record is a preference, and a sweep is not a reset: the slot keeps
     // how it stands and how it divides, and a neighbour that lost nobody is
     // left exactly as it stood.
-    const imposition = withColumnShares(
-      withColumnOrder(
-        withColumnMode(withColumnMode(bare(), 0, "split"), 1, "split"),
+    const imposition = withSlotShares(
+      withSlotOrder(
+        withSlotMode(withSlotMode(bare(), 0, "split"), 1, "split"),
         0,
         ["p1", "p2"],
       ),
       0,
       { p1: 3, p2: 1 },
     );
-    const swept = sweptColumnOrders(imposition, [pane("p1", 0), pane("p2", 2)]);
-    expect(swept.columns?.[0]).toEqual({
+    const swept = sweptSlotOrders(imposition, [pane("p1", 0), pane("p2", 2)]);
+    expect(swept.slots?.[0]).toEqual({
       mode: "split",
       order: ["p1"],
       shares: { p1: 3, p2: 1 },
     });
-    expect(swept.columns?.[1]).toEqual({ mode: "split" });
+    expect(swept.slots?.[1]).toEqual({ mode: "split" });
   });
 });
 
 describe("the reveal rule is one rule, read on either axis", () => {
-  /** The run an overflowing column is seen through, and the strip of members
+  /** The run an overflowing slot is seen through, and the strip of members
    *  behind it — a 900px canvas, so `run = 863` — over four members standing at
    *  their own comfort heights rather than at one shared one, which is what an
    *  overflowing strip is made of. */
@@ -816,7 +816,7 @@ describe("a wall of folded members", () => {
   const TIER = 160;
   const OPEN = 600;
   const SEAM = 5;
-  /** A 900px canvas gives a column this much run: 900 − 5 − 32. */
+  /** A 900px canvas gives a slot this much run: 900 − 5 − 32. */
   const RUN = 900 - 5 - 32;
 
   /** A folded member: floor pinned to ceiling, and no share of the run. */
@@ -843,7 +843,7 @@ describe("a wall of folded members", () => {
     expect(a.standing).toBe("shared");
     expect(a.heights[0]).toBeCloseTo(TIER, 6);
     // Not "six tenths" and not an equal share: the remainder, which is a
-    // reading share rather than the whole column ([B07]).
+    // reading share rather than the whole slot ([B07]).
     expect(a.heights[1]).toBeCloseTo(RUN - SEAM - TIER, 6);
     // Nothing dead beneath — the strip is the run.
     expect(a.stripLength).toBeCloseTo(RUN, 6);
@@ -883,7 +883,7 @@ describe("a wall of folded members", () => {
   });
 
   test("one unbounded member is enough to keep the place dividing", () => {
-    // The capacity rule must not catch an ordinary column: a single member
+    // The capacity rule must not catch an ordinary slot: a single member
     // with no ceiling can absorb any surplus, so the place still shares.
     expect(
       allocatePlaceHeights([folded("a"), folded("b"), open("c")], RUN * 4, SEAM)

@@ -9,7 +9,7 @@
  * derived from it, and every imposed frame re-pins in the same commit. The
  * claim is about distances, not about the record: after the press, the
  * frame's top sits one new gap under the canvas, the slot 0 frame one new gap
- * in from the band's near edge, the two members of a split column one new
+ * in from the band's near edge, the two members of a split slot one new
  * gap apart, the run one new gap short of the canvas's foot, and the rail
  * stands its gutter — the gap plus its fixed extra — from the last slot.
  *
@@ -212,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)("at0750 — the Gap row moves every card distance",
           { timeoutMs: 15_000 },
         );
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
+          `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "split" }), null)`,
         );
         await wait(AFTER_LAND_MS);
 

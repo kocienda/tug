@@ -32,7 +32,7 @@ import { BEAT_ORDER, type BeatKind } from "@/lib/pane-flip";
 
 // ---- Decks ----
 
-const RUNS = { rail: null, column: null };
+const RUNS = { rail: null, slot: null };
 
 function pane(id: string, extra: Partial<TugPaneState> = {}): TugPaneState {
   return {

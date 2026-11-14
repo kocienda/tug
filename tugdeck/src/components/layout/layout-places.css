@@ -270,9 +270,9 @@
    surface, which is what it stands on. */
 .layout-places-mark {
   display: flex;
-  --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-stroke: var(--tug7-surface-global-primary-normal-default-rest);
+  --tugx-slot-badge-fill: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-slot-badge-accent: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-slot-badge-stroke: var(--tug7-surface-global-primary-normal-default-rest);
 }
 
 /* A toggle's own keyboard mark rides the Accent axis, like every keyboard mark
@@ -294,17 +294,17 @@
 .layout-places-mark .tug-icon-button:hover,
 .layout-places-mark .tug-icon-button[data-key-cursor] {
   background-color: var(--tug7-element-global-text-normal-default-rest);
-  --tugx-column-badge-fill: var(--tug7-surface-global-primary-normal-default-rest);
-  --tugx-column-badge-accent: var(
+  --tugx-slot-badge-fill: var(--tug7-surface-global-primary-normal-default-rest);
+  --tugx-slot-badge-accent: var(
     --tug7-surface-global-primary-normal-default-rest
   );
-  --tugx-column-badge-stroke: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-slot-badge-stroke: var(--tug7-element-global-text-normal-default-rest);
 }
 
 /* The glyph's size. Written with the mark's class in front of it because a
    glyph mounted inside a `TugButton` meets `.tug-button svg { width: 1rem }` —
    one specificity step above a bare class. */
-.layout-places-mark .tug-column-badge-glyph {
+.layout-places-mark .tug-slot-badge-glyph {
   inline-size: var(--tugx-layout-places-glyph-width, 13px);
   block-size: var(--tugx-layout-places-glyph-height, 16px);
   flex: none;

@@ -13,7 +13,7 @@
  * brief's, in order:
  *
  *   1. **The candidates are the cards a reader can see or conceive of** — the
- *      front of each column member, plus the members of a showing rail. A free
+ *      front of each slot member, plus the members of a showing rail. A free
  *      pane standing in no place is not one: it is in no arrangement, and this
  *      function reckons over the arrangement.
  *   2. **Keep those strictly beyond the source's edge on the arrow's axis.**
@@ -23,11 +23,11 @@
  *
  * ## The three fork points, and where each is decided
  *
- * **A stacked column reads ↑/↓ as z** — front and back. There is no geometry to
+ * **A stacked slot reads ↑/↓ as z** — front and back. There is no geometry to
  * consult when every member draws the same rect, and refusing would make the
- * chord dead on an unsplit slot. That mirrors `move-in-column` exactly ([P12])
+ * chord dead on an unsplit slot. That mirrors `move-in-slot` exactly ([P12])
  * and duplicates the ⌥⌘[/] stack ring deliberately: one gesture, one meaning per
- * arrangement. Entered *laterally*, a stacked column hands focus to its
+ * arrangement. Entered *laterally*, a stacked slot hands focus to its
  * **z-frontmost** member — the one answer well defined in both arrangements, and
  * the same one the rail pair's three-state ladder gives.
  *
@@ -43,7 +43,7 @@
  * to be felt on a real ragged deck. It has no case to decide: a place's members
  * **tile** its run — contiguous spans covering it end to end, which is what a
  * division of a run is — so every occupied place covers its whole strip, and some
- * member of it necessarily overlaps any source span. However ragged two columns'
+ * member of it necessarily overlaps any source span. However ragged two slots'
  * divisions are against each other, a lateral move between them lands. So the
  * refusal below is the **arrangement's edge** and nothing else: no place beyond,
  * rather than no overlapping member in one. It is written as a filter on overlap
@@ -65,7 +65,7 @@
  * seams fall, which already answers the equal division for a place whose run
  * nobody has measured — and for one whose floors overflow it, which has no
  * seams inside the run to report. Fractions rather than pixels because a rail's
- * run and a column's are different lengths spanning nearly the same window, so a
+ * run and a slot's are different lengths spanning nearly the same window, so a
  * fraction is the comparable coordinate between them.
  *
  * @module lib/directional-focus
@@ -73,9 +73,9 @@
 
 import type { DeckState } from "../layout-tree";
 import {
-  columnDrawsSplit,
-  columnMoveOrder,
-  deckColumnsOf,
+  slotDrawsSplit,
+  slotMoveOrder,
+  deckSlotsOf,
   placeSeamFractions,
   railAllocationOf,
   railMembersOf,
@@ -110,11 +110,11 @@ interface PlaceMemberSpan {
 }
 
 /**
- * One place in the arrangement — a slot's column or a side's rail — and the
+ * One place in the arrangement — a slot or a side's rail — and the
  * members standing in it.
  *
  * `members` is the order a vertical move walks, and it differs by arrangement
- * exactly as `move-in-column` does: **split, top to bottom; stacked, front to
+ * exactly as `move-in-slot` does: **split, top to bottom; stacked, front to
  * back**, so that index 0 is the end "up" travels toward in both and
  * `members[0]` is what a lateral arrival lands on.
  */
@@ -122,7 +122,7 @@ interface Place {
   /** The horizontal ordinal: the left rail before every slot, the right rail
    *  after them. Nothing here is a pixel. */
   readonly x: number;
-  /** The slot a column stands at, or `null` for a rail — what the band travel
+  /** The slot a slot stands at, or `null` for a rail — what the band travel
    *  reads, kept beside the ordinal rather than derived back out of it. */
   readonly slot: number | null;
   /** True when every member draws the same rect and the only order is z. */
@@ -134,7 +134,7 @@ interface Place {
  * Every place in the arrangement, left to right.
  *
  * A side's rail is read whether or not anything is imposed — a sidebar holds its
- * side either way — while the columns exist only under an imposition, because a
+ * side either way — while the slots exist only under an imposition, because a
  * slot is a place in an arrangement and a free deck has none.
  */
 function placesOf(state: DeckState, runs: PlaceRuns): readonly Place[] {
@@ -158,25 +158,25 @@ function placesOf(state: DeckState, runs: PlaceRuns): readonly Place[] {
     });
   };
   rail("left", -1);
-  for (const column of kind === undefined
+  for (const deckSlot of kind === undefined
     ? []
-    : deckColumnsOf(state, runs.column)) {
-    const split = columnDrawsSplit(column);
-    // A stack's own order is z, and `columnMoveOrder` is where the deck reads
-    // it — front first, the same walk *Move Up in Column* takes. Reading it
+    : deckSlotsOf(state, runs.slot)) {
+    const split = slotDrawsSplit(deckSlot);
+    // A stack's own order is z, and `slotMoveOrder` is where the deck reads
+    // it — front first, the same walk *Move Up in Slot* takes. Reading it
     // here rather than reversing `members` ourselves is what keeps the arrow's
     // two families agreeing at the ends, which is the only place either answer
     // is interesting.
     const order = split
-      ? column.members
-      : columnMoveOrder(state, column.members[0] ?? "");
+      ? deckSlot.members
+      : slotMoveOrder(state, deckSlot.members[0] ?? "");
     places.push({
-      x: column.slot,
-      slot: column.slot,
+      x: deckSlot.slot,
+      slot: deckSlot.slot,
       stacked: !split,
       members: order.flatMap((paneId, i) =>
         split
-          ? spanOf(state, paneId, column.seams, i, order.length)
+          ? spanOf(state, paneId, deckSlot.seams, i, order.length)
           : spanOf(state, paneId, [], 0, 1),
       ),
     });
@@ -234,7 +234,7 @@ function overlapOf(a: FocusTravelSpan, b: FocusTravelSpan): number {
  * arrangement has nothing there.
  *
  * `runs` is the pair every place allocation is derived against, exactly as
- * {@link deckColumnsOf} takes it: a run of `null` is a place nobody has
+ * {@link deckSlotsOf} takes it: a run of `null` is a place nobody has
  * measured, and its members stand at the equal division rather than making the
  * whole reckoning refuse.
  *
@@ -242,7 +242,7 @@ function overlapOf(a: FocusTravelSpan, b: FocusTravelSpan): number {
  * axes swapped** ([B06]). A caret remembers the column it started in so that
  * ↑↓ through short lines does not drift sideways; a lateral focus run remembers
  * the **span** it started at so that ← then → returns to the card it left,
- * rather than to whichever band of that column happens to overlap the wider one
+ * rather than to whichever band of that slot happens to overlap the wider one
  * it landed on. So the goal is preserved by motion ACROSS it — a lateral move
  * passes the same goal back out — and re-established by motion ALONG it, where a
  * vertical move returns its own new span. Pass `null` (or nothing) to start a
@@ -302,7 +302,7 @@ export function resolveDirectionalFocus(
     ...overlapping.map(({ place }) => Math.abs(place.x - from.x)),
   );
   // Every rect of one place shares its x edge, so nearest-edge leaves a split
-  // column's bands tied. The one most in front of the reader breaks it — the
+  // slot's bands tied. The one most in front of the reader breaks it — the
   // greatest share of their own span — and the topmost breaks a tie in that.
   const best = overlapping
     .filter(({ place }) => Math.abs(place.x - from.x) === nearest)

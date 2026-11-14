@@ -1,7 +1,7 @@
 /**
  * What wakes the placer without a deck commit: every inline `style` write
  * under the canvas — a stand-in's pins, a flow strip's offset or length, a
- * column's or a rail's arrangement property — and nothing outside it. The
+ * slot's or a rail's arrangement property — and nothing outside it. The
  * placer's own writes, dropped in the task that made them, wake nothing, and
  * a released watch hears nothing more.
  *

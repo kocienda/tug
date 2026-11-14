@@ -417,7 +417,7 @@ describe("getStackSizePolicy({ unbound })", () => {
     expect(policy.min.width).toBe(675);
     expect(policy.min.height).toBe(0);
     // A folded card is a band and reads `min === max`; an unbound card is a
-    // member that takes more where its column has more to give.
+    // member that takes more where its slot has more to give.
     expect(policy.max).toBeUndefined();
   });
 

@@ -16,7 +16,7 @@
  * The scene: a scratch clone of this checkout under a directory named
  * `tug`, and a two-up under Fit with both columns split, so four Session
  * cards stand in a two-by-two grid whose heights the window fixes (under
- * Flow a column grows with its cards and scrolls when a shade opens). Each
+ * Flow a slot grows with its cards and scrolls when a shade opens). Each
  * card is a spawned stub session whose one turn edits two or three files
  * of its own — the session picker, the sparkline, the commit receipt, the
  * arc lifecycle line — played out before the first frame, and the ledger
@@ -72,7 +72,7 @@ const COMMIT_BUTTON = '[data-testid="tug-prompt-entry-commit-button"]';
 const RECEIPT = '[data-slot="tug-commit-changes-list"] [data-testid="tug-changes-list-file-block"]';
 const PROMPT_PHASE = `(function(){ var e = document.querySelector('[data-slot="tug-prompt-entry"]'); return e === null ? null : e.getAttribute("data-phase"); })()`;
 
-/** The cards the video shows: the fourth card only holds the grid's shape (a split column needs two members), and assemble.py paints the canvas over it. */
+/** The cards the video shows: the fourth card only holds the grid's shape (a split slot needs two members), and assemble.py paints the canvas over it. */
 const SHOWN = 3;
 
 /** One staged session: the card, the prompt and closing line of its turn, the files it edits with the comment each edit adds, and the commit message Auto-Message writes. */
@@ -197,7 +197,7 @@ function transcript(s: Staged, repo: string, edits: readonly Edit[]): unknown {
 function deck(): Record<string, unknown> {
   // Slot 0 holds the first and third cards, slot 1 the second and fourth: a two-by-two grid, read across then down.
   const slotOf = (i: number) => i % 2;
-  const column = (slot: number) => SESSIONS.filter((_, i) => slotOf(i) === slot).map((s) => `${s.card}-pane`);
+  const members = (slot: number) => SESSIONS.filter((_, i) => slotOf(i) === slot).map((s) => `${s.card}-pane`);
   return {
     cards: SESSIONS.map((s) => ({ id: s.card, componentId: "session", title: "Session", closable: true })),
     panes: SESSIONS.map((s, i) => kindPane("session", s.card, slotOf(i))),
@@ -206,7 +206,7 @@ function deck(): Record<string, unknown> {
       kind: "two-up",
       // Fit: the window fixes every card's height, so a shade opening or a receipt landing moves nothing around it.
       layout: "fit",
-      columns: { 0: { mode: "split", order: column(0) }, 1: { mode: "split", order: column(1) } },
+      slots: { 0: { mode: "split", order: members(0) }, 1: { mode: "split", order: members(1) } },
       sidebars: {},
     },
     hasFocus: true,

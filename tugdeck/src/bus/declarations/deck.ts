@@ -79,14 +79,14 @@ export const deckFacts = defineSharedStore<DeckFactsValue>({
 export interface DeckMenuValue {
   projection: unknown;
   focusTravel: unknown;
-  column: unknown;
+  slot: unknown;
 }
 
 export const deckMenu = defineSharedStore<DeckMenuValue | null>({
   key: "deck.menu",
   owner: "shell",
   scope: { deck: true },
-  codec: nullable(obj({ projection: carried, focusTravel: carried, column: carried })),
+  codec: nullable(obj({ projection: carried, focusTravel: carried, slot: carried })),
   initial: null,
 });
 

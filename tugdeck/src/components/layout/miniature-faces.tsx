@@ -49,13 +49,13 @@ export interface MiniatureFace {
  *
  * Three maps rather than one because the drawing has three kinds of part, and
  * each already carries its own order: an undivided slot draws its FRONT face
- * and stacks the rest behind it, a split column draws one face per member top
+ * and stacks the rest behind it, a split slot draws one face per member top
  * to bottom, and a rail one per member in rail order.
  */
 export interface MiniatureFaces {
   /** Each occupied slot's panes, front first. */
   slots: Readonly<Record<number, readonly MiniatureFace[]>>;
-  /** Each split column's members, top to bottom (`DeckColumn.members`). */
+  /** Each split slot's members, top to bottom (`DeckSlot.members`). */
   members: Readonly<Record<number, readonly MiniatureFace[]>>;
   /** Each side's rail members, in rail order (`railMembersOf`). */
   rails: Partial<Record<SidebarSide, readonly MiniatureFace[]>>;

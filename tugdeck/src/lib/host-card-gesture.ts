@@ -24,10 +24,10 @@
  *   (`openFlowFollow`), and the placer's wake on those writes carries their
  *   views, so the commit at the release lays out what the hand already
  *   showed. A cancel hands every stand-in back its own pin;
- * - a split column member's inner top or bottom edge is the seam it borders,
- *   so its resize drives the seam's own drag (`driveColumnSeam`), as a press
+ * - a split slot member's inner top or bottom edge is the seam it borders,
+ *   so its resize drives the seam's own drag (`driveSlotSeam`), as a press
  *   on that edge in the shell hands the seam the pointer: each report moves
- *   the seam and the release commits the column's division;
+ *   the seam and the release commits the slot's division;
  * - a rail's edge drag (`kind: "rail"`) is carried by the host: it moves
  *   every member's view and every content card beside the rail from the
  *   pointer, and each report carries the aim it drew them at (`rail`). The
@@ -71,7 +71,7 @@ import { CANVAS_BACKGROUND_ATTRIBUTE, SHOWN_PANE_FRAMES } from "./pane-frame-sel
 import type { ResizeEdge } from "../bus/declarations/pane";
 import { landCard } from "./card-placement";
 import { createDragAutoscroll, type DragAutoscroll } from "./drag-autoscroll";
-import type { ColumnSeamGesture } from "../components/chrome/column-seam-drag";
+import type { SlotSeamGesture } from "../components/chrome/slot-seam-drag";
 import { overlaySurfaceBook } from "./overlay-surfaces";
 import { indicate } from "./drag-indication";
 import type { RailWidthAim } from "./rail-width";
@@ -128,8 +128,8 @@ export interface HostGestureReaders {
   revealStack: (cardId: string) => void;
   /** The rail width drag of the pinned rail `paneId`, or null. */
   railEdge: (paneId: string) => RailEdgeDriver | null;
-  /** Column `slot`'s seam `index` dragging from a press at viewport `clientY`, or null. */
-  columnSeam: (slot: number, index: number, clientY: number) => ColumnSeamGesture | null;
+  /** Slot `slot`'s seam `index` dragging from a press at viewport `clientY`, or null. */
+  slotSeam: (slot: number, index: number, clientY: number) => SlotSeamGesture | null;
   /** Land the view of `cardId`, dropped, where its placement stands once the drop's commit is placed. */
   land: (cardId: string, paneRect: Rect) => void;
   /** Run `step` at the next frame: the autoscroll's clock while the hand holds. */
@@ -394,7 +394,7 @@ export function createHostCardGesture(
     if (standing.keepSlot === null) {
       commitResizeEnd(deck.handlePaneMoved, paneId, start, { kind: "free", rect, evictSlot: standing.derived });
     } else if (r.edge === "s" && standing.keepSlot.heightHeld) {
-      const run = deck.getColumnRunHeight() ?? Number.POSITIVE_INFINITY;
+      const run = deck.getSlotRunHeight() ?? Number.POSITIVE_INFINITY;
       commitResizeEnd(deck.handlePaneMoved, paneId, start, {
         kind: "height",
         slotHeight: slotHeightAfterDrag(rect.height, run),
@@ -453,14 +453,14 @@ export function createHostCardGesture(
     if (r.edge !== "n" && r.edge !== "s") return null;
     const pane = paneOf(r.cardId);
     if (pane === undefined || pane.slot === undefined) return null;
-    const column = paneStandingOf(deck.getSnapshot(), pane.id).keepSlot?.column;
-    if (column === undefined) return null;
-    const index = r.edge === "n" ? column.index - 1 : column.index;
-    return index < 0 || index >= column.count - 1 ? null : { slot: pane.slot, index };
+    const memberPosition = paneStandingOf(deck.getSnapshot(), pane.id).keepSlot?.position;
+    if (memberPosition === undefined) return null;
+    const index = r.edge === "n" ? memberPosition.index - 1 : memberPosition.index;
+    return index < 0 || index >= memberPosition.count - 1 ? null : { slot: pane.slot, index };
   };
 
   /** The seam drag in hand: opened at the first travelled report, at the press point. */
-  let seam: { cardId: string; gesture: ColumnSeamGesture } | null = null;
+  let seam: { cardId: string; gesture: SlotSeamGesture } | null = null;
   /** Drive a resize that is a seam's; false when `r` is no seam's and is the resize's own. */
   const stepSeam = (r: CardGestureReport): boolean => {
     if (seam !== null && seam.cardId !== r.cardId) return false;
@@ -468,7 +468,7 @@ export function createHostCardGesture(
       const at = seamOf(r);
       if (at === null) return false;
       if (r.phase === "cancel" || !r.moved) return true;
-      const gesture = readers.columnSeam(at.slot, at.index, r.start.y);
+      const gesture = readers.slotSeam(at.slot, at.index, r.start.y);
       if (gesture === null) return true;
       seam = { cardId: r.cardId, gesture };
     }
@@ -479,7 +479,7 @@ export function createHostCardGesture(
     const held = seam;
     seam = null;
     if (r.phase === "end") {
-      // The view the hand carried lands where the column's commit places
+      // The view the hand carried lands where the slot's commit places
       // it, from where the hand let go: told before the commit, so the
       // commit's own plan carries it there.
       readers.land(r.cardId, r.rect);
@@ -555,7 +555,7 @@ export function createHostCardGesture(
 }
 
 /** The canvas and the shown panes as the shell's document has them. */
-const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge" | "columnSeam"> = {
+const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge" | "slotSeam"> = {
   canvas: () => {
     const el = document.querySelector<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
     if (el === null) return null;
@@ -590,12 +590,12 @@ const DOCUMENT_READERS: Omit<HostGestureReaders, "railEdge" | "columnSeam"> = {
 
 /**
  * Take the host's gesture reports in this page: `window.__tugBridge.onCardGesture`.
- * `readers.railEdge` is the rail width draft's, and `readers.columnSeam` the
+ * `readers.railEdge` is the rail width draft's, and `readers.slotSeam` the
  * canvas's seams', which their owner supplies.
  */
 export function installHostCardGesture(
   deck: IDeckManagerStore,
-  readers: Pick<HostGestureReaders, "railEdge" | "columnSeam">,
+  readers: Pick<HostGestureReaders, "railEdge" | "slotSeam">,
 ): () => void {
   return onHostMessage(cardGestureToPage, createHostCardGesture(deck, { ...DOCUMENT_READERS, ...readers }));
 }

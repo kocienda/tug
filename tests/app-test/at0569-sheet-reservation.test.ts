@@ -58,13 +58,13 @@
  * lists one empty group and its panel is some 415px tall. The Sessions list
  * is capped at 34rem with a 3.5rem floor per row, so on a real project the
  * list stands at its cap and the panel is 850px — more than the lower member
- * of a split column in this window can hold. A fit measured against the short
+ * of a split slot in this window can hold. A fit measured against the short
  * picker fits the short picker, and says nothing about the card a real
  * project presents.
  *
  * So the fit claim that matters is made over a SEEDED project
  * (`picker-sessions-fixture.ts`): five two-line sessions, enough to stand the
- * list at its cap. The Session card is the LOWER member of a split column,
+ * list at its cap. The Session card is the LOWER member of a split slot,
  * standing UNDER the height its picker claims, which is the case the grouped
  * picker lays out for ([B07]): the Choose Session header, the filter, the
  * trash row and the actions all stand wholly inside the FRAME, and the
@@ -245,7 +245,7 @@ function deckShape(shares: Record<string, number>) {
     imposition: {
       kind: "two-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p1", "p2"], shares } },
+      slots: { 0: { mode: "split", order: ["p1", "p2"], shares } },
     },
     openingBids: { p2: SEEDED_OPENING_BID_PX },
     hasFocus: true,
@@ -562,7 +562,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
 
         // ── The same picker over a project with more sessions than the
         //    list's cap holds — the case a real project presents, on the
-        //    lower member of a split column, which is the case that clipped. ──
+        //    lower member of a split slot, which is the case that clipped. ──
         await assertFitAtListCap(app);
 
         // ── A session opens: the picker goes with the binding, the claim and

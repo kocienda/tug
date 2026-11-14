@@ -136,7 +136,7 @@ describe("classifySamples", () => {
   });
 
   test("a move that lands behind a cover was not seen, and is not a cut", () => {
-    // A column mode flip commits a revealed member at its tile behind the
+    // A slot mode flip commits a revealed member at its tile behind the
     // survivor, which is held at the stacked full run they shared. The frame
     // wears the cover from that commit, so the later sample says so, and the
     // move nobody could see is not the promise broken.

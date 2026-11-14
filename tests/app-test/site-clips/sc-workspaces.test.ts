@@ -74,7 +74,7 @@ function deckOf(
     cards: [...cards.map(placeholderCard), ...rails.cards],
     panes: [...cards.map((p, i) => kindPane("session" in p ? "session" : "text", p.id, slots[i]!)), ...rails.panes],
     activePaneId: `${cards[0]!.id}-pane`,
-    imposition: { kind, layout: "fit", contentWidth: "slim", sidebars: rails.sidebars, rails: rails.rails, columns },
+    imposition: { kind, layout: "fit", contentWidth: "slim", sidebars: rails.sidebars, rails: rails.rails, slots: columns },
     hasFocus: true,
   };
 }

@@ -117,12 +117,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
               { id: U, componentId: "text", title: "U", closable: true },
               { id: A, componentId: "session", title: "A", closable: true },
             ],
-            // One column split three ways, two Text cards above the body
+            // One slot split three ways, two Text cards above the body
             // card: the room above its Z2 row is less than the placard's
             // height.
             panes: [sessionPane(T, 0), sessionPane(U, 0), sessionPane(A, 0)],
             activePaneId: `${A}-pane`,
-            imposition: { kind: "two-up", columns: { 0: { mode: "split", order: [`${T}-pane`, `${U}-pane`, `${A}-pane`] } } },
+            imposition: { kind: "two-up", slots: { 0: { mode: "split", order: [`${T}-pane`, `${U}-pane`, `${A}-pane`] } } },
             hasFocus: true,
           },
           focusCardId: A,
@@ -131,7 +131,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
         await spawnStub(app, A, stubDir, 1, TURNS, undefined, 1);
         await waitForBody(app, A);
         // The unbound card's picker claimed its floor in the split; the bind
-        // closes the picker and drops the claim, and the column divides again,
+        // closes the picker and drops the claim, and the slot divides again,
         // carrying the body from a third of it to most of it. Every press
         // below waits for the body to stand still where that leaves it: the
         // claim gone, and the body presented where it is placed, unmoved
@@ -139,7 +139,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the overlay draws a body's 
         // picker's claim stands until its card binds, on the shown workspace
         // as on a first visit, where the claim now lands after the switch
         // (the bodies migration's [B24], amended). A press aimed while the
-        // column re-divides lands on a body still moving, which is all the
+        // slot re-divides lands on a body still moving, which is all the
         // wait guards.
         let lastAt = "";
         const rested = await settleFor(

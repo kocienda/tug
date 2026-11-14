@@ -1,30 +1,30 @@
 /**
- * at0455-column-split-chords.test.ts — a content slot, divided: the split chords.
+ * at0455-slot-split-chords.test.ts — a content slot, divided: the split chords.
  *
  * Two cards sharing a numbered slot stack front-to-back and z-order decides
  * which one you see, exactly as two sidebar cards on one edge do. The user may
  * instead SPLIT that slot, and then its vertical run is divided between them
  * and both are visible at once. Stack stays the default; the choice is per-slot
- * state on `imposition.columns`, keyed by pane id ([P11]).
+ * state on `imposition.slots`, keyed by pane id ([P11]).
  *
- * The rail already does all of this (at0401), and columns reuse its arithmetic
+ * The rail already does all of this (at0401), and slots reuse its arithmetic
  * rather than fork it — so what this file is for is the part that is NOT
  * shared: the place. Every assertion below is read from live
- * `getBoundingClientRect()`, because the failures a column-specific bug
+ * `getBoundingClientRect()`, because the failures a slot-specific bug
  * produces are geometric.
  *
- *   1. **A split column TILES its slot.** Top member at the imposition gap,
+ *   1. **A split slot TILES its run.** Top member at the imposition gap,
  *      bottom member at the deeper bottom gap, exactly one gap of air between
- *      them, and — the column-specific half — one shared width and LEFT edge,
+ *      them, and — the slot-specific half — one shared width and LEFT edge,
  *      unchanged from the stacked frame. A split divides the run; it must not
  *      touch the band.
  *   2. **The seams are per slot, not per deck.** Two slots split at once must
- *      divide independently: dragging one slot's seam moves that column's two
+ *      divide independently: dragging one slot's seam moves that slot's two
  *      members and nothing in the other. A single shared property would pass
- *      every single-column test and fail this one.
+ *      every single-slot test and fail this one.
  *   3. **The seam drags and clamps** against each member's own floor, and the
  *      weights land in the record keyed by pane id.
- *   4. **A column of one is byte-identical to an unsplit slot.** Split a slot,
+ *   4. **A split slot of one is byte-identical to an unsplit slot.** Split a slot,
  *      then take a member away, and the survivor stands exactly where a card
  *      that had never been split stands — no seam, no fractional pin.
  *
@@ -32,25 +32,25 @@
  * properties: a survivor pinned to a seam that is no longer drawn is precisely
  * what a missed sweep looks like on screen.
  *
- * Cut from `at0455-column-split` to fit the 20 s budget. This file carries
- * the split chords; `at0455-column-split-tiles` carries claims 1–4, `-doors`
- * the Layout card's row and the badge menu, and `-flow` a split column in
- * flow. The deck and the readers are `column-split-fixture.ts`.
+ * Cut from `at0455-slot-split` to fit the 20 s budget. This file carries
+ * the split chords; `at0455-slot-split-tiles` carries claims 1–4, `-doors`
+ * the Layout card's row and the badge menu, and `-flow` a split slot in
+ * flow. The deck and the readers are `slot-split-fixture.ts`.
  *
  * Deliberately NOT declaring `@covers tugdeck/src/deck-manager.ts`, though this
- * file does drive `setColumnMode` and `setColumnShares` through the action
+ * file does drive `setSlotMode` and `setSlotShares` through the action
  * layer. That path is already at the selection budget's ceiling — naming it
  * here makes an edit to the store a 21-file run, which the budget refuses
  * outright and the lint fails on the commit that creates it. The rail twin of
  * every store verb used here is covered from at0401, which does name it.
  *
- * @family at0455-column-split
+ * @family at0455-slot-split
  * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
- * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
+ * @covers tugdeck/src/components/tugways/tug-slot-badge.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -63,18 +63,18 @@ import {
   SPLIT,
   SPLIT_END,
   TEST_TIMEOUT_MS,
-  columnsRecord,
+  slotsRecord,
   deckShape,
   splitFrameCount,
   wait,
-} from "./column-split-fixture";
+} from "./slot-split-fixture";
 
-describe.skipIf(!SHOULD_RUN)("at0455 — column split: the chords", () => {
+describe.skipIf(!SHOULD_RUN)("at0455 — slot split: the chords", () => {
   test(
     "the split chords divide, reorder, reach the ends, and refuse at them",
     async () => {
       const app = await launchTugApp({
-        testName: "at0455-column-split-chords",
+        testName: "at0455-slot-split-chords",
       });
       try {
         await app.evalJS<null>(
@@ -93,23 +93,23 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the chords", () => {
         await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
-          (await columnsRecord(app))["0"]?.mode,
+          (await slotsRecord(app))["0"]?.mode,
           "⌃⌘/ divides the slot the focused card stands in",
         ).toBe("split");
         expect(await splitFrameCount(app)).toBe(2);
         // And it is a TOGGLE: the second press re-stacks.
         await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
-        expect((await columnsRecord(app))["0"]?.mode).toBe("stack");
+        expect((await slotsRecord(app))["0"]?.mode).toBe("stack");
         expect(await splitFrameCount(app)).toBe(0);
         await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(await splitFrameCount(app)).toBe(2);
 
-        // ── The arrows reorder a split column, and the frames follow. ──
+        // ── The arrows reorder a split slot, and the frames follow. ──
         const memberOrder = async (): Promise<string[]> =>
           app.evalJS<string[]>(
-            `Array.from(document.querySelectorAll('.tug-pane[data-column-split]'))
+            `Array.from(document.querySelectorAll('.tug-pane[data-slot-split]'))
               .filter(function (el) { return el.getAttribute("data-imposed") === "0"; })
               .sort(function (a, b) {
                 return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the chords", () => {
         const after = await memberOrder();
         expect(
           after,
-          "⌃⌘↑/↓ swaps the focused card with its neighbour in the column",
+          "⌃⌘↑/↓ swaps the focused card with its neighbour in the slot",
         ).toEqual([...before].reverse());
 
         // ── ⌃⇧⌘ reaches the far end, and the edge refuses. ──
@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the chords", () => {
         // Slot 2 is empty in the fixture, so the card is moved there first.
         // A place one card deep is still a place, and arming it to split is a
         // legal act that the next card to arrive lands into. The pane badge's
-        // own menu has always performed it — "One card in this column, press
+        // own menu has always performed it — "One card in this slot, press
         // to split it" — so a chord that refused made the two doors onto one
         // verb disagree, and the menu row went dark where the badge was lit.
         //
@@ -173,14 +173,14 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the chords", () => {
         await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
-          (await columnsRecord(app))["2"]?.mode,
+          (await slotsRecord(app))["2"]?.mode,
           "⌃⌘/ splits a slot holding one card, arming the place",
         ).toBe("split");
         // And the toggle is a toggle there too: the way back is the same key.
         await app.nativeKey("/", SPLIT);
         await wait(AFTER_LAND_MS);
         expect(
-          (await columnsRecord(app))["2"]?.mode,
+          (await slotsRecord(app))["2"]?.mode,
           "⌃⌘/ re-stacks the place it just split",
         ).toBe("stack");
       } finally {

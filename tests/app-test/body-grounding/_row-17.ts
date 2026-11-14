@@ -18,7 +18,7 @@
  *
  * Every gesture that changes the box is driven: bullseye in and out and
  * the sidebars hidden and shown in a four-up flow, resize-sidebars-to-fit,
- * a column split, and a new card opened beside the body card by ⌘N's own
+ * a slot split, and a new card opened beside the body card by ⌘N's own
  * action, `show-card` (its neighbours ride the arrival's fused room beat,
  * which carries size terms). Bullseye and the split must change the body's
  * box and the new card must move it; the sidebars and fit carry it as a
@@ -167,7 +167,7 @@ export const STACK_PARTNER = "r17-s1";
 /**
  * Four session cards in a four-up flow, the body card and a second card
  * sharing slot 0's column, the body card in front: splitting the column
- * shares its height, and a new card opening into the split column is seated
+ * shares its height, and a new card opening into the split slot is seated
  * at its bottom, the sitters giving up height to it.
  */
 function stackDeck(card: string): Record<string, unknown> {

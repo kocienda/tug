@@ -58,7 +58,7 @@ describe("parkedDeck", () => {
       ...plainDeck,
       bullseyePaneId: "p1",
       flowOffset: 640,
-      columnOffsets: { 1: 173 },
+      slotOffsets: { 1: 173 },
       railOffsets: { right: 88 },
       sheetReservations: { p1: 220 },
       openingBids: { p1: 180 },
@@ -86,7 +86,7 @@ describe("parkedDeck", () => {
     // first frames after the return — the whole-workspace move the cheap
     // switch exists to remove. Kept, the layer already stands there.
     expect(parked.flowOffset).toBe(640);
-    expect(parked.columnOffsets).toEqual({ 1: 173 });
+    expect(parked.slotOffsets).toEqual({ 1: 173 });
     expect(parked.railOffsets).toEqual({ right: 88 });
     // What the deck IS survives whole — the stripping is of postures, not of
     // the arrangement the user made.
@@ -236,7 +236,7 @@ describe("duplicatedDeck ([P06])", () => {
       contentWidth: "comfy",
       sidebars: { cards: { side: "right" }, arcs: { side: "right" } },
       rails: { right: { order: ["cards", "arcs"] } },
-      columns: { 0: { mode: "split", order: ["content"] } },
+      slots: { 0: { mode: "split", order: ["content"] } },
     },
     hasFocus: true,
   };
@@ -252,10 +252,10 @@ describe("duplicatedDeck ([P06])", () => {
     expect(copy.hasFocus).toBe(true);
   });
 
-  test("drops imposition.columns and the rail's fields, and keeps the rest", () => {
+  test("drops imposition.slots and the rail's fields, and keeps the rest", () => {
     const copy = duplicatedDeck(source);
 
-    expect(copy.imposition.columns).toBeUndefined();
+    expect(copy.imposition.slots).toBeUndefined();
     expect(copy.imposition.rails).toBeUndefined();
     expect(copy.imposition.sidebars).toEqual({});
     expect(copy.imposition.kind).toBe("two-up");
@@ -282,7 +282,7 @@ describe("moveCardBetweenDecks ([B07])", () => {
     };
   }
 
-  /** A source deck: two content panes in a two-up column, `A` in the first. */
+  /** A source deck: two content panes in a two-up slot, `A` in the first. */
   function sourceDeck(): DeckState {
     return {
       cards: [
@@ -294,7 +294,7 @@ describe("moveCardBetweenDecks ([B07])", () => {
       imposition: {
         kind: "two-up",
         sidebars: {},
-        columns: {
+        slots: {
           0: { mode: "split", order: ["p-a", "p-b"], shares: { "p-a": 0.6, "p-b": 0.4 } },
         },
       },
@@ -320,14 +320,14 @@ describe("moveCardBetweenDecks ([B07])", () => {
     expect(moved!.dest.panes[0].size).toEqual({ width: 640, height: 480 });
   });
 
-  test("drops the pane from the source's column order and shares", () => {
+  test("drops the pane from the source's slot order and shares", () => {
     const moved = moveCardBetweenDecks(sourceDeck(), destDeck("two-up"), "A")!;
 
-    const column = moved.source.imposition.columns![0];
-    expect(column.order).toEqual(["p-b"]);
+    const arrangement = moved.source.imposition.slots![0];
+    expect(arrangement.order).toEqual(["p-b"]);
     // A share held for a pane standing in ANOTHER deck would divide this
-    // column's run among a member that will never draw in it.
-    expect(column.shares).toEqual({ "p-b": 0.4 });
+    // slot's run among a member that will never draw in it.
+    expect(arrangement.shares).toEqual({ "p-b": 0.4 });
   });
 
   test("drops the height the pane was given in its old slot", () => {
@@ -364,7 +364,7 @@ describe("moveCardBetweenDecks ([B07])", () => {
       imposition: {
         kind: "two-up",
         sidebars: {},
-        columns: { 0: { mode: "split", order: ["p-s"] } },
+        slots: { 0: { mode: "split", order: ["p-s"] } },
       },
     };
     const moved = moveCardBetweenDecks(sourceDeck(), dest, "A")!;
@@ -372,7 +372,7 @@ describe("moveCardBetweenDecks ([B07])", () => {
     expect(moved.dest.panes.find((p) => p.id === "p-a")!.slot).toBe(0);
     // [D194]: a newcomer lands at the bottom, named in the same commit that
     // seats it, so the fallback never decides where it goes.
-    expect(moved.dest.imposition.columns![0].order).toEqual(["p-s", "p-a"]);
+    expect(moved.dest.imposition.slots![0].order).toEqual(["p-s", "p-a"]);
   });
 
   test("drops the slot entirely into a one-up destination", () => {

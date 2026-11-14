@@ -464,7 +464,7 @@ export const TUG_ACTIONS = {
   //                 Deck-level: hand the keyboard to the card that is
   //                 spatially in that direction — a reckoning over the
   //                 arrangement rather than a walk of a ring, which is what
-  //                 lets a reader standing in a split column reach the card
+  //                 lets a reader standing in a split slot reach the card
   //                 ABOVE them ([D184]). Used by ⌥⌘←/→/↑/↓ (Go ▸ Focus
   //                 Card Left / Right / Above / Below), handled by the deck
   //                 canvas beside PREVIOUS_TAB, because only that root sees
@@ -996,7 +996,7 @@ export const TUG_ACTIONS = {
   //                         discarding edits (confirm sheet only while
   //                         dirty). File ▸ Reload from Disk.
   // OPEN_FILE:              payload — `{ path: string, line?: number, endLine?: number,
-  //                         columns?: [number, number] }` — or `{ targets: [...] }`
+  //                         slots?: [number, number] }` — or `{ targets: [...] }`
   //                         to open several references as ONE gesture (`/ref 1-5`);
   //                         either shape may carry `originCardId`, the card the
   //                         gesture was made in, which a new card is placed from;
@@ -1228,26 +1228,26 @@ export const TUG_ACTIONS = {
   //                  happened. Its door is the rail Layouts section's Slot
   //                  Window row.
   SET_SLOT_WINDOW:        "set-slot-window",
-  // SET_COLUMN_MODE: payload — `{ slot, mode }`. Stack or split the cards
-  //                  sharing one numbered slot. Stacked they stand
-  //                  front-to-back and z-order decides which you see; split,
-  //                  the slot's vertical run is divided between them. Stack is
-  //                  the default. Its doors are the title bar's stack badge
-  //                  menu, the Layout card's place toggles, and ⌃⌘/.
-  SET_COLUMN_MODE:        "set-column-mode",
-  // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
-  //                  again, keeping the slot's mode and member order. Its
-  //                  doors are the stack badge menu and Equalize Heights.
-  EQUALIZE_COLUMN:        "equalize-column",
+  // SET_SLOT_MODE: payload — `{ slot, mode }`. Stack or split the cards
+  //                sharing one numbered slot. Stacked they stand
+  //                front-to-back and z-order decides which you see; split,
+  //                the slot's vertical run is divided between them. Stack is
+  //                the default. Its doors are the title bar's stack badge
+  //                menu, the Layout card's place toggles, and ⌃⌘/.
+  SET_SLOT_MODE:          "set-slot-mode",
+  // EQUALIZE_SLOT: payload — `{ slot }`. Divide a split slot's run equally
+  //                again, keeping the slot's mode and member order. Its
+  //                doors are the stack badge menu and Equalize Heights.
+  EQUALIZE_SLOT:          "equalize-slot",
   // EQUALIZE_HEIGHTS: payload — none. ⌃⌘E and View ▸ Equalize Heights.
-  //                   Equalize the column the layout selection's card stands
+  //                   Equalize the slot the layout selection's card stands
   //                   in — the slot ⌃⌘/ resolves — by handing its slot to
-  //                   EQUALIZE_COLUMN.
+  //                   EQUALIZE_SLOT.
   EQUALIZE_HEIGHTS:       "equalize-heights",
   // EQUALIZE_ALL_HEIGHTS: payload — none. ⌥⇧⌘E and View ▸ Equalize All
-  //                       Heights. Every split column on the deck divided
+  //                       Heights. Every split slot on the deck divided
   //                       equally again, in one commit. Rails are not
-  //                       columns; Resize Sidebars to Fit is theirs.
+  //                       slots; Resize Sidebars to Fit is theirs.
   EQUALIZE_ALL_HEIGHTS:   "equalize-all-heights",
   // RESIZE_SIDEBARS_TO_FIT: payload — none. ⌥⇧⌘S and View ▸ Resize Sidebars
   //                         to Fit. Stand every rail's cards at the heights
@@ -1265,18 +1265,18 @@ export const TUG_ACTIONS = {
   //                  back — the rails return to where they were, and the
   //                  keyboard stays where the reader left it.
   TOGGLE_SIDEBARS:        "toggle-sidebars",
-  // TOGGLE_COLUMN_SPLIT: payload — none. ⌃⌘/. Split or re-stack the slot
-  //                      holding the layout selection's first card (else the
-  //                      first responder's). Resolved by the deck canvas, which
-  //                      is the one responder that can name a slot, and refused
-  //                      visibly on a slot holding one card.
-  TOGGLE_COLUMN_SPLIT:    "toggle-column-split",
-  // MOVE_IN_COLUMN: payload — `value: "up" | "down" | "top" | "bottom"`.
-  //                 ⌃⌘↑/↓ and ⌃⇧⌘↑/↓. Move the resolved card within its
-  //                 column: its place in the split order, or its place in the
-  //                 stack's z-order when the column is not divided. Refusal at
-  //                 an edge flashes the pane.
-  MOVE_IN_COLUMN:         "move-in-column",
+  // TOGGLE_SLOT_SPLIT: payload — none. ⌃⌘/. Split or re-stack the slot
+  //                    holding the layout selection's first card (else the
+  //                    first responder's). Resolved by the deck canvas, which
+  //                    is the one responder that can name a slot, and refused
+  //                    visibly on a slot holding one card.
+  TOGGLE_SLOT_SPLIT:      "toggle-slot-split",
+  // MOVE_IN_SLOT: payload — `value: "up" | "down" | "top" | "bottom"`.
+  //               ⌃⌘↑/↓ and ⌃⇧⌘↑/↓. Move the resolved card within its
+  //               slot: its place in the split order, or its place in the
+  //               stack's z-order when the slot is not divided. Refusal at
+  //               an edge flashes the pane.
+  MOVE_IN_SLOT:           "move-in-slot",
   RESET_LAYOUT:           "reset-layout",
   ADD_CARD_TO_ACTIVE_PANE: "add-card-to-active-pane",
   FIND:                   "find",

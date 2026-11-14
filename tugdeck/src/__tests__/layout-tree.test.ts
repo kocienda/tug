@@ -540,9 +540,9 @@ describe("serialize and deserialize (v4 wire)", () => {
     expect(JSON.stringify(out)).toContain('"layout":"flow"');
   });
 
-  test("serialize emits no column offsets either — same rule, other axis", () => {
-    // A restored column slide would be worse than a restored flow one, not
-    // better: the column it was measured against may have gained or lost
+  test("serialize emits no slot offsets either — same rule, other axis", () => {
+    // A restored slot slide would be worse than a restored flow one, not
+    // better: the slot it was measured against may have gained or lost
     // members while the deck was closed, so the number would point at a member
     // that is not there. Activating any member re-reveals it.
     const out = serializeDeck({
@@ -551,12 +551,12 @@ describe("serialize and deserialize (v4 wire)", () => {
       imposition: {
         kind: "three-up",
         sidebars: { dashes: { side: "right" } },
-        columns: { 1: { mode: "split", order: ["p1", "p2", "p3"] } },
+        slots: { 1: { mode: "split", order: ["p1", "p2", "p3"] } },
       },
-      columnOffsets: { 1: 173 },
+      slotOffsets: { 1: 173 },
       hasFocus: true,
     });
-    expect(JSON.stringify(out)).not.toContain("columnOffsets");
+    expect(JSON.stringify(out)).not.toContain("slotOffsets");
     // The ARRANGEMENT is serialized, and must be: the split and its order are
     // the user's choice. Only the viewport onto it is session state.
     expect(JSON.stringify(out)).toContain('"mode":"split"');
@@ -1587,10 +1587,10 @@ describe("validateDeckState", () => {
     expect(() => validateDeckState(state)).not.toThrow();
   });
 
-  /** Two slotted panes and a column arrangement over them — the shape every
+  /** Two slotted panes and a slot arrangement over them — the shape every
    *  invariant-9 case below varies one thing in. */
-  function columnState(
-    columns: NonNullable<DeckState["imposition"]["columns"]>,
+  function slotState(
+    arrangements: NonNullable<DeckState["imposition"]["slots"]>,
     slots: [number | undefined, number | undefined] = [0, 0],
   ): DeckState {
     const s1 = { ...makeStack("s1", ["c1"], "c1"), slot: slots[0] };
@@ -1598,71 +1598,71 @@ describe("validateDeckState", () => {
     return {
       cards: [makeCard("c1"), makeCard("c2")],
       panes: [s1, s2],
-      imposition: { sidebars: { dashes: { side: "right" } }, columns },
+      imposition: { sidebars: { dashes: { side: "right" } }, slots: arrangements },
       hasFocus: true,
     };
   }
 
-  test("accepts a column naming the panes that stand in its slot (invariant 9)", () => {
+  test("accepts a slot naming the panes that stand in its slot (invariant 9)", () => {
     expect(() =>
-      validateDeckState(columnState({ 0: { mode: "split", order: ["s1", "s2"] } })),
+      validateDeckState(slotState({ 0: { mode: "split", order: ["s1", "s2"] } })),
     ).not.toThrow();
   });
 
   test("accepts residue — an order naming a pane that is gone (invariant 9)", () => {
-    // A column is keyed by pane id and nothing ever cleans it up, so an order
+    // A slot is keyed by pane id and nothing ever cleans it up, so an order
     // naming a closed pane is the resting state of a deck that has been used,
     // not a violation. Throwing here would make normal use crash dev builds.
     expect(() =>
       validateDeckState(
-        columnState({ 0: { mode: "split", order: ["s1", "closed-long-ago"] } }),
+        slotState({ 0: { mode: "split", order: ["s1", "closed-long-ago"] } }),
       ),
     ).not.toThrow();
   });
 
-  test("rejects a live pane recorded in another slot's column (invariant 9)", () => {
+  test("rejects a live pane recorded in another slot (invariant 9)", () => {
     // The one thing residue tolerance must not cover: a pane that IS standing,
-    // named by a column it does not stand in. That member would be laid out
+    // named by a slot it does not stand in. That member would be laid out
     // down a run its pane is nowhere near.
-    const state = columnState({ 0: { order: ["s1", "s2"] } }, [0, 1]);
+    const state = slotState({ 0: { order: ["s1", "s2"] } }, [0, 1]);
     expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
     expect(() => validateDeckState(state)).toThrow(
       /slot 0 names pane "s2" as a member, but that pane stands in slot 1/,
     );
   });
 
-  test("rejects a column naming a pane that stands outside the chain (invariant 9)", () => {
-    const state = columnState({ 0: { order: ["s1", "s2"] } }, [0, undefined]);
+  test("rejects a slot naming a pane that stands outside the chain (invariant 9)", () => {
+    const state = slotState({ 0: { order: ["s1", "s2"] } }, [0, undefined]);
     expect(() => validateDeckState(state)).toThrow(
       /names pane "s2" as a member, but that pane stands outside the chain/,
     );
   });
 
-  test("a stacked column is held to the same rule as a split one (invariant 9)", () => {
+  test("a stacked slot is held to the same rule as a split one (invariant 9)", () => {
     // The order survives re-stacking, so it must stay truthful across the
     // flip — otherwise a wrong member would only surface on the next split.
     expect(() =>
       validateDeckState(
-        columnState({ 0: { mode: "stack", order: ["s1", "s2"] } }, [0, 1]),
+        slotState({ 0: { mode: "stack", order: ["s1", "s2"] } }, [0, 1]),
       ),
     ).toThrow(DeckStateInvariantError);
   });
 
   test("a deck persisted with a stranded member comes back usable (invariant 9)", () => {
     // The shape that actually shipped: a card moved out of a split slot, the
-    // columns record was committed untouched, and the deck was saved naming a
+    // slots record was committed untouched, and the deck was saved naming a
     // pane in a slot it no longer stood in. Every launch after that threw on
     // the first validate and came up on the error overlay — so healing the
     // live mutation is not enough, the load has to heal what is already on
     // disk. `deserialize` sweeps, and the restored state validates.
-    const stranded = columnState({ 0: { mode: "split", order: ["s1", "s2"] } }, [0, 1]);
+    const stranded = slotState({ 0: { mode: "split", order: ["s1", "s2"] } }, [0, 1]);
     expect(() => validateDeckState(stranded)).toThrow(DeckStateInvariantError);
 
     const restored = deserializeDeck(JSON.stringify(serializeDeck(stranded)), 1920, 1080);
     expect(() => validateDeckState(restored)).not.toThrow();
-    expect(restored.imposition.columns?.[0]?.order).toEqual(["s1"]);
+    expect(restored.imposition.slots?.[0]?.order).toEqual(["s1"]);
     // The slot keeps how it stands; only the lie about membership is removed.
-    expect(restored.imposition.columns?.[0]?.mode).toBe("split");
+    expect(restored.imposition.slots?.[0]?.mode).toBe("split");
   });
 });
 
@@ -2038,8 +2038,8 @@ describe("imposition rails", () => {
   });
 });
 
-describe("imposition columns", () => {
-  function columnBlob(imposition: Record<string, unknown>): string {
+describe("imposition slots", () => {
+  function slotBlob(imposition: Record<string, unknown>): string {
     return JSON.stringify({
       version: 4,
       imposition,
@@ -2061,17 +2061,17 @@ describe("imposition columns", () => {
     });
   }
 
-  const columnsOf = (imposition: Record<string, unknown>) =>
-    deserializeDeck(columnBlob(imposition), 1920, 1080).imposition.columns;
+  const slotsOf = (imposition: Record<string, unknown>) =>
+    deserializeDeck(slotBlob(imposition), 1920, 1080).imposition.slots;
 
   const sidebars = { dashes: { side: "right" } };
 
-  test("a split column round-trips whole", () => {
+  test("a split slot round-trips whole", () => {
     const imposition = {
       kind: "three-up",
       contentWidth: "comfy",
       sidebars,
-      columns: {
+      slots: {
         0: {
           mode: "split",
           order: ["pane-1", "pane-2"],
@@ -2079,8 +2079,8 @@ describe("imposition columns", () => {
         },
       },
     };
-    const restored = deserializeDeck(columnBlob(imposition), 1920, 1080);
-    expect(restored.imposition.columns).toEqual({
+    const restored = deserializeDeck(slotBlob(imposition), 1920, 1080);
+    expect(restored.imposition.slots).toEqual({
       0: {
         mode: "split",
         order: ["pane-1", "pane-2"],
@@ -2088,36 +2088,78 @@ describe("imposition columns", () => {
       },
     });
     // serialize() emits the imposition whole, so the record survives a save,
-    // and the saved blob restores to the same arrangement — a split column
-    // survives relaunch rather than only the session that made it.
-    const saved = serializeDeck(restored) as { imposition: { columns?: unknown } };
-    expect(saved.imposition.columns).toEqual(restored.imposition.columns);
+    // and the saved blob restores to the same arrangement — a split slot
+    // survives relaunch rather than only the session that made it. The record
+    // is written under `slots` alone; the retired `slots` key is never written.
+    const saved = serializeDeck(restored) as {
+      imposition: { slots?: unknown; columns?: unknown };
+    };
+    expect(saved.imposition.slots).toEqual(restored.imposition.slots);
+    expect(saved.imposition.columns).toBeUndefined();
     expect(deserializeDeck(JSON.stringify(saved), 1920, 1080).imposition).toEqual(
       restored.imposition,
     );
   });
 
-  test("a pre-column blob has no columns at all — every slot is a stack", () => {
-    expect(columnsOf({ kind: "three-up", sidebars })).toBeUndefined();
+  test("a record saved under the retired `slots` key reads into the same arrangement", () => {
+    // Every deck saved before the rename carries its arrangement as
+    // `slots`. Dropping it would reset each workspace's split/stack
+    // arrangement and its shares, so the reader takes it when `slots` is absent.
+    const arrangement = {
+      0: { mode: "split", order: ["pane-1", "pane-2"], shares: { "pane-1": 1.5 } },
+      2: { mode: "stack" },
+    };
+    expect(slotsOf({ kind: "three-up", sidebars, columns: arrangement })).toEqual(
+      slotsOf({ kind: "three-up", sidebars, slots: arrangement }),
+    );
+    expect(slotsOf({ kind: "three-up", sidebars, columns: arrangement })).toEqual({
+      0: { mode: "split", order: ["pane-1", "pane-2"], shares: { "pane-1": 1.5 } },
+      2: { mode: "stack" },
+    });
+    // And the next save writes it under `slots` alone.
+    const restored = deserializeDeck(
+      slotBlob({ kind: "three-up", sidebars, columns: arrangement }),
+      1920,
+      1080,
+    );
+    const saved = serializeDeck(restored) as {
+      imposition: { slots?: unknown; columns?: unknown };
+    };
+    expect(saved.imposition.slots).toEqual(restored.imposition.slots);
+    expect(saved.imposition.columns).toBeUndefined();
   });
 
-  test("an unreadable mode drops the whole column", () => {
+  test("a record carrying both keys reads `slots`", () => {
+    expect(
+      slotsOf({
+        sidebars,
+        slots: { 1: { mode: "split" } },
+        columns: { 0: { mode: "split" } },
+      }),
+    ).toEqual({ 1: { mode: "split" } });
+  });
+
+  test("a pre-split blob has no slot arrangement at all — every slot is a stack", () => {
+    expect(slotsOf({ kind: "three-up", sidebars })).toBeUndefined();
+  });
+
+  test("an unreadable mode drops the whole slot", () => {
     // Same reading as a rail's: the order and heights describe an arrangement,
     // and applying them under a guessed mode shows the user a division nobody
     // chose.
     expect(
-      columnsOf({
+      slotsOf({
         sidebars,
-        columns: { 0: { mode: "sideways", order: ["pane-1"] } },
+        slots: { 0: { mode: "sideways", order: ["pane-1"] } },
       }),
     ).toBeUndefined();
   });
 
-  test("one bad column leaves the others standing", () => {
+  test("one bad slot leaves the others standing", () => {
     expect(
-      columnsOf({
+      slotsOf({
         sidebars,
-        columns: { 0: { mode: "split" }, 1: { mode: 7 } },
+        slots: { 0: { mode: "split" }, 1: { mode: 7 } },
       }),
     ).toEqual({ 0: { mode: "split" } });
   });
@@ -2127,9 +2169,9 @@ describe("imposition columns", () => {
     // Anything that is not a non-negative integer names no slot the imposer
     // will ever ask about, so keeping it would be storing garbage forever.
     expect(
-      columnsOf({
+      slotsOf({
         sidebars,
-        columns: {
+        slots: {
           0: { mode: "split" },
           left: { mode: "split" },
           "1.5": { mode: "split" },
@@ -2141,23 +2183,23 @@ describe("imposition columns", () => {
 
   test("a slot the current kind does not reach is KEPT", () => {
     // A deck dropped from six-up to three-up must remember how its fifth
-    // column stood, and get it back on the way up. The imposer only ever asks
+    // slot stood, and get it back on the way up. The imposer only ever asks
     // about slots it has, so an out-of-range entry costs nothing to keep and
     // pruning it would destroy an arrangement the user chose.
     expect(
-      columnsOf({
+      slotsOf({
         kind: "three-up",
         sidebars,
-        columns: { 5: { mode: "split", order: ["pane-9"] } },
+        slots: { 5: { mode: "split", order: ["pane-9"] } },
       }),
     ).toEqual({ 5: { mode: "split", order: ["pane-9"] } });
   });
 
-  test("shares are dropped per key, not per column", () => {
+  test("shares are dropped per key, not per slot", () => {
     expect(
-      columnsOf({
+      slotsOf({
         sidebars,
-        columns: {
+        slots: {
           0: {
             mode: "split",
             shares: {
@@ -2176,33 +2218,33 @@ describe("imposition columns", () => {
 
   test("non-string order entries are dropped", () => {
     expect(
-      columnsOf({
+      slotsOf({
         sidebars,
-        columns: { 0: { order: ["pane-1", 4, null, "pane-2"] } },
+        slots: { 0: { order: ["pane-1", 4, null, "pane-2"] } },
       }),
     ).toEqual({ 0: { order: ["pane-1", "pane-2"] } });
   });
 
   test("pane ids do NOT run through the componentId rename history", () => {
-    // A rail's members are componentIds and migrate; a column's are pane ids,
+    // A rail's members are componentIds and migrate; a slot's are pane ids,
     // which have no rename history. A pane that happened to be called "dev"
     // must come back called "dev" — migrating it would rename a member to an
     // id no pane has.
     expect(
-      columnsOf({ sidebars, columns: { 0: { order: ["dev", "dashes"] } } }),
+      slotsOf({ sidebars, slots: { 0: { order: ["dev", "dashes"] } } }),
     ).toEqual({ 0: { order: ["dev", "dashes"] } });
   });
 
-  test("a record nothing survives is an absent column set", () => {
+  test("a record nothing survives is an absent slot set", () => {
     expect(
-      columnsOf({
+      slotsOf({
         sidebars,
-        columns: { 0: { order: [], shares: { "pane-1": -1 } } },
+        slots: { 0: { order: [], shares: { "pane-1": -1 } } },
       }),
     ).toBeUndefined();
-    expect(columnsOf({ sidebars, columns: {} })).toBeUndefined();
-    expect(columnsOf({ sidebars, columns: "split" })).toBeUndefined();
-    expect(columnsOf({ sidebars, columns: null })).toBeUndefined();
+    expect(slotsOf({ sidebars, slots: {} })).toBeUndefined();
+    expect(slotsOf({ sidebars, slots: "split" })).toBeUndefined();
+    expect(slotsOf({ sidebars, slots: null })).toBeUndefined();
   });
 });
 

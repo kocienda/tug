@@ -2718,7 +2718,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-segment-text-normal-plain-disabled", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "informational" },
   { element: "--tug7-element-segment-border-normal-plain-rest", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "informational" },
 
-  // ---- tug-column-badge.css ----
+  // ---- tug-slot-badge.css ----
   // One row, because the badge draws in one ink: the character IS this colour,
   // the lit element is this colour, and the unlit scenery is this colour with
   // alpha taken out of it. Nothing on the badge can name a colour this pairing
@@ -2727,7 +2727,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // has — and it went the same way the slot chip's accent did.
   { element: "--tug7-element-control-text-tinted-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "control" },
 
-  // ---- tug-column-badge.css — tone="action" ----
+  // ---- tug-slot-badge.css — tone="action" ----
   // The badge's action tone (its Cards-card mount) paints each element of its glyph as the slot chip
   // beside it is painted, token for token — so the chip's own pairings (its
   // number and border against its fill, in tug-slot.css) carry over unchanged

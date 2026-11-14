@@ -2,7 +2,7 @@
  * drag-autoscroll — the strips a card drag scrolls while the hand holds at
  * an edge.
  *
- * A zone drag held at a strip's edge advances that strip: a column or a rail
+ * A zone drag held at a strip's edge advances that strip: a slot or a rail
  * at a rate (`autoscrollDelta`), the flow band a slot at a click
  * (`flowStepDecision`, `flowStepTarget`, tweened over `FLOW_STEP_TWEEN_MS`).
  * The offset goes onto the strip's custom property through the canvas's

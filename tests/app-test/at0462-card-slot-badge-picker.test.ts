@@ -24,7 +24,7 @@
  *      sidebar gets no badge even when the state hands it a slot — the same
  *      guard the Cards card's own slot picker applies.
  *   4. **It stands at the cluster's anchored end.** The chip trails every verb
- *      in the pane's rollup, leads the column badge and the close box, and
+ *      in the pane's rollup, leads the slot badge and the close box, and
  *      sits on the row's own vertical. It led the row until that reasoning was
  *      checked against the layout: the title bar is `space-between` with a
  *      `flex-shrink: 0` cluster, so the cluster is anchored by its RIGHT edge

@@ -422,7 +422,7 @@ function median(values: readonly number[]): number | null {
  * no move exists yet, which a settle's own row cannot tell from "the set-up is
  * still running": its sampler starts at the arm, so its quiet ticks are the
  * set-up's frames, a handful of gaps each as long as the set-up made it. The
- * median of three such gaps read 90 and 101 ms on a column rejoin, and a
+ * median of three such gaps read 90 and 101 ms on a slot rejoin, and a
  * 152 ms stall inside the motion then scored 1.69 frames. A display does not
  * run slower than most of the frames it delivered, so the period is the
  * smaller of the two medians: the quiet one still wins where a long task
@@ -574,7 +574,7 @@ function rectKey(rect: PaneRect): string {
  * the first tick the move was already running. **That claim is false, and it
  * was measured false here rather than reasoned about**: a forced-stall run on
  * a real WebKit deck reports a play-pending animation's `currentTime` as a
- * resolved `0`, never `null` (at0622's column legs, 2026-09-24). So the old
+ * resolved `0`, never `null` (at0622's slot legs, 2026-09-24). So the old
  * window did open at the pending window after all.
  *
  * `movePending || moveCurrentTime !== null` is kept anyway, because the two
@@ -667,7 +667,7 @@ export function classifySettleFrames(
   // a resize beat's constant inline transform, waiting for the move beat that
   // will carry it — has carried an effect and is carrying none right now, so a
   // forward-only reading calls it a residue and reports every tick of the wait
-  // off-curve. Measured on at0622's column split: a pane holding
+  // off-curve. Measured on at0622's slot split: a pane holding
   // `translate(0px, -605px)` between its beats, reported off-curve for 43
   // consecutive ticks while doing exactly what the settle asked of it. Only a
   // pane past its LAST effect owes the identity.
@@ -1192,7 +1192,7 @@ function moveCurrentTimeOf(effects: readonly ResolvedEffect[]): number | null {
  *
  * **A pending animation's `currentTime` reads `0`, not `null`** — measured on
  * a real WebKit deck under a forced stall rather than taken from this
- * module's former assertion, which said `null` and was wrong (at0622's column
+ * module's former assertion, which said `null` and was wrong (at0622's slot
  * legs, 2026-09-24). So {@link moveCurrentTimeOf} does NOT skip a pending
  * animation, and a caller holding only the clock sees a move that exists and
  * reads zero. What it still cannot see is WHY it reads zero: a move that has

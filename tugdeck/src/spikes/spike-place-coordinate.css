@@ -2,7 +2,7 @@
  * spike-place-coordinate.css — fixture frames for the place-coordinate spike.
  *
  * Styles the FIXTURES only. The subjects on display — chips, runs, badges,
- * popups — draw themselves from `tug-slot.css`, `tug-column-badge.css`,
+ * popups — draw themselves from `tug-slot.css`, `tug-slot-badge.css`,
  * `card-slot-badge.css` and `tug-pane.css`; what this file adds is the
  * pane-shaped and row-shaped boxes they sit in, plus the handful of knob
  * overrides that ARE the proposal (the 16×20 chip, the currentColor ink, the
@@ -132,10 +132,10 @@
   --tugx-slot-rest-border-active: currentcolor;
 }
 
-/* The column badge slims in step, so the coordinate pair keeps one weight. */
+/* The slot badge slims in step, so the coordinate pair keeps one weight. */
 .sp-pc-pane[data-variant="proposed"] .tug-pane-title-bar-stack-badge {
-  --tugx-column-badge-width: 16px;
-  --tugx-column-badge-height: 20px;
+  --tugx-slot-badge-width: 16px;
+  --tugx-slot-badge-height: 20px;
 }
 
 /* ── The Lens fixture ─────────────────────────────────────────────────────── */
@@ -219,7 +219,7 @@
   justify-content: center;
 }
 
-.tug-button.sp-pc-place-door .lens-column-badge {
+.tug-button.sp-pc-place-door .lens-slot-badge {
   margin-inline-start: 0;
 }
 

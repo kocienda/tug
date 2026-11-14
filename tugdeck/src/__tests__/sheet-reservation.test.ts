@@ -136,7 +136,7 @@ describe("a reservation does not survive serialization", () => {
     imposition: {
       kind: "two-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p1", "p2"] } },
+      slots: { 0: { mode: "split", order: ["p1", "p2"] } },
     },
     sheetReservations: { p2: 340 },
     hasFocus: true,

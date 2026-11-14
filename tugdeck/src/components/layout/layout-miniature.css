@@ -225,7 +225,7 @@
 
 /* A split member's face fills its member block whatever `--sheets` the
    column inherits — a member is one card, never a stack. */
-.layout-mini-block[data-column-member] > .layout-mini-face {
+.layout-mini-block[data-slot-member] > .layout-mini-face {
   inset: 0;
 }
 
@@ -402,7 +402,7 @@
   transform: translateX(calc(var(--mini-slide-x, 0) * 1%));
 }
 
-.layout-mini-block[data-column-overflow] {
+.layout-mini-block[data-slot-overflow] {
   transform: translateY(calc(var(--mini-slide-y, 0) * 1%));
 }
 

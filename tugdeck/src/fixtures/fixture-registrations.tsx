@@ -150,7 +150,7 @@ export function registerFixtureCards(): void {
   // it cannot go below, and no opinion about width.
   //
   // What a place stands under is decided by its members' floors against the
-  // run ([P01]) — two of these share the run a column gets on this harness's
+  // run ([P01]) — two of these share the run a slot gets on this harness's
   // canvas and three cannot, so a fixture that needs to cross the standing
   // boundary crosses it with three members rather than with a member count
   // some other rule used to read. Purpose-built rather than borrowed: the

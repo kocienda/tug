@@ -72,8 +72,8 @@
      All of it, in one word. The chip is the button's icon, so `currentColor`
      is the button's ink, so the chip simply IS the cluster's ink — through
      every state the cluster has, with no rule here for any of them. That is
-     the same route the column badge beside it already took
-     (`--tugx-column-badge-fg: currentcolor` in `tug-pane.css`), and the two of
+     the same route the slot badge beside it already took
+     (`--tugx-slot-badge-fg: currentcolor` in `tug-pane.css`), and the two of
      them being one coordinate is the reason they should have taken it
      together.
 

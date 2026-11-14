@@ -2,7 +2,7 @@
  * use-miniature-gestures.ts — a hand on the Layout miniature's parts.
  *
  * The places overlay (`LayoutPlaces`) stands one invisible target over every
- * column block, every split member and every rail member of the drawing, and
+ * slot block, every split member and every rail member of the drawing, and
  * calls `onTargetPointerDown` when a hand lands on one. This hook owns what
  * happens next. It is the half of the gesture with state and side effects; the
  * arithmetic of what a press reaches and where each drop zone stands in the

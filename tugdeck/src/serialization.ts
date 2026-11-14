@@ -62,16 +62,16 @@ import {
   isImpositionLayout,
   isResizeSlot,
   isGapPreset,
-  isColumnMode,
+  isSlotMode,
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
   DEFAULT_CONTENT_WIDTH,
   defaultSidebarSide,
   isContentWidth,
-  sweptColumnOrders,
+  sweptSlotOrders,
   type DeckImposition,
   type ImpositionKind,
-  type ColumnArrangement,
+  type SlotArrangement,
   type RailArrangement,
   type SidebarEntry,
 } from "@/lib/layout-imposer";
@@ -296,11 +296,11 @@ function parseOneDeck(
   canvasHeight: number,
 ): DeckState {
   const state = parseDeckState(json, canvasWidth, canvasHeight);
-  // A deck saved with a stranded column member has to come back usable, not on
+  // A deck saved with a stranded slot member has to come back usable, not on
   // the error overlay: the record outlives the run that broke it, so healing
   // only the live mutations would leave every already-persisted deck bad
   // forever. Sweeping on the way in is what makes the fix retroactive.
-  const imposition = sweptColumnOrders(state.imposition, state.panes);
+  const imposition = sweptSlotOrders(state.imposition, state.panes);
   return imposition === state.imposition ? state : { ...state, imposition };
 }
 
@@ -542,46 +542,51 @@ function parseRails(
 }
 
 /**
- * The `columns` record from an imposition record — how the cards in each slot
+ * The `slots` record from an imposition record — how the cards in each slot
  * stand against one another.
  *
+ * A record written before the key was renamed carries it as `slots`; that
+ * key is read when `slots` is absent, so every workspace keeps the split/stack
+ * arrangement and shares it was saved with. The writer writes only `slots`, so
+ * the old key falls out on the next save.
+ *
  * Read exactly as defensively as {@link parseRails}, with two differences that
- * follow from a column being keyed by slot and by pane id rather than by side
+ * follow from a slot being keyed by slot and by pane id rather than by side
  * and by componentId:
  *
  * - the keys are slot indices, so a key that is not a non-negative integer is
  *   dropped. Slots the current kind does not reach are *kept*: a deck dropped
- *   to three-up remembers its fourth column, and the imposer only ever asks
+ *   to three-up remembers its fourth slot, and the imposer only ever asks
  *   about slots it has.
  * - the members are pane ids, which have no rename history, so nothing here
  *   runs through `migrateComponentId`. Unknown ids are kept for the same
  *   reason the rails keep theirs — the panes are parsed alongside, not before,
- *   and `effectiveColumnOrder` filters to the members actually standing.
+ *   and `effectiveSlotOrder` filters to the members actually standing.
  */
-function parseColumns(
+function parseSlots(
   impositionRecord: Record<string, unknown> | undefined,
-): DeckImposition["columns"] {
-  const raw = impositionRecord?.["columns"];
+): DeckImposition["slots"] {
+  const raw = impositionRecord?.["slots"] ?? impositionRecord?.["columns"];
   if (raw === null || typeof raw !== "object") return undefined;
-  const columns: NonNullable<DeckImposition["columns"]> = {};
+  const arrangements: NonNullable<DeckImposition["slots"]> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     const slot = Number(key);
     if (!Number.isInteger(slot) || slot < 0) continue;
     if (value === null || typeof value !== "object") continue;
     const entry = value as Record<string, unknown>;
-    const arrangement: ColumnArrangement = {};
+    const arrangement: SlotArrangement = {};
 
     const mode = entry["mode"];
     if (mode !== undefined) {
-      // A mode this build cannot read means the whole column is unreadable,
+      // A mode this build cannot read means the whole slot is unreadable,
       // because the order and heights below describe an arrangement nobody
       // would have chosen under a guessed mode.
-      if (!isColumnMode(mode)) continue;
+      if (!isSlotMode(mode)) continue;
       arrangement.mode = mode;
     }
 
     // A `layout` written before [B12] is ignored, as a rail's is: a divided
-    // column divides its run and has no second answer to store.
+    // slot divides its run and has no second answer to store.
 
     const order = entry["order"];
     if (Array.isArray(order)) {
@@ -604,9 +609,9 @@ function parseColumns(
 
     // Nothing survived: the slot is absent, which is what a stack already is.
     if (Object.keys(arrangement).length === 0) continue;
-    columns[slot] = arrangement;
+    arrangements[slot] = arrangement;
   }
-  return Object.keys(columns).length > 0 ? columns : undefined;
+  return Object.keys(arrangements).length > 0 ? arrangements : undefined;
 }
 
 // ---- Internal: v4 parser ----
@@ -677,7 +682,7 @@ function parseV4(
   const sidebars = parseSidebars(impositionRecord);
   const rawContentWidth = impositionRecord?.["contentWidth"];
   const rails = parseRails(impositionRecord);
-  const columns = parseColumns(impositionRecord);
+  const arrangements = parseSlots(impositionRecord);
   // Additive-optional like `rails`: a blob written before the mode existed
   // carries no `layout` and comes back fit, which is what it was. An
   // unreadable value is dropped rather than defaulted to flow — a mode is
@@ -696,7 +701,7 @@ function parseV4(
       : DEFAULT_CONTENT_WIDTH,
     sidebars,
     ...(rails !== undefined ? { rails } : {}),
-    ...(columns !== undefined ? { columns } : {}),
+    ...(arrangements !== undefined ? { slots: arrangements } : {}),
     ...(isImpositionLayout(rawLayout) ? { layout: rawLayout } : {}),
     ...(isResizeSlot(rawResizeSlot) ? { resizeSlot: rawResizeSlot } : {}),
     ...(isGapPreset(rawGap) ? { gap: rawGap } : {}),

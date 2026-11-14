@@ -64,7 +64,7 @@ The rule that keeps this from becoming a pool: a digit family must be an **order
 
 | Band | Reading | Occupancy |
 |---|---|---|
-| ⌃⌘ arrows | Move the furniture — the Tug tier's own layout verbs. | Closed. ←/→ the rail pair, ↑/↓ `move-in-column`. |
+| ⌃⌘ arrows | Move the furniture — the Tug tier's own layout verbs. | Closed. ←/→ the rail pair, ↑/↓ `move-in-slot`. |
 | ⌃⇧⌘ arrows | The ⇧-extreme of a furniture move. | ↑/↓ Move Card to Top/Bottom; ←/→ free. |
 | ⌥⌘ arrows | Move the reader through the geometry. | Closed. All four Focus Card Left / Right / Above / Below ([D184]). |
 | ⌥⇧⌘ arrows | The ⇧-extreme of a reader move. | Free, all four, and recorded free rather than spent ([D184]). |
@@ -81,7 +81,7 @@ Previous / Next Turn are **⌃⌘[ / ⌃⌘]** and First / Last Turn **⌃⇧⌘
 
 **The family moves as a unit.** Splitting it across two key classes would leave First/Last with no base to be the extreme of. The cost is muscle memory, and it is paid back at the card: a Session card contributes the four verbs to its own title-bar menu, each row rendering its current chord, so the card shows the reader where the verb went.
 
-**⌥⇧⌘↑/↓ is freed and stays free.** It is recorded as available rather than spent in the same change that vacates it, because the extremes of focus travel — Focus Topmost / Bottommost — are deliberately not commands: `move-in-column` keeps all four of its chords, which is worth more than the extremes would be. A later grant on that band must derive as the ⇧-extreme of a ⌥⌘ arrow, which is what the band now means.
+**⌥⇧⌘↑/↓ is freed and stays free.** It is recorded as available rather than spent in the same change that vacates it, because the extremes of focus travel — Focus Topmost / Bottommost — are deliberately not commands: `move-in-slot` keeps all four of its chords, which is worth more than the extremes would be. A later grant on that band must derive as the ⇧-extreme of a ⌥⌘ arrow, which is what the band now means.
 
 ## The closed sets
 
@@ -97,7 +97,7 @@ One non-printing exception is grandfathered, and grandfathered is the whole just
 
 **R1 — The pairing rule.** A ⇧- or ⌥-composed chord must share its key with the base command it twists. If a proposed chord has no base to vary, it is either a plain-⌘ candidate or a ⌃⌘ Tug-tier command. The modifier stack is never climbed merely because plain ⌘ was taken; that is exactly the accretion the algebra exists to stop.
 
-**R2 — The arrows exemption.** Arrow chords are exempt from R1. ⌘↑/↓ is text and selection currency in the composer, so the ⌥⌘ arrows carrying directional card focus have no ⌘ base to pair with, exactly as the ⌃⌘ arrows carrying `move-in-column` have none. ⇧ still means "to the extreme" on arrows, which is how ⌃⇧⌘↑/↓ reads as Move Card to Top/Bottom. What an arrow band *means* is the band reading below, and the exemption is only about R1's pairing.
+**R2 — The arrows exemption.** Arrow chords are exempt from R1. ⌘↑/↓ is text and selection currency in the composer, so the ⌥⌘ arrows carrying directional card focus have no ⌘ base to pair with, exactly as the ⌃⌘ arrows carrying `move-in-slot` have none. ⇧ still means "to the extreme" on arrows, which is how ⌃⇧⌘↑/↓ reads as Move Card to Top/Bottom. What an arrow band *means* is the band reading below, and the exemption is only about R1's pairing.
 
 **R3 — The scarcity rule.** Plain ⌘'s remaining free slots go only to commands a user hits many times an hour. Everything else enters through its semantic tier. A plain-⌘ grant spends a finite resource, so the frequency claim is part of the grant, not an afterthought.
 
@@ -188,11 +188,11 @@ This widens an earlier wording that named the tier's letters as the sidebar-togg
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `toggle-rail:left` | **⌃⌘←** | Tug tier: a rail is layout vocabulary, alongside ⌃⌘↑/↓ `move-in-column`, whose vertical axis these complete horizontally. Arrows are R1-exempt under R2, and the mnemonic is the geometry itself — the chord points at the edge it opens. |
+| `toggle-rail:left` | **⌃⌘←** | Tug tier: a rail is layout vocabulary, alongside ⌃⌘↑/↓ `move-in-slot`, whose vertical axis these complete horizontally. Arrows are R1-exempt under R2, and the mnemonic is the geometry itself — the chord points at the edge it opens. |
 | `toggle-rail:right` | **⌃⌘→** | As above, the other edge. |
 | `new-jot` | **⌘J** | Plain-⌘ under R3: capture is reached mid-thought, many times a day, and a jot you must open a card to write is a jot you don't write. Claims ⌘J out of the free pool — an honest use, though not the jump/go-to one the pool's annotation anticipated. A capture verb is not a toggle, which is what leaves ⌃⌘J free for the Jots card. |
 
-⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list, which reserves **plain** ⌃-arrows for Spaces and Mission Control rather than the ⌘ composition — the argument `move-in-column` already made on the vertical pair. Both are `menuEligible` with **empty** Swift key equivalents, so `applyCommandChords` writes them and both stay rebindable; see the shade-toggle anomaly below for what the alternative costs.
+⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list, which reserves **plain** ⌃-arrows for Spaces and Mission Control rather than the ⌘ composition — the argument `move-in-slot` already made on the vertical pair. Both are `menuEligible` with **empty** Swift key equivalents, so `applyCommandChords` writes them and both stay rebindable; see the shade-toggle anomaly below for what the alternative costs.
 
 **⌃⌘⟨letter⟩ names a sidebar card, one letter per card.** The two families do not compete: **the pair addresses a SIDE of the deck, a letter addresses a CARD.** The letters are a complete set rather than an open-ended one — the sidebar holds five cards and registration is a boot step, so every card has a letter and there is no sixth to derive a grant for. Three of the five are initials; Cards and Arcs are not, each for a reason the table gives.
 
@@ -304,7 +304,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 **Promotion to View ▸ Bullseye is R6's half of the grant**, and here the preemption is the point rather than a cost: a menu item's key equivalent is claimed by AppKit before the web view sees the keydown, so no scoped binding can decline ⌃⌘B. A deck-level posture is not a surface's to refuse. The item carries an **empty** key equivalent so `applyCommandChords` writes the chord from the table and it stays rebindable — the discipline the rail pair and the Go to Slot row follow.
 
-**Tier occupancy after this grant.** ⌃⌘ letters in use: A, B, C, F, G, H, I, K, M, P, T, U — J, L and O returned to the pool when the per-card sidebar toggles gave their chords up to the rail pair. ⌃⌘ digits: 1–3 (the card widths); 4–9 and 0 free, and free only for an *ordered set* under the digit-row rule. ⌃⌘ arrows: all four in use — ↑/↓ `move-in-column`, ←/→ the rail pair.
+**Tier occupancy after this grant.** ⌃⌘ letters in use: A, B, C, F, G, H, I, K, M, P, T, U — J, L and O returned to the pool when the per-card sidebar toggles gave their chords up to the rail pair. ⌃⌘ digits: 1–3 (the card widths); 4–9 and 0 free, and free only for an *ordered set* under the digit-row rule. ⌃⌘ arrows: all four in use — ↑/↓ `move-in-slot`, ←/→ the rail pair.
 
 ---
 
@@ -397,9 +397,9 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `toggle-column-split` | **⌃⌘/** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye and the ⌃⌘←/→ rail pair. The slash is the division sign, which is what the verb does to a slot — a glyph rather than an initial, and only ⌘/ and ⌥⌘/ exist on that key. It held **⌃⌘S** until Hide Sidebars took the letter as its own initial. |
-| `move-in-column:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
-| `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌃⇧⌘[/] First/Last Turn has one key class over. |
+| `toggle-slot-split` | **⌃⌘/** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye and the ⌃⌘←/→ rail pair. The slash is the division sign, which is what the verb does to a slot — a glyph rather than an initial, and only ⌘/ and ⌥⌘/ exist on that key. It held **⌃⌘S** until Hide Sidebars took the letter as its own initial. |
+| `move-in-slot:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
+| `move-in-slot:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌃⇧⌘[/] First/Last Turn has one key class over. |
 | `equalize-heights` | **⌃⌘E** | Tug tier, beside ⌃⌘/ on the same slot: a slot's division is layout vocabulary. E for *Equalize*, an initial, on a letter the tier had free and macOS reserves nothing on. |
 | `equalize-all-heights` | **⌥⇧⌘E** | A grant with a reading rather than a derivation ("A chord has to be typable"), on the shape ⌃⌘S / ⌥⇧⌘S already makes: the key is the constant and ⌥⇧⌘ is the deck-wide form. ⌃⇧⌘E is where the algebra puts the counterpart; the hand would not form it. |
 
@@ -407,13 +407,13 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 
 **The arrows are never dead on an unsplit slot,** and that is why they mean two things. Split, the members divide the run and up is up: the chord moves a member's place in the order and the frames swap pins. Stacked, nothing is above anything — every member draws the same rect — so the only ordering the eye can read is z, and up is toward the front. One chord, one meaning per arrangement. A chord that worked only after another chord had been pressed would be a chord the user has to remember the state of.
 
-**Promoted to the View menu**, unlike the nudge pair and ⌘1–9. The objection that kept the family off it was real: it acts on the *layout selection*, a fact about the Cards card's list rather than about the frontmost card, so a mirrored `validate` had nothing to read that would tell a live gesture from a dead one. That was answerable, and the answer costs a fact. `menu.column` resolves the **same ladder the handlers walk** — the selection, else the row the Cards list's cursor stands on, else the first responder — so an item is live exactly when its chord would act. The two inputs that move without a deck mutation, the selection store and the cursor, each push a menu-state flush; a fact that went stale on either would dim a live item, and a dimmed item's key equivalent is swallowed by AppKit before the web view sees it, which would take the chord down with it.
+**Promoted to the View menu**, unlike the nudge pair and ⌘1–9. The objection that kept the family off it was real: it acts on the *layout selection*, a fact about the Cards card's list rather than about the frontmost card, so a mirrored `validate` had nothing to read that would tell a live gesture from a dead one. That was answerable, and the answer costs a fact. `menu.slot` resolves the **same ladder the handlers walk** — the selection, else the row the Cards list's cursor stands on, else the first responder — so an item is live exactly when its chord would act. The two inputs that move without a deck mutation, the selection store and the cursor, each push a menu-state flush; a fact that went stale on either would dim a live item, and a dimmed item's key equivalent is swallowed by AppKit before the web view sees it, which would take the chord down with it.
 
 That last sentence is the whole cost of a promotion and it applies to this family too: ⌃⌘/ and the ⌃⌘ arrows now leave the JS funnel and are claimed globally by the menu bar, above every surface — including a text editor's caret. `disabledChord: "keep"`, as the Go to Slot row does: nothing else in the funnel wants these chords, so there is nothing for a detach to hand them back to.
 
 **Refusal is visible.** ⌃⌘/ on a slot holding one card has nothing to divide, and a member already at the end it was sent to has nowhere to go; both flash the pane's border rather than returning quietly. A chord that does nothing and says nothing cannot be told from a chord that never arrived.
 
-**The slot family lives in View, not Window** — Split or Stack Slot, the four Move Card rows and the equalize pair, in one section between the card postures and the sidebar verbs, because a slot's arrangement is neither one card nor a rail, and View is where how the content is shown is decided. ⌃⌘E resolves the same ladder ⌃⌘/ does and is gated on `menu.column.canEqualize` — a split slot with two members standing, the terms the stack badge offers *Equalize Heights* on. ⌥⇧⌘E names no card, so it takes no selection gate: it is live whenever any slot on the deck is split two deep, and it writes every one of them in a single commit. Rails are not slots and take no part; Resize Sidebars to Fit is theirs.
+**The slot family lives in View, not Window** — Split or Stack Slot, the four Move Card rows and the equalize pair, in one section between the card postures and the sidebar verbs, because a slot's arrangement is neither one card nor a rail, and View is where how the content is shown is decided. ⌃⌘E resolves the same ladder ⌃⌘/ does and is gated on `menu.slot.canEqualize` — a split slot with two members standing, the terms the stack badge offers *Equalize Heights* on. ⌥⇧⌘E names no card, so it takes no selection gate: it is live whenever any slot on the deck is split two deep, and it writes every one of them in a single commit. Rails are not slots and take no part; Resize Sidebars to Fit is theirs.
 
 ## The sidebar verbs
 

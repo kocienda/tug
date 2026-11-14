@@ -1,5 +1,5 @@
 /**
- * cards-column-badge.tsx — where a Cards card row's card stands inside its slot.
+ * cards-slot-badge.tsx — where a Cards card row's card stands inside its slot.
  *
  * The slot run beside it says which slot the card holds. This says the rest of
  * the coordinate: how many cards share that slot when it stacks, and which band
@@ -15,19 +15,19 @@
  *       component of its own, rather than inside the cell that renders it —
  *       `CardsSessionRow` takes everything as props and subscribes to nothing.
  *
- * @module components/cards/cards-column-badge
+ * @module components/cards/cards-slot-badge
  */
 
-import "./cards-column-badge.css";
+import "./cards-slot-badge.css";
 
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { getDeckView } from "@/lib/deck-store-registry";
-import { columnBadgeFactsOf } from "@/deck-store-selectors";
-import { TugColumnBadge } from "@/components/tugways/tug-column-badge";
+import { slotBadgeFactsOf } from "@/deck-store-selectors";
+import { TugSlotBadge } from "@/components/tugways/tug-slot-badge";
 
-export function CardsColumnBadge({
+export function CardsSlotBadge({
   cardId,
 }: {
   cardId: string;
@@ -40,14 +40,14 @@ export function CardsColumnBadge({
   );
 
   if (deck === null) return null;
-  const facts = columnBadgeFactsOf(deck, cardId);
+  const facts = slotBadgeFactsOf(deck, cardId);
   if (facts === null) return null;
 
   return (
-    <TugColumnBadge
-      className="cards-column-badge"
+    <TugSlotBadge
+      className="cards-slot-badge"
       tone="action"
-      data-testid="cards-column-badge"
+      data-testid="cards-slot-badge"
       kind={facts.kind}
       count={facts.count}
       index={facts.index}

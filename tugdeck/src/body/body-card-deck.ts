@@ -586,7 +586,7 @@ export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementRepl
     const { deck, spaces } = seen;
     const prev = arrangement;
     if (prev !== null && prev.spaces === spaces && prev.deck === deck.deck && prev.bandWidth === deck.bandWidth &&
-      prev.columnRunHeight === deck.columnRunHeight && prev.railRunHeight === deck.railRunHeight) {
+      prev.slotRunHeight === deck.slotRunHeight && prev.railRunHeight === deck.railRunHeight) {
       return;
     }
     arrangement = { ...deck, spaces };
@@ -613,7 +613,7 @@ export function createDeckView(cardDeck: BodyCardDeck, replicas: ArrangementRepl
   // view whose prototype is the card deck reads every one of them live.
   const view: DeckView = Object.assign(Object.create(cardDeck) as CardDeck, {
     getBandWidth: (): number | null => arrangement?.bandWidth ?? null,
-    getColumnRunHeight: (): number | null => arrangement?.columnRunHeight ?? null,
+    getSlotRunHeight: (): number | null => arrangement?.slotRunHeight ?? null,
     getRailRunHeight: (): number | null => arrangement?.railRunHeight ?? null,
     setFlowOffset: (offset: number, landing?: CommitLanding): void => deckSetFlowOffset.dispatch({ offset, landing }),
     previewFlowOffset: (offset: number): void => deckPreviewFlowOffset.dispatch({ offset }),

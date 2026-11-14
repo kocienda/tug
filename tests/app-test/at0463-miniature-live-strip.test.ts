@@ -12,7 +12,7 @@
  * What this file pins:
  *
  *   1. **A strip sliding under the hand slides the drawing with it.** Holding a
- *      dragged card at an overflowing column's bottom edge autoscrolls the
+ *      dragged card at an overflowing slot's bottom edge autoscrolls the
  *      strip. During the hold NOTHING is committed — the offset lives on a
  *      custom property until the drop ([P12]) — so a drawing that only knew
  *      committed state could not move at all. The census is read across the
@@ -75,36 +75,36 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
           );
         }
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
+          `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 1, mode: "split" }), null)`,
         );
         await wait(AFTER_LAND_MS);
         // Bring the strip home: assigning a slot raises the card it placed,
-        // and raising a member of an overflowing column reveals it.
+        // and raising a member of an overflowing slot reveals it.
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
         await wait(AFTER_LAND_MS);
 
         const members = await app.evalJS<string[]>(
           `Array.prototype.slice.call(document.querySelectorAll(
-             '.tug-pane[data-column-split][data-imposed="1"]'
+             '.tug-pane[data-slot-split][data-imposed="1"]'
            )).sort(function (a, b) {
              return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
            }).map(function (el) { return el.getAttribute("data-pane-id"); })`,
         );
         expect(
           members.length,
-          "five cards in one slot is an overflowing column",
+          "five cards in one slot is an overflowing slot",
         ).toBeGreaterThanOrEqual(3);
         expect(
           await kindBody(app, "layout").evalJS<number>(
             `document.querySelectorAll(
-               ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-column-overflow]"
+               ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-slot-overflow]"
              ).length`,
           ),
           "and the drawing draws it as a sliding strip",
         ).toBe(members.length);
         expect(
-          await gauge(app, "--gauge-column-offset-1"),
-          "at rest the column's strip has published a zero, not a slide",
+          await gauge(app, "--gauge-slot-offset-1"),
+          "at rest the slot's strip has published a zero, not a slide",
         ).toBe(0);
         expect(await memberSlidePx(app), "so the members draw untranslated").toBe(
           0,
@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
         await app.nativeDragWithoutRelease(await titleBarPoint(app, members[0]), edge);
         const census = await app.motionCensus(async () => {
           await wait(HOLD_MS);
-          gaugeUnderHand = await gauge(app, "--gauge-column-offset-1");
+          gaugeUnderHand = await gauge(app, "--gauge-slot-offset-1");
           slideUnderHand = await memberSlidePx(app);
           draggingAttr = await kindBody(app, "layout").evalJS<string | null>(
             `(function () {
@@ -155,14 +155,14 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
           transitionUnderHand = await kindBody(app, "layout").evalJS<string>(
             `(function () {
               var block = document.querySelector(
-                ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-column-overflow]"
+                ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-slot-overflow]"
               );
               return getComputedStyle(block).transitionDuration;
             })()`,
           );
         }, 0);
         const committedDuringHold = await app.evalJS<number>(
-          `((window.tugdeck.diag.getDeckState().columnOffsets || {})[1] || 0)`,
+          `((window.tugdeck.diag.getDeckState().slotOffsets || {})[1] || 0)`,
         );
         note(
           `under the hand: gauge=${gaugeUnderHand}, slide=${slideUnderHand}px, ` +
@@ -199,20 +199,20 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
         await app.nativeMouseUp(edge);
         await wait(AFTER_LAND_MS);
         const committed = await app.evalJS<number>(
-          `((window.tugdeck.diag.getDeckState().columnOffsets || {})[1] || 0)`,
+          `((window.tugdeck.diag.getDeckState().slotOffsets || {})[1] || 0)`,
         );
         const run = await app.evalJS<number>(
           `window.tugdeck.diag.getDeckState().panes.length && (function () {
-            var el = document.querySelector('.tug-pane[data-column-split]');
+            var el = document.querySelector('.tug-pane[data-slot-split]');
             return el === null ? 0 : 1;
           })()`,
         );
-        expect(run, "the column survived the drop").toBe(1);
+        expect(run, "the slot survived the drop").toBe(1);
         expect(
           committed,
           "the drop is where the offset becomes real state",
         ).toBeGreaterThan(0);
-        const gaugeAfter = await gauge(app, "--gauge-column-offset-1");
+        const gaugeAfter = await gauge(app, "--gauge-slot-offset-1");
         const slideAfter = await memberSlidePx(app);
         note(
           `after the drop: committed=${Math.round(committed)}px, gauge=${gaugeAfter}, slide=${slideAfter}px`,

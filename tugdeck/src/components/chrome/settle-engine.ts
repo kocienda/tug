@@ -75,7 +75,7 @@ import {
 } from "@/deck-trace";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import {
-  deckColumnsOf,
+  deckSlotsOf,
   type PlaceRuns,
 } from "@/deck-store-selectors";
 import type { DeckState, TugPaneState } from "@/layout-tree";
@@ -147,7 +147,7 @@ import { getConnection } from "@/lib/connection-singleton";
 import { FALLBACK_FRAME_PERIOD_MS } from "@/lib/frame-period";
 import {
   isSidebarSide,
-  type ColumnMode,
+  type SlotMode,
   IMPOSITION_SETTLE_MS,
   readSettleMs,
   PANE_ENTER_RISE_PX,
@@ -784,7 +784,7 @@ export function useSettleEngine({
    * The tweens running on each frame, by pane id — DOM zone, never React
    * state. At most two per settle: the one effect carrying every geometry term
    * the frame crosses ([D135] — move and size share a clock or a pinned edge
-   * is not pinned), and a hold when a column mode flip commits it behind the
+   * is not pinned), and a hold when a slot mode flip commits it behind the
    * survivor.
    */
   /**
@@ -914,14 +914,14 @@ export function useSettleEngine({
   // with a canvas standing ready to carry it ([L03]).
   useLayoutEffect(() => store.registerDepartureHost(), [store]);
   /**
-   * The hold plan for the columns whose mode flipped this settle, computed
+   * The hold plan for the slots whose mode flipped this settle, computed
    * when the settle arms and consumed by the Last pass.
    *
-   * A column mode flip is a cover, not a fade ([B02] of
+   * A slot mode flip is a cover, not a fade ([B02] of
    * `briefs/column-flip-cover-brief.md`). Exactly one member — the
    * **survivor** — moves, and it moves as one fused beat, because its
-   * translate and its height change are the same edge (Stack Column from the
-   * bottom tile: the top edge rises to the column top and the bottom edge
+   * translate and its height change are the same edge (Stack Slot from the
+   * bottom tile: the top edge rises to the slot top and the bottom edge
    * stays), and playing them in sequence opens an interval in which the
    * survivor has left one tile and not yet claimed the other ([B01]). Every
    * other member is **covered**: committed behind the survivor, animating
@@ -929,7 +929,7 @@ export function useSettleEngine({
    * it could not see. On a stack the covered members are also **held**:
    * each keeps its old tile inline until the survivor has grown over it,
    * because the commit has already moved it to the full run and letting that
-   * landing show would be the card sliding across the column. On a split
+   * landing show would be the card sliding across the slot. On a split
    * nothing is held — a revealed member is simply at its tile behind the
    * survivor, uncovered as the survivor retreats ([F06]).
    *
@@ -937,9 +937,9 @@ export function useSettleEngine({
    * and never on a clock of its own ([B03]): a hold that ends before the
    * survivor has covered the frame is the frame reappearing.
    *
-   * The survivor is the column's **z-frontmost** member, because that is the one
+   * The survivor is the slot's **z-frontmost** member, because that is the one
    * a stack actually shows: stacked members all draw the same rect and z-order
-   * alone decides which of them you see. Picking by column order instead would
+   * alone decides which of them you see. Picking by slot order instead would
    * animate the top tile into the full run while the card the stack goes on to
    * display is a different one entirely — the growth would belong to a frame
    * that ends up hidden, and the visible card would arrive by a cut.
@@ -951,17 +951,17 @@ export function useSettleEngine({
    * costs nothing but the motion the eye was already expecting.
    */
   const settleHoldPlanRef = useRef<{
-    /** One per flipped column: plans a fused beat. */
+    /** One per flipped slot: plans a fused beat. */
     survivors: Set<string>;
-    /** Every other member of a flipped column: covered until the chain's end. */
+    /** Every other member of a flipped slot: covered until the chain's end. */
     covered: Set<string>;
     /** The covered members leaving a tile (a stack): held at it inline. */
     held: Set<string>;
   }>({ survivors: new Set(), covered: new Set(), held: new Set() });
-  /** Each column's mode as of the last settle, keyed by slot, so a mode flip is
+  /** Each slot's mode as of the last settle, keyed by slot, so a mode flip is
    *  detectable when the next one arms. A rail keeps no such record: it is
    *  always divided ([B01]), so its mode never flips. */
-  const prevColumnModesRef = useRef<Map<number, ColumnMode> | null>(null);
+  const prevSlotModesRef = useRef<Map<number, SlotMode> | null>(null);
   /** The raw (unscaled) settle duration read back for the current gesture. */
   const settleDurationRef = useRef(IMPOSITION_SETTLE_MS);
   /**
@@ -1180,7 +1180,7 @@ export function useSettleEngine({
       }
       el.style.removeProperty("transform");
       el.style.removeProperty("transform-origin");
-      // The cover a column mode flip put on a revealed member — committed
+      // The cover a slot mode flip put on a revealed member — committed
       // behind its survivor, uncovered as the survivor retreats. It comes
       // off with the survivor's release, and here so that every path that
       // ends a settle (the sweep, a retarget's cancel, teardown) takes it
@@ -1613,8 +1613,8 @@ export function useSettleEngine({
       });
       pending.launch(shellTimelineMs(started.startWallMs));
     });
-    prevColumnModesRef.current = new Map(
-      deckColumnsOf(store.getSnapshot(), null).map((c) => [c.slot, c.mode]),
+    prevSlotModesRef.current = new Map(
+      deckSlotsOf(store.getSnapshot(), null).map((c) => [c.slot, c.mode]),
     );
     const arm = (landing: CommitLanding): void => {
       const el = containerRef.current;
@@ -1635,7 +1635,7 @@ export function useSettleEngine({
       const state = store.getSnapshot();
       const next = arrangementSignature(state, {
         rail: store.getRailRunHeight(),
-        column: store.getColumnRunHeight(),
+        slot: store.getSlotRunHeight(),
       });
       const change = readArmChange(
         {
@@ -1717,8 +1717,8 @@ export function useSettleEngine({
         // a switch is a gesture with its own set-up, and the motion it cuts
         // short has nothing left to keep React out of.
         openMotionGate();
-        prevColumnModesRef.current = new Map(
-          deckColumnsOf(state, null).map((column) => [column.slot, column.mode]),
+        prevSlotModesRef.current = new Map(
+          deckSlotsOf(state, null).map((deckSlot) => [deckSlot.slot, deckSlot.mode]),
         );
         deckTrace.record({
           kind: "settle-arm",
@@ -1751,7 +1751,7 @@ export function useSettleEngine({
       // deferral there is a painted frame between this arm and its own Last
       // pass, and a beat this arm cancels lands its completion in that
       // frame — with the generation unbumped it read as the settle's own
-      // completion and released the window early (the eight-card column leg
+      // completion and released the window early (the eight-card slot leg
       // read one tick and no height rows).
       settleGenerationRef.current += 1;
       // Beats still waiting on a solve belong to the settle this arm
@@ -1887,7 +1887,7 @@ export function useSettleEngine({
         // so it has no First rect to measure and nothing to hand back yet.
         // The Last pass finds it as an arrival again ([P08]).
         if (pendingArrivalsRef.current.has(paneId)) continue;
-        // Hidden and arriving — appended to its column but not yet part of
+        // Hidden and arriving — appended to its slot but not yet part of
         // its division ([B01]). Not on screen either, for the same reasons:
         // no First rect, no restore, no cancel. The commit that clears the
         // mark leaves the attribute off the new DOM, so the Last pass of THAT
@@ -1975,7 +1975,7 @@ export function useSettleEngine({
         armed.push({ paneId, frame, running });
       }
 
-      // A column whose mode flipped moves the one member the stack shows and
+      // A slot whose mode flipped moves the one member the stack shows and
       // holds every other one behind it — `settleHoldPlanRef` says why the
       // survivor is the z-frontmost rather than the top tile. Skipped under
       // reduced motion with the rest of the choreography, but the mode record
@@ -1988,36 +1988,36 @@ export function useSettleEngine({
       holdPlan.survivors.clear();
       holdPlan.covered.clear();
       holdPlan.held.clear();
-      // A COLUMN whose mode flipped gets the cover choreography: the frame the
+      // A SLOT whose mode flipped gets the cover choreography: the frame the
       // stack actually shows is the z-frontmost member, not the top of the
-      // column's order, so that is the one that moves and every other one
+      // slot's order, so that is the one that moves and every other one
       // is covered. Picking the top member instead would grow a frame that
       // ends up hidden while the card the stack goes on to display arrived by
       // a cut.
       //
       // A rail has no such flip — it is always divided.
-      const columns = deckColumnsOf(state, null);
-      const prevColumnModes = prevColumnModesRef.current;
-      if (motion && prevColumnModes !== null) {
-        for (const column of columns) {
-          const prevMode = prevColumnModes.get(column.slot);
-          if (prevMode === undefined || prevMode === column.mode) continue;
-          if (column.members.length < 2) continue;
-          const members = new Set(column.members);
+      const deckSlots = deckSlotsOf(state, null);
+      const prevSlotModes = prevSlotModesRef.current;
+      if (motion && prevSlotModes !== null) {
+        for (const deckSlot of deckSlots) {
+          const prevMode = prevSlotModes.get(deckSlot.slot);
+          if (prevMode === undefined || prevMode === deckSlot.mode) continue;
+          if (deckSlot.members.length < 2) continue;
+          const members = new Set(deckSlot.members);
           let survivor: string | undefined;
           for (const pane of state.panes) {
             if (members.has(pane.id)) survivor = pane.id;
           }
           if (survivor !== undefined) holdPlan.survivors.add(survivor);
-          for (const paneId of column.members) {
+          for (const paneId of deckSlot.members) {
             if (paneId === survivor) continue;
             holdPlan.covered.add(paneId);
-            if (column.mode === "stack") holdPlan.held.add(paneId);
+            if (deckSlot.mode === "stack") holdPlan.held.add(paneId);
           }
         }
       }
-      prevColumnModesRef.current = new Map(
-        columns.map((column) => [column.slot, column.mode]),
+      prevSlotModesRef.current = new Map(
+        deckSlots.map((deckSlot) => [deckSlot.slot, deckSlot.mode]),
       );
 
       // THE HOLD AT ARM. The frames the new arrangement resizes are
@@ -2044,7 +2044,7 @@ export function useSettleEngine({
           const afterDeck = store.getPicture();
           const after = rendered.deriveArrangement(afterDeck, {
             rail: store.getRailRunHeight(),
-            column: store.getColumnRunHeight(),
+            slot: store.getSlotRunHeight(),
           });
           const beforeById = new Map(rendered.deck.panes.map((p) => [p.id, p]));
           const afterById = new Map(afterDeck.panes.map((p) => [p.id, p]));
@@ -2710,7 +2710,7 @@ export function useSettleEngine({
     const duration = settleDurationRef.current;
     const holdPlan = settleHoldPlanRef.current;
     /**
-     * The frames this settle committed behind a flipped column's survivor —
+     * The frames this settle committed behind a flipped slot's survivor —
      * the hold plan's `covered`, with what each one holds and hands back.
      * Released together at the chain's one completion ([B03]); the doc on
      * `settleHoldPlanRef` says why.
@@ -3058,7 +3058,7 @@ export function useSettleEngine({
       let stillCrossingId: number | null = null;
       let reflowsAtLand = false;
       if (holdPlan.covered.has(paneId)) {
-        // A member a column mode flip committed behind its survivor. It does
+        // A member a slot mode flip committed behind its survivor. It does
         // not travel and it does not fade ([B02] of
         // `briefs/column-flip-cover-brief.md`): a stack is the survivor
         // covering its neighbours and a split is the survivor uncovering
@@ -3072,7 +3072,7 @@ export function useSettleEngine({
         // was measured at was never a pose the user saw — so there is nothing
         // to hold. On a stack it is HELD: the commit has already moved it to
         // the full run it will occupy behind the survivor, and letting that
-        // landing show would be the card sliding across the column, so it
+        // landing show would be the card sliding across the slot, so it
         // keeps the tile it is leaving as a static inverse. One inline write,
         // so nothing interpolates, for exactly the survivor's crossing: the
         // chain's completion takes it off with the cover. The snap to the
@@ -3234,7 +3234,7 @@ export function useSettleEngine({
         // So does a SHRINK. Held at its final height, a shrinking interior is
         // shorter than the box until the edge arrives, and the strip it does
         // not cover is bare background: on a following transcript, 576px of
-        // rows gone at the first frame of a column join, under the chrome,
+        // rows gone at the first frame of a slot join, under the chrome,
         // where no neighbour can cover it. A growth's final height is its
         // larger one, so the settled hold costs it nothing; a shrink holds its
         // starting height and pays its land.
@@ -3329,7 +3329,7 @@ export function useSettleEngine({
               ? [firstRect.height, lastRect.height]
               : undefined,
           },
-          // Fused per frame, not per settle: a column mode flip's survivor
+          // Fused per frame, not per settle: a slot mode flip's survivor
           // rides one `room` beat because its move and its height change are
           // one edge ([B01] of `briefs/column-flip-cover-brief.md`), while every
           // other frame this settle carries keeps its shrink/move/grow plan.

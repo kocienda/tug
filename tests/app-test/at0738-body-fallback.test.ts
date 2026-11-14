@@ -34,7 +34,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { BODY_READY_MS, column, pollFor } from "./session-body-fixture";
+import { BODY_READY_MS, oneSlot, pollFor } from "./session-body-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -63,7 +63,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a body that misses its ready deadline", ()
       });
       try {
         await app.bodyDelays({ readyDeadlineMs: MISSED_DEADLINE_MS });
-        await app.seedDeckState({ state: column([STALLED]), focusCardId: STALLED });
+        await app.seedDeckState({ state: oneSlot([STALLED]), focusCardId: STALLED });
 
         const standing = await pollFor(() => app.evalJS<boolean>(`${placard} !== null`), (v) => v, BODY_READY_MS);
         expect(standing, "the card stands as a placard once its second body fails").toBe(true);
@@ -92,7 +92,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a body that misses its ready deadline", ()
       });
       try {
         await app.bodyDelays({ readyDeadlineMs: MISSED_DEADLINE_MS });
-        await app.seedDeckState({ state: column([STALLED]), focusCardId: STALLED });
+        await app.seedDeckState({ state: oneSlot([STALLED]), focusCardId: STALLED });
 
         const standing = await pollFor(() => app.evalJS<boolean>(`${placard} !== null`), (v) => v, BODY_READY_MS);
         expect(standing, "the card stands as a placard once its second body fails").toBe(true);

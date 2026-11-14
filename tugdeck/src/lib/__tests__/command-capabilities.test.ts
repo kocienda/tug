@@ -427,10 +427,10 @@ describe("computeCommandCapabilities", () => {
   test("the split row names the verb the next press performs", () => {
     const chain = new ResponderChainManager();
 
-    // No column resolves — a free deck, or nothing selected. The row is dark,
+    // No slot resolves — a free deck, or nothing selected. The row is dark,
     // and it keeps the neutral pair rather than naming a verb it would not
     // perform. A dark row promising "Split Slot" is a lie the user can read.
-    const none = computeCommandCapabilities(source(chain, { column: null }));
+    const none = computeCommandCapabilities(source(chain, { slot: null }));
     expect(none["view.slotSplit"].enabled).toBe(false);
     expect(none["view.slotSplit"].title).toBe("Split or Stack Slot");
 
@@ -441,7 +441,7 @@ describe("computeCommandCapabilities", () => {
     // split it" — the two surfaces contradicting each other over one slot.
     const stacked = computeCommandCapabilities(
       source(chain, {
-        column: {
+        slot: {
           mode: "stack",
           canMoveUp: false,
           canMoveDown: false,
@@ -461,7 +461,7 @@ describe("computeCommandCapabilities", () => {
     // The same row over a split place, saying the way back.
     const split = computeCommandCapabilities(
       source(chain, {
-        column: {
+        slot: {
           mode: "split",
           canMoveUp: true,
           canMoveDown: false,
@@ -480,10 +480,10 @@ describe("computeCommandCapabilities", () => {
     const chain = new ResponderChainManager();
     const none = computeCommandCapabilities(source(chain));
     expect(none["view.equalizeAllHeights"].enabled).toBe(false);
-    // No selection resolves (`column: null`) and the row is still live: the
-    // verb is about every column on the deck.
+    // No selection resolves (`slot: null`) and the row is still live: the
+    // verb is about every slot on the deck.
     const some = computeCommandCapabilities(
-      source(chain, { column: null, equalizableColumns: 2 }),
+      source(chain, { slot: null, equalizableSlots: 2 }),
     );
     expect(some["view.equalizeAllHeights"].enabled).toBe(true);
     expect(some["view.equalizeHeights"].enabled).toBe(false);

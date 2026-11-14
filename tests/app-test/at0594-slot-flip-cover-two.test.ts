@@ -1,14 +1,14 @@
 /**
- * at0594-column-flip-cover-two.test.ts — a column mode flip is a cover, not a
- * fade; the two-member column.
+ * at0594-slot-flip-cover-two.test.ts — a slot mode flip is a cover, not a
+ * fade; the two-member slot.
  *
- * Split from `at0594-column-flip-cover`, one file per member count, each its
- * own launch: the two-member column here, the three-member one in
- * `at0594-column-flip-cover-three`. The two launches in one file sat at the
+ * Split from `at0594-slot-flip-cover`, one file per member count, each its
+ * own launch: the two-member slot here, the three-member one in
+ * `at0594-slot-flip-cover-three`. The two launches in one file sat at the
  * 20 s file budget. The deck, the sampler and the claims are one body in
- * `column-flip-cover-fixture.ts`.
+ * `slot-flip-cover-fixture.ts`.
  *
- * Stack Column and Split Column play as one motion. The column's z-frontmost
+ * Stack Slot and Split Slot play as one motion. The slot's z-frontmost
  * member — the SURVIVOR, the card a stack actually shows — runs a single fused
  * beat: its translate and its height change are the same edge, so they ride
  * one `room` beat rather than a move and then a grow. Every other member
@@ -41,7 +41,7 @@
  *      records nothing — a member the flip commits behind its survivor is
  *      read as covered rather than as a jump.
  *
- * @family at0594-column-flip-cover
+ * @family at0594-slot-flip-cover
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/cut-detector.ts
@@ -63,20 +63,20 @@ import {
   sameRect,
   takeCuts,
   wait,
-} from "./column-flip-cover-fixture";
+} from "./slot-flip-cover-fixture";
 
-describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover [two]", () => {
+describe.skipIf(!SHOULD_RUN)("at0594 — slot flip cover [two]", () => {
   test(
-    "a two-member column with the bottom member frontmost flips both ways as a cover",
+    "a two-member slot with the bottom member frontmost flips both ways as a cover",
     async () => {
       const paneIds = ["p1", "p2"];
-      const app = await launch(2, "at0594-column-flip-cover-two");
+      const app = await launch(2, "at0594-slot-flip-cover-two");
       try {
         // Split first, so the bottom member can be found and raised. This
         // flip is not under test; it lands before anything samples.
         // card-dom: shell — a deck command dispatched in the shell, reaching no card's DOM.
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
+          `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "split" }), null)`,
         );
         await wait(AFTER_LAND_MS);
         const split = await readNow(app, paneIds);
@@ -115,7 +115,7 @@ describe.skipIf(!SHOULD_RUN)("at0594 — column flip cover [two]", () => {
 
         expect(
           await takeCuts(app),
-          "stack and split on a column produce no cut records",
+          "stack and split on a slot produce no cut records",
         ).toBe("");
       } finally {
         await app.close();

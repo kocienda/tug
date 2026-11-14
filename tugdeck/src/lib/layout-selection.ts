@@ -31,9 +31,9 @@
  */
 
 import { isSidebarCard } from "@/card-registry";
-import { columnMembersOf, columnMoveOrder } from "@/deck-store-selectors";
-import { clampSlot, columnModeOf } from "@/lib/layout-imposer";
-import type { ColumnMode } from "@/lib/layout-imposer";
+import { slotMembersOf, slotMoveOrder } from "@/deck-store-selectors";
+import { clampSlot, slotModeOf } from "@/lib/layout-imposer";
+import type { SlotMode } from "@/lib/layout-imposer";
 import {
   getLayoutCursorCard,
   cardsSelectionStore,
@@ -77,8 +77,8 @@ function contentCardsAmong(
 }
 
 /**
- * What the column verbs could do to the card the layout selection resolves to,
- * as the menu's `column` fact ([P05]) — `null` when no content card resolves.
+ * What the slot verbs could do to the card the layout selection resolves to,
+ * as the menu's `slot` fact ([P05]) — `null` when no content card resolves.
  *
  * The same ladder and the same first-card rule the ⌃⌘/ / ⌃⌘↑↓ handlers use, so
  * a menu item is live exactly when its chord would act rather than merely when
@@ -90,11 +90,11 @@ function contentCardsAmong(
  * menu-state flush, and a refusal that is merely "nothing is selected" is the
  * resting state rather than an event.
  */
-export function resolveColumnMenuFact(
+export function resolveSlotMenuFact(
   deck: CardDeck,
   selection: CardsSelectionStore = cardsSelectionStore,
 ): {
-  mode: ColumnMode;
+  mode: SlotMode;
   canMoveUp: boolean;
   canMoveDown: boolean;
   canEqualize: boolean;
@@ -106,9 +106,9 @@ export function resolveColumnMenuFact(
   const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
   if (host?.slot === undefined) return null;
   const slot = clampSlot(state.imposition.kind, host.slot);
-  const order = columnMoveOrder(state, host.id);
+  const order = slotMoveOrder(state, host.id);
   const at = order.indexOf(host.id);
-  const mode = columnModeOf(state.imposition, slot);
+  const mode = slotModeOf(state.imposition, slot);
   return {
     // The arrangement the slot is SET to, which is what the toggle inverts —
     // never what the geometry happens to be drawing. A lone member draws
@@ -120,9 +120,9 @@ export function resolveColumnMenuFact(
     canMoveDown: at !== -1 && at < order.length - 1,
     // Equalize Heights writes a division, so it needs one to write: a split
     // slot with two members standing. The badge offers the row on the same
-    // terms, and `equalizeColumn` refuses on them.
+    // terms, and `equalizeSlot` refuses on them.
     canEqualize:
-      mode === "split" && columnMembersOf(state, slot).length >= 2,
+      mode === "split" && slotMembersOf(state, slot).length >= 2,
   };
 }
 

@@ -222,7 +222,7 @@ One spelling per axis, across every primitive. The shared unions live in `compon
 | Transcript density | `density?: TugDensity` on `TugTranscriptEntry` (`compact` is the rail's attribution line) | per-card restyles of the entry's identifier, timestamp, glyph and gutter |
 | Notice accent | `accent?: boolean` on `TugInlineAlert` | feature rules rewriting the alert's border, icon and body |
 | Count figures | `numeric?: boolean` on `TugBadge` | `font-variant-numeric` set on a badge from outside |
-| Badge palette | `tone?: "default" \| "action"` on `TugColumnBadge` | feature overrides of the badge's `--tugx-column-badge-*` tokens |
+| Badge palette | `tone?: "default" \| "action"` on `TugSlotBadge` | feature overrides of the badge's `--tugx-slot-badge-*` tokens |
 | Button floor | `minWidth?: "action" \| "compact-action"` on the buttons | per-surface `min-width` on a feature's buttons |
 
 `variant` stays where it names a layout — accordion, box, list row, tooltip — and nowhere else.

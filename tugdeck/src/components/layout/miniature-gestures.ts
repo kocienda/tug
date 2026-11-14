@@ -12,7 +12,7 @@
  * @module components/layout/miniature-gestures
  */
 
-import { columnMoveOrder } from "@/deck-store-selectors";
+import { slotMoveOrder } from "@/deck-store-selectors";
 import type { DeckState, TugPaneState } from "@/layout-tree";
 import type { DropZone } from "@/lib/drop-zones";
 import {
@@ -25,12 +25,12 @@ import type { Rect } from "@/snap";
 /**
  * How far a challenging zone must beat the incumbent before a drag on the
  * miniature moves its indication. The canvas's own margin is more than a whole
- * column in a drawing this small, so the picture passes its own.
+ * slot in a drawing this small, so the picture passes its own.
  */
 export const MINIATURE_ZONE_HYSTERESIS_PX = 3;
 
 /**
- * What a hand landed on: a whole column block, one member of a split column,
+ * What a hand landed on: a whole slot block, one member of a split slot,
  * or one member of a rail. Members carry their pane, because a member IS a
  * pane; a block names only its slot, because which of its stacked panes a
  * press reaches is the press's own question ({@link stackPressCardId}).
@@ -102,7 +102,7 @@ export function readerPaneIdOf(state: DeckState): string | null {
 }
 
 /**
- * The card a press on a column block raises, or `null` for an empty slot.
+ * The card a press on a slot block raises, or `null` for an empty slot.
  *
  * A press goes to the slot's FRONT pane. A press "in succession" — when the
  * miniature's last press raised this slot's front pane and nothing but the
@@ -123,7 +123,7 @@ export function stackPressCardId(
   if (front === null) return null;
   if (armedPaneId === front.id) {
     // Front-first for a stacked slot, so the bottom-most is the last entry.
-    const order = columnMoveOrder(state, front.id);
+    const order = slotMoveOrder(state, front.id);
     if (order.length >= 2) {
       const bottomId = order[order.length - 1];
       const bottom = state.panes.find((p) => p.id === bottomId);
@@ -169,7 +169,7 @@ export function windowDragOffset(input: {
  * its drag ghost and offered place are drawn in.
  */
 export interface MiniatureZoneParts {
-  /** Each slot's full column rect: its block's frame. */
+  /** Each slot's full slot rect: its block's frame. */
   slots: ReadonlyMap<number, Rect>;
   /** Each drawn rail strip. A side with no rail draws none. */
   rails: Partial<Record<SidebarSide, Rect>>;
@@ -198,8 +198,8 @@ export interface MiniatureZone {
  * rects and the centre tie-break can pick the buried card.
  *
  * - `slot`: the slot's trimmed rect.
- * - `column-index`: the slot's rect divided vertically into P equal bands, P
- *   being the number of `column-index` zones offered for that slot.
+ * - `slot-index`: the slot's rect divided vertically into P equal bands, P
+ *   being the number of `slot-index` zones offered for that slot.
  * - `rail-index`: the side's strip divided the same way.
  * - `tab-bar`, and any zone whose slot or side has no part: omitted. A slot
  *   offers one kind of zone — positions or the whole slot — so bands never
@@ -224,7 +224,7 @@ export function miniatureZoneRects(
   const columnCount = new Map<number, number>();
   const railCount = new Map<SidebarSide, number>();
   for (const zone of zones) {
-    if (zone.kind === "column-index") {
+    if (zone.kind === "slot-index") {
       columnCount.set(zone.slot, (columnCount.get(zone.slot) ?? 0) + 1);
     } else if (zone.kind === "rail-index") {
       railCount.set(zone.side, (railCount.get(zone.side) ?? 0) + 1);
@@ -243,7 +243,7 @@ export function miniatureZoneRects(
         if (rect !== undefined) placed.push({ zone, rect });
         break;
       }
-      case "column-index": {
+      case "slot-index": {
         const rect = visible.get(zone.slot);
         const count = columnCount.get(zone.slot) ?? 0;
         if (rect !== undefined && count > 0) {

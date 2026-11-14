@@ -94,7 +94,7 @@ import {
 } from "@/lib/cards-selection-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { SlotPicker } from "./slot-picker";
-import { CardsColumnBadge } from "./cards-column-badge";
+import { CardsSlotBadge } from "./cards-slot-badge";
 import { TugFilterField } from "@/components/tugways/tug-filter-field";
 import { useAttachedFilter } from "@/components/tugways/attached-filter";
 import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
@@ -442,7 +442,7 @@ function OneLineRow({
         {showSlots ? (
           <span className="cards-row-slots">
             <SlotPicker cardId={identity.cardId} />
-            <CardsColumnBadge cardId={identity.cardId} />
+            <CardsSlotBadge cardId={identity.cardId} />
           </span>
         ) : null}
       </RowHeadlineHover>

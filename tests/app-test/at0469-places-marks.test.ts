@@ -8,10 +8,10 @@
  * arrangement rather than the drawn one.
  *
  * The two come apart at exactly one card. Membership churn preserves an
- * arrangement (`columnDrawsSplit` in `deck-store-selectors.ts`), so a slot set
+ * arrangement (`slotDrawsSplit` in `deck-store-selectors.ts`), so a slot set
  * to split and standing one card deep renders as one undivided card. Before the
  * overlay that stored split was invisible on every surface and unreachable from
- * the Layout card, because the section's column rows were gated on `members.length > 1`
+ * the Layout card, because the section's slot rows were gated on `members.length > 1`
  * — so it sat there until a second card arrived and it resurfaced as a surprise.
  *
  *   1. **Every slot the kind defines is marked**, occupied or not, and each
@@ -39,7 +39,7 @@
  *      per rail side and per slot with something to arrange. Stack writes the
  *      mode alone and the layout is remembered; Fit and Flow write the mode
  *      and the layout together. A rail row is disabled, never absent, while
- *      its side holds fewer than two cards; a column row is absent, never
+ *      its side holds fewer than two cards; a slot row is absent, never
  *      disabled, while its slot does.
  *
  * Read from live `getBoundingClientRect()` and `data-` attributes. Nothing here
@@ -152,11 +152,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         // And the drawing is still telling its own truth: one block per
         // occupied slot, slot 1 undivided.
         const splitMembers = await app.evalJS<number>(
-          `document.querySelectorAll('.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-block[data-column-member]').length`,
+          `document.querySelectorAll('.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-block[data-slot-member]').length`,
         );
         expect(
           splitMembers,
-          "the picture draws what is on screen: no divided column",
+          "the picture draws what is on screen: no divided slot",
         ).toBe(0);
 
         // ── A rail is NOT one of the marked places. ──
@@ -357,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         expect(
           await app.evalJS<number>(
             `document.querySelectorAll(
-              '[data-plan-preview-id^="columnmode:"], [data-plan-preview-id^="railmode:"]'
+              '[data-plan-preview-id^="slotmode:"], [data-plan-preview-id^="railmode:"]'
             ).length`,
           ),
           "the arrangement layers are gone, not merely unreachable",
@@ -367,7 +367,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         //
         // Slot 1 kept a split nobody could see and nobody could reach. Press
         // its mark and the stored arrangement goes back to stack — which is the
-        // gesture the membership-gated column row denied outright, because it
+        // gesture the membership-gated slot row denied outright, because it
         // refused to exist for a slot standing one card deep.
         await app.body("L").click(mark("col-1"));
         await wait(AFTER_LAND_MS);
@@ -381,15 +381,15 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         //
         // Slot 0 is genuinely shared, so splitting it must divide the run: two
         // frames, tiling, which is what `at0455` measures in full. Here the
-        // claim is only that the mark reached the column command at all.
+        // claim is only that the mark reached the slot command at all.
         const before = await app.evalJS<number>(
-          `document.querySelectorAll('.tug-pane[data-column-split]').length`,
+          `document.querySelectorAll('.tug-pane[data-slot-split]').length`,
         );
         expect(before, "nothing is split to begin with").toBe(0);
         await app.body("L").click(mark("col-0"));
         await wait(AFTER_LAND_MS);
         const after = await app.evalJS<number>(
-          `document.querySelectorAll('.tug-pane[data-column-split]').length`,
+          `document.querySelectorAll('.tug-pane[data-slot-split]').length`,
         );
         expect(
           after,

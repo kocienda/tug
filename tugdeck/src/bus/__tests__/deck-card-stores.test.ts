@@ -85,7 +85,7 @@ describe("deck and card stores", () => {
     const body = bus.body("c1", "session");
     deckFacts.on(first.bus).set(FACTS);
     deckFacts.on(first.bus).set({ ...FACTS, zoom: 1.25 });
-    deckMenu.on(first.bus).set({ projection: { panes: 2 }, focusTravel: null, column: null });
+    deckMenu.on(first.bus).set({ projection: { panes: 2 }, focusTravel: null, slot: null });
     cardCrossing.on(first.bus).setFor("c1", { still: 3, settled: false, width: false, heightFree: false, fold: null, held: {} });
     await bus.flush();
     expect(deckFacts.on(body.bus).getSnapshot().zoom).toBe(1.25);
@@ -94,12 +94,12 @@ describe("deck and card stores", () => {
     bus.leave(first);
     const second = bus.shell();
     deckFacts.on(second.bus).set({ ...FACTS, theme: "kayak" });
-    deckMenu.on(second.bus).set({ projection: { panes: 1 }, focusTravel: null, column: null });
+    deckMenu.on(second.bus).set({ projection: { panes: 1 }, focusTravel: null, slot: null });
     cardCrossing.on(second.bus).setFor("c1", null);
     await bus.flush();
 
     expect(deckFacts.on(body.bus).getSnapshot()).toEqual({ ...FACTS, theme: "kayak" });
-    expect(deckMenu.on(body.bus).getSnapshot()).toEqual({ projection: { panes: 1 }, focusTravel: null, column: null });
+    expect(deckMenu.on(body.bus).getSnapshot()).toEqual({ projection: { panes: 1 }, focusTravel: null, slot: null });
     expect(cardCrossing.on(body.bus).getSnapshot()).toBeNull();
   });
 

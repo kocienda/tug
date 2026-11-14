@@ -12,7 +12,7 @@
  * What this file pins:
  *
  *   1. **A strip sliding under the hand slides the drawing with it.** Holding a
- *      dragged card at an overflowing column's bottom edge autoscrolls the
+ *      dragged card at an overflowing slot's bottom edge autoscrolls the
  *      strip. During the hold NOTHING is committed — the offset lives on a
  *      custom property until the drop ([P12]) — so a drawing that only knew
  *      committed state could not move at all. The census is read across the

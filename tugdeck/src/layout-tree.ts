@@ -320,7 +320,7 @@ export interface TugPaneState {
    * the window changes.
    *
    * Read only where the card stands alone in its slot or in a stacked one,
-   * which places it at the top of its run at this height. A split column
+   * which places it at the top of its run at this height. A split slot
    * divides its run by shares instead, and a pane that leaves its slot drops
    * the field with the slot. Additive-optional like `slot?` — no
    * serialization version bump.
@@ -409,24 +409,24 @@ export interface DeckState {
    */
   flowOffset?: number;
   /**
-   * How far each overflowing column's strip of members has slid up behind its
+   * How far each overflowing slot's strip of members has slid up behind its
    * run, in pixels, keyed by slot. An absent slot reads as 0 — the strip at
    * rest, its first member against the run's top.
    *
    * The vertical twin of {@link DeckState.flowOffset}, and per-slot because
-   * every overflowing column scrolls on its own. Written only by the reveal
-   * rule, on activation and on a move within the column ([P12]). Not
+   * every overflowing slot scrolls on its own. Written only by the reveal
+   * rule, on activation and on a move within the slot ([P12]). Not
    * serialized, for the same reason and with the same force: the number is
    * derivable, and a restored one would be a viewport nobody asked for onto a
-   * column that may have changed while the deck was closed.
+   * slot that may have changed while the deck was closed.
    */
-  columnOffsets?: Readonly<Record<number, number>>;
+  slotOffsets?: Readonly<Record<number, number>>;
   /**
    * How far each overflowing rail's strip of members has slid up behind its
    * run, in pixels, keyed by side. An absent side reads as 0 — the strip at
    * rest, its first member against the run's top.
    *
-   * The side-keyed twin of {@link DeckState.columnOffsets}, and per side for
+   * The side-keyed twin of {@link DeckState.slotOffsets}, and per side for
    * the reason that one is per slot: each overflowing place scrolls on its own.
    * Written only by the reveal rule, on activation ([P12]), and not serialized
    * for the same reason and with the same force: the number is derivable, and a
@@ -436,7 +436,7 @@ export interface DeckState {
   railOffsets?: Readonly<Partial<Record<SidebarSide, number>>>;
   /**
    * The height, in pixels, a modal surface has stated it needs, keyed by the
-   * member hosting it — pane id for a column member and componentId for a
+   * member hosting it — pane id for a slot member and componentId for a
    * rail one, which is how `placeMembers` names them, so nothing has to
    * translate between the two ([B01]).
    *
@@ -446,7 +446,7 @@ export interface DeckState {
    * and it says so at its own call site ([B02]); nothing is inferred.
    *
    * Session state only, and never serialized, for the same reason
-   * {@link DeckState.columnOffsets} is not: a reservation is derivable from the
+   * {@link DeckState.slotOffsets} is not: a reservation is derivable from the
    * sheet that is up, and no sheet is up across a restart, so a restored one
    * would be a claim held for a surface nobody raised. It is likewise kept out
    * of `imposition`'s stored shares ([B03]) — the division the hand set with
@@ -459,7 +459,7 @@ export interface DeckState {
   sheetReservations?: Readonly<Record<string, number>>;
   /**
    * The OPENING BID, in pixels, a member arrived carrying — keyed the way
-   * {@link DeckState.sheetReservations} above is keyed — pane id for a column
+   * {@link DeckState.sheetReservations} above is keyed — pane id for a slot
    * member and componentId for a rail one, which is how `placeMembers` names
    * them, so nothing has to translate between the two.
    *
@@ -468,7 +468,7 @@ export interface DeckState {
    * weight ([B01]). So this field and that one are the same KIND of thing —
    * two floors on one member, the larger of which binds — and neither is read
    * ahead of the other. It was a floor and a ceiling once, which is what held
-   * a card at its declared height while the column around it had room to
+   * a card at its declared height while the slot around it had room to
    * spare; the one member that still reads floor = ceiling is a folded one.
    *
    * Written at the REVEAL of a card that arrived hidden ([B04]) — the one
@@ -498,14 +498,14 @@ export interface DeckState {
    */
   openingBids?: Readonly<Record<string, number>>;
   /**
-   * The ARRIVING mark: the members drawn in their column but not yet part of
+   * The ARRIVING mark: the members drawn in their slot but not yet part of
    * its division, keyed by pane id the way {@link DeckState.openingBids} is.
    *
    * A marked pane is the real card, mounted hidden at the seat it will take,
    * so its content can lay out and report its height while the user sees
-   * nothing move ([B01], [B02]). For as long as the mark stands the column
-   * divides its run among the STANDING members only — `columnMembersOf`,
-   * `deckColumnsOf` and `placeMembers` all leave a marked pane out ([B08]) —
+   * nothing move ([B01], [B02]). For as long as the mark stands the slot
+   * divides its run among the STANDING members only — `slotMembersOf`,
+   * `deckSlotsOf` and `placeMembers` all leave a marked pane out ([B08]) —
    * so no neighbour's rect changes at the commit that appends the pane. The
    * reveal is the one commit that removes the mark and writes the opening bid
    * the hidden card measured, and from that commit the pane is an ordinary
@@ -656,11 +656,11 @@ export function sweptArriving(state: DeckState): DeckState {
  *      responder. The raw id is allowed to go stale when focus moves; the
  *      accessor derives it away, and asserting it here would throw on the
  *      normal path.
- *   9. every LIVE pane named in a column's `order` stands in that column's
- *      slot. Ids naming no live pane are inert residue and pass — a column
+ *   9. every LIVE pane named in a slot's `order` stands in that slot's
+ *      slot. Ids naming no live pane are inert residue and pass — a slot
  *      is keyed by pane id and is never cleaned up ([L23]), so residue is
- *      the normal resting state, while a live pane in the wrong column is a
- *      member the column would try to lay out where it does not stand.
+ *      the normal resting state, while a live pane in the wrong slot is a
+ *      member the slot would try to lay out where it does not stand.
  *
  * Called from `DeckManager.notify` in dev/test builds only — guarded by
  * `isDevEnv()` so production builds pay no cost. Violations surface at the
@@ -786,13 +786,13 @@ export function validateDeckState(state: DeckState): void {
 
   // Invariant 9
   for (const [key, arrangement] of Object.entries(
-    state.imposition.columns ?? {},
+    state.imposition.slots ?? {},
   )) {
     const slot = Number(key);
     for (const paneId of arrangement.order ?? []) {
       // Residue is inert, not a violation: a pane id outlives the pane, and
       // the arrangement is never cleaned up. What the invariant catches is a
-      // LIVE pane recorded in the wrong column — a member the column would
+      // LIVE pane recorded in the wrong slot — a member the slot would
       // then lay out somewhere its pane does not stand.
       if (!paneIds.has(paneId)) continue;
       const standing = slotByPaneId.get(paneId);

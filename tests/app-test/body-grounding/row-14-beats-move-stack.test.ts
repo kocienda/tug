@@ -1,5 +1,5 @@
 /**
- * row-14-beats-move-stack.test.ts — a cross-column stack move carries the
+ * row-14-beats-move-stack.test.ts — a cross-slot stack move carries the
  * Session body card with its chrome.
  *
  * A piece of row 14 ([B02] row 14; the row is `_row-14.ts`'s): two body
@@ -35,7 +35,7 @@ function twoUpDeck(bodies: readonly string[]): Record<string, unknown> {
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 14: a stack move", () => {
   test.skipIf(!sessionUnderTest(14))(
-    "a cross-column stack move carries the body card with its chrome",
+    "a cross-slot stack move carries the body card with its chrome",
     async () => {
       const stubDir = stubDirectory();
       const bodies = ["r14-s", "r14-m"];
@@ -49,7 +49,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: a stack move", () => {
         for (const id of bodies) await spawnStub(app, id, stubDir, 2);
         for (const id of bodies) await waitForBody(app, id);
         // Slot 0 stacks, so the mover crosses into it as one move beat.
-        await app.evalJS<null>(`(${action("set-column-mode", { slot: 0, mode: "stack" })}, null)`);
+        await app.evalJS<null>(`(${action("set-slot-mode", { slot: 0, mode: "stack" })}, null)`);
         await pollFor(
           () => app.evalJS<boolean>(`document.querySelector("[data-deck-canvas-background]")?.hasAttribute("data-imposer-settling") ?? false`),
           (v) => !v,

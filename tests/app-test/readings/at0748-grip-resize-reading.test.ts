@@ -5,7 +5,7 @@
  * A card's grip press hands the card to the host, which resizes the view
  * under the hand step by step; the card's page reflows at every step, since
  * nothing holds its interior still. The sash sampler (`at0626`) holds a
- * divided column's drag to two bars — no frame overruns 1.5× the display
+ * divided slot's drag to two bars — no frame overruns 1.5× the display
  * interval, and the render cost's p95 stays under the interval — and this
  * file reads a grip resize against the same two, on the same instruments,
  * taken in the card's own page: a `setTimeout` heartbeat whose gap is how long

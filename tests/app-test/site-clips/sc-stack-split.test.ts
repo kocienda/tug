@@ -20,7 +20,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { SPLIT, columnsRecord } from "../column-split-fixture";
+import { SPLIT, slotsRecord } from "../slot-split-fixture";
 import { placeholderCard, placeholderSettings, placeholderStates, standUpPlaceholders, type Placeholder } from "./_placeholders";
 import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
@@ -92,17 +92,17 @@ describe.skipIf(!RUNS)("site clip: stack and split", () => {
             // to resolve against, so the front card takes the keyboard back.
             await app.dispatchControlAction("focus-pane", { paneId: `${FRONT}-pane` });
           })
-          // ⌃⌘/, the chord `at0455-column-split-chords` proves: it resolves the
+          // ⌃⌘/, the chord `at0455-slot-split-chords` proves: it resolves the
           // slot from the first responder, which the menu row's validation
           // does not see at this moment.
           .at(split, () => app.nativeKey("/", SPLIT))
           .at(split + HOLD_MS / 2, async () => {
-            expect((await columnsRecord(app))["0"]?.mode, "the slot split").toBe("split");
+            expect((await slotsRecord(app))["0"]?.mode, "the slot split").toBe("split");
           })
           .at(split + HOLD_MS, () => app.nativeKey("/", SPLIT))
           .mark("loop-end", split + HOLD_MS + SETTLE_MS);
         expectRecorded(await s.record(app, { outDir: outDirFor("stack-split"), crop }));
-        expect((await columnsRecord(app))["0"]?.mode, "the slot is a stack again").toBe("stack");
+        expect((await slotsRecord(app))["0"]?.mode, "the slot is a stack again").toBe("stack");
       } finally {
         await app.close();
       }

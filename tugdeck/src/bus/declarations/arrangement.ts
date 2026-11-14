@@ -67,7 +67,7 @@ export interface ArrangementDeckValue {
   spaceId: string;
   deck: DeckState;
   bandWidth: number | null;
-  columnRunHeight: number | null;
+  slotRunHeight: number | null;
   railRunHeight: number | null;
 }
 
@@ -80,7 +80,7 @@ export const arrangementDeck = defineSharedStore<ArrangementDeckValue | null>({
       spaceId: str,
       deck: deckState,
       bandWidth: nullable(num),
-      columnRunHeight: nullable(num),
+      slotRunHeight: nullable(num),
       railRunHeight: nullable(num),
     }),
   ),

@@ -73,7 +73,7 @@ describe("grouping", () => {
     expect(rowFor("save")?.group).toBe("File");
     expect(rowFor("cut")?.group).toBe("Edit");
     expect(rowFor("reveal-stack")?.group).toBe("Go");
-    expect(rowFor("toggle-column-split")?.group).toBe("Window");
+    expect(rowFor("toggle-slot-split")?.group).toBe("View");
     expect(rowFor("quit-application")?.group).toBe("Tug");
   });
 

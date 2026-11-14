@@ -448,7 +448,7 @@ describe("imposeRect", () => {
   });
 
   test("anchor end puts the frame at the run's bottom, spending no slack", () => {
-    // An arriving card's seat ([B08]): a newcomer to a split column lands at
+    // An arriving card's seat ([B08]): a newcomer to a split slot lands at
     // the bottom, so while it is hidden it draws at the bottom of the run at
     // its floor, over the neighbour that will shrink to make room.
     const r = imposeRect(at(0, 1), 400, FULL, { height: 160, anchor: "end" });

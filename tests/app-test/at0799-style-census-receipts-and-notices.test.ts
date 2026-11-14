@@ -6,8 +6,8 @@
  * Four features used to restyle a primitive from their own CSS: the usage-limit
  * notice rewrote `TugInlineAlert`'s border, icon and body; the Overview
  * restyled `TugTranscriptEntry`'s gutter, identifier, timestamp and glyph; the
- * Cards space tally stripped `TugBadge`'s padding; and the Cards column badge
- * overrode six of `TugColumnBadge`'s tokens. Those now live in the primitives
+ * Cards space tally stripped `TugBadge`'s padding; and the Cards slot badge
+ * overrode six of `TugSlotBadge`'s tokens. Those now live in the primitives
  * as variants the features pass, and the one claim worth pinning is that
  * nothing a user can see moved. This file reads a fixed property list off each
  * and compares it with the baseline recorded before the CSS moved
@@ -23,10 +23,10 @@
  * @covers tugdeck/src/components/overview/overview-card.css
  * @covers tugdeck/src/components/tugways/tug-badge.tsx
  * @covers tugdeck/src/components/tugways/tug-badge.css
- * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
- * @covers tugdeck/src/components/tugways/tug-column-badge.css
- * @covers tugdeck/src/components/cards/cards-column-badge.tsx
- * @covers tugdeck/src/components/cards/cards-column-badge.css
+ * @covers tugdeck/src/components/tugways/tug-slot-badge.tsx
+ * @covers tugdeck/src/components/tugways/tug-slot-badge.css
+ * @covers tugdeck/src/components/cards/cards-slot-badge.tsx
+ * @covers tugdeck/src/components/cards/cards-slot-badge.css
  * @covers tugdeck/src/components/cards/cards-space-header.tsx
  */
 
@@ -46,22 +46,22 @@ const MSG = `${SID}-m1`;
 const NOTICE = ".session-usage-limit-notice";
 const POST = '[data-testid="overview-transcript"] .tug-transcript-entry';
 const TALLY = '[data-testid="cards-space-count"] .tug-badge';
-const COLUMN_BADGE = '.cards-list [data-testid="cards-column-badge"]';
+const SLOT_BADGE = '.cards-list [data-testid="cards-slot-badge"]';
 
-const COLUMN_BADGE_TOKENS = [
-  "--tugx-column-badge-fg",
-  "--tugx-column-badge-fill",
-  "--tugx-column-badge-stroke",
-  "--tugx-column-badge-lit-fill",
-  "--tugx-column-badge-accent",
-  "--tugx-column-badge-knockout",
+const SLOT_BADGE_TOKENS = [
+  "--tugx-slot-badge-fg",
+  "--tugx-slot-badge-fill",
+  "--tugx-slot-badge-stroke",
+  "--tugx-slot-badge-lit-fill",
+  "--tugx-slot-badge-accent",
+  "--tugx-slot-badge-knockout",
   "color",
   "margin-left",
 ];
 const SLICE_PAINT = ["fill", "stroke", "stroke-width", "opacity"];
 
 /** One session card in a pane that holds a slot — a card in a slot is what
- *  the Cards row's column badge reports on. */
+ *  the Cards row's slot badge reports on. */
 function deckShape(): Record<string, unknown> {
   return {
     cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
@@ -147,15 +147,15 @@ describe.skipIf(!SHOULD_RUN)("at0799 — style census: receipts and notices", ()
         const cards = kindBody(app, "cards");
         await cards.waitForCondition<boolean>(exists(".cards-list .cards-row"), { timeoutMs: 10_000 });
         await cards.waitForCondition<boolean>(
-          `${exists(TALLY)} && ${exists(COLUMN_BADGE)}`,
+          `${exists(TALLY)} && ${exists(SLOT_BADGE)}`,
           { timeoutMs: 10_000 },
         );
         Object.assign(reading, await censusRead(cards, [
           { selector: TALLY },
-          { selector: COLUMN_BADGE, properties: COLUMN_BADGE_TOKENS },
-          { selector: `${COLUMN_BADGE} [data-region="top"]`, properties: SLICE_PAINT },
-          { selector: `${COLUMN_BADGE} [data-region="middle"]`, properties: SLICE_PAINT },
-          { selector: `${COLUMN_BADGE} [data-region="bottom"]`, properties: SLICE_PAINT },
+          { selector: SLOT_BADGE, properties: SLOT_BADGE_TOKENS },
+          { selector: `${SLOT_BADGE} [data-region="top"]`, properties: SLICE_PAINT },
+          { selector: `${SLOT_BADGE} [data-region="middle"]`, properties: SLICE_PAINT },
+          { selector: `${SLOT_BADGE} [data-region="bottom"]`, properties: SLICE_PAINT },
         ]));
 
         // ── The Overview: one observer post. ──

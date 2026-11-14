@@ -1,11 +1,11 @@
 /**
- * at0467-cards-column-badge.test.ts — a Cards row says where its card stands
+ * at0467-cards-slot-badge.test.ts — a Cards row says where its card stands
  * INSIDE its slot.
  *
  * The slot run on a Cards Sessions row says which numbered place the card holds.
  * It has never said the rest of the coordinate: whether that place is shared,
  * by how many, and — when the place is split — which band the card is. The
- * column badge is that fact, drawn in the slot chip's own footprint so the two
+ * slot badge is that fact, drawn in the slot chip's own footprint so the two
  * read left to right as one address.
  *
  * What this file pins:
@@ -21,7 +21,7 @@
  *      at a stack will give you is how many are behind the front card — but
  *      the marked slice is that row's own position in the z-order, so a list of
  *      three sharers says which of them you are actually looking at.
- *   3. **A split slot's rows show the BAND LETTER, in the column's own member
+ *   3. **A split slot's rows show the BAND LETTER, in the slot's own member
  *      order.** A is the topmost band. This is the one place letters appear,
  *      and it is what makes a Cards row and the pane's own cluster the same
  *      address rather than two descriptions.
@@ -30,11 +30,11 @@
  * member picker's door is the badge on the pane's cluster (at0455). So there is
  * no gesture here to drive; the claims are about what the row says.
  *
- * @covers tugdeck/src/components/cards/cards-column-badge.tsx
+ * @covers tugdeck/src/components/cards/cards-slot-badge.tsx
  * @covers tugdeck/src/components/cards/cards-session-cell.tsx
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
- * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
+ * @covers tugdeck/src/components/tugways/tug-slot-badge.tsx
  * @covers tugdeck/src/components/cards/slot-picker.tsx
  */
 
@@ -130,13 +130,13 @@ interface RowBadge {
   front: boolean;
 }
 
-/** Every Cards Sessions row, with whatever column badge it carries. */
+/** Every Cards Sessions row, with whatever slot badge it carries. */
 async function rowBadges(app: App): Promise<RowBadge[]> {
   return app.body("L").evalJS<RowBadge[]>(
     `Array.prototype.slice.call(
       document.querySelectorAll('.cards-list .cards-row[data-session-id]')
     ).map(function (row) {
-      var badge = row.querySelector('[data-testid="cards-column-badge"]');
+      var badge = row.querySelector('[data-testid="cards-slot-badge"]');
       return {
         sessionId: row.getAttribute("data-session-id"),
         kind: badge === null ? null : badge.getAttribute("data-kind"),
@@ -174,7 +174,7 @@ async function contentRowBadge(app: App): Promise<string> {
            return el.textContent.indexOf(${JSON.stringify(TEXT_CARD_TITLE)}) >= 0;
          })[0];
        if (row === undefined) throw new Error("no content row for the text card");
-       var badge = row.querySelector('[data-testid="cards-column-badge"]');
+       var badge = row.querySelector('[data-testid="cards-slot-badge"]');
        return badge === null
          ? "none"
          : badge.getAttribute("data-kind") + ":" + badge.textContent.trim();
@@ -182,11 +182,11 @@ async function contentRowBadge(app: App): Promise<string> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
+describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's slot badge", () => {
   test(
     "every row says where its card stands, one card deep or shared",
     async () => {
-      const app = await launchTugApp({ testName: "at0467-cards-column-badge" });
+      const app = await launchTugApp({ testName: "at0467-cards-slot-badge" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         // An unbound session card renders the project picker instead of a
@@ -269,7 +269,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
                  .querySelector('[data-testid="cards-slot-picker"]')
                  .getBoundingClientRect();
                var badge = row
-                 .querySelector('[data-testid="cards-column-badge"]')
+                 .querySelector('[data-testid="cards-slot-badge"]')
                  .getBoundingClientRect();
                // How much room is left after the badge, out to the row's own
                // content edge — the run is pushed to the trailing edge, so
@@ -326,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
         // ── Split: the same two rows become an address. ──
         // card-dom: shell
         await app.evalJS<null>(
-          `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
+          `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "split" }), null)`,
         );
         await wait(AFTER_LAND_MS);
 

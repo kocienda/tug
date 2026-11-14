@@ -152,7 +152,7 @@ export interface CardDeck {
   /**
    * Commit the height a modal surface standing on `memberId` has stated it
    * needs, or drop the claim with a `null` height. `memberId` is the member
-   * the way `placeMembers` names it — a pane id for a column member, a
+   * the way `placeMembers` names it — a pane id for a slot member, a
    * componentId for a rail one.
    *
    * On the store because the claim is deck state: the place's allocator reads
@@ -195,7 +195,7 @@ export interface CardDeck {
    * responder chain in case it drifted).
    *
    * `reveal: false` declines the strip reveal the commit would otherwise
-   * ride — the minimal slide of a flow band, an overflowing column, or an
+   * ride — the minimal slide of a flow band, an overflowing slot, or an
    * overflowing rail that brings the member fully in. The POINTER passes
    * it: the hand is already on the card it named, and a strip that slides
    * under a press moves the title bar out from under the mouse that is
@@ -666,8 +666,8 @@ export interface DeckView extends CardDeck {
    * the snapshot.
    */
   getBandWidth: () => number | null;
-  getColumnRunHeight: () => number | null;
-  /** The same run under the other place's name — a rail and a column divide
+  getSlotRunHeight: () => number | null;
+  /** The same run under the other place's name — a rail and a slot divide
    *  one vertical extent. */
   getRailRunHeight: () => number | null;
   setFlowOffset: (offset: number, landing?: CommitLanding) => void;

@@ -40,7 +40,7 @@ import React from "react";
 import { TugNamedIcon } from "@/components/tugways/tug-named-icon";
 
 import { getRegistration } from "@/card-registry";
-import { deckColumnsOf, railMembersOf } from "@/deck-store-selectors";
+import { deckSlotsOf, railMembersOf } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 import { useArcForSession } from "@/lib/arc-session-index";
@@ -146,8 +146,8 @@ function placeOf(deck: DeckState | null, target: MiniatureTarget): TipPlace | nu
   if (target.kind === "member") {
     const pane = deck.panes.find((p) => p.id === target.paneId);
     if (pane === undefined) return null;
-    const column = deckColumnsOf(deck, null).find((c) => c.slot === target.slot);
-    const members = column?.members ?? [];
+    const deckSlot = deckSlotsOf(deck, null).find((c) => c.slot === target.slot);
+    const members = deckSlot?.members ?? [];
     const index = members.indexOf(target.paneId);
     const down = index < 0 ? null : positionDown(index, members.length);
     return {

@@ -10,7 +10,7 @@
  * `BodyViewController.runPlan`). Both of the settle's planning sites are
  * driven: the flow strip's slide (Go to slot, out and back, in a four-up
  * flow band holding two body cards) and the Last pass's move beat (a
- * cross-column stack move in a two-up).
+ * cross-slot stack move in a two-up).
  *
  * On each gesture (`_motion.ts`'s `carryLeg`): the placer planned every body
  * card the gesture moved; on every composited frame where the chrome moves

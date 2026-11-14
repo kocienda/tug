@@ -27,7 +27,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { SPLIT, columnsRecord } from "../column-split-fixture";
+import { SPLIT, slotsRecord } from "../slot-split-fixture";
 import { placeholderCard, placeholderSettings, placeholderStates, standUpPlaceholders, type Placeholder } from "./_placeholders";
 import { RUNS, cropFor, expectRecorded, launchForMode, outDirFor, scene } from "./_site-clips";
 
@@ -97,12 +97,12 @@ describe.skipIf(!RUNS)("site clip: card address", () => {
           // card holds; see `sc-stack-split` for why the menu row is not used.
           .at(REST_MS, () => app.nativeKey("/", SPLIT))
           .at(REST_MS + HOLD_MS / 2, async () => {
-            expect((await columnsRecord(app))["0"]?.mode, "the slot split").toBe("split");
+            expect((await slotsRecord(app))["0"]?.mode, "the slot split").toBe("split");
           })
           .at(REST_MS + HOLD_MS, () => app.nativeKey("/", SPLIT))
           .mark("loop-end", REST_MS + HOLD_MS + SETTLE_MS);
         expectRecorded(await s.record(app, { outDir: outDirFor("card-address"), crop }));
-        expect((await columnsRecord(app))["0"]?.mode, "the slot is a stack again").toBe("stack");
+        expect((await slotsRecord(app))["0"]?.mode, "the slot is a stack again").toBe("stack");
       } finally {
         await app.close();
       }

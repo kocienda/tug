@@ -93,7 +93,7 @@ describe("a pin does not survive serialization", () => {
     imposition: {
       kind: "two-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p1", "p2"] } },
+      slots: { 0: { mode: "split", order: ["p1", "p2"] } },
     },
     openingBids: { p2: 444 },
     hasFocus: true,

@@ -12,7 +12,7 @@
  */
 
 import type {
-  ColumnMoveTarget,
+  SlotMoveTarget,
   ContentWidth,
   GapPreset,
   FlowBandEdges,
@@ -156,7 +156,7 @@ export interface IDeckManagerStore extends DeckView {
   getImpositionGestureAt: () => number | null;
 
   /**
-   * Commit where a drag left a scrolled strip — an overflowing column's
+   * Commit where a drag left a scrolled strip — an overflowing slot's
    * ([P12]), an overflowing rail's, and the flow strip's. One write at the end
    * of the gesture, because the strip moved imperatively while the hand was
    * down and this is where the store catches up with it.
@@ -168,7 +168,7 @@ export interface IDeckManagerStore extends DeckView {
    * flow strip's segment click and the Center Card chord, leaves the default
    * `"cross"` and the settle carries the crossing.
    */
-  setColumnOffset: (
+  setSlotOffset: (
     slot: number,
     offset: number,
     landing?: CommitLanding,
@@ -315,16 +315,16 @@ export interface IDeckManagerStore extends DeckView {
   moveSidebarToRail: (componentId: string, side: SidebarSide, index: number) => void;
 
   /**
-   * Set a slot's height weights — the column seam drag's commit, and a
+   * Set a slot's height weights — the slot seam drag's commit, and a
    * gesture's commit for the same reason {@link setRailShares} is. Weights are
    * per PANE id: a slot holds panes, and a pane may itself be a tab stack, so
    * there is no card-level identity to key a member by ([P11]).
    */
-  setColumnShares: (slot: number, shares: Record<string, number>) => void;
+  setSlotShares: (slot: number, shares: Record<string, number>) => void;
 
-  /** Put a slot's members in a stated vertical order — the move-in-column
+  /** Put a slot's members in a stated vertical order — the move-in-slot
    *  chords' commit, filtered to the panes actually standing in that slot. */
-  setColumnOrder: (
+  setSlotOrder: (
     slot: number,
     order: readonly string[],
     movedPaneId?: string,
@@ -332,7 +332,7 @@ export interface IDeckManagerStore extends DeckView {
 
   /**
    * Move a whole pane to a slot, optionally at a stated index in that slot's
-   * split column — the drop-zone drag's commit for a card crossing places
+   * split slot — the drop-zone drag's commit for a card crossing places
    * ([P10]).
    *
    * Pane-addressed where {@link assignCardToSlot} is card-addressed: a
@@ -354,11 +354,11 @@ export interface IDeckManagerStore extends DeckView {
   assignCardToSlot: (cardId: string, slot: number) => SlotAssignment;
 
   /**
-   * Move a pane within its own column — the move-in-column chords' commit.
-   * Returns false when the move is refused (no column, a column of one, or a
+   * Move a pane within its own slot — the move-in-slot chords' commit.
+   * Returns false when the move is refused (no slot, a slot of one, or a
    * member already at that end), which the caller turns into a visible flash.
    */
-  moveInColumn: (paneId: string, where: ColumnMoveTarget) => boolean;
+  moveInSlot: (paneId: string, where: SlotMoveTarget) => boolean;
 
   /**
    * Set the active card in a pane. No-op when `cardId` is not in

@@ -1,13 +1,13 @@
 /**
- * place-properties — the one door that writes a column's custom properties
+ * place-properties — the one door that writes a slot's custom properties
  * onto the elements that read them.
  *
- * A slot's seams, offset and strip coordinates (`columnSeamProperty`,
- * `columnOffsetProperty`, `columnStripProperty` in `layout-imposer.ts`) used
+ * A slot's seams, offset and strip coordinates (`slotSeamProperty`,
+ * `slotOffsetProperty`, `slotStripProperty` in `layout-imposer.ts`) used
  * to be written on the canvas and on every space layer, and inherited down to
  * the frames' `calc()`s. A changed custom property invalidates the computed
  * style of every descendant of the element it is written on, so a fold —
- * which moves one column's seams — re-resolved the style of the whole deck:
+ * which moves one slot's seams — re-resolved the style of the whole deck:
  * on an eight-card deck of real transcripts the first frame after the commit
  * paid a forced style resolve of 86–97 ms through the next geometry read
  * (`briefs/engine-time-in-the-motion-readings.md`). The flow offset was moved
@@ -22,18 +22,18 @@
  *   - under a layer, the imposed frames of that slot
  *     (`.tug-pane[data-imposed="<slot>"]`) — every layer carries its own
  *     deck's values, shown or not ([B02]);
- *   - under the canvas, that slot's column seams, which belong to the shown
+ *   - under the canvas, that slot's seams, which belong to the shown
  *     deck and stand directly under it, and the shown layer's frames of that
- *     slot, so a per-frame writer (a seam drag, a column autoscroll) moves
+ *     slot, so a per-frame writer (a seam drag, a slot autoscroll) moves
  *     both halves of what the eye sees in one call.
  *
- * A frame carries only its own slot's values, so a change to one column
- * invalidates that column's frames and nothing else. Every write is also kept
+ * A frame carries only its own slot's values, so a change to one slot
+ * invalidates that slot's frames and nothing else. Every write is also kept
  * against its layer, because a seam's `var()` fallback is the EQUAL division
  * rather than the hand's: a frame that comes to stand in a slot without the
- * arrangement moving — mounted into a column, moved in from another slot —
+ * arrangement moving — mounted into a slot, moved in from another slot —
  * adopts that slot's standing values in its own layout effect
- * ({@link adoptColumnProperties}) instead of falling back to a division
+ * ({@link adoptSlotProperties}) instead of falling back to a division
  * nobody chose.
  *
  * @module components/chrome/place-properties
@@ -53,7 +53,7 @@ function frameReadersOf(layer: ParentNode, slot: number): HTMLElement[] {
  * frames, or, when `root` is the canvas, its own seams of that slot and the
  * shown layer's frames.
  */
-export function columnReadersOf(
+export function slotReadersOf(
   root: Element,
   slot: number,
   canvas: boolean,
@@ -65,14 +65,14 @@ export function columnReadersOf(
   return [
     ...Array.from(
       root.querySelectorAll<HTMLElement>(
-        `:scope > .tug-place-seam[data-column-seam^="${slot}:"]`,
+        `:scope > .tug-place-seam[data-slot-seam^="${slot}:"]`,
       ),
     ),
     ...(shown === null ? [] : frameReadersOf(shown, slot)),
   ];
 }
 
-/** Each layer's standing column values, by property name. */
+/** Each layer's standing slot values, by property name. */
 const standing = new WeakMap<Element, Map<string, string>>();
 
 /** The layer whose frames `root`'s writes reach: `root` itself, or the shown
@@ -87,12 +87,12 @@ function layerOf(root: Element, canvas: boolean): Element | null {
  * A slot's readers under `root`, resolved once, and a writer over them that
  * also keeps each value against the layer. `value === null` clears.
  */
-export function columnWriter(
+export function slotWriter(
   root: Element,
   slot: number,
   canvas: boolean,
 ): (name: string, value: string | null) => void {
-  const readers = columnReadersOf(root, slot, canvas);
+  const readers = slotReadersOf(root, slot, canvas);
   const layer = layerOf(root, canvas);
   let kept = layer === null ? undefined : standing.get(layer);
   if (layer !== null && kept === undefined) {
@@ -124,7 +124,7 @@ export function columnWriter(
  * (read on the live deck with `tugtool deck motion settle --gesture bullseye`,
  * the window in front).
  */
-export function adoptColumnProperties(frame: HTMLElement, slot: number): void {
+export function adoptSlotProperties(frame: HTMLElement, slot: number): void {
   const layer = frame.closest(`.${SPACE_LAYER_CLASS}`);
   const kept = layer === null ? undefined : standing.get(layer);
   if (kept === undefined) return;
@@ -141,11 +141,11 @@ export function adoptColumnProperties(frame: HTMLElement, slot: number): void {
  * reading it — the canvas's seams and the shown layer's frames. The door a
  * per-frame writer calls.
  */
-export function writeCanvasColumnProperty(
+export function writeCanvasSlotProperty(
   container: Element,
   slot: number,
   name: string,
   value: string | null,
 ): void {
-  columnWriter(container, slot, true)(name, value);
+  slotWriter(container, slot, true)(name, value);
 }

@@ -95,10 +95,10 @@ import {
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
   bullseyePaneIdOf,
-  columnAllocationOf,
-  columnMembersOf,
-  columnMoveOrder,
-  deckColumnsOf,
+  slotAllocationOf,
+  slotMembersOf,
+  slotMoveOrder,
+  deckSlotsOf,
   deckFlowStrip,
   equalizableSlotsOf,
   findSidebarPanes,
@@ -174,7 +174,7 @@ import {
   withRailHidden,
   clampFlowOffset,
   clampStripOffset,
-  columnModeOf,
+  slotModeOf,
   type PlaceAllocation,
   effectiveRailOrder,
   flowRevealOffset,
@@ -195,10 +195,10 @@ import {
   stripRevealOffset,
   withRailOrder,
   withSidebarMovedToRail,
-  withColumnMode,
-  sweptColumnOrders,
-  withColumnOrder,
-  withColumnShares,
+  withSlotMode,
+  sweptSlotOrders,
+  withSlotOrder,
+  withSlotShares,
   withRailShares,
   placeSharesFromHeights,
   CONTENT_WIDTH_SLIM_PX,
@@ -211,10 +211,10 @@ import {
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
-  type ColumnMode,
+  type SlotMode,
   type ImpositionLayout,
   type ResizeSlot,
-  type ColumnMoveTarget,
+  type SlotMoveTarget,
   type RailArrangement,
   type RailPolicy,
   type RailWidths,
@@ -313,7 +313,7 @@ function cachedRowIsLive(row: CardBinding | undefined): row is CardBinding {
 
 export type { SlotAssignment } from "./layout-imposition";
 export type { TeardownSaveResult, TerminationVerdict } from "./teardown";
-export { columnIsWall, panesWithFolded, panesWithWallFolded } from "./fold";
+export { slotIsWall, panesWithFolded, panesWithWallFolded } from "./fold";
 
 /**
  * Make `DeckState.hasFocus` follow the app's activity, as the host's
@@ -962,7 +962,7 @@ export class DeckManager implements IDeckManagerStore {
    * deck moves. This is what {@link retuneSidebarAllocation} compares against
    * to notice.
    */
-  private _lastPlaceRuns: PlaceRuns = { rail: null, column: null };
+  private _lastPlaceRuns: PlaceRuns = { rail: null, slot: null };
 
   /**
    * Every card the first responder has landed on, most recent first, each id
@@ -3037,7 +3037,7 @@ export class DeckManager implements IDeckManagerStore {
     // is that sheet and nothing else. Its height depends on what the sheet
     // draws — rows a store answers lazily, synopses on their own schedule —
     // so nothing read before the commit can know it. The pane is committed
-    // now, marked arriving, drawn hidden in its column at the seat it will
+    // now, marked arriving, drawn hidden in its slot at the seat it will
     // take, and the live card's own report is the measure; the reveal is a
     // later commit that clears the mark and writes the bid from that report
     // ([B04]). A caller that binds the card in the same gesture (`opening:
@@ -3084,8 +3084,8 @@ export class DeckManager implements IDeckManagerStore {
         cards: [...this.deckState.cards, ...seededCards],
         panes: arrived,
         activePaneId: paneId,
-        // A new card opening into a split column is seated at its BOTTOM,
-        // in this same commit ([D194]): the column's order names it from
+        // A new card opening into a split slot is seated at its BOTTOM,
+        // in this same commit ([D194]): the slot's order names it from
         // the pane's first frame, so where a new card appears is a rule
         // rather than the fallback's reading of two uuids. A card arriving
         // VISIBLE is weighted here too, so what it takes of the run is a
@@ -3229,8 +3229,8 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * The REVEAL commit for a pane that arrived hidden ([B04]): one commit that
    * clears the arriving mark, writes the opening bid from the sheet's last
-   * hidden report, seats the newcomer's weight in its column, and slides the
-   * column's strip if the newcomer overflows it — so the settle it arms
+   * hidden report, seats the newcomer's weight in its slot, and slides the
+   * slot's strip if the newcomer overflows it — so the settle it arms
    * carries `room` for the neighbours, the strip's travel, and `arrive` for
    * the card, fused as one motion.
    *
@@ -3290,11 +3290,11 @@ export class DeckManager implements IDeckManagerStore {
               true,
             ),
     };
-    // The column's scroll is a term of THIS commit, not a later one. A
+    // The slot's scroll is a term of THIS commit, not a later one. A
     // newcomer whose floor does not fit beside its sitters overflows the
-    // column into a strip, and the strip has to slide to show the card
+    // slot into a strip, and the strip has to slide to show the card
     // whole; written here, that slide rides the room beat with the sitters'
-    // shrink, so the settle plays room, arrive, and the column's travel as
+    // shrink, so the settle plays room, arrive, and the slot's travel as
     // one motion. Left for `_revealAfterArrival`, it was its own commit a beat
     // after the card had landed — the deck's "TWO MOVES" rule, written for a
     // file link opening a card in a slot the band is not showing, and read
@@ -3727,46 +3727,46 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * The pane ids standing in `slot`, in the order the slot's column puts them —
+   * The pane ids standing in `slot`, in the order the slot puts them —
    * top to bottom when it is split, and the same list held in reserve when it
    * is stacked.
    *
-   * Read through `deckColumnsOf` rather than derived here, because that is the
-   * order the deck DRAWS. Two readings of one column would agree only by luck,
+   * Read through `deckSlotsOf` rather than derived here, because that is the
+   * order the deck DRAWS. Two readings of one slot would agree only by luck,
    * and the frame they disagreed in is the one where a member is laid out at
    * another member's pins.
    */
-  private _columnOrder(slot: number): readonly string[] {
-    return columnMembersOf(this.deckState, slot);
+  private _slotOrder(slot: number): readonly string[] {
+    return slotMembersOf(this.deckState, slot);
   }
 
   /**
-   * Move `paneId` within its column — the move-in-column chords' commit.
+   * Move `paneId` within its slot — the move-in-slot chords' commit.
    *
    * Returns false when the move is refused, which the caller turns into a
-   * visible flash: a pane in no column, a column of one, or a member already
+   * visible flash: a pane in no slot, a slot of one, or a member already
    * at the end it was asked to travel to. A silent false would be a chord that
    * looks broken rather than one that hit an edge.
    *
-   * **What "up" means depends on how the column stands, and deliberately so.**
+   * **What "up" means depends on how the slot stands, and deliberately so.**
    * Split, the members divide the run and up is up: the chord reorders the
    * stored order and the frames swap pins. Stacked, nothing is above anything
    * — every member draws the same rect — so the only ordering the user can see
    * is z, and up is toward the front. One chord, one meaning per arrangement,
    * and never dead on an unsplit slot ([P12]).
    */
-  moveInColumn(paneId: string, where: ColumnMoveTarget): boolean {
+  moveInSlot(paneId: string, where: SlotMoveTarget): boolean {
     const kind = this.deckState.imposition.kind;
     if (kind === undefined) return false;
     const pane = this.deckState.panes.find((p) => p.id === paneId);
     if (pane?.slot === undefined) return false;
     const slot = clampSlot(kind, pane.slot);
-    const split = columnModeOf(this.deckState.imposition, slot) === "split";
+    const split = slotModeOf(this.deckState.imposition, slot) === "split";
     // Split: top-to-bottom, the order the eye reads. Stacked: back-to-front,
     // reversed so index 0 is the front and "up" is one index earlier in both.
-    // The same walk the menu's `column` fact reads to say whether this move
+    // The same walk the menu's `slot` fact reads to say whether this move
     // would be refused.
-    const order = [...columnMoveOrder(this.deckState, paneId)];
+    const order = [...slotMoveOrder(this.deckState, paneId)];
     if (order.length < 2) return false;
     const from = order.indexOf(paneId);
     if (from === -1) return false;
@@ -3784,11 +3784,11 @@ export class DeckManager implements IDeckManagerStore {
       const next = [...order];
       next.splice(from, 1);
       next.splice(to, 0, paneId);
-      // Named as the moved member, so an overflowing column slides to show
+      // Named as the moved member, so an overflowing slot slides to show
       // where the card went in the same commit that moved it. Sending a card
-      // to the bottom of a five-member column and leaving it below the run
+      // to the bottom of a five-member slot and leaving it below the run
       // would be a move with no visible outcome.
-      this.setColumnOrder(slot, next, paneId);
+      this.setSlotOrder(slot, next, paneId);
       return true;
     }
 
@@ -3818,24 +3818,24 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
-   * Stack or split `slot`'s column, reached from the stack badge, the Layout
+   * Stack or split the cards in `slot`, reached from the stack badge, the Layout
    * card, and ⌃⌘/.
    *
    * Splitting materializes the slot's `order` in the same imposition for the
-   * same reason a rail does: a split column's vertical order is stored state
+   * same reason a rail does: a split slot's vertical order is stored state
    * from the first frame rather than a fallback a later raise could move. One
    * commit carrying both fields arms exactly one settle.
    *
    * Re-stacking keeps order and shares, so a re-split lands where the user left
    * it rather than on a default.
    */
-  setColumnMode(slot: number, mode: ColumnMode): void {
+  setSlotMode(slot: number, mode: SlotMode): void {
     const imposition = this.deckState.imposition;
-    if (columnModeOf(imposition, slot) === mode) return;
-    const next = withColumnMode(imposition, slot, mode);
+    if (slotModeOf(imposition, slot) === mode) return;
+    const next = withSlotMode(imposition, slot, mode);
     this._reimpose(
       mode === "split"
-        ? withColumnOrder(next, slot, this._columnOrder(slot))
+        ? withSlotOrder(next, slot, this._slotOrder(slot))
         : next,
     );
   }
@@ -3843,17 +3843,17 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Put `slot`'s members in `order`, top to bottom — what a corridor drag and
-   * the move-in-column chords commit.
+   * the move-in-slot chords commit.
    *
    * Filtered to panes that actually stand in `slot`, so a caller cannot record
-   * a pane from another slot, a free pane, or a rail as a member of a column.
-   * Unlike {@link setRailOrder}, ids the column does not currently hold are
+   * a pane from another slot, a free pane, or a rail as a member of a slot.
+   * Unlike {@link setRailOrder}, ids the slot does not currently hold are
    * *dropped* rather than kept: a rail member's place survives its card being
-   * closed because a rail is keyed by card type, and a column is keyed by pane
+   * closed because a rail is keyed by card type, and a slot is keyed by pane
    * id, which nothing will ever bring back. Keeping them would grow the record
    * forever to preserve places no member can return to.
    */
-  setColumnOrder(
+  setSlotOrder(
     slot: number,
     order: readonly string[],
     movedPaneId?: string,
@@ -3862,23 +3862,23 @@ export class DeckManager implements IDeckManagerStore {
       this.deckState.panes.filter((p) => p.slot === slot).map((p) => p.id),
     );
     const members = order.filter((paneId) => standing.has(paneId));
-    const current = this.deckState.imposition.columns?.[slot]?.order;
+    const current = this.deckState.imposition.slots?.[slot]?.order;
     if (current !== undefined && current.length === members.length) {
       if (current.every((id, i) => id === members[i])) return;
     }
     this._reimpose(
-      withColumnOrder(this.deckState.imposition, slot, members),
+      withSlotOrder(this.deckState.imposition, slot, members),
       movedPaneId,
     );
   }
 
   /**
-   * Set `slot`'s height weights — the column seam drag's commit. Weights that
+   * Set `slot`'s height weights — the slot seam drag's commit. Weights that
    * are not finite non-negative numbers are dropped rather than stored,
    * exactly as {@link setRailShares} drops them — zero included as a weight,
    * for {@link setRailShares}'s own reason.
    */
-  setColumnShares(slot: number, shares: Record<string, number>): void {
+  setSlotShares(slot: number, shares: Record<string, number>): void {
     const standing = new Set(
       this.deckState.panes.filter((p) => p.slot === slot).map((p) => p.id),
     );
@@ -3889,7 +3889,7 @@ export class DeckManager implements IDeckManagerStore {
       if (!Number.isFinite(weight) || weight < 0) continue;
       weights[paneId] = weight;
     }
-    this._reimpose(withColumnShares(this.deckState.imposition, slot, weights));
+    this._reimpose(withSlotShares(this.deckState.imposition, slot, weights));
   }
 
   /** Divide `slot`'s run equally again — what the badge's "Equalize Heights"
@@ -3897,12 +3897,12 @@ export class DeckManager implements IDeckManagerStore {
    *  standing, rather than dropping the record: an absent record and an
    *  all-ones one allocate alike, and equalize is a hand's division like any
    *  drag, which means it outlives the next membership change ([B04]). */
-  equalizeColumn(slot: number): void {
+  equalizeSlot(slot: number): void {
     const imposition = this.deckState.imposition;
-    const members = columnMembersOf(this.deckState, slot);
+    const members = slotMembersOf(this.deckState, slot);
     if (members.length < 2) return;
     this._reimpose(
-      withColumnShares(
+      withSlotShares(
         imposition,
         slot,
         Object.fromEntries(members.map((paneId) => [paneId, 1])),
@@ -3910,21 +3910,21 @@ export class DeckManager implements IDeckManagerStore {
     );
   }
 
-  /** Divide every split column's run equally again — View ▸ Equalize All
-   *  Heights. Each slot gets exactly what {@link equalizeColumn} would write,
+  /** Divide every split slot's run equally again — View ▸ Equalize All
+   *  Heights. Each slot gets exactly what {@link equalizeSlot} would write,
    *  composed into ONE imposition, so the deck commits once and an undo takes
-   *  every column back together. Rails are not columns and are untouched. */
-  equalizeAllColumns(): void {
+   *  every slot back together. Rails are not slots and are untouched. */
+  equalizeAllSlots(): void {
     const slots = equalizableSlotsOf(this.deckState);
     if (slots.length === 0) return;
     this._reimpose(
       slots.reduce(
         (imposition, slot) =>
-          withColumnShares(
+          withSlotShares(
             imposition,
             slot,
             Object.fromEntries(
-              columnMembersOf(this.deckState, slot).map((paneId) => [paneId, 1]),
+              slotMembersOf(this.deckState, slot).map((paneId) => [paneId, 1]),
             ),
           ),
         this.deckState.imposition,
@@ -4185,8 +4185,8 @@ export class DeckManager implements IDeckManagerStore {
        *
        * The reveal rules answer for the pane the gesture was ABOUT, and for
        * almost every caller that is the active one — the gesture raised it, or
-       * moved the arrangement under it. A move within a column is the
-       * exception: `moveInColumn` can carry a member the Cards card resolved rather
+       * moved the arrangement under it. A move within a slot is the
+       * exception: `moveInSlot` can carry a member the Cards card resolved rather
        * than the one holding focus, and it is that member the user just sent
        * somewhere and now wants to see.
        *
@@ -4196,19 +4196,19 @@ export class DeckManager implements IDeckManagerStore {
        */
       readonly revealPaneId?: string | null;
       /**
-       * A column reveal this caller worked out for itself, in place of the
+       * A slot reveal this caller worked out for itself, in place of the
        * derived one.
        *
        * There is exactly one: opening a card in a WALL ([P06]). Every other
        * reveal in the deck is minimal — bring the member in if it is out —
-       * and `_columnRevealOffsetFor` is that rule. A wall open is not minimal:
+       * and `_slotRevealOffsetFor` is that rule. A wall open is not minimal:
        * the opened card is about to grow by hundreds of pixels, so the strip
        * moves whatever anybody does, and the answer is a POSITION (the
        * neighbour above in view) rather than a smallest move. The caller
        * computes it because the caller is the one that knows the commit is a
        * wall open; this only has to prefer it.
        */
-      readonly columnReveal?: { slot: number; offset: number };
+      readonly slotReveal?: { slot: number; offset: number };
     },
   ): void {
     const retuneRails = opts?.retuneRails ?? true;
@@ -4219,10 +4219,10 @@ export class DeckManager implements IDeckManagerStore {
     // Every path that moves a pane between slots arrives here, and most of them
     // hand back the imposition they were given — `assignCardsToSlots` writes the
     // new `slot` onto the pane, and a kind change re-clamps every pane — so this
-    // is the one place that can keep the columns record honest without each
+    // is the one place that can keep the slots record honest without each
     // caller remembering to. A stranded member is not cosmetic: invariant 9
     // refuses it and the deck comes up on the error overlay.
-    imposition = sweptColumnOrders(imposition, panes);
+    imposition = sweptSlotOrders(imposition, panes);
     const { panesBySide } = this._sidebarRails(panes, imposition);
     const nextPanes = retuneRails
       ? this._railSolvedPanes(panes, imposition)
@@ -4267,13 +4267,13 @@ export class DeckManager implements IDeckManagerStore {
         ? undefined
         : this._flowRevealOffsetFor(activePaneId, nextPanes, imposition);
     // The vertical half of the same re-reveal: any of these gestures can have
-    // rebuilt the column under the active member — a split, a move, a card
+    // rebuilt the slot under the active member — a split, a move, a card
     // leaving the slot — and the rule is minimal and idempotent here too.
-    const columnReveal =
-      opts?.columnReveal ??
+    const slotReveal =
+      opts?.slotReveal ??
       (activePaneId === undefined
         ? undefined
-        : this._columnRevealOffsetFor(activePaneId, nextPanes, imposition));
+        : this._slotRevealOffsetFor(activePaneId, nextPanes, imposition));
     // And the rail's half of it, for the same reason over the other kind of
     // place: the two rules answer about disjoint panes, so exactly one of them
     // can be anything but `undefined` on any given commit.
@@ -4289,7 +4289,7 @@ export class DeckManager implements IDeckManagerStore {
       panes: nextPanes,
       imposition,
       ...(flowOffset !== undefined ? { flowOffset } : {}),
-      ...this._withColumnReveal(columnReveal),
+      ...this._withSlotReveal(slotReveal),
       ...this._withRailReveal(railReveal),
     };
     this.notify("_commitImposition");
@@ -4323,18 +4323,18 @@ export class DeckManager implements IDeckManagerStore {
     const imposition = this.deckState.imposition;
     const panes = this.deckState.panes;
     this._retuneFlowOffset(panes, imposition);
-    this._retuneColumnOffsets(panes, imposition);
+    this._retuneSlotOffsets(panes, imposition);
     this._retuneRailOffsets(panes, imposition);
     // [P11]. The run each place was last allocated against, against the run it
     // stands in now. This is read BEFORE the width allocator's own `moves`
     // check and before the `panesBySide.size === 0` return, because a deck
     // whose rails did not move — or which has no rails at all, and only
-    // columns — still has to re-derive its columns when the window's height
+    // slots — still has to re-derive its slots when the window's height
     // changed. That early return was written when neither answer depended on
     // the run and the pure-CSS resize path was the whole of the story.
     const runs: PlaceRuns = {
       rail: this._placeRunHeight("rail"),
-      column: this._placeRunHeight("column"),
+      slot: this._placeRunHeight("slot"),
     };
     const runMoved = placeRunsMoved(this._lastPlaceRuns, runs);
     this._lastPlaceRuns = runs;
@@ -4404,13 +4404,13 @@ export class DeckManager implements IDeckManagerStore {
         : this._railSolvedPanes(this.deckState.panes, imposition);
     this._lastPlaceRuns = {
       rail: this._placeRunHeight("rail"),
-      column: this._placeRunHeight("column"),
+      slot: this._placeRunHeight("slot"),
     };
     this.deckState = { ...this.deckState, panes };
     this.deckState = {
       ...this.deckState,
       ...this._flowRetuneTerms(panes, imposition),
-      ...this._columnRetuneTerms(panes, imposition),
+      ...this._slotRetuneTerms(panes, imposition),
       ...this._railRetuneTerms(panes, imposition),
     };
   }
@@ -4735,7 +4735,7 @@ export class DeckManager implements IDeckManagerStore {
   private _closeSuccessorCardId(closingPaneId: string): string | null {
     const runs: PlaceRuns = {
       rail: this._placeRunHeight("rail"),
-      column: this._placeRunHeight("column"),
+      slot: this._placeRunHeight("slot"),
     };
     return resolveCloseSuccessor(
       this.deckState,
@@ -5228,14 +5228,14 @@ export class DeckManager implements IDeckManagerStore {
    * deck itself. A rail card, a free pane, and a card that is gone all hold
    * no slot, and fall through. The ranking is {@link chooseOpeningSlot}'s,
    * over {@link readOpeningDeck}'s reading of the deck with the two
-   * measurements this manager owns: the column run and the flow band.
+   * measurements this manager owns: the slot run and the flow band.
    *
    * `null` when nothing is imposed, which callers under a multi-slot kind
    * never see.
    */
   openingSlotFor(origin: string | null): OpeningChoice | null {
     const state = this.deckState;
-    const run = this._placeRunHeight("column");
+    const run = this._placeRunHeight("slot");
     const deck = readOpeningDeck(state, {
       run: run > 0 ? run : null,
       band: this._flowBandWidth(state.panes, state.imposition),
@@ -5269,7 +5269,7 @@ export class DeckManager implements IDeckManagerStore {
   /**
    * Everything it costs to show `paneId` whole, as the terms a commit spreads
    * into the state it is about to write: the deck's flow offset, the offset of
-   * the column it stands in, and the offset of the rail it stands on.
+   * the slot it stands in, and the offset of the rail it stands on.
    *
    * Each of the three slides its own strip by the least that shows the member
    * ([P12]), and each answers `undefined` for a pane already whole in its band
@@ -5290,7 +5290,7 @@ export class DeckManager implements IDeckManagerStore {
     const flowOffset = this._flowRevealOffsetFor(paneId, panes);
     return {
       ...(flowOffset !== undefined ? { flowOffset } : {}),
-      ...this._withColumnReveal(this._columnRevealOffsetFor(paneId, panes)),
+      ...this._withSlotReveal(this._slotRevealOffsetFor(paneId, panes)),
       ...this._withRailReveal(this._railRevealOffsetFor(paneId, panes)),
     };
   }
@@ -5345,16 +5345,16 @@ export class DeckManager implements IDeckManagerStore {
    * gap it keeps at the top and the deeper one it keeps at the bottom.
    *
    * One measurement for both kinds of place, differing only in what the place
-   * keeps at each end: a column keeps the card gap and the bottom gap, a rail
+   * keeps at each end: a slot keeps the card gap and the bottom gap, a rail
    * keeps the rail edge inset and the strip's clearance, which is exactly the
-   * distinction the imposer's `RAIL_RUN` and `COLUMN_RUN` draw, so the pins
+   * distinction the imposer's `RAIL_RUN` and `SLOT_RUN` draw, so the pins
    * and this number cannot disagree with the CSS by measuring differently.
    *
    * The vertical twin of {@link _flowBandWidth}, and simpler for the reason
    * the overflow pins are simpler than the share pins: nothing insets the run.
    * A rail takes width from the band; nothing takes height from the run.
    */
-  private _placeRunHeight(kind: "column" | "rail"): number {
+  private _placeRunHeight(kind: "slot" | "rail"): number {
     const top = kind === "rail" ? RAIL_EDGE_INSET_PX : impositionGapPx();
     const bottom =
       kind === "rail" ? railGapBottomPx() : impositionGapBottomPx();
@@ -5399,37 +5399,37 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /** {@link _railAllocation}'s slot-keyed twin. */
-  private _columnAllocation(
+  private _slotAllocation(
     slot: number,
     panes?: readonly TugPaneState[],
     imposition?: DeckImposition,
   ): PlaceAllocation | null {
-    return columnAllocationOf(
+    return slotAllocationOf(
       {
         ...this.deckState,
         ...(panes !== undefined ? { panes } : {}),
         ...(imposition !== undefined ? { imposition } : {}),
       },
       slot,
-      this._placeRunHeight("column"),
+      this._placeRunHeight("slot"),
     );
   }
 
   /**
-   * The run a column's members stand in, in px, or `null` when the canvas has
+   * The run a slot's members stand in, in px, or `null` when the canvas has
    * no height to speak of.
    *
    * Public for the reason {@link getBandWidth} is: the Layout card's miniature
-   * draws an overflowing column as a strip behind a run, and a stored offset
+   * draws an overflowing slot as a strip behind a run, and a stored offset
    * only means something against the run it was measured in. Reading it here
    * keeps the deck's one measurement in one place.
    */
-  getColumnRunHeight(): number | null {
-    const run = this._placeRunHeight("column");
+  getSlotRunHeight(): number | null {
+    const run = this._placeRunHeight("slot");
     return run > 0 ? run : null;
   }
 
-  /** The run a rail's members stand in — {@link getColumnRunHeight}'s twin,
+  /** The run a rail's members stand in — {@link getSlotRunHeight}'s twin,
    *  measured from the rail edge inset rather than the card gap. */
   getRailRunHeight(): number | null {
     const run = this._placeRunHeight("rail");
@@ -5441,15 +5441,15 @@ export class DeckManager implements IDeckManagerStore {
   public flashSlot = (slot: number): void => flashSlot(this, slot);
 
   /**
-   * The column offset that reveals `paneId` inside its own slot, or
+   * The slot offset that reveals `paneId` inside its own slot, or
    * `undefined` when there is nothing to reveal — the pane stands in no
-   * column, its column is not split, its column does not overflow, or the
+   * slot, its slot is not split, its slot does not overflow, or the
    * member is already fully in the run.
    *
    * Exactly parallel to {@link _flowRevealOffsetFor}, over the same arithmetic
    * ({@link stripRevealOffset}) read down instead of across, and scoped the
    * same way: a bullseyed pane supersedes the arrangement, so it does not
-   * slide its column under the user for a card that did not move.
+   * slide its slot under the user for a card that did not move.
    *
    * The strip it measures against is the allocation's own — every overflowing
    * member stands at its own floor, which the allocator answers from the
@@ -5457,7 +5457,7 @@ export class DeckManager implements IDeckManagerStore {
    * is measured here, which is what lets the answer be computed inside a
    * commit rather than after a layout.
    */
-  private _columnRevealOffsetFor(
+  private _slotRevealOffsetFor(
     paneId: string,
     panes: readonly TugPaneState[],
     imposition?: DeckImposition,
@@ -5471,18 +5471,18 @@ export class DeckManager implements IDeckManagerStore {
     const pane = panes.find((p) => p.id === paneId);
     if (pane === undefined || pane.slot === undefined) return undefined;
     if (this._sidebarComponentIdOfPane(pane.id) !== undefined) return undefined;
-    const run = this._placeRunHeight("column");
+    const run = this._placeRunHeight("slot");
     if (!(run > 0)) return undefined;
-    const column = deckColumnsOf(state, run).find((c) =>
+    const deckSlot = deckSlotsOf(state, run).find((c) =>
       c.members.includes(paneId),
     );
-    if (column === undefined) return undefined;
-    const allocation = column.allocation;
+    if (deckSlot === undefined) return undefined;
+    const allocation = deckSlot.allocation;
     if (allocation === null || allocation.standing !== "overflow") {
       return undefined;
     }
-    const index = column.members.indexOf(paneId);
-    const standing = state.columnOffsets?.[column.slot] ?? 0;
+    const index = deckSlot.members.indexOf(paneId);
+    const standing = state.slotOffsets?.[deckSlot.slot] ?? 0;
     const next = stripRevealOffset({
       stripStart: allocation.tops[index],
       extent: allocation.heights[index],
@@ -5490,20 +5490,20 @@ export class DeckManager implements IDeckManagerStore {
       band: run,
       offset: standing,
     });
-    return next === standing ? undefined : { slot: column.slot, offset: next };
+    return next === standing ? undefined : { slot: deckSlot.slot, offset: next };
   }
 
   /**
-   * The column offset a WALL OPEN lands on ([P06]): the opened member's top,
+   * The slot offset a WALL OPEN lands on ([P06]): the opened member's top,
    * less the member above it and the seam between them.
    *
-   * The sibling of {@link _columnRevealOffsetFor} rather than a variant of it,
+   * The sibling of {@link _slotRevealOffsetFor} rather than a variant of it,
    * because the two answer different questions — that one is minimal, this one
    * is a position (see {@link wallRevealOffset}). It is also computed over the
    * FOLDED panes rather than the standing deck, which is why the caller hands
    * the array in: the strip it measures is the one the fold just made.
    *
-   * `undefined` when the column has no allocation to measure, which is a
+   * `undefined` when the slot has no allocation to measure, which is a
    * canvas with no run rather than a wall that fits — a wall that fits its run
    * clamps to 0 and is written, because the reveal is a position and 0 is one.
    */
@@ -5512,9 +5512,9 @@ export class DeckManager implements IDeckManagerStore {
     panes: readonly TugPaneState[],
     slot: number,
   ): { slot: number; offset: number } | undefined {
-    const run = this._placeRunHeight("column");
+    const run = this._placeRunHeight("slot");
     if (!(run > 0)) return undefined;
-    const allocation = this._columnAllocation(slot, panes);
+    const allocation = this._slotAllocation(slot, panes);
     if (allocation === null) return undefined;
     const index = allocation.ids.indexOf(paneId);
     if (index < 0) return undefined;
@@ -5535,58 +5535,58 @@ export class DeckManager implements IDeckManagerStore {
    * slot's number written over it. `undefined` in gives `undefined` out, so a
    * commit that reveals nothing spreads nothing and stays byte-identical.
    */
-  private _withColumnReveal(
+  private _withSlotReveal(
     reveal: { slot: number; offset: number } | undefined,
-  ): { columnOffsets: Readonly<Record<number, number>> } | Record<string, never> {
+  ): { slotOffsets: Readonly<Record<number, number>> } | Record<string, never> {
     if (reveal === undefined) return {};
     return {
-      columnOffsets: {
-        ...this.deckState.columnOffsets,
+      slotOffsets: {
+        ...this.deckState.slotOffsets,
         [reveal.slot]: reveal.offset,
       },
     };
   }
 
   /**
-   * Write every stored column offset back inside the bounds a resized canvas
-   * leaves it, and drop the ones whose column has stopped overflowing.
+   * Write every stored slot offset back inside the bounds a resized canvas
+   * leaves it, and drop the ones whose slot has stopped overflowing.
    *
    * Bookkeeping, exactly as {@link _retuneFlowOffset} is bookkeeping: the
-   * PICTURE is already right, because `columnMemberPins` expresses the clamp
+   * PICTURE is already right, because `slotMemberPins` expresses the clamp
    * in CSS over the strip and the live run. What this fixes is the NUMBER, so
    * the next reveal computes its minimal move from an offset the deck is
-   * actually showing — and it forgets a column that dropped back to two
+   * actually showing — and it forgets a slot that dropped back to two
    * members, whose stored slide would otherwise return with the third card.
    */
-  private _retuneColumnOffsets(
+  private _retuneSlotOffsets(
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
   ): void {
-    const terms = this._columnRetuneTerms(panes, imposition);
+    const terms = this._slotRetuneTerms(panes, imposition);
     if (terms === null) return;
     this.deckState = { ...this.deckState, ...terms };
-    this.notify("_retuneColumnOffsets");
+    this.notify("_retuneSlotOffsets");
   }
 
   /**
-   * {@link _retuneColumnOffsets}'s answer without the commit and without the
-   * notify — `null` when no stored column offset moves.
+   * {@link _retuneSlotOffsets}'s answer without the commit and without the
+   * notify — `null` when no stored slot offset moves.
    */
-  private _columnRetuneTerms(
+  private _slotRetuneTerms(
     panes: readonly TugPaneState[],
     imposition: DeckImposition,
-  ): { columnOffsets: Record<number, number> | undefined } | null {
-    const standing = this.deckState.columnOffsets;
+  ): { slotOffsets: Record<number, number> | undefined } | null {
+    const standing = this.deckState.slotOffsets;
     if (standing === undefined) return null;
     const state = { ...this.deckState, panes, imposition };
-    const run = this._placeRunHeight("column");
-    const columns = deckColumnsOf(state, run);
+    const run = this._placeRunHeight("slot");
+    const deckSlots = deckSlotsOf(state, run);
     const next: Record<number, number> = {};
     let changed = false;
     for (const [key, offset] of Object.entries(standing)) {
       const slot = Number(key);
-      const column = columns.find((c) => c.slot === slot);
-      const allocation = column?.allocation ?? null;
+      const deckSlot = deckSlots.find((c) => c.slot === slot);
+      const allocation = deckSlot?.allocation ?? null;
       if (allocation === null || allocation.standing !== "overflow") {
         changed = true;
         continue;
@@ -5597,12 +5597,12 @@ export class DeckManager implements IDeckManagerStore {
     }
     if (!changed) return null;
     return Object.keys(next).length === 0
-      ? { columnOffsets: undefined }
-      : { columnOffsets: next };
+      ? { slotOffsets: undefined }
+      : { slotOffsets: next };
   }
 
   /**
-   * Commit where a drag left an overflowing column's strip ([P12], Spec S03).
+   * Commit where a drag left an overflowing slot's strip ([P12], Spec S03).
    *
    * ONE write, at the end of the gesture. The offset moves imperatively on its
    * custom property while the hand is down, and this is the frame where the
@@ -5611,7 +5611,7 @@ export class DeckManager implements IDeckManagerStore {
    *
    * That is what `landing` says. A `"cut"` commit declares the frames are
    * already where it puts them, so the settle declines rather than measuring
-   * and tweening the column's other members under the user's hand ([B01],
+   * and tweening the slot's other members under the user's hand ([B01],
    * [B03]). Staying out of the store used to be the only way to say it; the
    * per-frame writer may still write per frame for cost reasons, but it is no
    * longer forced to.
@@ -5619,23 +5619,23 @@ export class DeckManager implements IDeckManagerStore {
    * Real state, not a preview, which is why a cancelled drag still commits it:
    * the card goes home, the view does not.
    */
-  setColumnOffset(
+  setSlotOffset(
     slot: number,
     offset: number,
     landing: CommitLanding = "cross",
   ): void {
-    const run = this._placeRunHeight("column");
+    const run = this._placeRunHeight("slot");
     if (!(run > 0)) return;
-    const allocation = this._columnAllocation(slot);
+    const allocation = this._slotAllocation(slot);
     if (allocation === null || allocation.standing !== "overflow") return;
     const clamped = clampStripOffset(offset, allocation.stripLength, run);
-    const standing = this.deckState.columnOffsets?.[slot] ?? 0;
+    const standing = this.deckState.slotOffsets?.[slot] ?? 0;
     if (clamped === standing) return;
     this.deckState = {
       ...this.deckState,
-      columnOffsets: { ...this.deckState.columnOffsets, [slot]: clamped },
+      slotOffsets: { ...this.deckState.slotOffsets, [slot]: clamped },
     };
-    this.notify("setColumnOffset", landing);
+    this.notify("setSlotOffset", landing);
   }
 
   /**
@@ -5644,13 +5644,13 @@ export class DeckManager implements IDeckManagerStore {
    * rail is stacked, its rail does not overflow, or the member is already
    * fully in the run.
    *
-   * The side-keyed twin of {@link _columnRevealOffsetFor}, over the same
+   * The side-keyed twin of {@link _slotRevealOffsetFor}, over the same
    * arithmetic ({@link stripRevealOffset}) and the same run. It is a separate
    * method rather than a branch in that one because the two answer about
-   * disjoint sets of panes: the column rule returns early for every sidebar
+   * disjoint sets of panes: the slot rule returns early for every sidebar
    * pane, and this one returns early for everything else.
    *
-   * `panes` rather than `this.deckState.panes` for the reason the column rule
+   * `panes` rather than `this.deckState.panes` for the reason the slot rule
    * takes them: a commit computes its reveal from the panes it is about to
    * write, not from the ones it is replacing.
    */
@@ -5706,7 +5706,7 @@ export class DeckManager implements IDeckManagerStore {
    * Write every stored rail offset back inside the bounds a resized canvas
    * leaves it, and drop the ones whose rail has stopped overflowing.
    *
-   * Bookkeeping, exactly as {@link _retuneColumnOffsets} is bookkeeping: the
+   * Bookkeeping, exactly as {@link _retuneSlotOffsets} is bookkeeping: the
    * PICTURE is already right, because `railMemberPins` expresses the clamp in
    * CSS over the strip and the live run. What this fixes is the NUMBER, so the
    * next reveal computes its minimal move from an offset the deck is actually
@@ -5757,7 +5757,7 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Commit where a drag left an overflowing rail's strip — the side-keyed twin
-   * of {@link setColumnOffset}, and real state for the same reason: the card
+   * of {@link setSlotOffset}, and real state for the same reason: the card
    * goes home when a drag is cancelled, the view does not. `landing` carries
    * the same meaning it does there.
    */
@@ -5785,7 +5785,7 @@ export class DeckManager implements IDeckManagerStore {
    * claim with a `null` height ([B01], [B05]).
    *
    * `memberId` is the member the way `placeMembers` names it — a pane id for a
-   * column member, a componentId for a rail one — so the caller hands over the
+   * slot member, a componentId for a rail one — so the caller hands over the
    * id the allocator will look the reservation up by and nothing translates in
    * between.
    *
@@ -6071,7 +6071,7 @@ export class DeckManager implements IDeckManagerStore {
     this.drawnFlowVelocity = pxPerSecond;
   }
 
-  /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-
+  /** The flow strip's twin of {@link setSlotOffset} — the same one-write-at-
    *  the-end rule, read across instead of down, and the same `landing`. It is
    *  the one of the three with a `"cross"` caller that matters: a strip
    *  segment click and the Center Card chord both hand it a number the deck
@@ -7082,7 +7082,7 @@ export class DeckManager implements IDeckManagerStore {
     // The same reveal `_closePane` owes, over the case where the slot keeps
     // its pane: the card left standing was raised by this gesture, and a
     // stack that loses a member can change the width its size policy asks for
-    // and the height its column allocates it — either of which can leave the
+    // and the height its slot allocates it — either of which can leave the
     // survivor hanging past a band the reader is looking through. Minimal and
     // idempotent, so a pane already whole spreads nothing.
     const revealPaneId = this.deckState.activePaneId;

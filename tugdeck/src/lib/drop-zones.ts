@@ -23,14 +23,14 @@
  * `allocatePlaceHeights` ([P06]) — and a place whose floors would no longer fit
  * the run lands under the overflow rule rather than dividing ([P08]). The seam is a
  * value the place supplies, exactly as the imposer's `PlaceRun.seam` is: a
- * column divides at the card gap (`impositionGapPx`), a rail at `RAIL_SEAM_PX`, and the
+ * slot divides at the card gap (`impositionGapPx`), a rail at `RAIL_SEAM_PX`, and the
  * tile arithmetic never reads either constant itself, so the two sides agree
  * by construction.
  */
 
 import type { DeckState } from "../layout-tree";
 import type { Rect } from "../snap";
-import { deckColumnsOf } from "../deck-store-selectors";
+import { deckSlotsOf } from "../deck-store-selectors";
 import {
   allocatePlaceHeights,
   impositionGapPx,
@@ -70,7 +70,7 @@ export const ZONE_HYSTERESIS_PX = 24;
  * How close to a scrollable strip's edge the pointer must hold before the strip
  * starts advancing under it, in layout px.
  *
- * A vertical rule only: the run a column overflows, or a rail's ([B07]). The
+ * A vertical rule only: the run a slot overflows, or a rail's ([B07]). The
  * flow band clicks at its own edge instead ({@link flowStepDecision}) and
  * reads nothing here. The margin has to be small enough that the middle of
  * the run is comfortably still, and wide enough that the user does not have
@@ -114,17 +114,17 @@ export const FLOW_STEP_TWEEN_MS = 180;
  * One place a dragged card may land.
  *
  * The four kinds are the whole vocabulary of v1 ([P10]): a position within a
- * split column, a slot as a whole (join its stack, or take an empty anchor),
+ * split slot, a slot as a whole (join its stack, or take an empty anchor),
  * another pane's tab bar (merge as a tab — the one drop zone the app already
  * shipped), and a position within a sidebar rail.
  *
  * Each kind names its target in its own terms rather than through a shared
- * `target` field: a column position is a slot plus an index, a tab bar is a
+ * `target` field: a slot position is a slot plus an index, a tab bar is a
  * pane, a rail position is a side plus an index. One stringly-typed field
  * covering all three would have to be narrowed at every use.
  */
 export type DropZone =
-  | { kind: "column-index"; slot: number; index: number; rect: Rect; hit?: Rect }
+  | { kind: "slot-index"; slot: number; index: number; rect: Rect; hit?: Rect }
   | { kind: "slot"; slot: number; rect: Rect; hit?: Rect }
   | { kind: "tab-bar"; paneId: string; rect: Rect; hit?: Rect }
   | {
@@ -139,7 +139,7 @@ export type DropZone =
  * Where a zone is **asked for**, as opposed to where it lands.
  *
  * For most zones the two are the same rect and `hit` is absent. They come apart
- * in the stacked places — a split column's positions and a rail's — where the
+ * in the stacked places — a split slot's positions and a rail's — where the
  * tiles must widen into abutting full-run bands for every position to be
  * askable from anywhere in the run.
  *
@@ -149,7 +149,7 @@ export type DropZone =
  * and the moment it crosses into the next drawn tile the indication follows.
  * The bands divide the run at each successive tile's top edge, with the
  * outermost stretched to whichever is further out, the run's edge or the
- * strip's own, so a column scrolled off its run still has every position
+ * strip's own, so a slot scrolled off its run still has every position
  * askable somewhere. Dividing anywhere else — the sitting members' midpoints
  * were the previous rule — makes the indication disagree with its own
  * drawing: the title bar stands inside the bottom tile while the outline
@@ -230,21 +230,21 @@ export interface DropZoneMeasurements {
    * are.
    *
    * One map for both kinds of place rather than one per rail and one per
-   * column: a tile is the allocator's answer either way, and the allocator
-   * asks the same question of a rail member and a column member. A member
+   * slot: a tile is the allocator's answer either way, and the allocator
+   * asks the same question of a rail member and a slot member. A member
    * missing from it contributes no floor at all, which the allocator reads as
    * a floorless member of whatever the place decides.
    */
   members: ReadonlyMap<string, PlaceMember>;
   /**
    * The run each kind of place divides, in layout px — the deck's own
-   * measurement (`getColumnRunHeight` and `getRailRunHeight`), never a sum
+   * measurement (`getSlotRunHeight` and `getRailRunHeight`), never a sum
    * of frames. A frame in flight defines nothing, and the store is the one
    * reader that cannot be moved by a hand ({@link seatedPlace}). `null` is
    * a canvas with no height to speak of, and that kind of place then
    * advertises nothing.
    */
-  runs: { column: number | null; rail: number | null };
+  runs: { slot: number | null; rail: number | null };
   /**
    * The dragged card's own frame at gesture start, before any transform —
    * the one rect of its own it can still vouch for. Read only when the card
@@ -291,15 +291,15 @@ export interface DropZoneSet {
 
 /**
  * A strip a drag can scroll by holding the pointer near its edge: an
- * overflowing column's or rail's run, or the flow strip's band.
+ * overflowing slot's or rail's run, or the flow strip's band.
  *
  * Resolved fresh each frame from the pointer, because which strip is under the
- * hand is a question about right now — a drag that crosses from one column to
+ * hand is a question about right now — a drag that crosses from one slot to
  * another is scrolling the one it is over, not the one it started on.
  */
 export interface AutoscrollTarget {
-  kind: "column" | "rail" | "flow";
-  /** The slot whose column scrolls. Absent for the flow strip, which is the
+  kind: "slot" | "rail" | "flow";
+  /** The slot whose slot scrolls. Absent for the flow strip, which is the
    *  deck's one horizontal strip and has no slot to name. */
   slot?: number;
   /** The side whose rail scrolls. Absent for every other kind, which names its
@@ -315,7 +315,7 @@ export interface AutoscrollTarget {
   /** How far it may travel: the strip's length less the band's. */
   maxOffset: number;
   /** The flow strip's positions and extents, for the click to name a slot
-   *  by ({@link flowStepTarget}). Present on the flow target only; a column
+   *  by ({@link flowStepTarget}). Present on the flow target only; a slot
    *  or a rail scrolls at a rate and names nothing. */
   strip?: FlowStrip;
 }
@@ -324,8 +324,8 @@ export interface AutoscrollTarget {
  *  that visits several. */
 export function autoscrollKey(target: AutoscrollTarget): string {
   switch (target.kind) {
-    case "column":
-      return `column:${target.slot}`;
+    case "slot":
+      return `slot:${target.slot}`;
     case "rail":
       return `rail:${target.side}`;
     case "flow":
@@ -339,7 +339,7 @@ export function autoscrollKey(target: AutoscrollTarget): string {
  *
  * A rate times an elapsed time, so the travel is the same for a given hold
  * however the frames fall. `pointer` and the band are read along the strip's
- * own axis, which is what lets one rule serve both a column's run and a
+ * own axis, which is what lets one rule serve both a slot's run and a
  * rail's ([P08]'s bargain, again: an axis-free rule read twice). The flow
  * band is not one of its readers — it clicks at its edge ([B07]) — but the
  * rule stays axis-free, so a vertical click later is a second reading of
@@ -424,7 +424,7 @@ function decideSide(
  * outboard of a disarmed edge fires again every {@link FLOW_STEP_REPEAT_MS}.
  *
  * Axis-free by construction — `pointer` and the edges are one coordinate,
- * so a column's vertical run could be read through it unchanged. A pointer
+ * so a slot's vertical run could be read through it unchanged. A pointer
  * that is not a finite number decides nothing and changes nothing.
  *
  * `repeatMs` defaults to the shipped {@link FLOW_STEP_REPEAT_MS}; nothing in
@@ -596,8 +596,8 @@ export interface DropZoneHost {
  */
 export function dropZoneKey(zone: DropZone): string {
   switch (zone.kind) {
-    case "column-index":
-      return `column:${zone.slot}:${zone.index}`;
+    case "slot-index":
+      return `slot:${zone.slot}:${zone.index}`;
     case "slot":
       return `slot:${zone.slot}`;
     case "tab-bar":
@@ -618,7 +618,7 @@ export function dropZoneKey(zone: DropZone): string {
  * moves with the hand — and the gesture re-enumerates on every autoscroll
  * frame, so the error grows for as long as the pointer holds at the edge.
  * The run's height is therefore the deck's measurement (`getRailRunHeight`
- * and its column twin, handed in as `run`), and its top is recovered from a
+ * and its slot twin, handed in as `run`), and its top is recovered from a
  * member that is not being dragged by inverting the pin the imposer wrote for
  * it: under overflow that member stands `index` strides down the strip
  * (`overflowPins`), and shared it stands at its seam fraction plus half a
@@ -632,7 +632,7 @@ export function dropZoneKey(zone: DropZone): string {
  * next re-measure to make the same mistake, so no path here reads the dragged
  * card's live rect at all.
  *
- * `seam` is the place's own: the gap between a column's members, the 0 seam
+ * `seam` is the place's own: the gap between a slot's members, the 0 seam
  * between a rail's. `order` is the place's CURRENT member order, dragged card
  * included when it is a member, with `rects` indexed the same way.
  */
@@ -722,7 +722,7 @@ function namesExactly(
  * the same allocation, over the same floors and weights the commit will
  * allocate from — which is what makes the tile a promise the commit keeps by
  * construction ([P06]). The seam arrives as a value for the same reason it
- * rides `PlaceRun.seam` there, so a rail's 0 seam and a column's gap are one
+ * rides `PlaceRun.seam` there, so a rail's 0 seam and a slot's gap are one
  * arithmetic rather than two, and the standing is the allocator's rather than
  * a count the caller forked on.
  *
@@ -771,7 +771,7 @@ function placeTiles(
  * The bands divide the run at each successive tile's top edge, so a position
  * is asked for over the tile the indicator draws for it ({@link hitRectOf}
  * says why). The outermost bands are stretched to whichever is further out,
- * the run's edge or the strip's own, so a column scrolled off its run still
+ * the run's edge or the strip's own, so a slot scrolled off its run still
  * has every position askable somewhere.
  */
 function tileHitBands(
@@ -798,30 +798,30 @@ function tileHitBands(
 }
 
 /**
- * Each position of a split column: the tile the card would land in, and the
+ * Each position of a split slot: the tile the card would land in, and the
  * band that asks for it.
  *
- * `order` is the column's sitting member order and `rects` their measured
- * frames, same indexing; the dragged card may be one of them (its own column)
- * or absent (arriving from elsewhere). Either way the resulting column has
+ * `order` is the slot's sitting member order and `rects` their measured
+ * frames, same indexing; the dragged card may be one of them (its own slot)
+ * or absent (arriving from elsewhere). Either way the resulting slot has
  * one member per sitter-other-than-the-dragged plus the dragged card itself,
  * and both the standing and the seams are read off that post-drop world: a
- * two-member column about to take a third stacks the overflow strip, and a
- * column that will still share divides at the fractions the commit's own
+ * two-member slot about to take a third stacks the overflow strip, and a
+ * slot that will still share divides at the fractions the commit's own
  * arithmetic will write ([P06]). The place itself — run and strip — is read
- * off a seated frame and the deck's `columnRun` ({@link seatedPlace}), so
+ * off a seated frame and the deck's `slotRun` ({@link seatedPlace}), so
  * the dragged card's travel never moves the tiles it is choosing between.
  */
-function columnPlaces(
+function slotPlaces(
   order: readonly string[],
   rects: readonly Rect[],
   shares: Readonly<Record<string, number>> | undefined,
   members: ReadonlyMap<string, PlaceMember>,
   draggedPaneId: string,
   draggedAtStart: Rect,
-  columnRun: number | null,
+  slotRun: number | null,
 ): { tile: Rect; hit: Rect }[] {
-  if (rects.length === 0 || columnRun === null) return [];
+  if (rects.length === 0 || slotRun === null) return [];
   const seam = impositionGapPx();
   const { run, x, width } = seatedPlace(
     order,
@@ -830,7 +830,7 @@ function columnPlaces(
     members,
     draggedPaneId,
     draggedAtStart,
-    columnRun,
+    slotRun,
     seam,
   );
   const others = order.filter((id) => id !== draggedPaneId);
@@ -873,7 +873,7 @@ function railZonesOf(
   }
   const draggedIndex = rail.members.indexOf(draggedPaneId);
   const others = rail.members.filter((id) => id !== draggedPaneId);
-  // A rail stands under the same overflow rule a column does, so its tiles
+  // A rail stands under the same overflow rule a slot does, so its tiles
   // take the same fork: the post-drop rail is a strip when the members' floors
   // no longer fit in the run and a division when they do ([P01]), and the
   // allocator decides which without being asked. The run is the deck's
@@ -973,41 +973,41 @@ export function enumerateDropZones(
   if (dragged?.slot === undefined) return { zones: [], origin: null };
   const ownSlot = clampSlot(kind, dragged.slot);
 
-  const columns = deckColumnsOf(state, measured.runs.column);
+  const deckSlots = deckSlotsOf(state, measured.runs.slot);
   const zones: DropZone[] = [];
   let origin: DropZone | null = null;
 
   for (let slot = 0; slot < slotCount(kind); slot++) {
-    const column = columns.find((c) => c.slot === slot);
+    const deckSlot = deckSlots.find((c) => c.slot === slot);
     const own = slot === ownSlot;
 
-    if (column !== undefined && column.mode === "split") {
+    if (deckSlot !== undefined && deckSlot.mode === "split") {
       const members: Rect[] = [];
-      for (const paneId of column.members) {
+      for (const paneId of deckSlot.members) {
         const rect = measured.panes.get(paneId);
         if (rect === undefined) break;
         members.push(rect);
       }
-      if (members.length !== column.members.length) continue;
-      const draggedIndex = own ? column.members.indexOf(draggedPaneId) : null;
-      const places = columnPlaces(
-        column.members,
+      if (members.length !== deckSlot.members.length) continue;
+      const draggedIndex = own ? deckSlot.members.indexOf(draggedPaneId) : null;
+      const places = slotPlaces(
+        deckSlot.members,
         members,
-        state.imposition.columns?.[slot]?.shares,
+        state.imposition.slots?.[slot]?.shares,
         measured.members,
         draggedPaneId,
         measured.draggedAtStart,
-        measured.runs.column,
+        measured.runs.slot,
       );
-      // The card's own column keeps its member count; a foreign one grows by
+      // The card's own slot keeps its member count; a foreign one grows by
       // the arriving card, so it advertises one more position than it has
       // members.
-      const positions = own ? column.members.length : column.members.length + 1;
+      const positions = own ? deckSlot.members.length : deckSlot.members.length + 1;
       for (let index = 0; index < positions; index++) {
         const place = places[index];
         if (place === undefined) continue;
         const zone: DropZone = {
-          kind: "column-index",
+          kind: "slot-index",
           slot,
           index,
           rect: place.tile,
@@ -1022,25 +1022,25 @@ export function enumerateDropZones(
     // A foreign card standing alone in its slot: the drop divides ([P07]).
     // The slot advertises the two positions the split will make — upper half
     // index 0, lower half index 1 — through the same division path a split
-    // column's places take, with the sitter as the sole sitting member, so
+    // slot's places take, with the sitter as the sole sitting member, so
     // the tiles are the halves the commit's seam will cut (Spec S02). A
-    // stacked multi-pane column keeps its whole-slot join below: a stack is
+    // stacked multi-pane slot keeps its whole-slot join below: a stack is
     // an arrangement the user chose, and body-dropping into it joins it.
-    if (column !== undefined && column.members.length === 1 && !own) {
-      const sitterRect = measured.panes.get(column.members[0]);
+    if (deckSlot !== undefined && deckSlot.members.length === 1 && !own) {
+      const sitterRect = measured.panes.get(deckSlot.members[0]);
       if (sitterRect !== undefined) {
-        const places = columnPlaces(
-          column.members,
+        const places = slotPlaces(
+          deckSlot.members,
           [sitterRect],
-          state.imposition.columns?.[slot]?.shares,
+          state.imposition.slots?.[slot]?.shares,
           measured.members,
           draggedPaneId,
           measured.draggedAtStart,
-          measured.runs.column,
+          measured.runs.slot,
         );
         for (const [index, place] of places.entries()) {
           zones.push({
-            kind: "column-index",
+            kind: "slot-index",
             slot,
             index,
             rect: place.tile,
@@ -1142,7 +1142,7 @@ function edgeDistance(rect: Rect, pointer: { x: number; y: number }): number {
  * zone, whatever the arithmetic says about anywhere else — and center distance
  * alone gets this wrong in exactly the case the deck is full of: a tall slot's
  * center is far from its own top edge, so a pointer resting on a card's title
- * bar can measure nearer to the *middle* of a neighbouring column than to the
+ * bar can measure nearer to the *middle* of a neighbouring slot than to the
  * slot it is physically inside. That is not a tuning error, it is the wrong
  * question.
  *
@@ -1179,7 +1179,7 @@ function nearer(
  * `margin` — {@link ZONE_HYSTERESIS_PX} by default, the canvas's — so the
  * indication crosses a boundary once rather than oscillating across it. A
  * picture drawn smaller than the canvas passes a margin suited to its scale.
- * An incumbent that is no longer in the list — a column that lost a member
+ * An incumbent that is no longer in the list — a slot that lost a member
  * mid-gesture — yields to the nearest zone.
  */
 export function pickLiveZone(

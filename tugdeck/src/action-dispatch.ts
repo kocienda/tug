@@ -58,13 +58,13 @@ import {
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { isDiffDescriptor } from "@/lib/git-diff-store";
 import {
-  isColumnMoveTarget,
+  isSlotMoveTarget,
   isContentWidth,
   isGapPreset,
   isImpositionKind,
   isImpositionLayout,
   isResizeSlot,
-  isColumnMode,
+  isSlotMode,
   isSidebarSide,
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
@@ -974,48 +974,48 @@ function wireActionDispatch(
     writeSlotWindow(size);
   });
 
-  // set-column-mode: stack or split the cards sharing one numbered slot.
+  // set-slot-mode: stack or split the cards sharing one numbered slot.
   // Dispatched by the title bar's stack badge menu, the Layout card's
   // place toggles, and ⌃⌘/. A slot is a stack or a split — all of its
   // members participate, which is why the payload names a slot rather than a
   // pair of cards.
-  registerAction(TUG_ACTIONS.SET_COLUMN_MODE, (payload) => {
+  registerAction(TUG_ACTIONS.SET_SLOT_MODE, (payload) => {
     const slot = payload.slot;
     const mode = payload.mode;
     if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
-      console.warn("set-column-mode: missing or invalid slot", payload);
+      console.warn("set-slot-mode: missing or invalid slot", payload);
       return;
     }
-    if (!isColumnMode(mode)) {
-      console.warn("set-column-mode: missing or invalid mode", payload);
+    if (!isSlotMode(mode)) {
+      console.warn("set-slot-mode: missing or invalid mode", payload);
       return;
     }
-    deckManager.setColumnMode(slot, mode);
+    deckManager.setSlotMode(slot, mode);
   });
 
-  // equalize-column: divide a split column's run equally again. Dispatched by
+  // equalize-slot: divide a split slot's run equally again. Dispatched by
   // the stack badge menu. The slot's mode and member order survive — only the
   // division is rewritten.
-  registerAction(TUG_ACTIONS.EQUALIZE_COLUMN, (payload) => {
+  registerAction(TUG_ACTIONS.EQUALIZE_SLOT, (payload) => {
     const slot = payload.slot;
     if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
-      console.warn("equalize-column: missing or invalid slot", payload);
+      console.warn("equalize-slot: missing or invalid slot", payload);
       return;
     }
-    deckManager.equalizeColumn(slot);
+    deckManager.equalizeSlot(slot);
   });
 
   // equalize-heights: ⌃⌘E and View ▸ Equalize Heights. Selection-relative,
   // so the round-trip through `dispatchCommand` puts "which slot" on the
-  // canvas, where the chord lands too — the shape toggle-column-split takes.
+  // canvas, where the chord lands too — the shape toggle-slot-split takes.
   registerAction(TUG_ACTIONS.EQUALIZE_HEIGHTS, () => {
     dispatchCommand(TUG_ACTIONS.EQUALIZE_HEIGHTS);
   });
 
   // equalize-all-heights: ⌥⇧⌘E and View ▸ Equalize All Heights. Every split
-  // column at once; it names no card, so nothing needs resolving.
+  // slot at once; it names no card, so nothing needs resolving.
   registerAction(TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS, () => {
-    deckManager.equalizeAllColumns();
+    deckManager.equalizeAllSlots();
   });
 
   // resize-sidebars-to-fit: stand every rail's cards at the heights their
@@ -1525,21 +1525,21 @@ function wireActionDispatch(
     dispatchCommand(TUG_ACTIONS.TOGGLE_BULLSEYE);
   });
 
-  // toggle-column-split / move-in-column: the Window ▸ column group's
+  // toggle-slot-split / move-in-slot: the Window ▸ slot group's
   // round-trip, the same shape as Bullseye and the width row above. Both are
   // selection-relative, so the hand-off through `dispatchCommand` is what
   // keeps "which card is this about" on the canvas, where the chord lands
   // too — the menu item and the chord end up at one handler rather than two.
-  registerAction(TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, () => {
-    dispatchCommand(TUG_ACTIONS.TOGGLE_COLUMN_SPLIT);
+  registerAction(TUG_ACTIONS.TOGGLE_SLOT_SPLIT, () => {
+    dispatchCommand(TUG_ACTIONS.TOGGLE_SLOT_SPLIT);
   });
-  registerAction(TUG_ACTIONS.MOVE_IN_COLUMN, (payload) => {
+  registerAction(TUG_ACTIONS.MOVE_IN_SLOT, (payload) => {
     const where = payload.value;
-    if (!isColumnMoveTarget(where)) {
-      console.warn(`${TUG_ACTIONS.MOVE_IN_COLUMN}: invalid target`, payload);
+    if (!isSlotMoveTarget(where)) {
+      console.warn(`${TUG_ACTIONS.MOVE_IN_SLOT}: invalid target`, payload);
       return;
     }
-    dispatchCommand(`${TUG_ACTIONS.MOVE_IN_COLUMN}:${where}`);
+    dispatchCommand(`${TUG_ACTIONS.MOVE_IN_SLOT}:${where}`);
   });
 
   // The session-domain acks — the spawn ack and its refusal, the arc mating,

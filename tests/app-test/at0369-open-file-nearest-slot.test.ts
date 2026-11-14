@@ -1,10 +1,10 @@
 /**
  * at0369-open-file-nearest-slot.test.ts — a file opens in the nearest slot
- * that will take it, and a split column will not.
+ * that will take it, and a split slot will not.
  *
  * Every fresh card in an arrangement chooses its slot through one rule, ranked
  * from the card the gesture came from: nearest first; an empty slot before a
- * stacked one; right before left. A split column is not a landing place, so it
+ * stacked one; right before left. A split slot is not a landing place, so it
  * is passed over while anything else qualifies. The card that opened the file
  * is never covered by it.
  *
@@ -20,7 +20,7 @@
  *  3. **Nearest first.** From slot 0, a stack at slot 1 is nearer than an
  *     empty slot 2; distance outranks emptiness, and the origin's own slot is
  *     never the answer.
- *  4. **A split is skipped.** From slot 1, a split column at slot 2 would win
+ *  4. **A split is skipped.** From slot 1, a split slot at slot 2 would win
  *     on direction; it does not qualify, so the file takes the stack at slot 0.
  *
  * The assertion is on the stored slot of the pane holding the new card, read
@@ -87,7 +87,7 @@ function deckOf(specs: readonly SlotSpec[], originSlot: number) {
       cards,
       panes,
       activePaneId: `pS${originSlot}`,
-      imposition: { kind: "four-up", sidebars: {}, columns },
+      imposition: { kind: "four-up", sidebars: {}, slots: columns },
       hasFocus: true,
     },
     focusCardId: `S${originSlot}`,
@@ -177,7 +177,7 @@ const CASES: readonly {
     expected: 1,
   },
   {
-    name: "a split column is skipped",
+    name: "a split slot is skipped",
     specs: ["stack", "stack", "split", "empty"],
     origin: 1,
     expected: 0,

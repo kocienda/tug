@@ -42,7 +42,7 @@ const WATCH_MS = 1_500;
 /** How far a view may stand from its start and still be standing there, pt. */
 const MOVED_PT = 1.5;
 
-const twoInAColumn = {
+const twoInASlot = {
   cards: [SURVIVOR, CLOSED].map((id) => ({ id, componentId: "hello", title: id, closable: true })),
   panes: [SURVIVOR, CLOSED].map((cardId) => ({
     id: `${cardId}-pane`,
@@ -61,7 +61,7 @@ const twoInAColumn = {
     sidebars: {},
     // A split, not a stack: both members tile the slot's run, so the survivor
     // takes the closed member's room.
-    columns: { 0: { mode: "split", order: [`${SURVIVOR}-pane`, `${CLOSED}-pane`] } },
+    slots: { 0: { mode: "split", order: [`${SURVIVOR}-pane`, `${CLOSED}-pane`] } },
   },
   hasFocus: true,
 };
@@ -82,7 +82,7 @@ describe.skipIf(!SHOULD_RUN)("AT0825: a closed card leaves before its neighbour 
     async () => {
       const app = await launchTugApp({ testName: "at0825-closed-card-leaves-first" });
       try {
-        await app.seedDeckState({ state: twoInAColumn, focusCardId: SURVIVOR });
+        await app.seedDeckState({ state: twoInASlot, focusCardId: SURVIVOR });
         const placed = await pollFor(
           () => app.bodies(),
           (bodies) => [SURVIVOR, CLOSED].every((id) => bodies.find((b) => b.cardId === id)?.visible === true),

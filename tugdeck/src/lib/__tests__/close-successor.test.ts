@@ -97,7 +97,7 @@ function deck(
 }
 
 /** Nothing measured — every place stands at the equal division. */
-const UNMEASURED: PlaceRuns = { rail: null, column: null };
+const UNMEASURED: PlaceRuns = { rail: null, slot: null };
 
 /** The card the close of `cardId`'s pane hands over. */
 function successorOfClosing(
@@ -121,7 +121,7 @@ describe("the most recently activated survivor", () => {
     return deck(cards, panes, {
       kind: "three-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
+      slots: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
     });
   };
 
@@ -161,11 +161,11 @@ describe("inside the closing card's own place", () => {
     return deck(cards, panes, {
       kind: "two-up",
       sidebars: {},
-      columns: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
+      slots: { 0: { mode: "split", order: ["p-a", "p-b", "p-c"] } },
     });
   };
 
-  test("a split column hands over to the member below", () => {
+  test("a split slot hands over to the member below", () => {
     // The band below rises into the one being vacated, so it is the card
     // standing where the reader is looking.
     expect(successorOfClosing(split(), "a")).toBe("b");
@@ -177,7 +177,7 @@ describe("inside the closing card's own place", () => {
     expect(successorOfClosing(split(), "c")).toBe("b");
   });
 
-  test("a stacked column hands over to the card behind", () => {
+  test("a stacked slot hands over to the card behind", () => {
     // Every member draws the same rect, so "below" is z: closing the front
     // card brings the next one forward, which is exactly the successor.
     const { cards } = columns({ 0: ["a", "b"] });

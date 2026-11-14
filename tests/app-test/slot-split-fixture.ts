@@ -1,11 +1,11 @@
 /**
- * column-split-fixture.ts — the deck and the instruments the at0455 column
+ * slot-split-fixture.ts — the deck and the instruments the at0455 slot
  * split files share: a three-up deck with two cards sharing slot 0 and the
- * Layout card on the right rail, the frame and seam readers, and the column
+ * Layout card on the right rail, the frame and seam readers, and the slot
  * verbs as the action layer dispatches them.
  *
- * Split out of `at0455-column-split.test.ts` when that file was cut into
- * `at0455-column-split-tiles`, `-doors`, `-chords` and `-flow` to keep each
+ * Split out of `at0455-slot-split.test.ts` when that file was cut into
+ * `at0455-slot-split-tiles`, `-doors`, `-chords` and `-flow` to keep each
  * under the 20 s budget.
  */
 
@@ -41,8 +41,8 @@ export const frame = (paneId: string): string => `.tug-pane[data-pane-id="${pane
 export const CARD_OF: Readonly<Record<string, string>> = { p1: "A", p2: "B", p3: "C", p4: "D", pRail: "L" };
 /** The page that draws a pane's chrome: its card's own. The shell's frame is a stand-in. */
 export const chromePage = (app: App, paneId: string): BodyApp => app.body(CARD_OF[paneId]);
-export const columnSeam = (slot: number, index: number): string =>
-  `[data-column-seam="${slot}:${index}"]`;
+export const slotSeam = (slot: number, index: number): string =>
+  `[data-slot-seam="${slot}:${index}"]`;
 
 export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -61,9 +61,9 @@ export interface Rect {
  * Layout card on the right.
  *
  * Two occupied-and-shared slots rather than one, because the bug a
- * single-column fixture cannot see is a seam property that is keyed by index
- * alone: with one split column it reads correctly, and with two it has both
- * columns dividing at the same fraction.
+ * single-slot fixture cannot see is a seam property that is keyed by index
+ * alone: with one split slot it reads correctly, and with two it has both
+ * slots dividing at the same fraction.
  */
 export function deckShape() {
   const pane = (id: string, slot: number, cardId: string) => ({
@@ -132,10 +132,10 @@ export async function rects(app: App, paneIds: string[]): Promise<Record<string,
   );
 }
 
-/** How many frames are currently rendering as split column members. */
+/** How many frames are currently rendering as split slot members. */
 export function splitFrameCount(app: App): Promise<number> {
   return app.evalJS<number>(
-    `document.querySelectorAll('.tug-pane[data-column-split]').length`,
+    `document.querySelectorAll('.tug-pane[data-slot-split]').length`,
   );
 }
 
@@ -161,22 +161,22 @@ export function placeOffers(layout: App | BodyApp, key: string): Promise<string 
   return layout.getElementAttribute(placeMark(key), "data-choice-value");
 }
 
-export async function setColumnMode(
+export async function setSlotMode(
   app: App,
   slot: number,
   mode: "stack" | "split",
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-column-mode", { slot: ${slot}, mode: ${JSON.stringify(mode)} }), null)`,
+    `(window.__tug.dispatchControlAction("set-slot-mode", { slot: ${slot}, mode: ${JSON.stringify(mode)} }), null)`,
   );
   await wait(AFTER_LAND_MS);
 }
 
-/** The `columns` record as the live store holds it. */
-export async function columnsRecord(
+/** The `slots` record as the live store holds it. */
+export async function slotsRecord(
   app: App,
 ): Promise<Record<string, { mode?: string; order?: string[]; shares?: Record<string, number> }>> {
   return app.evalJS(
-    `(window.tugdeck.diag.getDeckState().imposition.columns || {})`,
+    `(window.tugdeck.diag.getDeckState().imposition.slots || {})`,
   );
 }

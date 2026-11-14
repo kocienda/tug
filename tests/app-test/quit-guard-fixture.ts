@@ -11,7 +11,7 @@ import { expect } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
 import { onTestRunEnd } from "./_harness/test-cleanup";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "./_harness/tugbank-helpers";
-import { BODY_READY_MS, column, pollFor, promptPhase, spawnStub } from "./session-body-fixture";
+import { BODY_READY_MS, oneSlot, pollFor, promptPhase, spawnStub } from "./session-body-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "./streaming-stub-fixture";
 
 /** Above the termination pipeline's own deadlines, so a stuck quit fails here. */
@@ -28,7 +28,7 @@ export async function launchStreaming(testName: string, messages: number): Promi
   seedTugbankForLaunch(tugbankPath);
   const stubDir = stubDirectory();
   const app = await launchTugApp({ testName, env: { TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
-  await app.seedDeckState({ state: column([CARD]), focusCardId: CARD });
+  await app.seedDeckState({ state: oneSlot([CARD]), focusCardId: CARD });
   await spawnStub(app, CARD, stubDir, messages);
   const readyBody = await pollFor(
     async () => (await app.bodies()).find((b) => b.cardId === CARD) ?? null,

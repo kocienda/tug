@@ -8,10 +8,10 @@
  * arrangement rather than the drawn one.
  *
  * The two come apart at exactly one card. Membership churn preserves an
- * arrangement (`columnDrawsSplit` in `deck-store-selectors.ts`), so a slot set
+ * arrangement (`slotDrawsSplit` in `deck-store-selectors.ts`), so a slot set
  * to split and standing one card deep renders as one undivided card. Before the
  * overlay that stored split was invisible on every surface and unreachable from
- * the Layout card, because the section's column rows were gated on `members.length > 1`
+ * the Layout card, because the section's slot rows were gated on `members.length > 1`
  * — so it sat there until a second card arrived and it resurfaced as a surprise.
  *
  *   1. **Every slot the kind defines is marked**, occupied or not, and each

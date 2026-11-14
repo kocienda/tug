@@ -247,7 +247,7 @@
 }
 
 /* The flow strip's offset is read by every imposed frame's `left`, by the
-   held-open vacancies and by the column seams — and by nothing under them.
+   held-open vacancies and by the slot seams — and by nothing under them.
    Registered NON-inherited so that one slide invalidates the style of the
    handful of elements that read it rather than every descendant of the
    canvas: measured on a four-card flow deck the inherited form cost ~3 ms of

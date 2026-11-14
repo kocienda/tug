@@ -14,7 +14,7 @@
  * being paid, and a value that reaches only its readers pays none of it.
  *
  * Three kinds of element read the offset, through `imposeStyle`'s flow `left`:
- * the imposed frames, the held-open vacancies, and the column seams. The
+ * the imposed frames, the held-open vacancies, and the slot seams. The
  * frames stand under a space layer and every layer carries its own deck's
  * offset, shown or not ([B02]); the vacancies and seams are the shown deck's
  * and stand directly under the canvas. So there are two writers: one for a

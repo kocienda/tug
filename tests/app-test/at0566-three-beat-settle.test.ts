@@ -13,14 +13,14 @@
  * **shrink, move, grow** — each beat one effect on one recipe, and a beat no
  * frame has a term in is skipped ([B01] of `three-beat-settle`; [D135] as
  * amended). The order reads as make room, move, close up: a card arriving in
- * a split column sees the sitting member shrink, then slides into the room
+ * a split slot sees the sitting member shrink, then slides into the room
  * that opened; a card leaving slides away, then the member left behind grows
  * over the room.
  *
  * The claims are read over the frames the imposer itself marks as the settle
  * (`data-imposer-settling` on the canvas), against the beat the imposer names
  * on each one (`data-imposer-beat`), sampled every frame through a split
- * arrival, a split departure, and a cross-column stack move:
+ * arrival, a split departure, and a cross-slot stack move:
  *
  *   1. **The beats run in the declared order, and only the beats the settle
  *      has.** The arrival is a shrink and then a move; the departure is a move
@@ -269,12 +269,12 @@ const assignSlot = (card: CardId, slot: number): string =>
   `window.__tug.dispatchControlAction("assign-slot", { cardId: ${JSON.stringify(card)}, slot: ${slot} })`;
 
 /** Divide or stack slot 0, through the one write path, and let it land. */
-async function setColumnMode(
+async function setSlotMode(
   app: App,
   mode: "split" | "stack",
 ): Promise<void> {
   await app.evalJS<null>(
-    `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: ${JSON.stringify(mode)} }), null)`,
+    `(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: ${JSON.stringify(mode)} }), null)`,
   );
   await wait(AFTER_LAND_MS);
 }
@@ -533,9 +533,9 @@ describe.skipIf(!SHOULD_RUN)("AT0566: the three-beat settle", () => {
 
         // ── The split arrival: make room, then move in ─────────────────
         // Slot 0 is divided before the mover arrives, so the arrival is into
-        // a split column: the sitter shrinks to its tile and the mover shrinks
+        // a split slot: the sitter shrinks to its tile and the mover shrinks
         // to the other, and only then does the mover cross into the room.
-        await setColumnMode(app, "split");
+        await setSlotMode(app, "split");
         const arrival = await census(app, assignSlot(MOVER, 0));
         assertBeats("arrival", arrival, ["shrink", "move"]);
         await assertAtRest(app, "arrival");
@@ -545,8 +545,8 @@ describe.skipIf(!SHOULD_RUN)("AT0566: the three-beat settle", () => {
         assertBeats("departure", departure, ["move", "grow"]);
         await assertAtRest(app, "departure");
 
-        // ── The cross-column stack move: one beat, transform-only ──────
-        await setColumnMode(app, "stack");
+        // ── The cross-slot stack move: one beat, transform-only ──────
+        await setSlotMode(app, "stack");
         const stack = await census(app, assignSlot(MOVER, 0));
         assertBeats("stack move", stack, ["move"]);
         // Transform-only: no hold and no tween ever writes a size on a frame,

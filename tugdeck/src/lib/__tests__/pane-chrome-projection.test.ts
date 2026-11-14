@@ -2,7 +2,7 @@
  * A pane as its chrome draws it, read off the deck alone: the value the shell
  * publishes to each card's body as `pane.chrome`. Each case is one of the
  * arrangements a title bar draws differently — a two-tab content pane, a
- * pinned rail, a split column's members, a free pane — read as `TugPane`
+ * pinned rail, a split slot's members, a free pane — read as `TugPane`
  * reads the same pane from its props. A tab carries only its card: the page
  * names it from `deck.cards` (`deck-cards.test.ts`).
  *
@@ -123,17 +123,17 @@ describe("paneChromeFor", () => {
     expect(chrome.placeArrangement).toEqual({ mode: "stack", kind: "rail", index: 0, band: null, count: 1 });
   });
 
-  test("a split column's members carry their band and count, and the seam between them as grips", () => {
+  test("a split slot's members carry their band and count, and the seam between them as grips", () => {
     const deck: DeckState = {
       cards: [card("t", "chrome-proj-doc"), card("u", "chrome-proj-doc")],
       panes: [pane("top", ["t"], { slot: 0 }), pane("bottom", ["u"], { slot: 0 })],
-      imposition: { kind: "two-up", sidebars: {}, columns: { 0: { mode: "split", order: ["top", "bottom"] } } },
+      imposition: { kind: "two-up", sidebars: {}, slots: { 0: { mode: "split", order: ["top", "bottom"] } } },
       hasFocus: true,
     };
     const top = paneChromeFor(deck, "t", READERS)!;
     const bottom = paneChromeFor(deck, "u", READERS)!;
-    expect(top.placeArrangement).toEqual({ mode: "split", kind: "column", index: 0, band: "A", count: 2 });
-    expect(bottom.placeArrangement).toEqual({ mode: "split", kind: "column", index: 1, band: "B", count: 2 });
+    expect(top.placeArrangement).toEqual({ mode: "split", kind: "slot", index: 0, band: "A", count: 2 });
+    expect(bottom.placeArrangement).toEqual({ mode: "split", kind: "slot", index: 1, band: "B", count: 2 });
     // In flow (the default layout) only a slot's right edge moves; the top
     // member's seam is below it and the bottom's above.
     expect(top.grips).toEqual(["s", "e"]);
@@ -153,7 +153,7 @@ describe("paneChromeFor", () => {
     const chrome = paneChromeFor(slotted, "s", READERS)!;
     expect(chrome.width).toEqual({ preset: "wide" });
     expect(chrome.fillHeight).toEqual({ fills: false });
-    expect(chrome.placeArrangement).toEqual({ mode: "stack", kind: "column", index: 0, band: null, count: 1 });
+    expect(chrome.placeArrangement).toEqual({ mode: "stack", kind: "slot", index: 0, band: null, count: 1 });
     // In fit the last slot gives up travel to its left alone; its held height gives it a bottom edge.
     expect(chrome.grips).toEqual(["s", "w"]);
     // The slot badge's facts: two places, and this pane in the second.
@@ -174,7 +174,7 @@ describe("paneChromeFor", () => {
 
 describe("keepSlotGripsOf", () => {
   test("a flow slot offers its right edge alone, and a width-locked card no side edge", () => {
-    const base = { fraction: 0, column: undefined, heightHeld: false, widthPinned: false };
+    const base = { fraction: 0, position: undefined, heightHeld: false, widthPinned: false };
     expect(keepSlotGripsOf({ ...base, layout: "flow" })).toEqual(["e"]);
     expect(keepSlotGripsOf({ ...base, layout: "fit", fraction: 0.5, widthPinned: true })).toEqual([]);
     expect(keepSlotGripsOf({ ...base, layout: "fit", fraction: 0.5 })).toEqual(["e", "w"]);

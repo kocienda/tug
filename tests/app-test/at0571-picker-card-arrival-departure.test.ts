@@ -1,6 +1,6 @@
 /**
  * at0571-picker-card-arrival-departure.test.ts — a Session card's departure
- * from a split column is two motions: `depart`, then `room`.
+ * from a split slot is two motions: `depart`, then `room`.
  *
  * One piece of the at0571 split; the deck shapes, the frame census and the
  * trace readings are `picker-card-arrival-fixture.ts`.
@@ -98,7 +98,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         );
 
         // ── TWO MOTIONS, read backwards. The card fades on its own beat,
-        //    then the column re-divides in one — there is no separate grow,
+        //    then the slot re-divides in one — there is no separate grow,
         //    because the survivor taking the room back IS the arrangement
         //    change ([P08]). ──
         expect(order, "the departure is exactly depart then room").toEqual([

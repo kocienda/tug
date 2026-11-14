@@ -10,7 +10,7 @@
  * so nothing should take the keyboard from the body while it rides.
  *
  * A two-up holding two body cards, the mover key with its caret in the
- * composer; a cross-column stack move (the Last pass's move beat, row 14's
+ * composer; a cross-slot stack move (the Last pass's move beat, row 14's
  * second gesture) carries it. Characters are typed through the session tap
  * the moment the move is dispatched, while the deck reads settling. The
  * host is read throughout: the mover's body is first responder at every
@@ -67,7 +67,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 24: the keyboard rides with the
         for (const id of bodies) await spawnStub(app, id, stubDir, 2);
         for (const id of bodies) await waitForBody(app, id);
         // Slot 0 stacks, so the mover crosses into it as one move beat.
-        await app.evalJS<null>(`(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "stack" }), null)`);
+        await app.evalJS<null>(`(window.__tug.dispatchControlAction("set-slot-mode", { slot: 0, mode: "stack" }), null)`);
         await pollFor(() => settling(app), (v) => !v, SETTLE_MS);
         await focusBody(app, mover);
         const body = app.body(mover);

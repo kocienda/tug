@@ -58,7 +58,7 @@ const deck: ArrangementDeck = {
   spaceHoldsLiveSessions: (id) => (id === "s1" ? 1 : 0),
   spaceCardCount: (id) => (id === "s1" ? 2 : 1),
   getBandWidth: () => 1600,
-  getColumnRunHeight: () => 900,
+  getSlotRunHeight: () => 900,
   getRailRunHeight: () => 880,
 };
 
@@ -70,14 +70,14 @@ describe("the arrangement projections", () => {
   });
 
   test("carry every workspace's deck but the live one, and the per-workspace counts", () => {
-    const { deck: live, bandWidth, columnRunHeight, railRunHeight } = projectArrangementDeck(deck);
+    const { deck: live, bandWidth, slotRunHeight, railRunHeight } = projectArrangementDeck(deck);
     const spaces = projectArrangementSpaces(deck);
     expect(live).toBe(LIVE);
     expect(Object.keys(spaces.decks)).toEqual(["s2"]);
     expect(spaces.spaces).toEqual([{ id: "s1", name: "Main", theme: "ironclad" }, { id: "s2", name: "Side" }]);
     expect(spaces.liveSessions).toEqual({ s1: 1, s2: 0 });
     expect(spaces.cardCounts).toEqual({ s1: 2, s2: 1 });
-    expect([bandWidth, columnRunHeight, railRunHeight]).toEqual([1600, 900, 880]);
+    expect([bandWidth, slotRunHeight, railRunHeight]).toEqual([1600, 900, 880]);
   });
 });
 
