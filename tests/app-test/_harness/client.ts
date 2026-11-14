@@ -24,6 +24,7 @@ import type {
   AccessibilityStatus,
   EvalJsOptions,
   InnerNativeVerb,
+  KeyboardTypeName,
   MenuItemSnapshot,
   MenuItemState,
   WindowState,
@@ -1966,6 +1967,118 @@ export function nativeKey(
 }
 
 /**
+ * Press the key at a physical position, named by its `KeyboardEvent.code`
+ * (`"KeyQ"`, `"Digit2"`, `"Semicolon"`, `"IntlBackslash"`), with optional
+ * modifiers. Unlike {@link nativeKey} it names a key, not a character, and
+ * implies no Shift: what the key types is the current keyboard layout's
+ * answer. Under AZERTY, `nativeKeyCode("KeyQ", ["cmd"])` is ⌘ + the key
+ * labelled A — what a French user's finger does. A layout test addresses
+ * keys this way; `nativeKey`'s names are US characters.
+ */
+export function nativeKeyCode(
+  caller: HarnessCaller,
+  code: string,
+  modifiers?: readonly NativeModifier[],
+): Promise<void> {
+  const params: Record<string, unknown> = { code };
+  if (modifiers !== undefined) params.modifiers = modifiers;
+  return caller.rpcCall<void>("nativeKeyCode", params);
+}
+
+/** One installed keyboard input source, as `inputSources` lists it. */
+export interface InputSourceInfo {
+  /** `kTISPropertyInputSourceID`, e.g. `com.apple.keylayout.French`. */
+  id: string;
+  /** The localized name the input menu shows. */
+  name: string;
+  enabled: boolean;
+  selected: boolean;
+}
+
+/** What `inputSources` answers: the current source and every selectable one. */
+export interface InputSourceList {
+  current: string | null;
+  sources: InputSourceInfo[];
+}
+
+/**
+ * List the keyboard input sources this machine can select, and which is
+ * current. Read-only, so it runs anywhere — it is how a lab test finds the
+ * exact ID spelling a guest offers.
+ */
+export function inputSources(caller: HarnessCaller): Promise<InputSourceList> {
+  return caller.rpcCall<InputSourceList>("inputSources", {});
+}
+
+/**
+ * One menu item a key equivalent reached while the probe was armed.
+ */
+export interface MenuKeyFire {
+  /** The item's `NSUserInterfaceItemIdentifier`, or null for one without. */
+  identifier: string | null;
+  title: string;
+  /** The item's own key equivalent and modifier mask, as the menu holds them. */
+  keyEquivalent: string;
+  modifiers: string[];
+  /** The selector that would have been sent. */
+  action: string;
+}
+
+/**
+ * The menu key probe. `arm` enables every menu item and makes its action
+ * recorded instead of performed — so a test can learn which item a key
+ * equivalent reaches, Quit included and whatever has focus, without performing
+ * it — and empties the record; `take`
+ * answers the items fired since the last take; `disarm` lets actions perform
+ * again. App-local, so it runs anywhere; disarmed when the connection closes.
+ */
+export function menuKeyProbe(
+  caller: HarnessCaller,
+  op: "arm" | "take" | "disarm",
+): Promise<{ armed?: boolean; fired?: MenuKeyFire[] }> {
+  return caller.rpcCall<{ armed?: boolean; fired?: MenuKeyFire[] }>("menuKeyProbe", { op });
+}
+
+/**
+ * Select the keyboard input source `sourceId` (enabling it first if need be)
+ * and answer with the one it replaced. The connection keeps the first source
+ * it replaced and selects it again when it closes, so a test that throws
+ * cannot leave the guest on AZERTY.
+ *
+ * The input source belongs to the whole login session, so this runs only in a
+ * lab guest: without `TUG_LAB=1` in the app's environment it rejects with
+ * `LabOnlyError` and changes nothing. Run layout tests with `just lab-app-test`.
+ */
+export function selectInputSource(
+  caller: HarnessCaller,
+  sourceId: string,
+): Promise<{ previous: string; current: string | null }> {
+  return caller.rpcCall<{ previous: string; current: string | null }>(
+    "selectInputSource",
+    { sourceId },
+  );
+}
+
+/**
+ * Declare the keyboard type every key event the harness posts carries from
+ * now on: `"iso"` for the European board AZERTY and QWERTZ users have,
+ * `"ansi"`, `"jis"`, a raw type number, or `null` for the system's own. It
+ * changes how some keycodes translate (the extra ISO key, some punctuation),
+ * and only for the harness's events. Answers with the declaration it replaced
+ * (`null` when there was none), the type now in force, and the system's
+ * (`LMGetKbdType`). Cleared when the connection closes.
+ */
+export function setKeyboardType(
+  caller: HarnessCaller,
+  type: KeyboardTypeName | number | null,
+): Promise<{ previous: number | null; current: number; system: number }> {
+  return caller.rpcCall<{ previous: number | null; current: number; system: number }>(
+    "setKeyboardType",
+    { type },
+  );
+}
+
+/**
  * Hold `modifiers` down across the awaited `body`, then release them —
  * the introspectable sibling of {@link holdModifier}.
  *
@@ -2450,6 +2563,7 @@ function isNativeVerbMethod(method: string): boolean {
     case "nativeMouseDown":
     case "nativeMouseUp":
     case "nativeKey":
+    case "nativeKeyCode":
     case "nativeType":
       return true;
     default:

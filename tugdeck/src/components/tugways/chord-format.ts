@@ -38,31 +38,69 @@ export function chordKey(chord: Chord): string {
 
 /**
  * The code an event is matched by: the key that types a letter on the user's
- * layout for a letter, the physical key for everything else.
+ * layout for a letter or a punctuation character, the physical key for a digit
+ * and for everything else.
  *
  * The layout is read from the event's legacy `keyCode`, which WebKit resolves
  * per event against the current input source: from the typed character first,
  * then the character without modifiers, then the physical key. So A–Z arrive
  * as 65–90 on the key that types them on AZERTY, QWERTZ and Dvorak, on the
- * QWERTY position while ⌘ is held on "Dvorak – QWERTY ⌘", and on the
- * US position on a layout with no Roman letters, which is where a Russian
- * keyboard's user expects ⌘C. Neither `code` nor `key` can say this: `code`
- * is the position alone, and `key` is the composed character once ⌥ is
- * held (⌥C arrives as "ç").
+ * QWERTY position while ⌘ is held on "Dvorak – QWERTY ⌘" (alone, with ⌥ or
+ * with ⇧ — with ⌃ that layout types Dvorak again), and on the US position on
+ * a layout with no Roman letters, which is where a Russian keyboard's user
+ * expects ⌘C. Neither `code` nor `key` can say this: `code` is the position
+ * alone, and `key` is the composed character once ⌥ is held (⌥C arrives as
+ * "ç").
  *
- * Digits and punctuation stay positional. A digit chord fires on the
- * number-row key whatever the layout types there unshifted, since some
- * layouts reach a digit only through Shift; which punctuation keys carry a
- * character-derived `keyCode` is not established, so none is trusted.
+ * Punctuation follows the character too, where the character confirms it.
+ * WebKit gives a punctuation key the `keyCode` of the US key that carries its
+ * character, shifted or not — AZERTY's key labelled "-" reports 189, the US
+ * Minus key — and AppKit's localized menu fires the punctuation chord on that
+ * same key. Because the code is shared by both characters on a US key, it is
+ * taken only when `key` is the one this chord's shift state types there
+ * ("-" without ⇧, "_" with it), or when ⌥ is held and `key` is composed;
+ * otherwise the key stays positional. Without that check AZERTY's "<" key,
+ * which reports the US comma key's 188, would answer to ⌘,.
+ *
+ * Digits stay positional. A digit chord fires on the number-row key whatever
+ * the layout types there unshifted, since some layouts reach a digit only
+ * through Shift — AZERTY's 4 key types "'" and reports 222, and ⌘4 must still
+ * be ⌘4.
  *
  * An absent or zero `keyCode` — an event synthesized without one — falls
  * back to `code`.
  */
-export function effectiveCode(event: Pick<KeyboardEvent, "code" | "keyCode">): string {
+export function effectiveCode(
+  event: Pick<KeyboardEvent, "code" | "keyCode"> & Partial<Pick<KeyboardEvent, "key" | "shiftKey" | "altKey">>,
+): string {
   const keyCode = event.keyCode;
   if (keyCode >= 65 && keyCode <= 90) return `Key${String.fromCharCode(keyCode)}`;
+  if (event.code.startsWith("Digit")) return event.code;
+  const punctuation = PUNCTUATION_KEY_CODES.get(keyCode);
+  if (punctuation === undefined || punctuation === event.code) return event.code;
+  const characters = SHIFTED_PAIRS.get(punctuation);
+  const typed = event.shiftKey === true ? characters?.[1] : characters?.[0];
+  if (event.altKey === true || (typed !== undefined && event.key === typed)) return punctuation;
   return event.code;
 }
+
+/**
+ * The Windows virtual-key codes WebKit reports for the US punctuation keys,
+ * by the `KeyboardEvent.code` of the key that carries each character.
+ */
+const PUNCTUATION_KEY_CODES: ReadonlyMap<number, string> = new Map([
+  [186, "Semicolon"],
+  [187, "Equal"],
+  [188, "Comma"],
+  [189, "Minus"],
+  [190, "Period"],
+  [191, "Slash"],
+  [192, "Backquote"],
+  [219, "BracketLeft"],
+  [220, "Backslash"],
+  [221, "BracketRight"],
+  [222, "Quote"],
+]);
 
 /** The same identity, read off a live event. */
 export function eventChordKey(event: ChordEventFields): string {
@@ -72,7 +110,9 @@ export function eventChordKey(event: ChordEventFields): string {
 }
 
 /**
- * The six fields chord matching reads off an event.
+ * The fields chord matching reads off an event: the six it always reads, and
+ * `key`, which confirms a punctuation key's character ({@link effectiveCode})
+ * and is optional so an event that lacks it matches by position.
  *
  * Declared as a structural type rather than `KeyboardEvent` so one predicate
  * serves native listeners and React synthetic events alike — both satisfy it,
@@ -81,7 +121,8 @@ export function eventChordKey(event: ChordEventFields): string {
 export type ChordEventFields = Pick<
   KeyboardEvent,
   "code" | "keyCode" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey"
->;
+> &
+  Partial<Pick<KeyboardEvent, "key">>;
 
 /**
  * Whether an event is this chord: its {@link effectiveCode} equal to the

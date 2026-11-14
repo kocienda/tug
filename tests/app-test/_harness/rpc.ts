@@ -27,6 +27,8 @@ import {
   AppCrashedError,
   AppLifecycleTimeoutError,
   CoordinateOutOfBoundsError,
+  InputSourceError,
+  LabOnlyError,
   NativeTypeAsciiOnlyError,
   TimeoutError,
   TugcodeLaunchError,
@@ -347,6 +349,10 @@ export function translateError(
       return new AccessibilityPermissionMissingError(wire.message);
     case "UnknownKeyError":
       return new UnknownKeyError(wire.message);
+    case "LabOnlyError":
+      return new LabOnlyError(wire.message);
+    case "InputSourceError":
+      return new InputSourceError(wire.message);
     case "ActivationClickObstructedError":
       return new ActivationClickObstructedError(wire.message);
     case "TugcodeLaunchError":

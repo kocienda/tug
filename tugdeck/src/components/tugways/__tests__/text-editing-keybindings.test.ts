@@ -2,15 +2,15 @@
  * text-editing-keybindings — the gap-fill bindings are letter mnemonics, so
  * they follow the user's layout by the same rule every chord does.
  *
- * The AZERTY fixtures are what WebKit's source says that layout delivers
- * (`code` for the position, `keyCode` for the letter typed); none was
- * recorded from a real keyboard.
+ * The AZERTY cases are keydowns recorded from that layout in a lab guest
+ * (`fixtures/keyboard-layouts.json`).
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { TUG_ACTIONS } from "../action-vocabulary";
 import { matchEditingKeybinding } from "../text-editing-keybindings";
+import { recordedKeydown } from "./fixtures/keyboard-layouts";
 
 function keyEvent(
   code: string,
@@ -52,19 +52,20 @@ describe("matchEditingKeybinding", () => {
 
   test("AZERTY: ⌃W is the key that types W, not the key at the US W position", () => {
     // AZERTY types "w" at the US Z position and "z" at the US W position.
-    expect(matchEditingKeybinding(keyEvent("KeyZ", 87, { ctrl: true }))?.action).toBe(
+    expect(recordedKeydown("French", "KeyZ", ["ctrl"]).key).toBe("w");
+    expect(matchEditingKeybinding(recordedKeydown("French", "KeyZ", ["ctrl"]))?.action).toBe(
       TUG_ACTIONS.DELETE_WORD_BACKWARD,
     );
-    expect(matchEditingKeybinding(keyEvent("KeyW", 90, { ctrl: true }))).toBeNull();
+    expect(matchEditingKeybinding(recordedKeydown("French", "KeyW", ["ctrl"]))).toBeNull();
   });
 
   test("AZERTY: ⌃U is the key that types U", () => {
     // U sits at the same position on both layouts.
-    expect(matchEditingKeybinding(keyEvent("KeyU", 85, { ctrl: true }))?.action).toBe(
+    expect(matchEditingKeybinding(recordedKeydown("French", "KeyU", ["ctrl"]))?.action).toBe(
       TUG_ACTIONS.DELETE_TO_LINE_START,
     );
     // The key that types A is at the US Q position; ⌃A is not a gap binding.
-    expect(matchEditingKeybinding(keyEvent("KeyQ", 65, { ctrl: true }))).toBeNull();
+    expect(matchEditingKeybinding(recordedKeydown("French", "KeyQ", ["ctrl"]))).toBeNull();
   });
 
   test("modifiers stay exact, and shift extends only where the binding says so", () => {

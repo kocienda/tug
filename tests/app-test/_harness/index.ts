@@ -59,6 +59,7 @@ import type {
   EvalJsOptions,
   LaunchTugAppOptions,
   LedgerSeedSpec,
+  KeyboardTypeName,
   MenuItemSnapshot,
   MenuItemState,
   WindowState,
@@ -80,6 +81,8 @@ import type {
   ElementBounds,
   ElementStateSnapshot,
   HarnessCaller,
+  InputSourceList,
+  MenuKeyFire,
   NativeClickOptions,
   NativeDragOptions,
   NativeFileDragOptions,
@@ -139,6 +142,8 @@ export type {
   ScreenRect,
   ViewportPoint,
 } from "./types";
+export type { InputSourceInfo, InputSourceList, MenuKeyFire } from "./client";
+export type { KeyboardTypeName } from "./types";
 
 /**
  * The harness's compile-time expected surface version. Must match the
@@ -269,8 +274,17 @@ export type {
  * hand-overs, reveal sets or switch holds — and `bodyLayers` rows drop
  * `faced` and `held`; `stages` carries the park covers (`parkCovers`). A
  * removal is breaking, hence the major.
+ *
+ * `3.1.0`: adds the keyboard-layout verbs — `nativeKeyCode` (a key by its
+ * `KeyboardEvent.code`), `setKeyboardType`, `inputSources`, and
+ * `selectInputSource`, which refuses with `LabOnlyError` unless the app runs
+ * with `TUG_LAB=1` ({@link App.selectInputSource}). Additive; major stays `3`.
+ *
+ * `3.2.0`: adds `menuKeyProbe` — while armed, a menu item's action is
+ * recorded instead of performed ({@link App.armMenuKeyProbe}). Additive;
+ * major stays `3`.
  */
-export const EXPECTED_SURFACE_VERSION = "3.0.0" as const;
+export const EXPECTED_SURFACE_VERSION = "3.2.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -1644,6 +1658,64 @@ export class App {
     modifiers?: readonly NativeModifier[],
   ): Promise<void> {
     return client.nativeKey(this as HarnessCaller, key, modifiers);
+  }
+
+  /**
+   * Press the key at a physical position, named by its `KeyboardEvent.code`
+   * (`"KeyQ"`), with optional modifiers. What it types is the current layout's
+   * answer; layout tests address keys this way.
+   */
+  nativeKeyCode(
+    code: string,
+    modifiers?: readonly NativeModifier[],
+  ): Promise<void> {
+    return client.nativeKeyCode(this as HarnessCaller, code, modifiers);
+  }
+
+  /** The keyboard input sources this machine can select, and the current one. */
+  inputSources(): Promise<InputSourceList> {
+    return client.inputSources(this as HarnessCaller);
+  }
+
+  /**
+   * Select a keyboard input source by ID and answer with the one it replaced;
+   * the first replaced source is selected again when the app closes. Lab only:
+   * without `TUG_LAB=1` it rejects with `LabOnlyError` and changes nothing.
+   */
+  selectInputSource(
+    sourceId: string,
+  ): Promise<{ previous: string; current: string | null }> {
+    return client.selectInputSource(this as HarnessCaller, sourceId);
+  }
+
+  /**
+   * Declare the keyboard type the harness's key events carry (`"iso"` for a
+   * European board), or `null` for the system's. Cleared at close.
+   */
+  setKeyboardType(
+    type: KeyboardTypeName | number | null,
+  ): Promise<{ previous: number | null; current: number; system: number }> {
+    return client.setKeyboardType(this as HarnessCaller, type);
+  }
+
+  /**
+   * Record menu items' actions instead of performing them, from now until
+   * {@link App.disarmMenuKeyProbe} or close, starting from an empty record.
+   * Every item is enabled while armed, so a key equivalent is matched as
+   * AppKit matches it whatever has focus; only the action is withheld.
+   */
+  async armMenuKeyProbe(): Promise<void> {
+    await client.menuKeyProbe(this as HarnessCaller, "arm");
+  }
+
+  /** The menu items fired since the last take, oldest first. */
+  async takeMenuKeyFires(): Promise<MenuKeyFire[]> {
+    return (await client.menuKeyProbe(this as HarnessCaller, "take")).fired ?? [];
+  }
+
+  /** Let menu actions perform again, with validation restored. */
+  async disarmMenuKeyProbe(): Promise<void> {
+    await client.menuKeyProbe(this as HarnessCaller, "disarm");
   }
 
   /** Type ASCII text (non-ASCII is rejected with a typed error). */

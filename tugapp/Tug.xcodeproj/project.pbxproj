@@ -80,6 +80,9 @@
 		AA0000010000000000000056 /* HostFrameMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004E /* HostFrameMeter.swift */; };
 		AA0000010000000000000057 /* SpikeBodyHandlers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004F /* SpikeBodyHandlers.swift */; };
 		AA0000010000000000000090 /* BeepTripwire.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000090 /* BeepTripwire.swift */; };
+		AA0000010000000000000E10 /* LabInputSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E10 /* LabInputSource.swift */; };
+		AA0000010000000000000E11 /* VirtualKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000011 /* VirtualKeyMap.swift */; };
+		AA0000010000000000000E12 /* VirtualKeyMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E11 /* VirtualKeyMapTests.swift */; };
 		AA0000010000000000000058 /* FrameMeterStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000050 /* FrameMeterStatsTests.swift */; };
 		AA0000010000000000000059 /* BodyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000051 /* BodyViewController.swift */; };
 		AA000001000000000000005A /* BodyGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000052 /* BodyGeometry.swift */; };
@@ -135,6 +138,8 @@
 		AA000002000000000000000E /* TestHarnessUserScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHarnessUserScript.swift; sourceTree = "<group>"; };
 		AA000002000000000000000F /* CoordMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordMapping.swift; sourceTree = "<group>"; };
 		AA0000020000000000000011 /* VirtualKeyMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualKeyMap.swift; sourceTree = "<group>"; };
+		AA0000020000000000000E10 /* LabInputSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabInputSource.swift; sourceTree = "<group>"; };
+		AA0000020000000000000E11 /* VirtualKeyMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualKeyMapTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000012 /* NativeEventHandlers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEventHandlers.swift; sourceTree = "<group>"; };
 		AA0000020000000000000013 /* AppLifecycleHandlers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleHandlers.swift; sourceTree = "<group>"; };
 		AA0000020000000000000014 /* TugcodeLifecycleHandlers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugcodeLifecycleHandlers.swift; sourceTree = "<group>"; };
@@ -309,6 +314,7 @@
 				AA0000020000000000000014 /* TugcodeLifecycleHandlers.swift */,
 				AA000002000000000000004F /* SpikeBodyHandlers.swift */,
 				AA0000020000000000000090 /* BeepTripwire.swift */,
+				AA0000020000000000000E10 /* LabInputSource.swift */,
 			);
 			path = TestHarness;
 			sourceTree = "<group>";
@@ -328,6 +334,7 @@
 				AA0000020000000000000050 /* FrameMeterStatsTests.swift */,
 				AA0000020000000000000054 /* BodyGeometryTests.swift */,
 				AA0000020000000000000058 /* CardGeometryTests.swift */,
+				AA0000020000000000000E11 /* VirtualKeyMapTests.swift */,
 				AA000002000000000000005E /* RailGeometryTests.swift */,
 				AA0000020000000000000056 /* BodyBeatsTests.swift */,
 				AA0000020000000000000E02 /* BodyStagesTests.swift */,
@@ -485,6 +492,7 @@
 				AA0000010000000000000014 /* TugcodeLifecycleHandlers.swift in Sources */,
 				AA0000010000000000000057 /* SpikeBodyHandlers.swift in Sources */,
 				AA0000010000000000000090 /* BeepTripwire.swift in Sources */,
+				AA0000010000000000000E10 /* LabInputSource.swift in Sources */,
 				AA0000010000000000000016 /* BuildInfo.swift in Sources */,
 				AA0000010000000000000015 /* BranchSlug.swift in Sources */,
 				AA0000010000000000000040 /* BridgePathGuard.swift in Sources */,
@@ -534,6 +542,7 @@
 				AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */,
 				AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */,
 				AA000001000000000000004B /* UpdateStateTests.swift in Sources */,
+				AA0000010000000000000E12 /* VirtualKeyMapTests.swift in Sources */,
 				AA0000010000000000000042 /* BranchSlug.swift in Sources */,
 				AA0000010000000000000043 /* BridgePathGuard.swift in Sources */,
 				AA0000010000000000000044 /* DictationState.swift in Sources */,
@@ -550,6 +559,7 @@
 				AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000045 /* ShellPathResolver.swift in Sources */,
 				AA0000010000000000000046 /* UpdateState.swift in Sources */,
+				AA0000010000000000000E11 /* VirtualKeyMap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

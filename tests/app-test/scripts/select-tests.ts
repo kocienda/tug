@@ -43,12 +43,21 @@
  * overwrites the value mid-read), and one that holds the app to a wall-clock window a batch's
  * load eats. The tag is about the machine, not the motion, so it is not spelled `@motion`.
  *
+ * A test that changes something the whole login session shares — selecting a keyboard
+ * input source, which changes the keyboard of every app the user is running — declares
+ * `@lab`, and runs only in a lab guest (`just lab-app-test`, which sets `TUG_LAB=1`). On the
+ * host no derived selection, no `--core` tier and no `--all` sweep ever names one, so a
+ * `@covers` match cannot carry it onto the user's machine; in a lab run (`TUG_LAB=1`) the same
+ * selection keeps it. Naming one by hand on the host still runs it, and the file itself
+ * skips when the flag is absent.
+ *
  * Usage:
  *   bun scripts/select-tests.ts                  # derive changed paths from this session's changes
  *   bun scripts/select-tests.ts <path>...        # explicit changed paths
  *   bun scripts/select-tests.ts --print          # print the whole ranking, not just the first MAX_SELECTED
  *   bun scripts/select-tests.ts --check          # lint: @covers present, resolving, and scoped
  *   bun scripts/select-tests.ts --core           # the core tier's file list
+ *   bun scripts/select-tests.ts --all            # every file a sweep runs here (no `@lab` file on the host)
  *   bun scripts/select-tests.ts --foreground <f>...   # the @foreground subset of <f>...
  *   bun scripts/select-tests.ts --foreground-check    # lint: @foreground matches behavior
  *   bun scripts/select-tests.ts --queues <f>...       # each of <f>... with the queue it runs in
@@ -419,7 +428,12 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // 10 → 11 for `BeepTripwire.swift`, the test-mode beep tripwire behind the
     // `beepReport` verb: a verb's host half like the rest, on the same
     // connection. Deleted and re-added across two commits.
-    "tugapp/Sources/TestHarness/": 11,
+    // 11 → 12 for `LabInputSource.swift`, the host half of the keyboard-layout
+    // verbs (`inputSources`, `selectInputSource`): a verb's host half like the
+    // rest, dispatched on the same connection. Raised in place, as `SpikeBodyHandlers`
+    // was: the refinance rule reads the key out of `HEAD`, so it trips until this
+    // commits. The argument is written here.
+    "tugapp/Sources/TestHarness/": 12,
 
     // The bridge. A single binary with no interior a test could name instead.
     //
@@ -598,6 +612,8 @@ interface TestCoverage {
     foregroundOption: boolean;
     /** Passes a possibly-true `visible` launch option at some launch site. */
     visibleOption: boolean;
+    /** Declared by `@lab`: changes session-global state, so it runs only in a lab guest. */
+    lab: boolean;
     /** Declared by `@family`: the split this file is one piece of, or null. */
     family: string | null;
 }
@@ -626,6 +642,7 @@ const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b(.*)$/;
 const VISIBLE_LINE = /^\s*\*?\s*@visible\b/;
 const MOTION_LINE = /^\s*\*?\s*@motion\b/;
 const ALONE_LINE = /^\s*\*?\s*@alone\b/;
+const LAB_LINE = /^\s*\*?\s*@lab\b/;
 const FAMILY_LINE = /^\s*\*?\s*@family\s+(\S+)/;
 
 /**
@@ -670,6 +687,7 @@ function readCoverage(file: string): TestCoverage {
     let foregroundReason: string | null = null;
     let visible = false;
     let motion = false;
+    let lab = false;
     let family: string | null = null;
     for (const line of text.split("\n")) {
         const m = COVERS_LINE.exec(line);
@@ -681,6 +699,7 @@ function readCoverage(file: string): TestCoverage {
         }
         if (VISIBLE_LINE.test(line)) visible = true;
         if (MOTION_LINE.test(line) || ALONE_LINE.test(line)) motion = true;
+        if (LAB_LINE.test(line)) lab = true;
         const f = FAMILY_LINE.exec(line);
         if (f) family = f[1];
         // Declarations live in the header docblock; stop at the first import.
@@ -695,6 +714,7 @@ function readCoverage(file: string): TestCoverage {
         motion,
         foregroundOption: FOREGROUND_OPTION.test(text),
         visibleOption: passesVisibleOption(text),
+        lab,
         family,
     };
 }
@@ -1028,6 +1048,7 @@ const printOnly = args.includes("--print");
 const checkOnly = args.includes("--check");
 const holesOnly = args.includes("--holes");
 const coreOnly = args.includes("--core");
+const allOnly = args.includes("--all");
 const foregroundOnly = args.includes("--foreground");
 const foregroundCheck = args.includes("--foreground-check");
 const queuesOnly = args.includes("--queues");
@@ -1055,11 +1076,36 @@ if (coreOnly) {
         );
         process.exit(1);
     }
+    // **The core tier runs on the host, so it may name no `@lab` file.** A lab file in
+    // it would reach the user's machine on every bare `just app-test`.
+    const labInTier = CORE_TIER.filter((f) => readCoverage(f).lab);
+    if (labInTier.length > 0) {
+        process.stderr.write(
+            `[select-tests] the core tier names ${labInTier.length} @lab file(s), which run only in a lab guest:\n` +
+                labInTier.map((f) => `  ${f}\n`).join("") +
+                "Take them out of CORE_TIER in tests/app-test/scripts/select-tests.ts.\n",
+        );
+        process.exit(1);
+    }
     for (const f of CORE_TIER) process.stdout.write(`${f}\n`);
     process.exit(0);
 }
 
 const coverage = testFiles().map(readCoverage);
+
+/** Whether this is a lab run: `scripts/lab/guest-app-test` sets the flag, and a host run never does. */
+const IS_LAB = process.env.TUG_LAB === "1";
+
+/** Whether a sweep or a derived selection may name this file here: an `@lab` file only in a lab run. */
+function runsHere(c: TestCoverage): boolean {
+    return IS_LAB || !c.lab;
+}
+
+if (allOnly) {
+    // Every file `app-test-all` and `app-test-reach` run, in run order.
+    for (const c of coverage) if (runsHere(c)) process.stdout.write(`${c.file}\n`);
+    process.exit(0);
+}
 
 /** At or above this executed share of its covered modules, a test claims nearly all it covers. */
 const NEARLY_EVERYTHING = 0.8;
@@ -1568,9 +1614,18 @@ const sources = changed.filter(isSource);
 const setAside = changed.filter((p) => !isSource(p));
 
 const selected: { file: string; because: string[] }[] = [];
+const labSetAside: string[] = [];
 for (const c of coverage) {
     const because = sources.filter((p) => c.covers.some((pattern) => matches(pattern, p)));
-    if (because.length > 0) selected.push({ file: c.file, because });
+    if (because.length === 0) continue;
+    if (runsHere(c)) selected.push({ file: c.file, because });
+    else labSetAside.push(c.file);
+}
+if (labSetAside.length > 0) {
+    process.stderr.write(
+        `[select-tests] ${labSetAside.length} @lab file(s) cover the change and run only in a lab guest ` +
+            `(just lab-app-test): ${labSetAside.join(", ")}\n`,
+    );
 }
 
 const units = new Set(selected.map((s) => unitOf(corpusByFile.get(s.file)!))).size;

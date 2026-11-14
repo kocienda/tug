@@ -152,6 +152,37 @@ export class UnknownKeyError extends Error {
 }
 
 /**
+ * Thrown by `selectInputSource` when the app was not launched by a lab run
+ * (`TUG_LAB=1`, set only by `scripts/lab/guest-app-test`). The keyboard input
+ * source belongs to the whole login session, so on a host the verb would
+ * change the keyboard of every app the user is running; it refuses instead,
+ * and the refusal is a red rather than a silent US measurement. A host test
+ * may assert this refusal, because nothing changes when it is thrown.
+ */
+export class LabOnlyError extends Error {
+  readonly name = "LabOnlyError" as const;
+
+  constructor(message: string) {
+    super(message);
+    Object.setPrototypeOf(this, LabOnlyError.prototype);
+  }
+}
+
+/**
+ * Thrown by `selectInputSource` when the guest has no input source with that
+ * ID, or TIS will not enable or select it. `app.inputSources()` lists the IDs
+ * the guest offers.
+ */
+export class InputSourceError extends Error {
+  readonly name = "InputSourceError" as const;
+
+  constructor(message: string) {
+    super(message);
+    Object.setPrototypeOf(this, InputSourceError.prototype);
+  }
+}
+
+/**
  * Thrown when a `nativeClick(..., { activateFirst: false })` cannot reach the
  * app's own window, because another application's window is in front of it at
  * that point.

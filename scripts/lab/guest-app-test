@@ -1,0 +1,115 @@
+#!/bin/bash
+# guest-app-test — the guest half of `just lab-app-test`. Runs INSIDE a Tart lab
+# guest, started by `scripts/lab/lab-app-test` over `tart exec`; never on the host.
+#
+#   guest-app-test [app-test files...]
+#
+# The host shares one folder read-only, which the guest sees as
+# /Volumes/My Shared Files/stage/: `tree.tar` (the checkout's tracked and
+# untracked-not-ignored files, the node_modules dirs, and
+# tugrust/target/debug's helper binaries), `app.tar` (the app-test bundle),
+# this script, the host's `bun` and `just`, the self-contained `tmux` with its
+# terminfo, and one-line files naming the branch, the bundle's product name,
+# its DerivedData leaf and its bundle id.
+#
+# It unpacks all of that onto the guest's own disk (nothing runs from
+# virtiofs: reading thousands of files through it exhausts the guest's file
+# handles). The tree goes at the very path the host built it from, which the
+# Debug bundle records as `BuildSourceTree` and hands tugcast as its bootstrap
+# workspace, so tugcast refuses to start anywhere else. The copy is a one-commit
+# git repository on the host's branch name, so `app-test.sh` derives the same
+# bundle path. It grants the bundle Accessibility
+# (the bases boot with SIP disabled, so the system TCC database is writable),
+# and then runs the ordinary `just app-test` — the same recipe a host run uses.
+#
+# Everything it writes is inside this throwaway guest. The golden bases are
+# never touched: the host boots a fresh clone for every run.
+#
+# The guest's admin password is the Cirrus base's `admin`, which `sudo` reads
+# from stdin here and nowhere else.
+
+set -euo pipefail
+
+SHARE="/Volumes/My Shared Files"
+STAGE="$SHARE/stage"
+
+[ -f "$STAGE/tree.tar" ] || { echo "[lab] missing $STAGE/tree.tar (was the guest booted by lab-app-test?)" >&2; exit 1; }
+
+BRANCH="$(cat "$STAGE/branch")"
+PRODUCT="$(cat "$STAGE/product")"
+LEAF="$(cat "$STAGE/derived-leaf")"
+BUNDLE_ID="$(cat "$STAGE/bundle-id")"
+
+DERIVED="$HOME/Library/Developer/Xcode/DerivedData/$LEAF/Build/Products/Debug"
+APP="$DERIVED/$PRODUCT.app"
+echo "==> [lab] guest $(sw_vers -productVersion) — installing $PRODUCT.app at $APP"
+rm -rf "$APP"
+mkdir -p "$DERIVED"
+tar -xf "$STAGE/app.tar" -C "$DERIVED"
+
+REPO="$(plutil -extract BuildSourceTree raw "$APP/Contents/Info.plist")"
+echo "==> [lab] unpacking the tree to $REPO (the bundle's BuildSourceTree)"
+echo admin | sudo -S -p "" rm -rf "$REPO"
+echo admin | sudo -S -p "" mkdir -p "$REPO"
+echo admin | sudo -S -p "" chown "$(id -u):$(id -g)" "$REPO"
+tar -xf "$STAGE/tree.tar" -C "$REPO"
+
+# A one-commit repository on the host's branch name: `app-test.sh` and the
+# DerivedData / product-name scripts derive the bundle path from the branch,
+# and several fixtures read `git rev-parse`.
+(
+    cd "$REPO"
+    git init -q -b "$BRANCH"
+    git add -A
+    git -c user.name=lab -c user.email=lab@localhost commit -q -m "lab snapshot of $BRANCH"
+)
+
+echo "==> [lab] installing bun and just"
+mkdir -p "$HOME/.bun/bin" "$HOME/.local/bin"
+cp -p "$STAGE/bun" "$HOME/.bun/bin/bun"
+cp -p "$STAGE/just" "$HOME/.local/bin/just"
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# The Debug bundle resolves tmux from the login shell's PATH, which reads
+# /etc/paths, so tmux goes in /usr/local/bin rather than a per-user dir; its
+# terminfo goes in ~/.terminfo, which ncurses searches by default.
+echo "==> [lab] installing tmux"
+echo admin | sudo -S -p "" mkdir -p /usr/local/bin
+echo admin | sudo -S -p "" cp "$STAGE/tmux/tmux" /usr/local/bin/tmux
+mkdir -p "$HOME/.terminfo"
+cp -R "$STAGE/tmux/terminfo/." "$HOME/.terminfo/"
+
+# Accessibility (and event posting) for the bundle, keyed on its designated
+# requirement exactly as a System Settings grant would be. The lab guest is the
+# one place this may be written by hand: SIP is off there, and the guest dies
+# with the run.
+echo "==> [lab] granting Accessibility to $BUNDLE_ID"
+REQ_BIN="$(mktemp -t lab-csreq)"
+DR="$(codesign -d -r- "$APP" 2>&1 | sed -nE 's/^#?[[:space:]]*designated[[:space:]]+=>[[:space:]]+(.*)$/\1/p' | head -1)"
+csreq -r- -b "$REQ_BIN" <<< "$DR"
+REQ_HEX="$(xxd -p "$REQ_BIN" | tr -d '\n')"
+rm -f "$REQ_BIN"
+TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
+for svc in kTCCServiceAccessibility kTCCServicePostEvent; do
+    echo admin | sudo -S -p "" sqlite3 -cmd ".timeout 10000" "$TCC_DB" \
+        "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, flags, last_modified) VALUES ('$svc', '$BUNDLE_ID', 0, 2, 4, 1, X'$REQ_HEX', 0, CAST(strftime('%s','now') AS INTEGER));"
+done
+echo admin | sudo -S -p "" killall tccd 2>/dev/null || true
+
+# The lab flag: the app's lab-only harness verbs (selecting an input source)
+# refuse unless it is in the app's environment, and only this script sets it.
+# It reaches the app through the harness's TUG* environment forwarding, and it is
+# what lets `select-tests.ts` keep the `@lab` files a host selection drops.
+export TUG_LAB=1
+# Answer the foreground question ahead of time: nobody is at a guest's screen,
+# and every test in it may take the screen.
+export TUG_APPTEST_ASSUME=all
+# A cold guest's first WebKit launch is slower than a warm host's; give each
+# file more than the host's 20 s budget unless the caller chose one (the host's
+# TUG_APPTEST_FILE_BUDGET_SECS, staged by lab-app-test).
+HOST_BUDGET="$(cat "$STAGE/file-budget" 2>/dev/null || true)"
+export TUG_APPTEST_FILE_BUDGET_SECS="${HOST_BUDGET:-${TUG_APPTEST_FILE_BUDGET_SECS:-60}}"
+
+echo "==> [lab] just app-test $*"
+cd "$REPO"
+exec just app-test "$@"

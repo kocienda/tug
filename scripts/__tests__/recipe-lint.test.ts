@@ -40,6 +40,9 @@ via-script:
 via-silent-script:
     scripts/quiet.sh
 
+via-bare-script *ARGS:
+    scripts/lab/runner {{ARGS}}
+
 old-band:
     @tugtool report count --label swift --needle "just test" -- running
     xcodebuild test
@@ -51,6 +54,7 @@ defaulted seed="" batches="20": phased
 const SCRIPTS: Record<string, string> = {
   "tugrust/scripts/reporting.sh": '#!/usr/bin/env bash\nbash "$HERE/report-phase.sh" dmg 0 "inputs"\n',
   "scripts/quiet.sh": "#!/usr/bin/env bash\necho nothing\n",
+  "scripts/lab/runner": '#!/bin/bash\nbash tugrust/scripts/report-phase.sh lab 0 "stage" --of "stage" "run"\n',
 };
 const readScript = (path: string) => SCRIPTS[path] ?? null;
 
@@ -76,7 +80,7 @@ describe("recipe-lint", () => {
   });
 
   test("passes a recipe that reports itself or through what it runs", () => {
-    const listed = ["phased", "unit-reporting", "wrapped", "via-dep", "via-just", "via-script"];
+    const listed = ["phased", "unit-reporting", "wrapped", "via-dep", "via-just", "via-script", "via-bare-script"];
     expect(lintRecipes(FIXTURE, { listed, exempt: {}, readScript })).toEqual([]);
   });
 

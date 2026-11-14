@@ -40,6 +40,11 @@ export type RpcMethod =
   | "holdModifier"
   | "pressHeldModifiers"
   | "releaseHeldModifiers"
+  | "nativeKeyCode"
+  | "selectInputSource"
+  | "inputSources"
+  | "setKeyboardType"
+  | "menuKeyProbe"
   | "simulateAppResign"
   | "simulateAppBecomeActive"
   | "simulateAppHide"
@@ -56,6 +61,13 @@ export type RpcMethod =
 
 /** A memory-pressure level, as the host's dispatch source reports one. */
 export type MemoryPressureLevel = "normal" | "warning" | "critical";
+
+/**
+ * A keyboard type by name, for `setKeyboardType`: the Apple keyboard types 40
+ * (ANSI), 41 (ISO) and 42 (JIS). ISO is the board AZERTY and QWERTZ users have,
+ * with the extra key beside left Shift.
+ */
+export type KeyboardTypeName = "ansi" | "iso" | "jis";
 
 /**
  * Viewport-space point passed to the native-gesture verbs. `{x, y}` is
@@ -125,6 +137,11 @@ export type InnerNativeVerb =
   | {
       method: "nativeKey";
       key: string;
+      modifiers?: readonly NativeModifier[];
+    }
+  | {
+      method: "nativeKeyCode";
+      code: string;
       modifiers?: readonly NativeModifier[];
     }
   | {
@@ -386,6 +403,32 @@ export type Request =
       card?: string;
       key: string;
       modifiers?: readonly NativeModifier[];
+    }
+  | {
+      id: number;
+      method: "nativeKeyCode";
+      card?: string;
+      code: string;
+      modifiers?: readonly NativeModifier[];
+    }
+  | {
+      id: number;
+      method: "selectInputSource";
+      sourceId: string;
+    }
+  | {
+      id: number;
+      method: "inputSources";
+    }
+  | {
+      id: number;
+      method: "setKeyboardType";
+      type: KeyboardTypeName | number | null;
+    }
+  | {
+      id: number;
+      method: "menuKeyProbe";
+      op: "arm" | "take" | "disarm";
     }
   | {
       id: number;

@@ -44,7 +44,15 @@ Its header comment states that Roman letters get the same `keyCode` "on QWERTY, 
 
 **[F11] The default chords are mostly on letters.** In `command-registry.ts`: 57 on letter keys, 2 on digits, about 20 on punctuation (`[`, `]`, `/`, `=`, `-`, `,`, `.`, `'`), the rest on arrows, Tab and Escape. **(verified, counted by grep)**
 
-**[F12] Nothing here was observed on a real non-US layout.** Every claim about what an AZERTY, Dvorak or Russian keyboard delivers is read from source, not recorded from events. Driving a real layout means switching the machine's keyboard input source.
+**[F12] Nothing here was observed on a real non-US layout.** Every claim about what an AZERTY, Dvorak or Russian keyboard delivers is read from source, not recorded from events. Driving a real layout means switching the machine's keyboard input source. **(answered by [F13])**
+
+**[F13] A lab recording now says what five layouts deliver.** `tests/app-test/readings/lab-layout-recording.test.ts` ran in a macOS 27 lab guest with French (AZERTY), German (QWERTZ), Greek, Russian and Dvorak – QWERTY ⌘ selected. It pressed every key a default chord uses, bare, under ⌘, ⌃, ⌥ and ⇧, and under ⌘ with each of ⌃, ⌥ and ⇧, through the harness's pid mode and through the session tap. The two modes delivered the same `key`, `code` and `keyCode` for every press both could make. It is committed as `tugdeck/src/components/tugways/__tests__/fixtures/keyboard-layouts.json`. **(verified, recorded)** What it found:
+
+- Letters arrive as [B02] assumed: AZERTY's US-Q key reports 65 under ⌘, ⌃ and ⌥ (with `key` `æ` under ⌥), Russian and Greek letters report their US position, and Dvorak – QWERTY ⌘ is QWERTY under ⌘, ⌥⌘ and ⌘⇧.
+- **Dvorak – QWERTY ⌘ is Dvorak under ⌃⌘.** The US-C key types `j` and reports 74 with ⌃⌘ held, while AppKit's menu still matches ⌃⌘ chords at QWERTY positions. So on that layout a ⌃⌘ letter chord fires in the deck on the key that types its Dvorak letter, and the menu would fire it on the QWERTY one. The event carries nothing that names the ⌘-only remap, so the deck cannot follow the menu here.
+- **Punctuation `keyCode` is character-derived on every layout.** A punctuation key reports the code of the US key that carries its character, shifted or not: AZERTY's key labelled `-` (the US Equal position) reports 189, its `=` key (US Slash) 187, and its `<` key 188, the US comma key. AppKit's localized menu fires the punctuation chord on the key that types the character: ⌘ with AZERTY's `-` key reached Zoom Out, and with QWERTZ's `-` key (US Slash) too.
+- Under the positional rule this put the deck and the menu at odds on the most-used punctuation chords. On AZERTY, ⌘ with the key labelled `-` fired the deck's ⌘= Zoom In, and ⌘ with the key labelled `=` opened the command picker (⌘/). On QWERTZ, ⌘ with the key labelled `-` opened the command picker. In every case the menu named a different command.
+- A letter position can type punctuation: AZERTY's US-M key types `,` and reports 188, and `m` is on the US Semicolon key.
 
 ---
 
@@ -52,7 +60,7 @@ Its header comment states that Roman letters get the same `keyCode` "on QWERTY, 
 
 **[B01] A chord names the key that types its character on the user's layout.** This is AppKit's convention [F05], it is what the menu bar and the Keyboard Shortcuts pane already display [F03], and it is what the reporter expected. It reverses the identity sentence in `tuglaws/commands.md` [F02], and that reversal is made in the open: the law is rewritten in the same change.
 
-**[B02] The deck reads the layout from WebKit's `keyCode`, not from a table of its own.** When `event.keyCode` is 65–90 the effective code is `Key` plus that letter; otherwise it is `event.code`. One function in `chord-format.ts` computes it, and `eventChordKey`, `chordMatchesEvent` and `chordFromEvent` go through it, so the global index, the scoped walk and chord capture agree by construction. WebKit's three-step resolution [F06] gives the right answer for AZERTY and QWERTZ, for "Dvorak – QWERTY ⌘", and for non-Latin layouts, where it falls back to position, which is what those users expect of ⌘C. CodeMirror's use of the same field [F08] is the precedent inside our own bundle.
+**[B02] The deck reads the layout from WebKit's `keyCode`, not from a table of its own.** When `event.keyCode` is 65–90 the effective code is `Key` plus that letter; a punctuation key follows its character under [B06]; otherwise it is `event.code`. One function in `chord-format.ts` computes it, and `eventChordKey`, `chordMatchesEvent` and `chordFromEvent` go through it, so the global index, the scoped walk and chord capture agree by construction. WebKit's three-step resolution [F06] gives the right answer for AZERTY and QWERTZ, for "Dvorak – QWERTY ⌘" under ⌘, ⌥⌘ and ⌘⇧, and for non-Latin layouts, where it falls back to position, which is what those users expect of ⌘C. The recording [F13] confirmed all of these. Under ⌃⌘ that Dvorak layout types Dvorak, so a ⌃⌘ letter chord follows Dvorak in the deck while AppKit's menu follows QWERTY. That is a known limit, left as it is: the event carries nothing the deck could correct it from. CodeMirror's use of the same field [F08] is the precedent inside our own bundle.
 
 **[B03] The text-editing bindings use the same function.** ⌃U, ⌃W, ⌥F and ⌥B are letter mnemonics like the rest, and a second match rule beside the first is the drift `chord-format.ts` exists to prevent [F01].
 
@@ -60,20 +68,20 @@ Its header comment states that Roman letters get the same `keyCode` "on QWERTY, 
 
 **[B05] Digits stay positional.** A digit chord fires on the number-row key whatever the layout types there unshifted. This follows Chromium [F09] and is the only workable rule on layouts where a digit needs Shift.
 
-**[B06] Punctuation stays positional in this work.** WebKit derives `keyCode` from the character for "certain punctuation keys" [F06], but which ones was not confirmed, and a wrong guess would move a chord nobody asked to move. A punctuation chord the deck does not match falls through to AppKit [F04], which may have remapped the item [F05]. Revisit once [F12] is answered.
+**[B06] A punctuation chord follows its character where the character confirms it.** *Revised once the recording answered [F12]: this decision first kept punctuation positional, and that is reversed in the open here, in `chord-format.ts` and in `tuglaws/commands.md`.* The recording [F13] showed that positional punctuation fires a different command than the menu on AZERTY and QWERTZ. It also showed that WebKit's punctuation `keyCode` names the US key carrying the character, which is the key AppKit's localized menu uses. So `effectiveCode` maps a punctuation `keyCode` (186–192, 219–222) to that US key's code. It takes it only when the character confirms it: `key` must be the character that key types in the event's shift state, or ⌥ must be held and `key` composed. A code shared by both characters on a US key would otherwise match a key it should not: AZERTY's `<` key reports the comma key's 188 and would open Settings on ⌘<. A key whose character does not confirm the code, and a key the layout leaves in place, stay positional as before. Digit positions stay positional under [B05] even when they type punctuation: AZERTY's 4 key types `'` and is still ⌘4. Scored against the recorded menu tries, this removes every case where deck and menu named different commands because of punctuation. What remains is the digits and AppKit's own matching of ⌃⌘⇧ chords. A punctuation chord the deck does not match still falls through to AppKit [F04]. The same rule settles the AZERTY comma key: ⌘ there is ⌘, now, not ⌘M.
 
 **[B07] The page keeps going first.** The deck goes on matching menu-eligible chords itself, now by the right rule. The sentence in `tuglaws/commands.md` claiming AppKit scans first is corrected to describe what WebKit does [F04].
 
 **[B08] Stored chords, user overrides, the menu push and the displayed labels do not change.** They are already spelled in US terms that read as characters [F03]. No override migration is needed.
 
-**[B09] The unit tests are built from event fixtures for AZERTY, Dvorak – QWERTY ⌘ and Russian.** Each fixture is the `code`, `keyCode`, `key` and modifier set WebKit's source says that layout delivers [F06]. They pin the rule; they do not prove the layouts, which is [F12].
+**[B09] The unit tests read their layout events from the recording.** The fixtures were first built from what WebKit's source says each layout delivers [F06]. They now come from `fixtures/keyboard-layouts.json` [F13] through `fixtures/keyboard-layouts.ts`, so they prove the layouts as well as the rule. The synthesized events, with no `keyCode` or with one set by hand, stay hand-made, because no keyboard sends them.
 
 ---
 
 ## Open Questions {#open-questions}
 
-- **Does a real AZERTY keyboard deliver what the fixtures assume?** [F12]. It cannot be settled from this machine without changing the user's input source. A lab VM with the layout selected, or the reporter trying a build, would settle it.
-- **Which punctuation chords land on a different key than the menu shows, on AZERTY and QWERTZ?** About 20 defaults are exposed [F11]. Settling it needs the same recording as the question above, read against what AppKit's automatic localization does to each item. The answer decides whether [B06] stands.
+- ~~**Does a real AZERTY keyboard deliver what the fixtures assume?**~~ Settled by the lab recording [F13]: it does, for letters under every modifier recorded.
+- ~~**Which punctuation chords land on a different key than the menu shows, on AZERTY and QWERTZ?**~~ Settled by the same recording [F13]. Zoom In, Zoom Out and the command picker landed on different keys, so [B06] was revised to follow the confirmed character.
 
 ---
 

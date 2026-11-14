@@ -11,6 +11,7 @@ import {
   formatBeepFailure,
   recordBeeps,
   resetCaughtBeeps,
+  takeBeeps,
   type CaughtBeep,
 } from "./beep-report";
 
@@ -131,5 +132,16 @@ describe("recordBeeps", () => {
     // @ts-expect-error — an entry missing its origin must not count
     recordBeeps({ count: 1, beeps: [{ verb: "nativeKey" }] });
     expect(caughtBeeps()).toHaveLength(0);
+  });
+});
+
+describe("takeBeeps", () => {
+  test("moves one launch's beeps out of the verdict and leaves every other launch's", () => {
+    recordBeeps({ count: 1, beeps: [{ origin: "noResponderFor(keyDown:)", key: "⌘/" }] }, "reading");
+    recordBeeps({ count: 1, beeps: [{ origin: "noResponderFor(keyDown:)", key: "Escape" }] }, "other");
+    recordBeeps({ count: 1, beeps: [{ origin: "noResponderFor(keyDown:)", key: "⌘'" }] }, "reading");
+    expect(takeBeeps("reading").map((b) => b.key)).toEqual(["⌘/", "⌘'"]);
+    expect(caughtBeeps().map((b) => [b.launch, b.key])).toEqual([["other", "Escape"]]);
+    expect(takeBeeps("reading")).toEqual([]);
   });
 });

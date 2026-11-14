@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 import WebKit
@@ -202,11 +203,14 @@ enum ModifierKey: String {
 enum NativeEventError: Error, CustomStringConvertible {
     case coordinateOutOfBounds(CGPoint)
     case unknownKey(String)
+    case unknownKeyCode(String)
     case asciiOnly(String)
     case eventCreationFailed(String)
     case webViewUnavailable
     case protocolError(String)
     case activationClickObstructed(point: CGPoint, ownerName: String, ownerPid: pid_t)
+    case labOnly(String)
+    case inputSource(String)
 
     var description: String {
         switch self {
@@ -214,6 +218,8 @@ enum NativeEventError: Error, CustomStringConvertible {
             return "viewport coordinate (\(p.x), \(p.y)) is outside the WKWebView's visible frame"
         case .unknownKey(let name):
             return "unknown key name: \"\(name)\" (no entry in VirtualKeyMap)"
+        case .unknownKeyCode(let code):
+            return "unknown key code: \"\(code)\" (not a KeyboardEvent.code VirtualKeyMap.lookupCode knows)"
         case .asciiOnly(let excerpt):
             return "nativeType accepts US-ASCII only; first non-ASCII code unit: \"\(excerpt)\""
         case .eventCreationFailed(let what):
@@ -232,6 +238,15 @@ enum NativeEventError: Error, CustomStringConvertible {
                 leftover Tug from a killed run: `just reap` reports them, and \
                 unregistered app-test instances have to be killed by hand.
                 """
+        case .labOnly(let verb):
+            return """
+                \(verb) refused: it changes state the whole login session shares \
+                (the keyboard input source), so it runs only in a lab guest, and \
+                this app was launched without \(LabInputSource.flag)=1. \
+                `just lab-app-test` sets it; never export it on your own Mac.
+                """
+        case .inputSource(let message):
+            return "input source: \(message)"
         }
     }
 
@@ -241,11 +256,14 @@ enum NativeEventError: Error, CustomStringConvertible {
         switch self {
         case .coordinateOutOfBounds: return "CoordinateOutOfBoundsError"
         case .unknownKey: return "UnknownKeyError"
+        case .unknownKeyCode: return "UnknownKeyError"
         case .asciiOnly: return "NativeTypeAsciiOnlyError"
         case .eventCreationFailed: return "NativeEventError"
         case .webViewUnavailable: return "AppCrashedError"
         case .protocolError: return "ProtocolError"
         case .activationClickObstructed: return "ActivationClickObstructedError"
+        case .labOnly: return "LabOnlyError"
+        case .inputSource: return "InputSourceError"
         }
     }
 }
@@ -993,6 +1011,37 @@ final class NativeEventHandlers {
     /// it would be a lie the test could not see.
     private static var persistentlyHeldModifiers: [ModifierKey] = []
 
+    /// The keyboard type every key event the harness posts declares, or nil
+    /// for the event source's own default. Set by `setKeyboardType` and
+    /// cleared at connection teardown.
+    ///
+    /// The type decides how some keycodes translate — the extra key an ISO
+    /// board has beside left Shift, and punctuation on European layouts — so
+    /// a test of an AZERTY or QWERTZ keyboard declares ISO, as the board it
+    /// models would. Static for the reason `persistentlyHeldModifiers` is: a
+    /// handler is made per verb, and the declaration has to outlive one.
+    private static var keyboardTypeOverride: CGEventSourceKeyboardType?
+
+    /// The system's keyboard type (`LMGetKbdType`), what an event carries when
+    /// nobody declared one. 40 is ANSI, 41 ISO, 42 JIS on Apple keyboards.
+    static var systemKeyboardType: CGEventSourceKeyboardType {
+        CGEventSourceKeyboardType(LMGetKbdType())
+    }
+
+    /// Declare the keyboard type for every key event posted from now on (nil
+    /// returns to the system's). Returns the declaration it replaced.
+    @discardableResult
+    static func setKeyboardType(_ type: CGEventSourceKeyboardType?) -> CGEventSourceKeyboardType? {
+        let previous = keyboardTypeOverride
+        keyboardTypeOverride = type
+        return previous
+    }
+
+    /// The type key events carry right now: the declaration, else the system's.
+    static var effectiveKeyboardType: CGEventSourceKeyboardType {
+        keyboardTypeOverride ?? systemKeyboardType
+    }
+
     /// The `CGEventFlags` union of everything currently down — this verb's own
     /// `holdModifier` / transparent-Shift set plus any persistent hold.
     private var heldFlags: CGEventFlags {
@@ -1067,6 +1116,23 @@ final class NativeEventHandlers {
             if shiftOverride {
                 releaseModifier(.shift)
             }
+        }
+        sleepMs(NATIVE_KEY_POST_SEQUENCE_SETTLE_MS)
+    }
+
+    /// Post one keystroke at a physical position, named by its
+    /// `KeyboardEvent.code` (`"KeyQ"`, `"Semicolon"`, `"IntlBackslash"`), with
+    /// optional modifiers. Unlike `nativeKey`, the key carries no character
+    /// and no implied Shift: what it types is the current keyboard layout's
+    /// answer, which is the point of a layout test.
+    func nativeKeyCode(code: String, modifiers: [ModifierKey] = []) throws {
+        activateForKeyboard()
+        guard let keyCode = VirtualKeyMap.lookupCode(code) else {
+            throw NativeEventError.unknownKeyCode(code)
+        }
+        holdModifier(modifiers: modifiers) { [self] in
+            postKeyEvent(keyCode: keyCode, keyDown: true)
+            postKeyEvent(keyCode: keyCode, keyDown: false)
         }
         sleepMs(NATIVE_KEY_POST_SEQUENCE_SETTLE_MS)
     }
@@ -1326,6 +1392,13 @@ final class NativeEventHandlers {
     }
 
     private func postKeyEvent(keyCode: CGKeyCode, keyDown: Bool) {
+        // The declared keyboard type goes on the source BEFORE the event is
+        // made, because `CGEvent(keyboardEventSource:)` fills in the event's
+        // characters from the layout at creation, reading the source's type;
+        // the field stamped below then tells the receiver the same thing.
+        if let type = Self.keyboardTypeOverride {
+            source?.keyboardType = type
+        }
         guard let event = CGEvent(
             keyboardEventSource: source,
             virtualKey: keyCode,
@@ -1345,6 +1418,9 @@ final class NativeEventHandlers {
         // `altKey` false, so a two-modifier binding never matches. Stamping the
         // held set makes the flags a function of what the harness asked for.
         event.flags = heldFlags
+        if let type = Self.keyboardTypeOverride {
+            event.setIntegerValueField(.keyboardEventKeyboardType, value: Int64(type))
+        }
         post(event)
     }
 

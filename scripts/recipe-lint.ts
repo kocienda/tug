@@ -74,8 +74,12 @@ const REPORTS = [
   /\bTUGTOOL[A-Z_]*"?\s+test\s+run\b/,
 ];
 
-/** A script the recipe runs, by its path from the repository root. */
-const SCRIPT_REF = /(?:^|[\s"'=(])((?:tugrust\/)?scripts\/[\w./-]+\.(?:sh|py|ts))\b/g;
+/**
+ * A script the recipe runs, by its path from the repository root — with an
+ * extension or without one, as the `scripts/lab/` helpers are. A path that
+ * names a directory or nothing reads as no script.
+ */
+const SCRIPT_REF = /(?:^|[\s"'=(])((?:tugrust\/)?scripts\/[\w./-]*\w)/g;
 
 export interface Recipe {
   name: string;

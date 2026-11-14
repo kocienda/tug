@@ -21,6 +21,7 @@ import {
   formatChord,
 } from "../chord-format";
 import { COMMANDS, type Chord } from "../command-registry";
+import { recordedKeydown, recordedMenuTries } from "./fixtures/keyboard-layouts";
 
 function keyEvent(code: string, mods: Partial<Record<"ctrl" | "meta" | "shift" | "alt", boolean>> = {}) {
   return {
@@ -57,13 +58,10 @@ describe("chord identity", () => {
 });
 
 /**
- * One keydown as a layout delivers it: the position (`code`), the legacy
- * `keyCode` WebKit resolves against the input source, and the character
- * (`key`). Each fixture is what WebKit's `windowsKeyCodeForKeyEvent`,
- * `codeForKeyEvent` and `keyForKeyEvent` say the layout produces; none was
- * recorded from a real keyboard, so these pin the rule and not the layouts.
+ * A keydown no keyboard sends: `keyCode` set by hand, for the synthesized
+ * events the rule must still match by position.
  */
-function layoutEvent(
+function syntheticEvent(
   code: string,
   keyCode: number,
   key: string,
@@ -72,6 +70,11 @@ function layoutEvent(
   return { ...keyEvent(code, mods), keyCode, key } as KeyboardEvent;
 }
 
+/**
+ * The layout cases read real keydowns: `fixtures/keyboard-layouts.json` was
+ * recorded in a lab guest with each layout selected, and the menu tries in it
+ * say which item AppKit's localized key equivalents reached for the same key.
+ */
 describe("effective code", () => {
   const selectAll: Chord = { key: "KeyA", meta: true };
   const quit: Chord = { key: "KeyQ", meta: true };
@@ -79,8 +82,9 @@ describe("effective code", () => {
   test("AZERTY: a letter chord fires on the key that types the letter", () => {
     // The key at the US Q position types "a", and the one at the US A
     // position types "q".
-    const typesA = layoutEvent("KeyQ", 65, "a", { meta: true });
-    const typesQ = layoutEvent("KeyA", 81, "q", { meta: true });
+    const typesA = recordedKeydown("French", "KeyQ", ["meta"]);
+    const typesQ = recordedKeydown("French", "KeyA", ["meta"]);
+    expect([typesA.key, typesA.keyCode, typesQ.key, typesQ.keyCode]).toEqual(["a", 65, "q", 81]);
     expect(effectiveCode(typesA)).toBe("KeyA");
     expect(chordMatchesEvent(typesA, selectAll)).toBe(true);
     expect(chordMatchesEvent(typesA, quit)).toBe(false);
@@ -91,57 +95,113 @@ describe("effective code", () => {
 
   test("AZERTY: the rule holds under ⌃, and under ⌥ where key is composed", () => {
     const ctrlA: Chord = { key: "KeyA", ctrl: true };
-    const ctrl = layoutEvent("KeyQ", 65, "a", { ctrl: true });
+    const ctrl = recordedKeydown("French", "KeyQ", ["ctrl"]);
     expect(chordMatchesEvent(ctrl, ctrlA)).toBe(true);
     expect(chordMatchesEvent(ctrl, { key: "KeyQ", ctrl: true })).toBe(false);
 
     // ⌥ composes the character, so `key` cannot name the letter; `keyCode`
     // comes from the character without modifiers and still does.
     const altA: Chord = { key: "KeyA", alt: true };
-    const alt = layoutEvent("KeyQ", 65, "æ", { alt: true });
+    const alt = recordedKeydown("French", "KeyQ", ["alt"]);
+    expect(alt.key).toBe("æ");
     expect(chordMatchesEvent(alt, altA)).toBe(true);
     expect(chordMatchesEvent(alt, { key: "KeyQ", alt: true })).toBe(false);
   });
 
-  test("Dvorak – QWERTY ⌘: ⌘ follows QWERTY, every other chord follows Dvorak", () => {
+  test("Dvorak – QWERTY ⌘: ⌘ follows QWERTY, alone or with ⌥ or ⇧; ⌃ and ⌃⌘ follow Dvorak", () => {
     const copy: Chord = { key: "KeyC", meta: true };
     // With ⌘ held the layout types QWERTY, so the US C position is C.
-    expect(chordMatchesEvent(layoutEvent("KeyC", 67, "c", { meta: true }), copy)).toBe(true);
+    expect(chordMatchesEvent(recordedKeydown("DVORAK-QWERTYCMD", "KeyC", ["meta"]), copy)).toBe(true);
+    expect(effectiveCode(recordedKeydown("DVORAK-QWERTYCMD", "KeyC", ["meta", "alt"]))).toBe("KeyC");
+    expect(effectiveCode(recordedKeydown("DVORAK-QWERTYCMD", "KeyC", ["meta", "shift"]))).toBe("KeyC");
     // Without it the same position types "j", and "c" is at the US I position.
     const ctrlC: Chord = { key: "KeyC", ctrl: true };
-    expect(chordMatchesEvent(layoutEvent("KeyI", 67, "c", { ctrl: true }), ctrlC)).toBe(true);
-    expect(chordMatchesEvent(layoutEvent("KeyC", 74, "j", { ctrl: true }), ctrlC)).toBe(false);
+    expect(chordMatchesEvent(recordedKeydown("DVORAK-QWERTYCMD", "KeyI", ["ctrl"]), ctrlC)).toBe(true);
+    expect(chordMatchesEvent(recordedKeydown("DVORAK-QWERTYCMD", "KeyC", ["ctrl"]), ctrlC)).toBe(false);
+    // ⌃ with ⌘ is Dvorak too: the layout types "j" at the US C position.
+    expect(effectiveCode(recordedKeydown("DVORAK-QWERTYCMD", "KeyC", ["meta", "ctrl"]))).toBe("KeyJ");
+    expect(effectiveCode(recordedKeydown("DVORAK-QWERTYCMD", "KeyI", ["meta", "ctrl"]))).toBe("KeyC");
   });
 
-  test("Russian: with no Roman letter to read, keyCode follows the position", () => {
+  test("Russian and Greek: with no Roman letter to read, a letter follows the position", () => {
     const copy: Chord = { key: "KeyC", meta: true };
-    const event = layoutEvent("KeyC", 67, "с", { meta: true });
-    expect(effectiveCode(event)).toBe("KeyC");
-    expect(chordMatchesEvent(event, copy)).toBe(true);
+    for (const layout of ["Russian", "Greek"] as const) {
+      expect(effectiveCode(recordedKeydown(layout, "KeyC", ["meta"]))).toBe("KeyC");
+      expect(chordMatchesEvent(recordedKeydown(layout, "KeyC", ["meta"]), copy)).toBe(true);
+      expect(effectiveCode(recordedKeydown(layout, "KeyC", ["ctrl"]))).toBe("KeyC");
+    }
+    expect(recordedKeydown("Russian", "KeyC", ["ctrl"]).key).toBe("с");
   });
 
   test("a digit chord stays on the number-row key", () => {
-    // AZERTY's number row types "&" unshifted; the chord is still ⌘1.
+    // AZERTY's number row types "&" unshifted; the chord is still ⌘1. Its 4
+    // key types "'" and reports the US quote key's 222; it is still ⌘4.
     const first: Chord = { key: "Digit1", meta: true };
-    const event = layoutEvent("Digit1", 49, "&", { meta: true });
-    expect(effectiveCode(event)).toBe("Digit1");
-    expect(chordMatchesEvent(event, first)).toBe(true);
+    const one = recordedKeydown("French", "Digit1", ["meta"]);
+    expect(one.key).toBe("&");
+    expect(effectiveCode(one)).toBe("Digit1");
+    expect(chordMatchesEvent(one, first)).toBe(true);
+    const four = recordedKeydown("French", "Digit4", ["meta"]);
+    expect([four.key, four.keyCode]).toEqual(["'", 222]);
+    expect(effectiveCode(four)).toBe("Digit4");
   });
 
-  test("punctuation stays positional whatever keyCode says", () => {
-    const event = layoutEvent("Slash", 191, "/", { meta: true });
-    expect(effectiveCode(event)).toBe("Slash");
-    expect(chordMatchesEvent(event, { key: "Slash", meta: true })).toBe(true);
+  test("a punctuation key the layout leaves in place matches by position", () => {
+    for (const layout of ["Russian", "Greek"] as const) {
+      const slash = recordedKeydown(layout, "Slash", ["meta"]);
+      expect(effectiveCode(slash)).toBe("Slash");
+      expect(chordMatchesEvent(slash, { key: "Slash", meta: true })).toBe(true);
+    }
+  });
+
+  test("AZERTY and QWERTZ: a moved punctuation chord fires on the key that types it, as the menu does", () => {
+    const zoomOut: Chord = { key: "Minus", meta: true };
+    const zoomInAlias: Chord = { key: "Equal", meta: true };
+    // AZERTY types "-" at the US Equal position; QWERTZ types it at Slash.
+    for (const [layout, code] of [["French", "Equal"], ["German", "Slash"]] as const) {
+      const minus = recordedKeydown(layout, code, ["meta"]);
+      expect([minus.key, minus.keyCode]).toEqual(["-", 189]);
+      expect(chordMatchesEvent(minus, zoomOut)).toBe(true);
+      expect(chordMatchesEvent(minus, { key: code, meta: true })).toBe(false);
+      // The localized menu reached Zoom Out on the same key.
+      const menuTry = recordedMenuTries(layout).find(
+        (t) => t.command === "zoom-out" && t.pressed[0] === code && t.pressed[1] === "cmd",
+      );
+      expect(menuTry?.fired).toBe("view.zoomOut");
+    }
+    // AZERTY types "=" at the US Slash position, and "+" there with ⇧.
+    expect(chordMatchesEvent(recordedKeydown("French", "Slash", ["meta"]), zoomInAlias)).toBe(true);
+    expect(chordMatchesEvent(recordedKeydown("French", "Slash", ["meta", "shift"]), { ...zoomInAlias, shift: true })).toBe(true);
+    // Under ⌥ the character is composed ("≠"); the key code still names it.
+    expect(effectiveCode(recordedKeydown("French", "Slash", ["meta", "alt"]))).toBe("Equal");
+  });
+
+  test("AZERTY: a letter position that types punctuation answers to the punctuation", () => {
+    // The US M position types ","; "m" is at the US Semicolon position.
+    expect(effectiveCode(recordedKeydown("French", "KeyM", ["meta"]))).toBe("Comma");
+    expect(effectiveCode(recordedKeydown("French", "Semicolon", ["meta"]))).toBe("KeyM");
+  });
+
+  test("a key code its character does not confirm leaves the key positional", () => {
+    // AZERTY's "<" key reports the US comma key's 188 and its ":" key the
+    // US semicolon key's 186; neither types the character the chord means.
+    const lessThan = recordedKeydown("French", "Backquote", ["meta"]);
+    expect([lessThan.key, lessThan.keyCode]).toEqual(["<", 188]);
+    expect(effectiveCode(lessThan)).toBe("Backquote");
+    expect(chordMatchesEvent(lessThan, { key: "Comma", meta: true })).toBe(false);
+    expect(effectiveCode(recordedKeydown("French", "Period", ["meta"]))).toBe("Period");
   });
 
   test("an event with no keyCode, or a zero one, matches by its code", () => {
     expect(effectiveCode(keyEvent("KeyQ", { meta: true }))).toBe("KeyQ");
-    expect(effectiveCode(layoutEvent("KeyQ", 0, "q", { meta: true }))).toBe("KeyQ");
-    expect(chordMatchesEvent(layoutEvent("KeyQ", 0, "q", { meta: true }), quit)).toBe(true);
+    expect(effectiveCode(syntheticEvent("KeyQ", 0, "q", { meta: true }))).toBe("KeyQ");
+    expect(chordMatchesEvent(syntheticEvent("KeyQ", 0, "q", { meta: true }), quit)).toBe(true);
+    // A punctuation key code with no `key` to confirm it stays positional.
+    expect(effectiveCode({ code: "Equal", keyCode: 189 })).toBe("Equal");
   });
 
   test("capture records the effective code, so the chord matches the key pressed", () => {
-    const pressed = layoutEvent("KeyQ", 65, "a", { meta: true });
+    const pressed = recordedKeydown("French", "KeyQ", ["meta"]);
     const recorded = chordFromEvent(pressed);
     expect(recorded).toEqual({ key: "KeyA", meta: true, label: "a" });
     expect(chordMatchesEvent(pressed, recorded)).toBe(true);

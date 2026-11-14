@@ -6,7 +6,8 @@
  * under: one whose `KeyboardEvent` constructor keeps `keyCode` from the init
  * dictionary, and one that ignores it and reports 0. There is no DOM here,
  * so each returns a plain object shaped like the event it would build; the
- * AZERTY fixture is what WebKit's source says that layout delivers.
+ * AZERTY keydown is one recorded from that layout in a lab guest
+ * (`fixtures/keyboard-layouts.json`).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -14,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 import { chordMatchesEvent, effectiveCode } from "../chord-format";
 import type { Chord } from "../command-registry";
 import { forwardedKeydown, type ForwardableKeydown } from "../forwarded-keydown";
+import { recordedKeydown } from "./fixtures/keyboard-layouts";
 
 type Built = ForwardableKeydown & { readonly bubbles: boolean; readonly cancelable: boolean };
 
@@ -37,14 +39,15 @@ const keepsKeyCode = (init: KeyboardEventInit): Built => build(init, init.keyCod
 const dropsKeyCode = (init: KeyboardEventInit): Built => build(init, 0);
 
 /** ⌘ with the AZERTY key that types "a", which sits at the US Q position. */
+const recorded = recordedKeydown("French", "KeyQ", ["meta"]);
 const azertyCommandA: ForwardableKeydown = {
-  key: "a",
-  code: "KeyQ",
-  keyCode: 65,
-  altKey: false,
-  ctrlKey: false,
-  metaKey: true,
-  shiftKey: false,
+  key: recorded.key,
+  code: recorded.code,
+  keyCode: recorded.keyCode,
+  altKey: recorded.altKey,
+  ctrlKey: recorded.ctrlKey,
+  metaKey: recorded.metaKey,
+  shiftKey: recorded.shiftKey,
 };
 
 const selectAll: Chord = { key: "KeyA", meta: true };

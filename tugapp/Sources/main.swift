@@ -54,6 +54,17 @@ final class TugApplication: NSApplication {
         inputSourceAtLaunch = inputSourceNow()
     }
 
+    /// A menu item's action while the harness's `MenuKeyProbe` is armed is
+    /// recorded and reported handled instead of performed, so a layout
+    /// recording can learn which item a key reaches without quitting on ⌘Q.
+    override func sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
+        if MenuKeyProbe.armed, let item = sender as? NSMenuItem {
+            MenuKeyProbe.record(item, action: action)
+            return true
+        }
+        return super.sendAction(action, to: target, from: sender)
+    }
+
     override var isActive: Bool {
         AppDelegate.harnessPidMode ? AppDelegate.harnessAppActive : super.isActive
     }

@@ -207,13 +207,30 @@ final class TestHarnessConnection {
     /// report; `stages` answers what a switch shows, and carries the park
     /// covers (`parkCovers`) `handOvers` used to. `bodyLayers` rows drop
     /// `faced` and `held`. A removal is breaking, hence the major.
-    static let surfaceVersion = "3.0.0"
+    ///
+    /// `3.1.0`: adds the keyboard-layout verbs — `nativeKeyCode` (a key by
+    /// its `KeyboardEvent.code`, also an inner verb of `holdModifier`),
+    /// `setKeyboardType`, `inputSources`, and `selectInputSource`, which
+    /// refuses with `LabOnlyError` unless the app runs with `TUG_LAB=1` and
+    /// whose first replaced source is selected again at `close()`.
+    /// Additive; major stays `3`.
+    ///
+    /// `3.2.0`: adds `menuKeyProbe` (`op`: `arm` / `take` / `disarm`) — while
+    /// armed, every menu item is enabled and its action is recorded instead
+    /// of performed, so a test learns which item a key equivalent reaches.
+    /// Disarmed, with validation restored, at `close()`.
+    /// Additive; major stays `3`.
+    static let surfaceVersion = "3.2.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
     private weak var webView: WKWebView?
     /// The one composite burst a connection may have running.
     private var captureBurst: CaptureBurst?
+    /// The input source this connection's first `selectInputSource`
+    /// replaced, selected again at `close()` so a test that throws cannot
+    /// leave the lab guest on AZERTY. Main thread only, as TIS is.
+    private var inputSourceToRestore: String?
 
     /// Per-connection tugcode subprocess lifecycle holder. Spawned
     /// via `startTugcode` RPC and torn down on `close()` so a
@@ -341,6 +358,7 @@ final class TestHarnessConnection {
              "nativeMouseDown",
              "nativeMouseUp",
              "nativeKey",
+             "nativeKeyCode",
              "nativeType",
              "holdModifier",
              "pressHeldModifiers",
@@ -352,6 +370,11 @@ final class TestHarnessConnection {
             dispatchNativeFileDrag(id: id, verbObj: obj, in: view)
         case "checkAccessibilityPermission":
             dispatchCheckAccessibilityPermission(id: id, verbObj: obj)
+        case "selectInputSource",
+             "inputSources",
+             "setKeyboardType",
+             "menuKeyProbe":
+            dispatchKeyboardLayoutVerb(id: id, method: method, verbObj: obj)
         case "simulateAppResign",
              "simulateAppBecomeActive",
              "simulateAppHide",
@@ -1460,6 +1483,95 @@ final class TestHarnessConnection {
         }
     }
 
+    /// The keyboard-layout verbs. They post nothing, so they run on the main
+    /// thread, where TIS wants them, and answer with what they read.
+    ///
+    /// - `inputSources` → `{ current, sources: [{ id, name, enabled, selected }] }`
+    /// - `selectInputSource { sourceId }` → `{ previous, current }`, or `LabOnlyError`
+    ///   outside a lab run. The connection's first replaced source is kept
+    ///   and selected again at `close()`.
+    /// - `setKeyboardType { type }` with `"ansi"`, `"iso"`, `"jis"`, a raw
+    ///   keyboard type number, or null for the system's →
+    ///   `{ previous, current, system }`; `previous` is null when nothing was
+    ///   declared.
+    private func dispatchKeyboardLayoutVerb(id: Int, method: String, verbObj: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            do {
+                switch method {
+                case "inputSources":
+                    self.respond(id: id, ok: true, payload: ["value": [
+                        "current": LabInputSource.current() ?? NSNull(),
+                        "sources": LabInputSource.installed(),
+                    ] as [String: Any]])
+                case "selectInputSource":
+                    // `sourceId`, not `id`: `id` is the request's own.
+                    guard let sourceId = verbObj["sourceId"] as? String else {
+                        throw NativeEventError.protocolError("selectInputSource: missing 'sourceId'")
+                    }
+                    let previous = try LabInputSource.select(sourceId)
+                    if self.inputSourceToRestore == nil {
+                        self.inputSourceToRestore = previous
+                    }
+                    self.respond(id: id, ok: true, payload: ["value": [
+                        "previous": previous,
+                        "current": LabInputSource.current() ?? NSNull(),
+                    ] as [String: Any]])
+                case "menuKeyProbe":
+                    switch verbObj["op"] as? String {
+                    case "arm":
+                        MenuKeyProbe.arm()
+                        self.respond(id: id, ok: true, payload: ["value": ["armed": true]])
+                    case "take":
+                        self.respond(id: id, ok: true, payload: ["value": ["fired": MenuKeyProbe.take()]])
+                    case "disarm":
+                        MenuKeyProbe.disarm()
+                        self.respond(id: id, ok: true, payload: ["value": ["armed": false]])
+                    default:
+                        throw NativeEventError.protocolError("menuKeyProbe: 'op' is arm, take or disarm")
+                    }
+                default: // "setKeyboardType"
+                    guard verbObj.keys.contains("type") else {
+                        throw NativeEventError.protocolError("setKeyboardType: missing 'type' (null for the system's)")
+                    }
+                    let type = try Self.parseKeyboardType(verbObj["type"])
+                    let previous = NativeEventHandlers.setKeyboardType(type)
+                    self.respond(id: id, ok: true, payload: ["value": [
+                        "previous": previous.map { Int($0) as Any } ?? NSNull(),
+                        "current": Int(NativeEventHandlers.effectiveKeyboardType),
+                        "system": Int(NativeEventHandlers.systemKeyboardType),
+                    ] as [String: Any]])
+                }
+            } catch let error as NativeEventError {
+                self.respondError(id: id, name: error.wireName, message: error.description)
+            } catch {
+                self.respondError(id: id, name: "NativeEventError", message: "\(error)")
+            }
+        }
+    }
+
+    /// `"ansi"` / `"iso"` / `"jis"` are the Apple keyboard types 40 / 41 / 42
+    /// (`LMGetKbdType`'s values for those boards); a number is taken as given;
+    /// null clears the declaration.
+    static func parseKeyboardType(_ raw: Any?) throws -> CGEventSourceKeyboardType? {
+        if raw == nil || raw is NSNull { return nil }
+        if let name = raw as? String {
+            switch name.lowercased() {
+            case "ansi": return 40
+            case "iso": return 41
+            case "jis": return 42
+            default:
+                throw NativeEventError.protocolError(
+                    "setKeyboardType: unknown type \"\(name)\" (ansi, iso, jis, a number, or null)"
+                )
+            }
+        }
+        if let number = raw as? Int, number >= 0 {
+            return CGEventSourceKeyboardType(number)
+        }
+        throw NativeEventError.protocolError("setKeyboardType: 'type' must be ansi, iso, jis, a number, or null")
+    }
+
     /// Execute a single native verb given its wire-form JSON and a
     /// pre-built `NativeEventHandlers`. Throws `NativeEventError`
     /// for typed failures; callers (top-level dispatch OR
@@ -1558,6 +1670,13 @@ final class TestHarnessConnection {
             }
             let modifiers = try Self.parseModifiers(verbObj["modifiers"])
             try handlers.nativeKey(key: key, modifiers: modifiers)
+
+        case "nativeKeyCode":
+            guard let code = verbObj["code"] as? String else {
+                throw NativeEventError.protocolError("nativeKeyCode: missing 'code'")
+            }
+            let modifiers = try Self.parseModifiers(verbObj["modifiers"])
+            try handlers.nativeKeyCode(code: code, modifiers: modifiers)
 
         case "nativeType":
             guard let text = verbObj["text"] as? String else {
@@ -1826,6 +1945,24 @@ final class TestHarnessConnection {
         // here, where every disconnect passes.
         if let webView = webView {
             NativeEventHandlers(webView: webView).releaseAllHeldModifiers()
+        }
+        // The same backstop for what a layout test changes: the keyboard type
+        // the harness declares, and the session-global input source, which a
+        // test that threw would otherwise leave selected for whatever runs
+        // next in the guest.
+        NativeEventHandlers.setKeyboardType(nil)
+        if Thread.isMainThread {
+            MenuKeyProbe.disarm()
+        } else {
+            DispatchQueue.main.sync { MenuKeyProbe.disarm() }
+        }
+        if let previous = inputSourceToRestore {
+            inputSourceToRestore = nil
+            if Thread.isMainThread {
+                LabInputSource.restore(previous)
+            } else {
+                DispatchQueue.main.sync { LabInputSource.restore(previous) }
+            }
         }
         // Tear down any running tugcode child first so a graceful
         // disconnect (or AppDelegate.applicationShouldTerminate)

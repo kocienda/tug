@@ -26,7 +26,9 @@ import Foundation
 //
 // The table is hand-maintained. Mac virtual keycodes for a US layout
 // are a fixed table defined in `<Carbon/HIToolbox/Events.h>`
-// (`kVK_ANSI_*`); layouts other than US are out of scope.
+// (`kVK_ANSI_*`). The NAMES here are US characters; a test that means a
+// physical key under another layout names it by `KeyboardEvent.code`
+// through `lookupCode` instead.
 //
 // Modifier keycodes (`0x37`=Command, `0x38`=Shift, `0x3A`=Option,
 // `0x3B`=Control) are NOT in this table — they're handled by the
@@ -46,6 +48,69 @@ enum VirtualKeyMap {
     static func lookup(_ name: String) -> KeyMapping? {
         return table[name]
     }
+
+    /// Lookup by physical position, named the way the DOM names it: a
+    /// `KeyboardEvent.code` such as `"KeyQ"`, `"Digit1"`, `"Semicolon"`.
+    /// Returns nil for an unknown code.
+    ///
+    /// A code names a key, not a character, so it carries no Shift: the key
+    /// at `"KeyQ"` types "q" on US, "a" on AZERTY and "й" on Russian, and
+    /// which one is the keyboard layout's business. This is what a layout
+    /// test addresses keys by, because `lookup`'s names are US characters.
+    /// The macOS virtual keycodes ARE positions (`kVK_ANSI_Q` is the key in
+    /// the US Q slot on every layout), so the table is a fixed one.
+    static func lookupCode(_ code: String) -> CGKeyCode? {
+        return codeTable[code]
+    }
+
+    /// `KeyboardEvent.code` → virtual keycode, per `<Carbon/HIToolbox/Events.h>`
+    /// (`kVK_ANSI_*`, `kVK_ISO_Section`, and the layout-independent named keys).
+    private static let codeTable: [String: CGKeyCode] = {
+        var t: [String: CGKeyCode] = [:]
+        let letters: [(String, CGKeyCode)] = [
+            ("A", 0x00), ("B", 0x0B), ("C", 0x08), ("D", 0x02), ("E", 0x0E),
+            ("F", 0x03), ("G", 0x05), ("H", 0x04), ("I", 0x22), ("J", 0x26),
+            ("K", 0x28), ("L", 0x25), ("M", 0x2E), ("N", 0x2D), ("O", 0x1F),
+            ("P", 0x23), ("Q", 0x0C), ("R", 0x0F), ("S", 0x01), ("T", 0x11),
+            ("U", 0x20), ("V", 0x09), ("W", 0x0D), ("X", 0x07), ("Y", 0x10),
+            ("Z", 0x06),
+        ]
+        for (letter, code) in letters { t["Key\(letter)"] = code }
+        let digits: [CGKeyCode] = [0x1D, 0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19]
+        for (i, code) in digits.enumerated() { t["Digit\(i)"] = code }
+        let named: [(String, CGKeyCode)] = [
+            ("Minus", 0x1B),
+            ("Equal", 0x18),
+            ("BracketLeft", 0x21),
+            ("BracketRight", 0x1E),
+            ("Backslash", 0x2A),
+            ("Semicolon", 0x29),
+            ("Quote", 0x27),
+            ("Backquote", 0x32),
+            ("Comma", 0x2B),
+            ("Period", 0x2F),
+            ("Slash", 0x2C),
+            // The extra key an ISO board has beside left Shift
+            // (`kVK_ISO_Section`). WebKit reports it as `IntlBackslash`.
+            ("IntlBackslash", 0x0A),
+            ("Space", 0x31),
+            ("Enter", 0x24),
+            ("Tab", 0x30),
+            ("Escape", 0x35),
+            ("Backspace", 0x33),
+            ("Delete", 0x75),
+            ("Home", 0x73),
+            ("End", 0x77),
+            ("PageUp", 0x74),
+            ("PageDown", 0x79),
+            ("ArrowLeft", 0x7B),
+            ("ArrowRight", 0x7C),
+            ("ArrowUp", 0x7E),
+            ("ArrowDown", 0x7D),
+        ]
+        for (name, code) in named { t[name] = code }
+        return t
+    }()
 
     // MARK: - Table
     //

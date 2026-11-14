@@ -1,0 +1,176 @@
+#!/bin/bash
+# lab-app-test — run app-tests inside a fresh Tart lab guest.
+#
+#   lab-app-test <base> [--keep] [--fetch <path>]... [app-test files...]
+#
+# <base> is a golden base key (sequoia | tahoe | golden-gate). Every run clones
+# a fresh `run-apptest-<base>` from `base-<base>`, boots it headless with one
+# read-only share, runs `scripts/lab/guest-app-test` in it over `tart exec`, and
+# deletes the clone afterwards (`--keep` leaves it stopped, for a look). The
+# golden bases are never booted or written. What crosses into the guest is one
+# staged folder, shared read-only: the tree and the bundle as archives, the
+# guest script, and the host's `bun` and `just`.
+#
+# The bundle under test is this checkout's app-test bundle, the one
+# `just app-test-build` makes; it is built here first if it is absent, exactly
+# as `just app-test` does. Uncommitted work is included: the tree share carries
+# the working copy, not a commit.
+#
+# `--fetch <path>` copies a file the run wrote, named relative to the checkout,
+# out of the guest to the same path here once the run ends (a reading's output,
+# say). A per-file budget in TUG_APPTEST_FILE_BUDGET_SECS crosses into the guest.
+#
+# The exit status is the guest's `just app-test` status.
+#
+# LAB_ROOT (default /Volumes/Lab-A) is the lab disk; TART_HOME defaults to
+# $LAB_ROOT/tart.
+#
+# Its four phases (stage, clone, boot, guest run) report to the calling Bash
+# block through tugrust/scripts/report-phase.sh, which is silent with no session.
+
+set -euo pipefail
+LAB_ROOT="${LAB_ROOT:-/Volumes/Lab-A}"
+export TART_HOME="${TART_HOME:-$LAB_ROOT/tart}"
+
+usage() { echo "usage: lab-app-test <base> [--keep] [--fetch <path>]... [app-test files...]" >&2; exit 2; }
+[ $# -ge 1 ] || usage
+BASE="$1"; shift
+KEEP=0
+FILES=()
+FETCH=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --keep) KEEP=1 ;;
+        --fetch) [ $# -ge 2 ] || usage; FETCH+=("$2"); shift ;;
+        *) FILES+=("$1") ;;
+    esac
+    shift
+done
+
+[ -d "$LAB_ROOT" ] || { echo "error: VM-lab disk not mounted (missing $LAB_ROOT)" >&2; exit 1; }
+command -v tart >/dev/null 2>&1 || { echo "error: tart is not installed (see scripts/lab/base-prep.md)" >&2; exit 1; }
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+cd "$REPO_ROOT"
+REPORT="$REPO_ROOT/tugrust/scripts/report-phase.sh"
+bash "$REPORT" lab-app-test 0 "stage" --of "stage" "clone" "boot" "guest run"
+
+export TUG_FORCE_BUNDLE_ID="${TUG_FORCE_BUNDLE_ID:-dev.tugapp.app.apptest}"
+PRODUCT="$(bash tugrust/scripts/product-name-from-cwd.sh debug)"
+DERIVED_ROOT="$(bash tugrust/scripts/derived-data-path.sh debug)"
+PRODUCTS_DIR="$DERIVED_ROOT/Build/Products/Debug"
+if [ ! -x "$PRODUCTS_DIR/$PRODUCT.app/Contents/MacOS/$PRODUCT" ]; then
+    echo "==> $PRODUCT.app not built yet — building it once"
+    just build-app
+fi
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+[ "$BRANCH" != "HEAD" ] || BRANCH="detached-$(git rev-parse HEAD | cut -c1-8)"
+
+RUN="apptest-$BASE"
+VM="run-$RUN"
+
+# Everything the guest reads, written fresh for every run.
+STAGE="$(mktemp -d -t tug-lab-stage)"
+# The tree goes across as one archive, never as a share the guest reads file by
+# file: the guest's virtiofs client holds a handle per file it opens, and walking
+# node_modules that way runs the guest out of file handles ("Too many open files
+# in system"). Tracked and untracked-not-ignored files (so uncommitted work
+# rides), the package dirs a run needs, and the helper binaries.
+LIST="$STAGE/list"
+git ls-files -co --exclude-standard | while IFS= read -r f; do
+    [ -e "$f" ] && printf '%s\n' "$f"
+done > "$LIST"
+for d in tugdeck/node_modules tests/app-test/node_modules tugcode/node_modules; do
+    [ -d "$d" ] && printf '%s\n' "$d" >> "$LIST"
+done
+for b in tugtool tugbank tugcode tugembed tugexec tugcast tugedit tugrelaunch; do
+    [ -x "tugrust/target/debug/$b" ] && printf '%s\n' "tugrust/target/debug/$b" >> "$LIST"
+done
+echo "==> archiving the tree"
+tar -cf "$STAGE/tree.tar" -T "$LIST"
+rm -f "$LIST"
+tar -cf "$STAGE/app.tar" -C "$PRODUCTS_DIR" "$PRODUCT.app"
+cp -p scripts/lab/guest-app-test "$STAGE/guest-app-test"
+printf '%s\n' "$BRANCH" > "$STAGE/branch"
+printf '%s\n' "$PRODUCT" > "$STAGE/product"
+printf '%s\n' "$(basename "$DERIVED_ROOT")" > "$STAGE/derived-leaf"
+printf '%s\n' "$TUG_FORCE_BUNDLE_ID" > "$STAGE/bundle-id"
+printf '%s\n' "${TUG_APPTEST_FILE_BUDGET_SECS:-}" > "$STAGE/file-budget"
+cp -p "$(command -v bun)" "$STAGE/bun"
+cp -p "$(command -v just)" "$STAGE/just"
+# A Debug bundle carries no tmux of its own (only build-app.sh's release bundle
+# does), so it takes tmux from PATH, and a factory-fresh guest has none. Stage
+# the same self-contained tmux the release bundle ships, with its terminfo.
+# fetch-tmux.sh builds it from source the first time and caches it per checkout.
+echo "==> staging the self-contained tmux"
+TMUX_OUT="$(tugrust/scripts/fetch-tmux.sh)"
+mkdir -p "$STAGE/tmux"
+cp -p "$TMUX_OUT/bin/tmux" "$STAGE/tmux/tmux"
+cp -R "$TMUX_OUT/terminfo" "$STAGE/tmux/terminfo"
+
+TART_PID=""
+# shellcheck disable=SC2317,SC2329  # invoked by the trap below
+cleanup() {
+    if [ -n "$TART_PID" ]; then
+        tart stop "$VM" >/dev/null 2>&1 || true
+        wait "$TART_PID" 2>/dev/null || true
+    fi
+    if [ "$KEEP" -eq 1 ]; then
+        echo "==> kept $VM (stopped); wipe it with: just lab-wipe $RUN"
+    else
+        scripts/lab/lab-wipe "$RUN" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$STAGE" "$STAGE.boot.log"
+    bash "$REPORT" lab-app-test 4
+}
+trap cleanup EXIT INT TERM
+
+bash "$REPORT" lab-app-test 1 "clone"
+echo "==> fresh $VM from base-$BASE"
+scripts/lab/lab-wipe "$RUN" >/dev/null 2>&1 || true
+scripts/lab/lab-new "$BASE" "$RUN" >/dev/null
+
+bash "$REPORT" lab-app-test 2 "boot"
+echo "==> booting $VM headless"
+tart run "$VM" --no-graphics --dir=stage:"$STAGE":ro > "$STAGE.boot.log" 2>&1 &
+TART_PID=$!
+
+waited=0
+until tart exec "$VM" true >/dev/null 2>&1; do
+    if ! kill -0 "$TART_PID" 2>/dev/null; then
+        echo "error: $VM exited while booting:" >&2
+        cat "$STAGE.boot.log" >&2
+        exit 1
+    fi
+    if [ "$waited" -ge 240 ]; then
+        echo "error: $VM's guest agent did not answer within 240 s" >&2
+        exit 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+done
+rm -f "$STAGE.boot.log"
+echo "==> $VM is up (${waited} s); running the guest half"
+bash "$REPORT" lab-app-test 3 "guest run"
+
+set +e
+tart exec "$VM" /bin/bash "/Volumes/My Shared Files/stage/guest-app-test" ${FILES[@]+"${FILES[@]}"}
+STATUS=$?
+# The tree sits at the bundle's BuildSourceTree in the guest, so a path named
+# relative to the checkout is found there.
+if [ "${#FETCH[@]}" -gt 0 ]; then
+    GUEST_REPO="$(plutil -extract BuildSourceTree raw "$PRODUCTS_DIR/$PRODUCT.app/Contents/Info.plist")"
+    for p in "${FETCH[@]}"; do
+        mkdir -p "$(dirname "$p")"
+        if tart exec "$VM" cat "$GUEST_REPO/$p" > "$p.lab-fetch"; then
+            mv "$p.lab-fetch" "$p"
+            echo "==> fetched $p from $VM"
+        else
+            rm -f "$p.lab-fetch"
+            echo "error: could not fetch $p from $VM" >&2
+            [ "$STATUS" -ne 0 ] || STATUS=1
+        fi
+    done
+fi
+set -e
+exit "$STATUS"

@@ -64,6 +64,21 @@ export function caughtBeeps(): readonly CaughtBeep[] {
   return caught;
 }
 
+/**
+ * Remove and return one launch's beeps, for the reading whose subject is keys
+ * no responder claims — a recording of what AppKit does with a key the menu
+ * does not hold, where each beep is the answer "nothing" rather than a fault.
+ * The beeps leave the file's verdict and go into that reading's record, so
+ * they are kept rather than dropped; every other launch's stay where they are.
+ */
+export function takeBeeps(launch: string): CaughtBeep[] {
+  const taken = caught.filter((b) => b.launch === launch);
+  const kept = caught.filter((b) => b.launch !== launch);
+  caught.length = 0;
+  caught.push(...kept);
+  return taken;
+}
+
 /** Drop the accumulated beeps — for tests of this module only. */
 export function resetCaughtBeeps(): void {
   caught.length = 0;

@@ -1534,6 +1534,7 @@ lab-release-dmg VERSION="":
 #   just lab-new sequoia [run]         # clone base-sequoia -> run-<run>
 #   just lab-run <run> [tart flags]    # boot a run (e.g. --dir=drop:$LAB_SHARE)
 #   just lab-wipe <run> | --all        # delete throwaway run(s); bases untouched
+#   just lab-app-test <os> [files...]  # run app-tests in a fresh guest
 
 # List golden bases, throwaway runs, and lab-disk free space.
 lab-ls:
@@ -1550,6 +1551,20 @@ lab-run *ARGS:
 # Delete a throwaway run (lab-wipe <run> | --all); golden bases untouched.
 lab-wipe *ARGS:
     scripts/lab/lab-wipe {{ARGS}}
+
+# Run app-tests inside a fresh lab guest, with this checkout's app-test bundle
+# and working tree. Clones `run-apptest-<os>` from the golden base, boots it
+# headless, installs the bundle, the tree, bun, just and tmux, grants the
+# bundle Accessibility, sets the lab flag (TUG_LAB=1), runs `just app-test`
+# there, and deletes the clone (`--keep` leaves it stopped). The bases are
+# never touched. How it works and what it needs: scripts/lab/app-test-run.md.
+#
+#   just lab-app-test golden-gate harness-smoke/smoke-native-cmd-a.test.ts
+#   just lab-app-test tahoe --keep at0001-tab-switch-fc.test.ts
+#
+# Run app-tests in a fresh lab guest (lab-app-test <os> [--keep] [files...]).
+lab-app-test *ARGS:
+    scripts/lab/lab-app-test {{ARGS}}
 
 # The one reliable inner loop ([P02]): stage a Tug.dmg on the lab share, wipe
 # any prior run for this OS, clone a fresh factory-fresh guest, and boot it
@@ -1889,11 +1904,12 @@ app-test-select *PATHS:
 # Reach for this when a harness or app-shell change invalidates
 # coverage-based selection, or before landing substantial work.
 #
-# Every app-test file, in run order. Slow — one Tug.app launch per file.
+# Every app-test file, in run order, less the `@lab` files that run only in a
+# lab guest (`just lab-app-test`). Slow — one Tug.app launch per file.
 app-test-all:
     #!/usr/bin/env bash
     set -uo pipefail
-    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; ls body-grounding/*.test.ts | sort; })"
+    FILES="$(cd tests/app-test && bun scripts/select-tests.ts --all)"
     TUG_APPTEST_SELECTION=all just app-test $FILES
 
 # Every app-test file, on a deck instrumented to record which named functions
@@ -1907,7 +1923,7 @@ app-test-all:
 app-test-reach:
     #!/usr/bin/env bash
     set -uo pipefail
-    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; ls body-grounding/*.test.ts | sort; })"
+    FILES="$(cd tests/app-test && bun scripts/select-tests.ts --all)"
     TUG_APPTEST_REACH=1 TUG_APPTEST_SELECTION=reach just app-test $FILES
 
 # Print each test's executed share of the modules it covers, from the recorded
