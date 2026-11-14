@@ -313,6 +313,12 @@ export interface EntityMenuBlocks {
   /** Send it — the insert, whichever of the two labels it carries. */
   send?: MenuBlockDecl;
   /**
+   * Last of all — a row the kind wants below everything else. A session's
+   * Rename Session… is the one live case: it edits the surface rather than
+   * taking the session anywhere, so it sits at the foot of the menu.
+   */
+  last?: MenuBlockDecl;
+  /**
    * The action that writes this menu's atom, for a surface holding an
    * identity RECORD the payload cannot carry: a session row knows its
    * callsign and its project, so it writes an atom `atomSegmentFor` would
@@ -395,6 +401,7 @@ export function buildEntityMenu(
     ...groupsOf(blocks.act),
     ...copy,
     ...groupsOf(blocks.send),
+    ...groupsOf(blocks.last),
   ];
   return groups.flatMap((group, block) =>
     group.map((entry, row) =>
@@ -739,12 +746,6 @@ function sessionMenuEntries(
                 disabled: !known.resumable,
               },
     ],
-    act: [
-      known?.renamable === true && {
-        action: TUG_ACTIONS.RENAME_SESSION,
-        label: "Rename Session…",
-      },
-    ],
     copy: [
       known !== null && {
         action: TUG_ACTIONS.COPY_SESSION_CITATION,
@@ -767,6 +768,12 @@ function sessionMenuEntries(
       ],
     ],
     send: [insertEntry(payload)],
+    last: [
+      known?.renamable === true && {
+        action: TUG_ACTIONS.RENAME_SESSION,
+        label: "Rename Session…",
+      },
+    ],
   });
 }
 

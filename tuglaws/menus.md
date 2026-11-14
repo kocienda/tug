@@ -500,18 +500,20 @@ The two reach each other through one typed action. `useAnnotationMenu` samples t
 ```
 [ Go to it ]        Open in Editor · Open Diff · Open Image · Show / Resume Session · Show in Finder
 ────
-[ Act on it ]       Show / Hide Detail · Rename Session… · Bind · Unbind · Discard · Replay
+[ Act on it ]       Show / Hide Detail · Bind · Unbind · Discard · Replay
 ────
 [ Copy it ]         Copy as <Format> · Copy <Noun>
 ────
 [ Send it ]         Insert Atom into Prompt · Insert into Prompt
+────
+[ Last ]            Rename Session…
 ────
 [ Standard block ]  Look Up · Cut · Copy · … · Select All
 ```
 
 Reading down: reach the thing, act on it, take it, say something about it.
 
-**The rules are assembled, not written per kind.** `buildEntityMenu` in `registry.ts` takes the four blocks by name — `goTo`, `act`, `copy`, `send` — and places a rule between every two of them that both have rows; no kind writes a `separatorBefore`, and a menu never opens with a rule because the first surviving block takes none. Before the assembler each kind wrote a flat array and marked its own rules, and the result was the grammar drifting into a habit: `file-path` and `session` drew a rule before Insert and four other kinds did not, `directory` and `image` drew none anywhere, and `commit-sha` put its fold above its opens. A block whose rows the surface's facts all turned off takes no rule, which is the one thing a kind cannot know when it marks one by hand.
+**The rules are assembled, not written per kind.** `buildEntityMenu` in `registry.ts` takes the blocks by name — `goTo`, `act`, `copy`, `send`, `last` — and places a rule between every two of them that both have rows; no kind writes a `separatorBefore`, and a menu never opens with a rule because the first surviving block takes none. Before the assembler each kind wrote a flat array and marked its own rules, and the result was the grammar drifting into a habit: `file-path` and `session` drew a rule before Insert and four other kinds did not, `directory` and `image` drew none anywhere, and `commit-sha` put its fold above its opens. A block whose rows the surface's facts all turned off takes no rule, which is the one thing a kind cannot know when it marks one by hand.
 
 A block may hold a **sub-group** — a nested array that takes a rule of its own inside the block. A session's *Copy Description* and *Copy Activity Line* are the one live case: they are copies, and they are fields of the surface's record rather than serializations of the entity, so they sit under a rule beneath the copies proper.
 

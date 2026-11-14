@@ -19,15 +19,15 @@
  *   Show Session / Resume Session   go to the session, however it must be reached
  *   (Current Session, dimmed, on the session's own card)
  *   ─────
- *   Rename Session…             open the name for editing in place, where the
- *                               surface has an editor to open (the masthead)
- *   ─────
  *   Copy as Atom                the citation + the atom sidecar — pastes as the chip
  *   Copy as Citation            the flat string, for outside Tug
  *   Copy Session ID             the full UUID, which nothing on screen shows
  *   ─────
  *   Copy Description            the whole synopsis, past the row's elision
  *   Copy Activity Line          the newest beat, when the session is running one
+ *   ─────
+ *   Rename Session…             open the name for editing in place, where the
+ *                               surface has an editor to open (the masthead)
  *
  * The list is the REGISTRY's and its order is `buildEntityMenu`'s: the atom
  * leads the copies because it is the session itself and every row under it
