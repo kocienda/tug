@@ -435,10 +435,10 @@ export const shareSaveToHost = defineToHost({
 });
 
 /**
- * Copy a previewed share image: the PNG at `path` as `public.png`, with the
- * Markdown `text` as its plain-text flavour. Image only — a PDF's and a
- * Markdown share's Copy go through `clipboardWrite`. Answered with
- * `onShareDone` under `id`.
+ * Copy a rendered share: the PDF or PNG at `path` as itself
+ * (`com.adobe.pdf`, `public.png`), with the Markdown `text` as its
+ * plain-text flavour. A Markdown share's Copy goes through `clipboardWrite`.
+ * Answered with `onShareDone` under `id`.
  */
 export const shareCopyToHost = defineToHost({
   name: "shareCopy",

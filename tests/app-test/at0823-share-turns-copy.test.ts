@@ -1,13 +1,15 @@
 /**
  * at0823-share-turns-copy.test.ts — what Copy and Share… send for a rendered
- * share: the PDF as inline-styled HTML beside its Markdown, the image as a
- * PNG beside its Markdown, and the system share picker over the file.
+ * share: the PDF as the PDF itself beside its Markdown, the image as a PNG
+ * beside its Markdown, and the system share picker over the file.
  *
  * ## What this gates
  *
- *   A. A previewed PDF's Copy puts HTML on the system pasteboard that carries
- *      inline styles and the first turn's prompt, and plain text that is the
- *      Markdown — read back through the native bridge.
+ *   A. A previewed PDF's Copy puts the PDF itself on the system pasteboard —
+ *      the rendering as it was drawn, which is what pastes into a mail
+ *      message — with no HTML flavour, and plain text that is the Markdown.
+ *      (An earlier build copied the page as inline-styled HTML; Mail laid
+ *      that out as wreckage, and the decision was reversed.)
  *   B. An Image's Copy — on a format nobody has previewed, so the press
  *      renders it and copies with no preview between — puts a PNG there, and
  *      the Markdown as plain text. The bridge's read carries no image flavour, so the type list is
@@ -69,7 +71,7 @@ function clipboardInfo(): string {
 
 describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", () => {
   test(
-    "a PDF copies as styled HTML, an image as a PNG, each with its Markdown, and Share… shows the picker",
+    "a PDF copies as the PDF, an image as a PNG, each with its Markdown, and Share… shows the picker",
     async () => {
       const app = await launchTugApp({ testName: "at0823-share-turns-copy" });
       let projectDir = "";
@@ -101,7 +103,7 @@ describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", ()
         });
         expect(await card.evalJS<number>(`window.__tug.shareMark("A", [0, 1])`)).toBe(2);
 
-        // ── A. A PDF copies as styled HTML beside its Markdown ─────────────
+        // ── A. A PDF copies as the PDF beside its Markdown ─────────────────
         await previewAndDismiss(app, 15_000);
         await card.waitForCondition<boolean>(
           `window.__tug.shareState("A").lastArtifact?.format === "pdf"`,
@@ -113,9 +115,10 @@ describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", ()
         const pdfDeadline = Date.now() + 4_000;
         while (readPasteboard() === SENTINEL && Date.now() < pdfDeadline) await Bun.sleep(100);
         const pdf = await readFacts();
-        note(`at0823 pdf copy: ${JSON.stringify(pdf)}`);
-        expect(pdf.htmlStyled, "the HTML carries inline styles").toBe(true);
-        expect(pdf.htmlHas[0], "the HTML carries the first prompt").toBe(true);
+        const pdfInfo = clipboardInfo();
+        note(`at0823 pdf copy: ${JSON.stringify(pdf)} — ${pdfInfo.trim()}`);
+        expect(pdfInfo, "the pasteboard holds a PDF").toContain("PDF");
+        expect(pdf.htmlLength, "a PDF carries no HTML").toBe(0);
         expect(pdf.textHas[0], "the plain text is the Markdown").toBe(true);
         expect(readPasteboard()).toContain(PROMPT);
 

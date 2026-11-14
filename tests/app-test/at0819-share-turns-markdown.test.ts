@@ -15,10 +15,12 @@
  *      composer stays where it is, with the draft typed into it still there.
  *      Tools' choices share the left edge of the title and the description;
  *      Select All and Clear All sit on the title's row, flush right, and hold
- *      still as the count changes; Format sits on Tools' line; the close
- *      button sits in a top row above the title, flush right; and Action
- *      sits on the action button's row, right beside it, at the row's right.
- *      There is no Cancel. Narrowed until the line does not fit, the form
+ *      still as the count changes; Format sits on Tools' line; Done sits at
+ *      the bottom row's left, under the Tools label; and Action sits on
+ *      that row, right beside the action button, at the row's right. The
+ *      shade holds the keyboard: the key view starts on Tools, and Tab
+ *      walks it to Format and then to Done, and back. Narrowed until the line does
+ *      not fit, the form
  *      stacks Format under Tools with the two choices on one left edge, and
  *      widened again it is one line.
  *   B. Every entry carries a check of its own — the prompt and the answer of
@@ -31,7 +33,8 @@
  *   C. The shade has one action button, which wears what the Action menu
  *      names and holds its width and place as the menu's choice changes.
  *      With Markdown chosen (a share starts as a PDF) and Copy chosen in the
- *      menu, a press copies at once: no preview sheet takes the keyboard.
+ *      menu, Return — the action button is the shade's default — copies at
+ *      once: no preview sheet takes the keyboard.
  *   D. Copy writes Markdown that carries `[secret]` where the key was and
  *      `~/` where the home was — in the shell's output too — holds neither
  *      the key nor the raw home, holds the shell exchange as a fenced block,
@@ -79,7 +82,7 @@ import {
   markRowsJs,
   marksJs,
   openSeededCard,
-  pressAction,
+  chooseAction,
   readPasteboard,
   setPasteboard,
 } from "./share-probes";
@@ -159,8 +162,8 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         })()`;
         await card.waitForCondition<boolean>(`(${restJs}) !== null && (${restJs}) <= 2`, { timeoutMs: 4_000 });
         // Tools' choices share a left edge with the title and the
-        // description above them; Format sits on Tools' line; the close
-        // button sits above the title, flush right; Action sits right beside
+        // description above them; Format sits on Tools' line; Done sits at
+        // the bottom row's left, under the Tools label; Action sits right beside
         // the action button, at the bottom row's right. With nothing
         // selected the action button has nothing to act on.
         const layoutJs = `(function(){
@@ -174,8 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
           var format = r('[data-card-id="A"] [data-testid="session-share-format"]');
           var action = r(${JSON.stringify(ACTION_TRIGGER)});
           var go = r(${JSON.stringify(GO)});
-          var close = r('[data-card-id="A"] [data-testid="session-share-close"]');
-          var title = r('[data-card-id="A"] [data-slot="session-share-view"] .tug-sheet-title');
+          var done = r('[data-card-id="A"] [data-testid="session-share-done"]');
           return {
             lefts: lefts,
             layout: document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getAttribute("data-layout"),
@@ -189,9 +191,8 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             actionRight: Math.round(action.right),
             actionWidth: Math.round(action.width),
             actionLabelRight: Math.round(r('[data-card-id="A"] .session-share-view__actions .session-share-view__label').right),
-            closeRight: Math.round(close.right),
-            closeBottom: Math.round(close.bottom),
-            titleTop: Math.round(title.top),
+            doneLeft: Math.round(done.left),
+            doneMid: Math.round(done.top + done.height / 2),
             cancels: document.querySelectorAll('[data-card-id="A"] [data-testid="session-share-cancel"]').length,
             goMid: Math.round(go.top + go.height / 2),
             goLeft: Math.round(go.left),
@@ -212,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         type Layout = {
           lefts: number[]; layout: string; toolsMid: number; formatMid: number; toolsLeft: number; formatLeft: number;
           toolsLabelLeft: number; actionMid: number; actionLeft: number; actionRight: number; actionWidth: number;
-          actionLabelRight: number; closeRight: number; closeBottom: number; titleTop: number; cancels: number;
+          actionLabelRight: number; doneLeft: number; doneMid: number; cancels: number;
           goMid: number; goLeft: number; goWidth: number;
           markAllLeft: number; clearRight: number; goRight: number; marksMidY: number; titleMidY: number;
         };
@@ -229,8 +230,30 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(layout.goLeft - layout.actionRight, "Action sits right beside the action button").toBeLessThanOrEqual(16);
         expect(layout.actionLeft - layout.actionLabelRight, "the Action label is right before its menu").toBeLessThanOrEqual(16);
         expect(layout.cancels, "there is no Cancel button").toBe(0);
-        expect(layout.closeBottom, "the close button sits in a row above the title").toBeLessThanOrEqual(layout.titleTop);
-        expect(Math.abs(layout.closeRight - layout.goRight), "the close button is flush with the action button's right edge").toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.doneMid - layout.goMid), "Done sits on the action button's row").toBeLessThanOrEqual(2);
+        expect(Math.abs(layout.doneLeft - layout.toolsLabelLeft), "Done sits at the row's left, under the Tools label").toBeLessThanOrEqual(1);
+        // The shade holds the keyboard: the key view starts on Tools, and
+        // Tab walks it to Format and then to Done.
+        const keyViewJs = `(function(){
+          var shade = document.querySelector(${JSON.stringify(SHADE)});
+          var kv = shade.querySelector("[data-key-view], [data-key-view-kbd]");
+          if (kv === null) return "none";
+          var names = ["session-share-mark-all", "session-share-clear", "session-share-tool-mode", "session-share-format", "session-share-done", "session-share-action", "session-share-go"];
+          for (var i = 0; i < names.length; i += 1) {
+            var el = shade.querySelector('[data-testid="' + names[i] + '"]');
+            if (el !== null && (el === kv || el.contains(kv) || kv.contains(el))) return names[i];
+          }
+          return "other:" + kv.tagName + "." + kv.className;
+        })()`;
+        await card.waitForCondition<boolean>(`(${keyViewJs}) === "session-share-tool-mode"`, { timeoutMs: 4_000 });
+        await app.nativeKey("Tab");
+        await card.waitForCondition<boolean>(`(${keyViewJs}) === "session-share-format"`, { timeoutMs: 4_000 });
+        await app.nativeKey("Tab");
+        await card.waitForCondition<boolean>(`(${keyViewJs}) === "session-share-done"`, { timeoutMs: 4_000 });
+        // Back to Format: while a button holds the key view, Return is that
+        // button's and the default ring stands down, as on any sheet.
+        await app.nativeKey("Tab", ["shift"]);
+        await card.waitForCondition<boolean>(`(${keyViewJs}) === "session-share-format"`, { timeoutMs: 4_000 });
         expect(Math.abs(layout.marksMidY - layout.titleMidY), "Select All sits on the title's row").toBeLessThanOrEqual(2);
         expect(Math.abs(layout.clearRight - layout.goRight), "Clear All is flush with the action button's right edge").toBeLessThanOrEqual(1);
         // Narrowed until the line does not fit, Format stacks under Tools on
@@ -321,7 +344,9 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         );
         await chooseFormat(app, "markdown");
         setPasteboard(SENTINEL);
-        await pressAction(app, "copy");
+        // Return presses the shade's default, the action button.
+        await chooseAction(app, "copy");
+        await app.nativeKey("Return");
         expect(
           await card.evalJS<string>(`document.querySelector(${JSON.stringify(GO)}).textContent || ""`),
           "the action button wears Copy",

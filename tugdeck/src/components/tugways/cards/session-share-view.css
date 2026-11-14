@@ -25,17 +25,6 @@
   gap: var(--tug-space-2xl);
 }
 
-/* The top row: the close button, flush right. It sits close above the
-   header — the column's gap less most of itself — since it is the shade's
-   chrome, not a row of its content. */
-.session-share-view__top {
-  display: flex;
-  flex-direction: row;
-  justify-content: flex-end;
-  margin-top: calc(-1 * var(--tug-space-sm));
-  margin-bottom: calc(-1 * var(--tug-space-xl));
-}
-
 /* The header's bottom margin is the sheet's header-to-body gap; here the
    column's own `gap` separates it from the form, so the two do not add. */
 .session-share-view__header {
@@ -123,9 +112,9 @@
   min-width: 0;
 }
 
-/* The bottom row — `.tug-sheet-actions`, sheet spacing: the "Rendering…"
-   status at its leading edge; Action, its menu and the action button
-   together at its right. */
+/* The bottom row — `.tug-sheet-actions`, sheet spacing: Done and the
+   "Rendering…" status at its leading edge; Action, its menu and the action
+   button together at its right. */
 .session-share-view__actions {
   align-items: center;
   margin-top: 0;

@@ -5691,9 +5691,10 @@ export function SessionCardBody({
                     {/* Share mode's shade ([P01]): content-sized, resting on
                       the slot's bottom edge — the top of Z2, or of the find
                       bar while it is open — as History does. Modeless: no
-                      scrim, nothing inert, no focus taken, because the turns
-                      are marked in the transcript above it, and the composer
-                      below stays live. */}
+                      scrim and nothing inert, because the turns are selected
+                      in the transcript above it. It holds the keyboard, as
+                      any sheet does: Tab walks its controls and Return
+                      presses its action button. */}
                     <TugSheetContent
                       title="Share Turns"
                       presentation="shade"

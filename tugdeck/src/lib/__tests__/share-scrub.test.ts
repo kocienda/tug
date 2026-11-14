@@ -11,6 +11,7 @@ import {
   decodeScrubShareTextOk,
   encodeScrubShareText,
 } from "@/protocol";
+import { batchScrubTexts } from "@/lib/share-scrub";
 
 describe("scrub_share_text", () => {
   test("the request carries the id and the strings in order", () => {
@@ -73,5 +74,50 @@ describe("scrub_share_text", () => {
         reason: "malformed_request",
       }),
     ).toEqual({ requestId: null, reason: "malformed_request" });
+  });
+});
+
+describe("batchScrubTexts", () => {
+  const joined = (batches: ReturnType<typeof batchScrubTexts>, count: number): string[] => {
+    const out = Array.from({ length: count }, () => "");
+    for (const batch of batches) for (const piece of batch) out[piece.index] += piece.text;
+    return out;
+  };
+
+  test("short strings share one batch, and an empty string keeps its place", () => {
+    const texts = ["a", "", "bc"];
+    const batches = batchScrubTexts(texts, 100);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].map((p) => p.index)).toEqual([0, 1, 2]);
+    expect(joined(batches, 3)).toEqual(texts);
+  });
+
+  test("no batch runs past the limit, and the pieces rejoin to the inputs", () => {
+    const texts = ["x".repeat(40), "line one\nline two\nline three\n".repeat(20), "tail"];
+    const batches = batchScrubTexts(texts, 64);
+    expect(batches.length).toBeGreaterThan(1);
+    for (const batch of batches) {
+      expect(batch.reduce((n, p) => n + p.text.length, 0)).toBeLessThanOrEqual(64);
+    }
+    expect(joined(batches, 3)).toEqual(texts);
+  });
+
+  test("a long string is cut after a line end, so no line is split", () => {
+    const text = "secret-token-aaaaaaaa\n".repeat(10);
+    const batches = batchScrubTexts([text], 50);
+    for (const batch of batches) for (const piece of batch) expect(piece.text.endsWith("\n")).toBe(true);
+    expect(joined(batches, 1)).toEqual([text]);
+  });
+
+  test("a hard cut never splits a surrogate pair", () => {
+    const text = "ab" + "😀".repeat(10);
+    const batches = batchScrubTexts([text], 5);
+    for (const batch of batches) {
+      for (const piece of batch) {
+        const last = piece.text.charCodeAt(piece.text.length - 1);
+        expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+      }
+    }
+    expect(joined(batches, 1)).toEqual([text]);
   });
 });

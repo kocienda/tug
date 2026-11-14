@@ -992,12 +992,14 @@ export interface TugSheetContentProps extends TugSheetFaceProps {
    */
   shadePassive?: boolean;
   /**
-   * Present the shade WITHOUT any modality: no scrim, nothing made `inert`,
-   * and — as a passive shade — no focus trap and no focus claimed or
-   * restored. The region the shade rests over stays fully live, so a surface
-   * that works WITH the transcript (share mode, whose marks are clicked in the
-   * transcript while the shade holds the choices and actions) can stand at the
-   * card's bottom like every other shade. Shade presentation only.
+   * Present the shade WITHOUT any modality: no scrim and nothing made
+   * `inert`. The region the shade rests over stays fully live to the pointer,
+   * so a surface that works WITH the transcript (share mode, whose marks are
+   * clicked in the transcript while the shade holds the choices and actions)
+   * can stand at the card's bottom like every other shade. It still takes
+   * the keyboard as any sheet does — its focus mode, its key view, its
+   * default button's Return — unless it is `shadePassive` too. Shade
+   * presentation only.
    * @default false
    */
   shadeModeless?: boolean;
@@ -1296,8 +1298,9 @@ export function TugSheetContent({
   ...rest
 }: TugSheetContentProps) {
   const { open, onOpenChange, contentId, responderId } = useTugSheetContext();
-  // A modeless shade is a passive one with its modality taken away too.
-  const shadePassive = shadePassiveProp || shadeModeless;
+  // Modeless and passive are separate: a modeless shade leaves the region
+  // behind it live, and still holds the keyboard unless it is passive too.
+  const shadePassive = shadePassiveProp;
   // Chrome ref drives the inert effect (`inert` on `.tug-pane-body`).
   const cardEl = useContext(TugPanePortalContext);
   // Frame ref is the portal target. Pane-modal surfaces portal here so

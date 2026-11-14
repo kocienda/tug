@@ -793,8 +793,8 @@ struct ShareSave: Decodable, Equatable {
     var path: String
 }
 
-/// `shareCopy`: copy a previewed share image — the PNG at `path` as
-/// `public.png`, the Markdown `text` as its plain-text flavour. Answered with
+/// `shareCopy`: copy a rendered share — the PDF or PNG at `path` as itself,
+/// the Markdown `text` as its plain-text flavour. Answered with
 /// `onShareDone` under `id`.
 struct ShareCopy: Decodable, Equatable {
     var id: String

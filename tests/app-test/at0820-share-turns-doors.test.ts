@@ -126,8 +126,8 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
         ).toBe("No turns selected");
 
         // ── D. /share typed in the composer ────────────────────────────────
-        // The close button leaves the mode (Escape is at0819's), and the composer is back.
-        await card.nativeClickAtElement(` [data-testid="session-share-close"]`);
+        // Done leaves the mode (Escape is at0819's), and the composer is back.
+        await card.nativeClickAtElement(`${SHADE} [data-testid="session-share-done"]`);
         await card.waitForCondition<boolean>(
           `!document.querySelector('[data-card-id="A"] [data-share-mode]')`,
           { timeoutMs: 4_000 },
@@ -142,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
 
         // ── E. The masthead's Share Turns button ───────────────────────────
         // Second in the card's own run, right after Rename.
-        await card.nativeClickAtElement(` [data-testid="session-share-close"]`);
+        await card.nativeClickAtElement(`${SHADE} [data-testid="session-share-done"]`);
         await card.waitForCondition<boolean>(`!(${barShown})`, { timeoutMs: 4_000 });
         await card.revealPaneControls(".body-chrome-frame");
         // The card's own buttons, in document order, which is the row's.

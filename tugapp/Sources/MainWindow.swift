@@ -2166,21 +2166,25 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    /// Copy a previewed share image: `public.png` from the rendered file and
-    /// the Markdown as `public.utf8-plain-text`, answering `onShareDone` with
-    /// `done`, or `failed` when the file cannot be read. A PDF's and a
-    /// Markdown share's Copy go through `clipboardWrite`.
-    private func copyShareImage(_ request: ShareCopy, replyTo target: WKWebView) {
+    /// Copy a rendered share: the file itself — `com.adobe.pdf` for a PDF,
+    /// `public.png` for an image — and the Markdown as
+    /// `public.utf8-plain-text`, answering `onShareDone` with `done`, or
+    /// `failed` when the file cannot be read. What is pasted is the
+    /// rendering, as it was drawn: a PDF is never re-expressed as HTML, which
+    /// no mail client lays out as the page did. A Markdown share's Copy goes
+    /// through `clipboardWrite`.
+    private func copyShareFile(_ request: ShareCopy, replyTo target: WKWebView) {
         let result: ShareDone.Result
+        let type: NSPasteboard.PasteboardType = request.path.hasSuffix(".pdf") ? .pdf : .png
         if ShareRenderOutput.isRenderedArtifact(path: request.path),
-           let png = try? Data(contentsOf: URL(fileURLWithPath: request.path)), !png.isEmpty {
+           let data = try? Data(contentsOf: URL(fileURLWithPath: request.path)), !data.isEmpty {
             let pasteboard = NSPasteboard.general
-            pasteboard.declareTypes([.png, .string], owner: nil)
-            pasteboard.setData(png, forType: .png)
+            pasteboard.declareTypes([type, .string], owner: nil)
+            pasteboard.setData(data, forType: type)
             pasteboard.setString(request.text, forType: .string)
             result = .done
         } else {
-            TugLog.warn("share", "shareCopy could not read the image", [TugLog.field("id", request.id)])
+            TugLog.warn("share", "shareCopy could not read the file", [TugLog.field("id", request.id)])
             result = .failed
         }
         hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
@@ -2915,7 +2919,7 @@ extension MainWindow {
         case .shareSave(let request):
             presentShareSave(request, replyTo: replyView)
         case .shareCopy(let request):
-            copyShareImage(request, replyTo: replyView)
+            copyShareFile(request, replyTo: replyView)
         case .sharePick(let request):
             presentSharePicker(request, replyTo: replyView)
         case .shareRender(let request):

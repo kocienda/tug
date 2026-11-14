@@ -98,11 +98,11 @@ export function shareSave(
 }
 
 /**
- * Copy a previewed image to the pasteboard: the PNG at `path`, with the
- * Markdown `text` as its plain-text flavour. Resolves `"done"`, or `"failed"`
+ * Copy a rendered share to the pasteboard: the PDF or PNG at `path`, as
+ * itself, with the Markdown `text` as its plain-text flavour. Resolves `"done"`, or `"failed"`
  * when the host could not read the file.
  */
-export function shareCopyImage(path: string, text: string): Promise<ShareDoneResult> {
+export function shareCopyFile(path: string, text: string): Promise<ShareDoneResult> {
   if (!hostAvailable(shareCopyToHost)) return Promise.resolve("unavailable");
   return request((id) => postToHost(shareCopyToHost, { id, path, text }));
 }

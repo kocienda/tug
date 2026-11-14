@@ -12,8 +12,6 @@
  * mounted by the Session card around this view; this is what sits inside it,
  * top to bottom:
  *
- *  - **The top row**: the close button, an ✕ at its right, which leaves the
- *    mode (Escape does too).
  *  - **The header**, in the modal header convention every sheet and alert
  *    wears (`styles/tugx-header.css`, the two-line case): the Share icon, the
  *    title, and the instruction as its description. The title is the largest
@@ -28,7 +26,8 @@
  *    When the shade is too narrow for one line, Format goes under Tools, its
  *    label in the same column, so the two choices still share a left edge
  *    ({@link useShareFormFit}).
- *  - **The bottom row**, at its right: Action — a popup menu of what the
+ *  - **The bottom row**: Done at its left, which leaves the mode (Escape
+ *    does too), and at its right Action — a popup menu of what the
  *    shade can do with the selected turns: Preview…, Copy, Save…, Share… —
  *    and, right beside it, the action button, which wears the chosen
  *    action's name and performs it. Both are as wide as the widest action's
@@ -38,6 +37,11 @@
  * is being made. Each action does what its name says, at once: Copy copies,
  * Save… raises the save panel, Share… raises the share picker, and only
  * Preview… shows the preview (`share-actions.ts`).
+ *
+ * The shade holds the keyboard while it is up, as a sheet does: Tab walks its
+ * controls in reading order (one focus group, {@link ORDER}), the key view
+ * starts on Tools, and Return presses the action button — the shade's
+ * default — from any of them.
  *
  * The choices and the menu report through the chain; the view owns no state
  * of its own and applies each report to the card's store ([L11]). It reads
@@ -55,10 +59,10 @@
 import "./session-share-view.css";
 
 import React, { useCallback, useId, useLayoutEffect, useRef } from "react";
-import { Share, X } from "lucide-react";
+import { Share } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
@@ -81,6 +85,17 @@ const FORMAT_ITEMS: TugChoiceItem[] = [
   { value: "png", label: "Image" },
   { value: "markdown", label: "Markdown" },
 ];
+
+/** The shade's controls in Tab order: reading order, top to bottom. */
+const ORDER = {
+  selectAll: 0,
+  clearAll: 1,
+  tools: 2,
+  format: 3,
+  done: 4,
+  action: 5,
+  go: 6,
+} as const;
 
 /** The shade's actions, in menu order, each with the name its button wears. */
 export const SHARE_ACTIONS: ReadonlyArray<{ value: ShareAction; label: string }> = [
@@ -186,7 +201,7 @@ export interface SessionShareViewProps {
    * its anchor.
    */
   onShare: (anchor: () => ShareAnchor | null) => void;
-  /** Leave share mode — the close button and Escape. */
+  /** Leave share mode — Done and Escape. */
   onDone: () => void;
   /** Select every entry — the card knows which those are. */
   onMarkAll: () => void;
@@ -209,6 +224,10 @@ export function SessionShareView({
   const formatSenderId = useId();
   const actionSenderId = useId();
   const viewResponderId = useId();
+  // One focus group for the shade: Tab walks it in `ORDER`, and the key view
+  // starts on Tools, which is always there to take it.
+  const focusGroup = useId();
+  useSeedKeyView(`${focusGroup}:${ORDER.tools}`);
 
   const { ResponderScope, responderRef } = useResponder({
     id: viewResponderId,
@@ -259,17 +278,6 @@ export function SessionShareView({
         role="group"
         aria-label="Share turns"
       >
-        {/* The top row: the close button, at its right. */}
-        <div className="session-share-view__top">
-          <TugIconButton
-            size="sm"
-            icon={<X size={14} />}
-            aria-label="Close"
-            title="Close"
-            onClick={onDone}
-            data-testid="session-share-close"
-          />
-        </div>
         {/* The modal header convention, two-line case: the sheet's own
             classes, so the shade's title and instruction are the type every
             sheet and alert already wears. */}
@@ -297,6 +305,8 @@ export function SessionShareView({
                   emphasis="outlined"
                   role="action"
                   onClick={onMarkAll}
+                  focusGroup={focusGroup}
+                  focusOrder={ORDER.selectAll}
                   data-testid="session-share-mark-all"
                 >
                   Select All
@@ -307,6 +317,8 @@ export function SessionShareView({
                   role="action"
                   disabled={count === 0}
                   onClick={() => store.clearMarks()}
+                  focusGroup={focusGroup}
+                  focusOrder={ORDER.clearAll}
                   data-testid="session-share-clear"
                 >
                   Clear All
@@ -331,6 +343,8 @@ export function SessionShareView({
               senderId={toolSenderId}
               size="sm"
               commit="live"
+              focusGroup={focusGroup}
+              focusOrder={ORDER.tools}
               aria-label="Tools"
               data-testid="session-share-tool-mode"
             />
@@ -343,13 +357,27 @@ export function SessionShareView({
               senderId={formatSenderId}
               size="sm"
               commit="live"
+              focusGroup={focusGroup}
+              focusOrder={ORDER.format}
               aria-label="Format"
               data-testid="session-share-format"
             />
           </span>
         </div>
-        {/* The bottom row: Action and its button together at the right. */}
+        {/* The bottom row: Done at the left; Action and its button together
+            at the right. */}
         <div className="session-share-view__actions tug-sheet-actions">
+          <TugPushButton
+            size="sm"
+            emphasis="outlined"
+            role="action"
+            onClick={onDone}
+            focusGroup={focusGroup}
+            focusOrder={ORDER.done}
+            data-testid="session-share-done"
+          >
+            Done
+          </TugPushButton>
           {snapshot.rendering ? (
             <span className="session-share-view__rendering" data-testid="session-share-rendering" role="status">
               <TugProgressIndicator variant="spinner" state="running" tone="inherit" size={12} />
@@ -364,6 +392,8 @@ export function SessionShareView({
               items={ACTION_ITEMS}
               senderId={actionSenderId}
               size="sm"
+              focusGroup={focusGroup}
+              focusOrder={ORDER.action}
               aria-label="Action"
               data-testid="session-share-action-menu"
             />
@@ -375,6 +405,8 @@ export function SessionShareView({
             role="action"
             disabled={!canAct}
             onClick={go}
+            focusGroup={focusGroup}
+            focusOrder={ORDER.go}
             data-testid="session-share-go"
             data-share-action={snapshot.action}
             // The shade's default action: it wears the double ring the whole

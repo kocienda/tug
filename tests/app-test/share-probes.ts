@@ -30,8 +30,8 @@ export const MARK_ALL = `${CARD} [data-testid="session-share-mark-all"]`;
 export const CLEAR = `${CARD} [data-testid="session-share-clear"]`;
 /** The shade's one action button, which performs what its Action menu names. */
 export const GO = `${CARD} [data-testid="session-share-go"]`;
-/** The shade's close button, the ✕ in its top row. */
-export const CLOSE = `${CARD} [data-testid="session-share-close"]`;
+/** The shade's Done button, at the bottom row's left. */
+export const DONE = `${CARD} [data-testid="session-share-done"]`;
 /** The Action menu's trigger, and its open menu (portaled, so not under the card). */
 export const ACTION_TRIGGER = `${CARD} [data-testid="session-share-action"] button`;
 export const ACTION_MENU = '[data-testid="session-share-action-menu"]';

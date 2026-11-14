@@ -30,7 +30,7 @@
  */
 
 import type { CodeSessionStore } from "./code-session-store";
-import { shareCopyImage, sharePick, sharePreview, shareRender, shareSave, type ShareAnchor } from "./os-share";
+import { shareCopyFile, sharePick, sharePreview, shareRender, shareSave, type ShareAnchor } from "./os-share";
 import { getOnScreenTheme } from "../contexts/theme-provider";
 import { scrubShareTexts } from "./share-scrub";
 import {
@@ -183,22 +183,22 @@ export async function previewShare(ctx: ShareActionContext): Promise<void> {
 }
 
 /**
- * Copy the artifact ([P13]): Markdown as plain text; a PDF as its
- * inline-styled HTML with the Markdown as the plain-text flavour; an image as
- * the PNG, with the Markdown beside it.
+ * Copy the artifact ([P13]): Markdown as plain text; a PDF or an image as
+ * the rendered file itself, with the Markdown beside it as the plain-text
+ * flavour. What pastes is the rendering as it was drawn — a PDF is not
+ * re-expressed as HTML, which a mail client lays out its own way.
  */
 export async function copyShare(ctx: ShareActionContext): Promise<void> {
   const artifact = await currentArtifact(ctx);
   if (artifact === null) return;
-  if (artifact.format === "png") {
-    const result = await shareCopyImage(artifact.path, artifact.markdown);
+  if (artifact.format !== "markdown") {
+    const result = await shareCopyFile(artifact.path, artifact.markdown);
     if (result === "unavailable") ctx.notify()?.caution(SHARE_NEEDS_APP_TEXT);
-    else if (result !== "done") ctx.notify()?.caution("Couldn't copy the image");
+    else if (result !== "done") ctx.notify()?.caution("Couldn't copy the rendering");
     else ctx.notify()?.success("Copied");
     return;
   }
-  const html = artifact.format === "pdf" ? artifact.html : "";
-  if (!writeClipboardViaNative(artifact.markdown, "", html)) {
+  if (!writeClipboardViaNative(artifact.markdown, "", "")) {
     ctx.notify()?.caution(SHARE_NEEDS_APP_TEXT);
     return;
   }
