@@ -126,6 +126,17 @@ const submit = (): UserMessage => ({
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Wait for `done`, checking each millisecond, and give up at `withinMs`. The
+ * recovery runs on timers and promise turns of its own, so a fixed sleep races
+ * it on a loaded machine: the 2026-11-14 release run read `spawns` 150 ms in,
+ * before the respawn had landed. Waiting on the fact has no such race.
+ */
+async function until(done: () => boolean, withinMs = 5000): Promise<void> {
+  const deadline = Date.now() + withinMs;
+  while (!done() && Date.now() < deadline) await sleep(1);
+}
+
 describe("stdin backpressure", () => {
   test("a never-draining stdin flags the session, then recovers it as a stalled turn", async () => {
     const wedged = mockClaudeChild(() => new Promise<number>(() => {}));
@@ -141,7 +152,7 @@ describe("stdin backpressure", () => {
       const turn = (manager as any).activeTurn;
       expect(turn).not.toBeNull();
 
-      await sleep(TEST_TIMEOUT_MS * 6);
+      await until(() => spawns.length > 0 && !manager.stdinBackpressured);
 
       // The bound ran out and the stalled-turn recovery took the session:
       // the turn is a recovery cancel and a fresh claude resumed under it.
