@@ -14,8 +14,8 @@
  *      bottom of the transcript and rests on the Z2 status bar, and the
  *      composer stays where it is, with the draft typed into it still there.
  *      Tools' choices share the left edge of the title and the description;
- *      the Mark All row is centered across the shade and holds still as the
- *      count changes; Format sits on Tools' line; and Action sits on the buttons'
+ *      Mark All and Clear All sit on the title's row, flush right, and hold
+ *      still as the count changes; Format sits on Tools' line; and Action sits on the buttons'
  *      row, at its left, under the Tools label. Narrowed until the line does
  *      not fit, the form stacks Format under Tools with the two choices on
  *      one left edge, and widened again it is one line.
@@ -183,25 +183,22 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             goMid: Math.round(go.top + go.height / 2),
             goLeft: Math.round(go.left),
             markAllLeft: Math.round(r('[data-card-id="A"] [data-testid="session-share-mark-all"]').left),
-            marksMid: (function () {
+            clearRight: Math.round(r('[data-card-id="A"] [data-testid="session-share-clear"]').right),
+            goRight: Math.round(go.right),
+            marksMidY: (function () {
               var a = r('[data-card-id="A"] [data-testid="session-share-mark-all"]');
-              var c = r('[data-card-id="A"] [data-testid="session-share-count"]');
-              return Math.round((a.left + c.right) / 2);
+              return Math.round(a.top + a.height / 2);
             })(),
-            viewMid: (function () {
-              var v = document.querySelector('[data-card-id="A"] [data-slot="session-share-view"]');
-              var s = getComputedStyle(v);
-              var b = v.getBoundingClientRect();
-              var left = b.left + parseFloat(s.paddingLeft);
-              var right = b.right - parseFloat(s.paddingRight);
-              return Math.round((left + right) / 2);
+            titleMidY: (function () {
+              var t = r('[data-card-id="A"] [data-slot="session-share-view"] .tug-sheet-title');
+              return Math.round(t.top + t.height / 2);
             })(),
           };
         })()`;
         type Layout = {
           lefts: number[]; layout: string; toolsMid: number; formatMid: number; toolsLeft: number; formatLeft: number;
           toolsLabelLeft: number; actionMid: number; actionLeft: number; actionLabelLeft: number; goMid: number; goLeft: number;
-          markAllLeft: number; marksMid: number; viewMid: number;
+          markAllLeft: number; clearRight: number; goRight: number; marksMidY: number; titleMidY: number;
         };
         const layout = await card.evalJS<Layout>(layoutJs);
         note(`at0819 layout: ${JSON.stringify(layout)}`);
@@ -214,7 +211,8 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(Math.abs(layout.actionMid - layout.goMid), "Action sits on the buttons' row").toBeLessThanOrEqual(2);
         expect(layout.actionLeft, "Action is at the row's left, before the buttons").toBeLessThan(layout.goLeft);
         expect(Math.abs(layout.actionLabelLeft - layout.toolsLabelLeft), "the Action label is under the Tools label").toBeLessThanOrEqual(1);
-        expect(Math.abs(layout.marksMid - layout.viewMid), "the Mark All row is centered across the shade").toBeLessThanOrEqual(2);
+        expect(Math.abs(layout.marksMidY - layout.titleMidY), "Mark All sits on the title's row").toBeLessThanOrEqual(2);
+        expect(Math.abs(layout.clearRight - layout.goRight), "Clear All is flush with the action button's right edge").toBeLessThanOrEqual(1);
         // Narrowed until the line does not fit, Format stacks under Tools on
         // Tools' left edge; widened again, it is one line.
         const VIEW = '[data-card-id="A"] [data-slot="session-share-view"]';

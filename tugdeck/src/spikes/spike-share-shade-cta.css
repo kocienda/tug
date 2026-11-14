@@ -72,15 +72,24 @@
   margin-bottom: 0;
 }
 
-/* Note 1: Mark All and Clear All, their own row under the header, centered
-   across the shade. */
-.sp-ssc-marks {
+/* Note 1: the title row — the title at its left; the count, Mark All and
+   Clear All at its right, as tall as the buttons. */
+.sp-ssc-title-row {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-xl);
+  margin-bottom: var(--tug-space-sm);
+}
+
+.sp-ssc-marks {
+  display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--tug-space-sm);
+  margin-inline-start: auto;
 }
 
 /* Note 2: Tools and Format on one line, as the real sheet lays them: Tools'
@@ -129,8 +138,7 @@
 }
 
 .sp-ssc-working .sp-ssc-count {
-  margin-inline-start: var(--tug-space-xs);
-  width: 9em;
+  margin-inline-end: var(--tug-space-xs);
 }
 
 /* Note 4: two buttons — `.tug-sheet-actions`, right-aligned. */

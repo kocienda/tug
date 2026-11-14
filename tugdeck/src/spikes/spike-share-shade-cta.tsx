@@ -12,8 +12,8 @@
  * **The working design** is drawn first. It is the sheet header (candidate A
  * below) taken as a start, with four notes applied:
  *
- *  1. Mark All and Clear All sit in their own row under the header, centered
- *     across the shade, the count in a fixed width so the row holds still.
+ *  1. Mark All and Clear All sit at the right of the title row, which is as
+ *     tall as they are, the count before them so the buttons hold still.
  *  2. Tools and Format share one line. Tools' label fills the header's icon
  *     column, so its choices start on the same left edge as the title and
  *     the description. When the shade is too narrow for the
@@ -62,7 +62,8 @@ import { useResponder } from "@/components/tugways/use-responder";
 import type { SpikeDef } from "./spike-registry";
 
 const LEAD = "Check the box at the right of each turn you want to share.";
-const MORE = "Shift-click a box to mark every turn between it and the last one you clicked.";
+const MORE =
+  "Shift-click a box to mark every turn between it and the last one you clicked, or use the buttons above to select turns.";
 const COUNT = "3 turns";
 
 const TOOL_MODE_ITEMS: TugChoiceItem[] = [
@@ -129,22 +130,25 @@ function WorkingDesign(): React.ReactElement {
             <Share />
           </div>
           <div className="tug-sheet-heading">
-            <div className="tug-sheet-title">Share Turns</div>
+            {/* Note 1: the title row, tall enough for the buttons — the
+                title at its left; the count, Mark All and Clear All at its
+                right, the buttons flush right so they never move. */}
+            <div className="sp-ssc-title-row">
+              <div className="tug-sheet-title">Share Turns</div>
+              <div className="sp-ssc-marks">
+                <span className="sp-ssc-count">3 turns marked</span>
+                <TugPushButton size="sm" emphasis="outlined" role="action">
+                  Mark All
+                </TugPushButton>
+                <TugPushButton size="sm" emphasis="outlined" role="action">
+                  Clear All
+                </TugPushButton>
+              </div>
+            </div>
             <p className="tug-sheet-description">
               {LEAD} {MORE}
             </p>
           </div>
-        </div>
-        {/* Note 1: their own row under the header, centered across the shade;
-            the count holds a fixed width so the row does not move. */}
-        <div className="sp-ssc-marks">
-          <TugPushButton size="sm" emphasis="outlined" role="action">
-            Mark All
-          </TugPushButton>
-          <TugPushButton size="sm" emphasis="outlined" role="action">
-            Clear All
-          </TugPushButton>
-          <span className="sp-ssc-count">3 turns marked</span>
         </div>
         {/* Note 2: Tools and Format on one line when they fit, stacked when
             not; Tools' label in the icon column either way. */}

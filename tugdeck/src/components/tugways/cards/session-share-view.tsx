@@ -16,9 +16,9 @@
  *    title, and the instruction as its description. The title is the largest
  *    type on the shade; the instruction is a description, never a style of
  *    its own.
- *  - **Mark All and Clear All**, in their own row under the header,
- *    centered across the shade, with the count of marked turns beside them
- *    in a fixed width so the row holds still as the count changes.
+ *  - **Mark All and Clear All**, at the right of the title row, which is
+ *    as tall as they are, with the count of marked turns before them: the
+ *    buttons sit flush right, so they hold still as the count changes.
  *  - **The form**: Tools (how tool calls appear in the turns) and Format on
  *    one line, Tools' label in the header icon's column so its choices start
  *    on the left edge of the title and the description.
@@ -245,38 +245,43 @@ export function SessionShareView({
             <Share />
           </div>
           <div className="tug-sheet-heading">
-            <div className="tug-sheet-title">Share Turns</div>
+            {/* The title row, tall enough for the buttons: the title at its
+                left; the count, Mark All and Clear All at its right. The
+                buttons sit flush right and the count grows leftward from
+                them, so nothing moves as the count changes. */}
+            <div className="session-share-view__title-row">
+              <div className="tug-sheet-title">Share Turns</div>
+              <div className="session-share-view__marks" data-testid="session-share-marks">
+                <span className="session-share-view__count" data-testid="session-share-count">
+                  {shareCountLabel(count)}
+                </span>
+                <TugPushButton
+                  size="sm"
+                  emphasis="outlined"
+                  role="action"
+                  onClick={onMarkAll}
+                  data-testid="session-share-mark-all"
+                >
+                  Mark All
+                </TugPushButton>
+                <TugPushButton
+                  size="sm"
+                  emphasis="outlined"
+                  role="action"
+                  disabled={count === 0}
+                  onClick={() => store.clearMarks()}
+                  data-testid="session-share-clear"
+                >
+                  Clear All
+                </TugPushButton>
+              </div>
+            </div>
             <p className="tug-sheet-description" data-testid="session-share-instruction">
               Check the box at the right of each turn you want to share. Shift-click a box to mark
-              every turn between it and the last one you clicked.
+              every turn between it and the last one you clicked, or use the buttons above to
+              select turns.
             </p>
           </div>
-        </div>
-        {/* Mark All, Clear All and the count, centered across the shade. The
-            count holds a fixed width, so the row does not move as it changes. */}
-        <div className="session-share-view__marks" data-testid="session-share-marks">
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            onClick={onMarkAll}
-            data-testid="session-share-mark-all"
-          >
-            Mark All
-          </TugPushButton>
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            disabled={count === 0}
-            onClick={() => store.clearMarks()}
-            data-testid="session-share-clear"
-          >
-            Clear All
-          </TugPushButton>
-          <span className="session-share-view__count" data-testid="session-share-count">
-            {shareCountLabel(count)}
-          </span>
         </div>
         {/* Tools and Format on one line when they fit, stacked when not;
             Tools' label in the icon column either way. */}

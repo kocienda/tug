@@ -31,23 +31,32 @@
   margin-bottom: 0;
 }
 
-/* Mark All and Clear All, in their own row under the header, centered across
-   the shade, with the count beside them. */
-.session-share-view__marks {
+/* The title row: the title at its left; the count, Mark All and Clear All at
+   its right. The row is as tall as the buttons, and on a shade too narrow
+   for both the buttons wrap under the title. */
+.session-share-view__title-row {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-xl);
+  margin-bottom: var(--tug-space-sm);
+}
+
+/* The buttons sit flush right; the count sits before them and grows
+   leftward, so the buttons never move as it changes. */
+.session-share-view__marks {
+  display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--tug-space-sm);
+  margin-inline-start: auto;
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-share-view__count {
-  margin-inline-start: var(--tug-space-xs);
-  /* A fixed width, wide enough for "999 turns marked", so the centered row
-     holds still as the count's text changes. */
-  width: 9em;
+  margin-inline-end: var(--tug-space-xs);
   color: var(--tug7-element-field-text-normal-label-rest);
   font-size: var(--tugx-header-desc-size);
   font-variant-numeric: tabular-nums;
