@@ -326,11 +326,17 @@ struct BodyDestroy: Decodable, Equatable {
 }
 
 /// `painted`: a body's frame has gone to the compositor — its chrome's
-/// first, then its content's (`content`). `theme` names the theme it was
-/// drawn in when the page answers an `onBodyTheme`.
+/// first, then its content's (`content`).
 struct BodyPainted: Decodable, Equatable {
     var content: Bool
-    var theme: String?
+}
+
+/// `bodyThemed`: a rail page's answer to `onBodyTheme`, sent one paint after
+/// applying `theme`, once the first frame drawn in it is rendered.
+/// `appliedMs` is the page's own time from being told to the theme applied.
+struct BodyThemed: Decodable, Equatable {
+    var theme: String
+    var appliedMs: Double
 }
 
 /// `bodyDelays`: the harness's seam on the host's body clocks, never sent by
@@ -592,9 +598,9 @@ struct BodyVisibility: Codable, Equatable {
     var dormant: Bool
 }
 
-/// `onBodyTheme`: the theme a rail page wears from now on, told at a cut
-/// between workspaces of different themes; the page answers with `painted`
-/// carrying it.
+/// `onBodyTheme`: the theme a rail page wears from now on, told ahead of a
+/// cut between workspaces of different themes; the page answers with
+/// `bodyThemed`.
 struct BodyTheme: Codable, Equatable {
     var theme: String
 }
@@ -1137,7 +1143,7 @@ enum ToHostName: String, CaseIterable {
     // The overlay's view.
     case overlayCreate, overlayClaim
     // Page lifecycle.
-    case bodyHello, painted, bodyStale, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
+    case bodyHello, painted, bodyThemed, bodyStale, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
     case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
     case sourceTree, choosePath, getSettings, setTheme, tooltipDelay
@@ -1205,6 +1211,7 @@ enum ToHost {
     case overlayClaim(CardHitRegion.Claim)
     case bodyHello
     case painted(BodyPainted)
+    case bodyThemed(BodyThemed)
     case bodyStale
     case frontendReady
     case frontendLaunchStalled(FrontendLaunchStalled)
@@ -1274,6 +1281,7 @@ enum ToHost {
         case .overlayClaim: return .overlayClaim(try read(CardHitRegion.Claim.self))
         case .bodyHello: _ = try read(EmptyPayload.self); return .bodyHello
         case .painted: return .painted(try read(BodyPainted.self))
+        case .bodyThemed: return .bodyThemed(try read(BodyThemed.self))
         case .bodyStale: _ = try read(EmptyPayload.self); return .bodyStale
         case .frontendReady: _ = try read(EmptyPayload.self); return .frontendReady
         case .crossingReady: return .crossingReady(try read(BodySurface.self))

@@ -1544,6 +1544,9 @@ export interface BodyLayerRow {
   lastFrame?: boolean;
   /** The card's picture in its stage ("none" for a sibling or an unplaced card; absent before surface `2.2.0`). */
   picture?: StagePictureKind | "none";
+  /** The theme the card's page last said it wears, and the shown stage's; null before either is known. */
+  theme?: string | null;
+  stageTheme?: string | null;
   /** The container's rect in the window, `x,y w×h` from the top left. */
   frame?: string;
   /** Its skeleton's bounds and pane within it, when a skeleton stands over it. */

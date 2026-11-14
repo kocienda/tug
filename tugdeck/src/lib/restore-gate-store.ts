@@ -2,16 +2,16 @@
  * restore-gate-store — is any session card cold-restoring right now, and
  * how many of the sessions being restored have finished?
  *
- * Every card in the deck shares one main thread in one `WKWebView`. A
- * cold restore's reveal — mounting, laying out, and measuring a whole
- * reconstructed transcript — is a single uninterruptible task on that
- * thread, measured in seconds on a real session. While it runs, nothing
- * in the app answers: not the card restoring, not its neighbours, not
- * the composer you are typing into. The chrome keeps painting its last
- * frame, so the app *looks* live throughout.
+ * A workspace arriving cold — at launch, or on its first visit — is on
+ * screen at once, and its resumed sessions are not: each card stands a
+ * skeleton while its page is made, its transcript replayed, and the list
+ * mounted and measured. The workspace is visible and not yet usable.
  *
- * This store is the reading behind `RestoreGate`, the app-modal that
- * says the app is busy for exactly as long as it is.
+ * This store is the reading behind `RestoreGate`, the app-modal that says
+ * so: once for each cold arrival, from the moment the restore pass names
+ * its cards until the last of them has settled. The gate was written when
+ * every card shared one thread and a restore froze the whole app; each
+ * card has its own page now, and the gate is kept as the cover for this.
  *
  * ## What it counts
  *
@@ -37,7 +37,21 @@
  *
  * ## Who may hold, and for how long
  *
- * A report of `"holding"` is what a body last said, and a body that is not
+ * A resumed card that has not settled holds, whether or not its page
+ * exists: one the restore pass named holds from that moment, and its body
+ * goes on holding for it while it reports `"waiting"` or `"holding"`. So the
+ * gate opens at the cut onto a workspace with such a card, and does not
+ * drop between pages made a couple at a time. A named card stops holding
+ * when its page has reported and then stopped, has painted having reported
+ * nothing, or is not coming — failed, evicted, never asked for. One named
+ * over a page that had already painted is handed its resume over the bus,
+ * so its paint says nothing and only its report, or the horizon, ends it:
+ * the count is told the same, so such a card is a member of its round even
+ * while its page, made ahead and still asleep at the cut, holds nothing. A
+ * naming lasts {@link HOLD_HORIZON_MS} at most, so a card that never
+ * reports cannot keep a round pending.
+ *
+ * A report is what a body last said, and a body that is not
  * listening says nothing more. A parked workspace's page is made ahead
  * hidden and declared dormant as it paints (`body-make-ahead.ts`), and a
  * dormant body's replay deadlines stop until it is shown
@@ -45,17 +59,34 @@
  * resume replay says `"holding"` and then sleeps on it. On 2026-11-09 three
  * such cards in a workspace nobody was looking at raised the modal over the
  * user's work and held it with no end. So a card holds only while it could
- * be the thing the user is waiting on: it is in the shown workspace, its
- * body has a live page, and that body is not dormant.
+ * be the thing the user is waiting on: it is in the shown workspace, and
+ * a body that has a page is not dormant.
  *
  * And the gate does not take the reports' word that it should still be up.
  * While it is open it reads every card again each {@link GATE_WATCH_MS} —
  * a poll, by decision, because a modal with no dismiss cannot rest on a
- * notice that may never come — and a card that has said `"holding"` without
- * a break for {@link HOLD_HORIZON_MS} stops counting, whatever it says.
+ * notice that may never come — and a card that has held without a break
+ * for {@link HOLD_HORIZON_MS}, named, waiting and holding together, stops
+ * counting, whatever it says. A card whose page is never made meets the
+ * same horizon.
  * That is the shell's own horizon over the card's ([L33]): the replay's
  * silence deadline and the reveal's settle bound end a hold from inside the
  * page, and this ends it when the page cannot.
+ *
+ * ## The floor
+ *
+ * Once open, the gate stays on screen until {@link GATE_FLOOR_MS} after it
+ * opened. A restore that ends sooner leaves it up for the remainder,
+ * reading every session finished; a hold that arrives in that time simply
+ * keeps it open; a longer restore gains nothing. One timer, armed at the
+ * open and cleared at the close.
+ *
+ * The floor is the arrival's: it holds a gate that covers cards a restore
+ * pass named — a cut onto a workspace, a launch, a reloaded shell. A gate
+ * one card raises by resuming on its own — picked from the picker, moved
+ * by `/cd`, brought back after its page was lost — closes when that card
+ * settles, as it always has: its user is waiting on that one card and
+ * types into it the moment it is there.
  *
  * Tuglaws: [L02] — external state with `subscribe`/`getSnapshot`, read
  * through `useSyncExternalStore`; the snapshot is reference-stable
@@ -84,6 +115,7 @@ import {
   foldRestoreGate,
   type RestoreCardFacts,
   type RestoreGateFoldState,
+  type RestoreGateReading,
 } from "./restore-gate-round";
 
 /** What the gate knows, and what its surface renders. */
@@ -115,6 +147,13 @@ export const GATE_WATCH_MS = 2_000;
  */
 export const HOLD_HORIZON_MS = 20_000;
 
+/**
+ * The least time an open gate stays on screen, counted from when it opened.
+ * A gate up for a few hundred milliseconds reads as a flash, not as a
+ * message; one up for this long reads as the arrival it covers.
+ */
+export const GATE_FLOOR_MS = 1_250;
+
 class RestoreGateStore {
   private readonly _listeners = createSubscribable();
   private _snapshot: RestoreGateSnapshot = CLOSED;
@@ -124,6 +163,24 @@ class RestoreGateStore {
   private _storeUnsubs = new Map<CodeSessionStore, () => void>();
   /** When each card now saying it holds began to, on this page's clock. */
   private _heldSince = new Map<string, number>();
+  /** Cards a restore pass named whose restore no page has yet seen through. */
+  private _named = new Set<string>();
+  /** Cards whose page has said something of their restore. */
+  private _reported = new Set<string>();
+  /** Named cards whose page had already painted when the pass named them. */
+  private _namedPainted = new Set<string>();
+  /** When each named card was named, on this page's clock. */
+  private _namedAt = new Map<string, number>();
+  /** When the gate now shown opened, or null while it is closed. */
+  private _openedAt: number | null = null;
+  /** The open round's total, kept for the floor's finished reading. */
+  private _lastTotal = 0;
+  /** The wake-up at the floor, armed at the open and cleared at the close. */
+  private _floorTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The floor's timer has fired: the floor is over, whatever a coarse clock reads. */
+  private _floorDue = false;
+  /** The open gate covers an arrival: cards a restore pass named. Only such a gate has a floor. */
+  private _arrival = false;
   /** The open gate's watch, or null while it is closed. */
   private _watch: ReturnType<typeof setInterval> | null = null;
   /** The deck whose workspace changes are followed, once one is registered. */
@@ -204,6 +261,20 @@ class RestoreGateStore {
   private _recompute(): void {
     this._followDeck();
     const now = this._now();
+    // The cards a restore pass has named since the last fold: the fold
+    // counts them, and until each one's page speaks for it they hold.
+    const arrived = restoreGateRoster.take();
+    for (const cardId of arrived) {
+      this._named.add(cardId);
+      this._namedAt.set(cardId, now);
+      this._reported.delete(cardId);
+      // A card named over a page that has already painted is handed its
+      // resume over the bus: its paint says nothing of the restore to come.
+      if (bodyCardsStore.stateOf(cardId) === "painted") this._namedPainted.add(cardId);
+      else this._namedPainted.delete(cardId);
+    }
+    // Cards a pass named are still to settle: what the gate covers is an arrival.
+    const arrival = this._named.size > 0;
     const saying = new Set<string>();
     const holding = new Set<string>();
     const shellHeld = new Map<string, boolean>();
@@ -221,15 +292,43 @@ class RestoreGateStore {
     // listening — no page, or dormant — holds nothing, whatever it last said.
     const bodyHeld = new Map<string, boolean>();
     for (const cardId of bodyCardsStore.cardIds()) {
-      const says = bodyFactsStore.restoreHoldOf(cardId) === "holding";
+      const report = bodyFactsStore.restoreHoldOf(cardId);
+      const state = bodyCardsStore.stateOf(cardId);
+      if (report !== null) this._reported.add(cardId);
+      // A card the restore pass named is pending until its page has said
+      // something of its restore and then stopped, or has painted saying
+      // nothing, or is no longer coming at all.
+      if (this._named.has(cardId)) {
+        const coming = state !== "failed" && state !== "evicted" && state !== "unmade";
+        const over =
+          report === null &&
+          (this._reported.has(cardId) || (state === "painted" && !this._namedPainted.has(cardId)));
+        if (!coming || over) this._named.delete(cardId);
+      }
+      // Its page says its restore is under way or still to come; or the
+      // pass named it and its page has not been made, or has said nothing
+      // yet. Either way the user is looking at a card they cannot use.
+      const reports = report !== null && !pageless(state);
+      const says = reports || this._named.has(cardId);
       if (says) saying.add(cardId);
-      const held =
-        says &&
-        !pageless(bodyCardsStore.stateOf(cardId)) &&
-        bodyFactsStore.factsOf(cardId)?.dormant !== true &&
-        this._mayHold(cardId, now);
+      const held = says && bodyFactsStore.factsOf(cardId)?.dormant !== true && this._mayHold(cardId, now);
       bodyHeld.set(cardId, held);
       if (held) holding.add(cardId);
+    }
+    for (const cardId of this._named) {
+      if (!bodyCardsStore.has(cardId)) this._named.delete(cardId);
+    }
+    // A naming has the hold's horizon: past it the card is counted by what
+    // its page says, as one no pass named.
+    for (const [cardId, since] of this._namedAt) {
+      if (this._named.has(cardId) && now - since >= HOLD_HORIZON_MS) this._named.delete(cardId);
+      if (!this._named.has(cardId)) this._namedAt.delete(cardId);
+    }
+    for (const cardId of this._namedPainted) {
+      if (!this._named.has(cardId)) this._namedPainted.delete(cardId);
+    }
+    for (const cardId of this._reported) {
+      if (!bodyCardsStore.has(cardId)) this._reported.delete(cardId);
     }
     // A hold's clock runs for as long as the card goes on saying it.
     for (const cardId of this._heldSince.keys()) {
@@ -243,7 +342,9 @@ class RestoreGateStore {
           holding: bodyHeld.get(cardId) === true,
           waiting: report === "waiting",
           live: state !== "failed" && state !== "evicted" && state !== "unmade",
-          painted: state === "painted",
+          // A paint that came before the pass named the card says nothing of
+          // the restore the pass handed it.
+          painted: state === "painted" && !this._namedPainted.has(cardId),
         };
       }
       const held = shellHeld.get(cardId);
@@ -252,14 +353,54 @@ class RestoreGateStore {
       }
       return { holding: false, waiting: false, live: false, painted: false };
     };
-    const { state, reading } = foldRestoreGate(this._fold, {
-      holding,
-      arrived: restoreGateRoster.take(),
-      facts,
-    });
+    const { state, reading } = foldRestoreGate(this._fold, { holding, arrived, facts });
     this._fold = state;
-    this._publish(reading.open ? reading : CLOSED);
-    this._watchWhileOpen(reading.open);
+    const shown = this._floor(reading, now, arrival);
+    this._publish(shown);
+    this._watchWhileOpen(shown.open);
+  }
+
+  /**
+   * What the gate shows for `reading`: the reading itself while something
+   * holds, and for the rest of {@link GATE_FLOOR_MS} after it opened, an open
+   * gate reading every session of the round finished. A gate that opened and
+   * closed inside a few hundred milliseconds would be a flash of its own, so
+   * it closes at the later of its last hold ending and the floor; a long
+   * restore gains nothing. Only a gate covering an `arrival` has the floor,
+   * counted from when the gate opened whenever the arrival joined it. One
+   * timer, armed then and cleared at the close, wakes the store at the
+   * floor; the decision reads the clock.
+   */
+  private _floor(reading: RestoreGateReading, now: number, arrival: boolean): RestoreGateSnapshot {
+    if (reading.open) {
+      if (this._openedAt === null) this._openedAt = now;
+      if (arrival && !this._arrival) {
+        this._arrival = true;
+        this._floorTimer = setTimeout(() => {
+          this._floorTimer = null;
+          this._floorDue = true;
+          this._recompute();
+        }, Math.max(0, GATE_FLOOR_MS - (now - this._openedAt)));
+      }
+      this._lastTotal = reading.sessionsTotal;
+      return reading;
+    }
+    if (this._arrival && this._openedAt !== null && !this._floorDue && now - this._openedAt < GATE_FLOOR_MS) {
+      return { open: true, sessionsDone: this._lastTotal, sessionsTotal: this._lastTotal };
+    }
+    this._closeFloor();
+    return CLOSED;
+  }
+
+  private _closeFloor(): void {
+    this._openedAt = null;
+    this._lastTotal = 0;
+    this._floorDue = false;
+    this._arrival = false;
+    if (this._floorTimer !== null) {
+      clearTimeout(this._floorTimer);
+      this._floorTimer = null;
+    }
   }
 
   /**
@@ -337,6 +478,11 @@ class RestoreGateStore {
     this._fold = INITIAL_FOLD;
     this._snapshot = CLOSED;
     this._heldSince.clear();
+    this._named.clear();
+    this._reported.clear();
+    this._namedPainted.clear();
+    this._namedAt.clear();
+    this._closeFloor();
     this._watchWhileOpen(false);
     this._releaseDeck?.();
     this._releaseDeck = null;

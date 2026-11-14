@@ -130,6 +130,9 @@ describe("session-restore — zero-turn fresh-spawn hold", () => {
     expect(sessionRestoreRegistry.get(cardId)?.tugSessionId).toBe(
       `sess-${cardId}`,
     );
+    // A fresh spawn has no restore to come: the hold keeps the card off the
+    // picker, and neither the restore gate nor the card's skeleton waits on it.
+    expect(sessionRestoreRegistry.resuming(cardId)).toBe(false);
   });
 
   it("notifySpawnRejected drops the hold so the picker can present", () => {
@@ -174,6 +177,8 @@ describe("session-restore — zero-turn fresh-spawn hold", () => {
     expect(sessionRestoreRegistry.get(cardId)?.tugSessionId).toBe(
       `sess-${cardId}`,
     );
+    // A resume is a restore still to come.
+    expect(sessionRestoreRegistry.resuming(cardId)).toBe(true);
   });
 });
 

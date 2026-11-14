@@ -769,11 +769,24 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// the deck to its own root. Never `webView.pageZoom`.
     private var zoomFactor: CGFloat = MainWindow.defaultPageZoom
     /// The palettes the host knows, by theme name: the shell's on-screen
-    /// theme's from `setTheme`, each body page's own from `bodySurface`.
+    /// theme's from `setTheme`, each body page's own from `bodySurface`,
+    /// and those this build kept from earlier launches. An app-test instance
+    /// keeps none: every test's launch is a first one, whatever ran before.
     let palettes: ThemePalettes = {
-        let palettes = ThemePalettes()
+        let palettes = ThemePalettes(
+            store: InstanceConfig.isAppTest ? nil : DefaultsPaletteStore(),
+            build: MainWindow.paletteBuild)
         palettes.onMissing = { theme in TugLog.info("bodies", "stage palette missing", [TugLog.field("theme", theme)]) }
         return palettes
+    }()
+    /// What names this build to the kept palettes: its commit, and when its
+    /// executable was written, since a working tree builds many times at one
+    /// commit.
+    private static let paletteBuild: String = {
+        let written = Bundle.main.executableURL
+            .flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+            .map { String(Int($0.timeIntervalSince1970)) } ?? ""
+        return "\(BuildInfo.commit)-\(written)"
     }()
     /// The deck's ground: beneath the shell's page, above the splash, held
     /// at opacity 0 until the shell is revealed.
@@ -3129,7 +3142,10 @@ extension MainWindow {
         case .painted(let painted):
             // A body's frame has gone to the compositor, its chrome's or its
             // content's: it may be shown. The shell never posts this.
-            if let fromBody { bodies.didPaint(fromBody, content: painted.content, theme: painted.theme) }
+            if let fromBody { bodies.didPaint(fromBody, content: painted.content) }
+        case .bodyThemed(let themed):
+            // A rail page wears the theme the host told it ahead of a cut.
+            if let fromBody { bodies.didTheme(fromBody, theme: themed.theme, appliedMs: themed.appliedMs) }
         case .bodyStale:
             // A hidden body's picture no longer stands for what it would
             // draw: a switch onto it cannot show it as it stands.

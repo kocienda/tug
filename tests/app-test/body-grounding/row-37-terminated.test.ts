@@ -26,6 +26,7 @@ import { launchTugApp, note } from "../_harness";
 import { claudeProjectDir } from "../_harness/claude-home";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { onTestRunEnd } from "../_harness/test-cleanup";
+import { restoreSettled } from "../overlay-fixture";
 import { bodyOf, composerText, focusBody, pollFor, settleFor, sessionPane } from "./_bodies";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -133,6 +134,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 37: the terminated body", () =>
         await app.body(A).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 30_000 });
         const victim = (await bodyOf(app, A))?.pid ?? null;
         expect(victim, "the host names the body's WebContent process").not.toBeNull();
+        // The resume holds the restore gate, which stays up its floor after
+        // it opened: the draft is typed once it is down, or its keys land on
+        // the gate.
+        await restoreSettled(app, A);
         await focusBody(app, A, { composer: true });
         await app.nativeType(DRAFT);
         await pollFor(() => app.body(A).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);

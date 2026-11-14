@@ -22,6 +22,15 @@
  * arriving card's picture at the cut, and once every page has painted each
  * card's picture must be its page: no skeleton or last frame left standing.
  *
+ * An app-modal's scrim over the window — the restore gate's, which stands
+ * over a resumed card from its skeleton to its settled transcript — dims
+ * every pixel toward the scrim's colour, so a frame under one is read
+ * through it ({@link Scrim}): the canvas it is compared against is dimmed
+ * as the scrim dims it, and each colour distance is scaled by what the
+ * scrim lets through. That is the blend's own inverse, so a frame under the
+ * gate is held to the same bars as one without it, neither excused nor
+ * failed for the dimming.
+ *
  * A parked workspace is a finished picture, so two more bars hold what a
  * card in the right place may not do after the cut. Asked for, a pane's
  * content keeps the dominant colour the first switched frame gave it, so no
@@ -40,8 +49,9 @@ import { join } from "node:path";
 import { note, type App } from "../_harness";
 import type { BodyLayerRow, BodyLayersReading, CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
+import { overlayPage } from "../overlay-fixture";
 import { bodyOf, pollFor, settleFor } from "./_bodies";
-import { asRgbJs, classifyFrame, FLOOR_COLUMNS, framesDiffer, gridColumnsIn, near, parseRgb, showsBareHole, type FrameRegion, type Palette, type Rgb } from "./_frames";
+import { asRgbJs, classifyFrame, decoded, FLOOR_COLUMNS, framesDiffer, gridColumnsIn, near, parseRgb, showsBareHole, type FrameRegion, type Palette, type Rgb } from "./_frames";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 60_000;
@@ -146,8 +156,8 @@ function clamp(region: FrameRegion, width: number, height: number): [number, num
 
 type Png = ReturnType<typeof decodePngFile>;
 
-/** The share of `region`'s pixels lying farther than {@link INK_REACH} from the region's commonest colour: ink on its surface. */
-export function inkShare(png: Png, region: FrameRegion): number {
+/** The share of `region`'s pixels lying farther than `reach` ({@link INK_REACH}) from the region's commonest colour: ink on its surface. */
+export function inkShare(png: Png, region: FrameRegion, reach = INK_REACH): number {
   const [x0, y0, x1, y1] = clamp(region, png.width, png.height);
   const counts = new Map<number, number>();
   const pixels: Rgb[] = [];
@@ -164,12 +174,12 @@ export function inkShare(png: Png, region: FrameRegion): number {
   let most = -1;
   for (const [key, count] of counts) if (count > most) [fillKey, most] = [key, count];
   const fill = { r: (fillKey >> 16) & 255, g: (fillKey >> 8) & 255, b: fillKey & 255 };
-  const ink = pixels.filter((p) => !near(p, fill, INK_REACH)).length;
+  const ink = pixels.filter((p) => !near(p, fill, reach)).length;
   return ink / Math.max(1, pixels.length);
 }
 
-/** The share of `region`'s pixels within {@link TOLERANCE} of the canvas colour, sampled every fourth pixel. */
-export function canvasShare(png: Png, region: FrameRegion, canvas: Rgb): number {
+/** The share of `region`'s pixels within `tolerance` ({@link TOLERANCE}) of the canvas colour, sampled every fourth pixel. */
+export function canvasShare(png: Png, region: FrameRegion, canvas: Rgb, tolerance = TOLERANCE): number {
   const [x0, y0, x1, y1] = clamp(region, png.width, png.height);
   let hits = 0;
   let n = 0;
@@ -177,11 +187,107 @@ export function canvasShare(png: Png, region: FrameRegion, canvas: Rgb): number 
     for (let x = x0; x < x1; x += 4) {
       const i = (y * png.width + x) * 4;
       n += 1;
-      if (near({ r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] }, canvas, TOLERANCE)) hits += 1;
+      if (near({ r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] }, canvas, tolerance)) hits += 1;
     }
   }
   return hits / Math.max(1, n);
 }
+
+/**
+ * A scrim standing over the whole window in one frame: its colour, and how
+ * much of it shows — its own alpha times its opacity then, so a scrim
+ * fading in or out is a thinner one.
+ */
+export interface Scrim {
+  colour: Rgb;
+  alpha: number;
+}
+
+/** `c` as it shows through `scrim`. */
+export function through(c: Rgb, scrim: Scrim | null): Rgb {
+  if (scrim === null) return c;
+  const mix = (v: number, s: number): number => Math.round(v * (1 - scrim.alpha) + s * scrim.alpha);
+  return { r: mix(c.r, scrim.colour.r), g: mix(c.g, scrim.colour.g), b: mix(c.b, scrim.colour.b) };
+}
+
+/** The colour that shows as `c` through `scrim`: {@link through}'s inverse. */
+export function beneath(c: Rgb, scrim: Scrim | null): Rgb {
+  if (scrim === null) return c;
+  const unmix = (v: number, s: number): number => Math.max(0, Math.min(255, Math.round((v - s * scrim.alpha) / (1 - scrim.alpha))));
+  return { r: unmix(c.r, scrim.colour.r), g: unmix(c.g, scrim.colour.g), b: unmix(c.b, scrim.colour.b) };
+}
+
+/** How much of a colour distance `scrim` lets through: what a tolerance or a reach is scaled by under it. */
+export const passes = (scrim: Scrim | null): number => (scrim === null ? 1 : 1 - scrim.alpha);
+
+/** A scrim thinner than this dims nothing a tolerance can tell. */
+const SCRIM_FLOOR = 0.01;
+/**
+ * How far a captured frame may trail the overlay page's DOM: the window's
+ * paint follows a change by a frame or two, so a frame taken just after a
+ * scrim was dropped may still show it.
+ */
+const SCRIM_LAG_MS = 40;
+/** How near the canvas a pixel lies to tell which of two scrims a frame shows: tighter than any judging tolerance. */
+const SCRIM_TELL = 2;
+
+/**
+ * The scrim over a frame taken at `wall`: the last opacity the overlay page
+ * logged by then, times the scrim's own alpha. Null with no scrim up.
+ */
+export function scrimAt(log: readonly (readonly [number, number])[], rgba: readonly number[], wall: number): Scrim | null {
+  let opacity = 0;
+  for (const [t, o] of log) {
+    if (t > wall) break;
+    opacity = o;
+  }
+  const alpha = (rgba[3] ?? 0) * opacity;
+  return alpha < SCRIM_FLOOR ? null : { colour: { r: rgba[0], g: rgba[1], b: rgba[2] }, alpha };
+}
+
+/**
+ * In the overlay page: log the opacity of an app-modal's scrim, with every
+ * ancestor's, at each change, on the wall clock the burst's frames carry.
+ */
+const SCRIM_ARM = `(function () {
+  var log = (window.__scrimLog = []);
+  var last = -1;
+  var read = function () {
+    var el = document.querySelector(".tug-alert-overlay");
+    var o = 0;
+    if (el !== null) {
+      o = 1;
+      for (var n = el; n !== null && n.nodeType === 1; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity);
+    }
+    if (o !== last) {
+      log.push([Date.now(), o]);
+      last = o;
+    }
+  };
+  read();
+  if (window.__scrimTimer) clearInterval(window.__scrimTimer);
+  window.__scrimTimer = setInterval(read, 8);
+  return true;
+})()`;
+
+/** In the overlay page: stop the log and answer it, with the scrim's own colour and alpha. */
+const SCRIM_READ = `(function () {
+  clearInterval(window.__scrimTimer);
+  var probe = document.createElement("div");
+  probe.className = "tug-alert-overlay";
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  var bg = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  var c = document.createElement("canvas");
+  c.width = c.height = 1;
+  var x = c.getContext("2d");
+  x.clearRect(0, 0, 1, 1);
+  x.fillStyle = bg;
+  x.fillRect(0, 0, 1, 1);
+  var p = x.getImageData(0, 0, 1, 1).data;
+  return { log: window.__scrimLog || [], rgba: [p[0], p[1], p[2], p[3] / 255] };
+})()`;
 
 /**
  * Switch to `spaceId` under a burst and judge it ({@link readGesture}).
@@ -251,6 +357,10 @@ export async function readGesture(
   // that lands late is read landing rather than never seen.
   const layersMs = Math.max(burstMs, PICTURE_HORIZON_MS + 200);
   await app.bodyLayers({ op: "arm", windowMs: layersMs });
+  // An app-modal's scrim over the gesture, logged where it is drawn. A
+  // window whose overlay page is not up yet has no scrim to log.
+  const overlay = overlayPage(app);
+  const scrimArmed = await overlay.evalJS<boolean>(SCRIM_ARM).catch(() => false);
   await Bun.sleep(STANDING_MS);
   const choseWall = Date.now();
   await gesture();
@@ -281,6 +391,31 @@ export async function readGesture(
     layersMs + 5_000,
   )) as BodyLayersReading;
   if (!layers.done) return ["the host's layer rows did not finish"];
+  const scrims = scrimArmed
+    ? await overlay.evalJS<{ log: [number, number][]; rgba: number[] }>(SCRIM_READ).catch(() => ({ log: [], rgba: [0, 0, 0, 0] }))
+    : { log: [], rgba: [0, 0, 0, 0] };
+  // The scrim a frame shows. Where the log moved within the paint's lag of
+  // the frame, the frame says which reading it is: the one whose dimmed
+  // canvas more of its pixels wear. The first, the log's own, wins a tie.
+  const scrimOf = (png: Png, wall: number): Scrim | null => {
+    const readings = [wall, wall - SCRIM_LAG_MS / 2, wall - SCRIM_LAG_MS].map((w) => scrimAt(scrims.log, scrims.rgba, w));
+    const distinct = readings.filter((s, i) => readings.findIndex((o) => (o?.alpha ?? 0).toFixed(2) === (s?.alpha ?? 0).toFixed(2)) === i);
+    if (distinct.length === 1) return distinct[0];
+    const whole: FrameRegion = { x: 0, y: 0, width: png.width, height: png.height };
+    let shown = distinct[0];
+    let most = -1;
+    for (const s of distinct) {
+      const share = canvasShare(png, whole, through(canvas, s), SCRIM_TELL);
+      if (share > most) [shown, most] = [s, share];
+    }
+    return shown;
+  };
+  if (scrims.log.some(([, o]) => o > 0)) {
+    note(
+      `${label}: a scrim of rgba(${scrims.rgba.map((v, i) => (i < 3 ? v : v.toFixed(2))).join(", ")}) stood over the window, opacity ` +
+        scrims.log.filter(([t]) => t >= choseWall - STANDING_MS).slice(0, 12).map(([t, o]) => `${o.toFixed(2)} at ${Math.round(t - choseWall)} ms`).join(", "),
+    );
+  }
   // Each arriving card's picture at the cut, and once every page has
   // painted: its page, with nothing of the host's standing over it.
   const stages = await app.stages();
@@ -340,13 +475,20 @@ export async function readGesture(
   // Each card's palette for the bare-hole read: its own settled fill, the
   // canvas, and the window's background, which is what an open hole shows.
   const palettes: Record<string, Palette> = {};
+  // The settled frame is read through whatever scrim still stands over it,
+  // and each palette is kept as it is beneath one.
+  const settledScrim = scrimOf(settled, last.wall);
+  const settledPass = passes(settledScrim);
+  const settledSeen = through(canvas, settledScrim);
+  const bare = parseRgb(reading.windowBackground);
   for (const id of cardIds) {
-    settledInk[id] = band === "title" ? inkShare(settled, titleOf(rects[id])) : 1 - canvasShare(settled, titleOf(rects[id]), canvas);
-    settledChrome[id] = 1 - canvasShare(settled, titleOf(rects[id]), canvas);
-    settledCanvas[id] = canvasShare(settled, boxOf(rects[id]), canvas);
-    const probe: Palette = { surface: canvas, canvas, bare: parseRgb(reading.windowBackground) };
-    palettes[id] = { ...probe, surface: parseRgb(classifyFrame(last, probe, 8, boxOf(rects[id])).fill) };
-    settledContentInk[id] = inkShare(settled, contentPx(rects[id]));
+    const settledBandChrome = 1 - canvasShare(settled, titleOf(rects[id]), settledSeen, TOLERANCE * settledPass);
+    settledInk[id] = band === "title" ? inkShare(settled, titleOf(rects[id]), INK_REACH * settledPass) : settledBandChrome;
+    settledChrome[id] = settledBandChrome;
+    settledCanvas[id] = canvasShare(settled, boxOf(rects[id]), settledSeen, TOLERANCE * settledPass);
+    const probe: Palette = { surface: settledSeen, canvas: settledSeen, bare: through(bare, settledScrim) };
+    palettes[id] = { surface: beneath(parseRgb(classifyFrame(last, probe, 8 * settledPass, boxOf(rects[id])).fill), settledScrim), canvas, bare };
+    settledContentInk[id] = inkShare(settled, contentPx(rects[id]), INK_REACH * settledPass);
   }
   // The colour each pane's content wore at the first switched frame, and the frames that moved it.
   const firstFill: Record<string, Rgb> = {};
@@ -358,7 +500,14 @@ export async function readGesture(
   const rgbText = (c: Rgb) => `rgb(${c.r}, ${c.g}, ${c.b})`;
   let firstTitleBad: { wall: number; path: string } | null = null;
   for (const f of switched) {
-    const png = decodePngFile(f.path);
+    // The decode `classifyFrame` reads this frame by too: one per frame.
+    const png = decoded(f.path);
+    // The frame as its scrim shows it: every reference colour dimmed as the
+    // scrim dims it, every distance scaled by what the scrim lets through.
+    const scrim = scrimOf(png, f.wall);
+    const pass = passes(scrim);
+    const seenCanvas = through(canvas, scrim);
+    const seen = (p: Palette): Palette => ({ surface: through(p.surface, scrim), canvas: through(p.canvas, scrim), bare: through(p.bare, scrim) });
     for (const id of cardIds) {
       const r = rects[id];
       const host = layers.rows.filter((row) => row.cardId === id && row.wall <= f.wall).at(-1);
@@ -368,16 +517,16 @@ export async function readGesture(
         host !== undefined && !host.hidden && host.opacity > 0 && (host.picture === undefined || host.picture === "live");
       const ms = Math.round(f.wall - choseWall);
       const firstUnhid = viewShows && unhid[id] === undefined;
-      const content = holdsColour || firstUnhid ? classifyFrame(f, palettes[id], 8, contentPx(r)) : null;
-      const contentInk = (revealsPainted && viewShows) || firstUnhid ? inkShare(png, contentPx(r)) : 0;
+      const content = holdsColour || firstUnhid ? classifyFrame(f, seen(palettes[id]), 8 * pass, contentPx(r)) : null;
+      const contentInk = (revealsPainted && viewShows) || firstUnhid ? inkShare(png, contentPx(r), INK_REACH * pass) : 0;
       if (firstUnhid && content !== null) {
-        const box = classifyFrame(f, palettes[id], 8, boxOf(r));
+        const box = classifyFrame(f, seen(palettes[id]), 8 * pass, boxOf(r));
         unhid[id] =
           `${id} at ${ms} ms: content ${content.fill}, ink ${(contentInk * 100).toFixed(1)}% against settled ${(settledContentInk[id] * 100).toFixed(1)}%, ` +
           `box bare ${(box.bare * 100).toFixed(1)}% canvas ${(box.canvas * 100).toFixed(1)}%`;
       }
       if (holdsColour && content !== null) {
-        const fill = parseRgb(content.fill);
+        const fill = beneath(parseRgb(content.fill), scrim);
         const first = (firstFill[id] ??= fill);
         if (!near(fill, first, TOLERANCE)) {
           (moved[id] ??= []).push({ ms, fill: content.fill });
@@ -398,16 +547,16 @@ export async function readGesture(
       // alone in its stage: the cut's record says it is one.
       const underSkeleton = host === undefined ? cut?.pictures[id] === "skeleton" : host.picture === "skeleton";
       const byInk = band === "title" && !underSkeleton;
-      const ink = byInk ? inkShare(png, titleRegion) : 1 - canvasShare(png, titleRegion, canvas);
+      const ink = byInk ? inkShare(png, titleRegion, INK_REACH * pass) : 1 - canvasShare(png, titleRegion, seenCanvas, TOLERANCE * pass);
       const against = byInk ? settledInk[id] : settledChrome[id];
-      const floor = canvasShare(png, boxOf(r), canvas);
+      const floor = canvasShare(png, boxOf(r), seenCanvas, TOLERANCE * pass);
       const w = (worst[id] ??= { ink: 1, floor: 0 });
       w.ink = Math.min(w.ink, ink);
       w.floor = Math.max(w.floor, floor);
       // The floor is told by its grid as well as its colour: a card's own
       // dark surface (a Session card's restore lid) lies within the colour
       // tolerance of the canvas and draws no grid.
-      if (floor > settledCanvas[id] + BOX_CANVAS_SLACK && gridColumnsIn(png, canvas, boxOf(r)) >= FLOOR_COLUMNS) {
+      if (floor > settledCanvas[id] + BOX_CANVAS_SLACK && gridColumnsIn(png, seenCanvas, boxOf(r)) >= FLOOR_COLUMNS) {
         bad.push(`${id} at ${ms} ms: box canvas ${(floor * 100).toFixed(1)}% against settled ${(settledCanvas[id] * 100).toFixed(1)}%`);
         firstBad ??= { path: f.path, ms };
       }
@@ -415,7 +564,7 @@ export async function readGesture(
       // Canvas-coloured paint with no grid in it is a hole only where the
       // host had nothing of the card's on screen: a lid is its page's own.
       const hostShows = host !== undefined && !host.hidden && host.opacity > 0;
-      const classes = classifyFrame(f, palettes[id], 8, boxOf(r));
+      const classes = classifyFrame(f, seen(palettes[id]), 8 * pass, boxOf(r));
       if (!hostShows && showsBareHole(classes)) {
         bad.push(`${id} at ${ms} ms: an open hole in the box, canvas ${(classes.canvas * 100).toFixed(1)}% grid ${(classes.grid * 100).toFixed(1)}% bare ${(classes.bare * 100).toFixed(1)}%, nothing of the card's on screen`);
         firstBad ??= { path: f.path, ms };

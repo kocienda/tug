@@ -6,28 +6,38 @@
  *
  * ## Why an app-modal
  *
- * A cold restore's reveal is one uninterruptible task on the single
- * thread every card shares, so for its duration the app answers
- * nothing — no keystroke, no click, in any card. Before this gate the
- * chrome went on painting its last frame throughout, which told the
- * user the app was ready when it demonstrably was not; typing into it
- * dropped input on the floor. Chunking the work so input could
- * interleave was tried and rejected — a transcript filling in behind
- * the user flashes and hops, and it left a class of scroll pathologies
- * to chase indefinitely. Saying "busy" for exactly as long as the app
- * is busy costs the user nothing they actually had, and it is true.
+ * It is the cover for "visible but not yet usable". A workspace arriving
+ * cold — at launch, or on its first visit — is on screen at once, and its
+ * resumed sessions are not yet there: each card stands a skeleton while
+ * its page is made, its transcript replayed, and the list mounted and
+ * measured. The gate says so for as long as that is true, once: it opens
+ * with the arrival, and closes when the last such card has settled.
+ *
+ * It was written for a harder case. Every card then shared one thread, a
+ * cold restore's reveal was one uninterruptible task on it, and the app
+ * answered nothing while it ran, in any card, under chrome that went on
+ * painting its last frame. Each card now has its own page, so one card's
+ * restore blocks that card alone, and the gate was kept by decision for
+ * the job above: a deck of skeletons with no word over it reads as an app
+ * that is ready and is not.
  *
  * Precedence (Spec S02): the strictly-required gates win. This one
  * suppresses itself while the macOS version gate is open, so the two
  * app-modals never stack.
  *
  * No dismiss: there is nothing behind it to interact with. It closes
- * when the app can answer again — which is not `replay_complete`. The
+ * when the workspace can be used — which is not `replay_complete`. The
  * replay ingests in under 100 ms; the reveal behind it, the list's
- * first mount and the settle of its heights, is the seconds-long
- * stretch where the card still shows nothing. A card counts toward this
- * gate for both (`deriveRestoreGateHold`), and the gate lets go on the
- * card's first settle.
+ * first mount and the settle of its heights, is the stretch where the
+ * card still shows nothing. A resumed card in the shown workspace counts
+ * toward this gate from the moment the restore pass names it, before its
+ * page exists, through both (`deriveRestoreGateHold`), and lets go on its
+ * first settle — the moment its skeleton comes down.
+ *
+ * Over an arrival — cards a restore pass named — it stays on screen at
+ * least 1.25 s (`GATE_FLOOR_MS`): a gate up for a few hundred milliseconds
+ * is a flash of its own. Through the held time it reads every session
+ * finished. One card resuming on its own lets it go at its settle.
  *
  * Every window the gate holds has a horizon. The replay window ends on
  * the silence deadline (`REPLAY_SILENCE_DEADLINE_MS`,

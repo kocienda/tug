@@ -574,18 +574,13 @@
         },
         {
           "content": false
-        },
-        {
-          "content": true,
-          "theme": "sloop"
         }
       ],
       "refused": [
         true,
         {},
         {
-          "content": true,
-          "theme": 3
+          "content": 1
         }
       ]
     },
@@ -597,6 +592,27 @@
       ],
       "refused": [
         null
+      ]
+    },
+    {
+      "name": "bodyThemed",
+      "from": "body",
+      "samples": [
+        {
+          "theme": "sloop",
+          "appliedMs": 4.5
+        }
+      ],
+      "refused": [
+        "sloop",
+        {},
+        {
+          "theme": "sloop"
+        },
+        {
+          "theme": 3,
+          "appliedMs": 1
+        }
       ]
     },
     {

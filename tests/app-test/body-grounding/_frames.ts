@@ -38,7 +38,7 @@ export interface Rgb {
  */
 const recent = new Map<string, DecodedPng>();
 
-function decoded(path: string): DecodedPng {
+export function decoded(path: string): DecodedPng {
   const hit = recent.get(path);
   if (hit !== undefined) {
     recent.delete(path);

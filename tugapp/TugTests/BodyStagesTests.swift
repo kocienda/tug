@@ -67,6 +67,60 @@ final class BodyStagesTests: XCTestCase {
         XCTAssertEqual(palettes.onScreen?.theme, "ironclad")
     }
 
+    /// A palette store held in memory.
+    private final class MemoryPaletteStore: PaletteStore {
+        var data: Data?
+        var writes = 0
+        func read() -> Data? { data }
+        func write(_ data: Data) {
+            self.data = data
+            writes += 1
+        }
+    }
+
+    func testASecondSetOverTheSameStoreKnowsTheFirstsThemes() {
+        let store = MemoryPaletteStore()
+        let first = ThemePalettes(store: store, build: "one")
+        first.noteOnScreen(palette("ironclad", canvas: "#111111"))
+        first.note(palette("sloop", canvas: "#eeeeee"))
+        XCTAssertEqual(store.writes, 2)
+        first.note(palette("sloop", canvas: "#eeeeee"))
+        XCTAssertEqual(store.writes, 2, "a palette already kept is not written again")
+
+        let second = ThemePalettes(store: store, build: "one")
+        var missing: [String] = []
+        second.onMissing = { missing.append($0) }
+        XCTAssertEqual(second.palette(for: "sloop")?.canvas, "#eeeeee")
+        XCTAssertEqual(second.palette(for: "ironclad")?.canvas, "#111111")
+        XCTAssertNil(second.onScreen, "which theme is on screen is the shell's to say, never kept")
+        XCTAssertTrue(missing.isEmpty)
+        XCTAssertNil(second.palette(for: "ketch"))
+        XCTAssertEqual(missing, ["ketch"], "a theme never seen on this build is still said missing")
+
+        // A report replaces the kept palette, for this set and the next.
+        second.note(palette("sloop", canvas: "#dddddd"))
+        XCTAssertEqual(second.palette(for: "sloop")?.canvas, "#dddddd")
+        XCTAssertEqual(ThemePalettes(store: store, build: "one").known("sloop")?.canvas, "#dddddd")
+    }
+
+    func testAnotherBuildsPalettesAreNeverRead() {
+        let store = MemoryPaletteStore()
+        ThemePalettes(store: store, build: "one").note(palette("sloop"))
+        let other = ThemePalettes(store: store, build: "two")
+        XCTAssertNil(other.known("sloop"))
+        // What it learns replaces the other build's set whole.
+        other.note(palette("ketch"))
+        XCTAssertNil(ThemePalettes(store: store, build: "one").known("sloop"))
+        XCTAssertEqual(ThemePalettes(store: store, build: "two").known("ketch")?.theme, "ketch")
+        XCTAssertNil(ThemePalettes(store: store, build: "two").known("sloop"))
+    }
+
+    func testAStoreHoldingSomethingElseIsReadAsEmpty() {
+        let store = MemoryPaletteStore()
+        store.data = Data("not a palette set".utf8)
+        XCTAssertNil(ThemePalettes(store: store, build: "one").known("sloop"))
+    }
+
     func testAPlacementCarriesEachCardsStageAndEveryWorkspace() throws {
         let sample = try XCTUnwrap(toHostSamples("placeCards").first)
         let placement = try JSONDecoder().decode(PlaceCards.self, from: JSONSerialization.data(withJSONObject: sample))
@@ -265,6 +319,29 @@ final class BodyStagesTests: XCTestCase {
         XCTAssertEqual(set.admit("z", door: .page), .ignored("unknown space"))
         XCTAssertEqual(set.admit("z", door: .shell(serial: nil)), .pending, "the shell's just-made workspace waits for its placement")
         XCTAssertEqual(set.activeId, "a")
+    }
+
+    func testWouldCutAnswersAsAdmitDoesAndTakesNothing() {
+        let set = cutSet()
+        let asks: [(String, CutDoor)] = [
+            ("a", .menu), ("b", .menu), ("b", .page), ("b", .shell(serial: nil)), ("b", .shell(serial: 9)),
+            ("z", .menu), ("z", .page), ("z", .shell(serial: nil)),
+        ]
+        for (id, door) in asks {
+            let would = set.wouldCut(id, door: door)
+            XCTAssertEqual(set.cutSerial, 0, "asking takes no serial")
+            let probe = cutSet()
+            var cuts = false
+            if case .cut = probe.admit(id, door: door) { cuts = true }
+            XCTAssertEqual(would, cuts, "\(id) through \(door.name)")
+        }
+        // A host cut told and not yet echoed outranks the shell's own switch,
+        // and its echo asked about clears nothing.
+        XCTAssertEqual(hostCut(set, "b"), 1)
+        XCTAssertFalse(set.wouldCut("c", door: .shell(serial: nil)))
+        XCTAssertFalse(set.wouldCut("b", door: .shell(serial: 1)))
+        XCTAssertEqual(set.toldSerial, 1)
+        XCTAssertTrue(set.wouldCut("c", door: .menu))
     }
 
     func testEveryCutTakesTheNextSerial() {

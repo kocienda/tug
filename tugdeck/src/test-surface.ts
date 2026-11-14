@@ -3203,7 +3203,7 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
     restoreSettled(cardId: string): boolean {
       const snapshot = cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null;
       if (snapshot === null) return false;
-      return readRestoreHold(snapshot, sessionRestoreRegistry.has(cardId)) === null;
+      return readRestoreHold(snapshot, sessionRestoreRegistry.resuming(cardId)) === null;
     },
 
     driveSession(cardId: string, action: SessionDriveAction): void {

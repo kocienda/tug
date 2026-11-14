@@ -91,6 +91,18 @@ export interface ColdRevealSignals extends ColdRestoreSignals {
 export const COLD_REVEAL_SETTLE_BOUND_MS = 10_000;
 
 /**
+ * How long a body page that has posted its ready waits for its card's cold
+ * restore to end before it says its content painted anyway. The restore's
+ * own horizons — the preflight's tick, the replay's silence deadline, the
+ * reveal's settle bound — end the wait from inside the session; this ends it
+ * for a session none of them reach, a resume whose replay never opens. The
+ * shell's gate stops counting a hold at the same age
+ * (`HOLD_HORIZON_MS`, `restore-gate-store.ts`), so the card's skeleton and
+ * the gate give up together ([L33]).
+ */
+export const COLD_RESTORE_PAINT_HORIZON_MS = 20_000;
+
+/**
  * True from the initial resume replay's `replay_complete` until the
  * transcript list's first settle — the reveal. The replay window closes
  * before the restored transcript is on screen: the list mounts on the

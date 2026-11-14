@@ -220,6 +220,12 @@ export interface RestoreExpectation {
   readonly projectDir: string;
   /** Why the spawn was sent, so a retry of it reloads for the same reason. */
   readonly reason: ReloadReason;
+  /**
+   * A fresh spawn's expectation, not a resume's: the card waits on its
+   * binding the same way, and has no restore to come. The restore gate and
+   * a body's skeleton wait for a resume only ({@link SessionRestoreRegistry.resuming}).
+   */
+  readonly fresh?: true;
 }
 
 /**
@@ -234,6 +240,17 @@ class SessionRestoreRegistry extends Subscribable {
   getSnapshot = (): Map<string, RestoreExpectation> => this.entries;
 
   has = (cardId: string): boolean => this.entries.has(cardId);
+
+  /**
+   * Whether `cardId` waits on a resume: an expectation stands for it and
+   * is not a fresh spawn's. What "a restore still to come" means to the
+   * restore gate's hold and to a body's paint, neither of which a new
+   * session has any part in.
+   */
+  resuming = (cardId: string): boolean => {
+    const expectation = this.entries.get(cardId);
+    return expectation !== undefined && expectation.fresh !== true;
+  };
 
   get = (cardId: string): RestoreExpectation | undefined =>
     this.entries.get(cardId);
@@ -1008,19 +1025,20 @@ export function restoreSessions(
 }
 
 /**
- * Run `fire` — a `fireRestore` — and say whether it made a shown body page
- * for `cardId`: the card had no page before, and afterwards is a body card
- * its shell did not defer. Those are the cards a restore pass names for the
- * restore gate's total. A deferred card is not shown and does not restore
- * until it is; a card whose page already existed is handed its resume over
- * the page bus and has painted before its body can say its restore is still
- * to come, so it is counted when it holds instead. In a body page there are
- * no body cards, so the body's own pass names nothing.
+ * Run `fire` — a `fireRestore` — and say whether it resumed a shown body
+ * card: afterwards `cardId` is a body card its shell did not defer. Those
+ * are the cards a restore pass names for the restore gate, which holds for
+ * each from this moment and counts them in a total fixed when it opens. A
+ * deferred card is not shown and does not restore until it is. A card whose
+ * page already existed is named with the rest: it is handed its resume over
+ * the page bus, and the gate waits for its page to say so
+ * (`restore-gate-store.ts`), where leaving it out let its report arrive
+ * after the gate had opened and move the total. In a body page there are no
+ * body cards, so the body's own pass names nothing.
  */
 function restoreMakesShownPage(cardId: string, fire: () => void): boolean {
-  const hadPage = bodyCardsStore.has(cardId);
   fire();
-  return !hadPage && isBodyCard(cardId) && !isDeferredBody(cardId);
+  return isBodyCard(cardId) && !isDeferredBody(cardId);
 }
 
 /**
@@ -1266,9 +1284,15 @@ export function fireFreshSpawn(
     tag,
     lineId,
   );
+  // The expectation is cleared by the binding that answers it, and that
+  // subscription is this module's to stand wherever one is registered: a
+  // body handed a `resume` or a `fresh` fires here without ever running a
+  // restore pass, and without it the entry outlived the restore until its
+  // timeout, the card saying its restore was still to come all that while.
+  installRegistrySubscriptions(connection);
   sessionRestoreRegistry._register(
     cardId,
-    { tugSessionId, projectDir, reason },
+    { tugSessionId, projectDir, reason, fresh: true },
     () => {
       // Timeout backstop: no `spawn_session_ok`, no rejection. Drop
       // the hold and retry — the ledger row is preserved server-side,
@@ -1419,6 +1443,12 @@ export function fireRestore(
     tag,
     lineId,
   );
+  // The expectation is cleared by the binding that answers it, and that
+  // subscription is this module's to stand wherever one is registered: a
+  // body handed a `resume` or a `fresh` fires here without ever running a
+  // restore pass, and without it the entry outlived the restore until its
+  // timeout, the card saying its restore was still to come all that while.
+  installRegistrySubscriptions(connection);
   sessionRestoreRegistry._register(
     cardId,
     { tugSessionId, projectDir, reason },

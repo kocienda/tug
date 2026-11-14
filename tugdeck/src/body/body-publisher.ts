@@ -161,6 +161,20 @@ export function readRestoreHold(
 }
 
 /**
+ * Whether the card's content may be said painted: its cold restore is neither
+ * under way nor still to come ({@link readRestoreHold}). A resumed card's
+ * page says `painted` on this, so the host's skeleton stands through the
+ * replay and the reveal and comes down onto a settled transcript; a fresh
+ * session, an errored one and a card with no session are quiet at once.
+ */
+export function restorePaintQuiet(
+  snapshot: CodeSessionSnapshot | null,
+  restoreInFlight: boolean,
+): boolean {
+  return readRestoreHold(snapshot, restoreInFlight) === null;
+}
+
+/**
  * Whether this page paints keyboard-focus mode, once its focus engine
  * stands: the shell wears this page's answer while this card holds the
  * keyboard, so a caret live here stands the shell's paint down too.
@@ -258,7 +272,7 @@ export function installBodyPublisher(
       readRestoreHold: () =>
         readRestoreHold(
           cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null,
-          sessionRestoreRegistry.has(cardId),
+          sessionRestoreRegistry.resuming(cardId),
         ),
       // The card's content height and what its scroller shows, for the
       // shell's Resize Sidebars to Fit, which cannot read this page.

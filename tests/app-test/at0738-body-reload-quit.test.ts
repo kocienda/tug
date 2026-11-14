@@ -29,6 +29,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { restoreGateGone } from "./overlay-fixture";
 import type { BodyViewSnapshot } from "./_harness/client";
 import { onTestRunEnd } from "./_harness/test-cleanup";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "./_harness/tugbank-helpers";
@@ -121,6 +122,11 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
             { timeoutMs: BODY_READY_MS },
           ),
         );
+        // The reloaded shell's restore pass holds the restore gate over the
+        // card until its session settles, and the gate stays up its floor
+        // after it opened: a native click or key made under it lands on the
+        // gate, not the card.
+        await stage("the restore gate is down", () => restoreGateGone(app));
         await stage("the composer takes the click", async () => {
           await body.nativeClickAtElement(PROMPT_INPUT);
           await body.waitForCondition<boolean>(composerFocused, { timeoutMs: PLACED_MS });

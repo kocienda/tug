@@ -288,6 +288,8 @@ final class BodyViewController {
         var crossingCover: BodyCoverView? { stand?.kinds.contains(.crossing) == true ? cover : nil }
         /// The body was made under a cover, for the harness: `covered` goes at the paint.
         var wasCovered = false
+        /// The theme the page last said it wears (`bodySurface`, `bodyThemed`).
+        var theme: String?
         /// The page has said its content painted, not only its chrome: what a
         /// switch's faced set waits on. Cleared when the page is bound afresh.
         var contentPainted = false
@@ -467,10 +469,30 @@ final class BodyViewController {
     /// one just made — cut onto when a placement first does.
     private var pendingShellCut: String?
 
-    /// The rail cards re-skinning under a skeleton, by card id, with the
-    /// theme each was told at the cut ([P10]). A card leaves on its page's
-    /// paint carrying that theme, or at the skeleton horizon ([P11]).
-    private var railReskin: [String: String] = [:]
+    /// A cut onto a workspace of another theme, held while the shared rail
+    /// re-skins ahead of it. The rail is the window's and follows the shown
+    /// workspace's theme, and a rail page is another process: it cannot
+    /// repaint inside the cut's transaction. So its live pages are told the
+    /// arriving theme at the gesture, nothing on screen changes, and the cut
+    /// is made when every one has answered, or at the horizon. No skeleton
+    /// ever stands over a live rail card for a cut.
+    private struct HeldCut {
+        let spaceId: String
+        let door: CutDoor
+        let theme: String
+        /// The rail cards told and not yet answered.
+        var waiting: Set<String>
+        let gestureWall: Double
+        let horizon: DispatchWorkItem
+    }
+    private var heldCut: HeldCut?
+    /// The theme each live rail page was last told and when, until it
+    /// answers: its answer logs the `rail re-skin` line.
+    private var railTold: [String: (theme: String, at: CFTimeInterval)] = [:]
+    /// How long a cut waits on the rail, ms. A rail page answers one paint
+    /// after applying the theme; the slowest measured, on a rail whose
+    /// Overview held 150 posts, is well inside it.
+    static let railReskinHorizonMs = 80
     /// Cards whose page failed and that have not been asked for since: the
     /// shell's placard is their face, so no picture stands over them.
     private var failedCards: Set<String> = []
@@ -832,14 +854,8 @@ final class BodyViewController {
     /// A body posted `painted`: a frame of its chrome, or of its content
     /// (`content`), has gone to the compositor. From here a placement that
     /// names it visible shows it.
-    func didPaint(_ body: Body, content: Bool, theme: String? = nil) {
+    func didPaint(_ body: Body, content: Bool) {
         guard let cardId = body.cardId else { return }
-        // A rail page's paint in the theme it was told at the cut: its
-        // re-skin skeleton comes down ([P10]).
-        if let theme, railReskin[cardId] == theme {
-            railReskin[cardId] = nil
-            refreshPicture(body)
-        }
         if content {
             if !body.contentPainted, !body.seen, !body.life.shownOnce { body.paintedOnlyHidden = true }
             body.contentPainted = true
@@ -1180,6 +1196,106 @@ final class BodyViewController {
     @discardableResult
     func cut(to spaceId: String, door: CutDoor) -> Bool {
         let gestureWall = Date().timeIntervalSince1970 * 1000
+        guard stages.wouldCut(spaceId, door: door) else {
+            // Not a cut: the stage set says why. Unless it is the shell's
+            // echo, or a switch of the shell's that a host cut outranks, it
+            // is still the newest word on where to be, and a held cut gives
+            // way to it.
+            var passes = false
+            if case .shell(let serial) = door { passes = serial != nil || stages.toldSerial != nil }
+            if !passes { dropHeldCut() }
+            return makeCut(to: spaceId, door: door, gestureWall: gestureWall)
+        }
+        // The newest target wins: a cut held for an earlier one is replaced.
+        let wasHeld = heldCut != nil
+        heldCut?.horizon.cancel()
+        heldCut = nil
+        let shown = stages.active?.theme
+        if let theme = stages.stage(spaceId)?.theme, let shown, theme != shown {
+            let waiting = tellRail(theme)
+            if !waiting.isEmpty {
+                let horizon = DispatchWorkItem { [weak self] in self?.makeHeldCut(atHorizon: true) }
+                heldCut = HeldCut(spaceId: spaceId, door: door, theme: theme, waiting: waiting, gestureWall: gestureWall, horizon: horizon)
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.railReskinHorizonMs), execute: horizon)
+                return true
+            }
+        } else if wasHeld, let shown {
+            // The rail was told another theme for the cut this replaces.
+            tellRail(shown)
+        }
+        return makeCut(to: spaceId, door: door, gestureWall: gestureWall)
+    }
+
+    /// Tell each live rail page `theme`, and name the cards told. A rail
+    /// card under a picture, or not shown, is not told: its page takes the
+    /// theme from the shell as every other page does.
+    @discardableResult
+    private func tellRail(_ theme: String) -> Set<String> {
+        let at = CACurrentMediaTime()
+        var told: Set<String> = []
+        for body in bodies {
+            guard let cardId = body.cardId, cardPlacements[cardId]?.rail != nil else { continue }
+            guard body.visible, body.picture == nil, body.contentPainted else { continue }
+            railTold[cardId] = (theme, at)
+            send(.bodyTheme(BodyTheme(theme: theme)), to: body)
+            told.insert(cardId)
+        }
+        return told
+    }
+
+    /// `bodyThemed`: a rail page wears the theme it was told, and has
+    /// rendered a frame in it. The line times the re-skin on the host's clock,
+    /// told to answered, beside the page's own time to apply the theme. The
+    /// last answer a held cut waits on makes the cut.
+    func didTheme(_ body: Body, theme: String, appliedMs: Double) {
+        guard let cardId = body.cardId else { return }
+        if let told = railTold[cardId], told.theme == theme {
+            railTold[cardId] = nil
+            TugLog.info("bodies", "rail re-skin", [
+                TugLog.field("card", cardId), TugLog.field("theme", theme),
+                TugLog.field("ms", String(format: "%.1f", (CACurrentMediaTime() - told.at) * 1000)),
+                TugLog.field("applied", String(format: "%.1f", appliedMs)),
+            ])
+        }
+        // An answer to a telling since replaced: the page is on its way to
+        // another theme.
+        guard railTold[cardId] == nil else { return }
+        body.theme = theme
+        guard heldCut?.theme == theme, heldCut?.waiting.remove(cardId) != nil else { return }
+        if heldCut?.waiting.isEmpty == true { makeHeldCut(atHorizon: false) }
+    }
+
+    /// Make the held cut: every rail page told has answered, or the horizon
+    /// has come, and then the cut goes anyway and each rail card still to
+    /// answer finishes its re-skin after it.
+    private func makeHeldCut(atHorizon: Bool) {
+        guard let held = heldCut else { return }
+        heldCut = nil
+        held.horizon.cancel()
+        if atHorizon {
+            for cardId in held.waiting.sorted() {
+                TugLog.warn("bodies", "rail re-skin past its horizon", [TugLog.field("card", cardId), TugLog.field("theme", held.theme)])
+            }
+        }
+        if makeCut(to: held.spaceId, door: held.door, gestureWall: held.gestureWall) { return }
+        // The stage set no longer admits it: the rail goes back to the shown
+        // theme, and a cut the host began is the shell's to make, as it is
+        // for a caller the host refuses at once.
+        if let shown = stages.active?.theme { tellRail(shown) }
+        if held.door.hostOriginated { tellShell?("activate-space", ["spaceId": held.spaceId]) }
+    }
+
+    /// Let go of the held cut, unmade, and put the rail back in the shown theme.
+    private func dropHeldCut() {
+        guard let held = heldCut else { return }
+        heldCut = nil
+        held.horizon.cancel()
+        TugLog.info("bodies", "stage cut dropped", [TugLog.field("to", held.spaceId), TugLog.field("door", held.door.name)])
+        if let shown = stages.active?.theme { tellRail(shown) }
+    }
+
+    /// Make the cut onto `spaceId` now, if the stage set admits it.
+    private func makeCut(to spaceId: String, door: CutDoor, gestureWall: Double) -> Bool {
         let began = CACurrentMediaTime()
         let serial: Int
         switch stages.admit(spaceId, door: door) {
@@ -1198,26 +1314,10 @@ final class BodyViewController {
         pendingShellCut = nil
         let from = stages.activeId
         let liveBefore = liveCards()
-        // The rail is the window's and follows the arriving workspace's
-        // theme ([B10]): a live page cannot re-skin in the cut's frame, so
-        // each shown rail card stands a skeleton in the arriving palette and
-        // is told the theme, all in this transaction ([P10]).
-        let fromTheme = stages.active?.theme
-        let toTheme = stages.stage(spaceId)?.theme
-        var reskinned: [Body] = []
-        if let toTheme, let fromTheme, toTheme != fromTheme {
-            for body in bodies {
-                guard let cardId = body.cardId, cardPlacements[cardId]?.rail != nil else { continue }
-                guard body.visible, body.picture == nil, body.contentPainted else { continue }
-                railReskin[cardId] = toTheme
-                reskinned.append(body)
-            }
-        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         stages.setCutting(true)
         stages.show(spaceId)
-        for body in reskinned { refreshPicture(body) }
         for body in bodies {
             guard let cardId = body.cardId, let placed = cardPlacements[cardId] else { continue }
             if carrier.isHeld(body) || body === carrier.pressedOutOfBeats { continue }
@@ -1232,9 +1332,6 @@ final class BodyViewController {
         refreshAlonePictures()
         stages.setCutting(false)
         CATransaction.commit()
-        if let toTheme {
-            for body in reskinned { send(.bodyTheme(BodyTheme(theme: toTheme)), to: body) }
-        }
         refreshRegion()
         if let focused = stages.active?.focusedCardId, pictureOf(focused) == .live, body(forCard: focused) != nil {
             focus(cardId: focused)
@@ -1471,31 +1568,6 @@ final class BodyViewController {
             guard let alone = stage.alone.removeValue(forKey: cardId) else { continue }
             if adopted == nil, body.picture == nil { adopted = alone } else { alone.takeDown() }
         }
-        // A rail card re-skinning stands a skeleton in the theme it was told,
-        // with no wave: it covers a re-skin, not a load ([P10]).
-        if let theme = railReskin[cardId] {
-            adopted?.takeDown()
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            let picture: StageCardPicture
-            if let standing = body.picture, let skeleton = standing.skeleton, skeleton.palette.theme == theme {
-                picture = standing
-            } else {
-                let frame = body.container.bounds
-                let palette = window.palettes.palette(for: theme) ?? paletteOf(placed) ?? SkeletonPalette(
-                    theme: theme, canvas: "#000000", grid: "#000000", surface: "#202020", band: "#2a2a2a", ink: "#cccccc", border: "#3a3a3a"
-                )
-                let content = StageSkeletonView(
-                    frame: CGRect(origin: .zero, size: frame.size), palette: palette, title: placed.title,
-                    insets: entry.insets, folded: placed.folded, zoom: cardZoom, loading: false
-                )
-                picture = StageCardPicture(kind: .skeleton, content: content, frame: frame, serial: nextSerial())
-            }
-            setPicture(picture, on: body)
-            arm(picture, onScreen: body.visible, horizon: true, cardId: cardId)
-            CATransaction.commit()
-            return
-        }
         let facts = pictureFacts(cardId, body: body, placed: placed)
         let kind = StagePicture.choose(facts)
         CATransaction.begin()
@@ -1647,12 +1719,6 @@ final class BodyViewController {
         guard horizon, picture.horizon == nil else { return }
         let work = DispatchWorkItem { [weak self, weak picture] in
             guard let self, let picture, let body = self.body(forCard: cardId), body.picture === picture else { return }
-            // A rail re-skin whose paint never came: the page stands as it is.
-            if self.railReskin.removeValue(forKey: cardId) != nil {
-                TugLog.warn("bodies", "rail re-skin past its horizon", [TugLog.field("card", cardId)])
-                self.refreshPicture(body)
-                return
-            }
             TugLog.warn("bodies", "stage picture past its horizon", [
                 TugLog.field("card", cardId), TugLog.field("kind", picture.kind.rawValue),
             ])
@@ -1670,11 +1736,6 @@ final class BodyViewController {
         for body in bodies {
             guard let skeleton = body.picture?.skeleton, let cardId = body.cardId,
                   let placed = cardPlacements[cardId] else { continue }
-            // A rail card re-skinning wears the theme it was told, once known.
-            if let theme = railReskin[cardId] {
-                if let told = window.palettes.known(theme) { skeleton.palette = told }
-                continue
-            }
             guard let palette = paletteOf(placed) else { continue }
             skeleton.palette = palette
         }
@@ -1800,6 +1861,9 @@ final class BodyViewController {
                 "start": .string(body.warm ? "warm" : "cold"),
                 "lastFrame": .bool(body.picture?.kind == .lastFrame),
                 "picture": .string(pictureOf(cardId)?.rawValue ?? "none"),
+                // The theme the page last said it wears, beside the shown stage's.
+                "theme": body.theme.map { .string($0) } ?? .null,
+                "stageTheme": stages.active?.theme.map { .string($0) } ?? .null,
                 // Where the container stands in the window, top-left origin,
                 // and the pane its picture's skeleton draws within it.
                 "frame": .string(Self.rectText(body.container.convert(body.container.bounds, to: nil), in: window)),
@@ -1956,6 +2020,8 @@ final class BodyViewController {
             let known = window.palettes.known(palette.theme) == palette
             window.palettes.note(palette)
             if !known { paletteArrived() }
+            // A page told a theme says it wears it with `bodyThemed`.
+            if let cardId = body.cardId, railTold[cardId] == nil { body.theme = palette.theme }
         }
         guard let surface else { return }
         body.surface = Self.color(surface)

@@ -137,11 +137,11 @@ afterEach(() => {
   g.webkit = priorWebkit;
 });
 
-describe("the restore pass names the shown cards whose page it made", () => {
+describe("the restore pass names the shown cards it resumes, whether or not their page was already there", () => {
   test("restoreSessions", () => {
     restoreSessions(deck, connection, { cardIds: new Set(CARDS) });
     publishListCardBindingsOk({ bindings: BINDINGS });
-    expect(named).toEqual([A]);
+    expect([...named].sort()).toEqual([A, D].sort());
   });
 
   test("restoreSpaceSessions", () => {
@@ -154,6 +154,6 @@ describe("the restore pass names the shown cards whose page it made", () => {
       hasFocus: true,
     } as unknown as DeckState;
     restoreSpaceSessions(deck as never, spaceDeck, connection);
-    expect(named).toEqual([A]);
+    expect([...named].sort()).toEqual([A, D].sort());
   });
 });

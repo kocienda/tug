@@ -54,6 +54,26 @@ function open(done: number, total: number): RestoreGateReading {
 }
 
 describe("foldRestoreGate", () => {
+  it("reads open from the naming to the last settle when named cards hold before their pages exist", () => {
+    // The store's rule: a named card holds until its restore is over, so a
+    // pass's cards are holders from the first fold and the gate never drops
+    // between pages made a couple at a time.
+    const waiting = { waiting: true };
+    const script: Array<[string[], FactsTable, string[], RestoreGateReading]> = [
+      [["a", "b", "c"], {}, ["a", "b", "c"], open(0, 3)],
+      [["a", "b", "c"], { a: waiting, b: waiting }, [], open(0, 3)],
+      [["c"], { a: { painted: true }, b: { painted: true } }, [], open(2, 3)],
+      [["c"], { a: { painted: true }, b: { painted: true }, c: waiting }, [], open(2, 3)],
+      [[], { a: { painted: true }, b: { painted: true }, c: { painted: true } }, [], CLOSED_READING],
+    ];
+    let state = INITIAL_FOLD;
+    for (const [holding, table, arrived, want] of script) {
+      const step = fold(state, holding, table, arrived);
+      expect(step.reading).toEqual(want);
+      state = step.state;
+    }
+  });
+
   it("keeps a round's total fixed and its done count rising", () => {
     const waiting = { waiting: true };
     const script: Array<[string[], FactsTable, string[]]> = [

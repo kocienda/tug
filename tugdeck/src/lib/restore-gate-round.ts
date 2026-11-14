@@ -19,11 +19,19 @@
  * exists, so the total neither shrinks as cards finish nor grows as staged
  * pages arrive; taking the holders too covers a restore no pass named.
  *
+ * What "holds" means is the caller's (`restore-gate-store.ts`): a resumed
+ * card in the shown workspace that has not settled, from the pass naming it
+ * through its page's `"waiting"` and `"holding"`. So a named card is a
+ * holder before its page exists, the round opens with the arrival, and the
+ * gate reads open until the last member is done. The caller also keeps an
+ * opened gate on screen for a least time, past this fold's closed reading.
+ *
  * A card that begins holding while a round is open, and is not a member,
  * leaves the total alone. When every member is done and it still holds, a
- * new round opens with it as a member. A round survives the gate closing
- * while any member is still pending, so a gate that drops between staged
- * pages and comes back continues the same count instead of restarting it.
+ * new round opens with it as a member. A round survives a moment in which
+ * nothing holds while a member is still pending — a named card in a
+ * workspace switched away from and back — so the count continues instead
+ * of restarting.
  *
  * ## A session is done when its wait ends, by any exit
  *

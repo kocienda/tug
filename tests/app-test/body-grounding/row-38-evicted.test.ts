@@ -41,6 +41,7 @@ import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from 
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { bodyOf, composerText, focusBody, pollFor, settleFor } from "./_bodies";
 import { readGesture } from "./_row-44";
+import { restoreGateGone } from "../overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -173,6 +174,10 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 38: the evicted body", () => {
         // ---- A resumed transcript and a draft, saved ----
         await app.spawnSessionResume(B, { tugSessionId: sid, projectDir });
         await app.body(B).waitForCondition<boolean>(SETTLED_WITH_LAST, { timeoutMs: 30_000 });
+        // The resume holds the restore gate until the transcript settles, and
+        // the gate stays up its floor after it opened: the draft is typed once
+        // it is down, or its keys land on the gate.
+        await restoreGateGone(app);
         await focusBody(app, B, { composer: true });
         await app.nativeType(DRAFT);
         await pollFor(() => app.body(B).evalJS<string | null>(composerText), (t) => t?.includes(DRAFT) === true, 5_000);

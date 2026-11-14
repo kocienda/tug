@@ -78,6 +78,7 @@ import { attachChangesetDraftStore } from "../lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "../lib/changeset-join-store";
 import { applyHostToolsOfferResultPayload, applyHostToolsResultPayload } from "../lib/host-tools-store";
 import { reassertOnReconnect, restorePassGate, sessionRestoreRegistry } from "../lib/session-restore";
+import { COLD_RESTORE_PAINT_HORIZON_MS } from "../lib/session-card-restore-gate";
 import { interruptLiveSessions, type TerminationVerdict } from "../teardown";
 import {
   putCardState,
@@ -133,6 +134,7 @@ import {
   bodyBindToPage,
   bodyVisibilityToPage,
   bodyThemeToPage,
+  bodyThemedToHost,
   paintedToHost,
   bodyStaleToHost,
   type BodyBind,
@@ -190,7 +192,7 @@ import { installScopedReload } from "../lib/scoped-reload";
 import { createBodyCardDeck, createDeckView, type BodyCardDeck } from "./body-card-deck";
 import { renderBodyRoot } from "./body-root";
 import { BODY_CHROME_FRAME_CLASS } from "./body-chrome-frame";
-import { installBodyPublisher, type InstalledBodyPublisher } from "./body-publisher";
+import { installBodyPublisher, restorePaintQuiet, type InstalledBodyPublisher } from "./body-publisher";
 import { parseBodyIntent, replayBodyIntent, type BodyIntent } from "./body-intent";
 import { answerBodyVerbs } from "./body-verbs";
 import { readSkeletonPalette } from "../lib/skeleton-palette";
@@ -637,6 +639,19 @@ function bindSpare(cardId: string): Promise<boolean> {
  * is the first frame of its real content gone to the compositor, and it is
  * what the host shows the container on.
  *
+ * A resumed card's real content is its transcript, settled. So between ready
+ * and `painted` its page waits for the cold restore to end
+ * (`restorePaintQuiet`): the replay, and the reveal behind it, in which the
+ * list mounts and measures. The host's skeleton stands over the page for
+ * that stretch and comes down onto a settled list, never onto an empty card
+ * or one still placing its rows. Ready does not wait with it: the host fails
+ * a page that is not ready by its deadline, and a long reveal is not a
+ * failed page. The restore's own horizons end the wait, and
+ * `COLD_RESTORE_PAINT_HORIZON_MS` ends it for a session they never reach
+ * ([L33]). The page is not hidden while it waits — the host hides a page
+ * made ahead only once its content has painted — so its frames run and its
+ * list settles whether or not anyone is looking.
+ *
  * `painted` is said twice: to the host, which composites the frame, and on
  * the bus to the shell (`card.painted`), set after a publish of the facts the
  * frame was drawn with, so the store goes behind them. The shell draws the
@@ -671,15 +686,52 @@ function signalReadyWhenQuiet(
       deck.revealLayer();
       postToHost(frontendReadyToHost, {});
       postSurface();
-      requestAnimationFrame(() => {
+      whenRestoreSettled(() => {
         requestAnimationFrame(() => {
-          postToHost(paintedToHost, { content: true });
-          publisher.painted();
-          cardPainted.set(true);
-          notePaintedHidden();
+          requestAnimationFrame(() => {
+            postToHost(paintedToHost, { content: true });
+            publisher.painted();
+            cardPainted.set(true);
+            notePaintedHidden();
+          });
         });
       });
     });
+  };
+  // The wait between ready and `painted`: a resumed card's restore — still
+  // to come, replaying, or revealing — is over, or its horizon has passed.
+  const whenRestoreSettled = (paint: () => void): void => {
+    if (mounting || showsPicker()) {
+      paint();
+      return;
+    }
+    let said = false;
+    const waits: Array<() => void> = [];
+    let releaseStore: (() => void) | null = null;
+    const settle = (): void => {
+      if (said) return;
+      said = true;
+      for (const release of waits) release();
+      releaseStore?.();
+      paint();
+    };
+    const read = (): void => {
+      if (said) return;
+      const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
+      if (restorePaintQuiet(store?.getSnapshot() ?? null, sessionRestoreRegistry.resuming(cardId))) {
+        settle();
+        return;
+      }
+      releaseStore?.();
+      releaseStore = store?.subscribe(read) ?? null;
+    };
+    const horizon = window.setTimeout(settle, COLD_RESTORE_PAINT_HORIZON_MS);
+    waits.push(
+      cardServicesStore.subscribe(read),
+      sessionRestoreRegistry.subscribe(read),
+      () => window.clearTimeout(horizon),
+    );
+    read();
   };
   let picker: ArrivalQuiet | null | undefined;
   const showsPicker = (): boolean =>
@@ -1103,16 +1155,18 @@ async function bindBody(bind: BodyBind): Promise<void> {
   onHostMessage(bodyBindToPage, (bind) => {
     void bindBody(bind);
   });
-  // A rail page told the arriving workspace's theme by the host at a cut
-  // ([B10]): applied as the shell's `cardTheme` is, and said painted in it
-  // two frames on, so the host can take down the skeleton it stood over the
-  // re-skin. Said even when the theme was already on, so no skeleton waits
-  // on a paint that will not come.
+  // A rail page told the arriving workspace's theme by the host ahead of a
+  // cut: applied as the shell's `cardTheme` is, and answered one paint
+  // later, once the first frame drawn in it has been rendered, so the cut
+  // the host is holding lands in the frame this page's does. Answered from
+  // the frame callback, ahead of the rendering, a heavy page's frame reached
+  // the screen two frames after the deck had changed. Answered even when
+  // the theme was already on, so no cut waits on a page with nothing to do.
   onHostMessage(bodyThemeToPage, ({ theme }) => {
+    const told = performance.now();
     void applyCardTheme(theme).then(() => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => postToHost(paintedToHost, { content: true, theme }));
-      });
+      const appliedMs = performance.now() - told;
+      scheduleAfterPaint(() => postToHost(bodyThemedToHost, { theme, appliedMs }));
     });
   });
 

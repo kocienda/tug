@@ -348,7 +348,12 @@ describe.skipIf(!SHOULD_RUN)("at0761 — the restore gate counts sessions", () =
           }
           const sawOpen = log.some((r) => r.open);
           if (sawOpen && log[log.length - 1]?.open === false) break;
-          if (Date.now() >= deadline) throw new Error("the gate did not open and close within 15 s of the switch");
+          if (Date.now() >= deadline) {
+            // Say which: a gate that never opened, or one a card held open.
+            const seen = log.map((r) => `${r.t - log[0]!.t}ms ${r.open ? `open ${r.done}/${r.total}` : "closed"}`).join(", ");
+            throw new Error(`the gate did not open and close within 15 s of the switch: ${seen}`);
+          }
+
           await Bun.sleep(25);
         }
         if (captured === null) {

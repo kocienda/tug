@@ -12,18 +12,41 @@ import AppKit
 /// (`bodySurface`), so a workspace whose theme is not on screen has a palette
 /// as soon as one of its cards has a page. A theme with none yet falls back
 /// to the on-screen palette, and `onMissing` hears it once per theme.
+///
+/// Made over a `PaletteStore`, it keeps each palette as it is learned and
+/// starts from the kept set, so after a relaunch every theme this build has
+/// drawn has its palette before any page has reported. The kept set carries
+/// the build that learned it and another build's is never read: a theme
+/// edited between builds is not drawn from the old one's colours.
 final class ThemePalettes {
     private var byTheme: [String: SkeletonPalette] = [:]
     private var onScreenTheme: String?
     private var saidMissing: Set<String> = []
+    private let store: PaletteStore?
+    private let build: String
+
+    /// What is kept: the palettes, and the build that learned them.
+    private struct Kept: Codable {
+        var build: String
+        var palettes: [SkeletonPalette]
+    }
 
     /// Told the name of a theme asked for with no palette of its own, once per theme.
     var onMissing: ((String) -> Void)?
 
+    /// With no `store`, nothing is kept or loaded. A kept set is a set of
+    /// themes known, never the on-screen one: that is the shell's to say.
+    init(store: PaletteStore? = nil, build: String = "") {
+        self.store = store
+        self.build = build
+        guard let data = store?.read(), let kept = try? JSONDecoder().decode(Kept.self, from: data), kept.build == build else { return }
+        for palette in kept.palettes { byTheme[palette.theme] = palette }
+    }
+
     /// The shell's on-screen theme's palette, which is also the fallback.
     func noteOnScreen(_ palette: SkeletonPalette) {
-        byTheme[palette.theme] = palette
         onScreenTheme = palette.theme
+        note(palette)
     }
 
     /// The palette kept for `theme` itself, with no fallback.
@@ -31,7 +54,11 @@ final class ThemePalettes {
 
     /// A page's own theme's palette.
     func note(_ palette: SkeletonPalette) {
+        guard byTheme[palette.theme] != palette else { return }
         byTheme[palette.theme] = palette
+        guard let store else { return }
+        let kept = Kept(build: build, palettes: byTheme.values.sorted { $0.theme < $1.theme })
+        if let data = try? JSONEncoder().encode(kept) { store.write(data) }
     }
 
     /// The on-screen theme's palette, or nil before the shell has said one.
@@ -50,6 +77,24 @@ final class ThemePalettes {
         }
         return onScreen
     }
+}
+
+/// Where `ThemePalettes` keeps its set: one value, read once and written
+/// whole at each change.
+protocol PaletteStore: AnyObject {
+    func read() -> Data?
+    func write(_ data: Data)
+}
+
+/// The host's own defaults as the palette store. Never a file in the
+/// instance's data directory, which is the user's and which a sweep could
+/// take.
+final class DefaultsPaletteStore: PaletteStore {
+    static let key = "stagePalettes"
+    private let defaults: UserDefaults
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    func read() -> Data? { defaults.data(forKey: DefaultsPaletteStore.key) }
+    func write(_ data: Data) { defaults.set(data, forKey: DefaultsPaletteStore.key) }
 }
 
 /// A workspace's ground: the canvas colour and its grid, drawn by the host.
@@ -711,6 +756,14 @@ final class StageSet {
         }
         cutSerial += 1
         return .cut(serial: cutSerial)
+    }
+
+    /// Whether `admit` would make a cut onto `spaceId` through `door`, asked
+    /// without taking a serial or clearing a told one: what a cut held ahead
+    /// of its making is decided on.
+    func wouldCut(_ spaceId: String, door: CutDoor) -> Bool {
+        if case .shell(let serial) = door, serial != nil || toldSerial != nil { return false }
+        return spaceId != activeId && byId[spaceId] != nil
     }
 
     /// The host told the shell of cut `serial`.
