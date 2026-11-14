@@ -60,11 +60,13 @@ const KEY_ROW_GAP_CSS = 56;
 /**
  * A cap lights this long before its key is pressed, so the eye is on it when the dialog answers, and longer for a
  * key that dismisses the dialog (Return, Escape, ⌘.): its result is the dialog leaving, which takes the eye with it.
- * A cap stays lit `KEYCAP_AFTER_MS` past its key.
+ * A cap stays lit `KEYCAP_AFTER_MS` past its key, but is always dark `KEYCAP_GAP_MS` before the next key's cap lights:
+ * two caps lit at once read as two keys pressed at once.
  */
 const KEYCAP_LEAD_MS = 250;
 const KEYCAP_DISMISS_LEAD_MS = 550;
 const KEYCAP_AFTER_MS = 400;
+const KEYCAP_GAP_MS = 80;
 /** From a dialog's answer to the next one's opening. */
 const REOPEN_MS = 350;
 /** The app's icon, in the checkout. */
@@ -81,26 +83,30 @@ type Beat =
 
 /** The scene: what happens at each second of narration. */
 const BEATS: readonly Beat[] = [
-  // "Here's a small detail I loved putting into Tug: its dialog buttons." The composer covers this with its classic
-  // frame and fades to the dialog under "I brought back the classic Mac double ring".
+  // Timed to shots/short-dialogs-mixdown.wav in the vids repo (27.0 s; speech from 0.0 s to 26.7 s).
+  // "Here's a detail I loved putting into Tug: the classic macOS double ring on buttons." The composer covers the
+  // opening with its classic frame and fades to this dialog under "double ring".
   { at: 0.1, open: "Open Files" },
-  // "It marks the default button: the one I get if I just hit Return." The composer pushes in on the buttons and back.
-  { at: 9.6, key: "Return", caps: ["return"], next: "Delete Card" },
-  // "And in Tug, I can move the double ring with the arrow keys."
-  { at: 13.2, key: "ArrowRight", caps: ["right"] },
-  { at: 14.3, key: "ArrowLeft", caps: ["left"] },
-  { at: 15.4, key: "ArrowRight", caps: ["right"] },
-  { at: 16.5, key: "ArrowLeft", caps: ["left"] },
-  { at: 17.8, key: "Return", caps: ["return"], next: "Discard Changes" },
-  // "Escape dismisses a dialog, of course."
-  { at: 21.4, key: "Escape", caps: ["esc"], next: "Send Feedback" },
-  // "And so does Command-period, in true Mac style."
-  { at: 25.2, key: ".", mods: ["cmd"], caps: ["cmd", "period"], next: "Open Files" },
-  // "Tug is all about bringing pleasant little details like this to AI coding."
-  { at: 27.6, key: "ArrowLeft", caps: ["left"] },
-  { at: 28.6, key: "ArrowRight", caps: ["right"] },
+  // "It marks the default: the button I get if I just hit Return." (5.9–9.3) The composer pushes in on the buttons
+  // and back; Return lands on the word.
+  { at: 8.75, key: "Return", caps: ["return"], next: "Delete Card" },
+  // "And in Tug, I can move the double ring with the arrow keys." (9.9–13.1) There and back, and Return only once
+  // the arrow's cap has gone dark: a hand presses one key at a time.
+  { at: 11.0, key: "ArrowRight", caps: ["right"] },
+  { at: 11.8, key: "ArrowLeft", caps: ["left"] },
+  { at: 13.0, key: "Return", caps: ["return"], next: "Discard Changes" },
+  // "Escape dismisses a dialog, of course," (13.6–16.2)
+  { at: 14.8, key: "Escape", caps: ["esc"], next: "Send Feedback" },
+  // "and so does Command-period, in typical Mac style." (16.2–19.3)
+  { at: 17.3, key: ".", mods: ["cmd"], caps: ["cmd", "period"], next: "Open Files" },
+  // "Tug is all about this: bringing pleasant nuances and details to the AI coding experience." (19.8–26.7) The ring
+  // keeps moving under the line, so the last dialog is never a still.
+  { at: 20.4, key: "ArrowLeft", caps: ["left"] },
+  { at: 22.0, key: "ArrowRight", caps: ["right"] },
+  { at: 23.6, key: "ArrowLeft", caps: ["left"] },
+  { at: 25.2, key: "ArrowRight", caps: ["right"] },
 ];
-const END = 29.5;
+const END = 26.9;
 
 function deck(): Record<string, unknown> {
   return {
@@ -273,14 +279,21 @@ describe.skipIf(!RUNS)("video shot: the dialog-keyboard Short", () => {
         const window = await contentSize(app);
 
         const s = scene().mark("loop-start", 0);
+        const leadOf = (beat: Beat) => ("open" in beat ? 0 : beat.next !== undefined ? KEYCAP_DISMISS_LEAD_MS : KEYCAP_LEAD_MS);
+        const keys = BEATS.filter((beat) => !("open" in beat));
         for (const beat of BEATS) {
           const t = Math.round(beat.at * 1000);
           if ("open" in beat) {
             s.at(t, () => open(beat.open));
             continue;
           }
-          const lead = beat.next !== undefined ? KEYCAP_DISMISS_LEAD_MS : KEYCAP_LEAD_MS;
-          s.at(t - lead, () => page.evalJS<void>(`window.__vdKey(${JSON.stringify(beat.caps)}, ${lead + KEYCAP_AFTER_MS})`));
+          const lead = leadOf(beat);
+          // Dark before the next key's cap lights.
+          const following = keys[keys.indexOf(beat) + 1];
+          const room = following === undefined ? Infinity : Math.round(following.at * 1000) - leadOf(following) - KEYCAP_GAP_MS - (t - lead);
+          const hold = Math.min(lead + KEYCAP_AFTER_MS, room);
+          expect(hold > lead, `the ${beat.caps.join("+")} cap at ${beat.at} s is still lit when its key is pressed`).toBe(true);
+          s.at(t - lead, () => page.evalJS<void>(`window.__vdKey(${JSON.stringify(beat.caps)}, ${hold})`));
           s.at(t, () => app.nativeKey(beat.key, beat.mods ?? []));
           // A key that answers a dialog is followed at once by the next dialog: the frame never stands empty.
           if (beat.next !== undefined) s.at(t + REOPEN_MS, () => open(beat.next!));
