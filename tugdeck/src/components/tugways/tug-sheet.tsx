@@ -124,7 +124,7 @@ import {
   OVERLAY_SCALE_FADE,
   runOverlayExit,
   type OverlayMotion,
-} from "@/components/tugways/internal/overlay-motion";
+} from "@/components/tugways/overlay-motion";
 import { useTugPaneScrim } from "@/components/tugways/use-tug-pane-scrim";
 import { paneBodyOf, usePaneInert } from "@/components/tugways/use-pane-inert";
 import type { ActionEvent } from "./responder-chain";
@@ -322,7 +322,7 @@ type SheetPresentationMotion = OverlayMotion;
  * fixed nudge (px, so a tall surface rolls the same light distance as a short
  * one) in place of a full-height `translateY(±100%)` sweep.
  *
- * The overlays' one roll distance (`internal/overlay-motion.ts`), so a sheet
+ * The overlays' one roll distance (`overlay-motion.ts`), so a sheet
  * and an alert resting on the same rest line rise the same way.
  */
 const SHEET_ROLL_PX = OVERLAY_ROLL_PX;
@@ -2325,7 +2325,7 @@ export function TugSheetContent({
     // instant the panel lands, not cut off at the end. The exit still waits on
     // the (longer) roll before unmounting.
     //
-    // The overlays' shared exit (`internal/overlay-motion.ts`): `mounted` goes
+    // The overlays' shared exit (`overlay-motion.ts`): `mounted` goes
     // false when the exit finishes, when it is interrupted, or at its deadline,
     // whichever is first. The deadline is what this effect lacked — a sheet
     // closed in a covered window, whose rAF is suspended, waited on a

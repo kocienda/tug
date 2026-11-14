@@ -107,6 +107,9 @@ describe("recipe-lint", () => {
       { head: "just elsewhere", medianMs: 300_000 },
       { head: "cargo nextest", medianMs: 60_000 },
       { head: "just old-band" } as unknown as { head: string; medianMs: number },
+      // One slow call is a stall, not a median: no evidence.
+      { head: "just via-silent-script", medianMs: 21_000, calls: 1 },
+      { head: "just silent", medianMs: 95_000, calls: 3 },
     ];
     const derived = derivedRecipes(gaps, parseRecipes(FIXTURE));
     expect(derived).toEqual(["silent", "phased"]);

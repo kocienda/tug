@@ -85,8 +85,6 @@ const DELTA_MS = 45;
 /** A character every this long in the prompt. */
 const CHAR_MS = 55;
 
-const ENTRY = '[data-slot="tug-prompt-entry"]';
-const FIELD = `${ENTRY} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = '.session-view-pane[data-view="changes"] [data-slot="tug-sheet"]';
 const ANY_ROWS = `${SHEET} [data-testid="tug-changes-list-file-block"]`;
 const COMMIT_BUTTON = '[data-testid="tug-prompt-entry-commit-button"]';
@@ -460,7 +458,6 @@ describe.skipIf(!RUNS)("video shot: the session-and-commit-atoms Short", () => {
         const pw = panes[WORKER]!;
         const po = (panes[OVERVIEW] ?? (await app.elementRect(OVERVIEW, '[data-testid="overview-card"]'))) as Rect;
         const receipt = (await app.elementRect(WORKER, RECEIPT)) as Rect;
-        const field = (await app.elementRect(OVERVIEW, OVERVIEW_FIELD)) as Rect;
         /** The rect, in window points, of the `index`-th match of `selector` in `card` (from the end when negative), or null. */
         let marks = 0;
         const rectOf = async (card: string, selector: string, index = 0): Promise<Rect | null> => {

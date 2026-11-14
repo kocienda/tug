@@ -19,6 +19,8 @@
  * The hand list is joined by a derived one: every `just <recipe>` head the
  * gaps record (`tugtool report gaps --json`) shows with a median past the
  * threshold, so a recipe that grew slow is caught without anyone adding it.
+ * A median read from fewer than `GAP_MIN_CALLS` calls is not evidence: one
+ * call that sat behind a stalled mount is a hang, not a slow recipe.
  * The record is this machine's telemetry, so a machine with no `tugtool` or
  * no record derives nothing, and a derived head this Justfile has no recipe
  * for — another project's — is not this lint's to judge.
@@ -112,16 +114,22 @@ export function parseRecipes(text: string): Map<string, Recipe> {
 /** How long a call runs before its silence is a gap (`GAP_THRESHOLD_MS`). */
 export const GAP_THRESHOLD_MS = 20_000;
 
+/** How many calls a head's median must be read from before it is evidence. */
+export const GAP_MIN_CALLS = 3;
+
 /** One head of `tugtool report gaps --json`, as far as the lint reads it. */
 export interface GapHead {
   head: string;
   medianMs: number;
+  /** How many calls the median was read from. */
+  calls?: number;
 }
 
 /**
  * The recipes the gaps record says run long: each `just <recipe>` head in
  * its gaps whose median is past the threshold and whose recipe `recipes`
- * has. The stalled calls are hangs, not long recipes, and are not read.
+ * has, read from at least `GAP_MIN_CALLS` calls. The stalled calls are
+ * hangs, not long recipes, and are not read.
  */
 export function derivedRecipes(gaps: GapHead[], recipes: Map<string, Recipe>): string[] {
   const derived: string[] = [];
@@ -129,6 +137,9 @@ export function derivedRecipes(gaps: GapHead[], recipes: Map<string, Recipe>): s
     const m = /^just\s+([A-Za-z_][\w-]*)$/.exec(gap.head);
     // A tugtool from before the record kept medians reports none: no evidence.
     if (!m || typeof gap.medianMs !== "number" || gap.medianMs <= GAP_THRESHOLD_MS) continue;
+    // One or two calls are an anecdote: a lone 20 s call of a recipe that
+    // runs in milliseconds is the machine stalling, not the recipe.
+    if (typeof gap.calls === "number" && gap.calls < GAP_MIN_CALLS) continue;
     if (recipes.has(m[1]) && !derived.includes(m[1])) derived.push(m[1]);
   }
   return derived;

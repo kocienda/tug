@@ -80,7 +80,7 @@ import "./modal-input-dialog.css";
 
 import { TugInput } from "@/components/tugways/tug-input";
 import { group } from "@/components/tugways/tug-animator";
-import { runOverlayExit } from "@/components/tugways/internal/overlay-motion";
+import { runOverlayExit } from "@/components/tugways/overlay-motion";
 import { ATTACHED_LIST_ATTRIBUTE } from "@/components/tugways/focus-manager";
 import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -247,7 +247,7 @@ export function ModalInputDialog({
   // hold presence state. The guard makes a second close gesture during the
   // fade a no-op rather than a double-fire.
   //
-  // The fade is the overlays' shared exit (`internal/overlay-motion.ts`): it
+  // The fade is the overlays' shared exit (`overlay-motion.ts`): it
   // marks the panel `data-closing`, and the dismissal is RACED against the
   // fade by a deadline rather than sequenced after it, because awaiting
   // `finished` alone is what let a stalled animation latch the panel shut.

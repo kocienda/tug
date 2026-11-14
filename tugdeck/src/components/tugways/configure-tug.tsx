@@ -105,7 +105,7 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { authStore, useAuth } from "@/lib/auth-store";
 import { useVersionGateOpen, deriveConfigureTugOpen } from "@/lib/macos-support";
 import { usePublishAppModalOpen } from "@/lib/app-modal-store";
-import { useOverlayExit } from "@/components/tugways/internal/overlay-motion";
+import { useOverlayExit } from "@/components/tugways/overlay-motion";
 import { useAppTransportState } from "@/lib/transport-state-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
@@ -600,7 +600,7 @@ export function ConfigureTug(): ReactElement {
   // truth — `open` stays the one answer, and this publishes it outward.
   usePublishAppModalOpen("configure-tug", open);
 
-  // The overlays' shared exit (`internal/overlay-motion.ts`): Radix stays open
+  // The overlays' shared exit (`overlay-motion.ts`): Radix stays open
   // through the panel's fade and closes when it settles, or at its deadline.
   // `open` is still the one answer — the hold is only how long Radix keeps the
   // panel on screen after it went false, and the app-modal publish above

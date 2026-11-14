@@ -2839,7 +2839,10 @@ mod tests {
             .and_then(|fact| fact.last)
             .expect("the released run is kept as it ended");
         assert_eq!(last.state, "released");
-        assert!(last.why.is_some_and(|why| why.contains("ran past its horizon")));
+        assert!(
+            last.why
+                .is_some_and(|why| why.contains("ran past its horizon"))
+        );
 
         let second = begin(&board, "a");
         assert!(

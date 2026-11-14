@@ -1526,10 +1526,7 @@ async fn watch_the_clock_unseated(
         evict_for_stop(state, key, stop_marks).await;
         return;
     }
-    if record.done
-        || record.stopping.is_some()
-        || record.resume.is_some()
-    {
+    if record.done || record.stopping.is_some() || record.resume.is_some() {
         return;
     }
     // **Whose arc is this?** The arc log is shared across every instance over
@@ -5806,7 +5803,10 @@ Some context.
         assert_eq!(stopped.last_motion_at, None, "the clock has nothing to age");
         assert_eq!(stopped.quiet_turns, 0);
         assert_eq!(stopped.last_done_count, None);
-        assert_eq!(stopped.stop_marks, None, "the marks are kept exactly as found");
+        assert_eq!(
+            stopped.stop_marks, None,
+            "the marks are kept exactly as found"
+        );
     }
 
     /// **An arc that leaves the sweep leaves a receipt** ([B09]). Bound-ness

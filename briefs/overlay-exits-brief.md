@@ -71,7 +71,7 @@ The trap's focus restore moves to the end of the fade. A second close gesture du
 
 **[B03] One duration for every overlay: `--tug-motion-duration-moderate`, 200 ms.** The user settled this. The alert entrance moves from 150 ms to 200 ms. Easing follows the sheets: `ease-out` in, `ease-in` out. `ModalInputDialog` keeps its 100 ms `fast` fade, because that one is intentional: it is a quick input surface, not a dialog. `SHADE_SCRIM_EXIT_MS` stays, since it is the scrim leaving a beat ahead of the panel inside the 200 ms, not a second duration.
 
-**[B04] One motion table: each alert placement uses the sheet presentation it already resembles.** A centred alert uses `scale-fade` and a rest-line alert uses `rise`. The shapes and numbers live in one place, `internal/overlay-motion.ts` (`OVERLAY_SCALE_FADE`, `OVERLAY_RISE`, `OVERLAY_ROLL_PX`, `OVERLAY_SCALE_FROM`), and the sheet's `SHEET_PRESENTATION_MOTION` is built on them. As a result, the rest-line alert travels 28 px rather than 8 px.
+**[B04] One motion table: each alert placement uses the sheet presentation it already resembles.** A centred alert uses `scale-fade` and a rest-line alert uses `rise`. The shapes and numbers live in one place, `overlay-motion.ts` (`OVERLAY_SCALE_FADE`, `OVERLAY_RISE`, `OVERLAY_ROLL_PX`, `OVERLAY_SCALE_FROM`), and the sheet's `SHEET_PRESENTATION_MOTION` is built on them. As a result, the rest-line alert travels 28 px rather than 8 px.
 
 *Amended during the work.* The alert's **entrance stays in CSS**, retimed to 200 ms with the 28 px rise, and the centring stays in `transform`. The plan had been to move both entrances to TugAnimator, move the centring to `translate:`, and delete the CSS keyframes. Two things ruled that out:
 

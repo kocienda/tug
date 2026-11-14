@@ -34,7 +34,7 @@
  *
  * `[data-state="closed"]` is not written here, and [F03] records what happens
  * to a Radix layer given one: the exit runs in TugAnimator before Radix
- * closes (`internal/overlay-motion.ts`). The fade's 200ms is the overlays'
+ * closes (`overlay-motion.ts`). The fade's 200ms is the overlays'
  * one duration. */
 @keyframes update-tug-zoom-in {
   from { opacity: 0; }

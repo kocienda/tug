@@ -1,5 +1,5 @@
 /**
- * The overlays' exit contract (`internal/overlay-motion.ts`): motion dresses
+ * The overlays' exit contract (`overlay-motion.ts`): motion dresses
  * the close and never decides whether it happens.
  *
  * The hazard these pin is the one `tug-alert.css` records: an exit that waits
@@ -18,7 +18,7 @@ import {
   OVERLAY_EXIT_DEADLINE_MARGIN_MS,
   alertPanelExitFrames,
   runOverlayExit,
-} from "@/components/tugways/internal/overlay-motion";
+} from "@/components/tugways/overlay-motion";
 
 // `animate()` reads `--tug-motion` inline and `--tug-timing` computed off the
 // root element; motion on, timing 1. Restored by assignment, never `delete`.

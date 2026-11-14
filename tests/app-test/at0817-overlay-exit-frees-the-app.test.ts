@@ -8,7 +8,7 @@
  * none` on `<body>` until that layer unmounts, so an exit that never finished
  * left the whole app dead with nothing on screen (`tug-alert.css`). The exit
  * now runs in TugAnimator while Radix is still open, and Radix closes when it
- * settles or at its deadline (`internal/overlay-motion.ts`).
+ * settles or at its deadline (`overlay-motion.ts`).
  *
  * So this file asks both halves of that, in the overlay page where the
  * app-modals draw:
@@ -33,7 +33,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugdeck/src/components/tugways/internal/overlay-motion.ts
+ * @covers tugdeck/src/components/tugways/overlay-motion.ts
  * @covers tugdeck/src/components/tugways/tug-alert.tsx
  * @covers tugdeck/src/components/tugways/tug-alert.css
  * @covers tugdeck/src/components/tugways/configure-tug.tsx

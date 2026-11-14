@@ -34,7 +34,7 @@ body {
  * because Radix Presence holds a closing layer until `animationend` and the
  * body lock comes off with the unmount; `.tug-alert-overlay[data-state="closed"]`
  * below records what that cost. Their exits run in TugAnimator while Radix is
- * still open (`internal/overlay-motion.ts`).
+ * still open (`overlay-motion.ts`).
  *
  * The numbers are the overlays' one motion table, restated because CSS cannot
  * import it: 200ms (`--tug-motion-duration-moderate`), `ease-out`, a
@@ -99,7 +99,7 @@ body {
    *
    * Naming no animation makes the unmount synchronous and the lock release
    * unconditional. The exit an alert does have runs BEFORE this state:
-   * `useOverlayExit` (`internal/overlay-motion.ts`) holds Radix open, runs the
+   * `useOverlayExit` (`overlay-motion.ts`) holds Radix open, runs the
    * panel and scrim out in TugAnimator, and lets Radix close when the exit
    * settles — on `finished`, or on a deadline when `finished` never comes. By
    * the time this rule applies there is nothing left to animate, and Presence

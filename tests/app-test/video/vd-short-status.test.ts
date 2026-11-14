@@ -46,7 +46,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, note, type App } from "../_harness";
+import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, note } from "../_harness";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { arcBriefPath, arcTasksPath, createArc, fixturePlanDocument, tugtoolPath, type ArcFixtureOpts } from "../arc-fixture";
 import { pollFor } from "../body-grounding/_frames";

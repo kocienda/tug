@@ -45,7 +45,7 @@
  */
 
 import { useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
-import { group, scaledDurationMs, type TugAnimation } from "../tug-animator";
+import { group, scaledDurationMs, type TugAnimation } from "./tug-animator";
 
 /** Every overlay's enter and exit duration: one number, settled by the user. */
 export const OVERLAY_DURATION = "--tug-motion-duration-moderate";

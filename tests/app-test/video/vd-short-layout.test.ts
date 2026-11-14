@@ -214,7 +214,6 @@ describe.skipIf(!RUNS)("video shot: the card-layout Short", () => {
         await Bun.sleep(1_000);
 
         const ms = (secs: number) => Math.round(secs * 1000);
-        const focus = (cardId: string) => () => app.dispatchControlAction("focus-pane", { paneId: `${cardId}-pane` });
         const caps: { keys: string[]; label: string; from: number; to: number }[] = [];
         /** The cap for a chord pressed at `secs`, with the few words that say what it does. */
         const cap = (secs: number, keys: string[], label: string) => caps.push({ keys, label, from: secs - CAP_LEAD, to: secs + CAP_AFTER });

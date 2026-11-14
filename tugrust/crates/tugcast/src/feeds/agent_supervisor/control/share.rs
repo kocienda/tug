@@ -210,7 +210,10 @@ impl AgentSupervisor {
                 ControlOutcome::Handled
             }
             other => {
-                warn!(action = other.as_str(), "handle_share_control: not a sharing action");
+                warn!(
+                    action = other.as_str(),
+                    "handle_share_control: not a sharing action"
+                );
                 ControlOutcome::PassThrough
             }
         }
@@ -309,7 +312,8 @@ mod tests {
         assert_eq!(out["reason"], "too_large");
 
         let half = "x".repeat(MAX_TOTAL_BYTES / 2 + 1);
-        let out = answer(serde_json::json!({ "request_id": "heavy", "texts": [half.clone(), half] }));
+        let out =
+            answer(serde_json::json!({ "request_id": "heavy", "texts": [half.clone(), half] }));
         assert_eq!(out["reason"], "too_large");
     }
 

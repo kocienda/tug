@@ -42,7 +42,7 @@
  * under `data-zoom`; the run on close reads a rect measured before the open
  * flag clears and needs nothing from the departing layer.
  *
- * The exit is the overlays' shared one (`internal/overlay-motion.ts`, the
+ * The exit is the overlays' shared one (`overlay-motion.ts`, the
  * overlay-exits brief's [B05]): Radix stays open through it and closes when it
  * settles, or at its deadline, so the closed state still names no animation
  * and the hang [F03] recorded cannot come back. A close the pill will zoom
@@ -156,7 +156,7 @@ import {
   zoomRunsCanPlant,
 } from "../chrome/zoom-rects";
 import { isUpdateLive } from "../chrome/update-pill";
-import { useOverlayExit } from "./internal/overlay-motion";
+import { useOverlayExit } from "./overlay-motion";
 import {
   postUpdateAction,
   updateStore,

@@ -66,7 +66,7 @@
  * fades. The panel is measured as the closed snapshot arrives, in the store's
  * own notification, which runs before React re-renders and Radix takes the
  * content down, so the box read is the panel still standing. A close with no
- * `to` leaves by the overlays' shared exit (`internal/overlay-motion.ts`): the
+ * `to` leaves by the overlays' shared exit (`overlay-motion.ts`): the
  * panel and scrim fade out over 200ms while Radix stays open, and Radix
  * closes when the exit settles or at its deadline. A close a zoom carries
  * skips that fade — the panel goes at once and the rectangles carry it, with
@@ -106,7 +106,7 @@ import { runZoomRects, zoomRunDurationMs } from "@/components/chrome/zoom-rects"
 import { animate } from "@/components/tugways/tug-animator";
 import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
 import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
-import { useOverlayExit } from "@/components/tugways/internal/overlay-motion";
+import { useOverlayExit } from "@/components/tugways/overlay-motion";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { useGateDeck } from "@/lib/gate-deck";
 import { useSyncExternalStore } from "@/lib/gesture-scope";

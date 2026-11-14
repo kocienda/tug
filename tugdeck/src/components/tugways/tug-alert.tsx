@@ -87,7 +87,7 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
 import { MODAL_REST_LINE } from "./cards/modal-rest-line";
 import { useFocusTrap } from "./use-focus-trap";
-import { useOverlayExit } from "./internal/overlay-motion";
+import { useOverlayExit } from "./overlay-motion";
 import { useFocusManager } from "./use-focusable";
 import { useSpatialOrder } from "./use-spatial-order";
 import type { SpatialOrder, SpatialSeam } from "./spatial-order";
@@ -407,7 +407,7 @@ export const TugAlert = React.forwardRef<TugAlertHandle, TugAlertProps>(
     // The answer comes first and the close after the motion: `resolveAndClose`
     // resolves the caller's promise and drops `open` at once, and Radix keeps
     // the dialog for as long as `shown` holds, which is the length of the
-    // overlays' shared exit (`internal/overlay-motion.ts`) — the panel leaving
+    // overlays' shared exit (`overlay-motion.ts`) — the panel leaving
     // by the shape it arrived by, the scrim fading with it. The exit settles
     // on its own `finished` or on a deadline, whichever is first, and only
     // then does Radix close; its closed state still names no animation, so

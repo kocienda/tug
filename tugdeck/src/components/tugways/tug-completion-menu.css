@@ -141,6 +141,7 @@ body {
    Item description — muted second column, wraps to at most two lines
    --------------------------------------------------------------------------- */
 
+/* @tug-renders-on: --tugx-completion-bg */
 .tug-completion-menu-desc {
   flex: 1 1 auto;
   min-width: 0;
@@ -156,6 +157,7 @@ body {
 
 /* On the selected row, the description rides the selection foreground so it
    stays legible on the accent surface (the muted rest token would wash out). */
+/* @tug-renders-on: --tugx-completion-item-hover-bg */
 .tug-completion-menu-item-selected .tug-completion-menu-desc {
   color: var(--tugx-completion-item-hover-fg);
   opacity: 0.85;
@@ -165,6 +167,7 @@ body {
    Hint — a provider's muted word beneath the rows on what else can be typed
    --------------------------------------------------------------------------- */
 
+/* @tug-renders-on: --tugx-completion-bg */
 .tug-completion-menu-hint {
   padding: 5px 10px 3px;
   color: var(--tugx-completion-desc-fg);
