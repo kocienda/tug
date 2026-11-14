@@ -20,7 +20,9 @@
  *   C. The same turns as a PDF answer `ok` with a `%PDF` file of exactly one
  *      page — a PDF is one continuous page, never broken across pages — and
  *      the page's inline-styled HTML — the rich flavour a PDF's Copy writes —
- *      carrying the first prompt's text.
+ *      carrying the first prompt's text, and the seeded shell exchange's
+ *      command and output: a shell row renders on the share page through
+ *      its own cell, as the turns' rows do.
  *   D. A document whose header runs past 10,000 pixels still renders as an
  *      image: there is no height cap. It is photographed in tiles and
  *      stitched, so the PNG is the document's full height, and its left
@@ -40,6 +42,7 @@
  * @covers tugdeck/src/lib/code-session-store.ts
  * @covers tugdeck/src/lib/markdown/pending-enhancements.ts
  * @covers tugdeck/src/share/share-html.ts
+ * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -53,6 +56,9 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 const SID = "at0821-session";
+/** A shell exchange seeded after the turns, which the render must draw. */
+const SHELL_COMMAND = "echo at0821-shell";
+const SHELL_OUTPUT = "at0821-shell-output\n";
 /** Two channels within this of each other read as one colour. */
 const NEAR = 8;
 
@@ -109,6 +115,18 @@ describe.skipIf(!SHOULD_RUN)("AT0821: share turns rendered to an image and a PDF
       try {
         projectDir = await openSeededCard(app, SID, TURNS);
         const card = app.body("A");
+        await app.driveSession("A", {
+          op: "shellExchange",
+          exchangeId: "at0821-x1",
+          command: SHELL_COMMAND,
+          output: SHELL_OUTPUT,
+          cwd: projectDir,
+          exitCode: 0,
+        });
+        await card.waitForCondition<boolean>(
+          `!!document.querySelector('[data-card-id="A"] [data-slot="session-transcript-shell-row"]')`,
+          { timeoutMs: 6_000 },
+        );
 
         // The surface the card's transcript stands on, as sRGB bytes: through
         // a 2D canvas, since a computed style keeps the theme's oklch spelling.
@@ -166,6 +184,8 @@ describe.skipIf(!SHOULD_RUN)("AT0821: share turns rendered to an image and a PDF
         expect(pdf.pages, "one continuous page").toBe(1);
         expect(pdf.html, "the HTML carries its look inline").toContain('style="');
         expect(pdf.html, "the HTML carries the first prompt").toContain(TURNS[0]!.prompt);
+        expect(pdf.html, "the shell row rendered its command").toContain(SHELL_COMMAND);
+        expect(pdf.html, "the shell row rendered its output").toContain(SHELL_OUTPUT.trim());
         expect(pdf.html.length, "the HTML writes only what differs from what the paste inherits").toBeLessThan(100_000);
 
         // ── D. A very tall image is still an image ────────────────────────

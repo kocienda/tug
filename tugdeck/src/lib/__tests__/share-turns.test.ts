@@ -92,6 +92,43 @@ function thinking(key: string, text: string): Message {
   return { kind: "assistant_thinking", text, messageKey: key, createdAt: 4 };
 }
 
+function shellExchange(key: string, command: string, output: string, exitCode: number | null): Message {
+  return {
+    kind: "shell_exchange",
+    exchangeId: `x-${key}`,
+    command,
+    output,
+    exitCode,
+    cwd: "/Users/u/src/tug",
+    cwdAfter: "/Users/u/src/tug",
+    startedAtMs: 1,
+    settledAtMs: 2,
+    messageKey: key,
+    createdAt: 1,
+  } as unknown as Message;
+}
+
+function refsRun(key: string, command: string): Message {
+  return {
+    kind: "refs_result",
+    runId: `r-${key}`,
+    opKind: "match",
+    command,
+    root: "/Users/u/src/tug",
+    refs: [
+      { index: 0, path: "src/a.ts", line: 12, columns: [], preview: { lineLen: 9, segments: [{ col: 0, text: "const a=1" }], elidedMatches: 0 } },
+      { index: 1, path: "src/b.ts", line: null, columns: [], preview: null },
+    ],
+    inFlight: false,
+    cancelled: false,
+    notice: null,
+    startedAtMs: 1,
+    settledAtMs: 2,
+    messageKey: key,
+    createdAt: 1,
+  } as unknown as Message;
+}
+
 const EMPTY: ShareSelection = { selected: new Set(), anchor: null };
 const ORDER = ["a", "b", "c", "d", "e"];
 
@@ -251,7 +288,7 @@ describe("selection edits", () => {
     expect(keys(state)).toEqual(["a", "c", "e"]);
   });
 
-  test("ink turns are not selectable; wheel turns are", () => {
+  test("every turn is selectable — ink and wheel turns too", () => {
     const transcript = [
       turn("u", "user", 1, []),
       turn("s", "shell", 2, []),
@@ -259,7 +296,7 @@ describe("selection edits", () => {
       turn("r", "refs", 4, []),
       turn("a", "assistant", 5, []),
     ];
-    expect(selectableTurnKeys(transcript)).toEqual(["u", "w", "a"]);
+    expect(selectableTurnKeys(transcript)).toEqual(["u", "s", "w", "r", "a"]);
   });
 });
 
@@ -295,10 +332,10 @@ describe("buildShareSlice", () => {
     expect(none[0].messages.map((m) => m.kind)).toEqual(["user_message", "assistant_text"]);
   });
 
-  test("never holds an ink turn and never touches the live transcript", () => {
+  test("holds a marked ink turn and never touches the live transcript", () => {
     const live = transcript();
     const slice = buildShareSlice(live, new Set(["t1", "t3"]), "full");
-    expect(slice.map((t) => t.turnKey)).toEqual(["t1"]);
+    expect(slice.map((t) => t.turnKey)).toEqual(["t1", "t3"]);
     (slice[0].messages[0] as { text: string }).text = "changed";
     expect((live[0].messages[0] as { text: string }).text).toBe("one");
     expect(live[0].messages).toHaveLength(3);
@@ -379,6 +416,24 @@ describe("the strings walk", () => {
     const back = applyShareStrings(turns, null, ["Moved", "~/a", "~/b"]);
     const moved = back?.slice[0].messages[0] as { relocation: { fromDir: string; toDir: string } };
     expect(moved.relocation).toEqual({ fromDir: "~/a", toDir: "~/b" });
+  });
+
+  test("a shell exchange's and a refs run's shown strings ride the walk", () => {
+    const turns = [
+      turn("s", "shell", 1, [shellExchange("sx", "cat .env", "TOKEN=abc", 0)]),
+      turn("r", "refs", 2, [refsRun("rr", "/match const")]),
+    ];
+    expect(collectShareStrings(turns, null)).toEqual([
+      "cat .env",
+      "TOKEN=abc",
+      "/Users/u/src/tug",
+      "/Users/u/src/tug",
+      "/match const",
+      "/Users/u/src/tug",
+      "src/a.ts",
+      "const a=1",
+      "src/b.ts",
+    ]);
   });
 });
 
@@ -502,6 +557,31 @@ describe("shareDocumentMarkdown", () => {
     expect(md).toContain("## Claude\n\nThe config names `x`.");
     expect(md).not.toContain("secret thoughts");
   });
+
+  test("writes a shell exchange whole with its ANSI stripped, a refs run as lines, and the wheel by name", () => {
+    const long = "x".repeat(9000);
+    const turns = [
+      turn("w", "wheel", 1, [{ ...user("wu", "Run the stage"), origin: "wheel" } as Message]),
+      turn("s", "shell", 2, [shellExchange("sx", "ls", `\u001b[31mred\u001b[0m\n${long}\n`, 0)]),
+      turn("r", "refs", 3, [refsRun("rr", "/match const")]),
+    ];
+    const md = shareDocumentMarkdown({ turns, toolMode: "summaries", header });
+    expect(md).toContain("## Wheel\n\nRun the stage");
+    expect(md).toContain("## Shell\n\n```\n$ ls\nred\n");
+    expect(md).toContain(`${long}\n[exit 0]\n\`\`\``);
+    expect(md).not.toContain("\u001b");
+    expect(md).not.toContain("truncated");
+    expect(md).toContain("## Refs\n\n```\n/match const\nsrc/a.ts:12: const a=1\nsrc/b.ts\n```");
+  });
+
+  test("the /export archive still writes no ink turn and calls the wheel You", () => {
+    const turns = [
+      turn("w", "wheel", 1, [{ ...user("wu", "Run the stage"), origin: "wheel" } as Message]),
+      turn("s", "shell", 2, [shellExchange("sx", "ls", "out", 0)]),
+    ];
+    const md = shareDocumentMarkdown({ turns, toolMode: "full", header: null });
+    expect(md).toBe("# Session transcript\n\n## You\n\nRun the stage\n");
+  });
 });
 
 describe("decodeShareRenderDocument", () => {
@@ -547,6 +627,17 @@ describe("the render document", () => {
     const slice = buildShareSlice(transcript, new Set(["c", "a"]), "summaries");
     expect(shareTurnNumbers(slice, transcript, snapshotAt(null))).toEqual([1, 3]);
     expect(shareTurnNumbers(slice, transcript, snapshotAt(40))).toEqual([41, 43]);
+  });
+
+  test("an ink turn keeps its own #s or #r number", () => {
+    const mixed = [
+      turn("s1", "shell", 1, [shellExchange("x1", "ls", "", 0)]),
+      turn("a", "user", 2, [user("ua", "one"), prose("pa", "A")]),
+      turn("r1", "refs", 3, [refsRun("rr1", "/match a")]),
+      turn("s2", "shell", 4, [shellExchange("x2", "pwd", "", 0)]),
+    ];
+    const slice = buildShareSlice(mixed, new Set(["s2", "a", "r1"]), "summaries");
+    expect(shareTurnNumbers(slice, mixed, snapshotAt(null))).toEqual([2, 1, 2]);
   });
 
   test("decodes as built", () => {

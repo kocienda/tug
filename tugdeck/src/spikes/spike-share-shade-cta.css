@@ -63,7 +63,7 @@
   display: flex;
   flex-direction: column;
   padding: var(--tugx-sheet-space-b);
-  gap: var(--tugx-sheet-space-a);
+  gap: var(--tug-space-2xl);
 }
 
 /* The column's `gap` separates the header from the form; the header's own
@@ -72,30 +72,47 @@
   margin-bottom: 0;
 }
 
-/* Note 1: Mark All and Clear All, their own row directly under the
-   description, inside the heading column so the row starts at the
-   instruction's left edge. */
+/* Note 1: Mark All and Clear All, their own row under the header, centered
+   across the shade. */
 .sp-ssc-marks {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: var(--tug-space-sm);
-  margin-top: var(--tugx-sheet-space-a);
-  /* A little air before the form, beyond the column's own gap. */
-  margin-bottom: var(--tug-space-sm);
 }
 
-/* Notes 2 and 3: the label column is exactly the header's icon column and
-   its gap, so Turns, Format and Action start on the same left edge as the
-   title, the description and the Mark All row above them. The labels sit in
-   the icon's column, under the icon. */
+/* Note 2: Tools and Format on one line, as the real sheet lays them: Tools'
+   label is exactly the header's icon column and its gap wide, so its choices
+   start on the title's left edge; stacked (`data-layout="stack"`, written by
+   `useShareFormFit`), Format's label takes the first column and its choices
+   start on Tools' left edge. */
 .sp-ssc-form {
   display: grid;
-  grid-template-columns: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two)) minmax(0, 1fr);
+  grid-template-columns: auto auto auto auto;
+  justify-content: start;
   align-items: center;
   column-gap: 0;
-  row-gap: var(--tug-space-sm);
+  row-gap: var(--tug-space-2xl);
+  min-width: 0;
+}
+
+.sp-ssc-form[data-layout="stack"] {
+  grid-template-columns: auto auto;
+}
+
+.sp-ssc-field-label--lead {
+  width: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two));
+}
+
+.sp-ssc-field-label--format {
+  margin-inline-start: var(--tug-space-xl);
+  margin-inline-end: var(--tug-space-sm);
+}
+
+.sp-ssc-form[data-layout="stack"] .sp-ssc-field-label--format {
+  margin-inline: 0;
 }
 
 .sp-ssc-control {
@@ -113,6 +130,7 @@
 
 .sp-ssc-working .sp-ssc-count {
   margin-inline-start: var(--tug-space-xs);
+  width: 9em;
 }
 
 /* Note 4: two buttons — `.tug-sheet-actions`, right-aligned. */

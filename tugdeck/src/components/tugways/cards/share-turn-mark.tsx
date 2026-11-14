@@ -1,10 +1,12 @@
 /**
  * `ShareTurnMark` — the per-turn check a Session card shows in share mode.
  *
- * In share mode each selectable turn's first row carries a check at the right
- * of its header, just after the turn address; the participant glyph keeps its
- * seat. A plain click toggles the turn and makes it the
- * anchor; a shift-click marks every selectable turn from the anchor to this
+ * In share mode every entry of a committed turn — the user's prompt, the
+ * wheel's, Claude's answer, a shell exchange, a refs run — carries a check at
+ * the right of its header, just after its address; the participant glyph
+ * keeps its seat. The turn is the unit, so a turn's prompt and its answer
+ * carry the same mark and check together. A plain click toggles the turn and
+ * makes it the anchor; a shift-click marks every turn from the anchor to this
  * one; a ⌘-click toggles, as a plain click does. The modifiers are read from
  * the gesture record at pointerdown, as the list view reads them, because the
  * record is cleared before the click lands; a click with no pointer gesture
@@ -31,7 +33,7 @@ import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import type { CodeSessionStore, TurnEntry } from "@/lib/code-session-store";
 import type { SessionRowDescriptor } from "@/lib/session-transcript-data-source";
-import { isSelectableTurn, selectableTurnKeys } from "@/lib/share-turns";
+import { selectableTurnKeys } from "@/lib/share-turns";
 import type { ShareTurnsStore } from "@/lib/share-turns-store";
 
 /** What a cell needs to draw and drive a mark. */
@@ -44,24 +46,19 @@ export interface ShareTurnsContextValue {
 export const ShareTurnsContext = React.createContext<ShareTurnsContextValue | null>(null);
 
 /**
- * Whether `row` is the first row of a selectable committed turn — the row
- * that carries the turn's mark. That is the turn's opening `user` row, or,
- * for a turn that opens with no user message, its first `assistant` row.
- * `ordinal` is the row's within-turn ordinal among rows of its kind.
+ * Whether `row` carries its turn's mark: any entry row — `user`,
+ * `assistant`, `shell` or `refs` — of a committed turn. An in-flight turn has
+ * no `TurnEntry` yet and carries none.
  */
-export function isShareLeadRow(row: SessionRowDescriptor, ordinal: number): boolean {
-  const turn = row.turn;
-  if (turn === undefined || !isSelectableTurn(turn)) return false;
-  const opensWithUser = turn.messages[0]?.kind === "user_message";
-  if (row.kind === "user") return opensWithUser && ordinal === 0;
-  if (row.kind === "assistant") return !opensWithUser && row.messageStart === 0;
-  return false;
+export function isShareMarkRow(row: SessionRowDescriptor): boolean {
+  if (row.turn === undefined) return false;
+  return row.kind === "user" || row.kind === "assistant" || row.kind === "shell" || row.kind === "refs";
 }
 
 /**
  * The mark for a cell's row: a {@link ShareTurnMark} while share mode is on
- * and `lead` says the row is its turn's first, otherwise `undefined` (the
- * row draws no check).
+ * and `lead` says the row carries one ({@link isShareMarkRow}), otherwise
+ * `undefined` (the row draws no check).
  */
 export function useShareTurnMark(turn: TurnEntry | undefined, lead: boolean): React.ReactNode {
   const context = React.useContext(ShareTurnsContext);
@@ -76,8 +73,8 @@ export function useShareTurnMark(turn: TurnEntry | undefined, lead: boolean): Re
 /**
  * The cell menu's turn items for a row of `turn`: Share from Here…, which
  * dispatches {@link TUG_ACTIONS.SHARE_FROM_TURN} with the turn's key for the
- * card's responder to answer. Offered on every row of a selectable committed
- * turn, and only where the card provides a share store.
+ * card's responder to answer. Offered on every row of a committed turn, and
+ * only where the card provides a share store.
  */
 export function useShareFromHereEntries(
   turn: TurnEntry | undefined,
@@ -87,7 +84,7 @@ export function useShareFromHereEntries(
   turnRef.current = turn;
   return React.useCallback(() => {
     const live = turnRef.current;
-    if (context === null || live === undefined || !isSelectableTurn(live)) return [];
+    if (context === null || live === undefined) return [];
     return [
       { action: TUG_ACTIONS.SHARE_FROM_TURN, value: live.turnKey, label: "Share from Here…" },
     ];

@@ -18,11 +18,11 @@
  *  - the **Markdown**, which `/export` writes through too, and the decoder
  *    for the document the render page receives.
  *
- * A turn is the unit: nothing selects part of one. Ink turns (`shell`,
- * `refs`) are records the user ran rather than the conversation, and their
- * cells act on live per-card stores a connectionless render page cannot
- * build, so they are never selectable; a `wheel` turn is an arc stage prompt
- * that is part of Claude's context, and is.
+ * A turn is the unit: nothing selects part of one. Every turn is selectable,
+ * whoever it is from — the user, Claude, the wheel, or an ink turn (`shell`,
+ * `refs`), the record of something the user ran. An ink turn's command and
+ * output ride the scrub like any other text, the Markdown writes it as a
+ * fenced block, and the render page draws it through the card's own cell.
  *
  * @module lib/share-turns
  */
@@ -36,6 +36,8 @@ import type {
 import { isInkOrigin } from "@/lib/code-session-store/types";
 import type { SessionIdentity } from "@/lib/session-identity";
 import { sessionDisplayTitle } from "@/lib/session-identity";
+import { stripAnsi } from "@/lib/ansi/strip-ansi";
+import { composeShellShareText } from "@/lib/shell-share";
 import { turnNumberAt } from "@/lib/session-transcript-data-source";
 import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import type { ToolCallMode } from "@/lib/turn-entry-markdown";
@@ -60,14 +62,9 @@ export interface ShareSelection {
   anchor: string | null;
 }
 
-/** Whether a turn can carry a mark: any turn that is not ink. */
-export function isSelectableTurn(turn: TurnEntry): boolean {
-  return !isInkOrigin(turn.origin);
-}
-
-/** The selectable turns' keys, in transcript order. */
+/** The selectable turns' keys — every committed turn's — in transcript order. */
 export function selectableTurnKeys(transcript: ReadonlyArray<TurnEntry>): string[] {
-  return transcript.filter(isSelectableTurn).map((turn) => turn.turnKey);
+  return transcript.map((turn) => turn.turnKey);
 }
 
 /** Toggle `key`'s mark, and make it the anchor. */
@@ -109,8 +106,8 @@ export function extendTo(
  * `assistant_thinking` message removed, and under `none` every `tool_use`
  * message removed. `summaries` and `full` keep the tool calls: the render
  * page shows them collapsed or open ({@link shareExpansionOverrides}), and
- * the Markdown writes them as lines or sections. An ink turn is never in a
- * slice, whatever the set says.
+ * the Markdown writes them as lines or sections. An ink turn's one message
+ * is kept whole.
  */
 export function buildShareSlice(
   transcript: ReadonlyArray<TurnEntry>,
@@ -119,7 +116,7 @@ export function buildShareSlice(
 ): TurnEntry[] {
   const slice: TurnEntry[] = [];
   for (const turn of transcript) {
-    if (!selected.has(turn.turnKey) || !isSelectableTurn(turn)) continue;
+    if (!selected.has(turn.turnKey)) continue;
     const copy = structuredClone(turn) as TurnEntry;
     const messages = copy.messages.filter(
       (m) =>
@@ -193,8 +190,9 @@ function localDate(ms: number): string {
  * The header for the selected turns of `transcript`: the session's display
  * title and project leaf from `identity`, the local date of the first selected
  * turn's end (or `first – last` when the last differs), and the selected
- * turns' numbers as the card shows them ({@link turnNumberAt} over
- * `snapshot`), compressed to ranges.
+ * conversation turns' numbers as the card shows them ({@link turnNumberAt}
+ * over `snapshot`), compressed to ranges. An ink turn is dated but not
+ * numbered there: its `#s`/`#r` address is its own sequence, not a turn's.
  */
 export function shareHeader(input: {
   identity: SessionIdentity;
@@ -206,8 +204,8 @@ export function shareHeader(input: {
   const numbers: number[] = [];
   const ends: number[] = [];
   transcript.forEach((turn, index) => {
-    if (!selected.has(turn.turnKey) || !isSelectableTurn(turn)) return;
-    numbers.push(turnNumberAt(snapshot, index));
+    if (!selected.has(turn.turnKey)) return;
+    if (!isInkOrigin(turn.origin)) numbers.push(turnNumberAt(snapshot, index));
     ends.push(turn.endedAt);
   });
   let dates = "";
@@ -290,6 +288,26 @@ function mapMessageStrings(m: Message, f: (s: string) => string): Message {
         result: mapStrings(m.result, f),
         structuredResult: mapStrings(m.structuredResult, f),
       } as ToolUseMessage;
+    case "shell_exchange":
+      // What the row shows: the command, its output and the directory it ran
+      // in, before and after.
+      return {
+        ...m,
+        command: f(m.command),
+        output: f(m.output),
+        cwd: f(m.cwd),
+        ...(m.cwdAfter !== null ? { cwdAfter: f(m.cwdAfter) } : {}),
+      };
+    case "refs_result":
+      // The command, the root every path is relative to, each ref's path and
+      // matched-line windows, and any notice.
+      return {
+        ...m,
+        command: f(m.command),
+        root: f(m.root),
+        refs: mapStrings(m.refs, f) as typeof m.refs,
+        ...(m.notice !== null ? { notice: f(m.notice) } : {}),
+      };
     default:
       return m;
   }
@@ -384,7 +402,10 @@ function factsLine(header: ShareHeader): string {
  *
  * With `header: null` the document opens `# Session transcript` — the
  * `/export` archive, whose bytes this must keep. With a header it opens
- * `# <title>` and one line of facts.
+ * `# <title>` and one line of facts, a wheel's prompt is headed `## Wheel`,
+ * and an ink turn is written too, as the fenced block its row shows: a shell
+ * exchange under `## Shell`, ANSI stripped and nothing capped, and a refs run
+ * under `## Refs`.
  */
 export function shareDocumentMarkdown(input: {
   turns: ReadonlyArray<TurnEntry>;
@@ -401,9 +422,15 @@ export function shareDocumentMarkdown(input: {
     if (facts.length > 0) sections.push(facts);
   }
   for (const turn of turns) {
+    if (header !== null && isInkOrigin(turn.origin)) {
+      const ink = inkTurnMarkdown(turn);
+      if (ink !== null) sections.push(ink);
+      continue;
+    }
     const prompt = turnPrompt(turn);
     if (prompt !== null && prompt.trim().length > 0) {
-      sections.push(`## You\n\n${prompt.trim()}`);
+      const speaker = header !== null && turn.origin === "wheel" ? "Wheel" : "You";
+      sections.push(`## ${speaker}\n\n${prompt.trim()}`);
     }
     const assistant = turnEntryToMarkdown(turn, { toolMode });
     if (assistant.length > 0) {
@@ -411,6 +438,37 @@ export function shareDocumentMarkdown(input: {
     }
   }
   return `${sections.join("\n\n")}\n`;
+}
+
+/** A fence longer than any backtick run in `body`, around it. */
+function fenced(body: string): string {
+  const longestRun = body.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0;
+  const fence = "`".repeat(Math.max(3, longestRun + 1));
+  return `${fence}\n${body}\n${fence}`;
+}
+
+/**
+ * An ink turn's section: a shell exchange as `$ command`, its whole output
+ * and its exit, the text Add to Context composes uncapped; a refs run as its
+ * command and one line per ref. `null` for a turn whose message is neither.
+ */
+function inkTurnMarkdown(turn: TurnEntry): string | null {
+  const m = turn.messages[0];
+  if (m?.kind === "shell_exchange") {
+    const text = composeShellShareText({ ...m, output: stripAnsi(m.output) }, Number.POSITIVE_INFINITY);
+    return `## Shell\n\n${text.trimEnd()}`;
+  }
+  if (m?.kind === "refs_result") {
+    const lines = [m.command];
+    for (const ref of m.refs) {
+      const at = ref.line === null ? ref.path : `${ref.path}:${ref.line}`;
+      const preview = ref.preview?.segments.map((s) => s.text).join("…").trim() ?? "";
+      lines.push(preview === "" ? at : `${at}: ${preview}`);
+    }
+    if (m.notice !== null && m.notice !== "") lines.push(m.notice);
+    return `## Refs\n\n${fenced(lines.join("\n"))}`;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,10 +494,13 @@ export interface ShareRenderDocument {
 }
 
 /**
- * The turn number each slice turn has in the card, parallel to `slice`: the
- * number {@link turnNumberAt} gives its place in `transcript` over
- * `snapshot`, so a pick of #3 and #9 renders as #3 and #9. A slice turn the
- * transcript does not hold (never, for a slice built from it) reads `0`.
+ * The number each slice turn wears in the card, parallel to `slice`: for a
+ * conversation turn, the number {@link turnNumberAt} gives its place in
+ * `transcript` over `snapshot`, so a pick of #3 and #9 renders as #3 and #9;
+ * for an ink turn, its place in its own `#s` or `#r` sequence — the count of
+ * its origin's turns up to it, as the card's row layout counts them. A slice
+ * turn the transcript does not hold (never, for a slice built from it) reads
+ * `0`.
  */
 export function shareTurnNumbers(
   slice: ReadonlyArray<TurnEntry>,
@@ -447,8 +508,17 @@ export function shareTurnNumbers(
   snapshot: CodeSessionSnapshot,
 ): number[] {
   const indexByKey = new Map<string, number>();
-  transcript.forEach((turn, index) => indexByKey.set(turn.turnKey, index));
+  const inkOrdinalByKey = new Map<string, number>();
+  let shell = 0;
+  let refs = 0;
+  transcript.forEach((turn, index) => {
+    indexByKey.set(turn.turnKey, index);
+    if (turn.origin === "shell") inkOrdinalByKey.set(turn.turnKey, (shell += 1));
+    else if (turn.origin === "refs") inkOrdinalByKey.set(turn.turnKey, (refs += 1));
+  });
   return slice.map((turn) => {
+    const ink = inkOrdinalByKey.get(turn.turnKey);
+    if (ink !== undefined) return ink;
     const index = indexByKey.get(turn.turnKey);
     return index === undefined ? 0 : turnNumberAt(snapshot, index);
   });

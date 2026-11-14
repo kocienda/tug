@@ -12,16 +12,17 @@
  * **The working design** is drawn first. It is the sheet header (candidate A
  * below) taken as a start, with four notes applied:
  *
- *  1. Mark All and Clear All sit in their own row, immediately below the
- *     description.
- *  2. The choice groups align on their left — and, with the first row's
- *     label shortened from "Tool calls" to "Turns", on the same left edge as
- *     the title, the description and the Mark All row: the label column is
- *     the header's icon column.
- *  3. An action-chooser row follows them: a label and a popup menu of
- *     Preview…, Copy, Save…, Share….
- *  4. Two buttons only at the bottom: Cancel, and one button that wears
- *     whatever action the menu names.
+ *  1. Mark All and Clear All sit in their own row under the header, centered
+ *     across the shade, the count in a fixed width so the row holds still.
+ *  2. Tools and Format share one line. Tools' label fills the header's icon
+ *     column, so its choices start on the same left edge as the title and
+ *     the description. When the shade is too narrow for the
+ *     line, Format stacks under Tools, its choices on Tools' left edge
+ *     (`useShareFormFit`, the real sheet's own).
+ *  3. The action chooser — a label and a popup menu of Preview…, Copy,
+ *     Save…, Share… — sits at the left of the bottom row.
+ *  4. Two buttons only, at the bottom row's right: Cancel, and one button
+ *     that wears whatever action the menu names.
  *
  * It is live: the menu's choice renames the action button, so the pairing can
  * be judged by using it. This is the surface to keep iterating on.
@@ -45,13 +46,14 @@
 import "./spike.css";
 import "./spike-share-shade-cta.css";
 
-import React, { useId, useState } from "react";
+import React, { useId, useRef, useState } from "react";
 import { Share } from "lucide-react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
+import { useShareFormFit } from "@/components/tugways/cards/session-share-view";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -117,6 +119,8 @@ function WorkingDesign(): React.ReactElement {
     },
   });
   const actionLabel = ACTIONS.find((entry) => entry.value === action)?.label ?? "";
+  const formRef = useRef<HTMLDivElement | null>(null);
+  useShareFormFit(formRef);
   return (
     <ResponderScope>
       <div className="sp-ssc-working" ref={responderRef as (el: HTMLDivElement | null) => void}>
@@ -129,22 +133,23 @@ function WorkingDesign(): React.ReactElement {
             <p className="tug-sheet-description">
               {LEAD} {MORE}
             </p>
-            {/* Note 1: their own row, immediately below the description. */}
-            <div className="sp-ssc-marks">
-              <TugPushButton size="sm" emphasis="outlined" role="action">
-                Mark All
-              </TugPushButton>
-              <TugPushButton size="sm" emphasis="outlined" role="action">
-                Clear All
-              </TugPushButton>
-              <span className="sp-ssc-count">3 turns marked</span>
-            </div>
           </div>
         </div>
-        {/* Notes 2 and 3: one label column, so the controls share a left
-            edge; the action chooser is the third row. */}
-        <div className="sp-ssc-form">
-          <span className="sp-ssc-field-label">Turns</span>
+        {/* Note 1: their own row under the header, centered across the shade;
+            the count holds a fixed width so the row does not move. */}
+        <div className="sp-ssc-marks">
+          <TugPushButton size="sm" emphasis="outlined" role="action">
+            Mark All
+          </TugPushButton>
+          <TugPushButton size="sm" emphasis="outlined" role="action">
+            Clear All
+          </TugPushButton>
+          <span className="sp-ssc-count">3 turns marked</span>
+        </div>
+        {/* Note 2: Tools and Format on one line when they fit, stacked when
+            not; Tools' label in the icon column either way. */}
+        <div className="sp-ssc-form" ref={formRef}>
+          <span className="sp-ssc-field-label sp-ssc-field-label--lead">Tools</span>
           <span className="sp-ssc-control">
             <TugChoiceGroup
               items={TOOL_MODE_ITEMS}
@@ -152,10 +157,10 @@ function WorkingDesign(): React.ReactElement {
               senderId={toolSenderId}
               size="sm"
               commit="live"
-              aria-label="Turns"
+              aria-label="Tools"
             />
           </span>
-          <span className="sp-ssc-field-label">Format</span>
+          <span className="sp-ssc-field-label sp-ssc-field-label--format">Format</span>
           <span className="sp-ssc-control">
             <TugChoiceGroup
               items={FORMAT_ITEMS}
@@ -166,13 +171,15 @@ function WorkingDesign(): React.ReactElement {
               aria-label="Format"
             />
           </span>
+        </div>
+        {/* Notes 3 and 4: Action at the bottom row's left, the two buttons at
+            its right. */}
+        <div className="sp-ssc-working-actions tug-sheet-actions">
           <span className="sp-ssc-field-label">Action</span>
           <span className="sp-ssc-control">
             <TugPopupButton label={actionLabel} items={ACTION_ITEMS} senderId={actionSenderId} size="sm" aria-label="Action" />
           </span>
-        </div>
-        {/* Note 4: two buttons only. */}
-        <div className="sp-ssc-working-actions tug-sheet-actions">
+          <span className="sp-ssc-spacer" />
           <TugPushButton size="sm" emphasis="outlined" role="action">
             Cancel
           </TugPushButton>
@@ -387,7 +394,7 @@ function SpikeShareShadeCta(): React.ReactElement {
       <Candidate
         letter="Working design"
         name="Sheet header, with the four notes"
-        precedent="The sheet header (A, below) as a start: Mark All and Clear All in their own row under the description; Turns, Format and Action on the title's own left edge, their labels in the icon's column; Action a popup menu of Preview…, Copy, Save…, Share…; and two buttons only — Cancel, and one that wears the menu's choice. Live: change the menu and the button follows."
+        precedent="The sheet header (A, below) as a start: Mark All and Clear All in their own row under the description; Tools and Format on one line when they fit (stacked, aligned, when they do not), Tools on the title's own left edge; and a bottom row with Action — a popup menu of Preview…, Copy, Save…, Share… — at its left and two buttons at its right: Cancel, and one that wears the menu's choice. This is what the real sheet wears. Live: change the menu and the button follows."
         scale="Top bar 15.2px semibold · instruction 12.8px regular at 80% · labels and count 12.8px · two-line header, 36px icon"
       >
         <WorkingDesign />
@@ -432,7 +439,7 @@ export const spike: SpikeDef = {
   name: "share-shade-cta",
   title: "Share Shade CTA",
   blurb:
-    "The Share shade in the sheet header grammar — Mark All / Clear All under the description, aligned Tool calls, Format and Action rows, and two buttons — with the candidates it was chosen from.",
+    "The Share shade in the sheet header grammar — Mark All / Clear All under the description, Tools and Format on one line, and Action beside the two buttons — with the candidates it was chosen from.",
   icon: "Share",
   component: () => <SpikeShareShadeCta />,
 };

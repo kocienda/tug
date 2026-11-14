@@ -16,16 +16,20 @@
  *    title, and the instruction as its description. The title is the largest
  *    type on the shade; the instruction is a description, never a style of
  *    its own.
- *  - **Mark All and Clear All**, in their own row directly under the
- *    description, with the count of marked turns beside them.
- *  - **The form**: Turns (how tool calls appear in them), Format and Action,
- *    one row each. Their labels sit in the header icon's column, so the three
- *    controls share the left edge of the title, the description and the Mark
- *    All row. Action is a popup
- *    menu of what the shade can do with the marked turns: Preview…, Copy,
- *    Save…, Share….
- *  - **Two buttons**: Cancel, which leaves the mode (Escape does too), and
- *    the action button, which wears the chosen action's name and performs it.
+ *  - **Mark All and Clear All**, in their own row under the header,
+ *    centered across the shade, with the count of marked turns beside them
+ *    in a fixed width so the row holds still as the count changes.
+ *  - **The form**: Tools (how tool calls appear in the turns) and Format on
+ *    one line, Tools' label in the header icon's column so its choices start
+ *    on the left edge of the title and the description.
+ *    When the shade is too narrow for one line, Format goes under Tools, its
+ *    label in the same column, so the two choices still share a left edge
+ *    ({@link useShareFormFit}).
+ *  - **The bottom row**: Action at its left — a popup menu of what the shade
+ *    can do with the marked turns: Preview…, Copy, Save…, Share… — and two
+ *    buttons at its right: Cancel, which leaves the mode (Escape does too),
+ *    and the action button, which wears the chosen action's name and
+ *    performs it.
  *
  * The action button is enabled whenever a turn is marked and no preview is
  * being prepared. Nothing leaves the machine unseen: Copy, Save… and Share…
@@ -48,7 +52,7 @@
 
 import "./session-share-view.css";
 
-import React, { useCallback, useId, useRef } from "react";
+import React, { useCallback, useId, useLayoutEffect, useRef } from "react";
 import { Share } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -104,6 +108,39 @@ function isAction(value: string): value is ShareAction {
 /** The name the action button and the menu's trigger wear for `action`. */
 export function shareActionLabel(action: ShareAction): string {
   return SHARE_ACTIONS.find((entry) => entry.value === action)?.label ?? "";
+}
+
+/**
+ * Lay the share form's Tools and Format on one line when they fit and stack
+ * them when they do not, by writing `data-layout="line"` or `"stack"` on the
+ * form ([L06]: a DOM attribute, never React state). The line's width is read
+ * while it is laid out as a line — its `scrollWidth`, which overflows when it
+ * does not fit — and remembered, so a stacked form goes back to a line only
+ * once the form is that wide again and never flips back and forth.
+ */
+export function useShareFormFit(formRef: React.RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const form = formRef.current;
+    if (form === null) return;
+    let lineWidth = 0;
+    const fit = (): void => {
+      // A shade not laid out (closed, or not yet risen) measures nothing.
+      if (form.clientWidth === 0) return;
+      if (form.dataset.layout !== "stack") {
+        lineWidth = form.scrollWidth;
+        if (lineWidth > form.clientWidth + 0.5) form.dataset.layout = "stack";
+      } else if (lineWidth > 0 && form.clientWidth >= lineWidth) {
+        form.dataset.layout = "line";
+        // Re-read on the line itself, in case its parts changed width.
+        if (form.scrollWidth > form.clientWidth + 0.5) form.dataset.layout = "stack";
+      }
+    };
+    form.dataset.layout = "line";
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(form);
+    return () => observer.disconnect();
+  }, [formRef]);
 }
 
 /** "1 turn marked", "3 turns marked", or "No turns marked". */
@@ -163,6 +200,8 @@ export function SessionShareView({
   // The action button performs whatever the Action menu names, read live at
   // the press ([L07]). Share… anchors the system picker at this button.
   const goButtonRef = useRef<HTMLButtonElement | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
+  useShareFormFit(formRef);
   const go = useCallback(() => {
     switch (store.getSnapshot().action) {
       case "preview":
@@ -211,35 +250,38 @@ export function SessionShareView({
               Check the box at the right of each turn you want to share. Shift-click a box to mark
               every turn between it and the last one you clicked.
             </p>
-            <div className="session-share-view__marks">
-              <TugPushButton
-                size="sm"
-                emphasis="outlined"
-                role="action"
-                onClick={onMarkAll}
-                data-testid="session-share-mark-all"
-              >
-                Mark All
-              </TugPushButton>
-              <TugPushButton
-                size="sm"
-                emphasis="outlined"
-                role="action"
-                disabled={count === 0}
-                onClick={() => store.clearMarks()}
-                data-testid="session-share-clear"
-              >
-                Clear All
-              </TugPushButton>
-              <span className="session-share-view__count" data-testid="session-share-count">
-                {shareCountLabel(count)}
-              </span>
-            </div>
           </div>
         </div>
-        {/* One label column, so the three controls share a left edge. */}
-        <div className="session-share-view__form">
-          <span className="session-share-view__label">Turns</span>
+        {/* Mark All, Clear All and the count, centered across the shade. The
+            count holds a fixed width, so the row does not move as it changes. */}
+        <div className="session-share-view__marks" data-testid="session-share-marks">
+          <TugPushButton
+            size="sm"
+            emphasis="outlined"
+            role="action"
+            onClick={onMarkAll}
+            data-testid="session-share-mark-all"
+          >
+            Mark All
+          </TugPushButton>
+          <TugPushButton
+            size="sm"
+            emphasis="outlined"
+            role="action"
+            disabled={count === 0}
+            onClick={() => store.clearMarks()}
+            data-testid="session-share-clear"
+          >
+            Clear All
+          </TugPushButton>
+          <span className="session-share-view__count" data-testid="session-share-count">
+            {shareCountLabel(count)}
+          </span>
+        </div>
+        {/* Tools and Format on one line when they fit, stacked when not;
+            Tools' label in the icon column either way. */}
+        <div className="session-share-view__form" ref={formRef} data-testid="session-share-form">
+          <span className="session-share-view__label session-share-view__label--lead">Tools</span>
           <span className="session-share-view__control">
             <TugChoiceGroup
               items={TOOL_MODE_ITEMS}
@@ -247,12 +289,12 @@ export function SessionShareView({
               senderId={toolSenderId}
               size="sm"
               commit="live"
-              aria-label="Turns"
+              aria-label="Tools"
               data-testid="session-share-tool-mode"
             />
           </span>
-          <span className="session-share-view__label">Format</span>
-          <span className="session-share-view__control">
+          <span className="session-share-view__label session-share-view__label--format">Format</span>
+          <span className="session-share-view__control session-share-view__control--format">
             <TugChoiceGroup
               items={FORMAT_ITEMS}
               value={snapshot.format}
@@ -263,6 +305,9 @@ export function SessionShareView({
               data-testid="session-share-format"
             />
           </span>
+        </div>
+        {/* The bottom row: Action at the left, the two buttons at the right. */}
+        <div className="session-share-view__actions tug-sheet-actions">
           <span className="session-share-view__label">Action</span>
           <span className="session-share-view__control" data-testid="session-share-action">
             <TugPopupButton
@@ -274,8 +319,6 @@ export function SessionShareView({
               data-testid="session-share-action-menu"
             />
           </span>
-        </div>
-        <div className="session-share-view__actions tug-sheet-actions">
           {snapshot.rendering ? (
             <span className="session-share-view__rendering" data-testid="session-share-rendering" role="status">
               <TugProgressIndicator variant="spinner" state="running" tone="inherit" size={12} />

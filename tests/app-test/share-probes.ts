@@ -214,11 +214,37 @@ export function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<void> {
   return pressThroughPreview(app, "preview", timeoutMs);
 }
 
-/** The marks' turn keys in transcript order, and which are checked. */
+/**
+ * The marked turns' keys in transcript order, one per turn, and which are
+ * checked. Every entry row of a turn carries its mark, so a turn is checked
+ * only when every one of its marks reads checked.
+ */
 export function marksJs(): string {
-  return `Array.from(document.querySelectorAll(${JSON.stringify(MARK)})).map(function (el) {
-    return { key: el.getAttribute("data-turn-key"), checked: el.getAttribute("aria-checked") === "true" };
-  })`;
+  return `(function(){
+    var order = [];
+    var byKey = {};
+    Array.from(document.querySelectorAll(${JSON.stringify(MARK)})).forEach(function (el) {
+      var key = el.getAttribute("data-turn-key");
+      var checked = el.getAttribute("aria-checked") === "true";
+      if (!(key in byKey)) { order.push(key); byKey[key] = checked; }
+      else byKey[key] = byKey[key] && checked;
+    });
+    return order.map(function (key) { return { key: key, checked: byKey[key] }; });
+  })()`;
+}
+
+/** How many marks each kind of entry row carries, by its participant. */
+export function markRowsJs(): string {
+  return `(function(){
+    var counts = { user: 0, assistant: 0, shell: 0, other: 0 };
+    Array.from(document.querySelectorAll(${JSON.stringify(MARK)})).forEach(function (el) {
+      var p = el.closest("[data-participant]");
+      var who = p === null ? "other" : p.getAttribute("data-participant");
+      if (who === "user" || who === "assistant" || who === "shell") counts[who] += 1;
+      else counts.other += 1;
+    });
+    return counts;
+  })()`;
 }
 
 /** A selector for the mark of the turn whose key is `key`. */

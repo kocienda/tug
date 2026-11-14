@@ -21,7 +21,8 @@
   min-height: 0;
   /* The sheet's own margins, since the shade wears a sheet's header. */
   padding: var(--tugx-sheet-space-b);
-  gap: var(--tugx-sheet-space-a);
+  /* The rows — header, Mark All, the form, the bottom row — stand apart. */
+  gap: var(--tug-space-2xl);
 }
 
 /* The header's bottom margin is the sheet's header-to-body gap; here the
@@ -30,39 +31,62 @@
   margin-bottom: 0;
 }
 
-/* Mark All and Clear All, in their own row directly under the description,
-   with the count beside them. Inside the heading column, so the row starts
-   at the instruction's left edge. */
+/* Mark All and Clear All, in their own row under the header, centered across
+   the shade, with the count beside them. */
 .session-share-view__marks {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: var(--tug-space-sm);
-  margin-top: var(--tugx-sheet-space-a);
-  /* A little air before the form, beyond the column's own gap. */
-  margin-bottom: var(--tug-space-sm);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-share-view__count {
   margin-inline-start: var(--tug-space-xs);
+  /* A fixed width, wide enough for "999 turns marked", so the centered row
+     holds still as the count's text changes. */
+  width: 9em;
   color: var(--tug7-element-field-text-normal-label-rest);
   font-size: var(--tugx-header-desc-size);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* The form: Turns, Format, Action. The label column is exactly the header's
-   icon column and its gap, so the three controls start on the same left edge
-   as the title, the description and the Mark All row above them, and the
-   labels sit in the icon's column, under the icon. */
+/* The form: Tools and Format. Tools' label is exactly the header's icon
+   column and its gap wide, so its choices start on the same left edge as the
+   title and the description above them. As a line
+   (`data-layout="line"`, the default) Format follows Tools; stacked
+   (`"stack"`, written by `useShareFormFit` when the line does not fit),
+   Format's label takes the first column under Tools' and its choices start
+   on Tools' left edge. Every item keeps its own width, so the line's
+   `scrollWidth` is the width it needs. */
 .session-share-view__form {
   display: grid;
-  grid-template-columns: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two)) minmax(0, 1fr);
+  grid-template-columns: auto auto auto auto;
+  justify-content: start;
   align-items: center;
   column-gap: 0;
-  row-gap: var(--tug-space-sm);
+  row-gap: var(--tug-space-2xl);
+  min-width: 0;
+}
+
+.session-share-view__form[data-layout="stack"] {
+  grid-template-columns: auto auto;
+}
+
+.session-share-view__label--lead {
+  width: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two));
+}
+
+.session-share-view__label--format {
+  margin-inline-start: var(--tug-space-xl);
+  margin-inline-end: var(--tug-space-sm);
+}
+
+.session-share-view__form[data-layout="stack"] .session-share-view__label--format {
+  margin-inline: 0;
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
@@ -72,15 +96,15 @@
   white-space: nowrap;
 }
 
-/* The control keeps its own width at the column's left edge. */
+/* The control keeps its own width, at its column's start. */
 .session-share-view__control {
   display: flex;
   justify-self: start;
   min-width: 0;
 }
 
-/* The two buttons — `.tug-sheet-actions`: right-aligned, sheet spacing. The
-   "Rendering…" status holds the row's leading edge. */
+/* The bottom row — `.tug-sheet-actions`, sheet spacing: Action and the
+   "Rendering…" status at its leading edge, the two buttons at its right. */
 .session-share-view__actions {
   align-items: center;
   margin-top: 0;

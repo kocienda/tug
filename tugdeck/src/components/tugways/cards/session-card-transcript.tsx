@@ -208,7 +208,7 @@ import {
 } from "@/lib/code-session-store/stages";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
-  isShareLeadRow,
+  isShareMarkRow,
   ShareTurnsContext,
   useShareFromHereEntries,
   useShareTurnMark,
@@ -239,7 +239,7 @@ import { RefsResultBlock } from "./refs-result-block";
 import { composeRefsShareText, refsShareLabel } from "./refs-result-view";
 import type { ShellSessionStore } from "@/lib/shell-session-store";
 import type { RefsSessionStore } from "@/lib/refs-session-store";
-import type { PendingContextStore } from "@/lib/pending-context-store";
+import { PendingContextStore } from "@/lib/pending-context-store";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import type { CodeSessionStore, Message } from "@/lib/code-session-store";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
@@ -573,8 +573,8 @@ const UserMessageCell = React.memo(function UserMessageCell({
     turn: turnNumber,
     sub: dataSource.withinTurnOrdinalForRow(index),
   };
-  // In share mode the turn's first row carries its share mark ([L02]).
-  const shareMark = useShareTurnMark(row.turn, isShareLeadRow(row, address.sub));
+  // In share mode every entry row carries its turn's share mark ([L02]).
+  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
   const shareFromHere = useShareFromHereEntries(row.turn);
   // The data source resolves the specific `user_message` this row
   // renders (the turn opener, or a merged/steered mid-turn message —
@@ -884,7 +884,8 @@ interface ShellTurnCellProps {
   row: SessionRowDescriptor;
   dataSource: SessionTranscriptDataSource;
   codeSessionStore: CodeSessionStore;
-  shellSessionStore: ShellSessionStore;
+  /** Unread by the cell; the live host passes it. */
+  shellSessionStore?: ShellSessionStore;
   pendingContextStore: PendingContextStore;
   sessionMetadataStore: SessionMetadataStore;
 }
@@ -913,7 +914,14 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   // `#s1`, `#s2`, … independent of the Claude `#u`/`#a` turn numbers
   // interleaved among the shell rows. The data source assigns it in
   // flat-row order across the whole (always fully loaded) shell ledger.
-  const shellNumber = dataSource.shellOrdinalForRow(index);
+  // On a share page the card's own number wins, as the turn rows' does.
+  const sharedNumbers = useContext(ShareTurnNumberContext);
+  const sharedNumber =
+    row.turn !== undefined ? sharedNumbers?.get(row.turn.turnKey) : undefined;
+  const shellNumber = sharedNumber ?? dataSource.shellOrdinalForRow(index);
+  // In share mode the row carries its turn's share mark ([L02]).
+  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
+  const shareFromHere = useShareFromHereEntries(row.turn);
   // ⌘C / ⌘A / the right-click text menu for this row — the same cell menu the
   // user and assistant cells mount. Without a COPY handler on the chain, Edit ▸
   // Copy validates dark (its enablement IS `validateAction(COPY)`) and ⌘C, its
@@ -925,6 +933,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     insertTarget,
+    turnEntries: shareFromHere,
   });
   // One stable callback ref for both the responder registration and the menu /
   // Select All body anchor. Inline would mint a new function each render, and
@@ -1045,6 +1054,7 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
           )
         }
         address={isArcRow ? undefined : address}
+        mark={shareMark}
         body={
           // The same whole-block collapse a Bash block wears ([P02]): the
           // chrome renders the header expand/collapse chevron, and fold-
@@ -1112,7 +1122,8 @@ interface RefsTurnCellProps {
   row: SessionRowDescriptor;
   dataSource: SessionTranscriptDataSource;
   codeSessionStore: CodeSessionStore;
-  refsSessionStore: RefsSessionStore;
+  /** The run in flight's Cancel; absent on a share page, whose runs are settled. */
+  refsSessionStore?: RefsSessionStore;
   pendingContextStore: PendingContextStore;
   sessionMetadataStore: SessionMetadataStore;
 }
@@ -1139,7 +1150,13 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
   // The `#r{n}` badge is its own session-wide refs counter ([P12]) — `#r1`,
   // `#r2`, … independent of the Claude `#u`/`#a` turn numbers and of the
   // shell `#s` sequence it is interleaved with.
-  const refsNumber = dataSource.refsOrdinalForRow(index);
+  const sharedNumbers = useContext(ShareTurnNumberContext);
+  const sharedNumber =
+    row.turn !== undefined ? sharedNumbers?.get(row.turn.turnKey) : undefined;
+  const refsNumber = sharedNumber ?? dataSource.refsOrdinalForRow(index);
+  // In share mode the row carries its turn's share mark ([L02]).
+  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
+  const shareFromHere = useShareFromHereEntries(row.turn);
   // ⌘C / ⌘A / the right-click text menu for this row — the same cell menu
   // every other transcript cell mounts. Without a COPY handler on the chain,
   // Edit ▸ Copy validates dark and ⌘C dies in the menu bar before the web
@@ -1148,6 +1165,7 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     insertTarget,
+    turnEntries: shareFromHere,
   });
   const responderRef = cellProps.ref;
   const cellRef = useCallback(
@@ -1185,6 +1203,7 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
         identifier={REFS_IDENTIFIER}
         timestamp={timestamp}
         address={address}
+        mark={shareMark}
         body={
           // The same whole-block collapse every other block wears ([P02]),
           // keyed on the run id so the user's expand/collapse choice survives
@@ -1208,7 +1227,7 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
                   });
                 }
               }}
-              onCancel={() => refsSessionStore.cancel()}
+              onCancel={() => refsSessionStore?.cancel()}
               componentStatePreservationKey={`refs-${message.runId}`}
             />
           </ToolBlockHistoryCollapse>
@@ -1838,7 +1857,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
     turn: turnNumber,
     sub: dataSource.withinTurnOrdinalForRow(index),
   };
-  const shareMark = useShareTurnMark(row.turn, isShareLeadRow(row, address.sub));
+  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
   const shareFromHere = useShareFromHereEntries(row.turn);
   // `turnKey` is set for every assistant row by `rowAt`. The fallback
   // throws in dev (data-source contract violation) and falls back to
@@ -3563,10 +3582,12 @@ export interface SessionShareTranscriptProps {
  * mounted at once, because the page exists to be photographed whole. The
  * rows are bounded by the selection a share makes, not by a session's length.
  *
- * Only the two kinds a share holds render; a shell, refs or ghost row never
- * reaches a share slice, and its cell would need the live card's stores.
- * The providers a cell reads beyond its props (tool-block expansion, turn
- * numbers, the theme, the responder chain) are the share root's to supply.
+ * The user, assistant, shell and refs rows render; a ghost row never reaches
+ * a share slice. A shell or refs cell reads a pending-context queue for its
+ * Add to Context toggle, so the page gives them an empty one of its own,
+ * which nothing persists. The providers a cell reads beyond its props
+ * (tool-block expansion, turn numbers, the theme, the responder chain) are
+ * the share root's to supply.
  */
 export function SessionShareTranscript({
   codeSessionStore,
@@ -3579,6 +3600,7 @@ export function SessionShareTranscript({
     useCallback(() => dataSource.getVersion(), [dataSource]),
   );
   const streamingStore = codeSessionStore.streamingDocument;
+  const [pendingContextStore] = useState(() => new PendingContextStore());
   const rows: React.ReactNode[] = [];
   const count = dataSource.numberOfItems();
   for (let index = 0; index < count; index += 1) {
@@ -3603,6 +3625,28 @@ export function SessionShareTranscript({
             codeSessionStore={codeSessionStore}
             sessionMetadataStore={sessionMetadataStore}
             streamingStore={streamingStore}
+          />
+        </div>,
+      );
+    } else if (kind === "shell") {
+      rows.push(
+        <div key={id} className="session-share-transcript__row" data-share-row="shell">
+          <ShellTurnCell
+            {...cell}
+            codeSessionStore={codeSessionStore}
+            pendingContextStore={pendingContextStore}
+            sessionMetadataStore={sessionMetadataStore}
+          />
+        </div>,
+      );
+    } else if (kind === "refs") {
+      rows.push(
+        <div key={id} className="session-share-transcript__row" data-share-row="refs">
+          <RefsTurnCell
+            {...cell}
+            codeSessionStore={codeSessionStore}
+            pendingContextStore={pendingContextStore}
+            sessionMetadataStore={sessionMetadataStore}
           />
         </div>,
       );

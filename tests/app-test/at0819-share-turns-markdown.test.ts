@@ -13,20 +13,30 @@
  *   A. File ▸ Share Turns… enters share mode: the Share shade rises from the
  *      bottom of the transcript and rests on the Z2 status bar, and the
  *      composer stays where it is, with the draft typed into it still there.
- *   B. Clicking marks 1 and 3 toggles them; a shift-click on 4 extends from
- *      3, so 1, 3 and 4 are marked. Each check sits at the right of its
- *      turn's header, after the turn address, and the participant icon still
+ *      Tools' choices share the left edge of the title and the description;
+ *      the Mark All row is centered across the shade and holds still as the
+ *      count changes; Format sits on Tools' line; and Action sits on the buttons'
+ *      row, at its left, under the Tools label. Narrowed until the line does
+ *      not fit, the form stacks Format under Tools with the two choices on
+ *      one left edge, and widened again it is one line.
+ *   B. Every entry carries its turn's check — the prompt and the answer of
+ *      each of the four turns, and a shell exchange seeded after them.
+ *      Clicking marks 1 and 3 toggles them (both of a turn's checks follow);
+ *      a shift-click on 4 extends from 3; a click marks the shell turn — so
+ *      1, 3, 4 and the shell are marked. Each check sits at the right of its
+ *      entry's header, after the address, and the participant icon still
  *      draws in its seat.
  *   C. The shade has one action button, which wears what the Action menu
  *      names. With Markdown chosen (a share starts as a PDF) and Copy chosen
  *      in the menu, a press on a selection not yet previewed shows the
  *      preview first, with a Copy button, and Return on it copies.
  *   D. Copy writes Markdown that carries `[secret]` where the key was and
- *      `~/` where the home was, holds neither the key nor the raw home, and
- *      holds nothing of the unmarked turn 2.
+ *      `~/` where the home was — in the shell's output too — holds neither
+ *      the key nor the raw home, holds the shell exchange as a fenced block,
+ *      and holds nothing of the unmarked turn 2.
  *   E. Marking turn 2 moves the selection off the preview: the action button
  *      stays open, and the next press would preview again.
- *   E2. Mark All marks all four turns; Clear unmarks them, leaving the mode on.
+ *   E2. Mark All marks all five turns; Clear unmarks them, leaving the mode on.
  *   F. Escape leaves share mode, and the composer's draft is intact.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
@@ -62,6 +72,7 @@ import {
   chooseFormat,
   clickMark,
   enabledJs,
+  markRowsJs,
   marksJs,
   openSeededCard,
   pressThroughPreview,
@@ -75,6 +86,10 @@ const TEST_TIMEOUT_MS = 120_000;
 const SID = "at0819-session";
 const DRAFT = "unsent words";
 const SENTINEL = "at0819-sentinel";
+/** The seeded shell exchange: its command, and output naming a home path. */
+const SHELL_COMMAND = "ls at0819-demo";
+const SHELL_OUTPUT = `${HOME}/src/demo/notes.txt\n`;
+const SHELL_ROW = '[data-card-id="A"] [data-slot="session-transcript-shell-row"]';
 
 interface Mark {
   key: string;
@@ -92,6 +107,18 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
       try {
         projectDir = await openSeededCard(app, SID);
         const card = app.body("A");
+        // A shell exchange after the four turns: ink, and shareable too.
+        await app.driveSession("A", {
+          op: "shellExchange",
+          exchangeId: "at0819-x1",
+          command: SHELL_COMMAND,
+          output: SHELL_OUTPUT,
+          cwd: projectDir,
+          exitCode: 0,
+        });
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(SHELL_ROW)})`, {
+          timeoutMs: 6_000,
+        });
 
         // A draft in the composer, which share mode must not lose.
         await card.nativeClickAtElement(PROMPT_INPUT);
@@ -127,22 +154,84 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
           return Math.abs(panel.getBoundingClientRect().bottom - z2.getBoundingClientRect().top);
         })()`;
         await card.waitForCondition<boolean>(`(${restJs}) !== null && (${restJs}) <= 2`, { timeoutMs: 4_000 });
-        // The three controls — Turns, Format, Action — share a left edge with
-        // the title, the description and the Mark All row above them, and
-        // with nothing marked the action button has nothing to act on.
-        const lefts = await card.evalJS<number[]>(`[
-          '[data-card-id="A"] [data-slot="session-share-view"] .tug-sheet-title',
-          '[data-card-id="A"] [data-testid="session-share-instruction"]',
-          '[data-card-id="A"] [data-testid="session-share-mark-all"]',
-          '[data-card-id="A"] [data-testid="session-share-tool-mode"]',
-          '[data-card-id="A"] [data-testid="session-share-format"]',
-          ${JSON.stringify(ACTION_TRIGGER)},
-        ].map(function (s) { return Math.round(document.querySelector(s).getBoundingClientRect().left); })`);
-        note(`at0819 left edges (title, description, Mark All, Turns, Format, Action): ${JSON.stringify(lefts)}`);
+        // Tools' choices share a left edge with the title, the description
+        // and the Mark All row above them; Format sits on Tools' line; Action
+        // sits on the buttons' row, at its left, under the Tools label. With
+        // nothing marked the action button has nothing to act on.
+        const layoutJs = `(function(){
+          function r(s) { return document.querySelector(s).getBoundingClientRect(); }
+          var lefts = [
+            '[data-card-id="A"] [data-slot="session-share-view"] .tug-sheet-title',
+            '[data-card-id="A"] [data-testid="session-share-instruction"]',
+            '[data-card-id="A"] [data-testid="session-share-tool-mode"]',
+          ].map(function (s) { return Math.round(r(s).left); });
+          var tools = r('[data-card-id="A"] [data-testid="session-share-tool-mode"]');
+          var format = r('[data-card-id="A"] [data-testid="session-share-format"]');
+          var action = r(${JSON.stringify(ACTION_TRIGGER)});
+          var go = r(${JSON.stringify(GO)});
+          return {
+            lefts: lefts,
+            layout: document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getAttribute("data-layout"),
+            toolsMid: Math.round(tools.top + tools.height / 2),
+            formatMid: Math.round(format.top + format.height / 2),
+            toolsLeft: Math.round(tools.left),
+            formatLeft: Math.round(format.left),
+            toolsLabelLeft: Math.round(document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getBoundingClientRect().left),
+            actionMid: Math.round(action.top + action.height / 2),
+            actionLeft: Math.round(action.left),
+            actionLabelLeft: Math.round(r('[data-card-id="A"] .session-share-view__actions .session-share-view__label').left),
+            goMid: Math.round(go.top + go.height / 2),
+            goLeft: Math.round(go.left),
+            markAllLeft: Math.round(r('[data-card-id="A"] [data-testid="session-share-mark-all"]').left),
+            marksMid: (function () {
+              var a = r('[data-card-id="A"] [data-testid="session-share-mark-all"]');
+              var c = r('[data-card-id="A"] [data-testid="session-share-count"]');
+              return Math.round((a.left + c.right) / 2);
+            })(),
+            viewMid: (function () {
+              var v = document.querySelector('[data-card-id="A"] [data-slot="session-share-view"]');
+              var s = getComputedStyle(v);
+              var b = v.getBoundingClientRect();
+              var left = b.left + parseFloat(s.paddingLeft);
+              var right = b.right - parseFloat(s.paddingRight);
+              return Math.round((left + right) / 2);
+            })(),
+          };
+        })()`;
+        type Layout = {
+          lefts: number[]; layout: string; toolsMid: number; formatMid: number; toolsLeft: number; formatLeft: number;
+          toolsLabelLeft: number; actionMid: number; actionLeft: number; actionLabelLeft: number; goMid: number; goLeft: number;
+          markAllLeft: number; marksMid: number; viewMid: number;
+        };
+        const layout = await card.evalJS<Layout>(layoutJs);
+        note(`at0819 layout: ${JSON.stringify(layout)}`);
         expect(
-          Math.max(...lefts) - Math.min(...lefts),
-          `the header's text and the three controls share a left edge: ${JSON.stringify(lefts)}`,
+          Math.max(...layout.lefts) - Math.min(...layout.lefts),
+          `the header's text and Tools share a left edge: ${JSON.stringify(layout.lefts)}`,
         ).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.toolsMid - layout.formatMid), "Format sits on Tools' line").toBeLessThanOrEqual(2);
+        expect(layout.layout, "the form is one line where it fits").toBe("line");
+        expect(Math.abs(layout.actionMid - layout.goMid), "Action sits on the buttons' row").toBeLessThanOrEqual(2);
+        expect(layout.actionLeft, "Action is at the row's left, before the buttons").toBeLessThan(layout.goLeft);
+        expect(Math.abs(layout.actionLabelLeft - layout.toolsLabelLeft), "the Action label is under the Tools label").toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.marksMid - layout.viewMid), "the Mark All row is centered across the shade").toBeLessThanOrEqual(2);
+        // Narrowed until the line does not fit, Format stacks under Tools on
+        // Tools' left edge; widened again, it is one line.
+        const VIEW = '[data-card-id="A"] [data-slot="session-share-view"]';
+        await card.evalJS<null>(`(document.querySelector(${JSON.stringify(VIEW)}).style.width = "480px", null)`);
+        await card.waitForCondition<boolean>(
+          `document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getAttribute("data-layout") === "stack"`,
+          { timeoutMs: 4_000 },
+        );
+        const stacked = await card.evalJS<Layout>(layoutJs);
+        note(`at0819 stacked layout: ${JSON.stringify(stacked)}`);
+        expect(stacked.formatMid, "stacked, Format is under Tools").toBeGreaterThan(stacked.toolsMid + 4);
+        expect(Math.abs(stacked.formatLeft - stacked.toolsLeft), "stacked, the choices share a left edge").toBeLessThanOrEqual(1);
+        await card.evalJS<null>(`(document.querySelector(${JSON.stringify(VIEW)}).style.width = "", null)`);
+        await card.waitForCondition<boolean>(
+          `document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getAttribute("data-layout") === "line"`,
+          { timeoutMs: 4_000 },
+        );
         expect(await card.evalJS<boolean>(enabledJs(GO)), "nothing marked, nothing to do").toBe(false);
         expect(
           await card.evalJS<string>(`document.querySelector(${JSON.stringify(GO)}).textContent || ""`),
@@ -151,8 +240,11 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
 
         const marks = await card.evalJS<Mark[]>(marksJs());
         note(`at0819 marks: ${JSON.stringify(marks)}`);
-        expect(marks.length, "one mark per turn").toBe(4);
-        const [k1, k2, k3, k4] = marks.map((m) => m.key);
+        expect(marks.length, "every turn is markable, the shell's too").toBe(5);
+        const [k1, k2, k3, k4, k5] = marks.map((m) => m.key);
+        const rows = await card.evalJS<Record<string, number>>(markRowsJs());
+        note(`at0819 marks by entry: ${JSON.stringify(rows)}`);
+        expect(rows, "every entry carries its turn's check").toEqual({ user: 4, assistant: 4, shell: 1, other: 0 });
 
         // ── B. Click 1 and 3; shift-click 4 extends from 3 ─────────────────
         // Each click is answered before the next is made, so no two clicks
@@ -168,8 +260,14 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         await countIs("2 turns marked");
         await clickMark(app, k4, true);
         await countIs("3 turns marked");
+        await clickMark(app, k5);
+        await countIs("4 turns marked");
+        expect(
+          (await card.evalJS<Layout>(layoutJs)).markAllLeft,
+          "the Mark All row holds still as the count changes",
+        ).toBe(layout.markAllLeft);
         const checked = (await card.evalJS<Mark[]>(marksJs())).map((m) => m.checked);
-        expect(checked, "1, 3 and 4 are marked").toEqual([true, false, true, true]);
+        expect(checked, "1, 3, 4 and the shell are marked, every entry's check").toEqual([true, false, true, true, true]);
         const seat = await card.evalJS<{ icons: number; marks: number; rightOfAddress: boolean }>(`(function(){
           var marks = Array.from(document.querySelectorAll(${JSON.stringify(MARK)}));
           var right = marks.every(function (m) {
@@ -216,6 +314,8 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(copied, "the key never leaves").not.toContain(SECRET);
         expect(copied, "the raw home never leaves").not.toContain(HOME);
         expect(copied, "the unmarked turn stays out").not.toContain(UNMARKED_WORD);
+        expect(copied, "the shell exchange is a fenced block").toContain(`## Shell\n\n\`\`\`\n$ ${SHELL_COMMAND}\n`);
+        expect(copied, "the shell's home is shortened").toContain("~/src/demo/notes.txt");
 
         // ── E. Marking turn 2 moves the selection off the preview ──────────
         await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === true`, {
@@ -229,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
 
         // ── E2. Mark All, then Clear ───────────────────────────────────────
         await card.nativeClickAtElement(MARK_ALL);
-        await countIs("4 turns marked");
+        await countIs("5 turns marked");
         expect((await card.evalJS<Mark[]>(marksJs())).every((m) => m.checked), "every turn is marked").toBe(true);
         await card.nativeClickAtElement(CLEAR);
         await countIs("No turns marked");
