@@ -103,8 +103,8 @@ function GalleryAlertInner() {
 
   async function handleBasicAlert() {
     const confirmed = await showAlert({
-      title: "Replace Existing File?",
-      message: 'A file named \u201cQ4 Report.pdf\u201d already exists in Downloads. Replacing it will overwrite the current version.',
+      title: "Open 12 Files?",
+      message: "Each file opens in its own card.",
     });
     setBasicResult(confirmed ? "confirmed" : "cancelled");
   }
@@ -184,7 +184,7 @@ function GalleryAlertInner() {
         <div style={labelStyle}>useTugAlert() hook — default action role, default info icon</div>
         <div style={{ display: "flex" }}>
           <TugPushButton emphasis="outlined" size="sm" onClick={handleBasicAlert}>
-            Replace File
+            Open Files
           </TugPushButton>
         </div>
         <div style={resultStyle}>

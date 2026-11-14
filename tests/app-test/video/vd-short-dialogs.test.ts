@@ -73,7 +73,7 @@ const ICON = join(import.meta.dir, "..", "..", "..", "tugapp", "Assets.xcassets"
 const ALERT = ".tug-alert-content";
 
 /** The gallery's demo buttons, by their label. */
-type Demo = "Send Feedback" | "Delete Card" | "Discard Changes" | "Replace File";
+type Demo = "Send Feedback" | "Delete Card" | "Discard Changes" | "Open Files";
 
 type Beat =
   | { at: number; open: Demo }
@@ -83,7 +83,7 @@ type Beat =
 const BEATS: readonly Beat[] = [
   // "Here's a small detail I loved putting into Tug: its dialog buttons." The composer covers this with its classic
   // frame and fades to the dialog under "I brought back the classic Mac double ring".
-  { at: 0.1, open: "Replace File" },
+  { at: 0.1, open: "Open Files" },
   // "It marks the default button: the one I get if I just hit Return." The composer pushes in on the buttons and back.
   { at: 9.6, key: "Return", caps: ["return"], next: "Delete Card" },
   // "And in Tug, I can move the double ring with the arrow keys."
@@ -95,7 +95,7 @@ const BEATS: readonly Beat[] = [
   // "Escape dismisses a dialog, of course."
   { at: 21.4, key: "Escape", caps: ["esc"], next: "Send Feedback" },
   // "And so does Command-period, in true Mac style."
-  { at: 25.2, key: ".", mods: ["cmd"], caps: ["cmd", "period"], next: "Replace File" },
+  { at: 25.2, key: ".", mods: ["cmd"], caps: ["cmd", "period"], next: "Open Files" },
   // "Tug is all about bringing pleasant little details like this to AI coding."
   { at: 27.6, key: "ArrowLeft", caps: ["left"] },
   { at: 28.6, key: "ArrowRight", caps: ["right"] },
@@ -214,7 +214,7 @@ describe.skipIf(!RUNS)("video shot: the dialog-keyboard Short", () => {
             .catch(() => null);
 
         // A rehearsal, off the record: raise one alert to learn which page it is in and where it rests, then dismiss it.
-        await open("Replace File");
+        await open("Open Files");
         let page: Page = app;
         let where = "shell";
         const rect = await pollFor(
@@ -234,6 +234,18 @@ describe.skipIf(!RUNS)("video shot: the dialog-keyboard Short", () => {
         await Bun.sleep(600);
         const settled = (await alertIn(page)) ?? rect!;
         const dialog = where === "body" ? await app.elementRect(CARD, ALERT) : settled;
+        // The dialog's own words and where its icon stands in it (from the dialog's corner), for the composer: its classic opening frame says the same
+        // thing under the same mark, so the cross-fade changes the dialog's clothes and nothing else.
+        const text = await page.evalJS<{ title: string; message: string; icon: { x: number; y: number; width: number; height: number } | null }>(
+          `(function () {
+            var root = document.querySelector(${JSON.stringify(ALERT)});
+            var say = function (sel) { var el = root.querySelector(sel); return el ? el.textContent.replace(/\\s+/g, " ").trim() : ""; };
+            var svg = root.querySelector(".tug-alert-icon svg") || root.querySelector(".tug-alert-icon");
+            var o = root.getBoundingClientRect();
+            var r = svg ? svg.getBoundingClientRect() : null;
+            return { title: say(".tug-alert-title"), message: say(".tug-alert-message"), icon: r ? { x: r.x - o.x, y: r.y - o.y, width: r.width, height: r.height } : null };
+          })()`,
+        );
         // The dialog's buttons, for the composer: its classic opening frame puts a button where each of these is, and its push-in aims at them.
         const buttons = await page.evalJS<{ label: string; x: number; y: number; width: number; height: number }[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(`${ALERT} button`)})).map(function (b) { var r = b.getBoundingClientRect(); return { label: b.textContent.trim(), x: r.x, y: r.y, width: r.width, height: r.height }; })`,
@@ -282,7 +294,7 @@ describe.skipIf(!RUNS)("video shot: the dialog-keyboard Short", () => {
         writeFileSync(
           join(outDirFor(SHOT), "shot.json"),
           JSON.stringify(
-            { shot: SHOT, mode: MODE, pageZoom: 1, contentSize: window, card, dialog, buttons, frame, crop: reading.crop, marks: reading.marks, frames: reading.frames, scale: reading.scale, notes: { alertPage: where, inPage: settled, capY, results, beats: BEATS } },
+            { shot: SHOT, mode: MODE, pageZoom: 1, contentSize: window, card, dialog, text, buttons, frame, crop: reading.crop, marks: reading.marks, frames: reading.frames, scale: reading.scale, notes: { alertPage: where, inPage: settled, capY, results, beats: BEATS } },
             null,
             2,
           ),
