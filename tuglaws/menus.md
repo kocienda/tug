@@ -254,7 +254,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌘{ | `previous-tab` | Previous Card | JS, global |
 | ⌘} | `next-tab` | Next Card | JS, global |
 | ⌥⇥ | `cycle-focus-mode` | Cycle Focus Mode | JS, global |
-| ⌥⇧⌘C | `copy-as-plain-text` | Copy as Plain Text | JS, global |
+| ⌥⇧⌘C | `copy-alternate` | Copy as Plain Text | JS, global |
 | ⌥⇧⌘E | `equalize-all-heights` | Equalize All Heights | menu bar (swept) |
 | ⌥⇧⌘G | `find-replace-all` | Replace All | JS, global |
 | ⌥⇧⌘S | `resize-sidebars-to-fit` | Resize Sidebars to Fit | menu bar (swept) |
@@ -281,9 +281,31 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 
 Chords the user has rebound are not in this table — it is the *defaults*. Overrides live in tugbank under `dev.tugapp.keymap`, one key per command id holding a JSON binding list; an absent key means the default, and an **empty list** means deliberately unbound, which is a different and durable answer. The host never reads that domain: overrides reach it the same way every other chord does, through the push.
 
+The table's title column is each entry's static `title`. One row's title is only half of what the user reads: `copy-alternate` is titled *Copy as Plain Text* here and reads *Copy as Markdown* over a rendered transcript cell — see [One seat, two names](#one-seat-two-names).
+
 ## The command catalog
 
 Every menu item, the command behind it, and where each answer comes from. Generated from the registry — a hand-maintained join is a hand-maintained lie.
+
+### One seat, two names
+
+`copy-alternate` — ⌥⇧⌘C, `edit.copyAlternate`, and the row under Copy in the text-editing context menu — is the copy a surface's plain Copy does *not* make. It is one command with one chord and one menu item, and the surface under it decides which of two faces it has:
+
+| Surface | Copy writes | The seat reads | The seat writes |
+|---|---|---|---|
+| Source — the composer, a Text card, a native input, a jot | the source text, verbatim | Copy as Plain Text | the selection with its Markdown stripped |
+| Rendered — a session transcript cell, an Overview cell | plain text, with the atom sidecar and no HTML | Copy as Markdown | the selection's Markdown, with its HTML rendering and the atom sidecar |
+
+A rendered cell copies plain text by default because the text is almost always headed back into a prompt, a message or an email, where markup is noise; a source surface copies its source because someone editing Markdown wants the Markdown. Naming the seat *Copy as Markdown* everywhere would have made it identical to Copy on a source surface and removed the only strip-on-copy there, so the name follows the surface instead.
+
+**The surface says which face it has, in one place.** A rendered cell's responder answers `queryActionState(copy-alternate)` with `COPY_ALTERNATE_MARKDOWN`; every other responder says nothing. `copyAlternateTitle` turns that answer into the label, and both doors call it:
+
+- **The Edit menu item** reads the first responder through the entry's `dynamicTitle`, so the title rides the registry gate like any other. The title is stated on **every** push, never omitted for the default face: the host writes a pushed title onto the item and leaves it there, so a gate that fell silent when focus left a rendered cell would leave the item reading *Copy as Markdown* over an editor.
+- **The context-menu row** is labelled from the surface the menu opened over, not from the chain. A context menu dispatches to its own surface, which need not hold first responder, so the first responder's answer would name the row for a different cell than the one that acts.
+
+The answer is a face, not a mark: the entry's `state` is pinned to `undefined` so a string answer from `queryActionState` never becomes a check mark on the item.
+
+**Both doors of a rendered Copy write the same bytes.** The context menu's Copy arrives as a chain dispatch and native ⌘C arrives as the cell's `copy` event; both take the same plain form, so a selection never yields two clipboards depending on the gesture. The seat's Markdown write goes over the native clipboard bridge inside Tug.app, because Edit ▸ Copy as Markdown arrives as a control frame with no user gesture in the page and the async Clipboard API refuses such a write silently ([L31]).
 
 ### A fallback belongs to the command, never to a door
 
@@ -306,7 +328,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `app.settings` | `show-settings` | first responder | host tier |
 | `app.showAll` | `show-all` | AppKit performs it | host tier |
 | `edit.copy` | `copy` | AppKit performs it | registry gate |
-| `edit.copyAsPlainText` | `copy-as-plain-text` | first responder | registry gate |
+| `edit.copyAlternate` | `copy-alternate` | first responder | registry gate |
 | `edit.copyLastResponse` | `run-slash-command:copy` | key card | registry gate |
 | `edit.cut` | `cut` | AppKit performs it | registry gate |
 | `edit.delete` | `delete` | AppKit performs it | registry gate |

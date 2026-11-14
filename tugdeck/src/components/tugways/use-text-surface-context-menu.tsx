@@ -219,6 +219,18 @@ export interface UseTextSurfaceContextMenuOptions {
    * offers spelling.
    */
   canCorrectSpelling?: () => boolean;
+
+  /**
+   * Optional: which face the alternate copy has on this surface, in the
+   * vocabulary its responder answers `queryActionState` with. A rendered
+   * surface, whose Copy gives plain text, answers the markdown state and its
+   * row reads Copy as Markdown. Omitted, the row reads Copy as Plain Text,
+   * which is right for every surface whose Copy is its source. Asked when
+   * the items are built, and of the surface rather than of the chain,
+   * because the menu dispatches to this surface whoever holds first
+   * responder.
+   */
+  copyAlternateState?: () => string | undefined;
 }
 
 export interface UseTextSurfaceContextMenuResult {
@@ -394,6 +406,7 @@ export function useTextSurfaceContextMenu(
     hideStandardItems,
     wholeEntityTarget,
     canCorrectSpelling,
+    copyAlternateState,
   } = options;
 
   // The single piece of React state the hook owns: open/closed +
@@ -543,6 +556,7 @@ export function useTextSurfaceContextMenu(
       hasSelection: menuState?.hasSelection ?? false,
       lookup: menuState?.lookup ?? null,
       spelling: menuState?.spelling ?? null,
+      copyAlternateState: copyAlternateState?.(),
     }) as TugEditorContextMenuEntry[];
     return extra.length > 0
       ? [...extra, { type: "separator" }, ...standard]
@@ -553,6 +567,7 @@ export function useTextSurfaceContextMenu(
     menuState?.hideStandard,
     menuState?.lookup,
     menuState?.spelling,
+    copyAlternateState,
   ]);
 
   // Only mount the menu component when there's an open state.

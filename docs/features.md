@@ -76,7 +76,7 @@ Read it top to bottom. Your prompts, the model's replies, and each shell command
 
 When the model needs an answer or a permission, it asks in the transcript, with its options and Cancel and Submit buttons, and you answer there. The status row reads Awaiting and the dot turns yellow until you do.
 
-Control-Command-Left Bracket and Control-Command-Right Bracket move between turns; Control-Shift-Command-Left Bracket and Control-Shift-Command-Right Bracket jump to the first and last. The Go menu has all four. `/copy` or Edit > Copy Last Response copies the model's latest message, and `/export` or File > Export Session saves the whole transcript as Markdown or JSON Lines.
+Control-Command-Left Bracket and Control-Command-Right Bracket move between turns; Control-Shift-Command-Left Bracket and Control-Shift-Command-Right Bracket jump to the first and last. The Go menu has all four. Select text in the transcript and **Copy** (Command-C) gives plain text, ready to paste into a prompt, a message or an email, with lists keeping their markers and any atoms intact; **Copy as Markdown** (Option-Shift-Command-C, in the Edit menu and the context menu) gives the same selection with its Markdown. The Overview card copies the same way. `/copy` or Edit > Copy Last Response copies the model's latest message, and `/export` or File > Export Session saves the whole transcript as Markdown or JSON Lines.
 
 **Find.** Command-F opens a find bar under the transcript. Matches highlight as you type, the bar counts them ("3 of 12"), and the current one is brought into view. Command-G and Shift-Command-G step to the next and previous match, Return and Shift-Return do the same from the field, and Escape closes the bar. Command-E searches for whatever you have selected. Case, Word and Grep narrow the search, and they are one setting across the deck. The same bar finds in a Text card's file and in a help card, so every help document can be searched too.
 
@@ -99,7 +99,7 @@ The composer is at the bottom, where any messaging app puts it. Command-K, or Se
 - **Dictation.** Command-D or the microphone starts dictation into the composer, and Command-D again stops it; Shift-Command-D stops it and sends. Session > Start Dictation and Stop Dictation and Send are the same two acts. A microphone that cannot start says why on its hover.
 - **Stop.** The send button becomes a red Stop while a turn runs. It, Command-Period and Escape each take back the newest queued prompt first and stop the turn once the queue is empty, and an open sheet takes the Escape before any of that. Session > Stop stops the turn. A taken-back prompt returns to the composer if the composer is empty.
 - **Routes.** Control-Command-P is the prompt route and Control-Command-C the Changes route, which the tabs on the card also choose. In the Changes route the composer is the commit message editor.
-- **Paste as Quote** (Option-Command-V), **Paste as Plain Text** (Option-Shift-Command-V) and **Copy as Plain Text** (Option-Shift-Command-C) are in the Edit menu. **Make Uppercase** (Option-Command-U), **Make Lowercase** (Option-Command-L), **Increase Quote Level** (Command-Apostrophe) and **Decrease Quote Level** (Shift-Command-Apostrophe) are in the Text menu.
+- **Paste as Quote** (Option-Command-V), **Paste as Plain Text** (Option-Shift-Command-V) and **Copy as Plain Text** (Option-Shift-Command-C) are in the Edit menu. In the composer and in Text cards Copy gives the text as written, so the same command reads Copy as Plain Text there and strips the Markdown; over the transcript it reads Copy as Markdown. **Make Uppercase** (Option-Command-U), **Make Lowercase** (Option-Command-L), **Increase Quote Level** (Command-Apostrophe) and **Decrease Quote Level** (Shift-Command-Apostrophe) are in the Text menu.
 
 ### Slash commands and the command picker
 
@@ -262,7 +262,7 @@ The Keyboard Shortcuts card (Control-Command-K) lists everything. A shortcut is 
 | Command-Period or Escape | Cancel; take back a queued prompt, then stop the turn |
 | Option-Up Arrow / Option-Down Arrow | Earlier or later prompt |
 | Command-Apostrophe / Shift-Command-Apostrophe | Increase Quote Level; Decrease Quote Level |
-| Option-Command-V / Option-Shift-Command-V / Option-Shift-Command-C | Paste as Quote; Paste as Plain Text; Copy as Plain Text |
+| Option-Command-V / Option-Shift-Command-V / Option-Shift-Command-C | Paste as Quote; Paste as Plain Text; Copy as Plain Text (Copy as Markdown over a transcript) |
 | Option-Command-U / Option-Command-L | Make Uppercase; Make Lowercase |
 | Control-Command-Left Bracket / Control-Command-Right Bracket | Previous or next turn |
 | Control-Shift-Command-Left Bracket / Control-Shift-Command-Right Bracket | First or last turn |

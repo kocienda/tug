@@ -16,6 +16,10 @@
  * yet; the tag beside each names the finding it enumerates. The mark is what
  * turns a fix into a required edit here: a failing case that starts passing
  * fails the run until it is un-marked.
+ *
+ * The plain form has no renderer to round-trip through — it is the text a
+ * reader pastes where markdown is noise — so its cases at the end spell out
+ * the expected text, over the same fixtures the markdown form is held to.
  */
 
 import { join, dirname } from "node:path";
@@ -25,10 +29,15 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
+import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
+
 import { initSync } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 
 import { renderIncremental } from "../render-incremental";
-import { selectionToTranscriptMarkdown } from "../serialize-selection";
+import {
+  selectionToTranscriptMarkdown,
+  selectionToTranscriptPlainSubstrate,
+} from "../serialize-selection";
 import { transcriptMarkdownToHtml } from "../transcript-copy-html";
 
 // ---------------------------------------------------------------------------
@@ -369,5 +378,198 @@ describe("partial selections", () => {
     expect(html).toContain("b2");
     expect(html).not.toContain("a1");
     expect(html).not.toContain("h1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The plain form — the same tree, no marks
+// ---------------------------------------------------------------------------
+
+/** The whole container as plain text, as ⌘A ⌘C would copy it. */
+function plainAll(container: HTMLElement): string {
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  const substrate = selectionToTranscriptPlainSubstrate(select(range), container);
+  container.remove();
+  return substrate?.text ?? "";
+}
+
+/** {@link copyBetween}, in the plain form. */
+function plainBetween(
+  container: HTMLElement,
+  from: string,
+  to: string,
+  toOffset: number = to.length,
+): string {
+  const start = findText(container, from);
+  const end = findText(container, to);
+  const range = document.createRange();
+  range.setStart(start.node, start.at);
+  range.setEnd(end.node, end.at + toOffset);
+  const substrate = selectionToTranscriptPlainSubstrate(select(range), container);
+  container.remove();
+  return substrate?.text ?? "";
+}
+
+describe("plain form — lists keep their markers", () => {
+  test("a tight unordered list", () => {
+    expect(plainAll(render("- alpha\n- beta\n- gamma"))).toBe("- alpha\n- beta\n- gamma");
+  });
+
+  test("a tight ordered list", () => {
+    expect(plainAll(render("1. one\n2. two\n3. three"))).toBe("1. one\n2. two\n3. three");
+  });
+
+  test("a loose list keeps the blank line between its items", () => {
+    expect(plainAll(render("- alpha\n\n- beta"))).toBe("- alpha\n\n- beta");
+    expect(plainAll(render("1. one\n\n2. two"))).toBe("1. one\n\n2. two");
+  });
+
+  test("a nested list keeps its indent", () => {
+    expect(plainAll(render("- outer\n  - inner one\n  - inner two\n- outer two"))).toBe(
+      "- outer\n  - inner one\n  - inner two\n- outer two",
+    );
+  });
+
+  test("a list starting above one keeps its start", () => {
+    expect(plainAll(render("4. four\n5. five"))).toBe("4. four\n5. five");
+  });
+
+  test("a range starting at the third item writes `3.`", () => {
+    const container = render("1. one\n2. two\n3. three\n4. four");
+    expect(plainBetween(container, "three", "four")).toBe("3. three\n4. four");
+  });
+
+  test("a task list keeps its checkboxes", () => {
+    expect(plainAll(render("- [ ] todo\n- [x] done"))).toBe("- [ ] todo\n- [x] done");
+  });
+
+  test("an item's inline marks go and its marker stays", () => {
+    expect(plainAll(render("1. first **item**\n2. second `item`\n3. third *item*"))).toBe(
+      "1. first item\n2. second item\n3. third item",
+    );
+  });
+});
+
+describe("plain form — inline marks are not written", () => {
+  test("bold, emphasis, strike and code read as their text", () => {
+    expect(plainAll(render("Some **bold** and *em* and ~~gone~~ and `code`."))).toBe(
+      "Some bold and em and gone and code.",
+    );
+  });
+
+  test("a range ending inside a bold run is just the selected words", () => {
+    const container = render("plain **bold text** tail");
+    expect(plainBetween(container, "plain", "bold text", "bold".length)).toBe("plain bold");
+  });
+
+  test("a link is its label", () => {
+    expect(plainAll(render("see [a link](https://example.invalid/x) here"))).toBe(
+      "see a link here",
+    );
+  });
+
+  // The defect of stripping a rendered string: prose that merely contains
+  // markdown's characters would be parsed as markdown and lose them. Here
+  // they are text in the tree and nothing parses them.
+  test("a literal asterisk in prose survives", () => {
+    expect(plainAll(render("a \\*starred\\* word and 2 \\* 3"))).toBe(
+      "a *starred* word and 2 * 3",
+    );
+  });
+
+  test("a line-leading hash in prose survives", () => {
+    expect(plainAll(render("\\# not a heading\n\nbody"))).toBe("# not a heading\n\nbody");
+  });
+
+  test("markdown's characters inside a code span survive", () => {
+    expect(plainAll(render("call `f(**kwargs)` and `# comment`"))).toBe(
+      "call f(**kwargs) and # comment",
+    );
+  });
+});
+
+describe("plain form — blocks", () => {
+  test("a heading is its text, and block spacing is kept", () => {
+    expect(plainAll(render("## Title\n\nFirst paragraph.\n\nSecond paragraph."))).toBe(
+      "Title\n\nFirst paragraph.\n\nSecond paragraph.",
+    );
+  });
+
+  test("a blockquote loses its prefix at every depth", () => {
+    expect(plainAll(render("> outer\n>\n> > inner"))).toBe("outer\n\ninner");
+  });
+
+  test("a list inside a blockquote keeps its markers", () => {
+    expect(plainAll(render("> - alpha\n> - beta"))).toBe("- alpha\n- beta");
+  });
+
+  test("fenced code with a language is its text, verbatim", () => {
+    expect(plainAll(render("```ts\nconst x = a * b;\n  // **not bold**\n```"))).toBe(
+      "const x = a * b;\n  // **not bold**",
+    );
+  });
+
+  test("a table is one row per line with tabs between cells", () => {
+    expect(
+      plainAll(render("| Left | Right |\n|:-----|------:|\n| a | **b** |\n| c | d |")),
+    ).toBe("Left\tRight\na\tb\nc\td");
+  });
+
+  test("a single table row copies as that row alone", () => {
+    const container = render("| h1 | h2 |\n|----|----|\n| a1 | a2 |\n| b1 | b2 |");
+    expect(plainBetween(container, "b1", "b2")).toBe("b1\tb2");
+  });
+
+  test("an image is its alt text", () => {
+    expect(plainAll(render("before ![an alt](https://example.invalid/a.png) after"))).toBe(
+      "before an alt after",
+    );
+  });
+
+  test("a thematic break is a block boundary and no text", () => {
+    expect(plainAll(render("above\n\n---\n\nbelow"))).toBe("above\n\nbelow");
+  });
+
+  test("a footnote reads as a bracketed label", () => {
+    expect(plainAll(render("A claim[^1].\n\n[^1]: The note."))).toBe(
+      "A claim[1].\n\n[1] The note.",
+    );
+  });
+});
+
+describe("plain form — atoms", () => {
+  // A chip built the way `atomIdentityAttrs` writes one: identity in the
+  // `data-atom-*` attributes, a drawn label that is not prose.
+  function withChip(): HTMLElement {
+    const container = document.createElement("div");
+    container.innerHTML =
+      '<div class="tugx-md-block"><p>see <strong>this</strong> '
+      + '<span data-atom-type="file" data-atom-label="a.ts" data-atom-value="/src/a.ts">a.ts</span>'
+      + " there</p></div>";
+    document.body.appendChild(container);
+    return container;
+  }
+
+  test("a selection crossing an atom carries the character and the atom", () => {
+    const container = withChip();
+    const range = document.createRange();
+    range.selectNodeContents(container);
+    const substrate = selectionToTranscriptPlainSubstrate(select(range), container);
+    container.remove();
+    expect(substrate).toEqual({
+      text: `see this ${TUG_ATOM_CHAR} there`,
+      atoms: [{ kind: "atom", type: "file", label: "a.ts", value: "/src/a.ts" }],
+    });
+  });
+
+  test("an empty selection yields nothing", () => {
+    const container = withChip();
+    const range = document.createRange();
+    range.setStart(container, 0);
+    range.collapse(true);
+    const substrate = selectionToTranscriptPlainSubstrate(select(range), container);
+    container.remove();
+    expect(substrate).toBeNull();
   });
 });

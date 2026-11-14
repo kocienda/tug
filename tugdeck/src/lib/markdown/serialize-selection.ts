@@ -38,6 +38,15 @@
  * emitted once per `.katex` (skipping its duplicated MathML/visual text);
  * fenced code from the `<pre>` text.
  *
+ * **Two forms come off the one tree.** The markdown form is the above. The
+ * plain form walks the same tree with the same container rules and writes no
+ * marks: no emphasis, heading, quote or fence markers, a link as its label,
+ * code verbatim, a table row as its cells with tabs between. It keeps list
+ * markers and block spacing, because a list pasted without them reads as
+ * run-together lines. It is emitted, never stripped out of the markdown: a
+ * literal `*` or a line-leading `#` in the prose is text in the tree, so it
+ * survives, where a second markdown parse of the rendered string would eat it.
+ *
  * Laws: [L07] reads the live selection inside the copy gesture; no state.
  *
  * @module lib/markdown/serialize-selection
@@ -90,6 +99,13 @@ export interface Run {
   marks: Marks;
   /** Pre-formatted (KaTeX TeX, an atom's U+FFFC) — verbatim, no inline marks. */
   raw: boolean;
+  /**
+   * What the run reads as in the plain form, when that is not `text`: an
+   * image's alt, TeX without its dollars, a footnote reference without its
+   * caret, nothing at all for a rule. Absent on ordinary text, whose plain
+   * form is the text itself.
+   */
+  plain?: string;
   /**
    * The atom this run stands for, when the run is a chip's `U+FFFC` rather
    * than text. What makes the selection a substrate instead of a string.
@@ -194,14 +210,25 @@ function closestKatex(node: Node): Element | null {
   return null;
 }
 
+/** The TeX a KaTeX render embeds as its annotation, or `""` when it has none. */
+function texOf(el: Element): string {
+  const ann = el.querySelector('annotation[encoding="application/x-tex"]');
+  return (ann?.textContent ?? "").trim();
+}
+
 /** `$tex$` / `$$tex$$` from a KaTeX render's embedded TeX annotation. */
 function serializeKatex(el: Element): string {
-  const ann = el.querySelector('annotation[encoding="application/x-tex"]');
-  const tex = (ann?.textContent ?? "").trim();
+  const tex = texOf(el);
   const display =
     el.classList.contains("katex-display") || el.closest(".katex-display") !== null;
   if (tex === "") return (el.textContent ?? "").trim();
   return display ? `$$${tex}$$` : `$${tex}$`;
+}
+
+/** The same math with no delimiters: the TeX, which is how it reads as text. */
+function plainKatex(el: Element): string {
+  const tex = texOf(el);
+  return tex !== "" ? tex : (el.textContent ?? "").trim();
 }
 
 /** Whether the leaf a run sits in is a paragraph, heading, cell or code. */
@@ -461,9 +488,15 @@ function collectRuns(range: Range): Run[] {
         // a drag that ends at the start of the next block's text holds the
         // rule between without the reader having selected anything of it.
         if (el.tagName === "IMG" && closestAtomChip(el) === null && range.intersectsNode(el)) {
-          runs.push({ text: imageMarkdown(el), block: blockInfoOf(el), marks: marksOf(el), raw: false });
+          runs.push({
+            text: imageMarkdown(el),
+            block: blockInfoOf(el),
+            marks: marksOf(el),
+            raw: false,
+            plain: el.getAttribute("alt") ?? "",
+          });
         } else if (el.tagName === "HR" && rangeContains(range, el)) {
-          runs.push({ text: "---", block: blockInfoOf(el), marks: {}, raw: true });
+          runs.push({ text: "---", block: blockInfoOf(el), marks: {}, raw: true, plain: "" });
         }
         continue;
       }
@@ -499,11 +532,13 @@ function collectRuns(range: Range): Run[] {
     if (footnote !== null) {
       if (!seenFootnotes.has(footnote)) {
         seenFootnotes.add(footnote);
+        const label = footnoteLabel(footnote);
         runs.push({
-          text: `[^${footnoteLabel(footnote)}]`,
+          text: `[^${label}]`,
           block: blockInfoOf(footnote),
           marks: {},
           raw: true,
+          plain: `[${label}]`,
         });
       }
       continue;
@@ -519,6 +554,7 @@ function collectRuns(range: Range): Run[] {
           block: blockInfoOf(katex),
           marks: {},
           raw: true,
+          plain: plainKatex(katex),
         });
       }
       continue;
@@ -612,12 +648,23 @@ export function mergeAdjacentRuns(runs: readonly Run[]): Run[] {
     ) {
       // A copy rather than a mutation: `collectRuns`' objects are the caller's,
       // and a merge that wrote through them would be a side effect on an input.
-      merged[merged.length - 1] = { ...prev, text: prev.text + run.text };
+      // An image is the one unraw run with a plain form of its own, so the
+      // joined run carries both readings rather than losing the alt.
+      const joined: Run = { ...prev, text: prev.text + run.text };
+      if (prev.plain !== undefined || run.plain !== undefined) {
+        joined.plain = plainOf(prev) + plainOf(run);
+      }
+      merged[merged.length - 1] = joined;
       continue;
     }
     merged.push(run);
   }
   return merged;
+}
+
+/** A run as the plain form reads it: its own plain reading, else its text. */
+function plainOf(run: Run): string {
+  return run.plain ?? run.text;
 }
 
 /** Wrap a run's text in its inline markers, keeping whitespace outside. */
@@ -637,8 +684,21 @@ function applyMarks(text: string, marks: Marks): string {
 }
 
 // ---------------------------------------------------------------------------
-// The tree — chains assembled, then emitted by CommonMark's container rules
+// The tree — chains assembled, then emitted by CommonMark's container rules,
+// in either of two forms
 // ---------------------------------------------------------------------------
+
+/**
+ * One emission: the atoms collected as their characters are written, and
+ * which form is being written. Every emitter below takes it, so the two forms
+ * share one walk — the list markers, the tight and loose spacing and the
+ * nesting indent are the same code in both, and cannot drift apart.
+ */
+interface Emit {
+  atoms: AtomSegment[];
+  /** The mark-free form: text and structure, no markdown syntax. */
+  plain: boolean;
+}
 
 interface TreeNode {
   node: ChainNode;
@@ -680,25 +740,28 @@ function buildTree(runs: readonly Run[]): TreeNode[] {
  * away to nothing takes its chips with it, so the atoms stay paired with
  * the U+FFFC characters that actually survived.
  */
-function emitInline(runs: readonly Run[], atoms: AtomSegment[]): string {
+function emitInline(runs: readonly Run[], out: Emit): string {
   let body = "";
   const own: AtomSegment[] = [];
   for (const run of runs) {
-    body += run.raw ? run.text : applyMarks(run.text, run.marks);
+    if (out.plain) body += plainOf(run);
+    else body += run.raw ? run.text : applyMarks(run.text, run.marks);
     if (run.atom !== undefined) own.push(run.atom);
   }
   const text = body.replace(/^\s+/, "").replace(/\s+$/, "");
   if (text === "") return "";
-  atoms.push(...own);
+  out.atoms.push(...own);
   return text;
 }
 
-function emitCode(node: TreeNode, atoms: AtomSegment[]): string {
+/** A code block: fenced with its language, or in the plain form its text verbatim. */
+function emitCode(node: TreeNode, out: Emit): string {
   let body = "";
   for (const run of node.runs) {
     body += run.text;
-    if (run.atom !== undefined) atoms.push(run.atom);
+    if (run.atom !== undefined) out.atoms.push(run.atom);
   }
+  if (out.plain) return body.replace(/\n+$/, "");
   const lang = node.node.kind === "code" ? node.node.lang ?? "" : "";
   return "```" + lang + "\n" + body.replace(/\n+$/, "") + "\n```";
 }
@@ -714,12 +777,18 @@ function prefixLines(text: string, first: string, rest: string): string {
     .join("\n");
 }
 
-function emitQuote(node: TreeNode, atoms: AtomSegment[]): string {
-  const inner = emitBlocks(node.children, atoms).join("\n\n");
+function emitQuote(node: TreeNode, out: Emit): string {
+  const inner = emitBlocks(node.children, out).join("\n\n");
+  if (out.plain) return inner;
   return inner === "" ? "" : prefixLines(inner, "> ", "> ");
 }
 
-function emitList(node: TreeNode, atoms: AtomSegment[]): string {
+/**
+ * A list, with its markers in both forms: a marker is what makes a pasted
+ * list read as one, so the plain form keeps the bullet, the ordinal counted
+ * from the list's own start, the checkbox and the nesting indent.
+ */
+function emitList(node: TreeNode, out: Emit): string {
   if (node.node.kind !== "list") return "";
   const { ordered, start, tight } = node.node;
   const between = tight ? "\n" : "\n\n";
@@ -729,7 +798,7 @@ function emitList(node: TreeNode, atoms: AtomSegment[]): string {
     const marker = ordered ? `${start + child.node.index}.` : "-";
     const task =
       child.node.task === null ? "" : child.node.task === "checked" ? "[x] " : "[ ] ";
-    const content = emitBlocks(child.children, atoms).join(between);
+    const content = emitBlocks(child.children, out).join(between);
     if (content === "") continue;
     items.push(
       prefixLines(content, marker + " " + task, " ".repeat(marker.length + 1)),
@@ -738,8 +807,10 @@ function emitList(node: TreeNode, atoms: AtomSegment[]): string {
   return items.join(between);
 }
 
-function emitCell(node: TreeNode, atoms: AtomSegment[]): string {
-  return emitInline(node.runs, atoms).replace(/\n/g, " ").replace(/\|/g, "\\|");
+function emitCell(node: TreeNode, out: Emit): string {
+  const text = emitInline(node.runs, out).replace(/\n/g, " ");
+  // A tab is the plain form's cell boundary, so one inside a cell is a space.
+  return out.plain ? text.replace(/\t/g, " ") : text.replace(/\|/g, "\\|");
 }
 
 const ALIGN_ROW: Record<Align, string> = {
@@ -753,8 +824,11 @@ const ALIGN_ROW: Record<Align, string> = {
  * Only the rows the selection touched, with the first of them as the header
  * — the header row when it is among them, else the first body row, which is
  * what makes a single copied row render as a table rather than as prose.
+ *
+ * The plain form is the same rows with a tab between cells and no alignment
+ * row, which is the shape a spreadsheet and a plain-text reader both take.
  */
-function emitTable(node: TreeNode, atoms: AtomSegment[]): string {
+function emitTable(node: TreeNode, out: Emit): string {
   if (node.node.kind !== "table") return "";
   const aligns = node.node.aligns;
   const lines: string[] = [];
@@ -764,10 +838,14 @@ function emitTable(node: TreeNode, atoms: AtomSegment[]): string {
     const indexes: number[] = [];
     for (const cell of row.children) {
       if (cell.node.kind !== "cell") continue;
-      cells.push(emitCell(cell, atoms));
+      cells.push(emitCell(cell, out));
       indexes.push(cell.node.index);
     }
     if (cells.length === 0) continue;
+    if (out.plain) {
+      lines.push(cells.join("\t"));
+      continue;
+    }
     lines.push("| " + cells.join(" | ") + " |");
     if (lines.length === 1) {
       const rule = indexes.map((i) => ALIGN_ROW[aligns[i] ?? "none"]);
@@ -777,52 +855,65 @@ function emitTable(node: TreeNode, atoms: AtomSegment[]): string {
   return lines.join("\n");
 }
 
-function emitFootnote(node: TreeNode, atoms: AtomSegment[]): string {
+function emitFootnote(node: TreeNode, out: Emit): string {
   if (node.node.kind !== "footnote") return "";
-  const inner = emitBlocks(node.children, atoms).join("\n\n");
+  const inner = emitBlocks(node.children, out).join("\n\n");
   if (inner === "") return "";
+  if (out.plain) return prefixLines(inner, `[${node.node.label}] `, "    ");
   return prefixLines(inner, `[^${node.node.label}]: `, "    ");
 }
 
-/** One node's markdown, or `""` when it carries nothing selected. */
-function emitNode(node: TreeNode, atoms: AtomSegment[]): string {
+/** One node in the form being written, or `""` when it carries nothing selected. */
+function emitNode(node: TreeNode, out: Emit): string {
   switch (node.node.kind) {
     case "quote":
-      return emitQuote(node, atoms);
+      return emitQuote(node, out);
     case "list":
-      return emitList(node, atoms);
+      return emitList(node, out);
     case "table":
-      return emitTable(node, atoms);
+      return emitTable(node, out);
     case "footnote":
-      return emitFootnote(node, atoms);
+      return emitFootnote(node, out);
     case "code":
-      return emitCode(node, atoms);
+      return emitCode(node, out);
     case "heading": {
-      const text = emitInline(node.runs, atoms);
-      return text === "" ? "" : "#".repeat(node.node.level) + " " + text;
+      const text = emitInline(node.runs, out);
+      if (text === "" || out.plain) return text;
+      return "#".repeat(node.node.level) + " " + text;
     }
     case "cell":
-      return emitCell(node, atoms);
+      return emitCell(node, out);
     case "paragraph":
-      return emitInline(node.runs, atoms);
+      return emitInline(node.runs, out);
     case "item":
     case "row":
       // Only reached for an item outside a list or a row outside a table —
       // a shape the chain never produces. Carry the content plainly.
-      return emitBlocks(node.children, atoms).join("\n\n");
+      return emitBlocks(node.children, out).join("\n\n");
     default:
       return "";
   }
 }
 
 /** The blocks of a sibling list, empties dropped. */
-function emitBlocks(nodes: readonly TreeNode[], atoms: AtomSegment[]): string[] {
-  const out: string[] = [];
+function emitBlocks(nodes: readonly TreeNode[], out: Emit): string[] {
+  const blocks: string[] = [];
   for (const node of nodes) {
-    const block = emitNode(node, atoms);
-    if (block !== "") out.push(block);
+    const block = emitNode(node, out);
+    if (block !== "") blocks.push(block);
   }
-  return out;
+  return blocks;
+}
+
+/** The selection's tree emitted in one form, as the `(text, atoms)` substrate. */
+function substrateOf(selection: Selection, plain: boolean): SelectionSubstrate | null {
+  if (selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const runs = mergeAdjacentRuns(collectRuns(selection.getRangeAt(0)));
+  if (runs.length === 0) return null;
+
+  const out: Emit = { atoms: [], plain };
+  const text = emitBlocks(buildTree(runs), out).join("\n\n").trim();
+  return text.length > 0 ? { text, atoms: out.atoms } : null;
 }
 
 /**
@@ -841,13 +932,21 @@ export function selectionToTranscriptSubstrate(
   selection: Selection,
   _bodyEl: HTMLElement,
 ): SelectionSubstrate | null {
-  if (selection.rangeCount === 0 || selection.isCollapsed) return null;
-  const runs = mergeAdjacentRuns(collectRuns(selection.getRangeAt(0)));
-  if (runs.length === 0) return null;
+  return substrateOf(selection, false);
+}
 
-  const atoms: AtomSegment[] = [];
-  const md = emitBlocks(buildTree(runs), atoms).join("\n\n").trim();
-  return md.length > 0 ? { text: md, atoms } : null;
+/**
+ * The same selection as plain text: the same substrate shape, with a `U+FFFC`
+ * for each chip and the atoms beside it, and no markdown syntax in the text.
+ * What a reader pastes into a prompt, a message or an email, where the marks
+ * would be noise. List markers and block spacing are kept; everything else
+ * that is syntax rather than text is not written.
+ */
+export function selectionToTranscriptPlainSubstrate(
+  selection: Selection,
+  _bodyEl: HTMLElement,
+): SelectionSubstrate | null {
+  return substrateOf(selection, true);
 }
 
 /**

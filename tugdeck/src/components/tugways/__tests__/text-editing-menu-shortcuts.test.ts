@@ -28,7 +28,7 @@ import type { TugAction } from "../action-vocabulary";
 const EXPECTED_SHORTCUTS: ReadonlyArray<readonly [TugAction, string]> = [
   [TUG_ACTIONS.CUT, "⌘X"],
   [TUG_ACTIONS.COPY, "⌘C"],
-  [TUG_ACTIONS.COPY_AS_PLAIN_TEXT, "⌥⇧⌘C"],
+  [TUG_ACTIONS.COPY_ALTERNATE, "⌥⇧⌘C"],
   [TUG_ACTIONS.PASTE, "⌘V"],
   [TUG_ACTIONS.PASTE_AS_QUOTE, "⌥⌘V"],
   [TUG_ACTIONS.PASTE_AS_PLAIN_TEXT, "⌥⇧⌘V"],
@@ -84,7 +84,7 @@ describe("text-editing menu shortcut hints", () => {
 
   test("Copy as Plain Text keeps its Option — the hint is never the bare ⇧⌘C", () => {
     const entry = entries.find(
-      (e) => "action" in e && e.action === TUG_ACTIONS.COPY_AS_PLAIN_TEXT,
+      (e) => "action" in e && e.action === TUG_ACTIONS.COPY_ALTERNATE,
     ) as { shortcut?: string };
     expect(entry.shortcut).not.toBe("⇧⌘C");
   });

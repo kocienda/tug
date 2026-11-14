@@ -172,7 +172,7 @@ function BodyPane({
       // root over its own selection, so handed there it copied nothing. Like
       // Look Up, it is answered here and never forwarded. ⌥⇧⌘C reaches this
       // too — the shell routes the key-card command to this body's chain.
-      [TUG_ACTIONS.COPY_AS_PLAIN_TEXT]: (_event: ActionEvent) => {
+      [TUG_ACTIONS.COPY_ALTERNATE]: (_event: ActionEvent) => {
         copySelectionAsPlainText();
       },
     }),

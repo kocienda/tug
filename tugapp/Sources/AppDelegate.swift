@@ -1604,12 +1604,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: sender)
     }
 
-    // Edit ▸ Copy as Plain Text — a chain-action round-trip. Unlike Copy,
-    // this does NOT re-dispatch NSText.copy: the Markdown-strip transform
-    // lives in the web responder chain, which writes the plain text to the
-    // clipboard. An unhandled dispatch is a silent no-op (no selection).
-    @objc func performCopyAsPlainText(_ sender: Any?) {
-        sendControl("copy-as-plain-text")
+    // Edit ▸ Copy as Plain Text, or Copy as Markdown where the first
+    // responder's Copy already gives plain text — one seat whose title the
+    // registry's gate pushes. A chain-action round-trip: unlike Copy, this
+    // does NOT re-dispatch NSText.copy, because both transforms live in the
+    // web responder chain, which writes the clipboard itself. An unhandled
+    // dispatch is a silent no-op (no selection).
+    @objc func performCopyAlternate(_ sender: Any?) {
+        sendControl("copy-alternate")
     }
 
     @objc func performDelete(_ sender: Any?) {

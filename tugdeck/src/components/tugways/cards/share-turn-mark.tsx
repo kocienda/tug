@@ -34,7 +34,7 @@ import { currentGesture } from "@/gesture-interpreter";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import type { TugEditorContextMenuEntry } from "@/components/tugways/tug-editor-context-menu";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import type { CodeSessionStore, TurnEntry } from "@/lib/code-session-store";
+import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { SessionRowDescriptor } from "@/lib/session-transcript-data-source";
 import { selectableEntryKeys, shareEntryKey } from "@/lib/share-turns";
 import type { ShareTurnsStore } from "@/lib/share-turns-store";

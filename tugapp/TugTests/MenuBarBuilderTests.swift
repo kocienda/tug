@@ -141,7 +141,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "Edit | ---",
         "Edit | Cut | ⌘x | performCut: | edit.cut",
         "Edit | Copy | ⌘c | performCopy: | edit.copy",
-        "Edit | Copy as Plain Text | ⌥⇧⌘c | performCopyAsPlainText: | edit.copyAsPlainText",
+        "Edit | Copy as Plain Text | ⌥⇧⌘c | performCopyAlternate: | edit.copyAlternate",
         "Edit | Paste | ⌘v | performPaste: | edit.paste",
         "Edit | Paste as Quote | ⌥⌘v | performPasteAsQuote: | edit.pasteAsQuote",
         "Edit | Paste as Plain Text | ⌥⇧⌘v | performPasteAsPlainText: | edit.pasteAsPlainText",

@@ -93,6 +93,7 @@ import {
   formatTranscriptTimestamp,
   useTranscriptCellMenu,
   type CopyMarkdownResolver,
+  type CopyPlainResolver,
 } from "@/components/tugways/cards/transcript-host-helpers";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugEntryShell } from "@/components/tugways/tug-entry-shell";
@@ -211,7 +212,7 @@ import {
   type OverviewPostEntry,
 } from "@/lib/overview-store";
 import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
-import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
+import { selectionToTranscriptPlainSubstrate, selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
@@ -889,17 +890,22 @@ function OverviewPostRowBody({
   refVersion: number;
 }): React.ReactElement {
   // Per-row ⌘C / right-click Copy — the same cell wiring the Session
-  // transcript's rows use, resolver included. A selection across rendered
-  // bold or code has to come back as the markdown that produced it, which
-  // means reconstructing it from the DOM: `selectionToTranscriptMarkdown`
-  // is the transcript's own walk, and the hook writes both clipboard
-  // flavors off it ([P03]/[P05] in `transcript-host-helpers.ts`).
+  // transcript's rows use, resolvers included, so the same prose copies the
+  // same way on both cards. Copy gives the selection as plain text and Copy
+  // as Markdown gives the markdown that produced it; both are reconstructed
+  // from the DOM by the transcript's own walk, and the hook writes the
+  // clipboard off them ([P03]/[P05] in `transcript-host-helpers.ts`).
   const resolveCopyMarkdown = useCallback<CopyMarkdownResolver>(
     (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
+  const resolveCopyPlain = useCallback<CopyPlainResolver>(
+    (bodyEl, selection) => selectionToTranscriptPlainSubstrate(selection, bodyEl),
+    [],
+  );
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
+    resolveCopyPlain,
     // Insert Atom into Prompt, on the Overview's own composer. The item is
     // the registry's, unchanged; what used to filter it out was the absence
     // of a `CodeSessionStore`, which was never what the gesture needed.

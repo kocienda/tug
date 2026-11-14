@@ -1,6 +1,6 @@
 /**
  * text-editing-menu — single source of truth for the standard
- * spelling guesses / look-up-in-dictionary / cut / copy / copy-as-plain-text / paste /
+ * spelling guesses / look-up-in-dictionary / cut / copy / copy-alternate / paste /
  * paste-as-quote / paste-as-plain-text /
  * select-all context menu.
  *
@@ -19,7 +19,9 @@
  *     text (its `lookup` payload).
  *   - Cut requires a selection AND an editable surface.
  *   - Copy requires a selection.
- *   - Copy as Plain Text requires a selection.
+ *   - The alternate copy requires a selection. It is the one row whose
+ *     label varies, and it varies by surface: Copy as Plain Text where Copy
+ *     gives the source, Copy as Markdown where Copy gives plain text.
  *   - Paste requires an editable surface.
  *   - Paste as Quote / Paste as Plain Text require an editable surface.
  *   - Select All is always enabled.
@@ -50,7 +52,7 @@
 
 import { TUG_ACTIONS } from "./action-vocabulary";
 import type { TugAction } from "./action-vocabulary";
-import { validateCommandId } from "./command-registry";
+import { copyAlternateTitle, validateCommandId } from "./command-registry";
 import type { CommandValidationSource } from "./command-registry";
 import { commandShortcut } from "./keymap-registry";
 import { commandValidationSource } from "@/lib/host-menu-state";
@@ -100,6 +102,14 @@ export interface TextEditingMenuCapabilities {
    * a native text view's has none over a correctly spelled word.
    */
   spelling?: { word: string; guesses: readonly string[] } | null;
+  /**
+   * Which face the alternate copy has on the menu's own surface: what that
+   * surface's responder answers `queryActionState` with for the action.
+   * The surface's answer rather than the chain's, because a context menu
+   * dispatches to the surface it opened over, which need not be the first
+   * responder. Omitted, the row is Copy as Plain Text.
+   */
+  copyAlternateState?: boolean | string | undefined;
 }
 
 /**
@@ -227,7 +237,7 @@ export function buildTextEditingMenuItems(
     { type: "separator" },
     row(TUG_ACTIONS.CUT, "Cut", true),
     row(TUG_ACTIONS.COPY, "Copy", true),
-    row(TUG_ACTIONS.COPY_AS_PLAIN_TEXT, "Copy as Plain Text", true),
+    row(TUG_ACTIONS.COPY_ALTERNATE, copyAlternateTitle(caps.copyAlternateState), true),
     row(TUG_ACTIONS.PASTE, "Paste", false),
     row(TUG_ACTIONS.PASTE_AS_QUOTE, "Paste as Quote", false),
     row(TUG_ACTIONS.PASTE_AS_PLAIN_TEXT, "Paste as Plain Text", false),

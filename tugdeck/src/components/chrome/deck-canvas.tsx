@@ -3175,7 +3175,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // code views, terminal output, the prompt editor, and native inputs.
       // That is every surface in THIS page; a body card's selection is its
       // own page's, so `BodyRoot` answers the action there (`body-root.tsx`).
-      [TUG_ACTIONS.COPY_AS_PLAIN_TEXT]: (_event: ActionEvent) => {
+      [TUG_ACTIONS.COPY_ALTERNATE]: (_event: ActionEvent) => {
         copySelectionAsPlainText();
       },
     },

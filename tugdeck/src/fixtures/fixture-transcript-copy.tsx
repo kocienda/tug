@@ -4,8 +4,9 @@
  *
  * Proves the **real handler path** end to end: the actual
  * `useTranscriptCellMenu` (⌘C / context-menu Copy → responder →
- * `handleCopy`), the actual `selectionToTranscriptMarkdown` fragment
- * serializer, and the actual clipboard write. It mounts the real
+ * `handleCopy`, and the alternate copy → `handleCopyAlternate`), the actual
+ * selection serializer in both its forms — plain text for Copy, markdown
+ * for Copy as Markdown — and the actual clipboard write. It mounts the real
  * DOM-producing components — `TugMarkdownBlock` (streaming),
  * `BlockChrome`, `SessionThinkingBlock` — in the same body shape
  * `AssistantTurnCell` renders, over a static streaming store.
@@ -45,10 +46,12 @@ import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolUseIdContext } from "@/components/tugways/blocks/collapse-context";
 import {
   type CopyMarkdownResolver,
+  type CopyPlainResolver,
   useTranscriptCellMenu,
 } from "@/components/tugways/cards/transcript-host-helpers";
 import {
   selectionToTranscriptMarkdown,
+  selectionToTranscriptPlainSubstrate,
   selectionToTranscriptSubstrate,
 } from "@/lib/markdown/serialize-selection";
 
@@ -158,13 +161,17 @@ export function FixtureTranscriptCopy(): React.ReactElement {
     (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
+  const resolveCopyPlain = React.useCallback<CopyPlainResolver>(
+    (bodyEl, selection) => selectionToTranscriptPlainSubstrate(selection, bodyEl),
+    [],
+  );
 
   // Two cells, each its own responder scope — mirrors the real
   // transcript's one-scope-per-row shape.
-  const cellA = useTranscriptCellMenu({ resolveCopyMarkdown });
-  const cellB = useTranscriptCellMenu({ resolveCopyMarkdown });
-  const cellC = useTranscriptCellMenu({ resolveCopyMarkdown });
-  const cellD = useTranscriptCellMenu({ resolveCopyMarkdown });
+  const cellA = useTranscriptCellMenu({ resolveCopyMarkdown, resolveCopyPlain });
+  const cellB = useTranscriptCellMenu({ resolveCopyMarkdown, resolveCopyPlain });
+  const cellC = useTranscriptCellMenu({ resolveCopyMarkdown, resolveCopyPlain });
+  const cellD = useTranscriptCellMenu({ resolveCopyMarkdown, resolveCopyPlain });
 
   // App-test probe: run the production serializer over the *current*
   // selection deterministically (no native ⌘C / selection-sync concern),

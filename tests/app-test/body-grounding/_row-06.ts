@@ -33,7 +33,7 @@ export const B = "row06-b";
 /** The parts the row's sweep is cut into, each one launch inside the budget. */
 export type Part = "file-window" | "edit-clipboard" | "edit-text" | "text" | "view" | "view-themes" | "view-sidebars-1" | "view-sidebars-2" | "go";
 
-const CLIPBOARD = /^edit\.(cut|copy|copyAsPlainText|paste|pasteAsPlainText|pasteAsQuote|delete|selectAll)$/;
+const CLIPBOARD = /^edit\.(cut|copy|copyAlternate|paste|pasteAsPlainText|pasteAsQuote|delete|selectAll)$/;
 const SIDEBARS_1 = /^view\.sidebar\.(dashes|jots|layout)\./;
 const THEMES = /^view\.(theme\.|nextTheme$|applyThemeToAllWorkspaces$)/;
 

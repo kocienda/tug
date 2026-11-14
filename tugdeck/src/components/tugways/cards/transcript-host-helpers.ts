@@ -12,8 +12,12 @@
  * cell-menu copy/select-all handlers sample the body element live from a ref
  * and close over the captured value, so a re-render during the menu blink
  * can't race the deferred operation. [L11] — the menu dispatches COPY /
- * SELECT_ALL via `useResponder` + targeted control dispatch, the canonical
- * tugway control shape.
+ * COPY_ALTERNATE / SELECT_ALL via `useResponder` + targeted control dispatch,
+ * the canonical tugway control shape; the cell is the responder for all three
+ * because the selection they read is its own. [L30] — the alternate copy is
+ * one registry command with one chord and one menu item; the cell answers
+ * its `queryActionState` so the entry's `dynamicTitle` names the face the
+ * gesture will have, rather than a second command standing beside the first.
  *
  * @module components/tugways/cards/transcript-host-helpers
  */
@@ -21,6 +25,8 @@
 import React, { useCallback, useId, useLayoutEffect, useMemo, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { COPY_ALTERNATE_MARKDOWN } from "@/components/tugways/command-registry";
+import { copySelectionAsPlainText } from "@/lib/copy-as-plain-text";
 import { isKnownSlashCommandName } from "@/lib/slash-supported";
 import { formatContextualStamp } from "@/lib/contextual-stamp";
 import {
@@ -229,7 +235,7 @@ interface TranscriptCellProps {
   ref: (node: Element | null) => void;
   onContextMenu: (event: React.MouseEvent) => void;
   onMouseDown: (event: React.MouseEvent) => void;
-  /** Substitutes the reconstructed markdown into a native ⌘C. */
+  /** Substitutes the cell's own reading of the selection into a native ⌘C. */
   onCopy: (event: React.ClipboardEvent<HTMLElement>) => void;
 }
 
@@ -244,19 +250,37 @@ interface TranscriptCellProps {
  * the way back into Tug — and they have to come from one reading of the
  * selection. Every cell whose body can hold a chip supplies one; a cell of
  * literal ink (shell, refs) omits it and copies its selection verbatim.
+ *
+ * A cell that supplies one is a **rendered surface**: what it shows is the
+ * rendering of markdown, not the markdown. Its Copy gives the plain text of
+ * what was selected and its alternate copy gives the markdown, which is the
+ * reverse of a source surface, whose Copy is already its source.
  */
 export type CopyMarkdownResolver = (
   bodyEl: HTMLElement,
   selection: Selection,
 ) => SelectionSubstrate | null;
 
+/**
+ * The same selection as plain text, in the same substrate shape: no markdown
+ * syntax in the text, the chips still a `U+FFFC` each with their atoms
+ * beside. What a rendered surface's Copy writes.
+ */
+export type CopyPlainResolver = CopyMarkdownResolver;
+
 /** What a transcript cell hands its context menu. */
 export interface TranscriptCellMenuOptions {
   /**
-   * Reconstructs markdown for the cell's current selection. Omitted by the
-   * user row, which is plain text by design.
+   * Reconstructs markdown for the cell's current selection: what Copy as
+   * Markdown writes. Supplying it is what makes the cell a rendered surface.
+   * Omitted by a cell of literal ink, whose Copy is its text as it stands.
    */
   resolveCopyMarkdown?: CopyMarkdownResolver;
+  /**
+   * Reads the cell's current selection as plain text: what Copy and ⌘C
+   * write on a rendered surface. Supplied beside `resolveCopyMarkdown`.
+   */
+  resolveCopyPlain?: CopyPlainResolver;
   /**
    * The composer an annotation's Insert into Prompt item seeds. Omitted by a
    * fixture with no composer to send to; the item is then not offered.
@@ -275,6 +299,7 @@ export interface TranscriptCellMenuOptions {
 // the real ⌘C / menu-Copy path. Not part of the card's public API otherwise.
 export function useTranscriptCellMenu({
   resolveCopyMarkdown,
+  resolveCopyPlain,
   insertTarget,
   turnEntries,
 }: TranscriptCellMenuOptions = {}): {
@@ -294,11 +319,13 @@ export function useTranscriptCellMenu({
     originRef: bodyRef,
     ...(insertTarget !== undefined ? { insertTarget } : {}),
   });
-  // Live-ref the resolver ([L07]) so `handleCopy` keeps a stable
+  // Live-ref the resolvers ([L07]) so the copy handlers keep a stable
   // identity while always invoking the latest closure (which captures
   // the current messages / store).
   const resolveCopyRef = useRef(resolveCopyMarkdown);
   resolveCopyRef.current = resolveCopyMarkdown;
+  const resolvePlainRef = useRef(resolveCopyPlain);
+  resolvePlainRef.current = resolveCopyPlain;
   // Live-ref the turn items for the same reason ([L07]).
   const turnEntriesRef = useRef(turnEntries);
   turnEntriesRef.current = turnEntries;
@@ -322,29 +349,40 @@ export function useTranscriptCellMenu({
     adapterRef.current = body !== null ? new HighlightSelectionAdapter(body) : null;
   });
 
-  // Copy reads the live selection synchronously inside the menu's
+  // A copy reads the live selection synchronously inside the menu's
   // mousedown gesture so `clipboard.writeText` is permitted.
   //
-  // Split from the write so the two doors into a transcript copy — the
+  // Two forms off one reading. On a rendered surface — a cell with a
+  // markdown resolver — `plain` is what Copy writes: the selected text with
+  // no markdown syntax, `text/plain` alone, because an HTML flavor beside it
+  // would have a mail or message composer paste the styling the reader was
+  // leaving behind. `markdown` is what the alternate copy writes: the
+  // markdown that produced the selection, and that markdown re-rendered as
+  // `text/html`. Both keep the atom sidecar, so a paste back into a Tug
+  // prompt rebuilds its chips whichever form was copied.
+  //
+  // Split from the write so the two doors into a transcript Copy — the
   // menu's chain dispatch and the native ⌘C, which never enters the chain
   // at all — reconstruct through one body of code and cannot drift.
   // Returns null when there is nothing to copy.
-  const reconstructCopy = useCallback((): {
+  const reconstructCopy = useCallback((form: "plain" | "markdown"): {
     text: string;
     html: string | null;
     sidecar: TugAtomsClipboardPayload | null;
   } | null => {
     const sel = window.getSelection();
     if (sel === null || sel.rangeCount === 0 || sel.isCollapsed) return null;
-    // Reconstruct markdown for the selection ([P03] — no plain-text
-    // fallback for the markdown path). The plain-text branch is only a
-    // last-resort guard for an unexpected DOM shape or a cell with no
-    // resolver (the user row).
+    // Reconstruct the selection in the form asked for ([P03] — the
+    // serializer's own reading, never the browser's). `Selection.toString()`
+    // is only a last-resort guard for an unexpected DOM shape, and the
+    // whole of the copy for a cell with no resolver (literal ink).
     const body = bodyRef.current;
-    const resolve = resolveCopyRef.current;
+    const rendered = resolveCopyRef.current !== undefined;
+    const resolve =
+      form === "markdown" ? resolveCopyRef.current : resolvePlainRef.current;
     let substrate: SelectionSubstrate | null = null;
     let text: string | null = null;
-    if (body !== null && resolve !== undefined) {
+    if (body !== null && rendered && resolve !== undefined) {
       try {
         substrate = resolve(body, sel);
         text =
@@ -354,29 +392,28 @@ export function useTranscriptCellMenu({
       } catch (err) {
         tugDevLogStore.warn(
           "session-card-transcript",
-          "copy reconstruction threw; falling back to plain text",
-          { error: String(err) },
+          "copy reconstruction threw; falling back to the selection's text",
+          { error: String(err), form },
         );
         text = null;
       }
-      // A resolver was available but produced nothing — the markdown
-      // path failed for this selection. Surface it ([P07]) rather than
-      // silently degrading to plain text. (No resolver = the user row,
-      // which is plain text by design and not logged.)
+      // A resolver was available but produced nothing — the reconstruction
+      // failed for this selection. Surface it ([P07]) rather than
+      // silently degrading to the browser's reading. (No resolver = literal
+      // ink, which is its own text by design and not logged.)
       if (text === null) {
         tugDevLogStore.warn(
           "session-card-transcript",
-          "copy reconstruction yielded no markdown; falling back to plain text",
+          "copy reconstruction yielded nothing; falling back to the selection's text",
+          { form },
         );
       }
     }
-    // `text` is the reconstructed markdown when the resolver produced
-    // it (the markdown path), or null for the plain-text guard. The
-    // markdown path writes both flavors ([P05]): text/plain = markdown,
-    // text/html = that markdown re-rendered ([Q04]). The plain guard
-    // writes text/plain only.
+    // The markdown form writes both flavors ([P05]): text/plain = markdown,
+    // text/html = that markdown re-rendered ([Q04]). The plain form, and
+    // the guard, write text/plain only.
     let html: string | null = null;
-    if (text !== null) {
+    if (form === "markdown" && text !== null) {
       try {
         const rendered = transcriptMarkdownToHtml(text);
         html = rendered === "" ? null : rendered;
@@ -401,8 +438,9 @@ export function useTranscriptCellMenu({
     return { text, html, sidecar };
   }, []);
 
+  // Copy — plain on a rendered surface, the selection's own text on ink.
   const handleCopy = useCallback((): ActionHandlerResult => {
-    const copy = reconstructCopy();
+    const copy = reconstructCopy("plain");
     if (copy === null) return;
     writeCopyClipboard(
       copy.text,
@@ -412,15 +450,57 @@ export function useTranscriptCellMenu({
     );
   }, [reconstructCopy]);
 
+  // The alternate copy, ⌥⇧⌘C and its menu rows: the copy this surface's
+  // Copy does not give. On a rendered surface that is the markdown, and only
+  // the cell can write it, because it takes the cell's resolver. On ink the
+  // cell has no markdown to offer, so it gives the face every source surface
+  // gives — the selection stripped to plain text — exactly as the root
+  // would have, had the action walked past this cell to reach it.
+  const handleCopyAlternate = useCallback((): ActionHandlerResult => {
+    if (resolveCopyRef.current === undefined) {
+      copySelectionAsPlainText();
+      return;
+    }
+    const copy = reconstructCopy("markdown");
+    if (copy === null) return;
+    // Edit ▸ Copy as Markdown arrives as a control frame from the host, with
+    // no user gesture in this page behind it, and the async Clipboard API
+    // refuses a write nobody gestured for. So inside Tug.app the whole write
+    // goes over the native bridge, every flavor with it; the Clipboard API
+    // is the browser-mode path, where the only doors are the chord and the
+    // context menu and both are gestures.
+    const origin = clipboardOriginFor(bodyRef.current);
+    const sidecar = withClipboardOrigins(copy.sidecar, copy.text, origin);
+    if (
+      hasNativeClipboardBridge() &&
+      writeClipboardViaNative(
+        copy.text,
+        sidecar !== null ? JSON.stringify(sidecar) : "",
+        copy.html ?? undefined,
+      )
+    ) {
+      return;
+    }
+    writeCopyClipboard(copy.text, copy.html, origin, copy.sidecar);
+  }, [reconstructCopy]);
+
+  // Which face the alternate has here, for the registry entry's title and
+  // this cell's own menu row. Read live from the ref ([L07]).
+  const copyAlternateState = useCallback(
+    (): string | undefined =>
+      resolveCopyRef.current !== undefined ? COPY_ALTERNATE_MARKDOWN : undefined,
+    [],
+  );
+
   // The native ⌘C.
   //
   // ⌘C is Edit ▸ Copy's key equivalent: AppKit resolves it against the main
   // menu and performs `NSText.copy(_:)` on the web view, so it never enters
   // the responder chain and {@link handleCopy} above never sees it. Left
   // alone, WebKit then copies its own rendering of the selection — the
-  // transcript's markdown reconstruction reachable only from the menu, and
-  // the same selection yielding two different clipboards depending on which
-  // door the reader used.
+  // cell's own reading reachable only from the menu, and the same selection
+  // yielding two different clipboards depending on which door the reader
+  // used.
   //
   // The `copy` DOM event is where that native path becomes ours: WebKit
   // fires it before writing, and a handler that fills `clipboardData` and
@@ -444,7 +524,7 @@ export function useTranscriptCellMenu({
       const sel = window.getSelection();
       if (body === null || sel === null || sel.rangeCount === 0) return;
       if (!sel.getRangeAt(0).intersectsNode(body)) return;
-      const copy = reconstructCopy();
+      const copy = reconstructCopy("plain");
       if (copy === null) return;
       // The project this prose was read against, so a path it cites still
       // resolves after it lands somewhere with no session and no project of
@@ -505,8 +585,11 @@ export function useTranscriptCellMenu({
     actions: {
       ...annotation.actions,
       [TUG_ACTIONS.COPY]: handleCopy,
+      [TUG_ACTIONS.COPY_ALTERNATE]: handleCopyAlternate,
       [TUG_ACTIONS.SELECT_ALL]: handleSelectAll,
     },
+    queryActionState: (action) =>
+      action === TUG_ACTIONS.COPY_ALTERNATE ? copyAlternateState() : undefined,
   });
 
   // The cell owns Select All, Copy and the menu for every markdown block
@@ -533,10 +616,12 @@ export function useTranscriptCellMenu({
   // cell's `<ResponderScope>`, which we render the menu inside
   // below. The cell may never have been promoted to first responder
   // (the editor often holds it across the right-click), but targeted
-  // dispatch via `parentId` doesn't care: COPY, the command-copy actions,
-  // and SELECT_ALL always land on this cell's handlers regardless of
-  // first-responder state. Same canonical L11 shape every other tugway
-  // control uses.
+  // dispatch via `parentId` doesn't care: COPY, COPY_ALTERNATE, the
+  // command-copy actions, and SELECT_ALL always land on this cell's handlers
+  // regardless of first-responder state. Same canonical L11 shape every
+  // other tugway control uses. For the same reason the menu's alternate row
+  // is labelled from this cell's own answer rather than from the chain's:
+  // the row will act here, whoever the first responder is.
   const {
     onMouseDown: hookMouseDown,
     onContextMenu: hookContextMenu,
@@ -546,6 +631,7 @@ export function useTranscriptCellMenu({
     extraEntries,
     hideStandardItems: annotation.hideStandardItems,
     wholeEntityTarget: annotation.wholeEntityTarget,
+    copyAlternateState,
   });
 
   // The hook returns native-event handlers; the cell wires them

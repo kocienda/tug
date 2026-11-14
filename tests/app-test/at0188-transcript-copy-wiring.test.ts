@@ -2,14 +2,18 @@
  * at0188-transcript-copy-wiring.test.ts — the REAL transcript COPY path,
  * end to end ([Q03] fixture; inline granularity from [P02]).
  *
- * Drives the actual handler the user triggers: a selection in a real
- * `useTranscriptCellMenu` body → ⌘C → `handleCopy` →
- * `selectionToTranscriptMarkdown` (fragment serializer) →
- * `clipboard.writeText`. The `fixture-transcript-copy` card mounts that
- * hook over a static body of real components (markdown + Bash tool +
- * thinking + markdown).
+ * Drives the actual handlers the user triggers, over a selection in a real
+ * `useTranscriptCellMenu` body. A transcript cell is a rendered surface, so
+ * its two copies are the reverse of an editor's: **Copy (⌘C) writes plain
+ * text** — the selection with no markdown syntax and no HTML flavor — and
+ * **Copy as Markdown (⌥⇧⌘C) writes the markdown that produced it**, with
+ * that markdown re-rendered as `text/html`. Both come off the fragment
+ * serializer's one reading of the selection. The `fixture-transcript-copy`
+ * card mounts the hook over a static body of real components (markdown +
+ * Bash tool + thinking + markdown).
  *
- * Asserts:
+ * Asserts, of the markdown reconstruction (through the fixture's probe, and
+ * through ⌥⇧⌘C to the pasteboard):
  *  - **inline-accurate**: selecting plain prose inside a paragraph copies
  *    exactly that text (not the whole paragraph);
  *  - **atomic widen**: selecting the rendered text of `**bold**` copies
@@ -17,6 +21,9 @@
  *  - **cross-block**: a selection from prose through the tool block into
  *    the next paragraph copies prose + the `## Tool: Bash` section and
  *    OMITS the thinking block.
+ *
+ * And of Copy: the same selections arrive on the pasteboard as plain text,
+ * list markers kept, with no `text/html` beside them.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -26,7 +33,7 @@
  * on the web view. The cell's chain handler never sees it. What the cell
  * does instead is answer the `copy` DOM event WebKit fires before writing
  * (`onCopy` in `transcript-host-helpers`), filling `clipboardData` with the
- * same reconstruction the menu path writes and calling `preventDefault()`.
+ * same plain text the menu's Copy writes and calling `preventDefault()`.
  * So the chord and the menu produce one clipboard from one body of code —
  * and the assertion for the chord reads the SYSTEM pasteboard, because that
  * is where a native copy lands.
@@ -52,6 +59,10 @@
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.tsx
  * @covers tugdeck/src/fixtures/fixture-transcript-copy.tsx
  * @covers tugdeck/src/lib/markdown/serialize-selection.ts
+ *
+ * @alone — it reads the system pasteboard, which every app-test instance on
+ * the machine writes: in a batch a neighbour's copy lands between this
+ * file's copy and its read, and the assertion reads the neighbour's text.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -241,6 +252,11 @@ async function copyAndRead(
   return seen;
 }
 
+/** The pasteboard's type list, read from this process: a read, never an event into the app. */
+function clipboardInfo(): string {
+  return Bun.spawnSync(["osascript", "-e", "clipboard info"]).stdout.toString();
+}
+
 /**
  * The flavors the cell put on the last native copy.
  *
@@ -260,7 +276,7 @@ const WATCH_COPY_FLAVORS = `(function(){
 })()`;
 
 describe.skipIf(!SHOULD_RUN)(
-  "AT0188: real transcript COPY handler reconstructs markdown to the clipboard",
+  "AT0188: real transcript COPY handlers — plain text by default, markdown on the alternate",
   () => {
     test(
       "inline-accurate, atomic-widen, and cross-block selections via ⌘C",
@@ -374,23 +390,51 @@ describe.skipIf(!SHOULD_RUN)(
           // Exactly the selected paragraph — no rule, no heading below it.
           expect(copiedOvershoot).toBe("Alpha paragraph one only.");
 
-          // ---- ⌘C smoke: the native chord carries the same reconstruction
-          // all the way to the system pasteboard. The chord never enters the
-          // responder chain (Edit ▸ Copy is performed natively), so this
-          // proves the `onCopy` substitution, not the menu path. ----
+          // ---- ⌘C: the native chord carries the cell's PLAIN reading all
+          // the way to the system pasteboard — the word, without the markers
+          // the probe above shows the markdown form would give it. The chord
+          // never enters the responder chain (Edit ▸ Copy is performed
+          // natively), so this proves the `onCopy` substitution, not the
+          // menu path. ----
           expect(await app.body("A").evalJS<boolean>(WATCH_COPY_FLAVORS)).toBe(true);
           await app.body("A").evalJS<string>(selectExactNodeScript("bold"));
           const viaCmdC = await copyAndRead(app);
-          expect(viaCmdC).toBe("**bold**");
+          expect(viaCmdC).toBe("bold");
 
-          // ---- dual-format clipboard ([#step-11]): the same ⌘C write
-          // also exposes text/html, the markdown re-rendered. text/plain
-          // stays the markdown; text/html carries the rendered emphasis. ----
+          // ---- one flavor: Copy writes text/plain and nothing beside it.
+          // An HTML flavor would have a mail or message composer paste the
+          // bold the reader copied the plain word to leave behind. ----
           const flavors = await app.body("A").evalJS<{ plain: string; html: string } | null>(
             `window.__copyEvent`,
           );
-          expect(flavors?.plain).toBe("**bold**");
-          expect(flavors?.html).toContain("<strong>bold</strong>");
+          expect(flavors?.plain).toBe("bold");
+          expect(flavors?.html).toBe("");
+          expect(clipboardInfo(), "Copy puts no HTML on the pasteboard").not.toContain("HTML");
+
+          // ---- the seat's name follows the surface: with a rendered cell
+          // holding first responder, Edit's ⌥⇧⌘C item reads Copy as
+          // Markdown. Polled, because the body posts its menu gates after
+          // a paint. ----
+          const seatTitleNow = async (): Promise<string> => {
+            const item = await app.menuItemState("edit.copyAlternate");
+            return item.found ? item.title : "__NO_ITEM__";
+          };
+          const titleDeadline = Date.now() + 5000;
+          let seatTitle = await seatTitleNow();
+          while (seatTitle !== "Copy as Markdown" && Date.now() < titleDeadline) {
+            await new Promise((r) => setTimeout(r, 100));
+            seatTitle = await seatTitleNow();
+          }
+          expect(seatTitle).toBe("Copy as Markdown");
+
+          // ---- Copy as Markdown (⌥⇧⌘C): the reconstruction Copy used to
+          // write, on the alternate seat, in both flavors. The chord is
+          // dispatched in the body, whose first responder is the cell, and
+          // the cell answers it — the root's plain-text face is never
+          // reached from a rendered surface. ----
+          await app.body("A").evalJS<string>(selectExactNodeScript("bold"));
+          expect(await copyAndRead(app, ["alt", "shift", "cmd"])).toBe("**bold**");
+          expect(clipboardInfo(), "Copy as Markdown carries the rendered HTML").toContain("HTML");
 
           // ---- cross-cell ([#step-10]): a selection spanning the two
           // separate responder scopes (cell A's closing paragraph → cell
@@ -451,9 +495,16 @@ describe.skipIf(!SHOULD_RUN)(
           expect(dispSel).not.toBe("__NO_KATEX__");
           expect(await app.body("A").evalJS<string>(probe)).toBe("$$x = a + b$$");
 
-          // ---- numbered list via the real ⌘C path: the text/plain flavor
-          // keeps each item's ordinal and puts one newline between tight
-          // items — never bullets, never a blank line per item. ----
+          // ---- heading via the real doors: Copy gives its text, Copy as
+          // Markdown gives the `###` the probe reconstructed above. ----
+          await app.body("A").evalJS<string>(selectRichBlockScript("Rich Heading"));
+          expect(await copyAndRead(app)).toBe("Rich Heading");
+          expect(await copyAndRead(app, ["alt", "shift", "cmd"])).toBe("### Rich Heading");
+
+          // ---- numbered list via the real ⌘C path: plain text keeps each
+          // item's ordinal and puts one newline between tight items — a
+          // list pasted without its markers reads as run-together lines.
+          // Never bullets, never a blank line per item, and no HTML. ----
           const numberedSel = await app.body("A").evalJS<string>(selectRichBlockScript("Numbered one"));
           expect(numberedSel).toContain("Numbered three");
           const numberedMd = await copyAndRead(app);
@@ -462,15 +513,17 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__copyEvent`,
           );
           expect(numberedFlavors?.plain).toBe(numberedMd);
-          expect(numberedFlavors?.html).toContain("<ol>");
+          expect(numberedFlavors?.html).toBe("");
 
-          // ---- Copy as Plain Text (⌥⇧⌘C) in a body card: the selection is
-          // the body page's, so the body must answer the command itself.
-          // Handed to the shell, the deck canvas read the shell's own empty
-          // selection and the pasteboard never changed. The context menu's
-          // row ends at the same body-root handler. ----
-          await app.body("A").evalJS<string>(selectExactNodeScript("bold"));
-          expect(await copyAndRead(app, ["alt", "shift", "cmd"])).toBe("bold");
+          // ---- the same list on the alternate seat: the markdown, with the
+          // list's HTML beside it. The selection is the body page's, so the
+          // body answers the command itself; handed to the shell, the deck
+          // canvas would read the shell's own empty selection and the
+          // pasteboard would never change. ----
+          expect(await copyAndRead(app, ["alt", "shift", "cmd"])).toBe(
+            "1. Numbered one\n2. Numbered two\n3. Numbered three",
+          );
+          expect(clipboardInfo(), "the list's HTML rides the alternate").toContain("HTML");
         } catch (err) {
           const tail = app.tailLog(200);
           if (tail !== "") process.stderr.write(`\n[at0188-transcript-copy-wiring] log tail:\n${tail}\n`);

@@ -39,7 +39,7 @@ import AppKit
     func openProjectHome(_ sender: Any?)
     func openQuickly(_ sender: Any)
     func performCopy(_ sender: Any?)
-    func performCopyAsPlainText(_ sender: Any?)
+    func performCopyAlternate(_ sender: Any?)
     func performCut(_ sender: Any?)
     func performDecreaseQuoteLevel(_ sender: Any?)
     func performDelete(_ sender: Any?)
@@ -381,7 +381,7 @@ struct MenuBarBuilder {
         // ⌥⇧⌘C — the "…as Plain Text" composed set (tuglaws/chord-tiers.md):
         // ⌥ the variant of Copy, ⇧ its counterpart, both twists at once. Its
         // twin is ⌥⇧⌘V on Paste as Plain Text below.
-        editMenu.addItem(NSMenuItem(title: "Copy as Plain Text", action: #selector(MenuBarActions.performCopyAsPlainText(_:)), keyEquivalent: "c", modifierMask: [.command, .shift, .option]).identified("edit.copyAsPlainText"))
+        editMenu.addItem(NSMenuItem(title: "Copy as Plain Text", action: #selector(MenuBarActions.performCopyAlternate(_:)), keyEquivalent: "c", modifierMask: [.command, .shift, .option]).identified("edit.copyAlternate"))
         editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(MenuBarActions.performPaste(_:)), keyEquivalent: "v").identified("edit.paste"))
         // Paste variants — chain-action round-trips (NOT the native
         // NSText.paste selector). The web responder chain reads the

@@ -1,21 +1,23 @@
 /**
- * at0366-overview-copy.test.ts — the Overview's COPY reconstructs markdown.
+ * at0366-overview-copy.test.ts — the Overview copies as the transcript does:
+ * plain text from Copy, the markdown from Copy as Markdown.
  *
  * A Overview post is markdown now, rendered by the Session transcript's own
- * `TugMarkdownBlock`, so a selection across it has to come back as the
- * markdown that produced it rather than as the words a reader sees. That is
- * what `resolveCopyMarkdown` buys: `selectionToTranscriptMarkdown` walks the
- * rendered DOM and rebuilds the source, and `useTranscriptCellMenu` writes
- * both clipboard flavors off it — `text/plain` carrying the markdown,
- * `text/html` carrying that markdown re-rendered.
+ * `TugMarkdownBlock`, and it shares that transcript's cell wiring, so the
+ * same prose must not copy two ways on two cards. The row is a rendered
+ * surface: its Copy writes the words a reader sees, `text/plain` alone, and
+ * its alternate — the row that reads Copy as Markdown here — writes the
+ * markdown that produced them, which `resolveCopyMarkdown` rebuilds by
+ * walking the rendered DOM, with that markdown re-rendered as `text/html`.
  *
- * Driven through the row's own Copy: a right-click over the selection opens
- * the cell's context menu, and its Copy item dispatches to the cell by
- * `parentId` — the targeted path, which is why it lands on the cell's
- * handler regardless of which responder holds the keyboard. Everything from
- * the menu item down is production: `handleCopy`, the resolver, the
- * two-flavor `ClipboardItem` write. The clipboard itself is captured by
- * replacing `write`/`writeText` in the page, which is at0188's technique.
+ * Driven through the row's own menu: a right-click over the selection opens
+ * the cell's context menu, and its items dispatch to the cell by `parentId`
+ * — the targeted path, which is why they land on the cell's handlers
+ * regardless of which responder holds the keyboard. Everything from the
+ * menu item down is production. Copy's write is captured by replacing
+ * `write`/`writeText` in the page, which is at0188's technique; Copy as
+ * Markdown writes over the native bridge, so it is read off the system
+ * pasteboard.
  *
  * A second test covers the other half of the same claim, on a **placed**
  * value rather than written prose: a commit in a post's `refs` array renders
@@ -36,6 +38,10 @@
  * @covers tugdeck/src/components/tugways/tug-atom-ref.tsx
  * @covers tugdeck/src/components/tugways/tug-commit-atom.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
+ *
+ * @alone — Copy as Markdown is read off the system pasteboard, which every
+ * app-test instance on the machine writes: in a batch a neighbour's copy
+ * lands between this file's copy and its read.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -59,6 +65,16 @@ const TEST_TIMEOUT_MS = 90_000;
 const CARD = '[data-testid="overview-card"]';
 const BODY = `${CARD} .overview-post-body`;
 const COPY_ITEM = '[data-slot="tug-editor-context-menu"] [data-item-action="copy"]';
+const ALTERNATE_ITEM =
+  '[data-slot="tug-editor-context-menu"] [data-item-action="copy-alternate"]';
+
+/** What the pasteboard holds before a copy, so "nothing was written" is distinguishable. */
+const COPY_SENTINEL = "at0366-sentinel-nothing-copied";
+
+/** The pasteboard's type list, read from this process: a read, never an event into the app. */
+function clipboardInfo(): string {
+  return Bun.spawnSync(["osascript", "-e", "clipboard info"]).stdout.toString();
+}
 
 /**
  * Capture both clipboard paths — the dual-format `clipboard.write`
@@ -141,9 +157,9 @@ const OPEN_MENU_OVER_SELECTION = `(function(){
   return "ok";
 })()`;
 
-describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
+describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies plain text, and markdown on the alternate", () => {
   test(
-    "the row's Copy reconstructs a selection's markdown, in two clipboard flavors",
+    "the row's Copy writes plain text alone, and Copy as Markdown the markdown in two flavors",
     async () => {
       const app = await launchTugApp({ testName: "at0366-overview-copy" });
       try {
@@ -181,15 +197,19 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
         // The copy runs in the Overview's body, so its clipboard is captured there.
         expect(await kindBody(app, "overview").evalJS<boolean>(INSTALL_CLIPBOARD_CAPTURE)).toBe(true);
 
-        // ---- the construct alone: bold keeps its markers ----
+        // ---- the construct alone: Copy gives the word, not its markers ----
         expect(await kindBody(app, "overview").evalJS<string>(selectExactNodeScript("imposer"))).toBe(
           "imposer",
         );
         const bold = await copyAndRead(kindBody(app, "overview"));
         note("copied bold", JSON.stringify(bold));
-        expect(bold.plain).toBe("**imposer**");
+        expect(bold.plain).toBe("imposer");
+        expect(bold.html).toBeNull();
 
-        // ---- the whole block: both constructs, and the html flavor ----
+        // ---- …and Copy as Markdown gives the markers back ----
+        expect(await copyAlternateAndRead(kindBody(app, "overview"))).toBe("**imposer**");
+
+        // ---- the whole block: both constructs ----
         const rendered = await kindBody(app, "overview").evalJS<string>(SELECT_WHOLE_BLOCK);
         expect(rendered).toContain("imposer");
         // The reader's text carries neither construct's syntax.
@@ -198,14 +218,18 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
 
         const whole = await copyAndRead(kindBody(app, "overview"));
         note("copied block", JSON.stringify(whole));
-        // …but the clipboard's plain flavor is the markdown source.
-        expect(whole.plain).toContain("**imposer**");
-        expect(whole.plain).toContain("`layout-imposer.ts`");
-        // And the html flavor is that markdown re-rendered, so a rich paste
-        // target gets the styling rather than the syntax.
-        expect(whole.html).not.toBeNull();
-        expect(whole.html!).toContain("<strong>imposer</strong>");
-        expect(whole.html!).toContain("<code>layout-imposer.ts</code>");
+        // Copy is the reader's text: no syntax, and no html flavor that
+        // would paste the styling into a message or a mail.
+        expect(whole.plain).toBe("Rebuilt the imposer pass in layout-imposer.ts today.");
+        expect(whole.html).toBeNull();
+
+        // The alternate is the markdown source, and beside it that markdown
+        // re-rendered, so a rich paste target gets the styling rather than
+        // the syntax.
+        const markdown = await copyAlternateAndRead(kindBody(app, "overview"));
+        note("copied block as markdown", JSON.stringify(markdown));
+        expect(markdown).toBe("Rebuilt the **imposer** pass in `layout-imposer.ts` today.");
+        expect(clipboardInfo(), "Copy as Markdown carries the rendered HTML").toContain("HTML");
       } finally {
         await app.close();
       }
@@ -261,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
         expect(shown).not.toContain("Commit ");
 
         // What the CLIPBOARD gets, asserted at the range rather than through
-        // the cell menu. `copy-as-plain-text` has no annotation awareness — it
+        // the cell menu. Copy as Plain Text has no annotation awareness — it
         // writes the selection's own text — so a range's `toString()` over the
         // refs row IS the plain flavor, and asserting it here pins the
         // convergence without also dragging in the cell menu, which is the
@@ -285,6 +309,37 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
     TEST_TIMEOUT_MS,
   );
 });
+
+/**
+ * Right-click ▸ Copy as Markdown over the current selection, then what the
+ * system pasteboard received. The row's label is asserted on the way: on
+ * this card the alternate seat reads Copy as Markdown.
+ */
+async function copyAlternateAndRead(page: BodyApp): Promise<string> {
+  Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(COPY_SENTINEL) });
+  await page.waitForCondition<boolean>(
+    `document.querySelector('[data-slot="tug-editor-context-menu"]') === null`,
+    { timeoutMs: 5_000 },
+  );
+  expect(await page.evalJS<string>(OPEN_MENU_OVER_SELECTION)).toBe("ok");
+  await page.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(ALTERNATE_ITEM)}) !== null`,
+    { timeoutMs: 5_000 },
+  );
+  const label = await page.evalJS<string>(
+    `(document.querySelector(${JSON.stringify(ALTERNATE_ITEM)}).textContent || "")`,
+  );
+  expect(label).toContain("Copy as Markdown");
+  expect(label).not.toContain("Copy as Plain Text");
+  await page.nativeClickAtElement(ALTERNATE_ITEM);
+  const deadline = Date.now() + 3000;
+  let seen = COPY_SENTINEL;
+  while (seen === COPY_SENTINEL && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+    seen = Bun.spawnSync(["pbpaste"]).stdout.toString();
+  }
+  return seen;
+}
 
 /**
  * Right-click ▸ Copy over the current selection, then the flavors written —

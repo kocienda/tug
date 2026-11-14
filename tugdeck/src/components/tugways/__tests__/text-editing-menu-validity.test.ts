@@ -47,7 +47,7 @@ function editableChain(): ResponderChainManager {
     actions: {
       [TUG_ACTIONS.CUT]: () => {},
       [TUG_ACTIONS.COPY]: () => {},
-      [TUG_ACTIONS.COPY_AS_PLAIN_TEXT]: () => {},
+      [TUG_ACTIONS.COPY_ALTERNATE]: () => {},
       [TUG_ACTIONS.PASTE]: () => {},
       [TUG_ACTIONS.PASTE_AS_QUOTE]: () => {},
       [TUG_ACTIONS.PASTE_AS_PLAIN_TEXT]: () => {},
@@ -79,7 +79,7 @@ describe("text-editing menu validity", () => {
 
     expect(disabledOf(entries, TUG_ACTIONS.CUT)).toBe(true);
     expect(disabledOf(entries, TUG_ACTIONS.COPY)).toBe(true);
-    expect(disabledOf(entries, TUG_ACTIONS.COPY_AS_PLAIN_TEXT)).toBe(true);
+    expect(disabledOf(entries, TUG_ACTIONS.COPY_ALTERNATE)).toBe(true);
     // Paste needs somewhere to land, not something selected.
     expect(disabledOf(entries, TUG_ACTIONS.PASTE)).toBe(false);
     expect(disabledOf(entries, TUG_ACTIONS.SELECT_ALL)).toBe(false);

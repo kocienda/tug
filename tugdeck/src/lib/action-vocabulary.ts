@@ -94,11 +94,17 @@ export const TUG_ACTIONS = {
   //              delete the selection after the menu blink).
   // COPY:        payload — none. The first responder copies its current
   //              selection. No continuation expected.
-  // COPY_AS_PLAIN_TEXT: payload — none. Like COPY, but the selection's
-  //              Markdown source is stripped to plain text (headings,
-  //              emphasis, code, links → their text content) before it
-  //              lands on the clipboard. Plain-text only; no atom sidecar.
-  //              Bound to ⌥⇧⌘C.
+  // COPY_ALTERNATE: payload — none. The copy a surface's COPY does not
+  //              give, named for the seat rather than for either face.
+  //              On a source surface (editors, native inputs) it reads
+  //              "Copy as Plain Text": like COPY, but the selection's
+  //              Markdown source is stripped to plain text before it lands
+  //              on the clipboard, plain-text only with no atom sidecar.
+  //              On a rendered transcript cell, whose COPY gives plain
+  //              text, it reads "Copy as Markdown" and writes the
+  //              selection's Markdown with its HTML rendering and the atom
+  //              sidecar; the cell answers it, and says which face it has
+  //              through `queryActionState`. Bound to ⌥⇧⌘C.
   // PASTE:       payload — none. The first responder pastes clipboard
   //              content. Handlers typically return a continuation so the
   //              paste happens after any menu activation animation.
@@ -210,7 +216,7 @@ export const TUG_ACTIONS = {
   //              none.
   CUT:                 "cut",
   COPY:                "copy",
-  COPY_AS_PLAIN_TEXT:  "copy-as-plain-text",
+  COPY_ALTERNATE:      "copy-alternate",
   COPY_COMMAND:        "copy-command",
   COPY_COMMAND_AS_PLAIN_TEXT: "copy-command-as-plain-text",
   COPY_ANNOTATION_VALUE: "copy-annotation-value",

@@ -408,7 +408,7 @@ describe("isCancelChordEvent", () => {
 
 describe("commandShortcut", () => {
   test("renders a command's first binding", () => {
-    expect(commandShortcut(TUG_ACTIONS.COPY_AS_PLAIN_TEXT)).toBe("⌥⇧⌘C");
+    expect(commandShortcut(TUG_ACTIONS.COPY_ALTERNATE)).toBe("⌥⇧⌘C");
   });
 
   test("a command with no binding renders nothing", () => {

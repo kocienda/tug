@@ -366,6 +366,23 @@ export interface CommandValidationSource {
   readonly menu: CommandMenuFacts;
 }
 
+/**
+ * What a responder answers `queryActionState(COPY_ALTERNATE)` with when its
+ * alternate copy is the Markdown: a rendered surface, whose Copy gives plain
+ * text. Every other surface answers nothing, and its alternate is the plain
+ * text its Copy does not give.
+ */
+export const COPY_ALTERNATE_MARKDOWN = "markdown";
+
+/**
+ * The alternate copy's name for a surface, from that surface's answer. One
+ * function for the Edit menu's title and the context menu's row, so the two
+ * doors into the seat cannot name it differently.
+ */
+export function copyAlternateTitle(state: boolean | string | undefined): string {
+  return state === COPY_ALTERNATE_MARKDOWN ? "Copy as Markdown" : "Copy as Plain Text";
+}
+
 export interface CommandEntry {
   /**
    * Canonical wire name: a `TUG_ACTIONS` value, a control-frame wire, or
@@ -1634,10 +1651,10 @@ export const COMMANDS: readonly CommandEntry[] = [
     bindings: [chord({ key: "KeyZ", meta: true, shift: true, label: "z" })],
   },
   {
-    id: TUG_ACTIONS.COPY_AS_PLAIN_TEXT,
+    id: TUG_ACTIONS.COPY_ALTERNATE,
     title: "Copy as Plain Text",
     routing: "first-responder",
-    menuItemId: "edit.copyAsPlainText",
+    menuItemId: "edit.copyAlternate",
     bindings: [
       chord(
         { key: "KeyC", meta: true, shift: true, alt: true, label: "c" },
@@ -1648,6 +1665,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     // Shares Copy's gate: both need a selection, and a surface that offers
     // one offers the other.
     validate: (chain) => chain.validateAction(TUG_ACTIONS.COPY),
+    // One seat, two faces. The first responder says which it has: a
+    // rendered transcript cell, whose Copy gives plain text, answers the
+    // markdown state; every surface whose Copy is its source answers
+    // nothing. A string is not a check mark, so the item carries none.
+    state: () => undefined,
+    dynamicTitle: (chain) =>
+      copyAlternateTitle(chain.queryActionState(TUG_ACTIONS.COPY_ALTERNATE)),
   },
   {
     id: TUG_ACTIONS.PASTE_AS_QUOTE,

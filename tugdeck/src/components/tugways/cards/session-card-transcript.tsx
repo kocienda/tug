@@ -104,6 +104,7 @@ import {
   formatTranscriptTimestamp,
   useTranscriptCellMenu,
   type CopyMarkdownResolver,
+  type CopyPlainResolver,
 } from "./transcript-host-helpers";
 import {
   TugListView,
@@ -179,7 +180,7 @@ import {
   toolCallToMarkdown,
   turnEntryToMarkdown,
 } from "@/lib/turn-entry-markdown";
-import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
+import { selectionToTranscriptPlainSubstrate, selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
@@ -208,7 +209,6 @@ import {
 } from "@/lib/code-session-store/stages";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
 import {
-  isShareMarkRow,
   ShareTurnsContext,
   useShareFromHereEntries,
   useShareTurnMark,
@@ -650,9 +650,16 @@ const UserMessageCell = React.memo(function UserMessageCell({
     (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
+  // The plain reading of the same selection: what Copy and ⌘C write here,
+  // with the markdown above one command away as Copy as Markdown.
+  const resolveCopyPlain = React.useCallback<CopyPlainResolver>(
+    (bodyEl, selection) => selectionToTranscriptPlainSubstrate(selection, bodyEl),
+    [],
+  );
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
+    resolveCopyPlain,
     insertTarget,
     turnEntries: shareFromHere,
   });
@@ -2021,17 +2028,22 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
     !isCommitted && isLastAssistant,
   );
 
-  // Reconstruct markdown for any selection in this row ([P03]). The
-  // closure captures the row's live messages + streaming store; the
-  // hook live-refs it so COPY always runs the latest one without
-  // destabilizing the handler identity.
+  // Reconstruct any selection in this row ([P03]), in the two forms a
+  // rendered row copies in: plain text for Copy and ⌘C, markdown for Copy
+  // as Markdown. The hook live-refs both so a copy always runs the latest
+  // one without destabilizing the handler identity.
   const resolveCopyMarkdown = useCallback<CopyMarkdownResolver>(
     (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
+    [],
+  );
+  const resolveCopyPlain = useCallback<CopyPlainResolver>(
+    (bodyEl, selection) => selectionToTranscriptPlainSubstrate(selection, bodyEl),
     [],
   );
   const insertTarget = useSessionPromptInsertTarget(codeSessionStore);
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({
     resolveCopyMarkdown,
+    resolveCopyPlain,
     insertTarget,
     turnEntries: shareFromHere,
   });
