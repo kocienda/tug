@@ -173,8 +173,8 @@ final class BridgeHandler: BridgeDelegate {
     }
 
     func bridgeFrontendReady() {
-        DispatchQueue.main.async {
-            guard let delegate = self.delegate else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let delegate = self.delegate else { return }
             delegate.frontendReady = true
 
             // Open any files the OS handed us before the deck was live

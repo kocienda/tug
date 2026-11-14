@@ -70,7 +70,7 @@ final class SpeechAnalyzerRecognizer: DictationRecognizer {
         progress: @escaping (Bool) -> Void,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        Task {
+        Task { [self] in
             do {
                 guard SpeechTranscriber.isAvailable else {
                     throw DictationRefusal.unavailable

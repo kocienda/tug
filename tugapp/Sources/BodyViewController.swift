@@ -855,7 +855,7 @@ final class BodyViewController {
     /// (`content`), has gone to the compositor. From here a placement that
     /// names it visible shows it.
     func didPaint(_ body: Body, content: Bool) {
-        guard let cardId = body.cardId else { return }
+        guard body.cardId != nil else { return }
         if content {
             if !body.contentPainted, !body.seen, !body.life.shownOnce { body.paintedOnlyHidden = true }
             body.contentPainted = true
