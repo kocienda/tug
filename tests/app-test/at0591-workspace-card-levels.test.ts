@@ -308,25 +308,28 @@ function blob(): Record<string, unknown> {
  * workspace's. It is not the ACTIVE one, and that is deliberate: the shown
  * card has to belong to a workspace whose active pane is a content pane, or
  * the sidebar toggle that hands the list its focus would read as "hide"
- * rather than as "activate". A workspace's rail pane is excluded from the
- * projection, so a deck holding nothing but its Workspaces card projects no
- * inner rows at all — which is the whole of what "empty workspace" means here.
+ * rather than as "activate". The Workspaces card is on the window's rail,
+ * which no workspace's deck holds ([D231]), so the bare workspace's deck is
+ * empty and projects no inner rows at all — which is the whole of what
+ * "empty workspace" means here.
  */
 function emptyBlob(): Record<string, unknown> {
   return {
     version: 5,
     activeSpaceId: FULL,
+    rail: {
+      cards: [{ id: "CF", componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [rail("pcf", "CF")],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
     spaces: [
       {
         id: BARE,
         name: "Bare",
         deck: {
-          cards: [
-            { id: "CB", componentId: "cards", title: "Workspaces", closable: true },
-          ],
-          panes: [rail("pcb", "CB")],
-          activePaneId: "pcb",
-          imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+          cards: [],
+          panes: [],
+          imposition: { kind: "one-up", sidebars: {} },
           hasFocus: true,
         },
       },
@@ -335,11 +338,9 @@ function emptyBlob(): Record<string, unknown> {
         name: "Full",
         deck: {
           cards: [
-            { id: "CF", componentId: "cards", title: "Workspaces", closable: true },
             { id: "TF", componentId: "text", title: "TF", closable: true },
           ],
           panes: [
-            rail("pcf", "CF"),
             {
               id: "ptf",
               position: { x: 60, y: 60 },
@@ -351,7 +352,7 @@ function emptyBlob(): Record<string, unknown> {
             },
           ],
           activePaneId: "ptf",
-          imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+          imposition: { kind: "one-up", sidebars: {} },
           hasFocus: true,
         },
       },
@@ -975,10 +976,11 @@ describe.skipIf(!SHOULD_RUN)(
           // the None row under it.
           expect(carry.read).toBe(2);
 
+          // The bare workspace held nothing; the carried card makes one.
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.filter(function (s) {
                return s.id === ${JSON.stringify(BARE)};
-             })[0].deck.cards.length === 2`,
+             })[0].deck.cards.length === 1`,
             { timeoutMs: 8_000 },
           );
           // What the LIST shows afterwards, noted rather than asserted, and

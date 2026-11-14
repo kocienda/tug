@@ -6,7 +6,56 @@
  *
  * Split out of `at0469-layout-places.test.ts` when that file was cut into
  * `at0469-places-marks`, `at0469-places-sidebar-rows` and
- * `at0469-places-drawing` to keep each under the 20 s budget.
+ * `at0469-places-drawing` to keep each under the 20 s budget. The
+ * sidebar-rows and drawing files were later cut again, one test to a file:
+ * `at0469-places-sidebar-rows-{side-move,toggle-walk,show-hide}` and
+ * `at0469-places-drawing-{preview,faces}`.
+ *
+ * ## The places, and the claims the family reads
+ *
+ * The Layout section draws the deck at scale and now marks every arrangeable
+ * place on that drawing: a slot's mark says whether the slot is stacked or
+ * split, a side's mark says the same for its rail. What makes the marks worth
+ * having — and what these files are for — is that they read the STORED
+ * arrangement rather than the drawn one.
+ *
+ * The two come apart at exactly one card. Membership churn preserves an
+ * arrangement (`slotDrawsSplit` in `deck-store-selectors.ts`), so a slot set
+ * to split and standing one card deep renders as one undivided card. Before the
+ * overlay that stored split was invisible on every surface and unreachable from
+ * the Layout card, because the section's slot rows were gated on `members.length > 1`
+ * — so it sat there until a second card arrived and it resurfaced as a surprise.
+ *
+ *   1. **Every slot the kind defines is marked**, occupied or not, and each
+ *      mark says that slot's own stored arrangement.
+ *   2. **A one-card split is visible**, drawn split: the arrangement is real,
+ *      there is just nothing standing under it yet.
+ *   3. **The marks stand under the places they name.** They live in a row
+ *      beneath the numbered strip, one under each number, and each stands
+ *      within its block's span — the drawing's blocks wear their cards'
+ *      faces, so the marks left the drawing for the legend.
+ *   4. **A rail is a place too**, and wears the same vocabulary.
+ *   5. **A mark is a button.** It answers a hand and does not audition, and
+ *      every mark rests at one weight — the picture states arrangements, not
+ *      how many cards stand under them.
+ *   6. **Every block wears its card's face, and hovering one names the card.**
+ *      A stack shows its sheets behind the front card; the hover says what the
+ *      card is called, where it stands, what is behind it, and what a press
+ *      does.
+ *   7. **A place wears ONE mark, and the note says which thing scrolls.** The
+ *      mark says stack or split and nothing more — the layout glyph it wore
+ *      for a while is gone — and a rail put on flow through its mixer row
+ *      draws as a strip in the miniature while the plan's note names the rail
+ *      as the thing that scrolls.
+ *   8. **A place's arrangement is a row in the mixer**, `Stack | Fit | Flow`
+ *      per rail side and per slot with something to arrange. Stack writes the
+ *      mode alone and the layout is remembered; Fit and Flow write the mode
+ *      and the layout together. A rail row is disabled, never absent, while
+ *      its side holds fewer than two cards; a slot row is absent, never
+ *      disabled, while its slot does.
+ *
+ * Read from live `getBoundingClientRect()` and `data-` attributes. Nothing here
+ * reads back a declared style value.
  */
 
 import { type App, type BodyApp } from "./_harness";

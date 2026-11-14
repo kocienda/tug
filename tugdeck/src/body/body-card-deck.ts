@@ -191,6 +191,7 @@ export class BodyCardDeck implements CardDeck {
       prev.arriving !== next.arriving ||
       prev.firstResponderCardId !== next.firstResponderCardId ||
       prev.focused !== next.focused ||
+      prev.paneFocused !== next.paneFocused ||
       prev.railSide !== next.railSide
     ) {
       this.deckState = this.synthesize();
@@ -228,6 +229,16 @@ export class BodyCardDeck implements CardDeck {
   getContext(): CardContextValue {
     return this.context;
   }
+
+  /**
+   * Whether the page draws its pane's focused look. An arrangement card's
+   * deck is the shell's, and the look is whether it names an active pane, as
+   * it always was; any other card's is its pane's, whichever tab is active
+   * (`paneFocused`), so a hidden tab sibling has drawn the look a tab switch
+   * shows. Bound, for `useSyncExternalStore`.
+   */
+  getFocusedLook = (): boolean =>
+    this.arrangement !== null ? this.deckState.activePaneId !== undefined : this.context.paneFocused;
 
   private readonly spaceListeners = new Set<() => void>();
 

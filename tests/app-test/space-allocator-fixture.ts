@@ -7,7 +7,8 @@
  *
  * Split out of `at0303-imposer-space-allocator.test.ts` when that file was
  * cut into `at0303-space-allocator-engages`, `-retunes`, `-greed` and
- * `-drag-floor` to keep each under the 20 s budget.
+ * `-drag-floor` to keep each under the 20 s budget; `-engages` was later cut
+ * again, a test to a file, into `-engages-solve` and `-engages-surplus`.
  */
 
 import { type App } from "./_harness";

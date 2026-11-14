@@ -39,11 +39,10 @@
  * which is the behaviour a reader scanning the list they are standing in
  * depends on.
  *
- * The first two legs run against a workspace the run has never stood up —
- * `mountedSpaceIds` does not hold it — because that is the only state in
- * which the registries and the responder chain are both empty. A workspace
- * [B06] has left mounted behind the one on screen answers both questions
- * live, and is the easy case.
+ * The first two legs run against a workspace the run has never visited. Every
+ * workspace is mounted from launch now ([D230]), so its cards stand in a
+ * parked layer rather than nowhere; the legs still read the row through the
+ * list, which is what a reader sees.
  *
  * @covers tugdeck/src/components/cards/cards-data-source.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx
@@ -115,30 +114,30 @@ function textPane(id: string, cardId: string): Record<string, unknown> {
 }
 
 /**
- * Two workspaces. `HOME` is active and holds the Workspaces card plus the
- * Text card the first two legs move; `AWAY` holds only its own Workspaces
- * card, so nothing about it is stood up until something stands it up.
- *
- * `AWAY` carries a Workspaces card of its own for the same reason every
- * workspace in these fixtures does: a workspace whose rail is empty has no
- * list to read once it becomes the one on screen.
+ * Two workspaces. `HOME` is active and holds the Text card the first two legs
+ * move; `AWAY` holds nothing, so nothing about it is stood up until something
+ * stands it up. The Workspaces card is the window's, on the one rail every
+ * workspace shares ([D231]), so it is the same list on either side of a
+ * switch.
  */
 function blob(textCardId: string): Record<string, unknown> {
   return {
     version: 5,
     activeSpaceId: HOME,
+    rail: {
+      cards: [{ id: "CH", componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [rail("pch", "CH")],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
     spaces: [
       {
         id: HOME,
         name: "Home",
         deck: {
-          cards: [
-            { id: "CH", componentId: "cards", title: "Workspaces", closable: true },
-            { id: textCardId, componentId: "text", title: "T", closable: true },
-          ],
-          panes: [rail("pch", "CH"), textPane("pth", textCardId)],
+          cards: [{ id: textCardId, componentId: "text", title: "T", closable: true }],
+          panes: [textPane("pth", textCardId)],
           activePaneId: "pth",
-          imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+          imposition: { kind: "one-up", sidebars: {} },
           hasFocus: true,
         },
       },
@@ -146,12 +145,9 @@ function blob(textCardId: string): Record<string, unknown> {
         id: AWAY,
         name: "Away",
         deck: {
-          cards: [
-            { id: "CA", componentId: "cards", title: "Workspaces", closable: true },
-          ],
-          panes: [rail("pca", "CA")],
-          activePaneId: "pca",
-          imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+          cards: [],
+          panes: [],
+          imposition: { kind: "one-up", sidebars: {} },
           hasFocus: true,
         },
       },
@@ -250,7 +246,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.filter(function (s) {
                return s.id === ${JSON.stringify(AWAY)};
-             })[0].deck.cards.length === 2`,
+             })[0].deck.cards.length === 1`,
             { timeoutMs: 10_000 },
           );
           await settle();
@@ -309,8 +305,10 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(
             afterClose.spaces.filter((s) => s.id === AWAY)[0].deck.cards.map((c) => c.id),
+            // The × stood AWAY up to close the card, so its deck is the live
+            // one now, with the window rail's Workspaces card joined ([D231]).
             "the card the × named is the one that went",
-          ).toEqual(["CA"]);
+          ).toEqual(["CH"]);
         } finally {
           await app.close().catch(() => undefined);
           rmTempTugbank(tugbankPath);
@@ -336,16 +334,11 @@ describe.skipIf(!SHOULD_RUN)(
         };
         const home = layout.spaces[0];
         const awaySpace = layout.spaces[1];
-        home.deck.cards = [
-          { id: "CH", componentId: "cards", title: "Workspaces", closable: true },
-          { id: "TH2", componentId: "text", title: "T", closable: true },
-        ];
-        home.deck.panes = [rail("pch", "CH"), textPane("pth", "TH2")];
-        awaySpace.deck.cards = [
-          { id: "CA", componentId: "cards", title: "Workspaces", closable: true },
-          { id: CARD, componentId: "text", title: "T", closable: true },
-        ];
-        awaySpace.deck.panes = [rail("pca", "CA"), textPane("pta", CARD)];
+        home.deck.cards = [{ id: "TH2", componentId: "text", title: "T", closable: true }];
+        home.deck.panes = [textPane("pth", "TH2")];
+        awaySpace.deck.cards = [{ id: CARD, componentId: "text", title: "T", closable: true }];
+        awaySpace.deck.panes = [textPane("pta", CARD)];
+        awaySpace.deck.activePaneId = "pta";
 
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
@@ -427,7 +420,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The fold is untouched by the trip: going somewhere is not folding
           // the band that was clicked to get there.
-          // AWAY is on screen now, so the shown Workspaces card is its own.
+          // AWAY is on screen now, beside the same window-rail Workspaces card.
           const arrived = {
             active: await app.evalJS<string>(`window.tugdeck.diag.getSpaces().activeSpaceId`),
             collapsed: await kindBody(app, "cards").evalJS<string | null>(

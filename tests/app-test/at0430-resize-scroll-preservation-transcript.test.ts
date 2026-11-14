@@ -140,7 +140,7 @@ describe.skipIf(!SHOULD_RUN)(
             const episodesBefore = await episodeCount(app);
 
             await gesture();
-            await waitForEpisodesClosed(app, FRAME);
+            await waitForEpisodesClosed(app, FRAME, episodesBefore);
 
             const widthAfter = await paneWidth(app, FRAME);
             expect(widthAfter).not.toBe(widthBefore);
@@ -212,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Rightward narrows the pane from its west edge, which keeps the
           // drag inside the canvas wherever the pane happens to sit.
           await app.nativeDrag(handle, { x: handle.x + 180, y: handle.y });
-          await waitForEpisodesClosed(page, PAGE_ROOT);
+          await waitForEpisodesClosed(page, PAGE_ROOT, episodesBeforeDrag);
           expect(await episodeCount(page)).toBeGreaterThan(episodesBeforeDrag);
           // And a gesture that changed no geometry left the reader alone.
           const afterDrag = await readSubject(app.body("A"), SCROLLER);
@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           const episodesBeforeTail = await episodeCount(app);
           await chooseWidth(app, "p1", "wide", "A");
-          await waitForEpisodesClosed(app, FRAME);
+          await waitForEpisodesClosed(app, FRAME, episodesBeforeTail);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeTail);
           expect(await isAtBottom(app.body("A"), SCROLLER)).toBe(true);
 

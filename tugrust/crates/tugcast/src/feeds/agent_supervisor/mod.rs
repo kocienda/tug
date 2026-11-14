@@ -7216,9 +7216,17 @@ mod tests {
     /// completion and not exercise the race at all. The scenario is looped
     /// so CI has a chance to surface scheduling-dependent regressions; each
     /// iteration is independent with a fresh supervisor.
+    ///
+    /// The project is an empty temp dir, and each iteration cancels its
+    /// supervisor before the next. Every spawn builds a real workspace — a
+    /// file index, an FSEvents watch, a git watch — and on the crate's own
+    /// directory, left running, 64 of those piled onto the two workers until
+    /// a loaded CI host starved the loop past nextest's 180 s timeout.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_close_spawn_race_does_not_leak_entry() {
         const ITERATIONS: usize = 64;
+        let project = tempfile::tempdir().unwrap();
+        let project_dir = project.path().to_str().unwrap();
 
         for iter in 0..ITERATIONS {
             let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
@@ -7226,12 +7234,17 @@ mod tests {
 
             // Pre-spawn from client 10 so both racers start from a populated
             // ledger entry; otherwise there's nothing for close to remove.
-            sup.handle_control("spawn_session", &spawn_payload("card-1", "sess-1"), 10)
-                .await
-                .expect_handled();
+            sup.handle_control(
+                "spawn_session",
+                &spawn_payload_in("card-1", "sess-1", project_dir),
+                10,
+            )
+            .await
+            .expect_handled();
 
             let sup_close = sup.clone();
             let sup_spawn = sup.clone();
+            let spawn_again = spawn_payload_in("card-2", "sess-1", project_dir);
             let close_task = tokio::spawn(async move {
                 sup_close
                     .handle_control("close_session", &close_payload("card-1", "sess-1"), 10)
@@ -7239,7 +7252,7 @@ mod tests {
             });
             let spawn_task = tokio::spawn(async move {
                 sup_spawn
-                    .handle_control("spawn_session", &spawn_payload("card-2", "sess-1"), 20)
+                    .handle_control("spawn_session", &spawn_again, 20)
                     .await
             });
 
@@ -7285,6 +7298,9 @@ mod tests {
                     "iter {iter}: ledger empty but close client (10) still has affinity"
                 );
             }
+            drop(cs);
+            drop(ledger);
+            sup.cancel.cancel();
         }
     }
 

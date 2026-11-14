@@ -82,7 +82,10 @@
  * open and cleared at the close.
  *
  * The floor is the arrival's: it holds a gate that covers cards a restore
- * pass named — a cut onto a workspace, a launch, a reloaded shell. A gate
+ * pass named — a cut onto a workspace, a launch, a reloaded shell, or a
+ * cut that brings back cards whose pages the host's clock evicted
+ * (`nameRevivedArrivals`), which otherwise raised and dropped the gate once
+ * per card inside a few hundred milliseconds. A gate
  * one card raises by resuming on its own — picked from the picker, moved
  * by `/cd`, brought back after its page was lost — closes when that card
  * settles, as it always has: its user is waiting on that one card and

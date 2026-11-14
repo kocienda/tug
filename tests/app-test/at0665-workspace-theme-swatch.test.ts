@@ -86,25 +86,16 @@ async function paintedKey(app: App, theme: string): Promise<string> {
 }
 
 /**
- * Two workspaces, each standing its own Workspaces card, so a switch never
- * takes the surface under test off screen.
+ * Two workspaces beside one Workspaces card on the window's rail, which every
+ * workspace shares ([D231]), so a switch never takes the surface under test
+ * off screen.
  */
 function blob() {
   const deck = (suffix: string) => ({
     cards: [
-      { id: `C${suffix}`, componentId: "cards", title: "Workspaces", closable: true },
       { id: `T${suffix}`, componentId: "text", title: `T${suffix}`, closable: true },
     ],
     panes: [
-      {
-        id: `pc${suffix}`,
-        position: { x: 0, y: 0 },
-        size: { width: 420, height: 900 },
-        cardIds: [`C${suffix}`],
-        activeCardId: `C${suffix}`,
-        title: "",
-        acceptsFamilies: [] as string[],
-      },
       {
         id: `pt${suffix}`,
         position: { x: 60, y: 60 },
@@ -116,7 +107,7 @@ function blob() {
       },
     ],
     activePaneId: `pt${suffix}`,
-    imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+    imposition: { kind: "one-up", sidebars: {} },
     hasFocus: true,
   });
   return {
@@ -126,12 +117,26 @@ function blob() {
       { id: SPACE_ONE, name: "One", theme: THEME_ONE, deck: deck("1") },
       { id: SPACE_TWO, name: "Two", theme: THEME_TWO, deck: deck("2") },
     ],
+    rail: {
+      cards: [{ id: "C1", componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [
+        {
+          id: "pc1",
+          position: { x: 0, y: 0 },
+          size: { width: 420, height: 900 },
+          cardIds: ["C1"],
+          activeCardId: "C1",
+          title: "",
+          acceptsFamilies: [] as string[],
+        },
+      ],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
   };
 }
 
-// Every visited workspace stays mounted, one Workspaces card each, and each
-// card is its own body; the layer wrapper is the shell's. So the scope "the
-// layer on screen" is the page, not a selector: every read goes through
+// The one Workspaces card is its own body; the layer wrapper is the shell's.
+// So the scope "the layer on screen" is the page, not a selector: every read goes through
 // `kindBody(app, "cards")`, which answers from the visible card's body, and
 // the menu is portaled into that same body.
 const SHOWN = "";
@@ -361,12 +366,11 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
 
           // (5) A pick for the workspace on screen is the Theme menu's path:
           // the screen, this record alone, and the menu-bar checkmark.
-          // Workspace two's own Workspaces card (`C2`) has a page made ahead
-          // since `d207de043`, so at the switch both cards' pages stand, and
-          // for a moment neither is visible; `kindBody` would answer the
-          // first of them, workspace one's, now hidden. Wait for the arriving
-          // card's page to be the one on screen before reaching through it.
-          await waitForCardsBodyVisible(app, "C2");
+          // The Workspaces card is the window rail's (`C1`, [D231]): on a
+          // cross-theme switch it stands under a host skeleton in the arriving
+          // theme until its page re-skins. Wait for its page to be the one on
+          // screen before reaching through it.
+          await waitForCardsBodyVisible(app, "C1");
           await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(swatchButtonFor(SPACE_TWO))}) !== null`,
             { timeoutMs: 10_000 },

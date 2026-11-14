@@ -66,6 +66,7 @@ describe("cardContextFor", () => {
       arriving: false,
       firstResponderCardId: "a",
       focused: true,
+      paneFocused: true,
       layerShown: false,
       spaceId: "two",
       geometry: { moves: 0, resizes: 0 },
@@ -75,6 +76,25 @@ describe("cardContextFor", () => {
   test("a parked card its workspace was not left on is not focused, and the shown first responder is", () => {
     expect(cardContextFor(shell(), "n").focused).toBe(false);
     expect(cardContextFor(shell(), "a").focused).toBe(true);
+    expect(cardContextFor(shell(), "n").paneFocused).toBe(false);
+  });
+
+  test("a hidden tab sibling in the focused pane draws the pane's focused look, though it is not the focused card", () => {
+    const live: DeckState = {
+      ...deckOf(["a"], "p-a"),
+      cards: ["a", "b", "c"].map((id) => ({ id, componentId: "session", title: "", closable: true })),
+      panes: [{ ...pane("p-a", "a"), cardIds: ["a", "b"] }, pane("p-c", "c")],
+    };
+    const deck = {
+      getSnapshot: () => live,
+      getSpacesSnapshot: () => ({ spaces: [], activeSpaceId: null, mountedSpaceIds: [] }),
+      getFirstResponderCardId: () => "a",
+      spaceOf: () => null,
+      getSpaceDeck: () => null,
+    } as unknown as IDeckManagerStore;
+    expect(cardContextFor(deck, "b").focused).toBe(false);
+    expect(cardContextFor(deck, "b").paneFocused).toBe(true);
+    expect(cardContextFor(deck, "c").paneFocused).toBe(false);
   });
 
   test("a parked card's fold is its own deck's", () => {

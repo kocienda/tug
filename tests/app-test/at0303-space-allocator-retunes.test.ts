@@ -71,7 +71,8 @@
  * tugbank rather than assumed.
  *
  * Cut from `at0303-imposer-space-allocator` to fit the 20 s budget. This file
- * carries claims 4 and 5; `at0303-space-allocator-engages` carries 1–3,
+ * carries claims 4 and 5; `at0303-space-allocator-engages-solve` carries 1 and 2,
+ * `-engages-surplus` 3,
  * `-greed` 6 and 7, and `-drag-floor` 8. The deck and the readers are
  * `space-allocator-fixture.ts`.
  *

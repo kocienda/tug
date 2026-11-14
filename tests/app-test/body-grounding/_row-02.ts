@@ -9,7 +9,7 @@
  * pressed by the surface its chrome offers — a content card's grab handle, a
  * rail's whole title bar — carried, held and released, every composited frame
  * judged by surface colour, never ink share ([B05]). The Session card's drag
- * is `at0744-card-drag-is-one-view`; every other kind's is
+ * is `at0744-card-drag-is-one-view-session`; every other kind's is
  * `row-02-drag-kinds`, one launch.
  */
 

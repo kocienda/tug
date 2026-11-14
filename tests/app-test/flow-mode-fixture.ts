@@ -5,7 +5,8 @@
  *
  * Split out of `at0454-flow-mode.test.ts` when that file was cut into
  * `at0454-flow-mode-strip`, `-controls` and `-reveals` to keep each under the
- * 20 s budget.
+ * 20 s budget; `-reveals` was later cut again, a test to a file, into
+ * `-reveals-arrival` and `-reveals-close`.
  *
  * The slot, band, offset, arrival and cut readers read the deck — pane frames
  * and deck state — in the shell. The Layout card's own controls (its rows'

@@ -617,11 +617,20 @@ final class BodyViewController {
             if window.firstResponder !== view { keysBeforeOverlay = window.firstResponder }
             window.makeFirstResponder(view)
         } else if wasAll && !isAll, window.firstResponder === view {
-            if let before = keysBeforeOverlay, (before as? NSView)?.window === window {
-                window.makeFirstResponder(before)
-            } else {
-                focus(cardId: keyboardCardId)
+            // What had the keys may stand in a stage the modal's own work
+            // parked (New Workspace cuts under it, [D230]); a hidden view
+            // refuses the keyboard, so that is a miss, not a hand-back.
+            var restored = false
+            if let before = keysBeforeOverlay, let beforeView = before as? NSView,
+               beforeView.window === window, !beforeView.isHiddenOrHasHiddenAncestor {
+                restored = window.makeFirstResponder(before)
             }
+            if !restored { focus(cardId: keyboardCardId) }
+            // The modal is gone, so the overlay never keeps the keys: a card
+            // named in a parked stage cannot take them either, and the shell
+            // does. Left here, the next modal would rise in a page that never
+            // hears it got the keyboard, and seed no field.
+            if window.firstResponder === view { window.focusWebView() }
             keysBeforeOverlay = nil
         }
     }

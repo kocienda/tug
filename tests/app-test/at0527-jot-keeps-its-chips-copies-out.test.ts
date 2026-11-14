@@ -43,6 +43,7 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  CODE_OUTPUT_FEED,
   COPY_SENTINEL,
   FILE_BODY,
   FILE_NAME,
@@ -118,8 +119,23 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
           // The resumed session raises the app-modal restore gate ("Restoring
           // 1 session") in the overlay page while its replay reveals, and the
           // gate holds the pointer and the keyboard for the whole window: a
-          // row click under it lands on the gate, and Return goes to it. So
-          // the Jots card is entered once the gate has let go.
+          // row click under it lands on the gate, and Return goes to it. The
+          // harness bind carries no frames, and a resume whose replay never
+          // opens holds the gate to its 20 s horizon (a resumed card holds
+          // through its page's "waiting", 5fe3f7bf5), so the replay a real
+          // resume would deliver is delivered here — empty — and the Jots
+          // card is entered once the gate has let go.
+          const ingest = (decoded: unknown) =>
+            app.driveSession("A", { op: "ingestFrame", feedId: CODE_OUTPUT_FEED, decoded });
+          await ingest({ type: "replay_started", tug_session_id: SID });
+          await ingest({
+            type: "replay_complete",
+            tug_session_id: SID,
+            count: 0,
+            firstLoadedTurnIndex: 0,
+            totalTurns: 0,
+            hasOlder: false,
+          });
           await restoreGateGone(app);
           // The seeded jot draws its chip before anything is copied — the copy
           // reads the record, and this is that record having survived the read.

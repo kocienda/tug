@@ -37,6 +37,12 @@
  * named `atNNNN-settle-…` — are the motion files by construction, and `--check` refuses one
  * that does not carry the tag.
  *
+ * A test that samples nothing but still cannot share the machine declares `@alone`, and runs
+ * in the same one-at-a-time queue. Two shapes earn it: a test that reads state every app
+ * instance writes (a `defaults` domain all launches share, where a neighbour's launch
+ * overwrites the value mid-read), and one that holds the app to a wall-clock window a batch's
+ * load eats. The tag is about the machine, not the motion, so it is not spelled `@motion`.
+ *
  * Usage:
  *   bun scripts/select-tests.ts                  # derive changed paths from this session's changes
  *   bun scripts/select-tests.ts <path>...        # explicit changed paths
@@ -146,12 +152,22 @@ const CORE_TIER_TRIGGERS = [
  */
 const CORE_TIER = [
     "harness-smoke/smoke.test.ts", // bridge floor: boot, handshake, close
-    "harness-smoke/smoke-native.test.ts", // native CGEvent gesture pipeline
+    "harness-smoke/smoke-native-trusted-click.test.ts", // native CGEvent gesture pipeline (smoke-native split)
+    "harness-smoke/smoke-native-type.test.ts",
+    "harness-smoke/smoke-native-key-window.test.ts",
+    "harness-smoke/smoke-native-session-tap.test.ts",
+    "harness-smoke/smoke-native-cmd-a.test.ts",
+    "harness-smoke/smoke-native-drag.test.ts",
+    "harness-smoke/smoke-native-double-click.test.ts",
     "harness-smoke/smoke-cold-boot.test.ts", // two-process tugbank round-trip
     "at0024-prompt-state-roundtrip-session.test.ts", // prompt state across reload + relaunch
     "at0084-session-lifecycle-coordination.test.ts", // session lifecycle state-to-zone matrix
     "at0145-permission-dialog-keyboard.test.ts", // card-modal dialog keyboard model
-    "at0165-activation-first-responder.test.ts", // responder-chain accelerators
+    "at0165-activation-first-responder-tab-close.test.ts", // responder-chain accelerators (at0165 split)
+    "at0165-activation-first-responder-dialog-round-trip.test.ts",
+    "at0165-activation-first-responder-pane-promotion.test.ts",
+    "at0165-activation-first-responder-next-tab.test.ts",
+    "at0165-activation-first-responder-canvas-root.test.ts",
     "at0191-turns-end-to-end.test.ts", // canonical turns through the transcript
     "body-grounding/row-07-focus.test.ts", // the keyboard follows the key card across bodies
     "at0209-text-card-live-autosave-loop.test.ts", // Text card core loop on real files
@@ -576,7 +592,7 @@ interface TestCoverage {
     foregroundReason: string | null;
     /** Declared by `@visible`: this file needs a rendering viewport, and launches `visible: true`. */
     visible: boolean;
-    /** Declared by `@motion`: this file samples motion or a settle, and runs alone. */
+    /** Declared by `@motion` (samples motion or a settle) or `@alone` (cannot share the machine): runs alone. */
     motion: boolean;
     /** Passes a possibly-true `foreground` launch option at some launch site. */
     foregroundOption: boolean;
@@ -609,6 +625,7 @@ const COVERS_LINE = /^\s*\*?\s*@covers\s+(\S+)/;
 const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b(.*)$/;
 const VISIBLE_LINE = /^\s*\*?\s*@visible\b/;
 const MOTION_LINE = /^\s*\*?\s*@motion\b/;
+const ALONE_LINE = /^\s*\*?\s*@alone\b/;
 const FAMILY_LINE = /^\s*\*?\s*@family\s+(\S+)/;
 
 /**
@@ -663,7 +680,7 @@ function readCoverage(file: string): TestCoverage {
             foregroundReason = fg[1].trim();
         }
         if (VISIBLE_LINE.test(line)) visible = true;
-        if (MOTION_LINE.test(line)) motion = true;
+        if (MOTION_LINE.test(line) || ALONE_LINE.test(line)) motion = true;
         const f = FAMILY_LINE.exec(line);
         if (f) family = f[1];
         // Declarations live in the header docblock; stop at the first import.

@@ -25,10 +25,13 @@
  * keeps what it had — and the first frame after the host shows each
  * arriving view is noted, for what an unhide puts on screen.
  *
- * Every other kind that is a body is switched the same way: a card of the
- * kind at home, and one of the kind in the second workspace — the one the
- * workspace was made with, for a rail, or opened there — each body hidden as
- * its workspace departs and shown on its own placeholder as it arrives.
+ * Every other content kind that is a body is switched the same way: a card
+ * of the kind at home, and one opened in the second workspace, each body
+ * hidden as its workspace departs and shown on its own placeholder as it
+ * arrives. A rail kind is the window's ([D231]): one card, outside every
+ * stage, which a new workspace holds no copy of and no switch hides or moves.
+ * Its row switches each workspace's own Session card under the same bars,
+ * and holds the rail card shown on its one place throughout (`switchRail`).
  *
  * One launch per switch: `row-10-workspace-session-home` reads the switch
  * from the away workspace home, `row-10-workspace-session-away` makes that
@@ -337,6 +340,10 @@ export async function switchKind(kind: CardKind, leg: Leg, tier?: Tier): Promise
     await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
     const away = await app.evalJS<string>(ACTIVE_SPACE);
     expect(away, "a second workspace is shown").not.toBe(home);
+    if (kind.rail) {
+      await switchRail(app, kind, K, { home, away }, leg, places, crop, standing.palette, tier);
+      return;
+    }
     await expectHidden(app, K, `${K} after leaving home`);
     const ofKind = `window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === ${JSON.stringify(kind.componentId)}; }).map(function (c) { return c.id; })`;
     const madeWith = (await app.evalJS<string[]>(ofKind)).find((id) => id !== K);
@@ -357,6 +364,55 @@ export async function switchKind(kind: CardKind, leg: Leg, tier?: Tier): Promise
   } finally {
     await app.close();
   }
+}
+
+/**
+ * A rail kind across the switch. The rail is the window's ([D231]): one card
+ * of the kind, outside every stage, which no switch hides, moves or swaps for
+ * another workspace's copy — so a new workspace holds no copy of it, and the
+ * rail card stays shown on its own placeholder from the moment its workspace
+ * departs. What each workspace holds of its own is its content: the home
+ * deck's Session card, and one opened by ⌘N in the away workspace. Those
+ * depart and arrive under the row's bars, and the shell's sampler watches the
+ * rail card, which once posted shown must stay shown through the switch;
+ * every host sample of it is judged against its one place like any body.
+ */
+async function switchRail(
+  app: App,
+  kind: CardKind,
+  K: string,
+  spaces: { home: string; away: string },
+  leg: Leg,
+  places: Map<string, Rect>,
+  crop: Rect,
+  palette: Awaited<ReturnType<typeof readStanding>>["palette"],
+  tier?: Tier,
+): Promise<void> {
+  places.set(K, await restAt(app, K, `${K} after leaving home: the window's rail stays shown`));
+  await expectHidden(app, A, `${A} after leaving home`);
+  const ofKind = `window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === ${JSON.stringify(kind.componentId)}; }).map(function (c) { return c.id; })`;
+  expect(await app.evalJS<string[]>(ofKind), `the away workspace's deck holds the one ${kind.componentId} card, the window's`).toEqual([K]);
+  await Bun.sleep(300);
+  const focusedBefore = await app.getFocusedCardId();
+  await app.nativeKey("n", ["cmd"]);
+  const C = (await settleFor(() => app.getFocusedCardId(), (c) => c !== null && c !== focusedBefore && c !== A && c !== K, 10_000))!;
+  expect(C, "⌘N opened a card in the away workspace and the deck focused it").not.toBe(focusedBefore);
+  await hostShows(app, C, 10_000);
+  await Bun.sleep(400);
+  places.set(C, await restAt(app, C, "C away"));
+  const railPlace = await restAt(app, K, `${K} away`);
+  places.set(K, railPlace);
+
+  if (leg === "home") {
+    if (tier !== undefined) await intoTier(app, tier, "away, before the switch home");
+    await switchLeg(app, { label: "away → home", toSpaceId: spaces.home, arriving: [A], departing: [C], watch: K, revealsPainted: tier !== "evicted" }, places, crop, palette);
+  } else {
+    await switchQuietly(app, spaces.home, [A]);
+    if (tier !== undefined) await intoTier(app, tier, "home, before the switch away");
+    await switchLeg(app, { label: "home → away", toSpaceId: spaces.away, arriving: [C], departing: [A], watch: K, revealsPainted: tier !== "evicted" }, places, crop, palette);
+  }
+  const after = await restAt(app, K, `${K} after the switch`);
+  expect(edgeGap(railPlace, after), `${K} after the switch: the window's rail stands where it stood`).toBeLessThanOrEqual(REST_TOLERANCE_PX);
 }
 
 /** Two Session bodies at home and a third opened by ⌘N in a second workspace, switched away → home or (that made first) home → away. */
@@ -385,14 +441,9 @@ export async function switchSessions(leg: Leg, tier?: Tier): Promise<void> {
     expect(away, "a second workspace is shown").not.toBe(home);
     await expectHidden(app, A, "A after leaving home");
     await expectHidden(app, B, "B after leaving home");
-    // The away workspace's own Workspaces card is waited for, shown and ready:
-    // its body is made by the switch, and a key posted before that page is up
-    // reaches a view with nothing to take it.
-    await pollFor(
-      () => app.bodies(),
-      (all) => all.some((b) => b.componentId === "cards" && b.state === "ready" && b.visible),
-      10_000,
-    );
+    // The away workspace is made empty: it holds no rail card of its own, the
+    // rail being the window's ([D231]), and this deck seeds none. ⌘N goes to
+    // the shell.
     await Bun.sleep(300);
     const focusedBefore = await app.getFocusedCardId();
     await app.nativeKey("n", ["cmd"]);

@@ -99,6 +99,7 @@
  * keeps its plain cards: it is only ever crossed to and back.
  *
  * @family at0621-intra-workspace-slide
+ * @motion
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts

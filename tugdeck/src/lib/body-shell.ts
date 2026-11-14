@@ -252,7 +252,7 @@ import {
   bodyFocusToHost,
   bodyStateToPage,
 } from "../host/declarations/lifecycle";
-import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
+import { nameRevivedArrivals, restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
 import { deckRootElement, layoutPxOf, pageZoomStore } from "./page-zoom-store";
@@ -312,6 +312,7 @@ import { FeedId } from "../protocol";
 /** The kinds the shell relays something of its own to, by their component ids. */
 const DEVTOOLS_KIND = "devtools";
 const SETTINGS_KIND = "settings";
+const SESSION_KIND = "session";
 
 /**
  * A log entry as the relay carries it: its id left to the receiving page,
@@ -397,13 +398,17 @@ export function cardContextFor(
   const layerShown = spaceId === null || spaceId === spaces.activeSpaceId;
   const state = layerShown ? deck.getSnapshot() : ownDeckOf(deck, cardId);
   const railSide = pinnedRailSideOf(state, cardId);
+  const activePane = state.panes.find((p) => p.id === state.activePaneId);
   return {
     folded: cardFoldedOf(state, cardId),
     arriving: cardArrivingOf(state, cardId),
     firstResponderCardId: deck.getFirstResponderCardId(),
     // The record a park writes keeps the deck's active pane, so a parked
     // card's own deck still names the card its workspace was left on.
-    focused: state.panes.find((p) => p.id === state.activePaneId)?.activeCardId === cardId,
+    focused: activePane?.activeCardId === cardId,
+    // The look the card's page draws in front: its pane's, whichever tab is
+    // active, so a hidden sibling has drawn what a tab switch shows.
+    paneFocused: activePane?.cardIds.includes(cardId) === true,
     layerShown,
     spaceId,
     ...(railSide !== null ? { railSide } : {}),
@@ -1833,13 +1838,30 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    * the intent it was handed, and stands behind its stand-in until its page
    * paints, having no last frame to show.
    */
+  //
+  // An evicted Session card brought back by a workspace switch resumes its
+  // session, and the switch is an arrival: the bound ones it asks for are
+  // named for the restore gate together (`nameRevivedArrivals`), after their
+  // pages are asked for, so the gate opens once over them, held to its floor,
+  // rather than once per card as each page raises it. One brought back on its
+  // own — its tab chosen, its pane unfolded — is not named, and its gate
+  // closes at its settle.
+  let revivedSpace = deck.getSpacesSnapshot().activeSpaceId;
   function reviveWanted(): void {
+    const activeSpace = deck.getSpacesSnapshot().activeSpaceId;
+    const switched = activeSpace !== revivedSpace;
+    revivedSpace = activeSpace;
+    const resumed: string[] = [];
     for (const cardId of bodyCardsStore.cardIds()) {
       const state = bodyCardsStore.stateOf(cardId);
       if (!pageless(state) || wordsWriting.has(cardId) || !wantsBodyShown(deck, cardId)) continue;
       if (state === "unmade") releaseDeferredBody(cardId);
-      else askAgain(cardId);
+      else {
+        askAgain(cardId);
+        if (switched && kindOf(cardId) === SESSION_KIND && cardSessionBindingStore.getBinding(cardId) !== undefined) resumed.push(cardId);
+      }
     }
+    if (resumed.length > 0) nameRevivedArrivals(resumed);
   }
   releases.push(deck.subscribe(reviveWanted), deck.subscribeSpaces(reviveWanted));
 

@@ -332,6 +332,18 @@ export interface ResizeEpisodeHandle {
   readonly id: number;
   end(): void;
   /**
+   * Hold the safety net off until at least `durationMs` (plus the slack) from
+   * now. Never shortens it, and does nothing once the episode has ended.
+   *
+   * The net is sized when the episode opens, before its caller knows how long
+   * the motion it brackets will run. A settle that learns later that it runs
+   * a longer choreography — a move then a grow, or a card plan that waits on
+   * its pages' solve — stretches the net to that, so the episode is still open
+   * while the width it was opened for is changing, and its own completion is
+   * what ends it.
+   */
+  extend(durationMs: number): void;
+  /**
    * Put the episode's stamp on the frame.
    *
    * Called for you unless the caller asked to defer it, and idempotent either
@@ -588,10 +600,14 @@ export function beginResizeEpisode(
     timer: null,
     ended: false,
   };
-  episode.timer = setTimeout(() => {
-    episode.timer = null;
-    closeEpisode(episode);
-  }, durationMs + RESIZE_EPISODE_SLACK_MS);
+  let netAt = Date.now() + durationMs + RESIZE_EPISODE_SLACK_MS;
+  const armNet = (): void => {
+    episode.timer = setTimeout(() => {
+      episode.timer = null;
+      closeEpisode(episode);
+    }, Math.max(0, netAt - Date.now()));
+  };
+  armNet();
 
   openEpisodes.set(frame, episode);
 
@@ -612,6 +628,14 @@ export function beginResizeEpisode(
     stamp,
     end: () => {
       closeEpisode(episode);
+    },
+    extend: (ms: number) => {
+      if (episode.ended || episode.timer === null) return;
+      const at = Date.now() + ms + RESIZE_EPISODE_SLACK_MS;
+      if (at <= netAt) return;
+      netAt = at;
+      clearTimeout(episode.timer);
+      armNet();
     },
   };
 }

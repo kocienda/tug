@@ -90,6 +90,7 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import { pressArcRowMenuItem } from "./arc-row-menu-fixture";
+import { restoreSettled } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -178,6 +179,12 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
         // workspace. The arc is left unbound, which is a row Discard reaches.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+        // The resume raises the app-modal restore gate until the replay has
+        // revealed, and the gate takes the keyboard while it is up: a ⌃⌘C
+        // typed under it goes to the gate and the shade never rises. Engine
+        // ready comes before that reveal, so the restore is seen through and
+        // the gate down before the chord.
+        await restoreSettled(app, "A");
 
         await raiseChangesShade(app);
         await app.body("A").waitForCondition<boolean>(

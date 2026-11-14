@@ -318,6 +318,44 @@ describe("paced turns", () => {
   });
 });
 
+describe("interrupt", () => {
+  test("a paced turn stops where it stands and closes as cancelled, with its text", async () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: { ...makeMinimalTranscript(), paceMs: 10 },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    // The pacing chain starts on a microtask: let the first output go out.
+    await Promise.resolve();
+    expect(captured.map((m) => m.type)).toEqual(["assistant_text"]);
+    engine.interrupt();
+    await engine.paced;
+    expect(captured.map((m) => m.type)).toEqual(["assistant_text", "turn_cancelled"]);
+    const cancelled = captured[1] as unknown as { msg_id: string; seq: number; partial_result: string };
+    expect(cancelled.msg_id).toBe("m0");
+    expect(cancelled.seq).toBe(1);
+    expect(cancelled.partial_result).toBe("Hello, world.");
+    // The cancelled turn is a finished one: a replay of it reads its end.
+    engine.answerReplay({ turnRange: [0, 1] });
+    expect(captured.at(-2)?.type).toBe("turn_cancelled");
+  });
+
+  test("an interrupt with no turn in flight is receipted, not dropped", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: makeMinimalTranscript(),
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.interrupt();
+    expect(captured).toEqual([
+      { type: "interrupt_noop", tug_session_id: "sess-1", reason: "no_turn", ipc_version: 2 } as unknown as OutboundMessage,
+    ]);
+  });
+});
+
 describe("request_inflight", () => {
   const out = (o: Record<string, unknown>) => ({ ipc_version: 2, ...o }) as unknown as TranscriptOutboundMessage;
   const streamed = [

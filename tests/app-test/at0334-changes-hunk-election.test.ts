@@ -101,7 +101,15 @@ function writeMarkers(count: number, tag = "marker"): void {
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  original = readFileSync(dirtyPath, "utf8");
+  // Any `at0334` line already there is a run's leftover, never the file's: a
+  // run stopped at the file budget never reaches `afterAll`, so its markers
+  // stayed, the next run read them as the original and restored them, and one
+  // reached `main` in a commit. Stripped here, the restore puts back the
+  // file's own bytes whatever an earlier run left.
+  original = readFileSync(dirtyPath, "utf8")
+    .split("\n")
+    .filter((line) => !line.startsWith("<!-- at0334 "))
+    .join("\n");
   writeMarkers(3);
 });
 

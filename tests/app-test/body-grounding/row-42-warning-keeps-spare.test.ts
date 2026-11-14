@@ -2,9 +2,9 @@
  * row-42-warning-keeps-spare.test.ts — a memory-pressure warning takes a
  * hidden card's body and keeps the warm spare.
  *
- * The app launches on two workspaces: a Session card's, shown first, and a
- * Layout card's, shown next, which parks the Session card's and leaves its
- * body hidden. The host's stand-in for the dispatch source raises a warning
+ * The app launches on two workspaces beside the window's rail, which holds a
+ * Layout card ([D231]): a Session card's, shown first, and an empty one,
+ * shown next, which parks the Session card's and leaves its body hidden. The host's stand-in for the dispatch source raises a warning
  * and clears it. The warning has a hidden body to take, and takes it — the
  * Session card's body leaves the host's list — while the warm spare stands
  * through it: a warning keeps the spare, which is what keeps the next arrival
@@ -33,7 +33,7 @@ const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 /** The spare's page, or null while there is none. */
 const sparePage = async (app: App): Promise<number | null> => (await app.bodies()).find((b) => b.cardId === null)?.page ?? null;
 
-/** The Session card's workspace, shown at launch, and the Layout card's, shown next. */
+/** The Session card's workspace, shown at launch, an empty one shown next, and the window's rail. */
 const LAYOUT = {
   version: 5,
   activeSpaceId: SESSION_SPACE,
@@ -53,14 +53,22 @@ const LAYOUT = {
       id: LAYOUT_SPACE,
       name: "Layout",
       deck: {
-        cards: [{ id: L, componentId: "layout", title: "Layout", closable: true }],
-        panes: [kindPane("layout", L, 0)],
-        activePaneId: `${L}-pane`,
-        imposition: { kind: "one-up", layout: "fit", sidebars: kindSidebars(["layout"]) },
+        cards: [],
+        panes: [],
+        activePaneId: null,
+        imposition: { kind: "one-up", layout: "fit", sidebars: {} },
         hasFocus: true,
       },
     },
   ],
+  // The Layout card stands on the window's rail, outside every workspace
+  // ([D231]): shown whichever workspace is, so it is the shown body the
+  // warning leaves, and the second workspace holds nothing of its own.
+  rail: {
+    cards: [{ id: L, componentId: "layout", title: "Layout", closable: true }],
+    panes: [kindPane("layout", L, 0)],
+    imposition: { sidebars: kindSidebars(["layout"]), rails: { right: { order: ["layout"] } } },
+  },
 };
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 42: a warning keeps the spare", () => {

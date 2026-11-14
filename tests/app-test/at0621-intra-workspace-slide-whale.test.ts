@@ -10,6 +10,7 @@
  * for all of it is in the slice file's docblock.
  *
  * @family at0621-intra-workspace-slide
+ * @motion
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/components/chrome/space-layer.ts

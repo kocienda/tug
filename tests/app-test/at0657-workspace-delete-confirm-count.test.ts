@@ -2,19 +2,19 @@
  * at0657-workspace-delete-confirm-count.test.ts — the delete confirm counts
  * the workspace's own cards, and opens below the header it asks about.
  *
- * Every workspace is given a sidebar when it is made — the Workspaces, Arcs
- * and Layout cards — and the confirm used to count every pane in the deck, so
- * a workspace the user had just made, with nothing in it, asked "Delete
- * Workspace 1 and close 3 cards?" under a header that read "0 cards". The
- * sidebar is furniture, not the user's work: the count is now the
- * workspace's panes less its rail's, the same rule the list's rows are built
- * by.
+ * The rail is the window's ([D231]): while a workspace is shown its live deck
+ * holds the rail's cards joined beside its own, and the confirm used to count
+ * every pane in the deck, so a workspace the user had just made, with nothing
+ * in it, asked "Delete Workspace 1 and close 1 card?" under a header that
+ * read "0 cards". The rail is furniture, not the user's work: the count is
+ * the workspace's panes less the rail's, the same rule the list's rows are
+ * built by.
  *
  * So this makes a fresh workspace through the real `+`, committing the name
  * the naming modal proposes, and asks to delete it:
  *
- *   1. **The sentence counts nothing.** The fresh workspace stands a
- *      three-card rail and nothing else, so it asks only "Delete <name>?" —
+ *   1. **The sentence counts nothing.** The fresh workspace stands the
+ *      window's rail and nothing else, so it asks only "Delete <name>?" —
  *      a confirm never mentions zero of anything, and any count is the rail
  *      being counted.
  *   2. **The header agrees** — its own tally reads 0, with no filter applied.
@@ -47,11 +47,11 @@ const TEST_TIMEOUT_MS = 180_000;
 const HOME = "count-home";
 
 /**
- * Read in a Workspaces card's own page: on bodies each is a body holding its
+ * Read in the Workspaces card's own page: on bodies it is a body holding its
  * card alone, so no layer scope is in it. The `+` puts the user in a fresh
- * workspace once its name is committed, whose own Workspaces card — the
- * visible one — raises the menu verb's confirm and the header it hangs under;
- * C1 parks with HOME.
+ * workspace once its name is committed, beside the same Workspaces card C1 —
+ * the rail is the window's ([D231]) — which raises the menu verb's confirm
+ * and the header it hangs under.
  */
 const HEADER = `[data-testid="cards-space-header"]`;
 const NEW_BUTTON = `[data-testid="cards-new-space"]`;
@@ -60,14 +60,13 @@ const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_MESSAGE = '[data-slot="tug-confirm-message"]';
 const CONFIRM_CANCEL = '[data-slot="tug-confirm-cancel"]';
 
-/** The fresh workspace's Workspaces card: the visible one, once its body is ready. */
-async function freshCardsBody(app: App): Promise<BodyApp> {
+/** The window rail's Workspaces card, C1, once it is ready and visible beside the fresh workspace. */
+async function shownCardsBody(app: App): Promise<BodyApp> {
   const deadline = Date.now() + 15_000;
   for (;;) {
     const bodies = await app.bodies();
-    const fresh = bodies.find((b) => b.componentId === "cards" && b.state === "ready" && b.visible && b.cardId !== "C1");
-    if (fresh?.cardId != null) return app.body(fresh.cardId);
-    if (Date.now() >= deadline) throw new Error(`no fresh Workspaces body stood (the host holds ${bodies.map((b) => `${b.cardId}:${b.componentId}:${b.state}`).join(", ")})`);
+    if (bodies.some((b) => b.cardId === "C1" && b.state === "ready" && b.visible)) return app.body("C1");
+    if (Date.now() >= deadline) throw new Error(`the Workspaces body C1 is not shown (the host holds ${bodies.map((b) => `${b.cardId}:${b.componentId}:${b.state}:${b.visible ? "visible" : "hidden"}`).join(", ")})`);
     await new Promise<void>((r) => setTimeout(r, 50));
   }
 }
@@ -157,7 +156,7 @@ describe.skipIf(!SHOULD_RUN)(
             `window.tugdeck.diag.getSpaces().activeSpaceId !== ${JSON.stringify(HOME)}`,
             { timeoutMs: 15_000 },
           );
-          const shown = await freshCardsBody(app);
+          const shown = await shownCardsBody(app);
           const spaces = await app.evalJS<{
             activeSpaceId: string;
             spaces: { id: string; name: string }[];
@@ -167,14 +166,15 @@ describe.skipIf(!SHOULD_RUN)(
           expect(created).not.toBe(HOME);
 
           // The rail is really there: the count below is 0 because it is
-          // excluded, not because the workspace stood no sidebar at all.
+          // excluded, not because the live deck stood no sidebar at all. The
+          // active workspace's deck is the live one, the window rail joined.
           const panes = await app.evalJS<number>(
             `window.tugdeck.diag.getSpaces().spaces.find(function (s) {
                return s.id === ${JSON.stringify(created)};
              }).deck.panes.length`,
           );
-          note(`at0657 panes in the fresh workspace's deck: ${panes}`);
-          expect(panes, "the fresh workspace stands its sidebar's panes").toBeGreaterThan(0);
+          note(`at0657 panes in the fresh workspace's live deck: ${panes}`);
+          expect(panes, "the fresh workspace stands the rail's panes").toBeGreaterThan(0);
 
           // ---- Ask to delete it — the menu's verb, on the active workspace.
           await app.dispatchControlAction("delete-space");

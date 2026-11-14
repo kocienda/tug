@@ -15,7 +15,9 @@
   box-sizing: border-box;
   overflow: auto;
   padding: 0.75rem;
-  background: var(--tug7-surface-global-primary-normal-sunken-rest);
+  /* No surface of its own: the picture stands on the pane's content
+     surface, as every content card's matter does. */
+  background: transparent;
 }
 
 /* The image scales down to fit the card and never up past its natural size,

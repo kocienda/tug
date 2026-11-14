@@ -2,9 +2,11 @@
  * row-43-bodiless-closed.test.ts — a parked card whose session ends mid-turn
  * while its body is dormant reads still, not working.
  *
- * The app launches on two workspaces: the Session card's, shown, and one
- * holding a Cards rail, parked. The Session card streams a turn long enough
- * that it is still streaming when the row is done; the Cards workspace is
+ * The app launches on two workspaces: the Session card's, shown, and an
+ * empty one, parked, beside the window's rail holding a Cards card ([D231]:
+ * the rail is the window's, awake whichever workspace is shown). The Session
+ * card streams a turn long enough that it is still streaming when the row is
+ * done; the second workspace is
  * shown under it, which parks the Session card's, and its body goes dormant
  * past a shortened delay, so it hears nothing more. While the Cards row's dot
  * runs for it, the session is closed on tugcast (`close_session`) — the turn
@@ -63,13 +65,27 @@ function deck(): Record<string, unknown> {
   };
 }
 
-function cardsDeck(): Record<string, unknown> {
+/** The second workspace: no content of its own, so showing it parks the Session card's. */
+function emptyDeck(): Record<string, unknown> {
+  return {
+    cards: [],
+    panes: [],
+    activePaneId: null,
+    imposition: { kind: "one-up", layout: "fit", sidebars: {} },
+    hasFocus: true,
+  };
+}
+
+/**
+ * The window's rail, holding the Cards card. The rail is the window's
+ * ([D231]): it stands outside every workspace, so the Cards card stays shown
+ * and awake whichever workspace is, and no workspace holds a copy of it.
+ */
+function cardsRail(): Record<string, unknown> {
   return {
     cards: [{ id: CARDS, componentId: "cards", title: "Cards", closable: true }],
     panes: [kindPane("cards", CARDS, 0)],
-    activePaneId: `${CARDS}-pane`,
-    imposition: { kind: "one-up", layout: "fit", sidebars: kindSidebars(["cards"]) },
-    hasFocus: true,
+    imposition: { sidebars: kindSidebars(["cards"]), rails: { right: { order: ["cards"] } } },
   };
 }
 
@@ -78,8 +94,9 @@ const LAYOUT = {
   activeSpaceId: SESSION_SPACE,
   spaces: [
     { id: SESSION_SPACE, name: "Session", deck: deck() },
-    { id: CARDS_SPACE, name: "Cards", deck: cardsDeck() },
+    { id: CARDS_SPACE, name: "Cards", deck: emptyDeck() },
   ],
+  rail: cardsRail(),
 };
 
 /** In the Cards body: the state of the dot on the row for `sessionId`, or null while there is no such row. */

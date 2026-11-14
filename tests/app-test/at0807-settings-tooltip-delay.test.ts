@@ -39,6 +39,10 @@
  * @covers tugdeck/src/lib/tooltip-delay.ts
  * @covers tugdeck/src/components/tugways/tug-tooltip.tsx
  * @covers tugdeck/src/settings-api.ts
+ *
+ * @alone — it reads `NSInitialToolTipDelay` from the app's `defaults` domain,
+ * which every app-test instance shares, and every launch posts 200 there: in a
+ * batch a neighbour's launch overwrote the 700 and the hour mid-read.
  */
 
 import { describe, expect, test } from "bun:test";

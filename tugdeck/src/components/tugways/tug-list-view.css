@@ -331,6 +331,15 @@ body {
      match cumulative unrendered-cell height. Initial value is zero;
      the post-mount `useLayoutEffect` writes the real values before
      paint. */
+  /* Never a scroll anchor. A jump far past the mounted window shows
+     nothing but the bottom spacer, so the browser picks it as the
+     anchor; the re-window commit then moves its top by the height of
+     every row it mounts, and anchoring "holds" it by pushing
+     `scrollTop` the same distance — to the bottom, off the position
+     the jump or the hand just set, with no script write to cancel.
+     A spacer stands for rows nobody is reading, and its geometry is
+     the virtualizer's to rewrite; the rows are the anchors. */
+  overflow-anchor: none;
 }
 
 /* ---- Extent floor ----

@@ -39,6 +39,7 @@
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
  * @covers tugdeck/src/lib/find-trace.ts
  * @family at0605-find
+ * @motion
  */
 
 import { describe, expect, test } from "bun:test";

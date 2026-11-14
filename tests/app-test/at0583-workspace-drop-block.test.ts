@@ -78,49 +78,36 @@ const contentPane = (id: string, cardId: string, y: number) => ({
 });
 
 /**
- * Each workspace stands its own Workspaces card ([B02] — sidebars are per
- * workspace), so the surface under test is never off screen. Workspace one
- * holds two Text cards so leg 2 has a group with two rows to reorder inside.
+ * One Workspaces card on the window's rail, which every workspace shares
+ * ([D231]), so the surface under test is never off screen. Workspace one
+ * holds two Text cards so leg 2 has a group with two rows to reorder inside;
+ * workspace two holds one, which the carry makes two.
  */
 function twoSpaceBlob() {
-  const deck = (
-    railCard: string,
-    railId: string,
-    texts: string[],
-    paneBase: string,
-  ) => ({
-    cards: [
-      { id: railCard, componentId: "cards", title: "Workspaces", closable: true },
-      ...texts.map((id) => ({
-        id,
-        componentId: "text",
-        title: id,
-        closable: true,
-      })),
-    ],
-    panes: [
-      railPane(railId, railCard),
-      ...texts.map((id, i) => contentPane(`${paneBase}${i}`, id, 60 + i * 60)),
-    ],
+  const deck = (texts: string[], paneBase: string) => ({
+    cards: texts.map((id) => ({
+      id,
+      componentId: "text",
+      title: id,
+      closable: true,
+    })),
+    panes: texts.map((id, i) => contentPane(`${paneBase}${i}`, id, 60 + i * 60)),
     activePaneId: `${paneBase}0`,
-    imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+    imposition: { kind: "one-up", sidebars: {} },
     hasFocus: true,
   });
   return {
     version: 5,
     activeSpaceId: SPACE_ONE,
     spaces: [
-      {
-        id: SPACE_ONE,
-        name: "Main",
-        deck: deck("C1", "pc1", ["T1", "T2"], "pt"),
-      },
-      {
-        id: SPACE_TWO,
-        name: "Second",
-        deck: deck("C2", "pc2", ["U1"], "pu"),
-      },
+      { id: SPACE_ONE, name: "Main", deck: deck(["T1", "T2"], "pt") },
+      { id: SPACE_TWO, name: "Second", deck: deck(["U1"], "pu") },
     ],
+    rail: {
+      cards: [{ id: "C1", componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [railPane("pc1", "C1")],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
   };
 }
 
@@ -238,10 +225,11 @@ describe.skipIf(!SHOULD_RUN)(
           expect(carry.anyLit).toBe(targetRuns);
 
           // The release moved the card, and the user stayed put ([B04]).
+          // Workspace two held U1 alone; the carried card makes two.
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.filter(function (s) {
                return s.id === ${JSON.stringify(SPACE_TWO)};
-             })[0].deck.cards.length === 3`,
+             })[0].deck.cards.length === 2`,
             { timeoutMs: 8_000 },
           );
           expect(

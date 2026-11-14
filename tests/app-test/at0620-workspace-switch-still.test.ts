@@ -168,25 +168,30 @@ const SPACE_TWO = "at0620-two";
 const SESSIONS_ONE = ["at0620-sa", "at0620-sb"] as const;
 const SESSIONS_TWO = ["at0620-sc", "at0620-sd"] as const;
 
+/** The window rail's one pane, which every workspace shares ([D231]). */
+const RAIL_PANE = "at0620-pc";
+
 /**
- * Every pane id each workspace stands, rail first — the subjects of the
- * arrives-at-its-solved-size claim.
+ * Every pane id standing with each workspace, rail first — the subjects of
+ * the arrives-at-its-solved-size claim.
  *
  * The rail is the one that matters and the others are its control: a content
  * pane's box is CSS over the band, so it re-resolves in the browser's own
  * reflow and was never going to be late. The rail's width is a NUMBER in
- * `deckState`, solved by the space allocator, and a parked deck carries the
- * number it was solved for at the switch away.
+ * `deckState`, solved by the space allocator. It is the window's now, and a
+ * switch holds it at the width it stands at ([D231]), so the claim is that
+ * the width the shown workspace came to rest at is the one the arriving
+ * workspace stands beside.
  */
-const PANES_ONE = ["at0620-pc1", "at0620-pa0", "at0620-pa1", "at0620-pat"] as const;
-const PANES_TWO = ["at0620-pc2", "at0620-pb0", "at0620-pb1", "at0620-pbt"] as const;
+const PANES_ONE = [RAIL_PANE, "at0620-pa0", "at0620-pa1", "at0620-pat"] as const;
+const PANES_TWO = [RAIL_PANE, "at0620-pb0", "at0620-pb1", "at0620-pbt"] as const;
 
 const sessionIdFor = (cardId: string): string => `at0620-session-${cardId}`;
 
-/** Every card each workspace holds: the Workspaces rail, its sessions, its text card. */
+/** Every card each workspace holds: its sessions and its text card. The rail's card is the window's. */
 const CARDS_OF: Readonly<Record<string, readonly string[]>> = {
-  [SPACE_ONE]: ["at0620-c1", ...SESSIONS_ONE, "at0620-t1"],
-  [SPACE_TWO]: ["at0620-c2", ...SESSIONS_TWO, "at0620-t2"],
+  [SPACE_ONE]: [...SESSIONS_ONE, "at0620-t1"],
+  [SPACE_TWO]: [...SESSIONS_TWO, "at0620-t2"],
 };
 
 /** Start the body sampler in each of `cardIds` whose body stands ready and has none yet. */
@@ -790,8 +795,8 @@ const contentPane = (
 });
 
 /**
- * Two workspaces, each standing its own Workspaces card, two SESSION cards and
- * one text card.
+ * Two workspaces, each standing two SESSION cards and one text card, beside
+ * one Workspaces card on the window's rail ([D231]).
  *
  * Session cards rather than text cards on both sides, and deliberately: the
  * composer's line box, the sheets' two clamps and the transcript's row window
@@ -801,14 +806,11 @@ const contentPane = (
  */
 function twoSpaceBlob(): Record<string, unknown> {
   const deck = (
-    cardsId: string,
-    railId: string,
     sessions: readonly string[],
     textId: string,
     paneBase: string,
   ): Record<string, unknown> => ({
     cards: [
-      { id: cardsId, componentId: "cards", title: "Workspaces", closable: true },
       ...sessions.map((id) => ({
         id,
         componentId: "session",
@@ -818,29 +820,25 @@ function twoSpaceBlob(): Record<string, unknown> {
       { id: textId, componentId: "text", title: textId, closable: true },
     ],
     panes: [
-      railPane(railId, cardsId),
       ...sessions.map((id, i) => contentPane(`${paneBase}${i}`, id, 40 + i * 300)),
       contentPane(`${paneBase}t`, textId, 40 + sessions.length * 300),
     ],
     activePaneId: `${paneBase}0`,
-    imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+    imposition: { kind: "one-up", sidebars: {} },
     hasFocus: true,
   });
   return {
     version: 5,
     activeSpaceId: SPACE_ONE,
     spaces: [
-      {
-        id: SPACE_ONE,
-        name: "One",
-        deck: deck("at0620-c1", "at0620-pc1", SESSIONS_ONE, "at0620-t1", "at0620-pa"),
-      },
-      {
-        id: SPACE_TWO,
-        name: "Two",
-        deck: deck("at0620-c2", "at0620-pc2", SESSIONS_TWO, "at0620-t2", "at0620-pb"),
-      },
+      { id: SPACE_ONE, name: "One", deck: deck(SESSIONS_ONE, "at0620-t1", "at0620-pa") },
+      { id: SPACE_TWO, name: "Two", deck: deck(SESSIONS_TWO, "at0620-t2", "at0620-pb") },
     ],
+    rail: {
+      cards: [{ id: "at0620-c", componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [railPane(RAIL_PANE, "at0620-c")],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
   };
 }
 
@@ -1125,12 +1123,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note(`at0620 canvas shrunk before A->B: ${JSON.stringify(shrink)}`);
           await settle(900);
-          // What the allocator solves a rail to at THIS canvas, read off the
-          // workspace that is standing in it. The two workspaces are the same
-          // deck twice over — one rail of the same kind, the same content run
-          // beside it — so the rail the outgoing workspace has come to rest at
-          // is the width the incoming one is owed.
-          const solvedAt900 = await paneWidthNow(app, "at0620-pc1");
+          // What the allocator solves the rail to at THIS canvas, read with the
+          // outgoing workspace standing in it. The rail is the window's and a
+          // switch holds it at the width it stands at ([D231]), so this is the
+          // width the incoming workspace stands beside.
+          const solvedAt900 = await paneWidthNow(app, RAIL_PANE);
           note(`at0620 rail solved at a 900px canvas: ${solvedAt900}px`);
           const resizedTo = await recordSwitch(app, "resized A->B", SPACE_TWO);
           await settle(600);
@@ -1140,7 +1137,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note(`at0620 canvas grown before B->A: ${JSON.stringify(grow)}`);
           await settle(900);
-          const solvedAt1180 = await paneWidthNow(app, "at0620-pc2");
+          const solvedAt1180 = await paneWidthNow(app, RAIL_PANE);
           note(`at0620 rail solved at a 1180px canvas: ${solvedAt1180}px`);
           const resizedBack = await recordSwitch(app, "resized B->A", SPACE_ONE);
           await app.evalJS<null>(RESIZE_RESTORE);
@@ -1152,27 +1149,25 @@ describe.skipIf(!SHOULD_RUN)(
           //
           // A parked workspace's deck is solved against the canvas it was
           // parked from; the window moved while it was away. The rail's width
-          // is a number in `deckState` rather than CSS over the band, so it
-          // arrives at the remembered width — and NOTHING corrects it, which
-          // is the half of this the reverse-diff probe had to teach: the
-          // settled-resize re-tune answers only for the workspace that is
-          // standing when a resize lands, so an arriving deck that is wrong is
-          // wrong until the user resizes the window again.
+          // is a number in `deckState` rather than CSS over the band, and the
+          // rail is the window's ([D231]): the resize re-allocated it with the
+          // outgoing workspace standing, and the switch holds it there and
+          // solves the arriving content around it.
           //
-          // So the claim is made twice over. The rail must ARRIVE at the width
-          // this canvas solves for — read off the outgoing workspace, which is
-          // the same deck twice over and has just come to rest at it — and it
-          // must not move afterwards.
+          // So the claim is made twice over. The rail must stand, through the
+          // switch, at the width this canvas solves for — read with the
+          // outgoing workspace shown — and nothing arriving may move
+          // afterwards.
           for (const { label, run, paneId, solved } of [
-            { label: "resized A->B", run: resizedTo, paneId: "at0620-pc2", solved: solvedAt900 },
-            { label: "resized B->A", run: resizedBack, paneId: "at0620-pc1", solved: solvedAt1180 },
+            { label: "resized A->B", run: resizedTo, paneId: RAIL_PANE, solved: solvedAt900 },
+            { label: "resized B->A", run: resizedBack, paneId: RAIL_PANE, solved: solvedAt1180 },
           ]) {
             const box = run.reading.paneBoxes[paneId];
-            expect(box, `${label}: the arriving rail was sampled`).toBeDefined();
+            expect(box, `${label}: the rail was sampled`).toBeDefined();
             expect(
               Number(box?.first.split(",")[2]),
-              `${label}: the arriving rail came up at the width this canvas ` +
-                `solves for (${solved}px) rather than the one it was parked at`,
+              `${label}: the rail stood through the switch at the width this ` +
+                `canvas solves for (${solved}px)`,
             ).toBe(solved);
           }
 

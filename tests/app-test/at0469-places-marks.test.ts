@@ -48,8 +48,9 @@
  * Cut from `at0469-layout-places` to fit the 20 s budget. This file carries
  * claims 1–3 and 5 (every place is marked with what it is set to, a mark
  * stands under the place it names, a mark is a button);
- * `at0469-places-sidebar-rows` carries claim 4 and the toggle row's keyboard
- * walk, and `at0469-places-drawing` claims 6–8. The deck and the readers are
+ * the `at0469-places-sidebar-rows-*` files carry claim 4 and the toggle row's
+ * keyboard walk, and the `at0469-places-drawing-*` files claims 6–8. The deck
+ * and the readers are
  * `layout-places-fixture.ts`.
  *
  * @family at0469-places

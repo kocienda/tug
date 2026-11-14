@@ -590,6 +590,10 @@ async function main() {
       } else {
         console.error("User message received before session initialized");
       }
+    } else if (msg.type === "interrupt" && stubReplay !== null) {
+      // Stub mode has no SessionManager for the registry to reach: the
+      // engine stops its streaming turn, or receipts an interrupt with none.
+      stubReplay.interrupt();
     } else if (msg.type === "request_inflight" && stubReplay !== null) {
       // Stub mode answers from what its engine has emitted, as production
       // answers from the turn in hand.

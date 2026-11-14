@@ -451,10 +451,11 @@ describe.skipIf(!SHOULD_RUN)("AT0805: zoom rectangles around the workspace namin
         const created = await app.evalJS<string>(`window.tugdeck.diag.getSpaces().activeSpaceId`);
         expect(created, "New went to the workspace it made").not.toBe(HOME);
         const out = await readCensus(overlay);
+        // The Workspaces card is the window rail's, so the new workspace shows
+        // the same one, C1, with the new row at the top of its list ([D231]).
         const bodies = await app.bodies();
-        const shown = bodies.find((b) => b.componentId === "cards" && b.visible && b.cardId !== null && b.cardId !== "C1");
-        if (shown?.cardId === undefined || shown.cardId === null) throw new Error("the new workspace shows no Workspaces card");
-        const card = app.body(shown.cardId);
+        if (!bodies.some((b) => b.cardId === "C1" && b.visible)) throw new Error("the new workspace shows no Workspaces card");
+        const card = app.body("C1");
         const row = await windowBoxOf(app, card, `${HEADER}[data-cards-space-id=${JSON.stringify(created)}]`);
         wrong.push(...checkRun("out", out, panel, row));
         wrong.push(...checkScrimOut("out", out));

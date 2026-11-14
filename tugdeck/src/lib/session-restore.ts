@@ -1093,7 +1093,7 @@ export function restoreSpaceSessions(
     // deliberately the same: two answers to "resume or fresh-spawn?" would
     // eventually disagree, and the disagreement would be a card crash-looping
     // on a `--session-id` collision.
-    if (row.has_jsonl === true || row.turn_count > 0 || row.is_alive === true) {
+    if (rowResumes(row)) {
       const made = restoreMakesShownPage(cardId, () =>
         fireRestore(cardId, row.session_id, row.project_dir, connection, "restore-open", {
           title: null,
@@ -1133,6 +1133,33 @@ export function restoreSpaceSessions(
       cardIds: unanswered,
     });
   }
+}
+
+/**
+ * Whether a card's ledger row is a session to resume rather than one to
+ * spawn fresh: the one truth table a pass reads a cached row by.
+ */
+function rowResumes(row: CardBinding): boolean {
+  return row.has_jsonl === true || row.turn_count > 0 || row.is_alive === true;
+}
+
+/**
+ * Name, for the restore gate, the bound Session cards a workspace switch
+ * has just asked for again after the host's clock evicted their pages
+ * (`reviveWanted`, `body-shell.ts`). Their pages come back on the restore
+ * path, each resuming its session, so the switch is an arrival like a
+ * first visit: named here, they open one gate together, held to its floor
+ * (`restore-gate-store.ts`), where each page raising it on its own opened
+ * and dropped it once per card, a flash apiece. A card whose row would
+ * spawn fresh holds nothing, as at a first visit.
+ */
+export function nameRevivedArrivals(cardIds: Iterable<string>): void {
+  const named: string[] = [];
+  for (const cardId of cardIds) {
+    const row = spaceBindingsLedgerStore.get(cardId);
+    if (row !== undefined && rowResumes(row) && isBodyCard(cardId) && !isDeferredBody(cardId)) named.push(cardId);
+  }
+  restoreGateRoster.expect(named);
 }
 
 /**

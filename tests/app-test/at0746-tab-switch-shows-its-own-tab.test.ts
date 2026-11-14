@@ -16,6 +16,7 @@
  * @covers tugdeck/src/lib/pane-chrome-projection.ts
  * @covers tugdeck/src/body/body-chrome-frame.tsx
  * @covers tugapp/Sources/BodyViewController.swift
+ * @motion
  */
 
 import { describe, expect, test } from "bun:test";

@@ -25,6 +25,8 @@ const IN_RANGE_PLAIN = "at0709-insert-file-image.test.ts";
 /** A screen-taker. */
 const FOREGROUND = "body-grounding/row-12-composer-session-panel.test.ts";
 const PLAIN = "at0216-shell-exchange.test.ts";
+/** A file that samples nothing but reads a `defaults` domain every launch writes: `@alone`. */
+const ALONE = "at0807-settings-tooltip-delay.test.ts";
 
 function run(script: string, args: string[]): { code: number; out: string; err: string } {
     const proc = Bun.spawnSync(["bun", script, ...args], { cwd: dirname(dirname(script)) });
@@ -60,6 +62,13 @@ describe("--queues against the real corpus", () => {
 
     test("a name the corpus does not know runs in the batch, as it always did", () => {
         expect(queues(SCRIPT, ["zz-not-a-file.test.ts"])).toEqual([["batch", "zz-not-a-file.test.ts"]]);
+    });
+
+    test("an `@alone` file runs in the one-at-a-time queue beside the motion files", () => {
+        expect(queues(SCRIPT, [PLAIN, ALONE])).toEqual([
+            ["batch", PLAIN],
+            ["motion", ALONE],
+        ]);
     });
 });
 

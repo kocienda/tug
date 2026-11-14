@@ -339,14 +339,16 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
           "and the copy is not activated — you stay where you were",
         ).toBe(created);
 
-        // Rename: the field opening is the verb's own work, on the new
-        // workspace's own Workspaces card ([P03]).
+        // Rename: the field opening is the verb's own work, on the Workspaces
+        // card, which it reveals when it is closed ([P03]). The rail is the
+        // window's ([D231]) and this one stands no Workspaces card, so the
+        // verb has to put it up — nothing is being renamed before it does.
         expect(
-          await kindBody(app, "cards").evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
+          await app.evalJS<boolean>(
+            `window.tugdeck.diag.getDeckState().cards.some(function (c) { return c.componentId === "cards"; })`,
           ),
-          "nothing is being renamed yet",
-        ).toBe(true);
+          "no Workspaces card stands before the verb",
+        ).toBe(false);
         await app.dispatchControlAction("rename-space");
         await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,

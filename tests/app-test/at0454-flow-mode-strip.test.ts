@@ -58,8 +58,8 @@
  *
  * Cut from `at0454-flow-mode` to fit the 20 s budget. This file carries
  * claims 1–5 in one walk; `at0454-flow-mode-controls` carries the bullseye on
- * a scrolled strip and the Layout control, and `at0454-flow-mode-reveals`
- * claims 6 and 7. The deck and the readers are `flow-mode-fixture.ts`.
+ * a scrolled strip and the Layout control, `at0454-flow-mode-reveals-arrival`
+ * claim 6 and `at0454-flow-mode-reveals-close` claim 7. The deck and the readers are `flow-mode-fixture.ts`.
  *
  * @family at0454-flow-mode
  * @covers tugdeck/src/layout-imposition.ts

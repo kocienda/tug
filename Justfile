@@ -505,8 +505,9 @@ fmt:
 # heavily tracked uppercase legend that does not hand its trailing track back.
 # A genuine optical correction is not banned — it carries an
 # `@tug-optical-nudge:` comment saying what it corrects, which is what makes
-# the remaining ones countable. The runtime half is `at0625-type-baseline`,
-# because no stylesheet scan can see a rendered baseline.
+# the remaining ones countable. The runtime half is the
+# `at0625-type-baseline-*` files, because no stylesheet scan can see a
+# rendered baseline.
 #
 # The checks themselves are in scripts/lint-checks.sh, in three groups: the
 # audits, the TypeScript type checks and lints, and Rust's clippy and fmt.
@@ -2090,7 +2091,7 @@ app-test-grant:
     echo "    That's it -- forever. Every worktree build pinned to"
     echo "    $TUG_FORCE_BUNDLE_ID matches the same designated requirement"
     echo "    and inherits this grant."
-    echo "      Verify with:  just app-test harness-smoke/smoke-native.test.ts"
+    echo "      Verify with:  just app-test harness-smoke/smoke-native-trusted-click.test.ts"
 
 # Three-file smoke: bridge basics + handshake + one AT scenario.
 # Useful after a Swift / harness change or right after `just build-app`

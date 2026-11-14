@@ -218,11 +218,19 @@ export async function expectAtRest(app: App, cardId: string, label: string): Pro
   return region!;
 }
 
-/** The host's container for `cardId` is hidden, and the shell posts it hidden. */
+/**
+ * The host's container for `cardId` is hidden, and the shell posts it hidden.
+ *
+ * The two are waited for apart. A workspace switch is the host's cut
+ * ([D230]): it hides the departed stage's views on the gesture, and the
+ * shell, told of the switch, catches up — its placer posts the departed
+ * cards hidden on the far side of its own paints. So the host's hide can
+ * lead the shell's post, and the shell is given the same time to say it.
+ */
 export async function expectHidden(app: App, cardId: string, label: string): Promise<void> {
   const body = await settleFor(() => bodyOf(app, cardId), (b) => b !== null && !b.visible, 5_000);
   // card-dom: shell — the placer's record of what it posted, in the shell.
-  const posted = await app.evalJS<boolean>(postedShownJs(cardId));
+  const posted = await settleFor(() => app.evalJS<boolean>(postedShownJs(cardId)), (shown) => !shown, 5_000);
   note(`${label}: host ${JSON.stringify(body === null ? null : { visible: body.visible, frame: body.frame })}; posted shown ${posted}`);
   expect(body?.visible, `${label}: the body is hidden`).toBe(false);
   expect(posted, `${label}: the shell posts it hidden`).toBe(false);

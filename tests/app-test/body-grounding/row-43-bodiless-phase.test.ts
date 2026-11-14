@@ -3,9 +3,10 @@
  * while its body is dormant and after it is evicted.
  *
  * The app launches on two workspaces: the Session card's, shown, and one
- * holding a Cards rail, parked. The Session card streams a turn; the Cards
- * workspace is shown under it, which parks the Session card's, and the Cards
- * body lists the parked card.
+ * empty, parked, beside the window's rail holding a Cards card ([D231]: the
+ * rail is the window's, awake whichever workspace is shown). The Session card
+ * streams a turn; the second workspace is shown under it, which parks the
+ * Session card's, and the Cards body lists the parked card.
  * The parked body goes dormant past its delay, shortened here, and is then
  * evicted by critical memory pressure, so for most of the turn the card has
  * a body that hears nothing, and then none. Pressure rather than the hidden
@@ -68,13 +69,27 @@ function deck(): Record<string, unknown> {
   };
 }
 
-function cardsDeck(): Record<string, unknown> {
+/** The second workspace: no content of its own, so showing it parks the Session card's. */
+function emptyDeck(): Record<string, unknown> {
+  return {
+    cards: [],
+    panes: [],
+    activePaneId: null,
+    imposition: { kind: "one-up", layout: "fit", sidebars: {} },
+    hasFocus: true,
+  };
+}
+
+/**
+ * The window's rail, holding the Cards card. The rail is the window's
+ * ([D231]): it stands outside every workspace, so the Cards card stays shown
+ * and awake whichever workspace is, and no workspace holds a copy of it.
+ */
+function cardsRail(): Record<string, unknown> {
   return {
     cards: [{ id: CARDS, componentId: "cards", title: "Cards", closable: true }],
     panes: [kindPane("cards", CARDS, 0)],
-    activePaneId: `${CARDS}-pane`,
-    imposition: { kind: "one-up", layout: "fit", sidebars: kindSidebars(["cards"]) },
-    hasFocus: true,
+    imposition: { sidebars: kindSidebars(["cards"]), rails: { right: { order: ["cards"] } } },
   };
 }
 
@@ -83,8 +98,9 @@ const LAYOUT = {
   activeSpaceId: SESSION_SPACE,
   spaces: [
     { id: SESSION_SPACE, name: "Session", deck: deck() },
-    { id: CARDS_SPACE, name: "Cards", deck: cardsDeck() },
+    { id: CARDS_SPACE, name: "Cards", deck: emptyDeck() },
   ],
+  rail: cardsRail(),
 };
 
 /** In the Cards body: the state of the dot on the row for `sessionId`, or null while there is no such row. */

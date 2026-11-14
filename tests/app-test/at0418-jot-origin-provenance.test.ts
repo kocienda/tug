@@ -54,6 +54,7 @@ import { join } from "node:path";
 
 import { launchTugApp } from "./_harness";
 import { kindBody } from "./_harness/card-reach";
+import { restoreSettled } from "./overlay-fixture";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -212,6 +213,13 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
                  ?.getAttribute('data-tug-clipboard-origin') ?? null`,
             ),
           ).toBe(source);
+
+          // The resume raises the app-modal restore gate in the overlay page
+          // until A's replay has revealed, and the gate takes every native
+          // click while it is up — a click on the Copy button under it lands
+          // on the gate and nothing is copied. So A's restore is seen through
+          // and the gate down before the pointer goes anywhere.
+          await restoreSettled(app, "A");
 
           // --- copy the message --------------------------------------------
           //

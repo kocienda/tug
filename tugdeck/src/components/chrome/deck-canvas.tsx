@@ -882,9 +882,13 @@ function PlaceSeam({
       // came off, and the commit's settle then carried them from there to
       // where the hand had left them: a snap back and a slide forward at
       // every release. `applyScroll` meets the same shadow the same way.
-      const shownLayer = container.querySelector<HTMLElement>(
-        `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
-      );
+      //
+      // EVERY shown layer, not the first: the window's rail layer ([D231]) is
+      // shown beside the workspace's, and it is the one whose frames a rail
+      // seam divides. A write to the workspace's layer alone left the rail
+      // members at the pre-gesture division when the pins came off — the
+      // snap back and slide forward again, on the rail.
+      const shownLayers = shownLayersOf(container);
       // A slot's properties stand on its readers (`place-properties.ts`),
       // resolved once for the drag: nothing joins or leaves the slot under
       // the hand. A rail's still stand on the canvas and the shown layer.
@@ -898,7 +902,7 @@ function PlaceSeam({
           return;
         }
         container.style.setProperty(name, value);
-        shownLayer?.style.setProperty(name, value);
+        for (const layer of shownLayers) layer.style.setProperty(name, value);
       };
       const publish = (height: number): void => {
         if (overflowing) {
@@ -1634,6 +1638,20 @@ function useWindowRail(deck: DeckState): WindowRail {
 
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
+/**
+ * Every shown layer under the canvas: the shown workspace's and the window's
+ * rail layer ([D231]). An arrangement variable a gesture writes ahead of the
+ * commit goes on each, because each carries its own copy and its frames
+ * inherit from it rather than from the canvas.
+ */
+function shownLayersOf(container: Element): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
+    ),
+  );
 }
 
 /** The rail layer's id on its wrapper, which no workspace id can be. */
@@ -4104,10 +4122,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           // canvas — so a write here alone moves the canvas's seams and
           // leaves every frame standing at the committed offset until the
           // drop re-renders the layer. The flow offset reaches its readers
-          // through `writeCanvasFlowOffset` for the same reason.
-          el.querySelector<HTMLElement>(
-            `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
-          )?.style.setProperty(property, value);
+          // through `writeCanvasFlowOffset` for the same reason. Every shown
+          // layer, because the rail's frames stand in the window's rail
+          // layer ([D231]), not the workspace's.
+          for (const layer of shownLayersOf(el)) {
+            layer.style.setProperty(property, value);
+          }
         }
         // The same number, in the same frame, to every instrument listening
         // ([P08]). The band the strip slides under is the target's own, so the

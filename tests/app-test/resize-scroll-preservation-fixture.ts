@@ -136,8 +136,26 @@ export async function armEpisodeWatch(app: EpisodePage, frame: string): Promise<
 export const episodeCount = (app: EpisodePage): Promise<number> =>
   app.evalJS<number>(`window.__at0430.seen.length`);
 
-/** Wait until no episode is open on the frame, then let the settle finish. */
-export async function waitForEpisodesClosed(app: EpisodePage, frame: string): Promise<void> {
+/**
+ * Wait until the gesture's episode has opened (the watch has seen more than
+ * `episodesBefore`), then until no episode is open on the frame, then let the
+ * settle finish.
+ *
+ * The open has to be waited for. A chord pressed in a card's page reaches the
+ * shell through the host, after `nativeKey` has returned — 15 to 350 ms on
+ * 2026-11-14 — so a frame read straight away has no stamp yet, reads as
+ * closed, and the fixed wait behind it is all that stands between the read
+ * and a motion that has not started.
+ */
+export async function waitForEpisodesClosed(
+  app: EpisodePage,
+  frame: string,
+  episodesBefore: number,
+): Promise<void> {
+  await app.waitForCondition<boolean>(
+    `window.__at0430.seen.length > ${episodesBefore}`,
+    { timeoutMs: 10_000 },
+  );
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(frame)}).getAttribute("data-resize-episode") === null`,
     { timeoutMs: 10_000 },

@@ -1497,9 +1497,16 @@ export class App {
    * against the physical cursor, which a background app-test has no business
    * moving and, in a non-key window, cannot usefully move anyway.
    *
-   * The reveal SURVIVES what a test does next: `pointerleave` fires only when
-   * the pointer exits the bar and every descendant, and the revealed row is a
-   * descendant. Use {@link concealPaneControls} to end it deliberately.
+   * The reveal survives dispatched events: `pointerleave` fires only when the
+   * pointer exits the bar and every descendant, and the revealed row is a
+   * descendant. It does NOT survive a native click. That click tells WebKit
+   * where the physical cursor is, and WebKit's next re-hit-test (a menu
+   * opening, a layout change) raises a trusted `pointerleave` on the bar from
+   * that cursor, wherever it sits. A native click raises no move before its
+   * down, so pressing a control in a row that has lost its reveal hit-tests
+   * the down onto the rollup mark and the click never reaches the control.
+   * Call this again before each native press after the first. Use
+   * {@link concealPaneControls} to end it deliberately.
    *
    * `paneSelector` scopes it to one pane; omitted, it takes the first title
    * bar in the document. A pane with no rollup resolves to a no-op.

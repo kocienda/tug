@@ -180,16 +180,17 @@ function BodyPane({
   );
   const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions });
   // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is
-  // the deck's active pane. Here the deck is this card's, and its active
-  // pane is set exactly when the card is its own workspace's focused card —
-  // the first responder while the workspace is shown, the card it was left
-  // on while it is parked — so the look holds through a park and a switch
-  // back shows it lit from the first frame. Written as an attribute the
-  // recede's layers key on ([L02], [L06]).
-  const focused = useSyncExternalStore(
-    deck.subscribe,
-    () => deck.getSnapshot().activePaneId !== undefined,
-  );
+  // the deck's active pane. A page draws the look its card is seen with, and
+  // it is seen only while its card is its pane's active one, so the look is
+  // its pane's, whichever tab is active (`card.context`'s `paneFocused`):
+  // its own workspace's focused pane — the first responder's while the
+  // workspace is shown, the one it was left on while it is parked. A hidden
+  // tab sibling has then drawn the look a tab switch shows, and the switch,
+  // the host trading which sibling is opaque, never shows the arriving card
+  // dim for a frame before the shell's word reaches it (`at0746`); the look
+  // holds through a park, and a switch back shows it lit from the first
+  // frame. Written as an attribute the recede's layers key on ([L02], [L06]).
+  const focused = useSyncExternalStore(deck.subscribe, deck.getFocusedLook);
   useLayoutEffect(() => {
     for (const el of [frameEl, rootEl]) {
       if (el !== null) el.dataset.focused = focused ? "true" : "false";

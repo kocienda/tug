@@ -66,6 +66,7 @@ function context(over: Partial<CardContextValue> = {}): CardContextValue {
     arriving: false,
     firstResponderCardId,
     focused: firstResponderCardId === CARD,
+    paneFocused: firstResponderCardId === CARD,
     layerShown: true,
     spaceId: null,
     geometry: { moves: 0, resizes: 0 },

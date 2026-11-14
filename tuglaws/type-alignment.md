@@ -86,7 +86,7 @@ reads **1.13px** above them. That badge is one of the three y positions the
 original report showed in one frame; the nudge sweep closed the other two and
 left this one, because closing it means enlarging every tool block's badges,
 which is a visible typographic decision rather than an alignment repair.
-`at0625-type-baseline.test.ts` therefore asserts on the runs at the row's own
+`at0625-type-baseline-spread.test.ts` therefore asserts on the runs at the row's own
 size and `note()`s the off-size run by name, so the number is in every report
 rather than absorbed into a looser bound. Whoever takes the decision has the
 measurement waiting.
@@ -273,7 +273,7 @@ Its own docstring says so, so that a green run is never read as "the app is
 aligned".
 
 **The probe** (`tests/app-test/baseline-probes.ts`, driven by
-`at0625-type-baseline.test.ts`) reads the rendered DOM: a zero-height
+the `at0625-type-baseline-*.test.ts` files) reads the rendered DOM: a zero-height
 `inline-block` strut seated in each run's inline context, reporting the baseline
 its bottom margin edge lands on. It sees two runs in one row disagreeing, and it
 sees the before/after of deleting an offset. It does **not** see an ornamental

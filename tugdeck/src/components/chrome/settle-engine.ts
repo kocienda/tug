@@ -3694,6 +3694,13 @@ export function useSettleEngine({
       const waitMs = posted?.solves === true ? SOLVE_GUARD_MS : 0;
       if (totalMs > crossing.durationMs || waitMs > 0) {
         settleSweepRef.current?.(holdCapMs(totalMs + waitMs, getTugTiming()));
+        // The episodes' safety nets were sized at the arm from the nominal
+        // settle, before the schedule was known. Left there, a bullseye exit
+        // (a move, then the grow) closed its frame's episode before the
+        // width it was opened for began to change: the net is for an end
+        // that never comes, and the completion below is the real one.
+        const spanMs = (totalMs + waitMs) * getTugTiming();
+        for (const [, handle] of settleEpisodesRef.current) handle.extend(spanMs);
       }
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up

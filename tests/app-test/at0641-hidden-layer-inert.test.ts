@@ -36,12 +36,12 @@
  *
  * And the one that was never about geometry:
  *
- *  5. **Answer a broadcast.** A `Workspaces` card stands in every mounted
- *     workspace, and a Delete Workspace request is a broadcast rather than a
- *     chain dispatch. `useSpaceLayerShown()` in `cards-card.tsx` is what keeps
- *     the parked one quiet, and it reads a React context rather than the
- *     stylesheet — so it is unaffected by the CSS change in principle and
- *     asserted anyway: exactly one confirm, and the workspace count unchanged.
+ *  5. **Answer a broadcast.** A Delete Workspace request is a broadcast
+ *     rather than a chain dispatch, so a Workspaces card in a parked
+ *     workspace would answer it too. The rail is the window's now ([D231]):
+ *     no parked deck holds a Workspaces card, which is read off the record,
+ *     and every Workspaces page the host holds is counted: exactly one
+ *     confirm, and the workspace count unchanged.
  *
  * ## What is deliberately not here
  *
@@ -85,13 +85,17 @@ const TEST_TIMEOUT_MS = 300_000;
 const SPACE_ONE = "at0641-one";
 const SPACE_TWO = "at0641-two";
 
-const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
-const HIDDEN_LAYER = "[data-space-layer]:not([data-space-shown])";
+/**
+ * A workspace's layer. The window rail stands in a layer of its own, always
+ * shown and belonging to no workspace ([D231]), so it is not one of these.
+ */
+const SPACE_LAYER = '[data-space-layer]:not([data-space-layer="window-rail"])';
+const SHOWN_LAYER = `${SPACE_LAYER}[data-space-shown]`;
+const HIDDEN_LAYER = `${SPACE_LAYER}:not([data-space-shown])`;
 const SHOWN_FRAMES = `${SHOWN_LAYER} .tug-pane[data-pane-id]`;
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
-/** The Workspaces card of the shown workspace (one), and of the hidden one (two). */
+/** The window rail's one Workspaces card. */
 const SHOWN_CARDS = "at0641-c1";
-const HIDDEN_CARDS = "at0641-c2";
 /** The hidden workspace's Text cards; leg 3 tries the first one's editor. */
 const HIDDEN_TEXT_IDS = ["at0641-t2a", "at0641-t2b"];
 const HIDDEN_TEXT = "at0641-t2a";
@@ -132,49 +136,35 @@ const contentPane = (
 });
 
 /**
- * Two workspaces, each with a Workspaces rail and two Text cards. The Text
- * cards are what give leg 3 an editor to try to focus in the dark, and the two
- * Workspaces cards are what leg 5 is about.
+ * Two workspaces, each with two Text cards, beside one Workspaces card on the
+ * window's rail ([D231]). The Text cards are what give leg 3 an editor to try
+ * to focus in the dark, and the Workspaces card is what leg 5 is about.
  */
 function twoSpaceBlob(): Record<string, unknown> {
-  const deck = (
-    cardsId: string,
-    railId: string,
-    textIds: readonly string[],
-    paneBase: string,
-  ): Record<string, unknown> => ({
-    cards: [
-      { id: cardsId, componentId: "cards", title: "Workspaces", closable: true },
-      ...textIds.map((id) => ({
-        id,
-        componentId: "text",
-        title: id,
-        closable: true,
-      })),
-    ],
-    panes: [
-      railPane(railId, cardsId),
-      ...textIds.map((id, i) => contentPane(`${paneBase}${i}`, id, 40 + i * 300)),
-    ],
+  const deck = (textIds: readonly string[], paneBase: string): Record<string, unknown> => ({
+    cards: textIds.map((id) => ({
+      id,
+      componentId: "text",
+      title: id,
+      closable: true,
+    })),
+    panes: textIds.map((id, i) => contentPane(`${paneBase}${i}`, id, 40 + i * 300)),
     activePaneId: `${paneBase}0`,
-    imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+    imposition: { kind: "one-up", sidebars: {} },
     hasFocus: true,
   });
   return {
     version: 5,
     activeSpaceId: SPACE_ONE,
     spaces: [
-      {
-        id: SPACE_ONE,
-        name: "One",
-        deck: deck("at0641-c1", "at0641-pc1", ["at0641-t1a", "at0641-t1b"], "at0641-pa"),
-      },
-      {
-        id: SPACE_TWO,
-        name: "Two",
-        deck: deck("at0641-c2", "at0641-pc2", ["at0641-t2a", "at0641-t2b"], "at0641-pb"),
-      },
+      { id: SPACE_ONE, name: "One", deck: deck(["at0641-t1a", "at0641-t1b"], "at0641-pa") },
+      { id: SPACE_TWO, name: "Two", deck: deck(["at0641-t2a", "at0641-t2b"], "at0641-pb") },
     ],
+    rail: {
+      cards: [{ id: SHOWN_CARDS, componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [railPane("at0641-pc1", SHOWN_CARDS)],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
   };
 }
 
@@ -195,7 +185,7 @@ interface LayoutReading {
 }
 
 const LAYOUT_READ = `(function () {
-  var layers = Array.prototype.slice.call(document.querySelectorAll("[data-space-layer]"));
+  var layers = Array.prototype.slice.call(document.querySelectorAll(${JSON.stringify(SPACE_LAYER)}));
   var hidden = layers.filter(function (l) { return !l.hasAttribute("data-space-shown"); });
   var shown = layers.filter(function (l) { return l.hasAttribute("data-space-shown"); });
   var panesIn = function (els) {
@@ -302,7 +292,7 @@ const PROBE_INSTALL = `(function () {
       "." + ${JSON.stringify(PROBE_CLASS)} + " { animation: " + ${JSON.stringify(PROBE_CLASS)} + " 1s linear infinite }";
     document.head.appendChild(style);
   }
-  var layers = document.querySelectorAll("[data-space-layer]");
+  var layers = document.querySelectorAll(${JSON.stringify(SPACE_LAYER)});
   var n = 0;
   for (var i = 0; i < layers.length; i++) {
     var pane = layers[i].querySelector(".tug-pane[data-pane-id]");
@@ -373,7 +363,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).length >= 3`,
+            `document.querySelectorAll(${JSON.stringify(SHOWN_FRAMES)}).length >= 2`,
             { timeoutMs: 30_000 },
           );
           await settle(800);
@@ -478,9 +468,17 @@ describe.skipIf(!SHOULD_RUN)(
           ).toEqual(["running"]);
 
           // ---- 5. A broadcast is answered once. ---------------------------
-          // Each Workspaces card is a body of its own, and its confirm rises in
-          // its own page: the shown one's (`at0641-c1`, workspace one's) is
-          // waited on, and the count is taken over both cards' pages.
+          // The Workspaces card is the window rail's, and no parked deck holds
+          // one ([D231]), so there is no hidden copy to answer. That is read
+          // off the record, and the confirms are counted over every Workspaces
+          // page the host holds rather than over the one expected.
+          const parkedCards = await app.evalJS<number>(
+            `window.tugdeck.diag.getSpaces().spaces.filter(function (s) { return !s.active; })
+               .reduce(function (n, s) {
+                 return n + s.deck.cards.filter(function (c) { return c.componentId === "cards"; }).length;
+               }, 0)`,
+          );
+          expect(parkedCards, "no parked workspace holds a Workspaces card of its own").toBe(0);
           await app.dispatchControlAction("delete-space");
           await app.body(SHOWN_CARDS).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
@@ -488,7 +486,10 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await settle(300);
           let confirms = 0;
-          for (const id of [SHOWN_CARDS, HIDDEN_CARDS]) {
+          const cardsIds = (await app.bodies())
+            .filter((b) => b.componentId === "cards" && b.cardId !== null)
+            .map((b) => b.cardId as string);
+          for (const id of cardsIds) {
             confirms += await (await cardPage(app, id)).evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(CONFIRM)}).length`,
             );

@@ -53,6 +53,19 @@ const ALERT_QUIT = `${ALERT} .tug-alert-actions [data-slot="tug-push-button"]:la
 const present = (selector: string): string => `document.querySelector(${JSON.stringify(selector)}) !== null`;
 const text = (selector: string): string => `(document.querySelector(${JSON.stringify(selector)})?.textContent ?? "").trim()`;
 const transcriptLength = `(document.querySelector('[data-testid="session-card-transcript"]')?.textContent ?? "").length`;
+/**
+ * The overlay's claim on the whole window, as it last posted it to the host
+ * (`overlay/overlay-claim.ts`). The page posts it once a frame, so it trails the
+ * alert's element: a click made when the alert is in the DOM but before its claim
+ * has gone lands on the shell beneath and answers nothing. Under a batch's load
+ * that frame ran past the two reads before the Quit click, and the alert stood
+ * unanswered until the exit wait gave up.
+ */
+const CLAIM = `document.documentElement.getAttribute("data-overlay-claim-state")`;
+/** The alert is up and the host sends the pointer to it. */
+const ALERT_STANDS = `${present(ALERT)} && ${CLAIM} === "all"`;
+/** The alert is down and the host has let the window go. */
+const ALERT_GONE = `!(${present(ALERT)}) && ${CLAIM} !== "all"`;
 
 /** The chord or the item may end the process before the verb's reply gets back. */
 function pressQuit(app: App): void {
@@ -94,7 +107,7 @@ describe.skipIf(!SHOULD_RUN)("at0777: ⌘Q and the quit guard", () => {
         const overlay = await overlayReady(app);
 
         pressQuit(app);
-        await overlay.waitForCondition<boolean>(present(ALERT), { timeoutMs: BODY_READY_MS });
+        await overlay.waitForCondition<boolean>(ALERT_STANDS, { timeoutMs: BODY_READY_MS });
         expect(await overlay.evalJS<string>(text(ALERT_TITLE))).toBe("Quit Tug?");
         const message = await overlay.evalJS<string>(text(ALERT_MESSAGE));
         note(`the alert says: ${message}`);
@@ -104,12 +117,12 @@ describe.skipIf(!SHOULD_RUN)("at0777: ⌘Q and the quit guard", () => {
         expect(await overlay.evalJS<string>(text(ALERT_CANCEL))).toBe("Cancel");
         const streamedBefore = await body.evalJS<number>(transcriptLength);
         await overlay.nativeClickAtElement(ALERT_CANCEL);
-        await overlay.waitForCondition<boolean>(`!(${present(ALERT)})`, { timeoutMs: PLACED_MS });
+        await overlay.waitForCondition<boolean>(ALERT_GONE, { timeoutMs: PLACED_MS });
         await body.waitForCondition<boolean>(`${transcriptLength} > ${streamedBefore}`, { timeoutMs: PLACED_MS });
         expect(await body.evalJS<string | null>(promptPhase), "Cancel leaves the turn going").toBe("streaming");
 
         chooseQuitItem(app);
-        await overlay.waitForCondition<boolean>(present(ALERT), { timeoutMs: BODY_READY_MS });
+        await overlay.waitForCondition<boolean>(ALERT_STANDS, { timeoutMs: BODY_READY_MS });
         expect(await overlay.evalJS<string>(text(ALERT_QUIT))).toBe("Quit");
         await overlay.nativeClickAtElement(ALERT_QUIT);
         expect(await app.awaitExit(EXIT_WITHIN_MS), "Quit exits the app").toBe(true);

@@ -47,12 +47,23 @@ export interface CardContextValue {
   /**
    * Whether the card is its own workspace's focused card: the deck's first
    * responder while its workspace is shown, and the card its workspace was
-   * left focused on while it is parked. A body draws its focused look from
-   * this, so a parked card is not told it lost focus and the switch back
-   * shows it lit as it was left; its activation notices read
-   * `firstResponderCardId`, which is the keyboard's.
+   * left focused on while it is parked. A parked card is not told it lost
+   * focus, so its deck still names its pane active; its activation notices
+   * read `firstResponderCardId`, which is the keyboard's.
    */
   focused: boolean;
+  /**
+   * Whether the card's pane is its own workspace's focused pane, whichever of
+   * the pane's cards is active — shown or parked, by the same rule as
+   * `focused`. A body draws its focused look from this (the frame's
+   * `data-focused`): a page is seen only while its card is its pane's active
+   * one, so a hidden tab sibling draws the look it will be seen with, and a
+   * tab switch — the host trading which sibling is opaque — shows the
+   * arriving card's tab lit from its first frame, not one frame of it dim
+   * while the shell's word reaches its page (`at0746`). A switch back to a
+   * parked workspace shows it lit as it was left.
+   */
+  paneFocused: boolean;
   layerShown: boolean;
   spaceId: string | null;
   /**
@@ -85,6 +96,7 @@ export const NO_CARD_CONTEXT: CardContextValue = {
   arriving: false,
   firstResponderCardId: null,
   focused: false,
+  paneFocused: false,
   layerShown: false,
   spaceId: null,
   geometry: NO_CARD_GEOMETRY,
@@ -123,6 +135,7 @@ export const cardContext = defineSharedStore<CardContextValue>({
     arriving: bool,
     firstResponderCardId: nullable(str),
     focused: bool,
+    paneFocused: bool,
     layerShown: bool,
     spaceId: nullable(str),
     railSide: optional(literal("left", "right")),

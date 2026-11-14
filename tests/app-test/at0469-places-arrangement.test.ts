@@ -46,7 +46,8 @@
  *
  * Cut from `at0469-layout-places` to fit the 20 s budget. This file carries
  * claim 7 (a place wears one mark); `at0469-places-marks` carries claims 1–3 and 5,
- * `at0469-places-sidebar-rows` claim 4, and `at0469-places-drawing` claim 6.
+ * the `at0469-places-sidebar-rows-*` files claim 4, and the
+ * `at0469-places-drawing-*` files claim 6.
  * The deck and the readers are `layout-places-fixture.ts`.
  *
  * @family at0469-places

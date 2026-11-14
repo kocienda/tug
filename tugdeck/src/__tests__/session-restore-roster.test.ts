@@ -26,6 +26,7 @@ import type { DeckState } from "@/layout-tree";
 import type { CardBinding } from "@/protocol";
 import { registerCard } from "@/card-registry";
 import {
+  nameRevivedArrivals,
   restoreSessions,
   restoreSpaceSessions,
   sessionRestoreRegistry,
@@ -155,5 +156,19 @@ describe("the restore pass names the shown cards it resumes, whether or not thei
     } as unknown as DeckState;
     restoreSpaceSessions(deck as never, spaceDeck, connection);
     expect([...named].sort()).toEqual([A, D].sort());
+  });
+});
+
+describe("a switch names the evicted cards it brings back that resume their sessions", () => {
+  test("nameRevivedArrivals names a body card whose row resumes, and not one that spawns fresh or is not a body", () => {
+    spaceBindingsLedgerStore.installOnce();
+    publishListCardBindingsOk({ bindings: BINDINGS });
+    // A and C were evicted and are asked for again; B was never handed off.
+    for (const id of [A, C]) {
+      bodyCardsStore.mark(id);
+      bodyCardsStore.setState(id, "creating");
+    }
+    nameRevivedArrivals([A, B, C]);
+    expect(named).toEqual([A]);
   });
 });

@@ -299,13 +299,13 @@ When `just app-test` starts failing with `AccessibilityPermissionMissingError` o
    ```
    Empty diff → fingerprint is fresh. Non-empty → drift; the AX grant may be invalidated.
 
-3. **Confirm Accessibility shows `Tug.app` and is enabled:** open System Settings → Privacy & Security → Accessibility. If `Tug.app` isn't listed, run `just app-test harness-smoke/smoke-native.test.ts` once to trigger the system grant dialog.
+3. **Confirm Accessibility shows `Tug.app` and is enabled:** open System Settings → Privacy & Security → Accessibility. If `Tug.app` isn't listed, run `just app-test harness-smoke/smoke-native-trusted-click.test.ts` once to trigger the system grant dialog.
 
 4. **If the grant is stale and re-toggling doesn't work, reset and re-grant:**
    ```sh
    tccutil reset Accessibility dev.tugapp.app.debug    # for debug-main
    ```
-   Then run `just app-test harness-smoke/smoke-native.test.ts` to trigger the dialog fresh. Substitute the actual `CFBundleIdentifier` from `Info.plist` if you're on a non-main branch.
+   Then run `just app-test harness-smoke/smoke-native-trusted-click.test.ts` to trigger the dialog fresh. Substitute the actual `CFBundleIdentifier` from `Info.plist` if you're on a non-main branch.
 
 5. **Last resort — bypass the re-sign entirely:**
    ```sh

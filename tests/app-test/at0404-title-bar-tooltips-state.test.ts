@@ -72,7 +72,8 @@ describe.skipIf(!SHOULD_RUN)(
           // The width control and the target both rest inside the pane's
           // rollup. The hovers below are dispatched straight at the anchors
           // and reach them either way, but the PRESSES are native and would
-          // land on the bar behind a hidden row — so pin it open once here.
+          // land on the bar behind a hidden row — so pin it open here, and
+          // again before the second press (below).
           await chrome.revealPaneControls();
 
           // --- The span is inert: the menu it wraps still opens. ----------
@@ -112,6 +113,17 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe("Set this card's width — now Comfy");
 
           // --- Bullseye's phrase turns with the posture. ------------------
+          // Re-pin the row before this press. The first native press told
+          // WebKit where the PHYSICAL cursor is, and its next re-hit-test
+          // (the menu opening, the pane taking its new width) raised a
+          // trusted `pointerleave` on the bar from wherever that cursor sits,
+          // which took the pin away. A native click raises no move ahead of
+          // its down, so against a hidden row the down is hit-tested onto
+          // the rollup mark, the row reveals under it, the up lands on the
+          // button, and the click goes to their common ancestor — bullseye
+          // never toggles. The pin is the readiness this press needs, and
+          // `revealPaneControls` waits for the row to take pointers.
+          await chrome.revealPaneControls();
           await chrome.nativeClickAtElement(BULLSEYE);
           await chrome.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(BULLSEYE)}).getAttribute("aria-pressed") === "true"`,

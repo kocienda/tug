@@ -66,15 +66,15 @@ split row by its pieces' glob.
 | `probe-tap.test.ts` | The path itself: one character through the activated tap lands in a body's composer; one menu item performed takes effect in the body. | ✓ | — |
 | `row-01-arrival-*.test.ts` (warm, cold, kinds) | ⌘N: a new card arrives with nothing of the canvas, grid or an older pane showing through the hole at any frame, cold and warm. | ✓ | ✓ |
 | `row-02-drag-kinds.test.ts` | A card drags as one piece: masthead, frame and content together under the pointer, landing together. A card that draws its own chrome — the Session card and the rail kinds — drags as one view the host carries, read by the same invariant (`one-view-drag.ts`): the chrome and the content stand the chrome's height apart on every frame, or for a rail, whose bar and content paint one surface, the card's leading edge stands in one column on a row through the bar and one through the content. The Session card's drag is `at0744-card-drag-is-one-view`; this row reads every other kind. | ✓ (`at0744`) | ✓ |
-| `row-03-departure.test.ts` | A card departs as one piece, and the hole closes with it. | ✓ | ✓ |
+| `row-03-departure-*.test.ts` (session, kinds) | A card departs as one piece, and the hole closes with it. | ✓ | ✓ |
 | `row-05-chords-*.test.ts` (edit, turns, deck, text, overview) | Every chord in the keyboard files works from a body and from the shell. | ✓ | ✓ |
 | `row-06-menus-*.test.ts` (each menu part, Session and kinds; the two `-shows`) | Every Swift menu command works with a body first responder, including the ones validating against the first responder's undo manager. | ✓ | ✓ |
 | `row-07-focus.test.ts` | Activating a card makes its body first responder; typing goes there and nowhere else; the shell's surfaces take and return focus; closing the key card hands focus on. | ✓ | ✓ |
 | `row-08-sheets.test.ts` | The Changes shade, the history view and the find bar open, list, scroll and close from a body. | ✓ | n/a: no sheet |
 | `row-09-fold-*.test.ts` (fold, unfold) | Fold hides the body; the unfold shows it with no peek. | ✓ | n/a: a rail does not fold: `setPaneFolded` refuses one |
-| `row-10-workspace-*.test.ts` (session and kinds, home and away) | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. | ✓ | ✓ |
+| `row-10-workspace-*.test.ts` (session and kinds, home and away) | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. A rail is the window's ([D231]): it stays shown on its one place through the switch while each workspace's own content departs and arrives. | ✓ | ✓ |
 | `row-10-workspace-*-dormant.test.ts`, `row-10-workspace-*-evicted.test.ts` | Row 10's four switches with every hidden body put dormant, or dormant and then evicted, before the switch (`_tiers.ts`): the same bars, held against bodies that hear nothing and against cards with no page. Rows 14 and 19 have no tier variant: at their gestures the host holds no hidden body. | ✓ | ✓ |
-| `row-11-lifecycle.test.ts` | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. A dirty Text body asks in its own page before its pane closes and before a Cards body's workspace delete, and Cancel keeps both. | ✓ | ✓ |
+| `row-11-lifecycle-*.test.ts` (session, kinds, text-guard) | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. A dirty Text body asks in its own page before its pane closes and before a Cards body's workspace delete, and Cancel keeps both. | ✓ | ✓ |
 | `row-11-draft-tiers.test.ts` | A draft typed in a Session card whose workspace is then parked: once its body is dormant the card's bag on disk carries the draft, and after the body is evicted the card shown again has it in its composer. | ✓ | n/a: Session-only by construction |
 | `row-12-composer-*.test.ts` (session-send, session-panel, kinds) | Z2, the composer, paste of text and images, and the picker-to-body handoff. | ✓ | ✓ |
 | `row-13-arc-tracking.test.ts` | An arc bound to a body's session reads in that body's Z2, on the shell's masthead and in the Arcs body, which follows the Session card focused before it and offers Bind to its session. The stores a body attaches are enumerated by `tugdeck/src/body/__tests__/body-stores.test.ts`. | ✓ | n/a: the Overview has none of it |
@@ -189,7 +189,8 @@ runs below were on the `body-lifecycle-fourth-fixups` worktree.
   note saying the body was slow, so how soon the body paints is no longer
   bounded — a body painting at 29 s passes under `BODY_READY_MS`. 3/3
   green alone at `c56dae0d8`, `dirty=0`.
-- **`at0140-cycle-session-card`.** In the batch of 25 (run 8906,
+- **`at0140-cycle-session-card`** (split since, a test to a file, into
+  `at0140-cycle-session-card-*`). In the batch of 25 (run 8906,
   `f1e12a702`, 2026-10-22) it was 0/5, then red alone twice (2/4, 2/4)
   before its popover read moved into the card's body and it went green
   once. 3/3 green alone on 2026-10-23 at `56ba8fecd`, `dirty=0`.

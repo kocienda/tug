@@ -9,8 +9,8 @@
  * fixed at build time, so to exercise mismatch without a Swift
  * rebuild the test injects a deliberately-wrong `expectedSurfaceVersion`
  * into `launchTugApp`. The handshake compares majors; anything whose
- * major doesn't match the server's (currently `1.0.0` → major `1`)
- * throws.
+ * major doesn't match the server's throws; the injected value is one
+ * major past `EXPECTED_SURFACE_VERSION`.
  *
  * Skipped by default unless `TUGAPP_APP_TEST=1` is set. The test
  * needs a built debug Tug.app binary at the default path (or
@@ -33,17 +33,19 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp } from "../_harness";
+import { EXPECTED_SURFACE_VERSION, launchTugApp } from "../_harness";
 import { VersionSkewError } from "../_harness/errors";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
 describe.skipIf(!SHOULD_RUN)("in-app: version handshake", () => {
   test("wrong expected version throws VersionSkewError with expected/actual populated", async () => {
-    // Deliberately bump the expected major into the future. The
-    // server is at major `2`; comparing `3.x` vs `2.x` triggers
-    // the mismatch branch in `launchTugApp`.
-    const bogusExpected = "3.0.0";
+    // Deliberately bump the expected major one past the harness's
+    // own, so the mismatch branch in `launchTugApp` fires whatever
+    // the server's current major is. (A literal "3.0.0" went stale
+    // when the surface itself reached 3.0.0.)
+    const currentMajor = Number(EXPECTED_SURFACE_VERSION.split(".")[0]);
+    const bogusExpected = `${currentMajor + 1}.0.0`;
 
     let caught: unknown;
     try {
@@ -57,7 +59,7 @@ describe.skipIf(!SHOULD_RUN)("in-app: version handshake", () => {
     expect(err.name).toBe("VersionSkewError");
     // The harness preserves the caller-supplied expected in the error.
     expect(err.expected).toBe(bogusExpected);
-    // The server advertises major `2`. We don't pin the exact patch
+    // The server advertises the current major. We don't pin the exact patch
     // here — that belongs to a separate test — but it must be a
     // non-empty string that is obviously different from `bogusExpected`.
     expect(typeof err.actual).toBe("string");

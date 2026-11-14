@@ -32,8 +32,8 @@
  * but lost the reading position would still have cost the user their place.
  *
  * Steps 5 and 6 are the record verbs' half, and they assert the OPPOSITE sign
- * of steps 1-4. Creating a workspace puts the user in it and stands its
- * factory rail ([P05]), so a new workspace has its doors rather than an empty
+ * of steps 1-4. Creating a workspace puts the user in it beside the window's
+ * rail ([P05], [D231]), so a new workspace has its doors rather than an empty
  * canvas with no way back. And deleting a workspace that holds a bound session
  * DOES close it ([P07]) — the same `services_store.deck_removed_card` whose
  * absence step 3 asserts is what step 6 waits for, which is the plainest
@@ -48,8 +48,8 @@
  * unchanged.
  *
  * The second test is the card's surface, and the same fixture shape one level
- * out: three workspaces, each standing its own Workspaces card, so a switch
- * never takes the surface under test off screen ([B02]). It drives the row
+ * out: three workspaces beside the window rail's one Workspaces card, so a
+ * switch never takes the surface under test off screen ([D231]). It drives the row
  * model and the row's three verbs through the real pointer and the real
  * keyboard — the mark, the click and the Return that switch, the fold cue that
  * opens a parked workspace read-only, the right-click menu, the inline rename,
@@ -303,7 +303,21 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
           ),
         ).toBe(boundSessionId);
 
-        // ---- 5. New workspace: created, activated, standing on its rail.
+        // ---- 5. New workspace: created, activated, standing on the rail.
+        // The rail is the window's ([D231]): a new workspace mints none of
+        // its own and arrives beside the one the window already stands. The
+        // seeded deck stood none, so the Workspaces card is put on it first —
+        // the door back that [P05] is about.
+        await app.dispatchControlAction("toggle-cards");
+        await app.waitForCondition<boolean>(
+          `window.tugdeck.diag.getDeckState().cards.some(function (c) { return c.componentId === "cards"; })`,
+          { timeoutMs: 8_000 },
+        );
+        const railBefore = await app.evalJS<string[]>(
+          `window.tugdeck.diag.getDeckState().cards
+             .filter(function (c) { return c.componentId === "cards"; })
+             .map(function (c) { return c.id; })`,
+        );
         const created = await app.evalJS<string>(
           `window.tugdeck.lab.createSpace()`,
         );
@@ -322,10 +336,13 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         );
         // The rail is the whole point of [P05]: a workspace whose Workspaces
         // card is not standing has no door back except a chord and a menu.
+        // The new workspace holds no card of its own, so what stands is the
+        // window's rail, the same card it stood before the create.
         const standing = await app.evalJS<string[]>(
-          `window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.componentId; })`,
+          `window.tugdeck.diag.getDeckState().cards.map(function (c) { return c.id; })`,
         );
-        expect([...standing].sort()).toEqual(["cards", "dashes", "jots", "layout", "overview"]);
+        expect(railBefore).toHaveLength(1);
+        expect(standing).toEqual(railBefore);
         // And card A did not come along: it is parked in workspace one.
         expect(
           await app.evalJS<string[]>(`window.tugdeck.diag.listCardIds()`),
@@ -380,11 +397,11 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
 });
 
 /**
- * Three workspaces, each standing its own Workspaces card ([B02] — sidebars
- * are per workspace), so switching between them never takes the surface under
- * test off screen. The third holds a Session card that is never mounted: it is
- * there so a synthetic ledger row can make one workspace "hold live sessions"
- * without a second real session being spawned.
+ * Three workspaces beside one Workspaces card on the window's rail, which
+ * every workspace shares ([D231]), so switching between them never takes the
+ * surface under test off screen. The third holds a Session card that is never
+ * shown: it is there so a synthetic ledger row can make one workspace "hold
+ * live sessions" without a second real session being spawned.
  */
 function threeSpaceBlob() {
   const railPane = (id: string, cardId: string) => ({
@@ -405,41 +422,26 @@ function threeSpaceBlob() {
     title: "",
     acceptsFamilies: ["standard"],
   });
-  const deck = (
-    railCard: string,
-    railId: string,
-    card: { id: string; componentId: string },
-    paneId: string,
-  ) => ({
-    cards: [
-      { id: railCard, componentId: "cards", title: "Workspaces", closable: true },
-      { id: card.id, componentId: card.componentId, title: card.id, closable: true },
-    ],
-    panes: [railPane(railId, railCard), contentPane(paneId, card.id)],
+  const deck = (card: { id: string; componentId: string }, paneId: string) => ({
+    cards: [{ id: card.id, componentId: card.componentId, title: card.id, closable: true }],
+    panes: [contentPane(paneId, card.id)],
     activePaneId: paneId,
-    imposition: { kind: "one-up", sidebars: { cards: { side: "right" } } },
+    imposition: { kind: "one-up", sidebars: {} },
     hasFocus: true,
   });
   return {
     version: 5,
     activeSpaceId: SURFACE_ONE,
     spaces: [
-      {
-        id: SURFACE_ONE,
-        name: "Main",
-        deck: deck("C1", "pc1", { id: "T1", componentId: "text" }, "pt1"),
-      },
-      {
-        id: SURFACE_TWO,
-        name: "Second",
-        deck: deck("C2", "pc2", { id: "T2", componentId: "text" }, "pt2"),
-      },
-      {
-        id: SURFACE_THREE,
-        name: "Third",
-        deck: deck("C3", "pc3", { id: "S", componentId: "session" }, "ps"),
-      },
+      { id: SURFACE_ONE, name: "Main", deck: deck({ id: "T1", componentId: "text" }, "pt1") },
+      { id: SURFACE_TWO, name: "Second", deck: deck({ id: "T2", componentId: "text" }, "pt2") },
+      { id: SURFACE_THREE, name: "Third", deck: deck({ id: "S", componentId: "session" }, "ps") },
     ],
+    rail: {
+      cards: [{ id: "C1", componentId: "cards", title: "Workspaces", closable: true }],
+      panes: [railPane("pc1", "C1")],
+      imposition: { sidebars: { cards: { side: "right" } } },
+    },
   };
 }
 
@@ -450,15 +452,12 @@ const SURFACE_THREE = "surface-three";
 /**
  * "On screen", said out loud.
  *
- * Every workspace the leg has visited stays MOUNTED ([B06]), so the document
- * now holds one Workspaces card per visited workspace — all of them but one
- * in a layer with no `data-space-shown` and no boxes. Each of those cards is
- * a body of its own, a page holding that one card, and `kindBody(app,
- * "cards")` reaches the one on screen (it prefers the visible body). So a
- * count over rows in that page counts only the shown card's, and the scope
- * the shell's document needed — the layer is a shell element, which no body
- * page carries — is empty here. The portaled ones (menus, confirms, the
- * rename field) are mounted at the body's own overlay root, in the same page.
+ * The one Workspaces card is the window rail's ([D231]) and a body of its
+ * own, a page holding that one card, which `kindBody(app, "cards")` reaches.
+ * The scope the shell's document once needed — the layer is a shell element,
+ * which no body page carries — is empty here. The portaled ones (menus,
+ * confirms, the rename field) are mounted at the body's own overlay root, in
+ * the same page.
  */
 const SHOWN = "";
 
@@ -479,10 +478,8 @@ const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * Wait until `cardId` — one workspace's Workspaces card — is the body the
- * host shows. A switch commits before the host has placed the incoming
- * card, and a kind lookup made in that window finds the outgoing one, whose
- * page keeps the mark it had.
+ * Wait until `cardId` — the rail's Workspaces card — is a body the host
+ * shows, painted and opaque, before the next native gesture reaches it.
  *
  * Shown means painted and opaque, not only placed visible: the host brings
  * an incoming view in over its reveal, and a native click made before it is
@@ -552,7 +549,7 @@ describe.skipIf(!SHOULD_RUN)(
             `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(SURFACE_TWO)}`,
             { timeoutMs: 8_000 },
           );
-          await untilShown(app, "C2");
+          await untilShown(app, "C1");
           await kindBody(app, "cards").waitForCondition<boolean>(
             `(function () {
                var el = document.querySelector(${JSON.stringify(headerFor(SURFACE_TWO))});
@@ -727,11 +724,12 @@ describe.skipIf(!SHOULD_RUN)(
             await kindBody(app, "cards").evalJS<string>(
               `document.querySelector(${JSON.stringify(CONFIRM_MESSAGE)}).textContent`,
             ),
-            // Two panes stand in that workspace — its Workspaces rail and the
-            // Session card — and the sentence counts the workspace's own
-            // cards, never its rail's, with the live sessions among them
-            // named parenthetically ([P06], Spec S03).
-          ).toBe("Delete Away and close 1 card (1 session)?");
+            // One card stands in that workspace — the Session card — and the
+            // sentence counts the workspace's own cards, never the rail's,
+            // with the live sessions among them named parenthetically ([P06],
+            // Spec S03). The sentence breaks after "and" (`e599f487a`), so a
+            // long name never sets the popover's width on one line.
+          ).toBe("Delete Away and\nclose 1 card (1 session)?");
           await kindBody(app, "cards").nativeClickAtElement(CONFIRM_CANCEL);
           await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,
@@ -755,13 +753,12 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8_000 },
           );
           await kindBody(app, "cards").nativeClickAtElement(CONFIRM_OK);
-          // Deleting goes to the workspace's neighbour, whose own Workspaces
-          // card is the one on screen.
+          // The window rail's Workspaces card stays on screen through it.
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.length === 2`,
             { timeoutMs: 8_000 },
           );
-          await untilShown(app, "C2");
+          await untilShown(app, "C1");
           await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 2`,
             { timeoutMs: 8_000 },

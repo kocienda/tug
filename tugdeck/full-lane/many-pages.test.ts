@@ -551,6 +551,7 @@ describe("pages on the deck's own connection", () => {
         arriving: true,
         firstResponderCardId: "c-deck",
         focused: true,
+        paneFocused: true,
         layerShown: false,
         spaceId: null,
         geometry: { moves: 0, resizes: 0 },

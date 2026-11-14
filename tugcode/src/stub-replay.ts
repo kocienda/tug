@@ -400,10 +400,51 @@ export class StubReplayEngine {
       this.turnOpener = opener;
       for (let i = 0; i < turn.outputs.length; i++) {
         if (i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
+        // An interrupt ended the turn between two outputs: the rest of it
+        // never streams, as a real turn stops at claude's `result`.
+        if (this.turnEnded) return;
         this.sendTurnOutput(turn.outputs[i]);
       }
     });
     return true;
+  }
+
+  /**
+   * Answer `interrupt` as production tugcode does ({@link SessionManager.handleInterrupt}):
+   * a paced turn still streaming stops where it stands and closes with a
+   * `turn_cancelled` carrying the text it had sent, and an interrupt that
+   * finds no turn in flight gets the `interrupt_noop` receipt. Without this a
+   * stub session's interrupt was a silent no-op — `dispatchInbound` reaches
+   * the absent `SessionManager` — so a stubbed turn could not be stopped,
+   * and every quit with one streaming waited out the deck's whole interrupt
+   * bound before it went on.
+   */
+  interrupt(): void {
+    if (this.turnEnded) {
+      this.emit({
+        type: "interrupt_noop",
+        tug_session_id: this.sessionId,
+        reason: "no_turn",
+        ipc_version: IPC_VERSION,
+      } as OutboundMessage);
+      return;
+    }
+    let msgId = "";
+    let seq = 0;
+    let partial = "";
+    for (const output of this.turnSent) {
+      if ("msg_id" in output && typeof output.msg_id === "string") msgId = output.msg_id;
+      if ("seq" in output && typeof output.seq === "number") seq = Math.max(seq, output.seq + 1);
+      if (output.type === "assistant_text") partial = output.is_partial ? partial + output.text : output.text;
+    }
+    const cancelled: TurnCancelled = {
+      type: "turn_cancelled",
+      msg_id: msgId,
+      seq,
+      partial_result: partial.length > 0 ? partial : "User interrupted",
+      ipc_version: IPC_VERSION,
+    };
+    this.sendTurnOutput(cancelled);
   }
 
   private sendTurnOutput(output: OutboundMessage): void {
