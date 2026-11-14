@@ -5225,8 +5225,11 @@ export class DeckManager implements IDeckManagerStore {
    *
    * The anchor is resolved here rather than by the caller: `origin` when that
    * card holds a slot, else the first responder when IT holds one, else the
-   * deck itself. A rail card, a free pane, and a card that is gone all hold
-   * no slot, and fall through. The ranking is {@link chooseOpeningSlot}'s,
+   * deck itself. A free pane and a card that is gone hold no slot, and fall
+   * through to the first responder. A rail card holds none either, but a
+   * gesture made in a sidebar is made beside no slot at all, so it anchors on
+   * the deck and never on whichever card happens to hold focus. The ranking is
+   * {@link chooseOpeningSlot}'s,
    * over {@link readOpeningDeck}'s reading of the deck with the two
    * measurements this manager owns: the slot run and the flow band.
    *
@@ -5241,9 +5244,17 @@ export class DeckManager implements IDeckManagerStore {
       band: this._flowBandWidth(state.panes, state.imposition),
     });
     if (deck === null) return null;
-    const anchorSlot =
-      this._openingAnchorSlot(origin) ??
-      this._openingAnchorSlot(this.getFirstResponderCardId());
+    const originPane =
+      origin === null
+        ? undefined
+        : state.panes.find((p) => p.cardIds.includes(origin));
+    const fromRail =
+      originPane !== undefined &&
+      this._sidebarComponentIdOfPane(originPane.id) !== undefined;
+    const anchorSlot = fromRail
+      ? undefined
+      : this._openingAnchorSlot(origin) ??
+        this._openingAnchorSlot(this.getFirstResponderCardId());
     return (
       chooseOpeningSlot(
         deck,

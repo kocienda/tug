@@ -4,14 +4,17 @@
  * One rule for every unaddressed arrival in an arrangement: read the deck's
  * slots once ({@link readOpeningDeck}), then rank them from an anchor
  * ({@link chooseOpeningSlot}). The anchor is the card the gesture was made in
- * when it holds a slot, and the deck itself otherwise. The deck anchors at its
- * middle once any slot holds a card, and at its leftmost slot while none does,
- * so an empty arrangement fills from the left.
+ * when it holds a slot, and the deck itself otherwise.
  *
- * The ranking, in key order: nearest to the anchor; an empty slot before a
- * stacked one; right before left. A split slot is not a landing place, so a
- * split slot — and a wall, worse still — is a candidate only when nothing else
- * is, and then walls rank after every other split.
+ * The ranking: an empty slot before a stacked one, always — a card never
+ * opens on top of another while there is room beside it. Which empty slot
+ * depends on the anchor. From the deck it is the leftmost, so an arrangement
+ * fills from the left. From an origin it is the first one to the origin's
+ * right, and only when there is none to its right the nearest one to its
+ * left. With no empty slot the card stacks: nearest to the anchor, right
+ * before left. A split slot is not a landing place, so a split slot — and a
+ * wall, worse still — is a candidate only when nothing else is, and then
+ * walls rank after every other split.
  *
  * Pure over `DeckState` plus the two measurements the manager owns — the
  * slot run and the flow band — so it answers without a DOM. It composes the
@@ -66,10 +69,8 @@ export interface OpeningDeck {
   /** In flow, the slots the band holds whole and the ones it only clips;
    *  `null` in fit, where every slot is on screen. */
   band: OpeningBand | null;
-  /** Where an open with no origin is anchored. While every slot is empty it
-   *  is the leftmost: slot 0 in fit, the leftmost slot the band shows in
-   *  flow. Otherwise it is the middle: the arrangement's middle in fit, the
-   *  middle of what the band shows in flow. */
+  /** Where an open with no origin is ranked from once no slot is empty: the
+   *  arrangement's middle in fit, the middle of what the band shows in flow. */
   deckAnchor: number;
 }
 
@@ -127,24 +128,12 @@ export function readOpeningDeck(
   }
 
   const layout = impositionLayout(state.imposition);
-  // An empty arrangement fills from the left: the first card opened into it
-  // takes the leftmost slot rather than the middle one. A slot held by a card
-  // still arriving is not empty, so a second open in the same breath ranks
-  // from the middle as any occupied deck does.
-  const empty = slots.every((s) => s.class === "empty");
   const strip = deckFlowStrip(state);
   if (strip === null) {
-    return {
-      kind,
-      layout,
-      slots,
-      band: null,
-      deckAnchor: empty ? 0 : centerSlot(kind),
-    };
+    return { kind, layout, slots, band: null, deckAnchor: centerSlot(kind) };
   }
   const input = { strip, band, offset: state.flowOffset ?? 0 };
   const visible = flowVisibleSlots(input);
-  const leftmostShown = visible?.whole[0] ?? visible?.touched[0] ?? 0;
   return {
     kind,
     layout,
@@ -153,9 +142,7 @@ export function readOpeningDeck(
       whole: visible?.whole ?? [],
       touched: visible?.touched ?? [],
     },
-    deckAnchor: empty
-      ? leftmostShown
-      : centerVisibleFlowSlot(input) ?? centerSlot(kind),
+    deckAnchor: centerVisibleFlowSlot(input) ?? centerSlot(kind),
   };
 }
 
@@ -180,10 +167,13 @@ export interface OpeningChoice {
 /**
  * The slot a fresh card opens into, ranked from `anchor` over `deck`.
  *
- * Candidates are every slot but a split or a wall, ranked by distance from
- * the anchor, then empty before stack, then right before left. When none
- * qualifies the splits are ranked by the same keys with walls last, and the
- * arrival takes the bottom of the winner ([D194]).
+ * Candidates are every slot but a split or a wall. An empty one beats a
+ * stacked one however far it lies. Among empty slots a deck-anchored open
+ * takes the leftmost, and an origin-anchored open takes the first to the
+ * origin's right, or the nearest to its left when none lies right. Among
+ * stacked slots the nearest to the anchor wins, right before left. When no
+ * candidate qualifies the splits are ranked by distance and then rightward,
+ * with walls last, and the arrival takes the bottom of the winner ([D194]).
  *
  * A deck-anchored open in flow looks first among the slots the band shows
  * whole, then among those it touches, then across the whole arrangement: a
@@ -214,7 +204,7 @@ export function chooseOpeningSlot(
   // wall. Within each, the band's tiers narrow before they widen.
   for (const admits of ADMISSION) {
     for (const tier of tiers) {
-      const best = bestOf(tier.filter(admits), from);
+      const best = bestOf(tier.filter(admits), anchor, from);
       if (best !== undefined) return choiceOf(best);
     }
   }
@@ -231,21 +221,38 @@ const ADMISSION: readonly ((slot: OpeningSlot) => boolean)[] = [
 /** The best of `slots` ranked from `from`, or `undefined` when there are none. */
 function bestOf(
   slots: readonly OpeningSlot[],
+  anchor: OpeningAnchor,
   from: number,
 ): OpeningSlot | undefined {
   let best: OpeningSlot | undefined;
   for (const slot of slots) {
-    if (best === undefined || outranks(slot, best, from)) best = slot;
+    if (best === undefined || outranks(slot, best, anchor, from)) best = slot;
   }
   return best;
 }
 
-/** Whether `a` ranks ahead of `b`: nearer, then empty, then rightward. */
-function outranks(a: OpeningSlot, b: OpeningSlot, from: number): boolean {
-  const distance = Math.abs(a.slot - from) - Math.abs(b.slot - from);
-  if (distance !== 0) return distance < 0;
+/**
+ * Whether `a` ranks ahead of `b`. Empty beats occupied. Between two empty
+ * slots the deck takes the leftmost, and an origin takes the one to its right
+ * before the one to its left, then the nearer. Between two occupied slots the
+ * nearer wins, then the rightward.
+ */
+function outranks(
+  a: OpeningSlot,
+  b: OpeningSlot,
+  anchor: OpeningAnchor,
+  from: number,
+): boolean {
   const aEmpty = a.class === "empty";
   if (aEmpty !== (b.class === "empty")) return aEmpty;
+  const distance = Math.abs(a.slot - from) - Math.abs(b.slot - from);
+  if (aEmpty) {
+    if (anchor.kind === "deck") return a.slot < b.slot;
+    const aRight = a.slot > from;
+    if (aRight !== b.slot > from) return aRight;
+    return distance < 0;
+  }
+  if (distance !== 0) return distance < 0;
   return a.slot > b.slot;
 }
 

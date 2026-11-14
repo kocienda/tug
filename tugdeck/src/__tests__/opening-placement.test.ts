@@ -130,15 +130,13 @@ describe("readOpeningDeck", () => {
     expect(read(deckOf("four-up", ["stack"])).deckAnchor).toBe(1);
   });
 
-  test("an empty arrangement anchors at its leftmost slot", () => {
+  test("an empty arrangement opens its first card in the leftmost slot", () => {
     for (const kind of ["two-up", "three-up", "four-up", "six-up"] as const) {
-      const deck = read(deckOf(kind, []));
-      expect(deck.deckAnchor).toBe(0);
-      expect(fromDeck(deck)).toBe(0);
+      expect(fromDeck(read(deckOf(kind, [])))).toBe(0);
     }
   });
 
-  test("a slot held by an arriving card ends the empty deck's left anchor", () => {
+  test("a slot held by an arriving card is passed over for the next empty one", () => {
     const state = deckOf("three-up", []);
     const deck = read({
       ...state,
@@ -146,7 +144,6 @@ describe("readOpeningDeck", () => {
       panes: [pane("arr", 0)],
       arriving: { arr: true },
     });
-    expect(deck.deckAnchor).toBe(1);
     expect(fromDeck(deck)).toBe(1);
   });
 
@@ -170,13 +167,38 @@ describe("chooseOpeningSlot — from an origin", () => {
     expect(fromOrigin(deck, 1)).toBe(2);
   });
 
-  test("distance outranks class and direction", () => {
-    // Origin at 1: the stack at 2 is nearer than the empty slot at 3; with 2
-    // split, the stack at 0 is still nearer, even though it lies left.
+  test("an empty slot outranks a nearer stack", () => {
+    // Origin at 1: the stack at 2 is nearer, but the empty slot at 3 takes
+    // the card, so it covers nothing. The same with 2 split.
     const deck = read(deckOf("four-up", ["stack", "stack", "stack", "empty"]));
-    expect(fromOrigin(deck, 1)).toBe(2);
+    expect(fromOrigin(deck, 1)).toBe(3);
     const split = read(deckOf("four-up", ["stack", "stack", "split", "empty"]));
-    expect(fromOrigin(split, 1)).toBe(0);
+    expect(fromOrigin(split, 1)).toBe(3);
+  });
+
+  test("the first empty slot to the origin's right takes the card", () => {
+    const deck = read(deckOf("four-up", ["stack", "stack", "empty", "empty"]));
+    expect(fromOrigin(deck, 0)).toBe(2);
+    expect(fromOrigin(deck, 1)).toBe(2);
+  });
+
+  test("an empty slot to the right beats a nearer one to the left", () => {
+    const deck = read(
+      deckOf("five-up", ["empty", "empty", "stack", "stack", "empty"]),
+    );
+    expect(fromOrigin(deck, 2)).toBe(4);
+  });
+
+  test("with none to the right, the nearest empty slot to the left", () => {
+    const deck = read(deckOf("four-up", ["empty", "empty", "stack", "stack"]));
+    expect(fromOrigin(deck, 3)).toBe(1);
+    expect(fromOrigin(deck, 2)).toBe(1);
+  });
+
+  test("with no empty slot, the nearest stack takes the card", () => {
+    const deck = read(deckOf("four-up", ["stack", "stack", "stack", "stack"]));
+    expect(fromOrigin(deck, 0)).toBe(1);
+    expect(fromOrigin(deck, 3)).toBe(2);
   });
 
   test("a split right neighbour is skipped", () => {
@@ -194,19 +216,26 @@ describe("chooseOpeningSlot — from an origin", () => {
   });
 
   test("an origin open ranks the whole arrangement in flow", () => {
-    // The band shows slot 0 alone; the nearest empty slot is off screen.
+    // The band shows slot 0 alone; the only empty slot is off screen, and it
+    // takes the card over the stack beside the origin.
     const state = deckOf("three-up", ["stack", "stack", "empty"], {
       layout: "flow",
     });
     const strip = deckFlowStrip(state);
     const band = (strip?.extents.get(0) ?? 0) + 1;
-    expect(fromOrigin(read(state, band), 0)).toBe(1);
+    expect(fromOrigin(read(state, band), 0)).toBe(2);
     expect(fromOrigin(read(state, band), 1)).toBe(2);
   });
 });
 
 describe("chooseOpeningSlot — from the deck", () => {
-  test("the anchor slot is itself a candidate", () => {
+  test("the leftmost empty slot takes the card, not the stack at the anchor", () => {
+    const deck = read(deckOf("four-up", ["stack", "stack", "empty", "empty"]));
+    expect(fromDeck(deck)).toBe(2);
+    expect(fromDeck(read(deckOf("three-up", ["empty", "stack", "empty"])))).toBe(0);
+  });
+
+  test("with no empty slot, the anchor slot is itself a candidate", () => {
     const deck = read(deckOf("three-up", ["stack", "stack", "stack"]));
     expect(fromDeck(deck)).toBe(1);
   });
@@ -258,7 +287,6 @@ describe("chooseOpeningSlot — from the deck", () => {
         (s) => ({ offset: left(s, 2), band: right(s, 4) - left(s, 2) }),
       );
       expect(deck.band?.whole).toEqual([2, 3, 4]);
-      expect(deck.deckAnchor).toBe(2);
       expect(fromDeck(deck)).toBe(2);
     });
 

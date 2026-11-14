@@ -1,6 +1,6 @@
 /**
- * row-03-departure.test.ts — a card departs as one piece, and the hole
- * closes with it.
+ * _row-03.ts — what the pieces of row 3 share: a card departs as one piece,
+ * and the hole closes with it.
  *
  * The bar's third row ([B02] row 3). A body card standing above a neighbour
  * in a slot is closed through File › Close Card — the real menu item,
@@ -19,36 +19,26 @@
  * Every other kind that is a body is closed the same way, standing focused
  * beside an unbound Session card.
  *
- * @covers tugdeck/src/lib/card-placement.ts
- * @covers tugdeck/src/lib/body-shell.ts
- * @covers tugdeck/src/components/tugways/tug-pane.css
- * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugapp/Sources/HostFrameMeter.swift
+ * One launch per piece, a test to a file so each fits its own budget:
+ * `row-03-departure-session` for the Session card, `row-03-departure-kinds`
+ * for every other kind.
  */
 
-import { describe, expect, test } from "bun:test";
-import { randomUUID } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { expect } from "bun:test";
 
-import { launchTugApp, note, type App } from "../_harness";
+import { note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
-import { onTestRunEnd } from "../_harness/test-cleanup";
-import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, FLOOR_BY_CLASS, floorMeasure, pollFor, settleFor, readPalette, showsBareHole, type FloorMeasure } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CLASS, settleFor, readPalette, showsBareHole, type FloorMeasure } from "./_frames";
 import { closePopoverUp, pressCloseOfPopover } from "./_bodies";
-import { kindDeck, standUpKind } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 
-const TEST_NAME = "body-grounding-row-03-departure";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 150_000;
+export const TEST_NAME = "body-grounding-row-03-departure";
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 150_000;
 
-const BODY_CARD = "row03-body";
-const NEIGHBOUR = "row03-neighbour";
-const BODY_READY_MS = 30_000;
-const PLACED_MS = 3_000;
+export const BODY_CARD = "row03-body";
+export const NEIGHBOUR = "row03-neighbour";
+export const BODY_READY_MS = 30_000;
+export const PLACED_MS = 3_000;
 const BURST_MS = 3_000;
 const BURST_INTERVAL_MS = 33;
 /**
@@ -64,7 +54,7 @@ const TOLERANCE = 4;
 const APRON_PX = 10;
 
 /** The body card above an unbound neighbour, one flow column. */
-const column = {
+export const column = {
   cards: [
     { id: BODY_CARD, componentId: "session", title: "Body", closable: true },
     { id: NEIGHBOUR, componentId: "session", title: "Neighbour", closable: true },
@@ -84,12 +74,12 @@ const column = {
   hasFocus: true,
 };
 
-const promptPhase = `(function () {
+export const promptPhase = `(function () {
   var entry = document.querySelector('[data-slot="tug-prompt-entry"]');
   return entry === null ? null : entry.getAttribute("data-phase");
 })()`;
 
-async function bodyOf(app: App, card: string): Promise<BodyViewSnapshot | null> {
+export async function bodyOf(app: App, card: string): Promise<BodyViewSnapshot | null> {
   return (await app.bodies()).find((b) => b.cardId === card) ?? null;
 }
 
@@ -97,7 +87,7 @@ async function bodyOf(app: App, card: string): Promise<BodyViewSnapshot | null> 
  * The close and its reading, for `card` standing as a body, focused: File ›
  * Close Card performed, and every frame of its rect read from then on.
  */
-async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<void> {
+export async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<void> {
   const body = app.body(card);
   const frame = (await bodyOf(app, card))!.frame;
   // The card's own rect: a card that draws its chrome is a view outset from
@@ -176,63 +166,3 @@ async function departLeg(app: App, card: string, measure: FloorMeasure = FLOOR_B
   );
   expect(placeholder, "the departed card's placeholder is gone from the shell").toBe(false);
 }
-
-describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
-  for (const kind of kindsUnderTest(3)) {
-    if (kind.componentId === "session") continue;
-    test(
-      `${kind.componentId}: File › Close Card: the hole closes in the frame the chrome leaves, and no frame shows the bare window`,
-      async () => {
-        const card = `row03-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}` });
-        try {
-          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [NEIGHBOUR] }), focusCardId: card });
-          await standUpKind(app, kind, card);
-          await app.dispatchControlAction("focus-session-card", { cardId: card });
-          const key = await settleFor(() => app.evalJS<string | null>("window.__tug.getActiveCardId()"), (id) => id === card, PLACED_MS);
-          expect(key, `the ${kind.componentId} card is the key card`).toBe(card);
-          await Bun.sleep(400);
-          await departLeg(app, card, floorMeasure(kind.rail));
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
-  }
-
-  test.skipIf(!sessionUnderTest(3))(
-    "File › Close Card: the hole closes in the frame the chrome leaves, and no frame shows the bare window",
-    async () => {
-      const stubDir = stubDirectory();
-      const app = await launchTugApp({
-        testName: TEST_NAME,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: column, focusCardId: BODY_CARD });
-        const tugSessionId = randomUUID();
-        const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-row03-project-")));
-        onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
-        writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(2, 1)));
-        await app.spawnSessionNew(BODY_CARD, { tugSessionId, projectDir });
-        const shown = await settleFor(() => bodyOf(app, BODY_CARD), (b) => b !== null && b.visible, BODY_READY_MS);
-        expect(shown?.visible, "the body card's body is placed visible").toBe(true);
-
-        // The turn the stub replays runs out, so the close asks nothing.
-        const body = app.body(BODY_CARD);
-        await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 90_000 });
-        await app.dispatchControlAction("focus-session-card", { cardId: BODY_CARD });
-        await pollFor(() => app.getFocusedCardId(), (id) => id === BODY_CARD, PLACED_MS);
-        await Bun.sleep(400);
-
-        // By canvas, as on a rail: the Session card draws its own chrome, and
-        // its greys sit within a classifier's reach of the grid's colour.
-        await departLeg(app, BODY_CARD, FLOOR_BY_CANVAS);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});

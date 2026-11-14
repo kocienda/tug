@@ -1,12 +1,14 @@
 /**
- * at0369-open-file-nearest-slot.test.ts — a file opens in the nearest slot
- * that will take it, and a split slot will not.
+ * at0369-open-file-nearest-slot.test.ts — a file opens in an empty slot
+ * beside the card that opened it, stacks only when there is none, and a split
+ * slot will not take it.
  *
  * Every fresh card in an arrangement chooses its slot through one rule, ranked
- * from the card the gesture came from: nearest first; an empty slot before a
- * stacked one; right before left. A split slot is not a landing place, so it
- * is passed over while anything else qualifies. The card that opened the file
- * is never covered by it.
+ * from the card the gesture came from: an empty slot before a stacked one,
+ * the first empty slot to the right before any to the left; with no empty
+ * slot, the nearest stack, right before left. A split slot is not a landing
+ * place, so it is passed over while anything else qualifies. The card that
+ * opened the file is never covered by it.
  *
  * Driven through the real `open-file` control action — whose origin is the
  * first responder — against real files on disk, one deck per claim so each
@@ -15,13 +17,14 @@
  *  1. **Empty before stack.** From slot 2, an empty slot 1 and a stack at
  *     slot 3 are equally near; the file takes the empty one, even though it
  *     lies left — the emptiness key outranks direction.
- *  2. **Right before left.** From slot 2, stacks at slots 1 and 3 are equally
- *     near and equally full; the file takes the right one.
- *  3. **Nearest first.** From slot 0, a stack at slot 1 is nearer than an
- *     empty slot 2; distance outranks emptiness, and the origin's own slot is
- *     never the answer.
- *  4. **A split is skipped.** From slot 1, a split slot at slot 2 would win
- *     on direction; it does not qualify, so the file takes the stack at slot 0.
+ *  2. **Right before left.** On a deck with no empty slot, from slot 2,
+ *     stacks at slots 1 and 3 are equally near; the file takes the right one.
+ *  3. **Empty before nearer.** From slot 0, a stack at slot 1 is nearer than
+ *     an empty slot 2; the file takes the empty one, the first to the right,
+ *     and covers nothing. The origin's own slot is never the answer.
+ *  4. **A split is skipped.** On a deck with no empty slot, from slot 1, a
+ *     split slot at slot 2 would win on direction; it does not qualify, so
+ *     the file takes the stack at slot 0.
  *
  * The assertion is on the stored slot of the pane holding the new card, read
  * back through the deck's own diagnostic snapshot — the number the imposer
@@ -166,29 +169,29 @@ const CASES: readonly {
   },
   {
     name: "right before left",
-    specs: ["empty", "stack", "stack", "stack"],
+    specs: ["stack", "stack", "stack", "stack"],
     origin: 2,
     expected: 3,
   },
   {
-    name: "nearest first, and never the origin's own slot",
+    name: "an empty slot before a nearer stack, and never the origin's own slot",
     specs: ["stack", "stack", "empty", "empty"],
     origin: 0,
-    expected: 1,
+    expected: 2,
   },
   {
     name: "a split slot is skipped",
-    specs: ["stack", "stack", "split", "empty"],
+    specs: ["stack", "stack", "split", "stack"],
     origin: 1,
     expected: 0,
   },
 ];
 
 describe.skipIf(!SHOULD_RUN)(
-  "at0369 — an opened file lands in the nearest slot that will take it",
+  "at0369 — an opened file lands in an empty slot, else the nearest stack",
   () => {
     test(
-      "nearest, then empty, then rightward; a split never qualifies",
+      "empty first, then nearest, then rightward; a split never qualifies",
       async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0369-"));
         const app = await launchTugApp({
