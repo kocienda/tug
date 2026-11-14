@@ -1749,9 +1749,9 @@
         },
         {
           "depth": 0,
-          "endChar": 104,
-          "hash": "f82925ee6af1dc7e",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick</p>\n",
+          "endChar": 99,
+          "hash": "811aa83c9e8c9b55",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -1789,9 +1789,9 @@
         },
         {
           "depth": 0,
-          "endChar": 176,
-          "hash": "78fc7d6c716bfff9",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the disp</p>\n",
+          "endChar": 161,
+          "hash": "87cd5095eed95d3a",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is boun</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -1799,9 +1799,29 @@
         },
         {
           "depth": 0,
-          "endChar": 204,
-          "hash": "45f2c98601535533",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the display period and the parse is</p>\n",
+          "endChar": 166,
+          "hash": "2474352aa03affa9",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded b</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 29
+        },
+        {
+          "depth": 0,
+          "endChar": 193,
+          "hash": "ea20960494366819",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the display period and th</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 29
+        },
+        {
+          "depth": 0,
+          "endChar": 217,
+          "hash": "b4120f4acb424e2a",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the display period and the parse is linear in the</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -1819,9 +1839,9 @@
         },
         {
           "depth": 0,
-          "endChar": 240,
-          "hash": "f27ac940e44d62ab",
-          "html": "<p>Three things de</p>\n",
+          "endChar": 233,
+          "hash": "f7fff6844b34d1cd",
+          "html": "<p>Three th</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -1829,9 +1849,9 @@
         },
         {
           "depth": 0,
-          "endChar": 263,
-          "hash": "77117999105cda00",
-          "html": "<p>Three things decide what a tick emits:</p>\n",
+          "endChar": 255,
+          "hash": "6594f86d6ffb0161",
+          "html": "<p>Three things decide what a tic</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -1869,10 +1889,10 @@
         },
         {
           "depth": 0,
-          "endChar": 312,
-          "hash": "5eb37ac809626f4c",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by parti</li>\n</ol>\n",
-          "itemCount": 1,
+          "endChar": 330,
+          "hash": "888bf7efa0939529",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The</li>\n</ol>\n",
+          "itemCount": 2,
           "kind": "list",
           "rowCount": 0,
           "startChar": 265
@@ -1889,9 +1909,9 @@
         },
         {
           "depth": 0,
-          "endChar": 362,
-          "hash": "539d0b4fb12755ec",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes</li>\n</ol>\n",
+          "endChar": 353,
+          "hash": "9551b2b9c5214e02",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s blo</li>\n</ol>\n",
           "itemCount": 2,
           "kind": "list",
           "rowCount": 0,
@@ -1899,9 +1919,9 @@
         },
         {
           "depth": 0,
-          "endChar": 385,
-          "hash": "7194c23d124e93ca",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks s</li>\n</ol>\n",
+          "endChar": 382,
+          "hash": "0ae2831e3cbd74e6",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged block</li>\n</ol>\n",
           "itemCount": 2,
           "kind": "list",
           "rowCount": 0,
@@ -1909,9 +1929,9 @@
         },
         {
           "depth": 0,
-          "endChar": 409,
-          "hash": "ca0c3353cb165c7b",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whe</li>\n</ol>\n",
+          "endChar": 406,
+          "hash": "288baf2f274a3843",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li></li>\n</ol>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -1919,9 +1939,9 @@
         },
         {
           "depth": 0,
-          "endChar": 432,
-          "hash": "9b7ba2f2a75deb6d",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold is o</li>\n</ol>\n",
+          "endChar": 424,
+          "hash": "6e3813c813743887",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion h</li>\n</ol>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -1929,9 +1949,9 @@
         },
         {
           "depth": 0,
-          "endChar": 448,
-          "hash": "4c576751ee31205e",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold is open, in which ca</li>\n</ol>\n",
+          "endChar": 435,
+          "hash": "98732a9095c2ca78",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold is open</li>\n</ol>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -1949,9 +1969,19 @@
         },
         {
           "depth": 0,
-          "endChar": 477,
-          "hash": "e23a0be9797e5f09",
-          "html": "<pre><code class=\"language-rust\"></code></pre>\n",
+          "endChar": 471,
+          "hash": "089f6807b5480b6d",
+          "html": "<p>``</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 469
+        },
+        {
+          "depth": 0,
+          "endChar": 490,
+          "hash": "3f725e6ae05124da",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut </code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -1959,9 +1989,9 @@
         },
         {
           "depth": 0,
-          "endChar": 487,
-          "hash": "5240bec9aabc229f",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;m</code></pre>\n",
+          "endChar": 514,
+          "hash": "172a7b4e8f941600",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlo</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -1969,9 +1999,9 @@
         },
         {
           "depth": 0,
-          "endChar": 497,
-          "hash": "3fdafa4717189f10",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -</code></pre>\n",
+          "endChar": 538,
+          "hash": "638f4e0b0ead5fe1",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = r</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -1979,9 +2009,9 @@
         },
         {
           "depth": 0,
-          "endChar": 526,
-          "hash": "efebe5b5c5ebf8ce",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    le</code></pre>\n",
+          "endChar": 563,
+          "hash": "7ab925bc405c2955",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, </code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -1989,9 +2019,9 @@
         },
         {
           "depth": 0,
-          "endChar": 545,
-          "hash": "5e72dd4bb748c798",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_b</code></pre>\n",
+          "endChar": 585,
+          "hash": "bd6705e7f3fa8612",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    bl</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -1999,9 +2029,9 @@
         },
         {
           "depth": 0,
-          "endChar": 556,
-          "hash": "ff38e090284ec1e0",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self</code></pre>\n",
+          "endChar": 589,
+          "hash": "a5e62d7f1b688e42",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2009,9 +2039,9 @@
         },
         {
           "depth": 0,
-          "endChar": 577,
-          "hash": "f6228931170edda1",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On)</code></pre>\n",
+          "endChar": 612,
+          "hash": "3c8cd12995be90e8",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b|</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2019,29 +2049,9 @@
         },
         {
           "depth": 0,
-          "endChar": 602,
-          "hash": "52bd33cbec9c0418",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 469
-        },
-        {
-          "depth": 0,
-          "endChar": 626,
-          "hash": "5cb818b55e679b8d",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.ins</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 469
-        },
-        {
-          "depth": 0,
-          "endChar": 630,
-          "hash": "464e8f221ea7f862",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert(</code></pre>\n",
+          "endChar": 624,
+          "hash": "bc81c05fde2c9d6a",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.i</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2082,7 +2092,7 @@
             1,
             5
           ],
-          "end": 104
+          "end": 99
         },
         {
           "blocks": [
@@ -2110,231 +2120,228 @@
             1,
             9
           ],
-          "end": 176
+          "end": 161
         },
         {
           "blocks": [
             1,
             10
           ],
-          "end": 204
+          "end": 166
         },
         {
           "blocks": [
             1,
             11
           ],
-          "end": 224
+          "end": 193
         },
         {
           "blocks": [
             1,
-            11,
             12
           ],
-          "end": 240
+          "end": 217
         },
         {
           "blocks": [
             1,
-            11,
-            13
+            13,
+            14
           ],
-          "end": 263
+          "end": 233
         },
         {
           "blocks": [
             1,
-            11,
-            14,
+            13,
             15
+          ],
+          "end": 255
+        },
+        {
+          "blocks": [
+            1,
+            13,
+            16,
+            17
           ],
           "end": 278
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            16
+            13,
+            16,
+            18
           ],
           "end": 305
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            17
+            13,
+            16,
+            19
           ],
-          "end": 312
+          "end": 330
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            18
+            13,
+            16,
+            20
           ],
           "end": 336
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            19
-          ],
-          "end": 362
-        },
-        {
-          "blocks": [
-            1,
-            11,
-            14,
-            20
-          ],
-          "end": 385
-        },
-        {
-          "blocks": [
-            1,
-            11,
-            14,
+            13,
+            16,
             21
           ],
-          "end": 409
+          "end": 353
         },
         {
           "blocks": [
             1,
-            11,
-            14,
+            13,
+            16,
             22
           ],
-          "end": 432
+          "end": 382
         },
         {
           "blocks": [
             1,
-            11,
-            14,
+            13,
+            16,
             23
           ],
-          "end": 448
+          "end": 406
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            24
+          ],
+          "end": 424
+        },
+        {
+          "blocks": [
+            1,
+            13,
+            16,
             25
           ],
-          "end": 477
+          "end": 435
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
-            26
-          ],
-          "end": 487
-        },
-        {
-          "blocks": [
-            1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             27
           ],
-          "end": 497
+          "end": 471
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             28
           ],
-          "end": 526
+          "end": 490
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             29
           ],
-          "end": 545
+          "end": 514
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             30
           ],
-          "end": 556
+          "end": 538
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             31
           ],
-          "end": 577
+          "end": 563
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             32
           ],
-          "end": 602
+          "end": 585
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             33
           ],
-          "end": 626
+          "end": 589
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
+            13,
+            16,
+            26,
             34
           ],
-          "end": 630
+          "end": 612
         },
         {
           "blocks": [
             1,
-            11,
-            14,
-            24,
-            34
+            13,
+            16,
+            26,
+            35
           ],
-          "end": 630
+          "end": 624
+        },
+        {
+          "blocks": [
+            1,
+            13,
+            16,
+            26,
+            35
+          ],
+          "end": 624
         }
       ],
-      "text": "## Reading the render stage\n\nThe stage keeps **one document per message** and re-parses it on every tick. That sounds wasteful — it isn't, because a tick is bounded by the display period and the parse is linear in the text.\n\nThree things decide what a tick emits:\n\n1. The *accumulated* text, which grows by partial deltas.\n2. The previous emission's block hashes, so unchanged blocks ship without HTML.\n3. Whether a motion hold is open, in which case the batch waits.\n\n```rust\nfn tick(&mut self) -> Vec<RenderedBlock> {\n    let blocks = render_blocks(&self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert("
+      "text": "## Reading the render stage\n\nThe stage keeps **one document per message** and re-parses it on every tick. That sounds wasteful — it isn't, because a tick is bounded by the display period and the parse is linear in the text.\n\nThree things decide what a tick emits:\n\n1. The *accumulated* text, which grows by partial deltas.\n2. The previous emission's block hashes, so unchanged blocks ship without HTML.\n3. Whether a motion hold is open, in which case the batch waits.\n\n```rust\nfn tick(&mut self) -> Vec<RenderedBlock> {\n    let blocks = render_blocks(&self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.i"
     },
     {
       "blocks": [
@@ -2360,9 +2367,9 @@
         },
         {
           "depth": 0,
-          "endChar": 54,
-          "hash": "68a7ab0d1a690e36",
-          "html": "<p>The stage keeps **one doc</p>\n",
+          "endChar": 53,
+          "hash": "c88bb5af67a34191",
+          "html": "<p>The stage keeps **one do</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2370,9 +2377,9 @@
         },
         {
           "depth": 0,
-          "endChar": 88,
-          "hash": "74ac4fed71d0f670",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses</p>\n",
+          "endChar": 77,
+          "hash": "6757a3f301fda348",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2380,9 +2387,9 @@
         },
         {
           "depth": 0,
-          "endChar": 109,
-          "hash": "0f7e7dc5522016b7",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. Tha</p>\n",
+          "endChar": 107,
+          "hash": "b02a900c73f8a32c",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. T</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2390,9 +2397,9 @@
         },
         {
           "depth": 0,
-          "endChar": 131,
-          "hash": "666139f0fe1be097",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it</p>\n",
+          "endChar": 128,
+          "hash": "92600e6abcdfd22e",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful —</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2400,9 +2407,9 @@
         },
         {
           "depth": 0,
-          "endChar": 163,
-          "hash": "22d05180b9568ced",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounde</p>\n",
+          "endChar": 171,
+          "hash": "01dea7050ce2be0b",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2410,19 +2417,9 @@
         },
         {
           "depth": 0,
-          "endChar": 194,
-          "hash": "0bc765c7d8738ab4",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the display period and the</p>\n",
-          "itemCount": 0,
-          "kind": "paragraph",
-          "rowCount": 0,
-          "startChar": 29
-        },
-        {
-          "depth": 0,
-          "endChar": 209,
-          "hash": "c030b2ef956486c8",
-          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the display period and the parse is linea</p>\n",
+          "endChar": 198,
+          "hash": "299cb23db547b517",
+          "html": "<p>The stage keeps <strong>one document per message</strong> and re-parses it on every tick. That sounds wasteful — it isn’t, because a tick is bounded by the display period and the par</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2440,9 +2437,19 @@
         },
         {
           "depth": 0,
-          "endChar": 239,
-          "hash": "e7e1b7fb70edef4c",
-          "html": "<p>Three things d</p>\n",
+          "endChar": 228,
+          "hash": "6cfed819e21ac4f9",
+          "html": "<p>Thr</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 225
+        },
+        {
+          "depth": 0,
+          "endChar": 257,
+          "hash": "53878fc88332d23a",
+          "html": "<p>Three things decide what a tick</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2460,9 +2467,9 @@
         },
         {
           "depth": 0,
-          "endChar": 294,
-          "hash": "83e1e84083a56fcd",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, wh</li>\n</ol>\n",
+          "endChar": 299,
+          "hash": "420f16122f8c886e",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which g</li>\n</ol>\n",
           "itemCount": 1,
           "kind": "list",
           "rowCount": 0,
@@ -2470,19 +2477,9 @@
         },
         {
           "depth": 0,
-          "endChar": 323,
-          "hash": "12f162f887799800",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n</ol>\n",
-          "itemCount": 1,
-          "kind": "list",
-          "rowCount": 0,
-          "startChar": 265
-        },
-        {
-          "depth": 0,
-          "endChar": 357,
-          "hash": "6456e63e68adf550",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block h</li>\n</ol>\n",
+          "endChar": 327,
+          "hash": "93d0db1ec329f844",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>T</li>\n</ol>\n",
           "itemCount": 2,
           "kind": "list",
           "rowCount": 0,
@@ -2490,9 +2487,9 @@
         },
         {
           "depth": 0,
-          "endChar": 383,
-          "hash": "3c59616135ed192f",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks</li>\n</ol>\n",
+          "endChar": 347,
+          "hash": "9d68c8fac194f5e3",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission</li>\n</ol>\n",
           "itemCount": 2,
           "kind": "list",
           "rowCount": 0,
@@ -2500,9 +2497,9 @@
         },
         {
           "depth": 0,
-          "endChar": 394,
-          "hash": "69641f438f35dac2",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship witho</li>\n</ol>\n",
+          "endChar": 366,
+          "hash": "d7798f3018944652",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so</li>\n</ol>\n",
           "itemCount": 2,
           "kind": "list",
           "rowCount": 0,
@@ -2510,9 +2507,19 @@
         },
         {
           "depth": 0,
-          "endChar": 410,
-          "hash": "6917466216fe6d7d",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whet</li>\n</ol>\n",
+          "endChar": 402,
+          "hash": "7e3dca1118562f56",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n</ol>\n",
+          "itemCount": 2,
+          "kind": "list",
+          "rowCount": 0,
+          "startChar": 265
+        },
+        {
+          "depth": 0,
+          "endChar": 421,
+          "hash": "e67926bb3b77e223",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motio</li>\n</ol>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2520,9 +2527,9 @@
         },
         {
           "depth": 0,
-          "endChar": 428,
-          "hash": "3a95980aa05784f8",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold</li>\n</ol>\n",
+          "endChar": 441,
+          "hash": "dfc489382339a912",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold is open, in w</li>\n</ol>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2530,9 +2537,9 @@
         },
         {
           "depth": 0,
-          "endChar": 454,
-          "hash": "899e5d92166d19c1",
-          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold is open, in which case the</li>\n</ol>\n",
+          "endChar": 457,
+          "hash": "4d4fd1af183223c6",
+          "html": "<ol>\n<li>The <em>accumulated</em> text, which grows by partial deltas.</li>\n<li>The previous emission’s block hashes, so unchanged blocks ship without HTML.</li>\n<li>Whether a motion hold is open, in which case the ba</li>\n</ol>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2550,9 +2557,9 @@
         },
         {
           "depth": 0,
-          "endChar": 490,
-          "hash": "3f725e6ae05124da",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut </code></pre>\n",
+          "endChar": 475,
+          "hash": "a7301088bd2579b7",
+          "html": "<pre><code class=\"language-rus\"></code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2560,9 +2567,9 @@
         },
         {
           "depth": 0,
-          "endChar": 505,
-          "hash": "a93a2604790c66b9",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;Re</code></pre>\n",
+          "endChar": 498,
+          "hash": "99b674cc3ed67b2a",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt;</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2570,9 +2577,9 @@
         },
         {
           "depth": 0,
-          "endChar": 534,
-          "hash": "fbdedd268429f094",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks</code></pre>\n",
+          "endChar": 536,
+          "hash": "371b57b03c8f3153",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks =</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2580,9 +2587,9 @@
         },
         {
           "depth": 0,
-          "endChar": 545,
-          "hash": "5e72dd4bb748c798",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_b</code></pre>\n",
+          "endChar": 550,
+          "hash": "71e65a1f55390fd4",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2590,9 +2597,9 @@
         },
         {
           "depth": 0,
-          "endChar": 582,
-          "hash": "42c6f242ab9214c4",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n</code></pre>\n",
+          "endChar": 575,
+          "hash": "d17d4d7c79ae1ba8",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::O</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2600,9 +2607,9 @@
         },
         {
           "depth": 0,
-          "endChar": 604,
-          "hash": "a41784af45f50969",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().fi</code></pre>\n",
+          "endChar": 592,
+          "hash": "df22baab40c9afbb",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.in</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2610,9 +2617,19 @@
         },
         {
           "depth": 0,
-          "endChar": 621,
-          "hash": "3c2936a660095faf",
-          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.see</code></pre>\n",
+          "endChar": 627,
+          "hash": "f46de42f6a0deb38",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.inse</code></pre>\n",
+          "itemCount": 0,
+          "kind": "code",
+          "rowCount": 0,
+          "startChar": 469
+        },
+        {
+          "depth": 0,
+          "endChar": 648,
+          "hash": "f9ab46ee0e248843",
+          "html": "<pre><code class=\"language-rust\">fn tick(&amp;mut self) -&gt; Vec&lt;RenderedBlock&gt; {\n    let blocks = render_blocks(&amp;self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert(b.hash)).collect()</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2630,9 +2647,9 @@
         },
         {
           "depth": 0,
-          "endChar": 659,
-          "hash": "9b4d15196ad22478",
-          "html": "<p>| I</p>\n",
+          "endChar": 668,
+          "hash": "362ef6861636136e",
+          "html": "<p>| Input | Ef</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2640,18 +2657,8 @@
         },
         {
           "depth": 0,
-          "endChar": 683,
-          "hash": "0fe6fe35182a16b3",
-          "html": "<p>| Input | Effect | Cost |<br>\n|</p>\n",
-          "itemCount": 0,
-          "kind": "paragraph",
-          "rowCount": 0,
-          "startChar": 656
-        },
-        {
-          "depth": 0,
-          "endChar": 706,
-          "hash": "9ebb5cea82a64d7c",
+          "endChar": 704,
+          "hash": "e2a0648b42609bb7",
           "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n</tbody></table>\n",
           "itemCount": 0,
           "kind": "table",
@@ -2660,9 +2667,9 @@
         },
         {
           "depth": 0,
-          "endChar": 729,
-          "hash": "e6f76d5d1be40316",
-          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td>app</td><td></td></tr>\n</tbody></table>\n",
+          "endChar": 725,
+          "hash": "26355d4c614df131",
+          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td></td><td></td></tr>\n</tbody></table>\n",
           "itemCount": 0,
           "kind": "table",
           "rowCount": 1,
@@ -2670,9 +2677,9 @@
         },
         {
           "depth": 0,
-          "endChar": 756,
-          "hash": "6c73466506c8d5cc",
-          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td>append</td><td>O(n)</td></tr>\n<tr><td>final text</td><td></td><td></td></tr>\n</tbody></table>\n",
+          "endChar": 750,
+          "hash": "5b51a66ca23aff9f",
+          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td>append</td><td>O(n)</td></tr>\n<tr><td>final</td><td></td><td></td></tr>\n</tbody></table>\n",
           "itemCount": 0,
           "kind": "table",
           "rowCount": 2,
@@ -2680,9 +2687,29 @@
         },
         {
           "depth": 0,
-          "endChar": 783,
-          "hash": "65a3fbb3ed8b8892",
-          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td>append</td><td>O(n)</td></tr>\n<tr><td>final text</td><td>replace</td><td>O(n)</td></tr>\n<tr><td>motion</td><td></td><td></td></tr>\n</tbody></table>\n",
+          "endChar": 774,
+          "hash": "841c2d2f1f036430",
+          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td>append</td><td>O(n)</td></tr>\n<tr><td>final text</td><td>replace</td><td>O(n)</td></tr>\n</tbody></table>\n",
+          "itemCount": 0,
+          "kind": "table",
+          "rowCount": 2,
+          "startChar": 656
+        },
+        {
+          "depth": 0,
+          "endChar": 775,
+          "hash": "af63f14c8602103b",
+          "html": "<p>|</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 774
+        },
+        {
+          "depth": 0,
+          "endChar": 800,
+          "hash": "061b27c7be1dd013",
+          "html": "<table><thead><tr><th>Input</th><th>Effect</th><th>Cost</th></tr></thead><tbody>\n<tr><td>partial delta</td><td>append</td><td>O(n)</td></tr>\n<tr><td>final text</td><td>replace</td><td>O(n)</td></tr>\n<tr><td>motion open</td><td>hold</td><td>0</td></tr>\n</tbody></table>\n",
           "itemCount": 0,
           "kind": "table",
           "rowCount": 3,
@@ -2700,9 +2727,9 @@
         },
         {
           "depth": 0,
-          "endChar": 819,
-          "hash": "18c9870f7002f469",
-          "html": "<blockquote>\n<p>A hold is a pro</p>\n</blockquote>\n",
+          "endChar": 836,
+          "hash": "b2c831a21eeb5f81",
+          "html": "<blockquote>\n<p>A hold is a promise, not a pause</p>\n</blockquote>\n",
           "itemCount": 0,
           "kind": "blockquote",
           "rowCount": 0,
@@ -2710,9 +2737,9 @@
         },
         {
           "depth": 0,
-          "endChar": 839,
-          "hash": "809c02da7e4d9645",
-          "html": "<blockquote>\n<p>A hold is a promise, not a pause: t</p>\n</blockquote>\n",
+          "endChar": 857,
+          "hash": "7e04e472b7acd46d",
+          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still par</p>\n</blockquote>\n",
           "itemCount": 0,
           "kind": "blockquote",
           "rowCount": 0,
@@ -2720,9 +2747,9 @@
         },
         {
           "depth": 0,
-          "endChar": 859,
-          "hash": "a71d579752fff82d",
-          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parse</p>\n</blockquote>\n",
+          "endChar": 875,
+          "hash": "67e58c0861dd1386",
+          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops</p>\n</blockquote>\n",
           "itemCount": 0,
           "kind": "blockquote",
           "rowCount": 0,
@@ -2730,9 +2757,9 @@
         },
         {
           "depth": 0,
-          "endChar": 884,
-          "hash": "49f722fd0c0826e0",
-          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops publishi</p>\n</blockquote>\n",
+          "endChar": 895,
+          "hash": "6fd5d794f3ce3306",
+          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops publishing.<br>\nRelea</p>\n</blockquote>\n",
           "itemCount": 0,
           "kind": "blockquote",
           "rowCount": 0,
@@ -2740,9 +2767,9 @@
         },
         {
           "depth": 0,
-          "endChar": 904,
-          "hash": "1fcff69ef53ffeca",
-          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops publishing.<br>\nReleasing the</p>\n</blockquote>\n",
+          "endChar": 915,
+          "hash": "b46d44ba88dee2f4",
+          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops publishing.<br>\nReleasing the hold publis</p>\n</blockquote>\n",
           "itemCount": 0,
           "kind": "blockquote",
           "rowCount": 0,
@@ -2750,9 +2777,9 @@
         },
         {
           "depth": 0,
-          "endChar": 930,
-          "hash": "6a1555ecf6e5ab67",
-          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops publishing.<br>\nReleasing the hold publishes the merged</p>\n</blockquote>\n",
+          "endChar": 939,
+          "hash": "aceb455fcc41a7e5",
+          "html": "<blockquote>\n<p>A hold is a promise, not a pause: the stage still parses, it only stops publishing.<br>\nReleasing the hold publishes the merged batch as</p>\n</blockquote>\n",
           "itemCount": 0,
           "kind": "blockquote",
           "rowCount": 0,
@@ -2770,9 +2797,9 @@
         },
         {
           "depth": 0,
-          "endChar": 957,
-          "hash": "fcbde91528ddb55a",
-          "html": "<ul>\n<li>[x]</li>\n</ul>\n",
+          "endChar": 956,
+          "hash": "43ede38e778f8463",
+          "html": "<ul>\n<li>[x</li>\n</ul>\n",
           "itemCount": 1,
           "kind": "list",
           "rowCount": 0,
@@ -2780,9 +2807,9 @@
         },
         {
           "depth": 0,
-          "endChar": 978,
-          "hash": "c1dba408c00f5218",
-          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the pag</li>\n</ul>\n",
+          "endChar": 981,
+          "hash": "49ff4384e06e6e29",
+          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n</ul>\n",
           "itemCount": 1,
           "kind": "list",
           "rowCount": 0,
@@ -2790,19 +2817,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1000,
-          "hash": "f0ca9b472649af1a",
-          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting</li>\n</ul>\n",
-          "itemCount": 2,
-          "kind": "list",
-          "rowCount": 0,
-          "startChar": 952
-        },
-        {
-          "depth": 0,
-          "endChar": 1024,
-          "hash": "c9fc583913194f16",
-          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:</li>\n</ul>\n",
+          "endChar": 1015,
+          "hash": "fe676fac901ca091",
+          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li></li>\n</ul>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2810,9 +2827,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1050,
-          "hash": "38959bc89a23e294",
-          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:\n<ul>\n<li>the first block keeps i</li>\n</ul>\n</li>\n</ul>\n",
+          "endChar": 1035,
+          "hash": "2c4c99f1c6986038",
+          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:\n<ul>\n<li>the firs</li>\n</ul>\n</li>\n</ul>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2820,9 +2837,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1071,
-          "hash": "ff493fa3677d2737",
-          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:\n<ul>\n<li>the first block keeps its hash</li>\n<li>the growi</li>\n</ul>\n</li>\n</ul>\n",
+          "endChar": 1057,
+          "hash": "cc244166b03bfe0b",
+          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:\n<ul>\n<li>the first block keeps its hash</li>\n</ul>\n</li>\n</ul>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2830,9 +2847,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1092,
-          "hash": "6d5ef9d5cd6b9112",
-          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:\n<ul>\n<li>the first block keeps its hash</li>\n<li>the growing tail block changes</li>\n</ul>\n</li>\n</ul>\n",
+          "endChar": 1083,
+          "hash": "37571a4c7fcbc43e",
+          "html": "<ul>\n<li><input disabled=\"\" type=\"checkbox\" checked=\"\">\nhashes match the page’s</li>\n<li><input disabled=\"\" type=\"checkbox\">\nhighlighting lands later</li>\n<li>nested:\n<ul>\n<li>the first block keeps its hash</li>\n<li>the growing tail bloc</li>\n</ul>\n</li>\n</ul>\n",
           "itemCount": 3,
           "kind": "list",
           "rowCount": 0,
@@ -2850,9 +2867,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1118,
-          "hash": "5d3de3c1e9f0f706",
-          "html": "<p>Inline math l</p>\n",
+          "endChar": 1106,
+          "hash": "af64044c86023084",
+          "html": "<p>I</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2860,9 +2877,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1132,
-          "hash": "130d45fd90690a77",
-          "html": "<p>Inline math like $a^2 + b^2</p>\n",
+          "endChar": 1135,
+          "hash": "e48c16994ba9f108",
+          "html": "<p>Inline math like $a^2 + b^2$ s</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2870,19 +2887,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1147,
-          "hash": "f96092450c336daf",
-          "html": "<p>Inline math like $a^2 + b^2$ stays in the</p>\n",
-          "itemCount": 0,
-          "kind": "paragraph",
-          "rowCount": 0,
-          "startChar": 1105
-        },
-        {
-          "depth": 0,
-          "endChar": 1168,
-          "hash": "749b9b344dc7af68",
-          "html": "<p>Inline math like $a^2 + b^2$ stays in the paragraph, while a fe</p>\n",
+          "endChar": 1158,
+          "hash": "fe2d13a0196c8c4f",
+          "html": "<p>Inline math like $a^2 + b^2$ stays in the paragraph,</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2900,9 +2907,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1190,
-          "hash": "c3cbe4066f8cc1d9",
-          "html": "<div class=\"tugx-katex tugx-katex--display\" data-tugx-math=\"display\" data-tugx-math-pending=\"true\"></div>",
+          "endChar": 1196,
+          "hash": "15454fc93c9532ff",
+          "html": "<div class=\"tugx-katex tugx-katex--display\" data-tugx-math=\"display\" data-tugx-math-pending=\"true\">\\sum_</div>",
           "itemCount": 0,
           "kind": "tug-math-display",
           "rowCount": 0,
@@ -2910,9 +2917,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1213,
-          "hash": "f4cf7e36eedbb191",
-          "html": "<div class=\"tugx-katex tugx-katex--display\" data-tugx-math=\"display\" data-tugx-math-pending=\"true\">\\sum_{i=1}^{n} t_i \\le</div>",
+          "endChar": 1211,
+          "hash": "3ba69903a46b3f96",
+          "html": "<div class=\"tugx-katex tugx-katex--display\" data-tugx-math=\"display\" data-tugx-math-pending=\"true\">\\sum_{i=1}^{n} t_i \\</div>",
           "itemCount": 0,
           "kind": "tug-math-display",
           "rowCount": 0,
@@ -2930,9 +2937,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1236,
-          "hash": "ae8d2b64373c779a",
-          "html": "<pre><code class=\"language-tugchart\">{\"t</code></pre>\n",
+          "endChar": 1229,
+          "hash": "29adcfc0b7230252",
+          "html": "<pre><code class=\"language-tugch\"></code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2940,9 +2947,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1249,
-          "hash": "62e7b229219b1235",
-          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, </code></pre>\n",
+          "endChar": 1252,
+          "hash": "874bae06fe57a832",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"fo</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2950,9 +2957,19 @@
         },
         {
           "depth": 0,
-          "endChar": 1281,
-          "hash": "ccf5b42b5b61977f",
-          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [</code></pre>\n",
+          "endChar": 1275,
+          "hash": "bd14659be15f9266",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"valu</code></pre>\n",
+          "itemCount": 0,
+          "kind": "code",
+          "rowCount": 0,
+          "startChar": 1221
+        },
+        {
+          "depth": 0,
+          "endChar": 1294,
+          "hash": "ebcc641f3926745b",
+          "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [3, 5, 4, 8, 6</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -2970,9 +2987,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1308,
-          "hash": "b7651ae10fa2fbcd",
-          "html": "<p>Multi-</p>\n",
+          "endChar": 1321,
+          "hash": "deb6752ee4ddddfd",
+          "html": "<p>Multi-byte text str</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2980,9 +2997,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1333,
-          "hash": "aa2d6f8a9b610268",
-          "html": "<p>Multi-byte text streams too: 漢字</p>\n",
+          "endChar": 1340,
+          "hash": "5e5dd03911178faa",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -2990,9 +3007,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1348,
-          "hash": "804dc2c8a1a31b79",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split a</p>\n",
+          "endChar": 1370,
+          "hash": "311f6e583a8a06bf",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never lan</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3000,9 +3017,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1383,
-          "hash": "467066eff14bc82e",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-charact</p>\n",
+          "endChar": 1401,
+          "hash": "d4d8e4d833c81acb",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delt</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3010,9 +3027,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1409,
-          "hash": "dab8dacc6da0b921",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta bounda</p>\n",
+          "endChar": 1417,
+          "hash": "42a761c979af501d",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is sn</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3020,19 +3037,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1418,
-          "hash": "f1bba559c4e5c2b4",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is sna</p>\n",
-          "itemCount": 0,
-          "kind": "paragraph",
-          "rowCount": 0,
-          "startChar": 1302
-        },
-        {
-          "depth": 0,
-          "endChar": 1434,
-          "hash": "79bb2f2d74542a0e",
-          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next</p>\n",
+          "endChar": 1439,
+          "hash": "3a40ade070d0ffce",
+          "html": "<p>Multi-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next char</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3050,9 +3057,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1448,
-          "hash": "af63fc4c860222ec",
-          "html": "<p>A</p>\n",
+          "endChar": 1472,
+          "hash": "144780b3a0ccaf1a",
+          "html": "<p>A footnote[^pace] closes</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3060,9 +3067,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1479,
-          "hash": "92816bff8e8b2d84",
-          "html": "<p>A footnote[^pace] closes the ref</p>\n",
+          "endChar": 1497,
+          "hash": "5151540abe3e66aa",
+          "html": "<p>A footnote[^pace] closes the reference chain, and</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3070,9 +3077,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1495,
-          "hash": "71975c54a199115e",
-          "html": "<p>A footnote[^pace] closes the reference chain, an</p>\n",
+          "endChar": 1515,
+          "hash": "836c78a5ae06352a",
+          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link]</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3080,19 +3087,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1511,
-          "hash": "05058a60672d6da9",
-          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference l</p>\n",
-          "itemCount": 0,
-          "kind": "paragraph",
-          "rowCount": 0,
-          "startChar": 1447
-        },
-        {
-          "depth": 0,
-          "endChar": 1540,
-          "hash": "003c48283672460e",
-          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across bl</p>\n",
+          "endChar": 1535,
+          "hash": "3149d6ae2dfea662",
+          "html": "<p>A footnote[^pace] closes the reference chain, and a [reference link][feed] resolves acro</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3110,9 +3107,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1561,
-          "hash": "9ece5e97b977f333",
-          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The p</p>\n</div>\n",
+          "endChar": 1562,
+          "hash": "509e0dd026d27456",
+          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pa</p>\n</div>\n",
           "itemCount": 0,
           "kind": "other",
           "rowCount": 0,
@@ -3120,9 +3117,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1584,
-          "hash": "5863428d62b5266b",
-          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display peri</p>\n</div>\n",
+          "endChar": 1580,
+          "hash": "dcb319e201879121",
+          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display</p>\n</div>\n",
           "itemCount": 0,
           "kind": "other",
           "rowCount": 0,
@@ -3130,9 +3127,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1601,
-          "hash": "523c88e9af053460",
-          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display period the page repor</p>\n</div>\n",
+          "endChar": 1598,
+          "hash": "8ee8c23ce59c5623",
+          "html": "<div class=\"footnote-definition\" id=\"tugfn-pace\"><sup class=\"footnote-definition-label\">1</sup>\n<p>The pace is the display period the page re</p>\n</div>\n",
           "itemCount": 0,
           "kind": "other",
           "rowCount": 0,
@@ -3142,7 +3139,7 @@
           "depth": 0,
           "endChar": 1546,
           "hash": "a86a046da0dcb726",
-          "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a <a href=\"https://example.inv\">reference link</a> resolves across blocks.</p>\n",
+          "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a <a href=\"https://exa\">reference link</a> resolves across blocks.</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3157,6 +3154,16 @@
           "kind": "other",
           "rowCount": 0,
           "startChar": 1547
+        },
+        {
+          "depth": 0,
+          "endChar": 1546,
+          "hash": "a86a046da0dcb726",
+          "html": "<p>A footnote<sup class=\"footnote-reference\"><a href=\"#tugfn-pace\">1</a></sup> closes the reference chain, and a <a href=\"https://example.invalid/feeds/rendered\">reference link</a> resolves across blocks.</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 1447
         },
         {
           "depth": 0,
@@ -3180,9 +3187,9 @@
         },
         {
           "depth": 3,
-          "endChar": 1693,
-          "hash": "53f06b5da758b54f",
-          "html": "<h3>Edge cases worth st</h3>\n",
+          "endChar": 1684,
+          "hash": "ac1885a5b26e8ac0",
+          "html": "<h3>Edge cases</h3>\n",
           "itemCount": 0,
           "kind": "heading",
           "rowCount": 0,
@@ -3200,9 +3207,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1731,
-          "hash": "fe70fa1edefd8791",
-          "html": "<p>An unclosed **bold run keeps</p>\n",
+          "endChar": 1704,
+          "hash": "09083807b5a0a2e6",
+          "html": "<p>An</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3210,8 +3217,18 @@
         },
         {
           "depth": 0,
-          "endChar": 1757,
-          "hash": "4e988476e1cb7d70",
+          "endChar": 1733,
+          "hash": "7e2d9ba796169e37",
+          "html": "<p>An unclosed **bold run keeps go</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 1702
+        },
+        {
+          "depth": 0,
+          "endChar": 1756,
+          "hash": "09f28be4066774f0",
           "html": "<p>An unclosed **bold run keeps going until the next tick</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
@@ -3220,9 +3237,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1787,
-          "hash": "f1c539cdbe711350",
-          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an unclosed fen</p>\n",
+          "endChar": 1779,
+          "hash": "7490cceb03904d6e",
+          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an uncl</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3230,9 +3247,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1813,
-          "hash": "d70f9c8ead03a2bc",
-          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything aft</p>\n",
+          "endChar": 1809,
+          "hash": "093acc49068ee8d1",
+          "html": "<p>An unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -3250,9 +3267,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1842,
-          "hash": "74aa6f3192a976e6",
-          "html": "<pre><code class=\"language-ts\">const open = \"f</code></pre>\n",
+          "endChar": 1841,
+          "hash": "8903567794a3fee4",
+          "html": "<pre><code class=\"language-ts\">const open = \"</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3260,9 +3277,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1867,
-          "hash": "d294e6d56c257b6d",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the</code></pre>\n",
+          "endChar": 1865,
+          "hash": "363e56fd02e127b6",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of t</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3270,9 +3287,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1901,
-          "hash": "150981d8506470c5",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fe</code></pre>\n",
+          "endChar": 1890,
+          "hash": "37e7779fa4cd49d4",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\n</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3280,9 +3297,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1931,
-          "hash": "e6bafab472e3783c",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing p</code></pre>\n",
+          "endChar": 1916,
+          "hash": "27660e28acb7f3bb",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3290,9 +3307,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1960,
-          "hash": "bb614725cd836dc9",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal fl</code></pre>\n",
+          "endChar": 1948,
+          "hash": "6d00c69ae12e92db",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns </code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3300,9 +3317,9 @@
         },
         {
           "depth": 0,
-          "endChar": 1989,
-          "hash": "3aaf4e6498ef6cd5",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick</code></pre>\n",
+          "endChar": 1982,
+          "hash": "2a95329b1dd028b8",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start m</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3310,9 +3327,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2017,
-          "hash": "abf75c9f3736cff8",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and thi</code></pre>\n",
+          "endChar": 2005,
+          "hash": "f38ffdabcedfff8a",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this o</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3320,9 +3337,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2047,
-          "hash": "3db35c1d79ccbdce",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker betwee</code></pre>\n",
+          "endChar": 2042,
+          "hash": "c985d7f30c0137a6",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker b</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3330,9 +3347,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2053,
-          "hash": "f81b71fe9ffb786e",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a pa</code></pre>\n",
+          "endChar": 2062,
+          "hash": "b24806ca0da68c72",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph a</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3340,9 +3357,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2059,
-          "hash": "22867aa658659387",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragrap</code></pre>\n",
+          "endChar": 2063,
+          "hash": "96efa55532001394",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph an</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3350,9 +3367,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2078,
-          "hash": "fa581ea7d3f9b42e",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once t</code></pre>\n",
+          "endChar": 2071,
+          "hash": "4f1c830ff3da5c65",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3360,9 +3377,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2102,
-          "hash": "53d36ae12213327e",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. T</code></pre>\n",
+          "endChar": 2073,
+          "hash": "0f7a997d665412f0",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list o</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3370,9 +3387,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2103,
-          "hash": "8370bb8ce69e2aad",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Ta</code></pre>\n",
+          "endChar": 2098,
+          "hash": "c34b2d7ca7f59244",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrive</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3380,9 +3397,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2123,
-          "hash": "6c4b7b9057519abd",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest</code></pre>\n",
+          "endChar": 2119,
+          "hash": "d44bb790c1fe74ed",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the har</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3390,9 +3407,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2129,
-          "hash": "0e72be8f76bbde43",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case:</code></pre>\n",
+          "endChar": 2128,
+          "hash": "1ea10d45c602c90b",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3400,9 +3417,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2138,
-          "hash": "6c7d8bf7279777bd",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header</code></pre>\n",
+          "endChar": 2154,
+          "hash": "ae88c2c9011b7c2f",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a </code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3410,69 +3427,9 @@
         },
         {
           "depth": 0,
-          "endChar": 2151,
-          "hash": "4a90aa3423bb2832",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1821
-        },
-        {
-          "depth": 0,
-          "endChar": 2166,
-          "hash": "0baedcaf09e76cd6",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph un</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1821
-        },
-        {
-          "depth": 0,
-          "endChar": 2179,
-          "hash": "b39931ba9d5af973",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph until the delim</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1821
-        },
-        {
-          "depth": 0,
-          "endChar": 2190,
-          "hash": "dc5e8c058050924c",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph until the delimiter row ar</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1821
-        },
-        {
-          "depth": 0,
-          "endChar": 2210,
-          "hash": "2c7bd173472dfd6a",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph until the delimiter row arrives.\n\n| Late | Tab</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1821
-        },
-        {
-          "depth": 0,
-          "endChar": 2222,
-          "hash": "ef8111c114acf1ed",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph until the delimiter row arrives.\n\n| Late | Table |\n|------</code></pre>\n",
-          "itemCount": 0,
-          "kind": "code",
-          "rowCount": 0,
-          "startChar": 1821
-        },
-        {
-          "depth": 0,
-          "endChar": 2244,
-          "hash": "6a2e6d46a60c47c5",
-          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph until the delimiter row arrives.\n\n| Late | Table |\n|------|-------|\n| a | b |\n\nT</code></pre>\n",
+          "endChar": 2150,
+          "hash": "a38faf29e75d6a75",
+          "html": "<pre><code class=\"language-ts\">const open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone i</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
@@ -3492,1551 +3449,1373 @@
             1,
             2
           ],
-          "end": 54
+          "end": 53
         },
         {
           "blocks": [
             1,
             3
           ],
-          "end": 88
+          "end": 77
         },
         {
           "blocks": [
             1,
             4
           ],
-          "end": 109
+          "end": 107
         },
         {
           "blocks": [
             1,
             5
           ],
-          "end": 131
+          "end": 128
         },
         {
           "blocks": [
             1,
             6
           ],
-          "end": 163
+          "end": 171
         },
         {
           "blocks": [
             1,
             7
           ],
-          "end": 194
+          "end": 198
         },
         {
           "blocks": [
             1,
-            8
+            8,
+            9
           ],
-          "end": 209
+          "end": 228
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             10
           ],
-          "end": 239
+          "end": 257
         },
         {
           "blocks": [
             1,
-            9,
-            11
-          ],
-          "end": 265
-        },
-        {
-          "blocks": [
-            1,
-            9,
+            8,
             11,
             12
           ],
-          "end": 294
+          "end": 299
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             13
           ],
-          "end": 323
+          "end": 327
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             14
           ],
-          "end": 357
+          "end": 347
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             15
           ],
-          "end": 383
+          "end": 366
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             16
           ],
-          "end": 394
+          "end": 402
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             17
           ],
-          "end": 410
+          "end": 421
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             18
           ],
-          "end": 428
+          "end": 441
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             19
           ],
-          "end": 454
+          "end": 457
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             21
           ],
-          "end": 490
+          "end": 475
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             22
           ],
-          "end": 505
+          "end": 498
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             23
           ],
-          "end": 534
+          "end": 536
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             24
           ],
-          "end": 545
+          "end": 550
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             25
           ],
-          "end": 582
+          "end": 575
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             26
           ],
-          "end": 604
+          "end": 592
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
             27
           ],
-          "end": 621
+          "end": 627
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            29
+            28
           ],
-          "end": 659
+          "end": 648
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
+            29,
             30
           ],
-          "end": 683
+          "end": 668
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
+            29,
             31
           ],
-          "end": 706
+          "end": 704
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
+            29,
             32
           ],
-          "end": 729
+          "end": 725
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
+            29,
             33
           ],
-          "end": 756
+          "end": 750
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            34
-          ],
-          "end": 783
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
+            29,
+            34,
             35
           ],
-          "end": 801
+          "end": 775
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
+            29,
             36
           ],
-          "end": 819
+          "end": 800
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            37
-          ],
-          "end": 839
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
+            29,
+            37,
             38
           ],
-          "end": 859
+          "end": 836
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
+            29,
+            37,
             39
           ],
-          "end": 884
+          "end": 857
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
+            29,
+            37,
             40
           ],
-          "end": 904
+          "end": 875
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
+            29,
+            37,
             41
           ],
-          "end": 930
+          "end": 895
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
+            29,
+            37,
+            42
+          ],
+          "end": 915
+        },
+        {
+          "blocks": [
+            1,
+            8,
+            11,
+            20,
+            29,
+            37,
             43
           ],
-          "end": 957
+          "end": 939
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            44
-          ],
-          "end": 978
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
+            29,
+            37,
+            44,
             45
           ],
-          "end": 1000
+          "end": 956
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
+            29,
+            37,
+            44,
             46
           ],
-          "end": 1024
+          "end": 981
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
+            29,
+            37,
+            44,
             47
           ],
-          "end": 1050
+          "end": 1015
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
+            29,
+            37,
+            44,
             48
           ],
-          "end": 1071
+          "end": 1035
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
+            29,
+            37,
+            44,
             49
           ],
-          "end": 1092
+          "end": 1057
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
-            51
+            29,
+            37,
+            44,
+            50
           ],
-          "end": 1118
+          "end": 1083
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             52
           ],
-          "end": 1132
+          "end": 1106
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             53
           ],
-          "end": 1147
+          "end": 1135
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             54
           ],
-          "end": 1168
+          "end": 1158
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
+            55
+          ],
+          "end": 1182
+        },
+        {
+          "blocks": [
+            1,
+            8,
+            11,
+            20,
+            29,
+            37,
+            44,
+            51,
             55,
             56
           ],
-          "end": 1190
+          "end": 1196
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             57
           ],
-          "end": 1213
+          "end": 1211
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
             59
           ],
-          "end": 1236
+          "end": 1229
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
             60
           ],
-          "end": 1249
+          "end": 1252
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
             61
           ],
-          "end": 1281
+          "end": 1275
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
-            63
+            62
           ],
-          "end": 1308
+          "end": 1294
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             64
           ],
-          "end": 1333
+          "end": 1321
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             65
           ],
-          "end": 1348
+          "end": 1340
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             66
           ],
-          "end": 1383
+          "end": 1370
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             67
           ],
-          "end": 1409
+          "end": 1401
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             68
           ],
-          "end": 1418
+          "end": 1417
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             69
           ],
-          "end": 1434
+          "end": 1439
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             71
           ],
-          "end": 1448
+          "end": 1472
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             72
           ],
-          "end": 1479
+          "end": 1497
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             73
           ],
-          "end": 1495
+          "end": 1515
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             74
           ],
-          "end": 1511
+          "end": 1535
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
-            75
+            75,
+            76
           ],
-          "end": 1540
+          "end": 1562
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
-            76,
+            75,
             77
           ],
-          "end": 1561
+          "end": 1580
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
-            76,
+            75,
             78
           ],
-          "end": 1584
+          "end": 1598
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
-            76,
-            79
+            79,
+            80
           ],
-          "end": 1601
+          "end": 1625
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
-            80,
-            81
-          ],
-          "end": 1633
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81
-          ],
-          "end": 1665
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
             81,
+            80
+          ],
+          "end": 1653
+        },
+        {
+          "blocks": [
+            1,
+            8,
+            11,
+            20,
+            29,
+            37,
+            44,
+            51,
+            55,
+            58,
+            63,
+            70,
+            82,
+            80,
             83,
             84
           ],
-          "end": 1693
+          "end": 1684
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
             86
           ],
-          "end": 1731
+          "end": 1704
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
             87
           ],
-          "end": 1757
+          "end": 1733
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
             88
           ],
-          "end": 1787
+          "end": 1756
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
             89
           ],
-          "end": 1813
+          "end": 1779
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
-            91
+            90
           ],
-          "end": 1842
+          "end": 1809
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             92
           ],
-          "end": 1867
+          "end": 1841
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             93
           ],
-          "end": 1901
+          "end": 1865
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             94
           ],
-          "end": 1931
+          "end": 1890
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             95
           ],
-          "end": 1960
+          "end": 1916
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             96
           ],
-          "end": 1989
+          "end": 1948
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             97
           ],
-          "end": 2017
+          "end": 1982
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             98
           ],
-          "end": 2047
+          "end": 2005
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             99
           ],
-          "end": 2053
+          "end": 2042
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             100
           ],
-          "end": 2059
+          "end": 2062
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             101
           ],
-          "end": 2078
+          "end": 2063
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             102
           ],
-          "end": 2102
+          "end": 2071
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             103
           ],
-          "end": 2103
+          "end": 2073
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             104
           ],
-          "end": 2123
+          "end": 2098
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             105
           ],
-          "end": 2129
+          "end": 2119
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             106
           ],
-          "end": 2138
+          "end": 2128
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             107
           ],
-          "end": 2151
+          "end": 2154
         },
         {
           "blocks": [
             1,
-            9,
+            8,
             11,
             20,
-            28,
-            35,
-            42,
-            50,
+            29,
+            37,
+            44,
+            51,
             55,
             58,
-            62,
+            63,
             70,
             82,
-            81,
+            80,
             83,
             85,
-            90,
+            91,
             108
           ],
-          "end": 2166
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81,
-            83,
-            85,
-            90,
-            109
-          ],
-          "end": 2179
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81,
-            83,
-            85,
-            90,
-            110
-          ],
-          "end": 2190
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81,
-            83,
-            85,
-            90,
-            111
-          ],
-          "end": 2210
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81,
-            83,
-            85,
-            90,
-            112
-          ],
-          "end": 2222
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81,
-            83,
-            85,
-            90,
-            113
-          ],
-          "end": 2244
-        },
-        {
-          "blocks": [
-            1,
-            9,
-            11,
-            20,
-            28,
-            35,
-            42,
-            50,
-            55,
-            58,
-            62,
-            70,
-            82,
-            81,
-            83,
-            85,
-            90,
-            113
-          ],
-          "end": 2244
+          "end": 2150
         }
       ],
-      "text": "## Reading the render stage\n\nThe stage keeps **one document per message** and re-parses it on every tick. That sounds wasteful — it isn't, because a tick is bounded by the display period and the parse is linear in the text.\n\nThree things decide what a tick emits:\n\n1. The *accumulated* text, which grows by partial deltas.\n2. The previous emission's block hashes, so unchanged blocks ship without HTML.\n3. Whether a motion hold is open, in which case the batch waits.\n\n```rust\nfn tick(&mut self) -> Vec<RenderedBlock> {\n    let blocks = render_blocks(&self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert(b.hash)).collect()\n}\n```\n\n| Input | Effect | Cost |\n|:------|:------:|-----:|\n| partial delta | append | O(n) |\n| final text | replace | O(n) |\n| motion open | hold | 0 |\n\n> A hold is a promise, not a pause: the stage still parses, it only stops publishing.\n> Releasing the hold publishes the merged batch as one bundle.\n\n- [x] hashes match the page's\n- [ ] highlighting lands later\n- nested:\n  - the first block keeps its hash\n  - the growing tail block changes every tick\n\nInline math like $a^2 + b^2$ stays in the paragraph, while a fence promotes:\n\n```math\n\\sum_{i=1}^{n} t_i \\le P\n```\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [3, 5, 4, 8, 6]}\n```\n\nMulti-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next character.\n\nA footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across blocks.\n\n[^pace]: The pace is the display period the page reports.\n\n[feed]: https://example.invalid/feeds/rendered \"RENDERED\"\n\n---\n\n### Edge cases worth streaming\n\nAn unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything after it:\n\n```ts\nconst open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a paragraph until the delimiter row arrives.\n\n| Late | Table |\n|------|-------|\n| a | b |\n\nT"
+      "text": "## Reading the render stage\n\nThe stage keeps **one document per message** and re-parses it on every tick. That sounds wasteful — it isn't, because a tick is bounded by the display period and the parse is linear in the text.\n\nThree things decide what a tick emits:\n\n1. The *accumulated* text, which grows by partial deltas.\n2. The previous emission's block hashes, so unchanged blocks ship without HTML.\n3. Whether a motion hold is open, in which case the batch waits.\n\n```rust\nfn tick(&mut self) -> Vec<RenderedBlock> {\n    let blocks = render_blocks(&self.text, Highlight::On);\n    blocks.into_iter().filter(|b| self.seen.insert(b.hash)).collect()\n}\n```\n\n| Input | Effect | Cost |\n|:------|:------:|-----:|\n| partial delta | append | O(n) |\n| final text | replace | O(n) |\n| motion open | hold | 0 |\n\n> A hold is a promise, not a pause: the stage still parses, it only stops publishing.\n> Releasing the hold publishes the merged batch as one bundle.\n\n- [x] hashes match the page's\n- [ ] highlighting lands later\n- nested:\n  - the first block keeps its hash\n  - the growing tail block changes every tick\n\nInline math like $a^2 + b^2$ stays in the paragraph, while a fence promotes:\n\n```math\n\\sum_{i=1}^{n} t_i \\le P\n```\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [3, 5, 4, 8, 6]}\n```\n\nMulti-byte text streams too: 漢字 and 😀 split across deltas never land mid-character, because a delta boundary is snapped to the next character.\n\nA footnote[^pace] closes the reference chain, and a [reference link][feed] resolves across blocks.\n\n[^pace]: The pace is the display period the page reports.\n\n[feed]: https://example.invalid/feeds/rendered \"RENDERED\"\n\n---\n\n### Edge cases worth streaming\n\nAn unclosed **bold run keeps going until the next tick closes it, and an unclosed fence swallows everything after it:\n\n```ts\nconst open = \"fence\";\n// the rest of the message arrives here\n\nThen the fence closes, and the trailing paragraph returns to normal flow. Lists that start mid-tick, like\n\n- this one\n- and this\n\nshould never flicker between a paragraph and a list once the marker has arrived. Tables are the hardest case: a header row alone is a "
     }
   ],
-  "catalog": "v2.1.322",
+  "catalog": "v2.1.325",
   "comment": "Derived by tugrust/crates/tugcast/tests/tugmark_drift.rs; regenerate with `just tugmark-golden`."
 }

@@ -41,7 +41,8 @@ describe("createFixtureSessionMetadataStore", () => {
     const store = createFixtureSessionMetadataStore(rawJsonl);
     const snapshot = store.getSnapshot();
 
-    // Payload counts for the shipped v2.1.322 capture. The tugplug skills
+    // Payload counts for the shipped v2.1.325 capture (unchanged from
+    // v2.1.322, which last moved them). The tugplug skills
     // are the prefixed set the capture recorded — eight of them, under the
     // arc door and stage names plus `brief`, `draft` and `viz` (the plugin's
     // own, which replaced the unprefixed `dataviz`); the capturing account's `anthropic-skills:*`
