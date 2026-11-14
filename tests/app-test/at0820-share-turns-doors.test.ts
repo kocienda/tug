@@ -4,8 +4,9 @@
  *
  * ## What this gates
  *
- *   A. The cell menu's Share from Here… on turn 3 enters share mode with
- *      turns 3 and 4 marked — that turn and every later one.
+ *   A. The cell menu's Share from Here… on turn 3's prompt enters share mode
+ *      with that entry and every later one selected — both entries of turns
+ *      3 and 4, and neither of turns 1 and 2.
  *   B. Changes from share mode leaves share mode: the landing needs the
  *      transcript, which the Changes shade makes inert while share mode's
  *      marks are clicked there.
@@ -90,7 +91,9 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
         await card.waitForCondition<boolean>(barShown, { timeoutMs: 6_000 });
         const marks = await card.evalJS<Mark[]>(marksJs());
         note(`at0820 marks after Share from Here: ${JSON.stringify(marks)}`);
-        expect(marks.map((m) => m.checked), "turns 3 and 4 are marked").toEqual([false, false, true, true]);
+        expect(marks.map((m) => m.checked), "turn 3's prompt and every later entry are selected").toEqual([
+          false, false, false, false, true, true, true, true,
+        ]);
 
         expect(
           await card.evalJS<boolean>(
@@ -123,8 +126,8 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
         ).toBe("No turns selected");
 
         // ── D. /share typed in the composer ────────────────────────────────
-        // Cancel leaves the mode (Escape is at0819's), and the composer is back.
-        await card.nativeClickAtElement(`${SHADE} [data-testid="session-share-cancel"]`);
+        // The close button leaves the mode (Escape is at0819's), and the composer is back.
+        await card.nativeClickAtElement(` [data-testid="session-share-close"]`);
         await card.waitForCondition<boolean>(
           `!document.querySelector('[data-card-id="A"] [data-share-mode]')`,
           { timeoutMs: 4_000 },
@@ -139,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("AT0820: the doors into share mode", () => {
 
         // ── E. The masthead's Share Turns button ───────────────────────────
         // Second in the card's own run, right after Rename.
-        await card.nativeClickAtElement(`${SHADE} [data-testid="session-share-cancel"]`);
+        await card.nativeClickAtElement(` [data-testid="session-share-close"]`);
         await card.waitForCondition<boolean>(`!(${barShown})`, { timeoutMs: 4_000 });
         await card.revealPaneControls(".body-chrome-frame");
         // The card's own buttons, in document order, which is the row's.

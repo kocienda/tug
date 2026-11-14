@@ -23,7 +23,9 @@ import {
   compressTurnNumbers,
   decodeShareRenderDocument,
   extendTo,
-  selectableTurnKeys,
+  selectableEntryKeys,
+  shareEntryKey,
+  shareEntryTurnKey,
   shareDocumentMarkdown,
   shareExpansionOverrides,
   shareHeader,
@@ -130,6 +132,11 @@ function refsRun(key: string, command: string): Message {
 }
 
 const EMPTY: ShareSelection = { selected: new Set(), anchor: null };
+
+/** Every entry key of the named turns of `transcript`: those turns, whole. */
+function whole(transcript: ReadonlyArray<TurnEntry>, ...turnKeys: string[]): Set<string> {
+  return new Set(selectableEntryKeys(transcript).filter((key) => turnKeys.includes(shareEntryTurnKey(key))));
+}
 const ORDER = ["a", "b", "c", "d", "e"];
 
 function keys(state: ShareSelection): string[] {
@@ -288,15 +295,19 @@ describe("selection edits", () => {
     expect(keys(state)).toEqual(["a", "c", "e"]);
   });
 
-  test("every turn is selectable — ink and wheel turns too", () => {
+  test("every entry is selectable, each on its own — ink and wheel turns too", () => {
     const transcript = [
-      turn("u", "user", 1, []),
-      turn("s", "shell", 2, []),
-      turn("w", "wheel", 3, []),
-      turn("r", "refs", 4, []),
-      turn("a", "assistant", 5, []),
+      turn("u", "user", 1, [user("u-u", "ask"), prose("u-a", "answer")]),
+      turn("s", "shell", 2, [shellExchange("x1", "ls", "", 0)]),
+      turn("w", "wheel", 3, [user("w-u", "wheel asks"), prose("w-a", "answer")]),
+      turn("r", "refs", 4, [refsRun("rr1", "/match a")]),
+      turn("m", "user", 5, [user("m-u1", "one"), prose("m-a1", "A"), user("m-u2", "steer"), prose("m-a2", "B")]),
     ];
-    expect(selectableTurnKeys(transcript)).toEqual(["u", "s", "w", "r", "a"]);
+    expect(selectableEntryKeys(transcript)).toEqual([
+      "u#0", "u#1", "s#0", "w#0", "w#1", "r#0", "m#0", "m#1", "m#2", "m#3",
+    ]);
+    expect(shareEntryKey("u", 1)).toBe("u#1");
+    expect(shareEntryTurnKey("a#b#12")).toBe("a#b");
   });
 });
 
@@ -318,23 +329,39 @@ describe("buildShareSlice", () => {
   ];
 
   test("removes thinking and keeps transcript order whatever the set order", () => {
-    const slice = buildShareSlice(transcript(), new Set(["t4", "t1"]), "full");
+    const slice = buildShareSlice(transcript(), whole(transcript(), "t4", "t1"), "full");
     expect(slice.map((t) => t.turnKey)).toEqual(["t1", "t4"]);
     expect(slice[0].messages.map((m) => m.kind)).toEqual(["user_message", "assistant_text"]);
   });
 
   test("honours each tool mode", () => {
-    const full = buildShareSlice(transcript(), new Set(["t2"]), "full");
-    const summaries = buildShareSlice(transcript(), new Set(["t2"]), "summaries");
-    const none = buildShareSlice(transcript(), new Set(["t2"]), "none");
+    const full = buildShareSlice(transcript(), whole(transcript(), "t2"), "full");
+    const summaries = buildShareSlice(transcript(), whole(transcript(), "t2"), "summaries");
+    const none = buildShareSlice(transcript(), whole(transcript(), "t2"), "none");
     expect(full[0].messages.filter((m) => m.kind === "tool_use")).toHaveLength(2);
     expect(summaries[0].messages.filter((m) => m.kind === "tool_use")).toHaveLength(2);
     expect(none[0].messages.map((m) => m.kind)).toEqual(["user_message", "assistant_text"]);
   });
 
+  test("an entry is shared alone: a prompt without its answer, an answer without its prompt", () => {
+    const promptOnly = buildShareSlice(transcript(), new Set(["t1#0"]), "full");
+    expect(promptOnly.map((t) => t.turnKey)).toEqual(["t1"]);
+    expect(promptOnly[0].messages.map((m) => m.kind)).toEqual(["user_message"]);
+
+    const answerOnly = buildShareSlice(transcript(), new Set(["t2#1"]), "full");
+    expect(answerOnly[0].messages.map((m) => m.kind)).toEqual(["tool_use", "tool_use", "assistant_text"]);
+
+    // One turn's prompt and another's answer: nothing between them rides along.
+    const mixed = buildShareSlice(transcript(), new Set(["t4#1", "t1#0"]), "full");
+    expect(mixed.map((t) => t.messages.map((m) => m.kind))).toEqual([["user_message"], ["assistant_text"]]);
+    expect(
+      shareDocumentMarkdown({ turns: mixed, toolMode: "full", header: { title: "T", project: "", dates: "", turns: "" } }),
+    ).toBe("# T\n\n## You\n\none\n\n## Claude\n\nfourth\n");
+  });
+
   test("holds a marked ink turn and never touches the live transcript", () => {
     const live = transcript();
-    const slice = buildShareSlice(live, new Set(["t1", "t3"]), "full");
+    const slice = buildShareSlice(live, whole(live, "t1", "t3"), "full");
     expect(slice.map((t) => t.turnKey)).toEqual(["t1", "t3"]);
     (slice[0].messages[0] as { text: string }).text = "changed";
     expect((live[0].messages[0] as { text: string }).text).toBe("one");
@@ -342,7 +369,7 @@ describe("buildShareSlice", () => {
   });
 
   test("shareExpansionOverrides collapses top-level calls under summaries and opens them under full", () => {
-    const slice = buildShareSlice(transcript(), new Set(["t2"]), "full");
+    const slice = buildShareSlice(transcript(), whole(transcript(), "t2"), "full");
     expect(shareExpansionOverrides(slice, "summaries")).toEqual({ "tu-a": true });
     expect(shareExpansionOverrides(slice, "full")).toEqual({ "tu-a": false });
     expect(shareExpansionOverrides(slice, "none")).toEqual({});
@@ -478,7 +505,7 @@ describe("the header", () => {
     const header = shareHeader({
       identity: identity(),
       transcript,
-      selected: new Set(["t1", "t3"]),
+      selected: new Set(["t1#0", "t3#0"]),
       snapshot: snapshotAt(10),
     });
     expect(header.project).toBe("tug");
@@ -489,7 +516,7 @@ describe("the header", () => {
     const oneDay = shareHeader({
       identity: identity(),
       transcript,
-      selected: new Set(["t1", "t2"]),
+      selected: new Set(["t1#0", "t2#1"]),
       snapshot: snapshotAt(null),
     });
     expect(oneDay.turns).toBe("#1, #3");
@@ -525,7 +552,7 @@ describe("shareDocumentMarkdown", () => {
   };
 
   test("opens with the title and a facts line, and writes summaries as lines", () => {
-    const slice = buildShareSlice(goldenTranscript(), new Set(["t2"]), "summaries");
+    const slice = buildShareSlice(goldenTranscript(), whole(goldenTranscript(), "t2"), "summaries");
     expect(shareDocumentMarkdown({ turns: slice, toolMode: "summaries", header })).toBe(
       [
         "# Share work:curly-apple",
@@ -549,7 +576,7 @@ describe("shareDocumentMarkdown", () => {
   });
 
   test("writes no tool sections under none, and no thinking in any mode", () => {
-    const slice = buildShareSlice(goldenTranscript(), new Set(["t2", "t3"]), "none");
+    const slice = buildShareSlice(goldenTranscript(), whole(goldenTranscript(), "t2", "t3"), "none");
     const md = shareDocumentMarkdown({ turns: slice, toolMode: "none", header });
     expect(md).not.toContain("Tool: Read");
     expect(md).not.toContain("→ Read");
@@ -624,7 +651,7 @@ describe("the render document", () => {
   ];
 
   test("a non-contiguous pick keeps the numbers the card shows, past a load window", () => {
-    const slice = buildShareSlice(transcript, new Set(["c", "a"]), "summaries");
+    const slice = buildShareSlice(transcript, whole(transcript, "c", "a"), "summaries");
     expect(shareTurnNumbers(slice, transcript, snapshotAt(null))).toEqual([1, 3]);
     expect(shareTurnNumbers(slice, transcript, snapshotAt(40))).toEqual([41, 43]);
   });
@@ -636,12 +663,12 @@ describe("the render document", () => {
       turn("r1", "refs", 3, [refsRun("rr1", "/match a")]),
       turn("s2", "shell", 4, [shellExchange("x2", "pwd", "", 0)]),
     ];
-    const slice = buildShareSlice(mixed, new Set(["s2", "a", "r1"]), "summaries");
+    const slice = buildShareSlice(mixed, whole(mixed, "s2", "a", "r1"), "summaries");
     expect(shareTurnNumbers(slice, mixed, snapshotAt(null))).toEqual([2, 1, 2]);
   });
 
   test("decodes as built", () => {
-    const slice = buildShareSlice(transcript, new Set(["b"]), "full");
+    const slice = buildShareSlice(transcript, whole(transcript, "b"), "full");
     const doc = buildShareRenderDocument({
       theme: "ironclad",
       header: { title: "t", project: "p", dates: "d", turns: "#2" },
@@ -672,15 +699,15 @@ describe("seedPathsFor", () => {
   });
 });
 
-describe("ShareTurnsStore gate", () => {
+describe("ShareTurnsStore held artifact", () => {
   const artifact: ShareArtifact = { format: "markdown", markdown: "# S", path: "", html: "" };
 
-  function previewed(): ShareTurnsStore {
+  function holding(): ShareTurnsStore {
     const store = new ShareTurnsStore();
     store.enter(["t1", "t3"]);
     store.setFormat("markdown");
-    expect(store.canSend()).toBe(false);
-    store.markPreviewed(store.signature(), artifact);
+    expect(store.holdsCurrent()).toBe(false);
+    store.holdArtifact(store.signature(), artifact);
     return store;
   }
 
@@ -690,34 +717,34 @@ describe("ShareTurnsStore gate", () => {
     expect(s.toolMode).toBe("summaries");
   });
 
-  test("closed before a preview, open after it", () => {
-    expect(previewed().canSend()).toBe(true);
+  test("nothing held before an artifact is made, current after it", () => {
+    expect(holding().holdsCurrent()).toBe(true);
   });
 
-  test("a toggle closes it, and toggling back reopens it", () => {
-    const store = previewed();
+  test("a toggle makes it stale, and toggling back makes it current again", () => {
+    const store = holding();
     store.toggle("t2");
-    expect(store.canSend()).toBe(false);
+    expect(store.holdsCurrent()).toBe(false);
     store.toggle("t2");
-    expect(store.canSend()).toBe(true);
+    expect(store.holdsCurrent()).toBe(true);
   });
 
-  test("a tool mode or format change closes it", () => {
-    const store = previewed();
+  test("a tool mode or format change makes it stale", () => {
+    const store = holding();
     store.setToolMode("full");
-    expect(store.canSend()).toBe(false);
+    expect(store.holdsCurrent()).toBe(false);
     store.setToolMode("summaries");
-    expect(store.canSend()).toBe(true);
+    expect(store.holdsCurrent()).toBe(true);
     store.setFormat("pdf");
-    expect(store.canSend()).toBe(false);
+    expect(store.holdsCurrent()).toBe(false);
   });
 
-  test("leaving and re-entering the mode starts closed, with nothing held", () => {
-    const store = previewed();
+  test("leaving and re-entering the mode starts with nothing held", () => {
+    const store = holding();
     store.confirmPrivate();
     store.leave();
     store.enter(["t1", "t3"]);
-    expect(store.canSend()).toBe(false);
+    expect(store.holdsCurrent()).toBe(false);
     expect(store.getSnapshot().lastArtifact).toBeNull();
     expect(store.getSnapshot().privateConfirmed).toBe(false);
   });

@@ -3,28 +3,28 @@
  * do.
  *
  * An artifact is made in one place ({@link makeArtifact}). It asks a private
- * session's confirmation once per visit, slices the marked turns, sends every
+ * session's confirmation once per visit, slices the selected entries, sends every
  * string they show through tugcast's scrub (secrets out, `$HOME` to `~`), and
  * writes the Markdown with its header. For a PDF or an image it then has the
  * host render the scrubbed slice through the card's own cells
  * (`shareRender`): a PDF of one continuous page, or an image of the whole
  * selection, however tall.
  *
- * Nothing leaves the machine unseen, and every action acts:
+ * Every action does what its name says, at once:
  *
  *  - **Preview…** makes the artifact and shows it in the host's preview sheet
- *    with only Done.
- *  - **Copy, Save… and Share…** act at once on the held artifact when it was
- *    previewed from exactly the current selection, tool mode and format. When
- *    it was not, the press makes the artifact and shows it in the preview
- *    sheet with a confirm button named for the action — Cancel beside it —
- *    and acts on the confirm. What leaves is always what was seen.
+ *    with Done.
+ *  - **Copy** writes it to the pasteboard, **Save…** raises the save panel,
+ *    and **Share…** raises the system share picker. None of them shows a
+ *    preview first: the preview is its own action, there for whoever wants
+ *    to look before sending.
  *
- * Either way, once the sheet is dismissed the artifact is held as the preview
- * of the selection it was made from, so a second press acts at once. Every
- * outcome — a refusal included — lands in the card's pane bulletin ([L31]).
- * The scrub carries its own deadline, and the host answers each sheet and
- * panel, so no action waits without a horizon ([L33]).
+ * An artifact, once made, is held as what its selection, tool mode and format
+ * made, so the next action on the same three sends it without making it
+ * again ({@link currentArtifact}). Every outcome — a refusal included —
+ * lands in the card's pane bulletin ([L31]). The scrub carries its own
+ * deadline, and the host answers each sheet and panel, so no action waits
+ * without a horizon ([L33]).
  *
  * @module lib/share-actions
  */
@@ -75,23 +75,18 @@ export const SCRUB_FAILED_TEXT = "Couldn't check the text for secrets";
 export const SHARE_NEEDS_APP_TEXT = "Sharing needs the Tug app";
 /** The bulletin a render that failed reads. */
 export const RENDER_FAILED_TEXT = "Couldn't render the turns";
-/** The bulletin a press with nothing marked reads. */
+/** The bulletin a press with nothing selected reads. */
 export const NOTHING_MARKED_TEXT = "Select a turn to share";
 
-/** An artifact, and the selection signature it was made from. */
-interface MadeArtifact {
-  signature: string;
-  artifact: ShareArtifact;
-}
-
 /**
- * Make the marked turns' artifact in the store's format: scrubbed Markdown,
- * or a PDF or image the host rendered from it. `null` when nothing is marked,
+ * Make the selected entries' artifact in the store's format — scrubbed
+ * Markdown, or a PDF or image the host rendered from it — and hold it as
+ * what this selection made. `null` when nothing is selected,
  * a private session's confirmation is declined, the scrub or the render fails,
  * or share mode was left meanwhile — each said in the bulletin where the user
  * needs to hear it.
  */
-async function makeArtifact(ctx: ShareActionContext): Promise<MadeArtifact | null> {
+async function makeArtifact(ctx: ShareActionContext): Promise<ShareArtifact | null> {
   const { store, codeSessionStore } = ctx;
   const state = store.getSnapshot();
   if (state.rendering) return null;
@@ -131,7 +126,9 @@ async function makeArtifact(ctx: ShareActionContext): Promise<MadeArtifact | nul
     // Mode left while the scrub ran: nothing to show it to.
     if (!store.getSnapshot().active) return null;
     if (format === "markdown") {
-      return { signature, artifact: { format, markdown, path: "", html: "" } };
+      const artifact: ShareArtifact = { format, markdown, path: "", html: "" };
+      store.holdArtifact(signature, artifact);
+      return artifact;
     }
     // The walk hands back the header it was given, scrubbed; a share always
     // has one, and an unscrubbed title never renders.
@@ -153,71 +150,45 @@ async function makeArtifact(ctx: ShareActionContext): Promise<MadeArtifact | nul
       ctx.notify()?.caution(RENDER_FAILED_TEXT);
       return null;
     }
-    return { signature, artifact: { format, markdown, path: outcome.path, html: outcome.html } };
+    const artifact: ShareArtifact = { format, markdown, path: outcome.path, html: outcome.html };
+    store.holdArtifact(signature, artifact);
+    return artifact;
   } finally {
     store.setRendering(false);
   }
 }
 
 /**
- * Show `made` in the host's preview sheet — with only Done when `confirm` is
- * empty, or with Cancel and a `confirm` button otherwise — and hold it as the
- * preview of its selection once the sheet is dismissed, since it has been
- * seen either way. Resolves whether the user went on: Done or the confirm
- * button, as against Cancel.
+ * The artifact an action shows or sends: the held one when it is of exactly
+ * this selection, tool mode and format; otherwise a fresh one. `null` when
+ * the artifact could not be made.
  */
-async function showPreview(
-  ctx: ShareActionContext,
-  made: MadeArtifact,
-  confirm: string,
-): Promise<boolean> {
-  const { artifact } = made;
+async function currentArtifact(ctx: ShareActionContext): Promise<ShareArtifact | null> {
+  const held = ctx.store.getSnapshot().lastArtifact;
+  if (ctx.store.holdsCurrent() && held !== null) return held;
+  return makeArtifact(ctx);
+}
+
+/** Show the selected entries, in the shade's format, in the host's preview sheet. */
+export async function previewShare(ctx: ShareActionContext): Promise<void> {
+  const artifact = await currentArtifact(ctx);
+  if (artifact === null) return;
   const result = await sharePreview(
     artifact.format === "markdown"
       ? { format: artifact.format, text: artifact.markdown, path: "" }
       : { format: artifact.format, text: "", path: artifact.path },
-    confirm,
   );
-  if (result === "unavailable") {
-    ctx.notify()?.caution(SHARE_NEEDS_APP_TEXT);
-    return false;
-  }
-  if (result === "failed") {
-    ctx.notify()?.caution("Couldn't show the preview");
-    return false;
-  }
-  if (!ctx.store.getSnapshot().active) return false;
-  ctx.store.markPreviewed(made.signature, artifact);
-  return result === "done";
+  if (result === "unavailable") ctx.notify()?.caution(SHARE_NEEDS_APP_TEXT);
+  else if (result === "failed") ctx.notify()?.caution("Couldn't show the preview");
 }
 
 /**
- * The artifact an outward action sends: the held one when it is the preview
- * of exactly this selection, tool mode and format; otherwise a fresh one,
- * shown first with `confirm` as the go-ahead. `null` when nothing is to be
- * sent — the user cancelled, or the artifact could not be made or shown.
- */
-async function previewedArtifact(ctx: ShareActionContext, confirm: string): Promise<ShareArtifact | null> {
-  const held = ctx.store.getSnapshot().lastArtifact;
-  if (ctx.store.canSend() && held !== null) return held;
-  const made = await makeArtifact(ctx);
-  if (made === null) return null;
-  return (await showPreview(ctx, made, confirm)) ? made.artifact : null;
-}
-
-/** Preview the marked turns in the shade's format, with only Done. */
-export async function previewShare(ctx: ShareActionContext): Promise<void> {
-  const made = await makeArtifact(ctx);
-  if (made !== null) await showPreview(ctx, made, "");
-}
-
-/**
- * Copy the previewed artifact ([P13]): Markdown as plain text; a PDF as its
+ * Copy the artifact ([P13]): Markdown as plain text; a PDF as its
  * inline-styled HTML with the Markdown as the plain-text flavour; an image as
  * the PNG, with the Markdown beside it.
  */
 export async function copyShare(ctx: ShareActionContext): Promise<void> {
-  const artifact = await previewedArtifact(ctx, "Copy");
+  const artifact = await currentArtifact(ctx);
   if (artifact === null) return;
   if (artifact.format === "png") {
     const result = await shareCopyImage(artifact.path, artifact.markdown);
@@ -234,9 +205,9 @@ export async function copyShare(ctx: ShareActionContext): Promise<void> {
   ctx.notify()?.success("Copied");
 }
 
-/** Save the previewed artifact through the host's save panel. */
+/** Save the artifact through the host's save panel. */
 export async function saveShare(ctx: ShareActionContext): Promise<void> {
-  const artifact = await previewedArtifact(ctx, "Save…");
+  const artifact = await currentArtifact(ctx);
   if (artifact === null) return;
   const result = await shareSave({
     format: artifact.format,
@@ -251,12 +222,12 @@ export async function saveShare(ctx: ShareActionContext): Promise<void> {
 }
 
 /**
- * Share the previewed artifact through the system share picker, anchored at
- * the rect `anchor` reads — the Share… button's, in this page's viewport,
- * read once any preview has closed.
+ * Share the artifact through the system share picker, anchored at the rect
+ * `anchor` reads — the Share… button's, in this page's viewport, read once
+ * the artifact is made.
  */
 export async function pickShare(ctx: ShareActionContext, anchor: () => ShareAnchor | null): Promise<void> {
-  const artifact = await previewedArtifact(ctx, "Share…");
+  const artifact = await currentArtifact(ctx);
   if (artifact === null) return;
   const rect = anchor();
   if (rect === null) return;

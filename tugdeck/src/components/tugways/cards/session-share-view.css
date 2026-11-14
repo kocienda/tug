@@ -21,8 +21,19 @@
   min-height: 0;
   /* The sheet's own margins, since the shade wears a sheet's header. */
   padding: var(--tugx-sheet-space-b);
-  /* The rows — header, Mark All, the form, the bottom row — stand apart. */
+  /* The rows — header, the form, the bottom row — stand apart. */
   gap: var(--tug-space-2xl);
+}
+
+/* The top row: the close button, flush right. It sits close above the
+   header — the column's gap less most of itself — since it is the shade's
+   chrome, not a row of its content. */
+.session-share-view__top {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  margin-top: calc(-1 * var(--tug-space-sm));
+  margin-bottom: calc(-1 * var(--tug-space-xl));
 }
 
 /* The header's bottom margin is the sheet's header-to-body gap; here the
@@ -31,7 +42,7 @@
   margin-bottom: 0;
 }
 
-/* The title row: the title at its left; the count, Mark All and Clear All at
+/* The title row: the title at its left; the count, Select All and Clear All at
    its right. The row is as tall as the buttons, and on a shade too narrow
    for both the buttons wrap under the title. */
 .session-share-view__title-row {
@@ -112,8 +123,9 @@
   min-width: 0;
 }
 
-/* The bottom row — `.tug-sheet-actions`, sheet spacing: Action and the
-   "Rendering…" status at its leading edge, the two buttons at its right. */
+/* The bottom row — `.tug-sheet-actions`, sheet spacing: the "Rendering…"
+   status at its leading edge; Action, its menu and the action button
+   together at its right. */
 .session-share-view__actions {
   align-items: center;
   margin-top: 0;
@@ -121,6 +133,32 @@
 
 .session-share-view__spacer {
   flex: 1 1 0;
+}
+
+/* An action's name in a box as wide as the widest action's: the name and
+   one hidden sizer per action share a grid cell, so the cell is as wide as
+   the widest of them. A sizer's text is generated, never in the DOM. */
+.session-share-view__stable-label {
+  display: inline-grid;
+  justify-items: start;
+}
+
+.session-share-view__stable-label > * {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.session-share-view__stable-sizer {
+  visibility: hidden;
+}
+
+.session-share-view__stable-sizer::before {
+  content: attr(data-label);
+}
+
+/* On the action button the name is centred in its box. */
+.session-share-view__actions > button .session-share-view__stable-label {
+  justify-items: center;
 }
 
 /* "Rendering…" with its running indicator, while a preview is prepared. */

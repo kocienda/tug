@@ -574,8 +574,8 @@ const UserMessageCell = React.memo(function UserMessageCell({
     sub: dataSource.withinTurnOrdinalForRow(index),
   };
   // In share mode every entry row carries its turn's share mark ([L02]).
-  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
-  const shareFromHere = useShareFromHereEntries(row.turn);
+  const shareMark = useShareTurnMark(row);
+  const shareFromHere = useShareFromHereEntries(row);
   // The data source resolves the specific `user_message` this row
   // renders (the turn opener, or a merged/steered mid-turn message —
   // never re-derived from `messages[0]`, Spec S01/[P04]). It is set on
@@ -920,8 +920,8 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
     row.turn !== undefined ? sharedNumbers?.get(row.turn.turnKey) : undefined;
   const shellNumber = sharedNumber ?? dataSource.shellOrdinalForRow(index);
   // In share mode the row carries its turn's share mark ([L02]).
-  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
-  const shareFromHere = useShareFromHereEntries(row.turn);
+  const shareMark = useShareTurnMark(row);
+  const shareFromHere = useShareFromHereEntries(row);
   // ⌘C / ⌘A / the right-click text menu for this row — the same cell menu the
   // user and assistant cells mount. Without a COPY handler on the chain, Edit ▸
   // Copy validates dark (its enablement IS `validateAction(COPY)`) and ⌘C, its
@@ -1155,8 +1155,8 @@ const RefsTurnCell = React.memo(function RefsTurnCell({
     row.turn !== undefined ? sharedNumbers?.get(row.turn.turnKey) : undefined;
   const refsNumber = sharedNumber ?? dataSource.refsOrdinalForRow(index);
   // In share mode the row carries its turn's share mark ([L02]).
-  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
-  const shareFromHere = useShareFromHereEntries(row.turn);
+  const shareMark = useShareTurnMark(row);
+  const shareFromHere = useShareFromHereEntries(row);
   // ⌘C / ⌘A / the right-click text menu for this row — the same cell menu
   // every other transcript cell mounts. Without a COPY handler on the chain,
   // Edit ▸ Copy validates dark and ⌘C dies in the menu bar before the web
@@ -1857,8 +1857,8 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
     turn: turnNumber,
     sub: dataSource.withinTurnOrdinalForRow(index),
   };
-  const shareMark = useShareTurnMark(row.turn, isShareMarkRow(row));
-  const shareFromHere = useShareFromHereEntries(row.turn);
+  const shareMark = useShareTurnMark(row);
+  const shareFromHere = useShareFromHereEntries(row);
   // `turnKey` is set for every assistant row by `rowAt`. The fallback
   // throws in dev (data-source contract violation) and falls back to
   // an index-scoped string in prod so different rows can't

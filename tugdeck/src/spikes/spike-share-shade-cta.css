@@ -111,6 +111,15 @@
   grid-template-columns: auto auto;
 }
 
+/* The close button's top row, flush right and close above the header. */
+.sp-ssc-top {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  margin-top: calc(-1 * var(--tug-space-sm));
+  margin-bottom: calc(-1 * var(--tug-space-xl));
+}
+
 .sp-ssc-field-label--lead {
   width: calc(var(--tugx-header-icon-two) + var(--tugx-header-gap-two));
 }

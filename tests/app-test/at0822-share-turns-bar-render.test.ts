@@ -1,7 +1,7 @@
 /**
  * at0822-share-turns-bar-render.test.ts — the Share shade's rendered outputs:
  * an image previewed from the shade, a very tall image previewed like any
- * other, and Save… acting on a selection nobody has previewed yet.
+ * other, and Save… raising the save panel directly, with no preview first.
  *
  * ## What this gates
  *
@@ -9,25 +9,27 @@
  * `at0819`'s. What only the whole shade has is the wiring between them: the
  * Format choice reaching the store, Preview… rendering the scrubbed slice
  * through the host and showing the file in the preview sheet, the artifact
- * held for the outward actions, and Save… going through the preview to the
- * save panel.
+ * held for the next action, and Save… making its own artifact and going
+ * straight to the save panel.
  *
- *   A. Two short turns marked, Image chosen, Preview… renders them and shows
- *      the sheet; on its Done the store holds a `png` artifact whose file is
- *      on disk, and the gate stands open for it.
- *   B. Choosing PDF moves the signature off the preview; Save… stays open.
- *   C. With the tall third turn marked too, Image and Preview… render and
+ *   A. Two short turns selected, Image chosen, Preview… renders them and
+ *      shows the sheet; on its Done the store holds a `png` artifact whose
+ *      file is on disk, current for this selection.
+ *   B. Choosing PDF makes the held artifact stale; the action stays open.
+ *   C. With the tall third turn selected too, Image and Preview… render and
  *      show it as they did the short one: an image has no height cap, the
  *      format stays Image, and the store holds a `png` taller than the two
  *      short turns' was.
- *   D. PDF chosen again, Save… on that unpreviewed PDF renders it and shows the preview with a
- *      Save… button, and Return on it raises the share's save panel. The
+ *   D. PDF chosen again, Save… on that PDF — which nobody has previewed —
+ *      renders it and raises the share's save panel at once: no preview
+ *      sheet stands between the press and the panel. The
  *      panel is the system's remote view, out of the app's process, so no
  *      window state shows it: the host logs each panel it raises, and the
  *      test reads that line. It runs last, since the panel stays attached.
  *
- * Turns are marked through `__tug.shareMark`: the tall turn pushes the others
- * out of the windowed list, and a mark's click is `at0819`'s to gate.
+ * Entries are selected through `__tug.shareMark`, by index — a turn's prompt
+ * and its answer are two: the tall turn pushes the others out of the windowed
+ * list, and a mark's click is `at0819`'s to gate.
  *
  * @covers tugdeck/src/lib/share-actions.ts
  * @covers tugdeck/src/components/tugways/cards/session-share-view.tsx
@@ -49,7 +51,7 @@ import {
   enabledJs,
   openSeededCard,
   previewAndDismiss,
-  pressThroughPreview,
+  pressAction,
   type SeedTurn,
 } from "./share-probes";
 
@@ -75,13 +77,13 @@ interface ShareState {
   active: boolean;
   format: "markdown" | "pdf" | "png";
   rendering: boolean;
-  canSend: boolean;
+  held: boolean;
   lastArtifact: { format: string; path: string; htmlLength: number; markdownLength: number } | null;
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () => {
   test(
-    "an image previews from the shade, a very tall one does too, and Save… on an unpreviewed PDF goes through the preview to the save panel",
+    "an image previews from the shade, a very tall one does too, and Save… on an unpreviewed PDF goes straight to the save panel",
     async () => {
       const app = await launchTugApp({ testName: "at0822-share-turns-bar-render" });
       let projectDir = "";
@@ -97,7 +99,7 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
           timeoutMs: 6_000,
         });
         expect((await state()).format, "a share starts as a PDF").toBe("pdf");
-        expect(await card.evalJS<number>(`window.__tug.shareMark("A", [0, 1])`)).toBe(2);
+        expect(await card.evalJS<number>(`window.__tug.shareMark("A", [0, 1, 2, 3])`)).toBe(4);
 
         // ── A. An image, previewed from the shade ──────────────────────────
         await chooseFormat(app, "png");
@@ -111,21 +113,21 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
         imagePath = previewed.lastArtifact!.path;
         expect(existsSync(imagePath), "the previewed image is on disk").toBe(true);
         expect(previewed.lastArtifact!.markdownLength, "the plain-text flavour rides with it").toBeGreaterThan(0);
-        expect(previewed.canSend, "the gate stands open for the image").toBe(true);
+        expect(previewed.held, "the image is held for this selection").toBe(true);
         expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button is open").toBe(true);
 
-        // ── B. PDF moves the signature; Save… stays open ───────────────────
+        // ── B. PDF makes the held image stale; the action stays open ───────
         await chooseFormat(app, "pdf");
-        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === false`, {
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").held === false`, {
           timeoutMs: 4_000,
         });
         expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button stays open").toBe(true);
 
         // ── C. A very tall image previews like any other ───────────────────
         await chooseFormat(app, "png");
-        expect(await card.evalJS<number>(`window.__tug.shareMark("A", [2])`)).toBe(3);
+        expect(await card.evalJS<number>(`window.__tug.shareMark("A", [4, 5])`)).toBe(6);
         await previewAndDismiss(app, 20_000);
-        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === true`, {
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").held === true`, {
           timeoutMs: 4_000,
         });
         const tall = await state();
@@ -137,15 +139,15 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
         expect(statSync(tallPath).size, "the tall image is the larger file").toBeGreaterThan(statSync(imagePath).size);
         await chooseFormat(app, "pdf");
 
-        // ── D. Save… goes through the preview to the save panel ────────────
+        // ── D. Save… goes straight to the save panel ───────────────────────
         const panelShown = (): boolean =>
           app
             .tugappLog()
             .split("\n")
             .some((line) => line.includes("save panel shown") && line.includes("Save Shared Turns"));
         expect(panelShown(), "no save panel before the press").toBe(false);
-        await pressThroughPreview(app, "save", 15_000, true);
-        const panelDeadline = Date.now() + 5_000;
+        await pressAction(app, "save");
+        const panelDeadline = Date.now() + 15_000;
         while (!panelShown() && Date.now() < panelDeadline) await Bun.sleep(100);
         expect(panelShown(), "Save… raised the share's save panel").toBe(true);
         // Begun is not standing: a sheet begun while the window still holds
@@ -160,8 +162,8 @@ describe.skipIf(!SHOULD_RUN)("AT0822: the Share shade's rendered outputs", () =>
         note(`at0822 ${attachedLine() ?? "no attached line"}`);
         expect(attachedLine() ?? "", "the save panel is the window's attached sheet").toContain("attached=true");
         const saved = await state();
-        expect(saved.lastArtifact?.format, "the PDF it previewed is held").toBe("pdf");
-        expect(saved.canSend, "and is the preview of this selection").toBe(true);
+        expect(saved.lastArtifact?.format, "the PDF it made is held").toBe("pdf");
+        expect(saved.held, "and is of this selection").toBe(true);
       } finally {
         await app.close();
         if (imagePath !== "") rmSync(imagePath, { force: true });

@@ -1,26 +1,29 @@
 /**
  * share-turns.ts — the pure core of sharing turns from a Session card.
  *
- * The user marks turns, and an output is made from exactly those: a
+ * The user selects entries, and an output is made from exactly those: a
  * Markdown document, or a rendering through the card's own transcript cells.
  * Everything here is a data transform with no store, no DOM and no React:
  *
- *  - the **selection edits** — a click toggles a turn, a shift-click extends
- *    from the anchor across the selectable turns in transcript order;
- *  - the **slice** — the selected turns, deep-copied, with thinking removed
- *    and tool calls kept or dropped by the tool mode;
+ *  - the **selection edits** — a click toggles an entry, a shift-click
+ *    extends from the anchor across the entries in transcript order;
+ *  - the **slice** — the selected entries' messages, deep-copied in their
+ *    turns, with thinking removed and tool calls kept or dropped by the tool
+ *    mode;
  *  - the **strings walk** — every string an output will show, collected for
  *    the one scrub request and put back from its answer;
  *  - the **header** — title, project name, dates, and the turn numbers the
  *    turns have in the card;
- *  - the **signature** that gates Copy, Save… and Share… on a preview of
- *    exactly what would leave;
+ *  - the **signature** of a selection, which says whether an artifact
+ *    already made is of exactly what would leave;
  *  - the **Markdown**, which `/export` writes through too, and the decoder
  *    for the document the render page receives.
  *
- * A turn is the unit: nothing selects part of one. Every turn is selectable,
- * whoever it is from — the user, Claude, the wheel, or an ink turn (`shell`,
- * `refs`), the record of something the user ran. An ink turn's command and
+ * The entry is the unit: one row of the transcript — a prompt (the user's or
+ * the wheel's), an answer, a shell exchange, a refs run. Checking one selects
+ * that one and nothing else: a prompt does not bring its answer, nor an
+ * answer its prompt. An entry is named by its turn's key and the index of its
+ * first message ({@link shareEntryKey}). An ink turn's command and
  * output ride the scrub like any other text, the Markdown writes it as a
  * fenced block, and the render page draws it through the card's own cell.
  *
@@ -38,7 +41,7 @@ import type { SessionIdentity } from "@/lib/session-identity";
 import { sessionDisplayTitle } from "@/lib/session-identity";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import { composeShellShareText } from "@/lib/shell-share";
-import { turnNumberAt } from "@/lib/session-transcript-data-source";
+import { turnNumberAt, walkTurnGroups } from "@/lib/session-transcript-data-source";
 import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import type { ToolCallMode } from "@/lib/turn-entry-markdown";
 
@@ -56,15 +59,40 @@ const TOOL_MODES: ReadonlySet<string> = new Set(["summaries", "full", "none"]);
 // Selection
 // ---------------------------------------------------------------------------
 
-/** The marked turns, by `turnKey`, and the anchor a shift-click extends from. */
+/** The selected entries, by {@link shareEntryKey}, and the anchor a shift-click extends from. */
 export interface ShareSelection {
   selected: ReadonlySet<string>;
   anchor: string | null;
 }
 
-/** The selectable turns' keys — every committed turn's — in transcript order. */
-export function selectableTurnKeys(transcript: ReadonlyArray<TurnEntry>): string[] {
-  return transcript.map((turn) => turn.turnKey);
+/**
+ * The key of one entry: the row of turn `turnKey` whose first message is at
+ * `start` in the turn's `messages`. A prompt's row is one `user_message`; an
+ * answer's is the run of messages up to the next prompt; an ink turn's is the
+ * whole turn, at 0.
+ */
+export function shareEntryKey(turnKey: string, start: number): string {
+  return `${turnKey}#${start}`;
+}
+
+/** The turn key an entry key names. */
+export function shareEntryTurnKey(entryKey: string): string {
+  const at = entryKey.lastIndexOf("#");
+  return at === -1 ? entryKey : entryKey.slice(0, at);
+}
+
+/** One turn's entries as the card draws them: each row's key and message range. */
+function turnEntries(turn: TurnEntry): Array<{ key: string; start: number; end: number }> {
+  return walkTurnGroups(turn.messages, false, turn.origin).map((group) => ({
+    key: shareEntryKey(turn.turnKey, group.start),
+    start: group.start,
+    end: group.end,
+  }));
+}
+
+/** Every committed turn's entry keys, in transcript order: one per row that carries a check. */
+export function selectableEntryKeys(transcript: ReadonlyArray<TurnEntry>): string[] {
+  return transcript.flatMap((turn) => turnEntries(turn).map((entry) => entry.key));
 }
 
 /** Toggle `key`'s mark, and make it the anchor. */
@@ -101,8 +129,9 @@ export function extendTo(
 // ---------------------------------------------------------------------------
 
 /**
- * The selected turns in transcript order — whatever order the set was built
- * in — deep-copied so the live transcript is never touched, with every
+ * The turns holding a selected entry, in transcript order — whatever order
+ * the set was built in — each carrying only its selected entries' messages,
+ * deep-copied so the live transcript is never touched, with every
  * `assistant_thinking` message removed, and under `none` every `tool_use`
  * message removed. `summaries` and `full` keep the tool calls: the render
  * page shows them collapsed or open ({@link shareExpansionOverrides}), and
@@ -116,11 +145,18 @@ export function buildShareSlice(
 ): TurnEntry[] {
   const slice: TurnEntry[] = [];
   for (const turn of transcript) {
-    if (!selected.has(turn.turnKey)) continue;
+    const kept = new Set<number>();
+    for (const entry of turnEntries(turn)) {
+      if (!selected.has(entry.key)) continue;
+      for (let i = entry.start; i < entry.end; i += 1) kept.add(i);
+    }
+    if (kept.size === 0) continue;
     const copy = structuredClone(turn) as TurnEntry;
     const messages = copy.messages.filter(
-      (m) =>
-        m.kind !== "assistant_thinking" && !(toolMode === "none" && m.kind === "tool_use"),
+      (m, i) =>
+        kept.has(i) &&
+        m.kind !== "assistant_thinking" &&
+        !(toolMode === "none" && m.kind === "tool_use"),
     );
     slice.push({ ...copy, messages });
   }
@@ -187,10 +223,10 @@ function localDate(ms: number): string {
 }
 
 /**
- * The header for the selected turns of `transcript`: the session's display
- * title and project leaf from `identity`, the local date of the first selected
- * turn's end (or `first – last` when the last differs), and the selected
- * conversation turns' numbers as the card shows them ({@link turnNumberAt}
+ * The header for the selected entries (`selected`, by {@link shareEntryKey})
+ * of `transcript`: the session's display title and project leaf from
+ * `identity`, the local date of the first selected entry's turn's end (or
+ * `first – last` when the last differs), and those conversation turns' numbers as the card shows them ({@link turnNumberAt}
  * over `snapshot`), compressed to ranges. An ink turn is dated but not
  * numbered there: its `#s`/`#r` address is its own sequence, not a turn's.
  */
@@ -201,10 +237,11 @@ export function shareHeader(input: {
   snapshot: CodeSessionSnapshot;
 }): ShareHeader {
   const { identity, transcript, selected, snapshot } = input;
+  const turnKeys = new Set([...selected].map(shareEntryTurnKey));
   const numbers: number[] = [];
   const ends: number[] = [];
   transcript.forEach((turn, index) => {
-    if (!selected.has(turn.turnKey)) return;
+    if (!turnKeys.has(turn.turnKey)) return;
     if (!isInkOrigin(turn.origin)) numbers.push(turnNumberAt(snapshot, index));
     ends.push(turn.endedAt);
   });
@@ -361,10 +398,10 @@ export function applyShareStrings(
 // ---------------------------------------------------------------------------
 
 /**
- * What a preview was of: the selected turn keys (sorted, so the order a set
- * was built in does not matter), the tool mode and the format. Copy, Save…
- * and Share… are open exactly when the last preview's signature equals the
- * current one.
+ * What an artifact is of: the selected entry keys (sorted, so the order a set
+ * was built in does not matter), the tool mode and the format. An artifact
+ * already made is sent as it is exactly when its signature equals the current
+ * one; otherwise a new one is made.
  */
 export function shareSignature(state: {
   selected: ReadonlySet<string>;

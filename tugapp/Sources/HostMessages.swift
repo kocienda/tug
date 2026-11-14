@@ -774,14 +774,12 @@ enum ShareFormat: String, Codable, Equatable {
 
 /// `sharePreview`: show a share's artifact in the preview sheet — `text` for
 /// Markdown, the rendered file at `path` otherwise, `""` for the one unused.
-/// `confirm` names the action the preview stands before, offered beside
-/// Cancel; `""` shows only Done. Answered with `onShareDone` under `id`.
+/// The sheet has one button, Done. Answered with `onShareDone` under `id`.
 struct SharePreview: Decodable, Equatable {
     var id: String
     var format: ShareFormat
     var text: String
     var path: String
-    var confirm: String
 }
 
 /// `shareSave`: save a previewed share artifact through the save panel,

@@ -128,10 +128,10 @@ export const TUG_ACTIONS = {
   //              menu-open time, so it copies the WHOLE command regardless
   //              of any sub-word the browser smart-selected. Distinct from
   //              COPY, which copies the live selection.
-  // SHARE_FROM_TURN: payload — the turn key, as a string. A transcript
+  // SHARE_FROM_TURN: payload — the entry key, as a string. A transcript
   //              cell menu's Share from Here…: the Session card enters
-  //              share mode with that turn and every later selectable turn
-  //              marked. Menu-only, over the sampled turn.
+  //              share mode with that entry and every later one
+  //              selected. Menu-only, over the sampled entry.
   // COPY_COMMAND_AS_PLAIN_TEXT: payload — none. Like COPY_COMMAND but the
   //              bare command text only (`text/plain`, no backticks, no
   //              `text/html`) — the terminal-paste-friendly variant.

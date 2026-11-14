@@ -111,7 +111,7 @@ import { sharePick, shareRender, type ShareDoneResult, type ShareRenderOutcome }
 import {
   buildShareRenderDocument,
   buildShareSlice,
-  selectableTurnKeys,
+  selectableEntryKeys,
   shareHeader,
   shareTurnNumbers,
   type ShareToolMode,
@@ -711,9 +711,9 @@ export interface ShareStateFacts {
   active: boolean;
   format: "markdown" | "pdf" | "png";
   rendering: boolean;
-  /** Whether Copy, Save… and Share… may act on the held artifact. */
-  canSend: boolean;
-  /** The artifact last previewed, or `null`; the HTML and Markdown by length. */
+  /** Whether the held artifact is of exactly the current selection, tool mode and format. */
+  held: boolean;
+  /** The artifact last made, or `null`; the HTML and Markdown by length. */
   lastArtifact: { format: "markdown" | "pdf" | "png"; path: string; htmlLength: number; markdownLength: number } | null;
 }
 
@@ -1570,7 +1570,7 @@ export interface TugTestSurface {
   shareState(cardId: string): ShareStateFacts | null;
 
   /**
-   * Mark `cardId`'s selectable turns at `indexes` (0-based, in transcript
+   * Select `cardId`'s entries at `indexes` (0-based, in transcript
    * order) in its share mode, as a click on each mark would (SURFACE_VERSION
    * 2.66.0). Returns how many turns are marked, or `null` for a card with no
    * services or not in share mode.
@@ -4488,7 +4488,7 @@ function pageStoreSurfaceMethods() {
       const services = cardServicesStore.getServices(cardId);
       if (services === null) return null;
       const snapshot = services.codeSessionStore.getSnapshot();
-      const selected = new Set(selectableTurnKeys(snapshot.transcript));
+      const selected = new Set(selectableEntryKeys(snapshot.transcript));
       const slice = buildShareSlice(snapshot.transcript, selected, toolMode);
       const header = shareHeader({
         identity: resolveSessionIdentity(services.tugSessionId, { projectDir: services.projectDir }),
@@ -4517,7 +4517,7 @@ function pageStoreSurfaceMethods() {
         active: s.active,
         format: s.format,
         rendering: s.rendering,
-        canSend: store.canSend(),
+        held: store.holdsCurrent(),
         lastArtifact:
           a === null
             ? null
@@ -4530,7 +4530,7 @@ function pageStoreSurfaceMethods() {
       if (services === null) return null;
       const store = services.shareTurnsStore;
       if (!store.getSnapshot().active) return null;
-      const keys = selectableTurnKeys(services.codeSessionStore.getSnapshot().transcript);
+      const keys = selectableEntryKeys(services.codeSessionStore.getSnapshot().transcript);
       for (const index of indexes) {
         const key = keys[index];
         if (key !== undefined && !store.isSelected(key)) store.toggle(key);
@@ -4544,7 +4544,7 @@ function pageStoreSurfaceMethods() {
       const store = services.shareTurnsStore;
       const artifact = store.getSnapshot().lastArtifact;
       const button = document.querySelector('[data-testid="session-share-go"]');
-      if (!store.canSend() || artifact === null || button === null) return null;
+      if (!store.holdsCurrent() || artifact === null || button === null) return null;
       const rect = button.getBoundingClientRect();
       return sharePick(
         {

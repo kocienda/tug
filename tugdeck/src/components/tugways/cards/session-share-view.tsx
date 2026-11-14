@@ -4,20 +4,23 @@
  * Share mode is a shade, like Changes and History: it rises from the bottom of
  * the card's view slot, resting on the Z2 status bar, while the composer and
  * Z2 stay where they are. Unlike them it is modeless — the transcript above it
- * stays live, because that is where the turns are marked: each selectable
- * turn's first row shows a check at the right of its header, after the turn
- * address; a click toggles it and a shift-click extends from the anchor. The
+ * stays live, because that is where the turns are selected: every entry — a
+ * prompt, an answer, a shell exchange — shows a check at the right of its
+ * header, after its address; a click toggles that entry alone and a
+ * shift-click extends from the anchor. The
  * shade itself (`TugSheetContent presentation="shade" shadeModeless`) is
  * mounted by the Session card around this view; this is what sits inside it,
  * top to bottom:
  *
+ *  - **The top row**: the close button, an ✕ at its right, which leaves the
+ *    mode (Escape does too).
  *  - **The header**, in the modal header convention every sheet and alert
  *    wears (`styles/tugx-header.css`, the two-line case): the Share icon, the
  *    title, and the instruction as its description. The title is the largest
  *    type on the shade; the instruction is a description, never a style of
  *    its own.
- *  - **Mark All and Clear All**, at the right of the title row, which is
- *    as tall as they are, with the count of marked turns before them: the
+ *  - **Select All and Clear All**, at the right of the title row, which is
+ *    as tall as they are, with the count of selected turns before them: the
  *    buttons sit flush right, so they hold still as the count changes.
  *  - **The form**: Tools (how tool calls appear in the turns) and Format on
  *    one line, Tools' label in the header icon's column so its choices start
@@ -25,17 +28,16 @@
  *    When the shade is too narrow for one line, Format goes under Tools, its
  *    label in the same column, so the two choices still share a left edge
  *    ({@link useShareFormFit}).
- *  - **The bottom row**: Action at its left — a popup menu of what the shade
- *    can do with the marked turns: Preview…, Copy, Save…, Share… — and two
- *    buttons at its right: Cancel, which leaves the mode (Escape does too),
- *    and the action button, which wears the chosen action's name and
- *    performs it.
+ *  - **The bottom row**, at its right: Action — a popup menu of what the
+ *    shade can do with the selected turns: Preview…, Copy, Save…, Share… —
+ *    and, right beside it, the action button, which wears the chosen
+ *    action's name and performs it. Both are as wide as the widest action's
+ *    name ({@link StableLabel}), so nothing moves as the action changes.
  *
- * The action button is enabled whenever a turn is marked and no preview is
- * being prepared. Nothing leaves the machine unseen: Copy, Save… and Share…
- * on a selection that has not been previewed show the preview first, with a
- * confirm button named for the action, and act on the user's confirm
- * (`share-actions.ts`). Preview… shows it with only Done.
+ * The action button is enabled whenever a turn is selected and no artifact
+ * is being made. Each action does what its name says, at once: Copy copies,
+ * Save… raises the save panel, Share… raises the share picker, and only
+ * Preview… shows the preview (`share-actions.ts`).
  *
  * The choices and the menu report through the chain; the view owns no state
  * of its own and applies each report to the card's store ([L11]). It reads
@@ -53,9 +55,10 @@
 import "./session-share-view.css";
 
 import React, { useCallback, useId, useLayoutEffect, useRef } from "react";
-import { Share } from "lucide-react";
+import { Share, X } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
@@ -149,6 +152,29 @@ export function shareCountLabel(count: number): string {
   return count === 1 ? "1 turn selected" : `${count} turns selected`;
 }
 
+/**
+ * An action's name, in a box as wide as the widest action's: the name
+ * itself, over one hidden sizer per action in the same grid cell. A sizer
+ * draws its name from `data-label` through CSS, so the element's text is the
+ * one name it shows. The action button and the Action menu's trigger both
+ * wear it, so neither changes width as the action does.
+ */
+export function StableLabel({ action }: { action: ShareAction }): React.ReactElement {
+  return (
+    <span className="session-share-view__stable-label">
+      <span>{shareActionLabel(action)}</span>
+      {SHARE_ACTIONS.map((entry) => (
+        <span
+          key={entry.value}
+          className="session-share-view__stable-sizer"
+          data-label={entry.label}
+          aria-hidden="true"
+        />
+      ))}
+    </span>
+  );
+}
+
 export interface SessionShareViewProps {
   store: ShareTurnsStore;
   onPreview: () => void;
@@ -160,9 +186,9 @@ export interface SessionShareViewProps {
    * its anchor.
    */
   onShare: (anchor: () => ShareAnchor | null) => void;
-  /** Leave share mode — Cancel and Escape. */
+  /** Leave share mode — the close button and Escape. */
   onDone: () => void;
-  /** Mark every selectable turn — the card knows which those are. */
+  /** Select every entry — the card knows which those are. */
   onMarkAll: () => void;
 }
 
@@ -233,6 +259,17 @@ export function SessionShareView({
         role="group"
         aria-label="Share turns"
       >
+        {/* The top row: the close button, at its right. */}
+        <div className="session-share-view__top">
+          <TugIconButton
+            size="sm"
+            icon={<X size={14} />}
+            aria-label="Close"
+            title="Close"
+            onClick={onDone}
+            data-testid="session-share-close"
+          />
+        </div>
         {/* The modal header convention, two-line case: the sheet's own
             classes, so the shade's title and instruction are the type every
             sheet and alert already wears. */}
@@ -246,7 +283,7 @@ export function SessionShareView({
           </div>
           <div className="tug-sheet-heading">
             {/* The title row, tall enough for the buttons: the title at its
-                left; the count, Mark All and Clear All at its right. The
+                left; the count, Select All and Clear All at its right. The
                 buttons sit flush right and the count grows leftward from
                 them, so nothing moves as the count changes. */}
             <div className="session-share-view__title-row">
@@ -311,19 +348,8 @@ export function SessionShareView({
             />
           </span>
         </div>
-        {/* The bottom row: Action at the left, the two buttons at the right. */}
+        {/* The bottom row: Action and its button together at the right. */}
         <div className="session-share-view__actions tug-sheet-actions">
-          <span className="session-share-view__label">Action</span>
-          <span className="session-share-view__control" data-testid="session-share-action">
-            <TugPopupButton
-              label={shareActionLabel(snapshot.action)}
-              items={ACTION_ITEMS}
-              senderId={actionSenderId}
-              size="sm"
-              aria-label="Action"
-              data-testid="session-share-action-menu"
-            />
-          </span>
           {snapshot.rendering ? (
             <span className="session-share-view__rendering" data-testid="session-share-rendering" role="status">
               <TugProgressIndicator variant="spinner" state="running" tone="inherit" size={12} />
@@ -331,15 +357,17 @@ export function SessionShareView({
             </span>
           ) : null}
           <span className="session-share-view__spacer" />
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            onClick={onDone}
-            data-testid="session-share-cancel"
-          >
-            Cancel
-          </TugPushButton>
+          <span className="session-share-view__label">Action</span>
+          <span className="session-share-view__control" data-testid="session-share-action">
+            <TugPopupButton
+              label={<StableLabel action={snapshot.action} />}
+              items={ACTION_ITEMS}
+              senderId={actionSenderId}
+              size="sm"
+              aria-label="Action"
+              data-testid="session-share-action-menu"
+            />
+          </span>
           <TugPushButton
             ref={goButtonRef}
             size="sm"
@@ -354,7 +382,7 @@ export function SessionShareView({
             // default button does.
             persistentDefaultRing
           >
-            {shareActionLabel(snapshot.action)}
+            <StableLabel action={snapshot.action} />
           </TugPushButton>
         </div>
       </div>

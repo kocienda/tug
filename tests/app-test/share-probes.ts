@@ -30,7 +30,8 @@ export const MARK_ALL = `${CARD} [data-testid="session-share-mark-all"]`;
 export const CLEAR = `${CARD} [data-testid="session-share-clear"]`;
 /** The shade's one action button, which performs what its Action menu names. */
 export const GO = `${CARD} [data-testid="session-share-go"]`;
-export const CANCEL = `${CARD} [data-testid="session-share-cancel"]`;
+/** The shade's close button, the ✕ in its top row. */
+export const CLOSE = `${CARD} [data-testid="session-share-close"]`;
 /** The Action menu's trigger, and its open menu (portaled, so not under the card). */
 export const ACTION_TRIGGER = `${CARD} [data-testid="session-share-action"] button`;
 export const ACTION_MENU = '[data-testid="session-share-action-menu"]';
@@ -170,22 +171,14 @@ export async function pressAction(app: App, action: ShareActionName): Promise<vo
 }
 
 /**
- * Perform `action` — Preview…, or Copy, Save… or Share… on a selection not yet
- * previewed — and wait for the preview sheet to take the keyboard from the
- * window that held it, then press the sheet's default button (its Return
- * key): Done after Preview…, the action's own button otherwise. `timeoutMs`
- * bounds the wait for the sheet, which a rendered format reaches only after
- * the host's render. `thenAnotherSheet` is for Save…, whose confirm raises
- * the save panel: the card's window does not get the keyboard back, and the
- * caller reads the panel from the host's log instead.
+ * Press Preview… and wait for the preview sheet to take the keyboard from
+ * the window that held it, then press the sheet's Done (its Return key).
+ * `timeoutMs` bounds the wait for the sheet, which a rendered format reaches
+ * only after the host's render. Only Preview… shows the sheet: Copy, Save…
+ * and Share… act directly ({@link pressAction}).
  */
-export async function pressThroughPreview(
-  app: App,
-  action: ShareActionName,
-  timeoutMs = 10_000,
-  thenAnotherSheet = false,
-): Promise<void> {
-  await chooseAction(app, action);
+export async function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<void> {
+  await chooseAction(app, "preview");
   const before = await app.windowState();
   expect(before.isKeyWindow, "the card's window holds the keyboard before the preview").toBe(true);
   await app.body("A").nativeClickAtElement(GO);
@@ -194,7 +187,6 @@ export async function pressThroughPreview(
     const state = await app.windowState();
     if (!state.isKeyWindow && state.appKeyWindow) {
       await app.nativeKey("Return");
-      if (thenAnotherSheet) return;
       const gone = Date.now() + 3_000;
       let after = await app.windowState();
       while (!after.isKeyWindow && Date.now() < gone) {
@@ -209,27 +201,16 @@ export async function pressThroughPreview(
   throw new Error("the preview sheet never took the keyboard");
 }
 
-/** Press Preview… and the preview sheet's Done. */
-export function previewAndDismiss(app: App, timeoutMs = 10_000): Promise<void> {
-  return pressThroughPreview(app, "preview", timeoutMs);
-}
-
 /**
- * The marked turns' keys in transcript order, one per turn, and which are
- * checked. Every entry row of a turn carries its mark, so a turn is checked
- * only when every one of its marks reads checked.
+ * The entries' keys in transcript order, one per mark, and which are
+ * checked. Every entry row carries a mark of its own — a prompt and its
+ * answer are two.
  */
 export function marksJs(): string {
   return `(function(){
-    var order = [];
-    var byKey = {};
-    Array.from(document.querySelectorAll(${JSON.stringify(MARK)})).forEach(function (el) {
-      var key = el.getAttribute("data-turn-key");
-      var checked = el.getAttribute("aria-checked") === "true";
-      if (!(key in byKey)) { order.push(key); byKey[key] = checked; }
-      else byKey[key] = byKey[key] && checked;
+    return Array.from(document.querySelectorAll(${JSON.stringify(MARK)})).map(function (el) {
+      return { key: el.getAttribute("data-entry-key"), checked: el.getAttribute("aria-checked") === "true" };
     });
-    return order.map(function (key) { return { key: key, checked: byKey[key] }; });
   })()`;
 }
 
@@ -247,13 +228,13 @@ export function markRowsJs(): string {
   })()`;
 }
 
-/** A selector for the mark of the turn whose key is `key`. */
+/** A selector for the mark of the entry whose key is `key`. */
 export function markFor(key: string): string {
-  return `${MARK}[data-turn-key="${key}"]`;
+  return `${MARK}[data-entry-key="${key}"]`;
 }
 
 /**
- * Click the mark of turn `key` with a trusted click — shift held when
+ * Click the mark of entry `key` with a trusted click — shift held when
  * `shift` — after bringing it into the transcript's view, since the list
  * rests at its bottom and an early turn's mark is above it.
  */

@@ -1,42 +1,46 @@
 /**
  * at0819-share-turns-markdown.test.ts — share mode on a Session card: pick
- * turns, preview them, and copy them as scrubbed Markdown.
+ * entries, each on its own, and copy them as scrubbed Markdown.
  *
  * ## What this gates
  *
- * The pure pieces — the selection edits, the slice, the walk, the gate's
- * comparison — have unit tests. What only the running app has is the whole
+ * The pure pieces — the selection edits, the slice, the walk, the held
+ * artifact's comparison — have unit tests. What only the running app has is the whole
  * path: the door entering the mode, the marks drawn in the real transcript,
  * the native shift-click reaching the gesture record, the scrub round trip
- * through tugcast, the host's preview sheet, and the pasteboard.
+ * through tugcast, and the pasteboard.
  *
  *   A. File ▸ Share Turns… enters share mode: the Share shade rises from the
  *      bottom of the transcript and rests on the Z2 status bar, and the
  *      composer stays where it is, with the draft typed into it still there.
  *      Tools' choices share the left edge of the title and the description;
- *      Mark All and Clear All sit on the title's row, flush right, and hold
- *      still as the count changes; Format sits on Tools' line; and Action sits on the buttons'
- *      row, at its left, under the Tools label. Narrowed until the line does
- *      not fit, the form stacks Format under Tools with the two choices on
- *      one left edge, and widened again it is one line.
- *   B. Every entry carries its turn's check — the prompt and the answer of
- *      each of the four turns, and a shell exchange seeded after them.
- *      Clicking marks 1 and 3 toggles them (both of a turn's checks follow);
- *      a shift-click on 4 extends from 3; a click marks the shell turn — so
- *      1, 3, 4 and the shell are marked. Each check sits at the right of its
- *      entry's header, after the address, and the participant icon still
- *      draws in its seat.
+ *      Select All and Clear All sit on the title's row, flush right, and hold
+ *      still as the count changes; Format sits on Tools' line; the close
+ *      button sits in a top row above the title, flush right; and Action
+ *      sits on the action button's row, right beside it, at the row's right.
+ *      There is no Cancel. Narrowed until the line does not fit, the form
+ *      stacks Format under Tools with the two choices on one left edge, and
+ *      widened again it is one line.
+ *   B. Every entry carries a check of its own — the prompt and the answer of
+ *      each of the four turns, and a shell exchange seeded after them: nine.
+ *      Clicking turn 1's prompt selects it and leaves turn 1's answer
+ *      unselected; clicking turn 3's prompt and shift-clicking turn 4's
+ *      answer extends across the four entries between; a click selects the
+ *      shell exchange. Each check sits at the right of its entry's header,
+ *      after the address, and the participant icon still draws in its seat.
  *   C. The shade has one action button, which wears what the Action menu
- *      names. With Markdown chosen (a share starts as a PDF) and Copy chosen
- *      in the menu, a press on a selection not yet previewed shows the
- *      preview first, with a Copy button, and Return on it copies.
+ *      names and holds its width and place as the menu's choice changes.
+ *      With Markdown chosen (a share starts as a PDF) and Copy chosen in the
+ *      menu, a press copies at once: no preview sheet takes the keyboard.
  *   D. Copy writes Markdown that carries `[secret]` where the key was and
  *      `~/` where the home was — in the shell's output too — holds neither
  *      the key nor the raw home, holds the shell exchange as a fenced block,
- *      and holds nothing of the unmarked turn 2.
- *   E. Marking turn 2 moves the selection off the preview: the action button
- *      stays open, and the next press would preview again.
- *   E2. Mark All marks all five turns; Clear unmarks them, leaving the mode on.
+ *      holds turn 1's prompt without turn 1's answer, and holds nothing of
+ *      the unselected turn 2.
+ *   E. Selecting turn 2's prompt makes the held artifact stale: the action
+ *      button stays open, and the next press would make a new one.
+ *   E2. Select All selects all nine entries; Clear deselects them, leaving
+ *      the mode on.
  *   F. Escape leaves share mode, and the composer's draft is intact.
  *
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
@@ -75,7 +79,7 @@ import {
   markRowsJs,
   marksJs,
   openSeededCard,
-  pressThroughPreview,
+  pressAction,
   readPasteboard,
   setPasteboard,
 } from "./share-probes";
@@ -100,7 +104,7 @@ const settle = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
   test(
-    "mark, preview and copy scrubbed Markdown; Escape leaves with the draft intact",
+    "select entries one by one and copy scrubbed Markdown directly; Escape leaves with the draft intact",
     async () => {
       const app = await launchTugApp({ testName: "at0819-share-turns-markdown" });
       let projectDir = "";
@@ -154,10 +158,11 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
           return Math.abs(panel.getBoundingClientRect().bottom - z2.getBoundingClientRect().top);
         })()`;
         await card.waitForCondition<boolean>(`(${restJs}) !== null && (${restJs}) <= 2`, { timeoutMs: 4_000 });
-        // Tools' choices share a left edge with the title, the description
-        // and the Mark All row above them; Format sits on Tools' line; Action
-        // sits on the buttons' row, at its left, under the Tools label. With
-        // nothing marked the action button has nothing to act on.
+        // Tools' choices share a left edge with the title and the
+        // description above them; Format sits on Tools' line; the close
+        // button sits above the title, flush right; Action sits right beside
+        // the action button, at the bottom row's right. With nothing
+        // selected the action button has nothing to act on.
         const layoutJs = `(function(){
           function r(s) { return document.querySelector(s).getBoundingClientRect(); }
           var lefts = [
@@ -169,6 +174,8 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
           var format = r('[data-card-id="A"] [data-testid="session-share-format"]');
           var action = r(${JSON.stringify(ACTION_TRIGGER)});
           var go = r(${JSON.stringify(GO)});
+          var close = r('[data-card-id="A"] [data-testid="session-share-close"]');
+          var title = r('[data-card-id="A"] [data-slot="session-share-view"] .tug-sheet-title');
           return {
             lefts: lefts,
             layout: document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getAttribute("data-layout"),
@@ -179,9 +186,16 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             toolsLabelLeft: Math.round(document.querySelector('[data-card-id="A"] [data-testid="session-share-form"]').getBoundingClientRect().left),
             actionMid: Math.round(action.top + action.height / 2),
             actionLeft: Math.round(action.left),
-            actionLabelLeft: Math.round(r('[data-card-id="A"] .session-share-view__actions .session-share-view__label').left),
+            actionRight: Math.round(action.right),
+            actionWidth: Math.round(action.width),
+            actionLabelRight: Math.round(r('[data-card-id="A"] .session-share-view__actions .session-share-view__label').right),
+            closeRight: Math.round(close.right),
+            closeBottom: Math.round(close.bottom),
+            titleTop: Math.round(title.top),
+            cancels: document.querySelectorAll('[data-card-id="A"] [data-testid="session-share-cancel"]').length,
             goMid: Math.round(go.top + go.height / 2),
             goLeft: Math.round(go.left),
+            goWidth: Math.round(go.width),
             markAllLeft: Math.round(r('[data-card-id="A"] [data-testid="session-share-mark-all"]').left),
             clearRight: Math.round(r('[data-card-id="A"] [data-testid="session-share-clear"]').right),
             goRight: Math.round(go.right),
@@ -197,7 +211,9 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         })()`;
         type Layout = {
           lefts: number[]; layout: string; toolsMid: number; formatMid: number; toolsLeft: number; formatLeft: number;
-          toolsLabelLeft: number; actionMid: number; actionLeft: number; actionLabelLeft: number; goMid: number; goLeft: number;
+          toolsLabelLeft: number; actionMid: number; actionLeft: number; actionRight: number; actionWidth: number;
+          actionLabelRight: number; closeRight: number; closeBottom: number; titleTop: number; cancels: number;
+          goMid: number; goLeft: number; goWidth: number;
           markAllLeft: number; clearRight: number; goRight: number; marksMidY: number; titleMidY: number;
         };
         const layout = await card.evalJS<Layout>(layoutJs);
@@ -208,10 +224,14 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         ).toBeLessThanOrEqual(1);
         expect(Math.abs(layout.toolsMid - layout.formatMid), "Format sits on Tools' line").toBeLessThanOrEqual(2);
         expect(layout.layout, "the form is one line where it fits").toBe("line");
-        expect(Math.abs(layout.actionMid - layout.goMid), "Action sits on the buttons' row").toBeLessThanOrEqual(2);
-        expect(layout.actionLeft, "Action is at the row's left, before the buttons").toBeLessThan(layout.goLeft);
-        expect(Math.abs(layout.actionLabelLeft - layout.toolsLabelLeft), "the Action label is under the Tools label").toBeLessThanOrEqual(1);
-        expect(Math.abs(layout.marksMidY - layout.titleMidY), "Mark All sits on the title's row").toBeLessThanOrEqual(2);
+        expect(Math.abs(layout.actionMid - layout.goMid), "Action sits on the action button's row").toBeLessThanOrEqual(2);
+        expect(layout.goLeft - layout.actionRight, "Action sits right beside the action button").toBeGreaterThanOrEqual(0);
+        expect(layout.goLeft - layout.actionRight, "Action sits right beside the action button").toBeLessThanOrEqual(16);
+        expect(layout.actionLeft - layout.actionLabelRight, "the Action label is right before its menu").toBeLessThanOrEqual(16);
+        expect(layout.cancels, "there is no Cancel button").toBe(0);
+        expect(layout.closeBottom, "the close button sits in a row above the title").toBeLessThanOrEqual(layout.titleTop);
+        expect(Math.abs(layout.closeRight - layout.goRight), "the close button is flush with the action button's right edge").toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.marksMidY - layout.titleMidY), "Select All sits on the title's row").toBeLessThanOrEqual(2);
         expect(Math.abs(layout.clearRight - layout.goRight), "Clear All is flush with the action button's right edge").toBeLessThanOrEqual(1);
         // Narrowed until the line does not fit, Format stacks under Tools on
         // Tools' left edge; widened again, it is one line.
@@ -238,13 +258,13 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
 
         const marks = await card.evalJS<Mark[]>(marksJs());
         note(`at0819 marks: ${JSON.stringify(marks)}`);
-        expect(marks.length, "every turn is markable, the shell's too").toBe(5);
-        const [k1, k2, k3, k4, k5] = marks.map((m) => m.key);
+        expect(marks.length, "every entry has a check of its own, the shell's too").toBe(9);
+        const [u1, a1, u2, , u3, , , a4, shell] = marks.map((m) => m.key);
         const rows = await card.evalJS<Record<string, number>>(markRowsJs());
         note(`at0819 marks by entry: ${JSON.stringify(rows)}`);
-        expect(rows, "every entry carries its turn's check").toEqual({ user: 4, assistant: 4, shell: 1, other: 0 });
+        expect(rows, "every entry carries a check").toEqual({ user: 4, assistant: 4, shell: 1, other: 0 });
 
-        // ── B. Click 1 and 3; shift-click 4 extends from 3 ─────────────────
+        // ── B. One entry at a time; a shift-click extends ──────────────────
         // Each click is answered before the next is made, so no two clicks
         // land close enough to read as one gesture.
         const countIs = (text: string) =>
@@ -252,20 +272,29 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             `(document.querySelector(${JSON.stringify(COUNT)})?.textContent || "") === ${JSON.stringify(text)}`,
             { timeoutMs: 4_000 },
           );
-        await clickMark(app, k1);
+        await clickMark(app, u1);
         await countIs("1 turn selected");
-        await clickMark(app, k3);
+        // Checking a prompt selects the prompt: its answer stays unchecked.
+        expect(
+          await card.evalJS<string | null>(
+            `document.querySelector(${JSON.stringify(`${MARK}[data-entry-key="${a1}"]`)}).getAttribute("aria-checked")`,
+          ),
+          "turn 1's answer is not selected by its prompt's check",
+        ).toBe("false");
+        await clickMark(app, u3);
         await countIs("2 turns selected");
-        await clickMark(app, k4, true);
-        await countIs("3 turns selected");
-        await clickMark(app, k5);
-        await countIs("4 turns selected");
+        await clickMark(app, a4, true);
+        await countIs("5 turns selected");
+        await clickMark(app, shell);
+        await countIs("6 turns selected");
         expect(
           (await card.evalJS<Layout>(layoutJs)).markAllLeft,
-          "the Mark All row holds still as the count changes",
+          "Select All holds still as the count changes",
         ).toBe(layout.markAllLeft);
         const checked = (await card.evalJS<Mark[]>(marksJs())).map((m) => m.checked);
-        expect(checked, "1, 3, 4 and the shell are marked, every entry's check").toEqual([true, false, true, true, true]);
+        expect(checked, "turn 1's prompt, turns 3 and 4 whole, and the shell").toEqual([
+          true, false, false, false, true, true, true, true, true,
+        ]);
         const seat = await card.evalJS<{ icons: number; marks: number; rightOfAddress: boolean }>(`(function(){
           var marks = Array.from(document.querySelectorAll(${JSON.stringify(MARK)}));
           var right = marks.every(function (m) {
@@ -283,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(seat.icons, "every marked row keeps its participant icon").toBe(seat.marks);
         expect(seat.rightOfAddress, "each check sits right of its turn address").toBe(true);
 
-        // ── C. Copy previews first, then copies on its own button ──────────
+        // ── C. Copy copies, with no preview between ────────────────────────
         expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button is open once a turn is marked").toBe(true);
         // It is the shade's default button, and wears the default ring.
         await card.waitForCondition<boolean>(
@@ -292,11 +321,18 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         );
         await chooseFormat(app, "markdown");
         setPasteboard(SENTINEL);
-        await pressThroughPreview(app, "copy");
+        await pressAction(app, "copy");
         expect(
           await card.evalJS<string>(`document.querySelector(${JSON.stringify(GO)}).textContent || ""`),
           "the action button wears Copy",
         ).toBe("Copy");
+        // The button and the menu hold their width and place under a
+        // shorter name.
+        const underCopy = await card.evalJS<Layout>(layoutJs);
+        expect(underCopy.goWidth, "the action button holds its width").toBe(layout.goWidth);
+        expect(underCopy.goLeft, "the action button holds its place").toBe(layout.goLeft);
+        expect(underCopy.actionWidth, "the Action menu holds its width").toBe(layout.actionWidth);
+        expect(underCopy.actionLeft, "the Action menu holds its place").toBe(layout.actionLeft);
 
         // ── D. Copy writes the scrubbed Markdown ───────────────────────────
         const deadline = Date.now() + 5_000;
@@ -307,6 +343,9 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         }
         note(`at0819 copied:\n${copied}`);
         expect(copied, "something was copied").not.toBe(SENTINEL);
+        expect((await app.windowState()).isKeyWindow, "no preview sheet stood before the copy").toBe(true);
+        expect(copied, "turn 1's prompt is there").toContain("first question");
+        expect(copied, "turn 1's answer, never selected, is not").not.toContain("about apples");
         expect(copied, "the key is scrubbed").toContain("[secret]");
         expect(copied, "the home is shortened").toContain("~/src/demo/config.ts");
         expect(copied, "the key never leaves").not.toContain(SECRET);
@@ -315,19 +354,19 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
         expect(copied, "the shell exchange is a fenced block").toContain(`## Shell\n\n\`\`\`\n$ ${SHELL_COMMAND}\n`);
         expect(copied, "the shell's home is shortened").toContain("~/src/demo/notes.txt");
 
-        // ── E. Marking turn 2 moves the selection off the preview ──────────
-        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === true`, {
+        // ── E. Selecting turn 2's prompt makes the held artifact stale ─────
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").held === true`, {
           timeoutMs: 4_000,
         });
-        await clickMark(app, k2);
-        await card.waitForCondition<boolean>(`window.__tug.shareState("A").canSend === false`, {
+        await clickMark(app, u2);
+        await card.waitForCondition<boolean>(`window.__tug.shareState("A").held === false`, {
           timeoutMs: 4_000,
         });
         expect(await card.evalJS<boolean>(enabledJs(GO)), "the action button stays open").toBe(true);
 
-        // ── E2. Mark All, then Clear ───────────────────────────────────────
+        // ── E2. Select All, then Clear ─────────────────────────────────────
         await card.nativeClickAtElement(MARK_ALL);
-        await countIs("5 turns selected");
+        await countIs("9 turns selected");
         expect((await card.evalJS<Mark[]>(marksJs())).every((m) => m.checked), "every turn is marked").toBe(true);
         await card.nativeClickAtElement(CLEAR);
         await countIs("No turns selected");

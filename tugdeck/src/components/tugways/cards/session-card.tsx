@@ -220,7 +220,7 @@ import type { ShellGrammarStore } from "@/lib/shell-grammar-store";
 import type { ShellClassifyStore } from "@/lib/shell-classify-store";
 import type { PendingContextStore } from "@/lib/pending-context-store";
 import type { ShareTurnsStore } from "@/lib/share-turns-store";
-import { selectableTurnKeys } from "@/lib/share-turns";
+import { selectableEntryKeys } from "@/lib/share-turns";
 import {
   copyShare,
   pickShare,
@@ -3629,9 +3629,9 @@ export function SessionCardBody({
     shareTurnsStore.leave();
     entryDelegateRef.current?.focus();
   }, [shareTurnsStore, entryDelegateRef]);
-  // The shade's Mark All: every turn that carries a check, read live ([L07]).
+  // The shade's Select All: every entry that carries a check, read live ([L07]).
   const markAllShare = useCallback(() => {
-    shareTurnsStore.markAll(selectableTurnKeys(codeSessionStore.getSnapshot().transcript));
+    shareTurnsStore.markAll(selectableEntryKeys(codeSessionStore.getSnapshot().transcript));
   }, [shareTurnsStore, codeSessionStore]);
   // A Changes or History shade arriving leaves share mode: both make the
   // transcript inert, where the marks are. Observed on the controller itself,
@@ -3682,17 +3682,17 @@ export function SessionCardBody({
     observer.observe(el);
     shareInsetObserverRef.current = observer;
   }, []);
-  // The cell menu's Share from Here…: that turn and every later selectable
-  // turn, with that turn as the anchor ([P12]).
+  // The cell menu's Share from Here…: that entry and every later one, with
+  // that entry as the anchor ([P12]).
   const shareFromTurn = useCallback(
-    (turnKey: string) => {
-      const keys = selectableTurnKeys(codeSessionStore.getSnapshot().transcript);
-      const at = keys.indexOf(turnKey);
+    (entryKey: string) => {
+      const keys = selectableEntryKeys(codeSessionStore.getSnapshot().transcript);
+      const at = keys.indexOf(entryKey);
       if (at === -1) {
         paneBulletinRef.current?.caution("That turn can't be shared");
         return;
       }
-      enterShare(keys.slice(at), turnKey);
+      enterShare(keys.slice(at), entryKey);
     },
     [codeSessionStore, enterShare],
   );
@@ -4937,7 +4937,7 @@ export function SessionCardBody({
       [TUG_ACTIONS.FOCUS_PROMPT]: (_event: ActionEvent) => {
         entryDelegateRef.current?.focus();
       },
-      // A transcript cell menu's Share from Here…, carrying the turn's key.
+      // A transcript cell menu's Share from Here…, carrying the entry's key.
       [TUG_ACTIONS.SHARE_FROM_TURN]: (event: ActionEvent) => {
         if (typeof event.value === "string") shareFromTurn(event.value);
       },

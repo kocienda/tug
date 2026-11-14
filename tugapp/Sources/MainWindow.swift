@@ -2121,8 +2121,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// Show a share's artifact in the preview sheet, answering `onShareDone`
-    /// with `done` on Done or the confirm button, `canceled` on Cancel, or
-    /// `failed` at once when the rendered file cannot be read.
+    /// with `done` when it is dismissed, or `failed` at once when the
+    /// rendered file cannot be read.
     private func presentSharePreview(_ request: SharePreview, replyTo target: WKWebView) {
         let reply = { [weak self] (result: ShareDone.Result) in
             self?.hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
@@ -2130,10 +2130,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         guard activeSharePreview == nil,
               request.format == .markdown || ShareRenderOutput.isRenderedArtifact(path: request.path),
               let sheet = SharePreviewSheet(format: request.format, text: request.text, path: request.path,
-                                            confirm: request.confirm,
-                                            parent: self, completion: { [weak self] wentOn in
+                                            parent: self, completion: { [weak self] in
                                                 self?.activeSharePreview = nil
-                                                reply(wentOn ? .done : .canceled)
+                                                reply(.done)
                                             }) else {
             reply(.failed)
             return

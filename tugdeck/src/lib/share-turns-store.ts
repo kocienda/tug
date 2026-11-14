@@ -3,15 +3,16 @@
  *
  * One store per card, built beside the card's other services and living as
  * long as its `codeSessionStore`. It holds whether the card is in share mode,
- * which turns are marked and the anchor a shift-click extends from, the tool
- * mode and output format, and the gate every outward action passes through:
- * the last previewed artifact and the signature it was previewed for.
+ * which entries are selected (by `shareEntryKey`) and the anchor a
+ * shift-click extends from, the tool mode and output format, and the last
+ * artifact made with the signature it was made for.
  *
- * The gate is a comparison, not a flag ({@link ShareTurnsStore.canSend}):
- * Copy, Save… and Share… are open exactly when the current signature equals
- * the previewed one. A toggle that moves the signature closes it with nothing
- * to clear, and toggling back reopens it, because the artifact previewed for
- * that signature is still the one held.
+ * Every action acts directly, and makes its artifact only when it must. The
+ * held artifact is the current one by comparison, not by a flag
+ * ({@link ShareTurnsStore.holdsCurrent}): it is sent as it is exactly when
+ * the current signature equals the one it was made for. A toggle that moves
+ * the signature leaves nothing to clear, and toggling back makes the held
+ * artifact current again.
  *
  * Leaving share mode drops the selection, the artifact and a private
  * session's confirmation, so the next visit starts clean and asks again.
@@ -32,7 +33,7 @@ import {
   type ShareToolMode,
 } from "./share-turns";
 
-/** What a preview produced, which every outward action sends as it is. */
+/** What a selection was made into, which an action shows or sends as it is. */
 export interface ShareArtifact {
   format: ShareFormat;
   /** The scrubbed Markdown — the artifact itself for `markdown`, the plain-text flavour otherwise. */
@@ -55,9 +56,9 @@ export interface ShareTurnsSnapshot {
   format: ShareFormat;
   /** The action the shade's button performs. Kept across visits, like the format. */
   action: ShareAction;
-  /** The signature {@link lastArtifact} was previewed for, or `null`. */
-  previewed: string | null;
-  /** True while a preview is being prepared — the scrub and the render. */
+  /** The signature {@link lastArtifact} was made for, or `null`. */
+  heldFor: string | null;
+  /** True while an artifact is being made — the scrub and the render. */
   rendering: boolean;
   lastArtifact: ShareArtifact | null;
   /** Whether a private session's confirmation was given this visit. */
@@ -73,13 +74,13 @@ const INITIAL: ShareTurnsSnapshot = {
   toolMode: "summaries",
   format: "pdf",
   action: "preview",
-  previewed: null,
+  heldFor: null,
   rendering: false,
   lastArtifact: null,
   privateConfirmed: false,
 };
 
-/** A card's share mode: its selection, choices and preview gate. */
+/** A card's share mode: its selection, choices and held artifact. */
 export class ShareTurnsStore extends Subscribable {
   private snapshot: ShareTurnsSnapshot = INITIAL;
 
@@ -91,7 +92,7 @@ export class ShareTurnsStore extends Subscribable {
   }
 
   /**
-   * Enter share mode with `selected` marked (nothing, by default) and
+   * Enter share mode with `selected` entries selected (nothing, by default) and
    * `anchor` as the place a shift-click extends from. The tool mode and
    * format keep the card's last choice. Entering while already in the mode
    * replaces the selection.
@@ -112,35 +113,35 @@ export class ShareTurnsStore extends Subscribable {
       active: false,
       selected: EMPTY_SELECTION,
       anchor: null,
-      previewed: null,
+      heldFor: null,
       rendering: false,
       lastArtifact: null,
       privateConfirmed: false,
     });
   }
 
-  /** Toggle `key`'s mark and make it the anchor. */
+  /** Toggle the entry `key` and make it the anchor. */
   toggle(key: string): void {
     const next = toggleSelection(this.snapshot, key);
     this.set({ selected: next.selected, anchor: next.anchor });
   }
 
-  /** Mark every selectable turn from the anchor to `key`, in `order`. */
+  /** Select every entry from the anchor to `key`, in `order`. */
   extendTo(key: string, order: ReadonlyArray<string>): void {
     const next = extendSelection(this.snapshot, key, order);
     this.set({ selected: next.selected, anchor: next.anchor });
   }
 
   /**
-   * Mark every turn in `keys` — the selectable turns, as the card reads them
-   * — and clear the anchor, so the next shift-click starts from the turn it
-   * lands on.
+   * Select every entry in `keys` — the transcript's entries, as the card
+   * reads them — and clear the anchor, so the next shift-click starts from
+   * the entry it lands on.
    */
   markAll(keys: Iterable<string>): void {
     this.set({ selected: new Set(keys), anchor: null });
   }
 
-  /** Unmark every turn and clear the anchor. The mode stays on. */
+  /** Deselect every entry and clear the anchor. The mode stays on. */
   clearMarks(): void {
     if (this.snapshot.selected.size === 0 && this.snapshot.anchor === null) return;
     this.set({ selected: EMPTY_SELECTION, anchor: null });
@@ -167,9 +168,9 @@ export class ShareTurnsStore extends Subscribable {
     if (!this.snapshot.privateConfirmed) this.set({ privateConfirmed: true });
   }
 
-  /** Hold `artifact` as the preview of `signature`, opening the gate while it matches. */
-  markPreviewed(signature: string, artifact: ShareArtifact): void {
-    this.set({ previewed: signature, lastArtifact: artifact });
+  /** Hold `artifact` as what `signature` made, current while the signature matches. */
+  holdArtifact(signature: string, artifact: ShareArtifact): void {
+    this.set({ heldFor: signature, lastArtifact: artifact });
   }
 
   isSelected(key: string): boolean {
@@ -181,10 +182,10 @@ export class ShareTurnsStore extends Subscribable {
     return shareSignature(this.snapshot);
   }
 
-  /** Whether Copy, Save… and Share… may act: the artifact held is of exactly this selection. */
-  canSend(): boolean {
+  /** Whether the artifact held is of exactly this selection, tool mode and format. */
+  holdsCurrent(): boolean {
     const s = this.snapshot;
-    return s.active && s.lastArtifact !== null && s.previewed === shareSignature(s);
+    return s.active && s.lastArtifact !== null && s.heldFor === shareSignature(s);
   }
 
   dispose(): void {

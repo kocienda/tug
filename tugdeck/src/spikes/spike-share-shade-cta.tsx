@@ -20,9 +20,11 @@
  *     line, Format stacks under Tools, its choices on Tools' left edge
  *     (`useShareFormFit`, the real sheet's own).
  *  3. The action chooser — a label and a popup menu of Preview…, Copy,
- *     Save…, Share… — sits at the left of the bottom row.
- *  4. Two buttons only, at the bottom row's right: Cancel, and one button
- *     that wears whatever action the menu names.
+ *     Save…, Share… — sits at the right of the bottom row, right beside
+ *     the one button, which wears whatever action the menu names. Both are
+ *     as wide as the widest action's name (`StableLabel`, the real sheet's
+ *     own), so nothing moves as the action changes.
+ *  4. No Cancel: an ✕ in a top row of its own, at the right, leaves.
  *
  * It is live: the menu's choice renames the action button, so the pairing can
  * be judged by using it. This is the surface to keep iterating on.
@@ -47,13 +49,15 @@ import "./spike.css";
 import "./spike-share-shade-cta.css";
 
 import React, { useId, useRef, useState } from "react";
-import { Share } from "lucide-react";
+import { Share, X } from "lucide-react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
-import { useShareFormFit } from "@/components/tugways/cards/session-share-view";
+import { StableLabel, useShareFormFit } from "@/components/tugways/cards/session-share-view";
+import { TugIconButton } from "@/components/tugways/tug-icon-button";
+import type { ShareAction } from "@/lib/share-turns-store";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -119,12 +123,15 @@ function WorkingDesign(): React.ReactElement {
       },
     },
   });
-  const actionLabel = ACTIONS.find((entry) => entry.value === action)?.label ?? "";
   const formRef = useRef<HTMLDivElement | null>(null);
   useShareFormFit(formRef);
   return (
     <ResponderScope>
       <div className="sp-ssc-working" ref={responderRef as (el: HTMLDivElement | null) => void}>
+        {/* Note 4: the close button, in a top row of its own. */}
+        <div className="sp-ssc-top">
+          <TugIconButton size="sm" icon={<X size={14} />} aria-label="Close" title="Close" />
+        </div>
         <div className="sp-ssc-working-header tug-sheet-header" data-has-description="true" data-icon-tone="active">
           <div className="tug-sheet-icon" aria-hidden="true">
             <Share />
@@ -176,19 +183,21 @@ function WorkingDesign(): React.ReactElement {
             />
           </span>
         </div>
-        {/* Notes 3 and 4: Action at the bottom row's left, the two buttons at
-            its right. */}
+        {/* Note 3: Action and its button together at the bottom row's right. */}
         <div className="sp-ssc-working-actions tug-sheet-actions">
+          <span className="sp-ssc-spacer" />
           <span className="sp-ssc-field-label">Action</span>
           <span className="sp-ssc-control">
-            <TugPopupButton label={actionLabel} items={ACTION_ITEMS} senderId={actionSenderId} size="sm" aria-label="Action" />
+            <TugPopupButton
+              label={<StableLabel action={action as ShareAction} />}
+              items={ACTION_ITEMS}
+              senderId={actionSenderId}
+              size="sm"
+              aria-label="Action"
+            />
           </span>
-          <span className="sp-ssc-spacer" />
-          <TugPushButton size="sm" emphasis="outlined" role="action">
-            Cancel
-          </TugPushButton>
           <TugPushButton size="sm" emphasis="primary" role="action" persistentDefaultRing>
-            {actionLabel}
+            <StableLabel action={action as ShareAction} />
           </TugPushButton>
         </div>
       </div>
@@ -398,7 +407,7 @@ function SpikeShareShadeCta(): React.ReactElement {
       <Candidate
         letter="Working design"
         name="Sheet header, with the four notes"
-        precedent="The sheet header (A, below) as a start: Mark All and Clear All in their own row under the description; Tools and Format on one line when they fit (stacked, aligned, when they do not), Tools on the title's own left edge; and a bottom row with Action — a popup menu of Preview…, Copy, Save…, Share… — at its left and two buttons at its right: Cancel, and one that wears the menu's choice. This is what the real sheet wears. Live: change the menu and the button follows."
+        precedent="The sheet header (A, below) as a start: Mark All and Clear All in their own row under the description; Tools and Format on one line when they fit (stacked, aligned, when they do not), Tools on the title's own left edge; a bottom row with Action — a popup menu of Preview…, Copy, Save…, Share… — right beside the one button, which wears the menu's choice, both at the row's right and both holding their width; and an ✕ in a top row in place of Cancel. This is what the real sheet wears. Live: change the menu and the button follows."
         scale="Top bar 15.2px semibold · instruction 12.8px regular at 80% · labels and count 12.8px · two-line header, 36px icon"
       >
         <WorkingDesign />

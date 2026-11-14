@@ -8,8 +8,9 @@
  *   A. A previewed PDF's Copy puts HTML on the system pasteboard that carries
  *      inline styles and the first turn's prompt, and plain text that is the
  *      Markdown — read back through the native bridge.
- *   B. A previewed Image's Copy puts a PNG there, and the Markdown as plain
- *      text. The bridge's read carries no image flavour, so the type list is
+ *   B. An Image's Copy — on a format nobody has previewed, so the press
+ *      renders it and copies with no preview between — puts a PNG there, and
+ *      the Markdown as plain text. The bridge's read carries no image flavour, so the type list is
  *      read from this process with `osascript -e 'clipboard info'`, a read of
  *      the pasteboard and never an event into the app.
  *   C. Share… over the image answers `shown`. The picker's own UI is
@@ -120,19 +121,15 @@ describe.skipIf(!SHOULD_RUN)("AT0823: Copy and Share… for rendered shares", ()
 
         // ── B. An image copies as a PNG beside its Markdown ────────────────
         await chooseFormat(app, "png");
-        await previewAndDismiss(app, 15_000);
-        await card.waitForCondition<boolean>(
-          `window.__tug.shareState("A").lastArtifact?.format === "png"`,
-          { timeoutMs: 4_000 },
-        );
-        paths.push(await artifactPath());
         setPasteboard(SENTINEL);
         await pressAction(app, "copy");
-        const pngDeadline = Date.now() + 4_000;
+        const pngDeadline = Date.now() + 15_000;
         while (!clipboardInfo().includes("PNGf") && Date.now() < pngDeadline) await Bun.sleep(100);
         const info = clipboardInfo();
         note(`at0823 image clipboard info: ${info.trim()}`);
         expect(info, "the pasteboard holds a PNG").toContain("«class PNGf»");
+        expect((await app.windowState()).isKeyWindow, "no preview sheet stood before the copy").toBe(true);
+        paths.push(await artifactPath());
         const png = await readFacts();
         expect(png.textHas[0], "the plain text is the Markdown").toBe(true);
         expect(png.htmlLength, "an image carries no HTML").toBe(0);
