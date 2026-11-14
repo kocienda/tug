@@ -11,11 +11,11 @@ A message carrying any session reference ends with one block that resolves each 
 ```text
 <!-- tug:session-refs -->
 Session references in this message (read one with the command shown; do not guess at what a reference means):
-- @session:eucit/curly-apple — uuid 0f3c1e5a-…, project /u/src/eucit, verdict: elsewhere — read: tugtool session show 0f3c1e5a-…
+- @session:eucit/curly-apple — uuid 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, project /u/src/eucit, verdict: elsewhere — read: tugtool session show 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90
 - @session:tug/odd-kiln — verdict: absent — this session is not on this machine
 ```
 
-One line per distinct reference. The `uuid` is what every command below takes. The block is plumbing: it is addressed to you, the user does not see it, and there is no reason to quote it back.
+One line per distinct reference. The `uuid` is what every command below takes. The block is plumbing: it is addressed to you, the user does not see it, and there is no reason to quote it back. When you name one of these sessions in your own prose, write it as `<project>/<callsign>` without the `@session:` prefix, or as the full uuid — the three spellings the transcript renders are in *Writing prose the Session card renders*.
 
 ## The verdicts
 

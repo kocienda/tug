@@ -17,7 +17,7 @@ The `/tugplug:draft` skill **never commits** — it authors the session's landin
 
 ## Writing prose the Session card renders
 
-The rule — backtick every path you write, and write a commit sha bare in backticks — ships in `tugplug/transcript-prose.md` and rides every session's system prompt, so it holds on every project Tug opens. That file is the source; this checkout keeps no second copy. The doctrine behind it, and the resolver that rules a confirmed reference, are in [tuglaws/entity-presentation.md](tuglaws/entity-presentation.md#the-house-voices-backtick-every-path).
+The rule — backtick every path you write, write a commit sha bare in backticks, and name a session only as `project/callsign`, a full uuid or its eight-character short id — ships in `tugplug/transcript-prose.md` and rides every session's system prompt, so it holds on every project Tug opens. That file is the source; this checkout keeps no second copy. The doctrine behind it, and the resolver that rules a confirmed reference, are in [tuglaws/entity-presentation.md](tuglaws/entity-presentation.md#the-house-voices-backtick-every-path).
 
 ## The standalone contract
 
