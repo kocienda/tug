@@ -497,4 +497,80 @@ final class UpdateStateTests: XCTestCase {
         check("a machine nobody told is empty rather than wrong",
               unknown.snapshot.currentVersion == "")
     }
+
+    // ── The offered version's Claude Code floor ──────────────────────────
+    //
+    // A release can raise the oldest Claude Code Tug runs against, and the
+    // running Tug has to be able to say so before it installs the update. The
+    // floor is read off the appcast item, rides the snapshot from the moment
+    // the update is found until the flow ends, and is `nil` — "no floor
+    // stated" — for every item that carries none, which is every release
+    // published before the element existed.
+    func testTheOfferedVersionsClaudeCodeFloor() {
+        let element = UpdateSnapshot.claudeCodeFloorElement
+        check("the element is the one the appcast script writes",
+              element == "tug:minimumClaudeCodeVersion")
+
+        check("reads a stated floor",
+              UpdateSnapshot.claudeCodeFloor(in: [element: "2.1.285"]) == "2.1.285")
+        check("trims what the feed's formatting left around it",
+              UpdateSnapshot.claudeCodeFloor(in: [element: "\n  2.1.285\n"]) == "2.1.285")
+        check("an item with no element states none",
+              UpdateSnapshot.claudeCodeFloor(in: ["sparkle:version": "412"]) == nil)
+        for bad in ["", "2.1", "2.1.285.1", "2.1.x", "v2.1.285", "2.1.285-beta", "latest", "2..285"] {
+            check("'\(bad)' is not a floor",
+                  UpdateSnapshot.claudeCodeFloor(in: [element: bad]) == nil)
+        }
+        check("a value that is not a string states none",
+              UpdateSnapshot.claudeCodeFloor(in: [element: 285]) == nil)
+
+        var machine = UpdateStateMachine()
+        check("idle carries none", machine.snapshot.claudeCodeFloor == nil)
+        check("idle's floor is null on the wire",
+              wire(machine.snapshot)["claudeCodeFloor"] is NSNull)
+
+        machine.apply(.checkStarted(userInitiated: true))
+        machine.apply(.updateFound(
+            version: "0.9.0", build: "412", notes: nil, userInitiated: true,
+            claudeCodeFloor: "2.1.285"
+        ))
+        check("an update found carries its floor", machine.snapshot.claudeCodeFloor == "2.1.285")
+        check("it crosses the wire",
+              wire(machine.snapshot)["claudeCodeFloor"] as? String == "2.1.285")
+
+        // The wizard needs it at the install row, which is several stages on.
+        var seen: [String?] = []
+        machine.apply(.downloadStarted)
+        seen.append(machine.snapshot.claudeCodeFloor)
+        machine.apply(.downloadExpectedLength(200))
+        machine.apply(.downloadReceived(200))
+        seen.append(machine.snapshot.claudeCodeFloor)
+        machine.apply(.readyToInstall)
+        seen.append(machine.snapshot.claudeCodeFloor)
+        check("the floor holds from found to ready-to-install",
+              seen.allSatisfy { $0 == "2.1.285" }, "got \(seen)")
+
+        machine.apply(.dismissed)
+        check("the flow ending drops it", machine.snapshot.claudeCodeFloor == nil)
+
+        // The next update is a different release with its own statement.
+        machine.apply(.updateFound(version: "0.9.1", build: "413", notes: nil, userInitiated: true))
+        check("an item that states none leaves none standing",
+              machine.snapshot.claudeCodeFloor == nil)
+        check("and that is null on the wire",
+              wire(machine.snapshot)["claudeCodeFloor"] is NSNull)
+
+        // The snapshot round-trips through the bridge's own codec.
+        var carried = UpdateStateMachine()
+        carried.apply(.updateFound(
+            version: "0.9.0", build: "412", notes: nil, userInitiated: false,
+            claudeCodeFloor: "2.1.285"
+        ))
+        if let data = try? JSONEncoder().encode(carried.snapshot),
+           let back = try? JSONDecoder().decode(UpdateSnapshot.self, from: data) {
+            check("the floor survives the round trip", back.claudeCodeFloor == "2.1.285")
+        } else {
+            check("the floor survives the round trip", false, "could not round-trip")
+        }
+    }
 }

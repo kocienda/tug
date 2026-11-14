@@ -2,7 +2,9 @@
  * UpdateTug — the app-modal update wizard, and a sibling of ConfigureTug.
  *
  * One wizard, four steps: Check, Download, Stop work in flight, Install and
- * relaunch ([B02]). It borrows TugAlert's app-modal chrome the same way
+ * relaunch ([B02]) — and a fifth, Update Claude Code, between Download and
+ * Stop work, for an offered version that needs a newer Claude Code than this
+ * Mac has. It borrows TugAlert's app-modal chrome the same way
  * ConfigureTug does (a Radix AlertDialog portalled into the canvas overlay,
  * `tug-alert-overlay` / `tug-alert-content` at z-index 99990/99991, which
  * actually blocks the deck) and hangs a `TugStepRow` checklist in it. The two
@@ -85,6 +87,21 @@
  * one: a function of the host's snapshot and the deck's, so the crossings can
  * be checked without mounting a modal ([B07]).
  *
+ * # The offered version's Claude Code floor
+ *
+ * A Tug release states the oldest Claude Code it runs against, and the host
+ * reads that off the appcast item into the snapshot. When this Mac is under
+ * it, the wizard says so and carries the Claude Code update as a row ahead of
+ * the two that end work and replace the app. The install row stays pending
+ * until the floor is met, so the answer to "no" is the Tug that is running
+ * now, still running. Closing at that row is the ordinary close: nothing is
+ * installed, and a Claude Code that did update is one the running Tug already
+ * accepts. With no floor stated, or the floor already met, none of this draws.
+ *
+ * The version is re-read whenever the wizard is raised on such an offer:
+ * Claude Code updates itself, so the reading taken at launch can be days old,
+ * and a row asking for an update that already happened would be wrong.
+ *
  * # [L33], and why an app-modal is allowed to wait here at all
  *
  * The law's second clause is that no app-wide modal may depend on anything
@@ -118,7 +135,8 @@
  *
  * [L02] — the host's snapshot enters through `useUpdateState`, and the request
  * nonce and the open flag through `useUpdateTugRequest` / `useUpdateTugOpen`;
- * the deck's live-turn count through `useLiveTurns`; all four are
+ * the deck's live-turn count through `useLiveTurns`; the installed Claude Code
+ * and its download through `useClaudeVersion` and `useAuth`; all of them are
  * `useSyncExternalStore`.
  * [L06] — download progress is written onto its own span from a direct store
  * subscription and never renders. See `ProgressDetail` in
@@ -146,6 +164,9 @@ import {
 
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { appModalStore, usePublishAppModalOpen } from "@/lib/app-modal-store";
+import { useAuth } from "@/lib/auth-store";
+import { claudeVersionStore, useClaudeVersion } from "@/lib/claude-version-store";
+import { getConnection } from "@/lib/connection-singleton";
 import { useGateDeck } from "@/lib/gate-deck";
 import { useLiveTurns } from "@/lib/live-turns-store";
 import { openUrlInOS } from "@/lib/os-open";
@@ -180,6 +201,9 @@ import {
   offeredNotes,
   rowForStage,
   STOP_WORK,
+  UPDATE_CLAUDE,
+  isBelowOfferedFloor,
+  type ClaudeCodeReading,
   type RowKey,
 } from "./update-tug-rows";
 
@@ -234,6 +258,30 @@ function useWaitingRow(stage: UpdateStage): RowKey {
   const row = rowForStage(stage);
   if (row !== null) remembered.current = row;
   return remembered.current;
+}
+
+/**
+ * Whether this wizard has seen the installed Claude Code below the floor of
+ * the version now on offer.
+ *
+ * Remembered per offer — the version and the floor it states — so the row it
+ * keeps standing belongs to the update the user is looking at, and a different
+ * offer, or no offer, starts clean. Written during render for the reason
+ * {@link useWaitingRow} is: the render that sees the floor met is the one that
+ * needs to know it was not.
+ */
+function useWasBelowFloor(
+  state: UpdateRenderSnapshot,
+  installed: string | null,
+): boolean {
+  const seen = useRef<string | null>(null);
+  const offer =
+    isOfferedStage(state.stage) && state.claudeCodeFloor !== null
+      ? `${state.version}:${state.claudeCodeFloor}`
+      : null;
+  if (offer === null) seen.current = null;
+  else if (isBelowOfferedFloor(state, installed)) seen.current = offer;
+  return offer !== null && seen.current === offer;
 }
 
 /**
@@ -343,6 +391,9 @@ export function UpdateTug(): ReactElement {
   // The deck's half of the rows ([B05]) — how many cards have a turn in
   // flight, and their titles, republished whenever that answer moves.
   const liveTurns = useLiveTurns();
+  // Claude Code's half: what is installed, and any update of it in flight.
+  const claudeVersion = useClaudeVersion();
+  const auth = useAuth();
   // Open/closed lives in the request store rather than here, because the pill
   // reads it: it shows only while an update is live and this wizard is closed
   // ([B02]), and the two have no parent between them. This component is still
@@ -370,6 +421,16 @@ export function UpdateTug(): ReactElement {
 
   const waitingRow = useWaitingRow(state.stage);
   const stalled = useStalled(state.stage, retryNonce);
+  const wasBelowFloor = useWasBelowFloor(state, claudeVersion.installed);
+
+  // Re-read the installed Claude Code when the wizard is raised on an offer
+  // that states a floor. See the header.
+  const floorOffered =
+    isOfferedStage(state.stage) && state.claudeCodeFloor !== null;
+  useEffect(() => {
+    if (!open || !floorOffered) return;
+    getConnection()?.sendControlFrame("check_claude_version");
+  }, [open, floorOffered]);
 
   // The host's door. A count rather than a callback, so the replay that follows
   // a deck reload re-reads a number this ref has already seen and nothing
@@ -532,7 +593,33 @@ export function UpdateTug(): ReactElement {
     void deck.interruptLiveSessions().finally(() => setInterrupting(false));
   }, [deck]);
 
-  const model = deriveUpdateRows(state, liveTurns, waitingRow, stalled, interrupting);
+  // The Update press on the Claude Code row: the same request Configure Tug's
+  // row sends. tugcast re-probes the version afterwards, and that reading —
+  // rather than anything remembered here — is what settles the row.
+  const updateClaude = useCallback(() => {
+    claudeVersionStore.setUpdating(true);
+    getConnection()?.sendControlFrame("update_claude");
+  }, []);
+
+  const transferring = auth.installing || auth.verifyingInstall;
+  const claudeCode: ClaudeCodeReading = {
+    installed: claudeVersion.installed,
+    latest: claudeVersion.latest,
+    updating: claudeVersion.updating,
+    updateError: claudeVersion.updateError,
+    transferring,
+    counting:
+      auth.installing && !auth.downloadFallback && !auth.downloadComplete,
+    wasBelowFloor,
+  };
+  const model = deriveUpdateRows(
+    state,
+    liveTurns,
+    waitingRow,
+    stalled,
+    interrupting,
+    claudeCode,
+  );
   const exit = closeAction(state.stage);
   const notes = offeredNotes(state);
 
@@ -614,6 +701,7 @@ export function UpdateTug(): ReactElement {
                       onClick={() => {
                         if (!row.cta) return;
                         if (row.cta.action === STOP_WORK) stopWork();
+                        else if (row.cta.action === UPDATE_CLAUDE) updateClaude();
                         else act(row.cta.action);
                       }}
                     >

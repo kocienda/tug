@@ -5,7 +5,7 @@
  *
  * The row used to say "Claude Code is ready." and stop there. It now carries
  * the whole life of the install: which version is on this machine, what the
- * stable channel is offering, and an Update button when the two differ. All of
+ * `latest` channel is offering, and an Update button when the two differ. All of
  * that comes off the wire — `check_claude_version` → `claude_version_result`,
  * `claude --version` locally plus the release channel — so this drives the real
  * probe against the real `claude` on the machine running the test rather than

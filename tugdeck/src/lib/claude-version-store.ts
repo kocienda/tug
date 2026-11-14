@@ -1,6 +1,6 @@
 /**
  * App-level Claude Code version state — what is installed on this machine and
- * what the stable release channel is offering. Read by ConfigureTug's install
+ * what the `latest` release channel is offering. Read by ConfigureTug's install
  * row, which reports the pair and offers an update when they differ.
  *
  * Fed exclusively by `claude_version_result` CONTROL frames (the deck sends
@@ -27,7 +27,7 @@ import { Subscribable } from "@/lib/subscribable";
 export interface ClaudeVersionSnapshot {
   /** The locally installed version, or `null` when unknown / not installed. */
   installed: string | null;
-  /** The newest stable release, or `null` when the lookup failed (offline). */
+  /** The newest release on `latest`, or `null` when the lookup failed (offline). */
   latest: string | null;
   /** True once a `claude_version_result` has ever landed. */
   probed: boolean;

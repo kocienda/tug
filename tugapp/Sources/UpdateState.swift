@@ -114,6 +114,16 @@ struct UpdateSnapshot: Equatable {
     /// presentation says nothing about it; it exists so the absence of notes
     /// can be told apart from notes that were never offered.
     var releaseNotesFailed: Bool = false
+    /// The oldest Claude Code the *offered* Tug runs against, as its appcast
+    /// item states it, or `nil` when the item states none.
+    ///
+    /// It is here because the running Tug has to be able to say "this update
+    /// needs Claude Code X" before it installs the update, and the appcast
+    /// item is the only thing it has read about the incoming version by then.
+    /// `nil` is "no floor stated" and changes nothing the wizard does — which
+    /// is every release published before the element existed, and every stage
+    /// with no update in hand.
+    var claudeCodeFloor: String?
     /// True when the user asked for this check. Only a user-initiated flow
     /// may open the popover [B06].
     var userInitiated: Bool = false
@@ -190,6 +200,35 @@ struct UpdateSnapshot: Equatable {
 
 }
 
+extension UpdateSnapshot {
+    /// The appcast element a release states its Claude Code floor in, as
+    /// `tugrust/scripts/appcast-add-floor.sh` writes it.
+    static let claudeCodeFloorElement = "tug:minimumClaudeCodeVersion"
+
+    /// The Claude Code floor an appcast item states, read out of the item's
+    /// properties (`SUAppcastItem.propertiesDictionary`, where Sparkle keeps
+    /// every child element it does not recognize as a string under the
+    /// element's own name).
+    ///
+    /// `nil` unless the value is a plain `major.minor.patch`. The feed is
+    /// remote text, and what this returns is compared against an installed
+    /// version and shown to the user, so anything else — an absent element, an
+    /// empty one, a value of another type, prose — is "no floor stated" rather
+    /// than a floor nobody can satisfy.
+    ///
+    /// Takes the dictionary rather than the item so this file stays
+    /// Foundation-only and the reading stays testable without Sparkle.
+    static func claudeCodeFloor(in properties: [AnyHashable: Any]) -> String? {
+        guard let raw = properties[claudeCodeFloorElement] as? String else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } })
+        else { return nil }
+        return value
+    }
+}
+
 /// The snapshot as the deck receives it, through `__tugBridge.onUpdateState`
 /// [B03]: the deck's `updateStateToPage`.
 ///
@@ -206,7 +245,7 @@ struct UpdateSnapshot: Equatable {
 /// `cancellable` is the stage's, derived on the way out.
 extension UpdateSnapshot: Codable {
     private enum CodingKeys: String, CodingKey {
-        case stage, version, build, currentVersion, releaseNotes, releaseNotesFailed, userInitiated
+        case stage, version, build, currentVersion, releaseNotes, releaseNotesFailed, claudeCodeFloor, userInitiated
         case percent, receivedBytes, expectedBytes, message, cancellable, revealCount
     }
 
@@ -218,6 +257,7 @@ extension UpdateSnapshot: Codable {
         currentVersion = try container.decode(String.self, forKey: .currentVersion)
         releaseNotes = try container.decodeValueOrNull(String.self, forKey: .releaseNotes)
         releaseNotesFailed = try container.decode(Bool.self, forKey: .releaseNotesFailed)
+        claudeCodeFloor = try container.decodeValueOrNull(String.self, forKey: .claudeCodeFloor)
         userInitiated = try container.decode(Bool.self, forKey: .userInitiated)
         percent = try container.decodeValueOrNull(Int.self, forKey: .percent)
         receivedBytes = try container.decode(UInt64.self, forKey: .receivedBytes)
@@ -235,6 +275,7 @@ extension UpdateSnapshot: Codable {
         try container.encode(currentVersion, forKey: .currentVersion)
         try container.encode(releaseNotes, forKey: .releaseNotes)
         try container.encode(releaseNotesFailed, forKey: .releaseNotesFailed)
+        try container.encode(claudeCodeFloor, forKey: .claudeCodeFloor)
         try container.encode(userInitiated, forKey: .userInitiated)
         try container.encode(percent, forKey: .percent)
         try container.encode(receivedBytes, forKey: .receivedBytes)
@@ -252,7 +293,17 @@ enum UpdateEvent: Equatable {
     /// scheduled one says nothing until it finds something.
     case checkStarted(userInitiated: Bool)
     /// An update was found.
-    case updateFound(version: String, build: String, notes: String?, userInitiated: Bool)
+    ///
+    /// `claudeCodeFloor` is the floor the item states, already read through
+    /// `UpdateSnapshot.claudeCodeFloor(in:)`; `nil` for an item that states
+    /// none.
+    case updateFound(
+        version: String,
+        build: String,
+        notes: String?,
+        userInitiated: Bool,
+        claudeCodeFloor: String? = nil
+    )
     /// Linked release notes arrived.
     case releaseNotesLoaded(String)
     /// Linked release notes failed to arrive. Never fatal [B11].
@@ -352,13 +403,14 @@ struct UpdateStateMachine {
             resetTransfer()
             snapshot = UpdateSnapshot(stage: .checking, userInitiated: userInitiated)
 
-        case let .updateFound(version, build, notes, userInitiated):
+        case let .updateFound(version, build, notes, userInitiated, claudeCodeFloor):
             resetTransfer()
             snapshot = UpdateSnapshot(
                 stage: .available,
                 version: version,
                 build: build,
                 releaseNotes: notes,
+                claudeCodeFloor: claudeCodeFloor,
                 userInitiated: userInitiated
             )
 

@@ -369,7 +369,12 @@ final class TugUpdateDriver: NSObject, SPUUserDriver {
                 version: appcastItem.displayVersionString,
                 build: appcastItem.versionString,
                 notes: appcastItem.itemDescription,
-                userInitiated: state.userInitiated
+                userInitiated: state.userInitiated,
+                // What the incoming Tug needs of Claude Code, when its item
+                // says. An item that says nothing reads as nil.
+                claudeCodeFloor: UpdateSnapshot.claudeCodeFloor(
+                    in: appcastItem.propertiesDictionary
+                )
             )
         )
     }

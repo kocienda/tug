@@ -268,20 +268,35 @@ fn parse_manifest(json: &str, platform: &str) -> Option<(u64, String)> {
     Some((size, checksum))
 }
 
-/// Resolve the newest release on the channel and the platform's entry in its
-/// manifest. `None` is the script's case ([B08]) rather than a failure.
-pub async fn resolve_release(base_url: &str, platform: &str) -> Option<Release> {
-    let client = reqwest::Client::new();
-    let latest = client
+/// The newest release on the `latest` channel, or `None` when the lookup
+/// fails (offline, an unsupported region, a web page where a version should
+/// be).
+///
+/// This is the one reading of "newest" Tug has. [`resolve_release`] downloads
+/// what it answers, and the wizard's version row
+/// (`claude_auth::latest_version`) compares the installed version against what
+/// it answers, so the version the row names is the version a press of Update
+/// installs. The row once read the `stable` channel instead, which trails
+/// `latest`: a press could land a version newer than the one named, and an
+/// install sitting between the two read as up to date.
+pub async fn latest_version(base_url: &str, timeout: std::time::Duration) -> Option<String> {
+    let latest = reqwest::Client::new()
         .get(format!("{base_url}/latest"))
-        .timeout(METADATA_TIMEOUT)
+        .timeout(timeout)
         .send()
         .await
         .ok()?;
     if !latest.status().is_success() {
         return None;
     }
-    let version = parse_version(&latest.text().await.ok()?)?;
+    parse_version(&latest.text().await.ok()?)
+}
+
+/// Resolve the newest release on the channel and the platform's entry in its
+/// manifest. `None` is the script's case ([B08]) rather than a failure.
+pub async fn resolve_release(base_url: &str, platform: &str) -> Option<Release> {
+    let client = reqwest::Client::new();
+    let version = latest_version(base_url, METADATA_TIMEOUT).await?;
 
     let manifest = client
         .get(format!("{base_url}/{version}/manifest.json"))
@@ -944,6 +959,40 @@ mod against_a_local_server {
             !partial_in(dir.path()).exists(),
             "bytes known to be wrong are not kept for a later resume to continue"
         );
+    }
+
+    #[tokio::test]
+    async fn the_version_row_reads_the_version_the_download_resolves() {
+        let served = serve(feed(body_of(16))).await;
+        let named = latest_version(&served.base, METADATA_TIMEOUT).await;
+        let downloaded = resolve_release(&served.base, PLATFORM)
+            .await
+            .map(|release| release.version);
+        assert_eq!(named.as_deref(), Some("2.1.222"));
+        assert_eq!(
+            named, downloaded,
+            "the row names the version a press of Update would install"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_channel_that_does_not_answer_names_no_latest_version() {
+        let served = serve(Feed {
+            version: None,
+            ..feed(body_of(16))
+        })
+        .await;
+        assert_eq!(latest_version(&served.base, METADATA_TIMEOUT).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_web_page_served_as_the_channel_names_no_latest_version() {
+        let served = serve(Feed {
+            version: Some("<html><body>Not available in your region</body></html>".to_string()),
+            ..feed(body_of(16))
+        })
+        .await;
+        assert_eq!(latest_version(&served.base, METADATA_TIMEOUT).await, None);
     }
 
     #[tokio::test]

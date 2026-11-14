@@ -156,6 +156,8 @@ import type { SaveCallbackSource } from "@/deck-trace";
 import { getCardDeck } from "@/lib/deck-store-registry";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { claudeVersionStore } from "@/lib/claude-version-store";
+import { claudeTooOldTurnRefusal } from "@/components/tugways/configure-tug-copy";
 import type { HistoryEntry } from "@/lib/prompt-history-store";
 import { subscribeAppendFailures } from "@/lib/prompt-history-api";
 import { DEFAULT_ROUTE } from "@/lib/route-constants";
@@ -3468,6 +3470,20 @@ export const PromptEntry = React.forwardRef<
         routeToShell(shellLine);
         return;
       }
+    }
+
+    // Everything past here is a turn for Claude. A Claude Code below Tug's
+    // floor is not handed one: the wizard normally holds the app before a
+    // composer is reachable, and the one way to be here below the floor is
+    // offline, where it lets go so what is on disk can be read. The refusal
+    // says why and where the fix is, through the same calm card-scoped notice
+    // a pending attachment uses, and the draft stays exactly as typed. Sits
+    // after the local commands and the shell route, which need no Claude.
+    // Read live ([L07]).
+    const turnRefusal = claudeTooOldTurnRefusal(claudeVersionStore.getSnapshot().installed);
+    if (turnRefusal !== null) {
+      publishAttachmentError(turnRefusal);
+      return;
     }
 
     // Canonicalize a lone plugin command to its qualified `/<plugin>:<leaf>`

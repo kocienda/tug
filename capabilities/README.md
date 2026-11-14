@@ -14,6 +14,7 @@ directory name, the `LATEST` pointer, or the payload's `version` field.
 ```
 capabilities/
   LATEST                       # text file — single version string, e.g. "2.1.105\n"
+  FLOOR                        # text file — the oldest Claude Code Tug runs against, e.g. "2.1.285\n"
   2.1.105/
     system-metadata.jsonl      # one-line JSONL; the captured system_metadata event
   2.1.106/                     # future snapshots land here (retained; never deleted)
@@ -34,6 +35,20 @@ capabilities/
   snapshot off disk and pins its command / skill / agent counts. A capture that
   changes what claude offers changes those numbers — update them alongside the
   snapshot.
+
+- **The Claude Code versions the deck is built with.** `LATEST` is also the
+  "validated against" version the session badge shows and version drift is
+  judged from, and `FLOOR` is the version below which ConfigureTug holds the
+  app until Claude Code is updated. `claudeCodeVersionDefines` in
+  `tugdeck/vite.config.ts` inlines both into the bundle, and
+  `tugdeck/src/lib/claude-code-versions.ts` is the one module that reads them.
+
+## The floor
+
+`FLOOR` is the one file here a person writes. A capture never moves it. Raise
+it only when Tug starts depending on something a newer Claude Code introduced,
+because every raise is a forced Claude Code update for somebody; it must never
+be above `LATEST`, which would be a floor nobody captured against.
 
 ## How snapshots get here
 

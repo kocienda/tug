@@ -74,6 +74,7 @@ export interface Payload {
   currentVersion?: string;
   releaseNotes?: string | null;
   releaseNotesFailed?: boolean;
+  claudeCodeFloor?: string | null;
   userInitiated?: boolean;
   percent?: number | null;
   receivedBytes?: number;
@@ -91,6 +92,7 @@ export function snapshot(stage: string, over: Partial<Payload> = {}): Payload {
     currentVersion: "0.8.10",
     releaseNotes: null,
     releaseNotesFailed: false,
+    claudeCodeFloor: null,
     userInitiated: false,
     percent: null,
     receivedBytes: 0,

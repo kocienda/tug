@@ -122,6 +122,7 @@ async function push(app: App, revealCount: number): Promise<void> {
     currentVersion: "0.8.10",
     releaseNotes: null,
     releaseNotesFailed: false,
+    claudeCodeFloor: null,
     userInitiated: false,
     percent: null,
     receivedBytes: 0,

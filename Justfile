@@ -1126,9 +1126,10 @@ release-notes:
 # builds, signs, pushes or dispatches, and answers in seconds. Everything it
 # checks is something CI either cannot check or checks too late to be useful:
 # the version has to read the same in four files, the release notes for that
-# version have to have actually been written, the tree has to be clean and
-# pushed (CI builds the pushed ref, not yours), and the version must not
-# already be published.
+# version have to have actually been written, the Claude Code floor has to be
+# one that was captured against and named in the notes if it moved, the tree
+# has to be clean and pushed (CI builds the pushed ref, not yours), and the
+# version must not already be published.
 #
 # CI's own state on HEAD is REPORTED, NOT REQUIRED. Two facts decided that:
 # over the last 40 recorded runs of ci.yml on main, 15 were red; and the
@@ -1190,6 +1191,53 @@ bless:
         fail "$NOTES has a heading and nothing else — write it before releasing"
     else
         ok "$NOTES is written"
+    fi
+    #
+    # 2b. The Claude Code floor is a decision somebody made for this release.
+    #     capabilities/FLOOR is the oldest Claude Code this Tug runs against,
+    #     and the appcast carries it to every installed Tug, which holds its
+    #     own update behind it. Raising it is a forced Claude Code update for
+    #     whoever is under it, so the two numbers are shown side by side on
+    #     every bless, a floor above the newest capture is refused — nothing
+    #     was ever captured against it — and a floor that moved since the last
+    #     release has to be said in this version's notes, where the person it
+    #     forces will read it. The rule for raising it is in
+    #     release-notes/README.md.
+    version_shaped() { printf '%s' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; }
+    FLOOR="$(tr -d '[:space:]' < capabilities/FLOOR 2>/dev/null)"
+    CAPTURED="$(tr -d '[:space:]' < capabilities/LATEST 2>/dev/null)"
+    if ! version_shaped "$FLOOR"; then
+        fail "capabilities/FLOOR holds '$FLOOR', not a version like 2.1.285"
+    elif ! version_shaped "$CAPTURED"; then
+        fail "capabilities/LATEST holds '$CAPTURED', not a version like 2.1.325"
+    else
+        note "Claude Code floor $FLOOR, newest capture $CAPTURED (capabilities/FLOOR, capabilities/LATEST)"
+        if [ "$FLOOR" != "$CAPTURED" ] && [ "$(printf '%s\n%s\n' "$FLOOR" "$CAPTURED" | sort -V | tail -1)" = "$FLOOR" ]; then
+            fail "the Claude Code floor $FLOOR is above the newest capture $CAPTURED — capture against it first"
+        fi
+        # The release before this one: the newest v* tag that is not this
+        # version's. A release cut before the floor had a file of its own kept
+        # it as a constant in the deck, so that is read as the fallback.
+        PREV_TAG="$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vx "v$VERSION" | head -1)"
+        PREV_FLOOR=""
+        if [ -n "$PREV_TAG" ]; then
+            PREV_FLOOR="$(git show "$PREV_TAG:capabilities/FLOOR" 2>/dev/null | tr -d '[:space:]')"
+            if [ -z "$PREV_FLOOR" ]; then
+                PREV_FLOOR="$(git show "$PREV_TAG:tugdeck/src/components/tugways/configure-tug-copy.ts" 2>/dev/null \
+                    | sed -n 's/^export const MIN_CLAUDE_CODE_VERSION = "\([0-9.]*\)".*/\1/p' | head -1)"
+            fi
+        fi
+        if [ -z "$PREV_TAG" ]; then
+            note "no earlier v* tag here — cannot tell whether the Claude Code floor moved"
+        elif ! version_shaped "$PREV_FLOOR"; then
+            note "$PREV_TAG records no Claude Code floor — cannot tell whether it moved"
+        elif [ "$PREV_FLOOR" = "$FLOOR" ]; then
+            ok "the Claude Code floor is unchanged since $PREV_TAG"
+        elif [ -f "$NOTES" ] && grep -qF "Claude Code $FLOOR" "$NOTES"; then
+            ok "the Claude Code floor moved $PREV_FLOOR -> $FLOOR since $PREV_TAG, and $NOTES names it"
+        else
+            fail "the Claude Code floor moved $PREV_FLOOR -> $FLOOR since $PREV_TAG — $NOTES must say \"Claude Code $FLOOR\""
+        fi
     fi
     #
     # 3. The commit CI would build is the one you are looking at.

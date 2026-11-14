@@ -84,6 +84,7 @@
 import React from "react";
 
 import type { PropertyStore } from "@/lib/property-store";
+import { VALIDATED_CLAUDE_CODE_VERSION } from "@/lib/claude-code-versions";
 import type {
   CodeSessionStore,
   ControlRequestForward,
@@ -388,16 +389,15 @@ export function registeredTools(): ReadonlyArray<string> {
  * reference, and `versionDriftCaution` compares its `major.minor`
  * line against the running session's.
  *
- * Build-time constant. Bump it whenever a fresh capture advances the
- * golden catalog. Note that `version_drift` keys on the `major.minor`
- * *line* (see `versionLine`), so a stale patch number here is
- * harmless for drift detection — it only shows as a slightly old
- * "validated against" figure until the next capture. `system_metadata`
- * emits the bare version (`"2.1.147"`), so the constant carries no
- * `v` prefix. This is the render-time complement to
+ * Build-time constant, derived from `capabilities/LATEST` (see
+ * `lib/claude-code-versions`), so a fresh capture advances it and nobody
+ * bumps it by hand. `version_drift` keys on the `major.minor` *line* (see
+ * `versionLine`), not on the patch. `system_metadata` emits the bare
+ * version (`"2.1.147"`), and so does the pointer file, so the constant
+ * carries no `v` prefix. This is the render-time complement to
  * `dev.md#p15-stream-json-version-gate`'s server-side telemetry.
  */
-export const VALIDATED_CC_VERSION = "2.1.147";
+export const VALIDATED_CC_VERSION = VALIDATED_CLAUDE_CODE_VERSION;
 
 /**
  * Expected runtime type for a required top-level field in a tool's

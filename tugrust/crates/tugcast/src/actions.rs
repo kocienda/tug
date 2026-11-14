@@ -445,7 +445,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
         }
         Ok(A::CheckClaudeVersion) => {
             // Version probe for the wizard's install row: what is installed here
-            // and what the stable channel is offering. Both are optional — a
+            // and what the `latest` channel is offering. Both are optional — a
             // missing CLI or an unreachable network answers `null` and the row
             // simply says less. Spawned so the network lookup never blocks
             // dispatch.
@@ -458,11 +458,12 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
             });
         }
         Ok(A::UpdateClaude) => {
-            // Update in place: the official installer always lands the stable
-            // channel's newest build, so an update is the same operation as a
-            // first install — only the reporting differs, so the wizard can say
-            // "Updating…" rather than "Installing…". Re-probes the version pair
-            // afterward so the row settles on what is now installed.
+            // Update in place: the download resolves the `latest` channel's
+            // newest build, the same one the version row compares against, so
+            // an update is the same operation as a first install — only the
+            // reporting differs, so the wizard can say "Updating…" rather than
+            // "Installing…". Re-probes the version pair afterward so the row
+            // settles on what is now installed.
             info!("dispatch_action: claude update requested");
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)

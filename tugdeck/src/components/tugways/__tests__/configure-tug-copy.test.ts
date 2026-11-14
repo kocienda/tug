@@ -15,6 +15,8 @@ import {
   pendingOpenStepCopy,
   claudeInstalledCopy,
   claudeTooOldCopy,
+  claudeTooOldOfflineCopy,
+  claudeTooOldTurnRefusal,
   isClaudeBelowMinimum,
   MIN_CLAUDE_CODE_VERSION,
   compareVersions,
@@ -160,6 +162,30 @@ describe("minimum Claude Code version", () => {
     expect(claudeTooOldCopy("2.1.200")).toBe(
       "Requires Claude Code 2.1.285 or later. This Mac has 2.1.200 — update to continue.",
     );
+  });
+
+  test("offline, the row names the network as why the update cannot run, and keeps its button", () => {
+    const copy = claudeTooOldOfflineCopy("2.1.200");
+    expect(copy.label).toBe("Can't update Claude Code right now");
+    expect(copy.detail).toContain("Requires Claude Code 2.1.285 or later");
+    expect(copy.detail).toContain("This Mac has 2.1.200");
+    expect(copy.detail).toContain("offline");
+    // What is still possible, and what is not — never a bare failure.
+    expect(copy.detail).toContain("keep reading your existing sessions");
+    expect(copy.detail).toContain("starting a turn needs the update");
+    expect(copy.cta).toBe("Update");
+  });
+
+  test("a turn below the floor is refused with the two versions and where the fix is", () => {
+    expect(claudeTooOldTurnRefusal("2.1.200")).toBe(
+      "Can't start a turn: Tug needs Claude Code 2.1.285 or later and this Mac has 2.1.200. Update it from Tug › Configure Tug… when you're back online.",
+    );
+  });
+
+  test("a turn at or above the floor, or on an unknown version, is not refused", () => {
+    expect(claudeTooOldTurnRefusal("2.1.285")).toBeNull();
+    expect(claudeTooOldTurnRefusal("2.1.325")).toBeNull();
+    expect(claudeTooOldTurnRefusal(null)).toBeNull();
   });
 });
 
@@ -404,7 +430,10 @@ describe("deriveConfigureTugRequired", () => {
     expect(deriveConfigureTugRequired({ ...base, claudeTooOld: true })).toBe(true);
   });
 
-  test("no route does not relax a Claude Code below the floor", () => {
+  test("no route relaxes a Claude Code below the floor, since the update is a download", () => {
+    // This case once asserted the opposite: the claim held offline, behind an
+    // Update button that could not work. The relaxation is the same one the
+    // logged-out claim has, and the two drop together here.
     expect(
       deriveConfigureTugRequired({
         ...base,
@@ -413,6 +442,28 @@ describe("deriveConfigureTugRequired", () => {
         notReady: true,
         pathStatus: "unsatisfied",
       }),
+    ).toBe(false);
+    expect(
+      deriveConfigureTugRequired({ ...base, claudeTooOld: true, pathStatus: "unsatisfied" }),
+    ).toBe(false);
+  });
+
+  test("only the believed negative relaxes it: a route, or no report, leaves the claim", () => {
+    for (const pathStatus of ["satisfied", "requiresConnection", null]) {
+      expect(
+        deriveConfigureTugRequired({ ...base, claudeTooOld: true, pathStatus }),
+      ).toBe(true);
+    }
+  });
+
+  test("below the floor with no route relaxes nothing else the wizard is owed", () => {
+    const offline = { ...base, claudeTooOld: true, pathStatus: "unsatisfied" };
+    expect(deriveConfigureTugRequired({ ...offline, needsFirstSession: true })).toBe(true);
+    expect(deriveConfigureTugRequired({ ...offline, probing: true })).toBe(true);
+    expect(deriveConfigureTugRequired({ ...offline, forced: true })).toBe(true);
+    // Logged out for a reason the network does not explain away.
+    expect(
+      deriveConfigureTugRequired({ ...offline, notReady: true, reason: "claude_missing" }),
     ).toBe(true);
   });
 

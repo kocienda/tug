@@ -124,6 +124,16 @@ export interface UpdateSnapshot {
    */
   releaseNotesFailed: boolean;
   /**
+   * The oldest Claude Code the *offered* Tug runs against, as its appcast
+   * item states it, or `null` when the item states none — every release
+   * published before the element existed, and every stage with no update in
+   * hand. `null` is "no floor stated", and changes nothing the wizard does.
+   *
+   * It rides the snapshot because this is the only moment the running Tug can
+   * say what the incoming one needs: before it is installed.
+   */
+  claudeCodeFloor: string | null;
+  /**
    * True when the user started this check. The only flow permitted to open
    * the wizard on its own — every other transition may light the pill and
    * nothing more.
@@ -179,6 +189,7 @@ export const IDLE_UPDATE: UpdateSnapshot = {
   currentVersion: "",
   releaseNotes: null,
   releaseNotesFailed: false,
+  claudeCodeFloor: null,
   userInitiated: false,
   percent: null,
   receivedBytes: 0,
@@ -196,6 +207,7 @@ function snapshotsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.currentVersion === b.currentVersion &&
     a.releaseNotes === b.releaseNotes &&
     a.releaseNotesFailed === b.releaseNotesFailed &&
+    a.claudeCodeFloor === b.claudeCodeFloor &&
     a.userInitiated === b.userInitiated &&
     a.percent === b.percent &&
     a.receivedBytes === b.receivedBytes &&
@@ -225,6 +237,7 @@ function renderFieldsEqual(a: UpdateSnapshot, b: UpdateSnapshot): boolean {
     a.currentVersion === b.currentVersion &&
     a.releaseNotes === b.releaseNotes &&
     a.releaseNotesFailed === b.releaseNotesFailed &&
+    a.claudeCodeFloor === b.claudeCodeFloor &&
     a.userInitiated === b.userInitiated &&
     a.message === b.message &&
     a.cancellable === b.cancellable &&

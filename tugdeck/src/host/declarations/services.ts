@@ -918,7 +918,7 @@ export const dictationToPage = defineToPage<DictationEvent>({
  * writes every field in every stage (an `idle` snapshot still carries the
  * running version and the reveal count), and the store keeps the snapshot
  * whole, so a stage's variant would differ from the next only in which of
- * the same thirteen fields it reads, never in which it carries.
+ * the same fourteen fields it reads, never in which it carries.
  */
 export const updateStateToPage = defineToPage({
   member: "onUpdateState",
@@ -930,6 +930,7 @@ export const updateStateToPage = defineToPage({
     currentVersion: str,
     releaseNotes: nullable(str),
     releaseNotesFailed: bool,
+    claudeCodeFloor: nullable(str),
     userInitiated: bool,
     percent: nullable(num),
     receivedBytes: num,
@@ -946,6 +947,23 @@ export const updateStateToPage = defineToPage({
       currentVersion: "1.3.2",
       releaseNotes: null,
       releaseNotesFailed: false,
+      claudeCodeFloor: null,
+      userInitiated: true,
+      percent: null,
+      receivedBytes: 0,
+      expectedBytes: 0,
+      message: "",
+      cancellable: false,
+      revealCount: 1,
+    },
+    {
+      stage: "available",
+      version: "1.4.0",
+      build: "140",
+      currentVersion: "1.3.2",
+      releaseNotes: null,
+      releaseNotesFailed: false,
+      claudeCodeFloor: "2.1.285",
       userInitiated: true,
       percent: null,
       receivedBytes: 0,
@@ -965,6 +983,7 @@ export const updateStateToPage = defineToPage({
       currentVersion: "1.3.2",
       releaseNotes: null,
       releaseNotesFailed: false,
+      claudeCodeFloor: null,
       userInitiated: false,
       percent: null,
       receivedBytes: 0,

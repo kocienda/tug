@@ -237,6 +237,8 @@ import {
 } from "./session-card-banner-spec";
 import { TransientNoticeController } from "./transient-notice-controller";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { claudeVersionStore } from "@/lib/claude-version-store";
+import { claudeTooOldTurnRefusal } from "@/components/tugways/configure-tug-copy";
 
 import { createStagedLanding, type StagedLanding } from "./staged-landing";
 import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller";
@@ -4456,6 +4458,13 @@ export function SessionCardBody({
         return;
       }
       const focus = args.trim();
+      // `/compact` is a turn, and it is sent from here rather than through
+      // the composer's send, so the too-old refusal is read here too.
+      const compactRefusal = claudeTooOldTurnRefusal(claudeVersionStore.getSnapshot().installed);
+      if (compactRefusal !== null) {
+        notify?.caution(compactRefusal);
+        return;
+      }
       // Sent as a substrate, not a flat line: the command is a leading
       // `command` atom and the focus keeps whatever atoms the user typed, so
       // the transcript row reads `/compact` + its file chips — the same ink
@@ -4715,6 +4724,13 @@ export function SessionCardBody({
         return;
       }
       writeLastReviewedPlan(cardId, target.path);
+      // A review is a turn sent from here, so it reads the too-old refusal
+      // the composer's send reads.
+      const reviewRefusal = claudeTooOldTurnRefusal(claudeVersionStore.getSnapshot().installed);
+      if (reviewRefusal !== null) {
+        notify?.caution(reviewRefusal);
+        return;
+      }
       const submission = buildCommandSubmission(
         REVIEW_PLAN_COMMAND,
         target.path,

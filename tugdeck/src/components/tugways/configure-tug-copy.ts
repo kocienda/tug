@@ -6,6 +6,8 @@
  * @module components/tugways/configure-tug-copy
  */
 
+import { CLAUDE_CODE_FLOOR_VERSION } from "@/lib/claude-code-versions";
+
 /**
  * Formal label for a Claude subscription tier (from `claude auth status`'s
  * `subscriptionType`), for the signed-in step's detail. Returns `undefined`
@@ -84,7 +86,7 @@ export function compareVersions(a: string, b: string): number {
 
 /**
  * The install row's copy once Claude Code is present: what version is here,
- * and whether the stable channel has a newer one. Every field is optional on
+ * and whether the `latest` channel has a newer one. Every field is optional on
  * the wire — a machine with no network knows its own version but not the
  * channel's, and a version lookup that has not answered yet knows neither — so
  * the row says only what it actually knows rather than guessing.
@@ -115,8 +117,12 @@ export function claudeInstalledCopy(
  * wizard claims the app (see {@link deriveConfigureTugRequired}) and the rows
  * after it hold until the update lands. Raise it when Tug starts depending on
  * something a newer Claude Code introduced.
+ *
+ * The number is written in `capabilities/FLOOR`, plain text beside the capture
+ * pointer, so that what the release tooling reads and what the wizard enforces
+ * are one value; `lib/claude-code-versions` is how it gets here.
  */
-export const MIN_CLAUDE_CODE_VERSION = "2.1.285";
+export const MIN_CLAUDE_CODE_VERSION = CLAUDE_CODE_FLOOR_VERSION;
 
 /**
  * Whether the installed Claude Code is older than Tug's floor. An unknown
@@ -137,6 +143,55 @@ export function claudeTooOldCopy(
   minimum: string = MIN_CLAUDE_CODE_VERSION,
 ): string {
   return `Requires Claude Code ${minimum} or later. This Mac has ${installed} — update to continue.`;
+}
+
+/** What the install row says when Claude Code is below the floor and there is no network. */
+export interface ClaudeTooOldOfflineCopy {
+  label: string;
+  detail: string;
+  /** The button stays — it is what the user presses when the network is back. */
+  cta: string;
+}
+
+/**
+ * The install row's copy when the installed Claude Code is below the floor
+ * and the host reports no route: the one fix is a download, and it cannot
+ * happen right now.
+ *
+ * It keeps the button for the reason {@link authOfflineCopy} keeps its own: a
+ * row that explains a failure while withdrawing the only way to retry is a
+ * dead end. The detail carries the reason, and says what the user is left
+ * with, because in this state the wizard has let go of the app (see
+ * {@link deriveConfigureTugRequired}).
+ */
+export function claudeTooOldOfflineCopy(
+  installed: string,
+  minimum: string = MIN_CLAUDE_CODE_VERSION,
+): ClaudeTooOldOfflineCopy {
+  return {
+    label: "Can't update Claude Code right now",
+    detail: `Requires Claude Code ${minimum} or later. This Mac has ${installed}, and the update downloads from Anthropic, which can't finish while you're offline. You can keep reading your existing sessions; starting a turn needs the update.`,
+    cta: "Update",
+  };
+}
+
+/**
+ * Why a turn cannot start on this machine's Claude Code, or `null` when it
+ * can. Below the floor Tug does not hand a turn to a CLI it was not built
+ * against. Normally the wizard holds the app before a card is reachable; the
+ * one way to be at a composer below the floor is the offline relaxation in
+ * {@link deriveConfigureTugRequired}, so the sentence says where the fix is
+ * and that it needs the network.
+ *
+ * An unknown version refuses nothing, exactly as in
+ * {@link isClaudeBelowMinimum}.
+ */
+export function claudeTooOldTurnRefusal(
+  installed: string | null,
+  minimum: string = MIN_CLAUDE_CODE_VERSION,
+): string | null {
+  if (installed === null || !isClaudeBelowMinimum(installed, minimum)) return null;
+  return `Can't start a turn: Tug needs Claude Code ${minimum} or later and this Mac has ${installed}. Update it from Tug › Configure Tug… when you're back online.`;
 }
 
 /**
@@ -410,6 +465,16 @@ export function deriveProbingHold(signals: {
  * Nothing else changes for such a user: `setup-seen` is still gated on a
  * definite login (see {@link deriveFirstRunComplete}), so getting out of the
  * way does not record a setup that never happened.
+ *
+ * **The too-old claim is relaxed the same way, on the same reading.** A
+ * Claude Code below the floor is fixed by a download, and with the path
+ * `unsatisfied` that download cannot happen: holding the app behind an Update
+ * button that cannot work is the same door with no handle. So the claim drops
+ * on `unsatisfied` only — `satisfied` and `null` leave it standing — and the
+ * user reaches a deck where what is on disk can be read. This removes a block
+ * and adds no capability: a turn is still refused, with the reason (see
+ * {@link claudeTooOldTurnRefusal}), because the CLI is still one Tug was not
+ * built against.
  */
 export function deriveConfigureTugRequired(signals: {
   suppressed: boolean;
@@ -418,9 +483,10 @@ export function deriveConfigureTugRequired(signals: {
   needsFirstSession: boolean;
   probing: boolean;
   /**
-   * The installed Claude Code is below {@link MIN_CLAUDE_CODE_VERSION}. Not
-   * relaxed by the path hint: an app that cannot run the CLI it has is not
-   * made usable by getting out of the way.
+   * The installed Claude Code is below {@link MIN_CLAUDE_CODE_VERSION}.
+   * Relaxed by an `unsatisfied` path hint, as the logged-out claim is: the
+   * update is a download, and a user who cannot reach it is not held out of
+   * what they can still read.
    */
   claudeTooOld: boolean;
   /** The `reason` beside `loggedIn` — `"logged_out"` is the arm below. */
@@ -434,11 +500,15 @@ export function deriveConfigureTugRequired(signals: {
   // negative; `satisfied` and `null` both leave the claim standing.
   const loggedOutOffline =
     signals.reason === "logged_out" && signals.pathStatus === "unsatisfied";
+  // Below the floor, and the download that fixes it has no route. The same
+  // one-directional reading.
+  const tooOldOffline =
+    signals.claudeTooOld && signals.pathStatus === "unsatisfied";
   return (
     (signals.notReady && !loggedOutOffline) ||
     signals.needsFirstSession ||
     signals.probing ||
-    signals.claudeTooOld
+    (signals.claudeTooOld && !tooOldOffline)
   );
 }
 

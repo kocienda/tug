@@ -627,7 +627,7 @@ async function loadTestSurface(
   // `observeConnectionDidReconnect`.
   connection.sendControlFrame("check_auth");
   // …and the Claude Code version pair the wizard's install row reports
-  // (installed here vs newest on the stable channel). Same timing rule as the
+  // (installed here vs newest on the `latest` channel). Same timing rule as the
   // auth probe: sent after `initActionDispatch` registered its handler.
   connection.sendControlFrame("check_claude_version");
 

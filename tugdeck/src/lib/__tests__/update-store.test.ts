@@ -40,6 +40,7 @@ function available(overrides: Partial<UpdateSnapshot> = {}): UpdateSnapshot {
     currentVersion: "0.8.10",
     releaseNotes: "# 0.9.0",
     releaseNotesFailed: false,
+    claudeCodeFloor: null,
     userInitiated: true,
     percent: null,
     receivedBytes: 0,
@@ -72,6 +73,7 @@ describe("update-store: a host snapshot lands whole", () => {
       currentVersion: "0.8.10",
       releaseNotes: "# 0.9.0",
       releaseNotesFailed: false,
+      claudeCodeFloor: null,
       userInitiated: true,
       percent: null,
       receivedBytes: 0,
@@ -114,6 +116,34 @@ describe("update-store: a host snapshot lands whole", () => {
     );
     expect(updateStore.getSnapshot().percent).toBe(42);
     expect(updateStore.getSnapshot().cancellable).toBe(true);
+  });
+
+  it("carries the offered version's Claude Code floor, and none when none is stated", () => {
+    updateStore.apply(updateFromPayload(available({ claudeCodeFloor: "2.1.285" })));
+    expect(updateStore.getSnapshot().claudeCodeFloor).toBe("2.1.285");
+    // The render snapshot carries it too: it is what a row is drawn from.
+    expect(updateStore.getRenderSnapshot().claudeCodeFloor).toBe("2.1.285");
+
+    updateStore.apply(updateFromPayload(available()));
+    expect(updateStore.getSnapshot().claudeCodeFloor).toBeNull();
+  });
+
+  it("a floor arriving on an otherwise unchanged snapshot is a change", () => {
+    updateStore.apply(updateFromPayload(available()));
+    let notifications = 0;
+    const unsubscribe = updateStore.subscribe(() => {
+      notifications += 1;
+    });
+    updateStore.apply(updateFromPayload(available({ claudeCodeFloor: "2.1.285" })));
+    unsubscribe();
+    expect(notifications).toBe(1);
+  });
+
+  it("idle carries no floor, whatever the payload said", () => {
+    updateStore.apply(
+      updateFromPayload(available({ stage: "idle", claudeCodeFloor: "2.1.285" })),
+    );
+    expect(updateStore.getSnapshot().claudeCodeFloor).toBeNull();
   });
 });
 

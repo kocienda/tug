@@ -60,6 +60,41 @@ made there is the one that ships; `just release-notes` opens it in `$VISUAL`
 or `$EDITOR` at any other time. Editing and confirming is a person's job, and
 `just bless` refuses to release while the seed is still in the file.
 
+## The Claude Code floor
+
+`capabilities/FLOOR` is the oldest Claude Code this version of Tug runs
+against. It is one line of plain text, and it is the only place the number is
+written: the deck is built with it, and `make-appcast.sh` writes it onto the
+appcast item, which is how a Tug that is already installed learns what the
+next version needs before it installs it. A user under the floor is asked to
+update Claude Code before Tug will install the update, and a user who reaches
+the new Tug under it some other way is held at Configure Tug until they do.
+
+So every raise is a forced Claude Code update for somebody, and the rule is
+narrow on purpose:
+
+- **Raise it only when Tug starts depending on something a newer Claude Code
+  introduced** — a wire shape, a flag, a behaviour the code now assumes. A
+  report of breakage on a version inside the supported range is the other
+  reason. Being behind the newest release is not one: between the floor and
+  the newest capture the user is left alone, and nothing nags them.
+- **Never raise it past `capabilities/LATEST`.** That file is the version of
+  the newest capture, so a floor above it is a floor nothing was ever captured
+  or tested against.
+- **Say it in the notes.** When the floor differs from the previous release's,
+  this version's file has to name the new one with the words
+  `Claude Code <version>` — for example "This version needs Claude Code
+  2.1.300 or later; Tug offers the update before it installs." It is the one
+  line of a release that tells a person the update will change something
+  outside Tug.
+
+There is no ceiling. A Claude Code newer than the newest capture runs, and the
+blocks that might have drifted say so on themselves.
+
+`just bless` holds the last two. It prints the floor beside the newest capture
+on every run, fails when the floor is above the capture, and fails when the
+floor moved since the previous `v*` tag and the notes do not name it.
+
 ## When it is missing
 
 Nothing breaks. `make-appcast.sh` warns on stderr and generates the feed

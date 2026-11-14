@@ -1,5 +1,5 @@
 /**
- * update-tug-rows — the wizard's four rows, as a function of what is true.
+ * update-tug-rows — the wizard's rows, as a function of what is true.
  *
  * `UpdateTug` used to compute these inline, which was fine while the only
  * input was the host's snapshot: a pure function of one argument that happens
@@ -45,9 +45,23 @@ import {
 } from "@/lib/update-store";
 import type { TugStepRowStatus } from "./tug-step-row";
 import { TugProgressIndicator } from "./tug-progress-indicator";
+import {
+  ClaudeDownloadBar,
+  ClaudeDownloadDetail,
+} from "./claude-download-progress";
+import { isClaudeBelowMinimum } from "./configure-tug-copy";
 
-/** The four rows, in the order they are walked ([B02]). */
-export type RowKey = "check" | "download" | "stop-work" | "relaunch";
+/**
+ * The rows, in the order they are walked ([B02]). Four of them are always
+ * there; `update-claude` joins them only for an offered version whose Claude
+ * Code floor is above what this Mac has.
+ */
+export type RowKey =
+  | "check"
+  | "download"
+  | "update-claude"
+  | "stop-work"
+  | "relaunch";
 
 /**
  * The one press in the wizard that is answered by the deck rather than by the
@@ -60,6 +74,66 @@ export type RowKey = "check" | "download" | "stop-work" | "relaunch";
  * `data-step` and `data-testid` both end up carrying.
  */
 export const STOP_WORK = "stop-work";
+
+/**
+ * The other press the host's updater does not answer: it asks tugcast to
+ * update Claude Code. Spelled as its row's key, for the reason
+ * {@link STOP_WORK} is.
+ */
+export const UPDATE_CLAUDE = "update-claude";
+
+/**
+ * What the Claude Code row is derived from: the installed version and the
+ * state of a Tug-managed update of it.
+ */
+export interface ClaudeCodeReading {
+  /** The installed version, or `null` when unknown or not installed. */
+  installed: string | null;
+  /** The newest release on the channel an update installs, when known. */
+  latest: string | null;
+  /** An `update_claude` has been sent and has not settled. */
+  updating: boolean;
+  /** The last update's error, or `null`. */
+  updateError: string | null;
+  /** The download behind the update is running, or its install step is. */
+  transferring: boolean;
+  /** That download is one Tug is counting the bytes of. */
+  counting: boolean;
+  /**
+   * This wizard has already seen the installed version below the offered
+   * version's floor. It is what keeps the row standing, settled, once the
+   * update lands — a row that vanished the moment its button worked would
+   * read as the wizard losing its place. Not derivable from the versions:
+   * once the floor is met they say only that it is met.
+   */
+  wasBelowFloor: boolean;
+}
+
+/** A reading that draws no Claude Code row: nothing is known to be too old. */
+export const NO_CLAUDE_CODE_READING: ClaudeCodeReading = {
+  installed: null,
+  latest: null,
+  updating: false,
+  updateError: null,
+  transferring: false,
+  counting: false,
+  wasBelowFloor: false,
+};
+
+/**
+ * Whether the offered version's stated Claude Code floor is above the
+ * installed version. False when no floor is stated, when no version is on
+ * offer, and when the installed version is unknown — a floor is a claim about
+ * a version, and with no version to hold it against there is nothing to say.
+ */
+export function isBelowOfferedFloor(
+  state: UpdateRenderSnapshot,
+  installed: string | null,
+): boolean {
+  if (!isOfferedStage(state.stage)) return false;
+  if (state.claudeCodeFloor === null) return false;
+  return isClaudeBelowMinimum(installed, state.claudeCodeFloor);
+}
 
 /**
  * The offered version's release notes, or `null` when there is nothing to draw.
@@ -115,7 +189,7 @@ export interface RowModel {
   edge?: ReactNode;
   cta?: {
     label: string;
-    action: UpdateAction | typeof STOP_WORK;
+    action: UpdateAction | typeof STOP_WORK | typeof UPDATE_CLAUDE;
   };
 }
 
@@ -290,7 +364,7 @@ function youHave(state: UpdateRenderSnapshot, rest: string): string {
 }
 
 /**
- * The four rows for the moment in hand.
+ * The rows for the moment in hand.
  *
  * Unpacking is the download row's detail phase rather than a row ([B02]): the
  * user named four things, and "Verifying the signature…" is a sentence about
@@ -306,6 +380,9 @@ function youHave(state: UpdateRenderSnapshot, rest: string): string {
  *                    sessions have not acknowledged yet leaves the count
  *                    exactly where it was, which is the case the busy state is
  *                    for.
+ * @param claudeCode  the installed Claude Code and any update of it in flight.
+ *                    With no floor stated on the offered version, or the floor
+ *                    already met, it changes nothing and four rows come back.
  */
 export function deriveUpdateRows(
   state: UpdateRenderSnapshot,
@@ -313,6 +390,7 @@ export function deriveUpdateRows(
   waitingRow: RowKey,
   stalled: boolean,
   interrupting: boolean,
+  claudeCode: ClaudeCodeReading = NO_CLAUDE_CODE_READING,
 ): RowModel[] {
   const stage = state.stage;
 
@@ -457,7 +535,19 @@ export function deriveUpdateRows(
     }
   }
 
-  const stopWork = deriveStopWorkRow(stage, liveTurns, interrupting);
+  // The offered version's Claude Code floor, when this Mac is under it. The
+  // update is a row of its own, ahead of the two that end work and replace the
+  // app, so that declining it leaves the running Tug exactly as it was: an
+  // older Tug beside a newer Claude Code is a state Tug already runs in.
+  const claude = deriveClaudeCodeRow(state, claudeCode);
+  const claudeHolds = claude !== null && claude.status !== "done";
+
+  // While that row is unsettled the Stop-work row waits behind it. Asking the
+  // user to end their turns for an install that cannot yet be offered would be
+  // asking them to give something up for nothing.
+  const stopWork = claudeHolds
+    ? pendingStopWorkRow()
+    : deriveStopWorkRow(stage, liveTurns, interrupting);
 
   // The install row opens only once the Stop-work row is done ([B04]). Pending
   // rather than disabled: a dead primary button with no explanation is a dead
@@ -469,7 +559,80 @@ export function deriveUpdateRows(
     relaunch.cta = { label: "Install and Relaunch", action: "install" };
   }
 
-  return [check, download, stopWork, relaunch];
+  return claude === null
+    ? [check, download, stopWork, relaunch]
+    : [check, download, claude, stopWork, relaunch];
+}
+
+/**
+ * The *Update Claude Code* row, or `null` when the wizard has no reason to
+ * draw one.
+ *
+ * It says the floor from the moment the update is offered, so the user reads
+ * what this version asks for before they download it, and it takes its turn —
+ * the dot and the button — once the download has landed. The install row
+ * cannot open while this one is unsettled; see {@link deriveUpdateRows}.
+ */
+function deriveClaudeCodeRow(
+  state: UpdateRenderSnapshot,
+  claudeCode: ClaudeCodeReading,
+): RowModel | null {
+  const floor = state.claudeCodeFloor;
+  if (floor === null || !isOfferedStage(state.stage)) return null;
+  const below = isBelowOfferedFloor(state, claudeCode.installed);
+  if (!below && !claudeCode.wasBelowFloor) return null;
+
+  const row: RowModel = {
+    key: UPDATE_CLAUDE,
+    label: "Update Claude Code",
+    status: "pending",
+  };
+
+  if (!below) {
+    row.status = "done";
+    row.detail =
+      claudeCode.installed === null
+        ? "Claude Code is up to date."
+        : `Claude Code ${claudeCode.installed} is installed.`;
+    return row;
+  }
+
+  // An update in flight is drawn at whatever stage it is in flight: it may
+  // have been started from this row, or from Configure Tug before the wizard
+  // was raised, and either way it is the same transfer.
+  if (claudeCode.transferring || claudeCode.updating) {
+    row.status = "busy";
+    row.detail = claudeCode.counting ? (
+      <ClaudeDownloadDetail testId="update-tug-claude-progress" />
+    ) : claudeCode.latest !== null ? (
+      `Installing ${claudeCode.latest}…`
+    ) : (
+      "Installing the update…"
+    );
+    if (claudeCode.transferring) {
+      row.edge = <ClaudeDownloadBar testId="update-tug-claude-bar" />;
+    }
+    return row;
+  }
+
+  if (claudeCode.updateError !== null) {
+    row.status = "error";
+    row.detail = `Update failed: ${claudeCode.updateError}`;
+    row.cta = { label: "Retry", action: UPDATE_CLAUDE };
+    return row;
+  }
+
+  row.detail = `This update needs Claude Code ${floor}; you have ${claudeCode.installed}.`;
+  if (state.stage === "readyToInstall") {
+    row.status = "active";
+    row.cta = { label: "Update", action: UPDATE_CLAUDE };
+  }
+  return row;
+}
+
+/** The Stop-work row before its turn has come. */
+function pendingStopWorkRow(): RowModel {
+  return { key: "stop-work", label: "Stop work in flight", status: "pending" };
 }
 
 /**
@@ -487,11 +650,7 @@ function deriveStopWorkRow(
   liveTurns: LiveTurnsSnapshot,
   interrupting: boolean,
 ): RowModel {
-  const row: RowModel = {
-    key: "stop-work",
-    label: "Stop work in flight",
-    status: "pending",
-  };
+  const row = pendingStopWorkRow();
 
   // Before the download has landed there is nothing to stop *for*. Downloading
   // ends no turns, so a row that went active during it would be asking the user

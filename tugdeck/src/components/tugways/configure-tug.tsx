@@ -21,12 +21,12 @@
  *      collapsed into a bare `git --version` — see [D171] and
  *      `tugcore::host_tools`.
  *   1. Claude Code — Tug-managed install + recheck, then the version it landed
- *      against the newest stable release, with an Update offer when it's
+ *      against the newest release on the `latest` channel, with an Update offer when it's
  *      behind. Below {@link MIN_CLAUDE_CODE_VERSION} the offer becomes the
  *      step: the wizard claims the app, the rows after it hold, and the user
- *      updates to continue. The updater IS the installer (the official
- *      installer always lands the newest stable build), so both live on one
- *      row. Tug fetches
+ *      updates to continue. The updater IS the installer (it always lands
+ *      the newest build on `latest`, the version the row names), so both
+ *      live on one row. Tug fetches
  *      the release itself ([B08]) rather than piping the official script into
  *      bash, so the row draws a real bar with bytes, rate and time remaining,
  *      and the transfer can be paused and resumed ([B09]) — the partial file
@@ -137,17 +137,13 @@ import {
 } from "@/lib/claude-version-store";
 import { hostToolsStore, useHostTools } from "@/lib/host-tools-store";
 import { useNetworkPath } from "@/lib/network-path-store";
-import {
-  formatBytes,
-  newRateEstimator,
-  transferDetailLine,
-  type RateEstimator,
-} from "@/lib/transfer-rate";
+import { formatBytes } from "@/lib/transfer-rate";
 import {
   subscriptionLabel,
   pendingOpenStepCopy,
   claudeInstalledCopy,
   claudeTooOldCopy,
+  claudeTooOldOfflineCopy,
   isClaudeBelowMinimum,
   MIN_CLAUDE_CODE_VERSION,
   isLoginOnlyWizard,
@@ -163,6 +159,10 @@ import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser, useFileChooserHost } from "./tug-file-chooser";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
 import { TugProgressIndicator } from "./tug-progress-indicator";
+import {
+  ClaudeDownloadBar,
+  ClaudeDownloadDetail,
+} from "./claude-download-progress";
 import "./tug-alert.css";
 import "./configure-tug.css";
 
@@ -188,86 +188,6 @@ function parseProjectPath(entry: TaggedValue | undefined): string {
     return entry.value;
   }
   return "";
-}
-
-/**
- * The Claude Code download's bar, painted rather than rendered ([B05], [B07],
- * [L06]).
- *
- * The same seam the update wizard's bar uses, over `authStore` instead: the
- * fraction goes onto the custom property, `data-painted` switches the bar off
- * the barber pole, and `aria-valuenow` is there for anyone reading the row
- * rather than looking at it. Indeterminate until a total is known, which for
- * this download means until the manifest has been read — and forever on the
- * script fallback, which reports nothing at all ([B08]).
- */
-function ClaudeDownloadBar(): ReactElement {
-  const [el, setEl] = useState<HTMLSpanElement | null>(null);
-  useLayoutEffect(() => {
-    if (el === null) return;
-    const paint = (): void => {
-      const { receivedBytes, expectedBytes } = authStore.getSnapshot();
-      if (expectedBytes <= 0) {
-        el.style.removeProperty("--tugx-progress-indicator-value");
-        el.removeAttribute("data-painted");
-        el.removeAttribute("aria-valuenow");
-        return;
-      }
-      const fraction = Math.min(1, receivedBytes / expectedBytes);
-      el.style.setProperty("--tugx-progress-indicator-value", String(fraction));
-      el.setAttribute("data-painted", "");
-      el.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
-    };
-    paint();
-    return authStore.subscribe(paint);
-  }, [el]);
-  return (
-    <TugProgressIndicator
-      ref={setEl}
-      variant="bar"
-      state="running"
-      size={6}
-      aria-label="Download progress"
-      data-testid="configure-tug-bar"
-    />
-  );
-}
-
-/**
- * The download's detail line — bytes, rate and time remaining ([B06]), written
- * onto its own span from a direct store subscription.
- *
- * The rate is measured here from the (bytes, time) pairs the store hands over,
- * exactly as the update wizard measures its own: tugcast publishes on a whole
- * percent, and how fast and how much longer are what a person watching a slow
- * download is actually deciding on.
- */
-function ClaudeDownloadDetail(): ReactElement {
-  const [el, setEl] = useState<HTMLSpanElement | null>(null);
-  useLayoutEffect(() => {
-    if (el === null) return;
-    // In the closure rather than a ref: it resets when the row unmounts, which
-    // is exactly when a new transfer starts.
-    let rate: RateEstimator = newRateEstimator();
-    const paint = (): void => {
-      const { receivedBytes, expectedBytes } = authStore.getSnapshot();
-      rate = rate.sample(receivedBytes, performance.now());
-      el.textContent = transferDetailLine(
-        receivedBytes,
-        expectedBytes,
-        rate.bytesPerSecond,
-      );
-      if (expectedBytes <= 0) el.removeAttribute("data-progress");
-      else
-        el.setAttribute(
-          "data-progress",
-          String(Math.floor((receivedBytes / expectedBytes) * 100)),
-        );
-    };
-    paint();
-    return authStore.subscribe(paint);
-  }, [el]);
-  return <span ref={setEl} data-testid="configure-tug-progress" />;
 }
 
 /**
@@ -463,7 +383,8 @@ export function ConfigureTug(): ReactElement {
 
   // Installed, but older than Tug runs against. The update is no longer an
   // optional offer: the wizard claims the app until it lands, and the rows
-  // after the install row hold. An unknown version claims nothing.
+  // after the install row hold. An unknown version claims nothing. Offline is
+  // the one exception to the claim — see `claudeTooOldOffline` below.
   const claudeTooOld =
     !forced && !claudeMissing && isClaudeBelowMinimum(installed);
 
@@ -575,6 +496,12 @@ export function ConfigureTug(): ReactElement {
   // reports it while nothing gets through.
   const loggedOutOffline =
     !forced && reason === "logged_out" && pathStatus === "unsatisfied";
+
+  // Below the floor, with the host reporting no route. The update is a
+  // download that cannot happen, so the wizard lets go of the app
+  // (`deriveConfigureTugRequired` reads the same pair) and the install row
+  // says why its button cannot work yet. The believed negative only.
+  const claudeTooOldOffline = claudeTooOld && pathStatus === "unsatisfied";
 
   // The version gate takes precedence: while it is open, ConfigureTug suppresses
   // itself so the two app-modals never stack (Spec S02).
@@ -695,7 +622,7 @@ export function ConfigureTug(): ReactElement {
     setHostToolsSkippedNow(true);
     putHostToolsSkipped(true);
   };
-  // The installer is the updater: it always lands the newest stable build, so
+  // The installer is the updater: it always lands the newest build on `latest`, so
   // the same shell-out serves both rows. tugcast re-probes the version pair
   // afterward, and that re-probe is what settles the row.
   const handleUpdate = (): void => {
@@ -818,8 +745,8 @@ export function ConfigureTug(): ReactElement {
 
   // The Claude row carries the whole life of that install: getting it,
   // knowing which version is here, and keeping it current. The update path
-  // shares the installer with the first install (the official installer always
-  // lands the newest stable build), so the two differ only in what the row says.
+  // shares the installer with the first install (it always lands the newest
+  // build on `latest`), so the two differ only in what the row says.
   const claudeStep: Step = (() => {
     const key = "install";
     // One row, two names. The installer is the updater, so which word the row
@@ -862,11 +789,11 @@ export function ConfigureTug(): ReactElement {
             A newer version arrived — starting the download over.
           </span>
         ) : counting ? (
-          <ClaudeDownloadDetail />
+          <ClaudeDownloadDetail testId="configure-tug-progress" />
         ) : (
           "This can take a moment."
         ),
-        edge: <ClaudeDownloadBar />,
+        edge: <ClaudeDownloadBar testId="configure-tug-bar" />,
         // Pause is only Pause where there are bytes to keep. The script
         // fallback owns its own transfer and the post-download install step
         // is not one, so neither offers it.
@@ -914,6 +841,17 @@ export function ConfigureTug(): ReactElement {
     // Below the floor: the row is the step the wizard is waiting on, so it
     // wears the active dot and the filled CTA rather than a settled check.
     if (claudeTooOld && installed !== null) {
+      if (claudeTooOldOffline) {
+        // The button stays: it is the retry when the network comes back.
+        const offline = claudeTooOldOfflineCopy(installed);
+        return {
+          key,
+          status: "error",
+          label: offline.label,
+          detail: offline.detail,
+          cta: { label: offline.cta, onClick: handleUpdate },
+        };
+      }
       return {
         key,
         status: "active",

@@ -772,6 +772,38 @@ export function loadCapabilitiesSnapshot(
   return { content, snapshotPath, version };
 }
 
+/**
+ * The two Claude Code versions the bundle is built with, as `define` entries:
+ * the validated version from `capabilities/LATEST` and the floor from
+ * `capabilities/FLOOR`. `src/lib/claude-code-versions.ts` is the one module
+ * that reads them. A missing or malformed file fails the build here, since a
+ * bundle with no floor would gate nothing.
+ *
+ * `define` is fixed when the dev server starts, so a new capture or a raised
+ * floor reaches a running dev server at its next start.
+ */
+export function claudeCodeVersionDefines(
+  root: string = CAPABILITIES_ROOT,
+): Record<string, string> {
+  const read = (file: string): string => {
+    const filePath = path.join(root, file);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`claude code versions: ${filePath} not found`);
+    }
+    const version = fs.readFileSync(filePath, "utf-8").trim();
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(
+        `claude code versions: ${filePath} holds ${JSON.stringify(version)}, not a version like 2.1.285`,
+      );
+    }
+    return version;
+  };
+  return {
+    __TUG_CLAUDE_CODE_VALIDATED__: JSON.stringify(read("LATEST")),
+    __TUG_CLAUDE_CODE_FLOOR__: JSON.stringify(read("FLOOR")),
+  };
+}
+
 function capabilitiesVirtualModulePlugin(): VitePlugin {
   let snapshotPath: string | null = null;
   return {
@@ -927,6 +959,7 @@ export default (defineConfig as any)((env: any = {}) => {
       cspInlineScriptHashesPlugin(),
       scopedReloadPlugin(),
     ],
+    define: claudeCodeVersionDefines(),
     css: {
       postcss: {
         plugins: [postcssTugColor()],

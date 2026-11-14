@@ -19,6 +19,12 @@
 # notes file is a warning and nothing more: the wizard shows the version and
 # its controls without them, and an absent file never blocks an update.
 #
+# Claude Code floor: once the feed is generated, appcast-add-floor.sh writes
+# capabilities/FLOOR onto the item as <tug:minimumClaudeCodeVersion>, so the
+# running Tug can say what the incoming one needs before it installs it. That
+# script says why the edit leaves what Sparkle verifies alone; the signature
+# check below runs after it, on the feed as it will be published.
+#
 # Key material, two modes:
 #   - $SPARKLE_ED_PRIVATE_KEY set (CI): piped to generate_appcast on stdin.
 #   - unset (a developer machine that ran generate_keys): omitted entirely, so
@@ -187,6 +193,10 @@ if [ ! -f "$WORK_DIR/appcast.xml" ]; then
     echo "error: generate_appcast produced no appcast" >&2
     exit 1
 fi
+
+# State the release's Claude Code floor on the item. Before the signature
+# check, so what that check passes is the feed that ships.
+"$SCRIPT_DIR/appcast-add-floor.sh" "$WORK_DIR/appcast.xml"
 
 # An unsigned feed would be silently rejected by every installed app, so it is
 # worth failing here rather than at update time.

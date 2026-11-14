@@ -18,9 +18,13 @@ import { describe, it, expect } from "bun:test";
 
 import {
   deriveUpdateRows,
+  isBelowOfferedFloor,
   isOfferedStage,
+  NO_CLAUDE_CODE_READING,
   offeredNotes,
   STOP_WORK,
+  UPDATE_CLAUDE,
+  type ClaudeCodeReading,
   type RowKey,
   type RowModel,
 } from "../update-tug-rows";
@@ -56,6 +60,7 @@ function snapshot(
     currentVersion: "0.8.10",
     releaseNotes: null,
     releaseNotesFailed: false,
+    claudeCodeFloor: null,
     userInitiated: false,
     message: "",
     cancellable: false,
@@ -462,5 +467,183 @@ describe("update-tug-rows: the check row names the version you are running", () 
     expect(rowsBy("available", NO_LIVE_TURNS, over).check.detail).toBe(
       "You have Tug v0.8.10. An update is available.",
     );
+  });
+});
+
+describe("update-tug-rows: the offered version's Claude Code floor", () => {
+  const FLOOR = "2.1.300";
+  const OFFERED: UpdateStage[] = STAGES.filter(isOfferedStage);
+
+  function reading(over: Partial<ClaudeCodeReading> = {}): ClaudeCodeReading {
+    return { ...NO_CLAUDE_CODE_READING, installed: "2.1.290", latest: "2.1.325", ...over };
+  }
+
+  function rows(
+    stage: UpdateStage,
+    claudeCode: ClaudeCodeReading,
+    live: LiveTurnsSnapshot = NO_LIVE_TURNS,
+    floor: string | null = FLOOR,
+  ): RowModel[] {
+    return deriveUpdateRows(
+      snapshot(stage, { claudeCodeFloor: floor }),
+      live,
+      "check",
+      false,
+      false,
+      claudeCode,
+    );
+  }
+
+  const keyed = (model: RowModel[]): Record<RowKey, RowModel> => {
+    const byKey = {} as Record<RowKey, RowModel>;
+    for (const row of model) byKey[row.key] = row;
+    return byKey;
+  };
+
+  it("draws nothing when no floor is stated, whatever is installed", () => {
+    for (const stage of STAGES) {
+      for (const live of [turns(), turns("alpha")]) {
+        const withReading = rows(stage, reading({ installed: "1.0.0" }), live, null);
+        const without = deriveUpdateRows(snapshot(stage), live, "check", false, false);
+        expect(withReading).toEqual(without);
+      }
+    }
+  });
+
+  it("draws nothing when the floor is already met, or nothing is known to be installed", () => {
+    for (const stage of STAGES) {
+      for (const installed of [FLOOR, "2.1.325", "3.0.0", null]) {
+        const model = rows(stage, reading({ installed }));
+        expect(model.map((row) => row.key)).toEqual([
+          "check",
+          "download",
+          "stop-work",
+          "relaunch",
+        ]);
+        expect(model).toEqual(
+          deriveUpdateRows(snapshot(stage), NO_LIVE_TURNS, "check", false, false),
+        );
+      }
+    }
+  });
+
+  it("stands between Download and Stop work at every stage that offers the version", () => {
+    for (const stage of STAGES) {
+      const keys = rows(stage, reading()).map((row) => row.key);
+      expect(keys).toEqual(
+        OFFERED.includes(stage)
+          ? ["check", "download", UPDATE_CLAUDE, "stop-work", "relaunch"]
+          : ["check", "download", "stop-work", "relaunch"],
+      );
+    }
+  });
+
+  it("says the floor and the installed version from the moment the update is offered", () => {
+    for (const stage of OFFERED) {
+      const row = keyed(rows(stage, reading()))[UPDATE_CLAUDE];
+      expect(row.label).toBe("Update Claude Code");
+      expect(row.detail).toBe("This update needs Claude Code 2.1.300; you have 2.1.290.");
+    }
+  });
+
+  it("takes its turn, with Update on it, once the download has landed", () => {
+    for (const stage of OFFERED) {
+      const row = keyed(rows(stage, reading()))[UPDATE_CLAUDE];
+      if (stage === "readyToInstall") {
+        expect(row.status).toBe("active");
+        expect(row.cta).toEqual({ label: "Update", action: UPDATE_CLAUDE });
+      } else {
+        expect(row.status).toBe("pending");
+        expect(row.cta).toBeUndefined();
+      }
+    }
+  });
+
+  it("holds the Stop-work and install rows pending while it is unsettled", () => {
+    for (const live of [turns(), turns("alpha")]) {
+      for (const claudeCode of [
+        reading(),
+        reading({ updating: true }),
+        reading({ updating: true, transferring: true, counting: true }),
+        reading({ updateError: "no route to host" }),
+      ]) {
+        const by = keyed(rows("readyToInstall", claudeCode, live));
+        expect(by["stop-work"].status).toBe("pending");
+        expect(by["stop-work"].cta).toBeUndefined();
+        expect(by.relaunch.status).toBe("pending");
+        expect(by.relaunch.cta).toBeUndefined();
+      }
+    }
+  });
+
+  it("is busy with no press while the update runs, and draws the download's bar", () => {
+    const installing = keyed(rows("readyToInstall", reading({ updating: true })))[UPDATE_CLAUDE];
+    expect(installing.status).toBe("busy");
+    expect(installing.detail).toBe("Installing 2.1.325…");
+    expect(installing.cta).toBeUndefined();
+    expect(installing.edge).toBeUndefined();
+
+    const unknown = keyed(
+      rows("readyToInstall", reading({ updating: true, latest: null })),
+    )[UPDATE_CLAUDE];
+    expect(unknown.detail).toBe("Installing the update…");
+
+    const counting = keyed(
+      rows("readyToInstall", reading({ updating: true, transferring: true, counting: true })),
+    )[UPDATE_CLAUDE];
+    expect(counting.status).toBe("busy");
+    expect(counting.edge).toBeDefined();
+    expect(typeof counting.detail).toBe("object");
+
+    // An update started elsewhere is the same transfer, drawn at any stage.
+    const early = keyed(rows("downloading", reading({ updating: true })))[UPDATE_CLAUDE];
+    expect(early.status).toBe("busy");
+  });
+
+  it("offers Retry on a failed update and keeps the install row held", () => {
+    const by = keyed(rows("readyToInstall", reading({ updateError: "no route to host" })));
+    expect(by[UPDATE_CLAUDE].status).toBe("error");
+    expect(by[UPDATE_CLAUDE].detail).toBe("Update failed: no route to host");
+    expect(by[UPDATE_CLAUDE].cta).toEqual({ label: "Retry", action: UPDATE_CLAUDE });
+    expect(by.relaunch.status).toBe("pending");
+  });
+
+  it("settles once the installed version clears the floor, and the rows after it open", () => {
+    const met = reading({ installed: "2.1.325", wasBelowFloor: true });
+
+    const idleDeck = keyed(rows("readyToInstall", met));
+    expect(idleDeck[UPDATE_CLAUDE].status).toBe("done");
+    expect(idleDeck[UPDATE_CLAUDE].detail).toBe("Claude Code 2.1.325 is installed.");
+    expect(idleDeck[UPDATE_CLAUDE].cta).toBeUndefined();
+    expect(idleDeck["stop-work"].status).toBe("done");
+    expect(idleDeck.relaunch.status).toBe("active");
+    expect(idleDeck.relaunch.cta).toEqual({ label: "Install and Relaunch", action: "install" });
+
+    // The Stop-work row is the deck's again: a live turn still holds the install.
+    const liveDeck = keyed(rows("readyToInstall", met, turns("alpha")));
+    expect(liveDeck["stop-work"].status).toBe("active");
+    expect(liveDeck["stop-work"].cta).toEqual({ label: "Stop Work", action: STOP_WORK });
+    expect(liveDeck.relaunch.cta).toBeUndefined();
+  });
+
+  it("leaves the host's failure on the host's row", () => {
+    const model = deriveUpdateRows(
+      snapshot("error", { claudeCodeFloor: FLOOR, message: "the feed did not answer" }),
+      NO_LIVE_TURNS,
+      "download",
+      false,
+      false,
+      reading(),
+    );
+    expect(model.map((row) => row.key)).toEqual(["check", "download", "stop-work", "relaunch"]);
+    expect(keyed(model).download.status).toBe("error");
+  });
+
+  it("judges the floor only against an offered version", () => {
+    expect(isBelowOfferedFloor(snapshot("available", { claudeCodeFloor: FLOOR }), "2.1.290")).toBe(true);
+    expect(isBelowOfferedFloor(snapshot("available", { claudeCodeFloor: FLOOR }), FLOOR)).toBe(false);
+    expect(isBelowOfferedFloor(snapshot("available", { claudeCodeFloor: FLOOR }), null)).toBe(false);
+    expect(isBelowOfferedFloor(snapshot("available"), "2.1.290")).toBe(false);
+    expect(isBelowOfferedFloor(snapshot("upToDate", { claudeCodeFloor: FLOOR }), "2.1.290")).toBe(false);
   });
 });

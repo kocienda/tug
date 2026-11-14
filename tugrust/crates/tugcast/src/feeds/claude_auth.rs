@@ -1,7 +1,8 @@
 //! Detection of the user's Claude Code login state via `claude auth status`,
 //! plus a `login()` helper that drives `claude auth login`, and the version
 //! pair the setup wizard's install row reports: the locally installed version
-//! (`claude --version`) and the newest release on the stable channel.
+//! (`claude --version`) and the newest release on the `latest` channel, the
+//! one the download behind the row's Update button resolves.
 //!
 //! `claude` owns authentication (the credentials live in the macOS Keychain,
 //! not a file we could read), so we ask the CLI rather than inspecting storage
@@ -197,11 +198,6 @@ pub async fn logout() -> (bool, Option<String>) {
     }
 }
 
-/// The release channel `claude install` (and therefore the official installer)
-/// resolves by default. Tug reports the same channel the update it offers would
-/// land, so "up to date" means up to date with what pressing Update would do.
-const STABLE_CHANNEL_URL: &str = "https://downloads.claude.ai/claude-code-releases/stable";
-
 /// How long to wait on the release-channel lookup. The version row is
 /// informational — a slow or unreachable network resolves to "latest unknown"
 /// and the row still reports the installed version rather than hanging.
@@ -215,19 +211,20 @@ pub async fn installed_version() -> Option<String> {
     parse_version(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// The newest Claude Code release on the stable channel, or `None` when the
-/// lookup fails (offline, unsupported region, unexpected content).
+/// The newest Claude Code release, or `None` when the lookup fails (offline,
+/// unsupported region, unexpected content).
+///
+/// Asked of the same `latest` channel, through the same function, as the
+/// download behind the row's Update button
+/// ([`super::claude_download::latest_version`]), so "up to date" means up to
+/// date with what pressing Update would install. Only the patience differs:
+/// the row is informational and gives up sooner than a download does.
 pub async fn latest_version() -> Option<String> {
-    let response = reqwest::Client::new()
-        .get(STABLE_CHANNEL_URL)
-        .timeout(LATEST_VERSION_TIMEOUT)
-        .send()
-        .await
-        .ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    parse_version(&response.text().await.ok()?)
+    super::claude_download::latest_version(
+        super::claude_download::DOWNLOAD_BASE_URL,
+        LATEST_VERSION_TIMEOUT,
+    )
+    .await
 }
 
 /// Run the official Claude Code installer (`curl -fsSL https://claude.ai/
