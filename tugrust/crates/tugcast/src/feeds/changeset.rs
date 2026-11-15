@@ -1315,7 +1315,9 @@ async fn cached_path_survivors(
         })
     });
     let key = (
-        CanonicalPath::from_raw(scope.project_dir).as_str().to_owned(),
+        CanonicalPath::from_raw(scope.project_dir)
+            .as_str()
+            .to_owned(),
         rel.to_owned(),
     );
     if let Some(stamp) = &stamp
@@ -3710,7 +3712,9 @@ mod tests {
         git(&root, &["apply", "--cached", &patch_path.to_string_lossy()]);
         git(&root, &["commit", "-q", "-m", "land the middle by hand"]);
         assert_eq!(
-            tugchanges_core::file_hunks(&root, "three.txt").unwrap().len(),
+            tugchanges_core::file_hunks(&root, "three.txt")
+                .unwrap()
+                .len(),
             2
         );
 
