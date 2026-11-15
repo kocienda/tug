@@ -19,8 +19,11 @@
  * built `tugtool` in the clone and bound to the card, its steps started and
  * finished by the CLI's own verbs, so the ARC cell and its popup are the
  * app's reading of a real ledger. Three turns are played before the first
- * frame, in real time, so the TIME popup has a log to show, three steps are
- * done, and the context window stands at 592K of 1M. The fourth turn is the
+ * frame, so the TIME popup has a log to show, three steps are done, and the
+ * context window stands at 592K of 1M. Those turns run in real time and
+ * each holds a tool call open for a minute or two, so the log reads as a
+ * session's does: the store's clock is a worker's own, and nothing but
+ * waiting moves it. That is four minutes before the first frame. The fourth turn is the
  * one recorded: it streams prose and holds tool calls open (STATE
  * alternating Streaming and Working, TIME counting), its usage climbs past
  * three quarters of the window (CONTEXT turning to its caution colour),
@@ -54,7 +57,7 @@ import { overlayReady } from "../overlay-fixture";
 import { stubDirectory } from "../streaming-stub-fixture";
 import { MODE, RUNS, contentSize, expectRecorded, launchForMode, outDirFor, scene, standIns, type Scene } from "../site-clips/_site-clips";
 
-const TEST_TIMEOUT_MS = 500_000;
+const TEST_TIMEOUT_MS = 800_000;
 const IPC_VERSION = 2;
 const CODE_OUTPUT_FEED = 0x40;
 const SHOT = "short-status";
@@ -70,6 +73,9 @@ const PAGE_ZOOM = 1.3;
 const CONTENT_SIZE = { width: 972, height: 1694 };
 
 const WORD_MS = 55;
+
+/** How long each earlier turn's tool call stays open, in ms: the turns' lengths in the TIME popup's log, near enough. */
+const EARLIER_HOLD_MS = [68_000, 118_000, 44_000] as const;
 
 const ROW = '[data-slot="session-telemetry-status-row"]';
 /** A cell by its key. The fourth cell's key is `tasks` today and `arc` once the row's rename lands, so it is asked for by either. */
@@ -267,7 +273,7 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
           (bound) => bound,
           30_000,
         );
-        await app.ingestSessionMetadata(CARD, { type: "system_metadata", cwd: projectDir, model: "claude-fable-5-1", version: "2.1.299", permissionMode: "auto", ipc_version: IPC_VERSION });
+        await app.ingestSessionMetadata(CARD, { type: "system_metadata", cwd: projectDir, model: "claude-fable-5-2", version: "2.1.325", permissionMode: "auto", ipc_version: IPC_VERSION });
         await Bun.sleep(600);
         const notes: Record<string, unknown> = {};
 
@@ -276,12 +282,14 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
         const phase = () => body.evalJS<string | null>(PROMPT_PHASE).catch(() => null);
         let seq = 0;
         let calls = 0;
-        /** A tool call, open for `holdMs`. */
+        /** A tool call, open for `holdMs`, reporting its progress every few seconds as a long one does. */
         const callNow = async (msgId: string, toolName: string, input: Record<string, unknown>, result: string, holdMs: number) => {
           const id = `toolu_vd_status_${++calls}`;
           await ingest({ type: "tool_use", msg_id: msgId, seq: seq++, tool_name: toolName, tool_use_id: id, input });
-          await ingest({ type: "tool_progress", tool_use_id: id, tool_name: toolName, elapsed_time_seconds: 0, parent_tool_use_id: null });
-          await Bun.sleep(holdMs);
+          for (let elapsed = 0; elapsed < holdMs; elapsed += 5_000) {
+            await ingest({ type: "tool_progress", tool_use_id: id, tool_name: toolName, elapsed_time_seconds: Math.round(elapsed / 1000), parent_tool_use_id: null });
+            await Bun.sleep(Math.min(5_000, holdMs - elapsed));
+          }
           await ingest({ type: "tool_result", tool_use_id: id, output: result, is_error: false });
         };
         const through = String(ARC.steps.length);
@@ -316,7 +324,7 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
           await ingest({ type: "prompt_anchor", promptUuid: anchor });
         };
 
-        // ---- Three turns before the first frame, in real time, for the TIME popup's log. ----
+        // ---- Three turns before the first frame, for the TIME popup's log: a minute or two each, in real time. ----
         note("playing the earlier turns");
         // The arc, cut and bound to this card, with its first step in hand. No run record: a record with a bound session is
         // what the server's wheel rotates a stage onto, and a stage prompt is not in the stub. The steps' ledger carries the reading.
@@ -339,13 +347,13 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
         await ingest({ type: "context_breakdown", context_max: CONTEXT_MAX, categories: BREAKDOWN });
         await send("Plan the stopped-job fix.", "vd-st-p1");
         await proseNow("s1a", "A stopped job keeps its row but is still counted as running. The arc has seven steps, and the first is to read the reducer.", 96_800);
-        await callNow("s1a", "Bash", { command: "wc -l src/lib/jobs-reducer.ts src/lib/jobs-reducer.test.ts", description: "Size up the reducer and its tests" }, "     412 src/lib/jobs-reducer.ts\n     688 src/lib/jobs-reducer.test.ts\n    1100 total", 900);
+        await callNow("s1a", "Bash", { command: "wc -l src/lib/jobs-reducer.ts src/lib/jobs-reducer.test.ts", description: "Size up the reducer and its tests" }, "     412 src/lib/jobs-reducer.ts\n     688 src/lib/jobs-reducer.test.ts\n    1100 total", EARLIER_HOLD_MS[0]);
         await advanceNow(1);
         await completeNow("s1a", 98_200, 1);
         await Bun.sleep(1_200);
 
         await send("Start with the reducer.", "vd-st-p2");
-        await callNow("s2a", "Bash", { command: "grep -n \"running\" src/lib/jobs-reducer.ts", description: "Find the running predicate" }, "212:  return rows.filter((r) => r.status !== \"finished\").length;", 1_400);
+        await callNow("s2a", "Bash", { command: "grep -n \"running\" src/lib/jobs-reducer.ts", description: "Find the running predicate" }, "212:  return rows.filter((r) => r.status !== \"finished\").length;", EARLIER_HOLD_MS[1]);
         await proseNow("s2b", "The jobs reducer keys every row by the task id the launch echoed, and a stopped job keeps its row with a terminal status. The count the cell shows should be the running rows alone, so the fix is one predicate: a stopped row is terminal, not running.", 104_300);
         await advanceNow(2);
         await completeNow("s2b", 109_100, 2);
@@ -353,7 +361,7 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
 
         await send("Add a test for it.", "vd-st-p3");
         await proseNow("s3a", "One test: launch a job, stop it, and assert the running count is zero while the finished count is one.", 113_700);
-        await callNow("s3a", "Bash", { command: "bun test src/lib/jobs-reducer.test.ts 2>&1 | tail -3", description: "Run the reducer's tests" }, " 31 pass\n 0 fail\nRan 31 tests across 1 file. [212.00ms]", 1_800);
+        await callNow("s3a", "Bash", { command: "bun test src/lib/jobs-reducer.test.ts 2>&1 | tail -3", description: "Run the reducer's tests" }, " 31 pass\n 0 fail\nRan 31 tests across 1 file. [212.00ms]", EARLIER_HOLD_MS[2]);
         await advanceNow(3);
         await completeNow("s3a", 118_400, 3);
         await Bun.sleep(1_500);
