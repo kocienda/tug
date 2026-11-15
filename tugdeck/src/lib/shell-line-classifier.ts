@@ -99,6 +99,11 @@ export type GrammarBand = "yes" | "maybe" | "no" | "unknown";
  * account for token by token is a `maybe`, which is the model's question with
  * the program's documentation attached.
  *
+ * One `yes` recognizes no grammar at all: a segment that is nothing but the
+ * name of one of the user's own aliases or functions. A word they defined in
+ * their shell, typed alone, is a command they wrote to type — `push` runs,
+ * whatever its body does. With arguments it is graded like any other line.
+ *
  * The other unilateral decision is `no` → Claude. Both fall in the direction
  * doubt is supposed to fall, because a `yes` is not doubt.
  */

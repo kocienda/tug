@@ -357,6 +357,21 @@ pub fn grade_with_catalog(line: &str, ctx: &ShellContext, catalog: &Catalog) -> 
             band = band.min(Band::Unknown);
             continue;
         };
+        // A name the user defined in their own shell, typed alone, is a
+        // command they wrote for themselves to type. There is no token left
+        // for English to occupy, and the word is theirs rather than a PATH
+        // binary that happens to spell a verb — so `push`, a function whose
+        // body runs backticks no grammar can read, runs exactly as `amend`
+        // does. Arguments end the exemption: `add error handling here` is
+        // still the model's to read.
+        if segment.args().is_empty()
+            && matches!(
+                ctx.words.kind(head),
+                Some(WordKind::Alias | WordKind::Function)
+            )
+        {
+            continue;
+        }
         let segment_band = match resolve_head(head, ctx) {
             Resolution::Absent => Band::No,
             // A word the shell holds but cannot explain says exactly as much as
@@ -835,7 +850,22 @@ mod tests {
             band_with_words("add error handling here", &words, &[]),
             Band::Unknown
         );
-        assert_eq!(band_with_words("add", &words, &[]), Band::Unknown);
+    }
+
+    #[test]
+    fn a_bare_user_word_runs_whatever_its_body() {
+        // Reversed 2026-11-15: a bare opaque word used to grade Unknown and go
+        // to the model, which read the user's own `push` function as a request
+        // to push. A name the user defined, typed alone, is a command.
+        let mut words = reference_words();
+        assert_eq!(band_with_words("add", &words, &[]), Band::Yes);
+        // Unread is the same answer — the body is never what makes it theirs.
+        words.insert("push".into(), WordKind::Function);
+        assert_eq!(band_with_words("push", &words, &[]), Band::Yes);
+        words.insert("deploy".into(), WordKind::Alias);
+        assert_eq!(band_with_words("deploy && push", &words, &[]), Band::Yes);
+        // A builtin is not the user's word and keeps its catalog path.
+        assert_eq!(band_with_words("setopt", &words, &[]), Band::Unknown);
     }
 
     #[test]
