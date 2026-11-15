@@ -10,7 +10,7 @@
 //! recompute signal after each file-event write.
 
 use parking_lot::Mutex;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tugcore::instance::Paths;
@@ -187,10 +187,12 @@ pub(crate) async fn compose_snapshot(
     // Fold attribution events into per-owner buckets. Events are
     // oldest-first, so the latest event for a path wins op/origin (same rule
     // as `tugtool changes`). Events whose file is no longer dirty
-    // (committed / reverted) drop out, and so do **spent** events — rows at
-    // or before the last commit that touched their path (the row-liveness
-    // rule, [D112]): a commit spends the rows it absorbs, so a fossil row
-    // can never re-claim a file someone re-dirties later.
+    // (committed / reverted) drop out, and so do **spent** events (the
+    // row-liveness rule, [D112]): a commit spends the rows whose content it
+    // absorbed, so a fossil row can never re-claim a file someone re-dirties
+    // later. A row at or before the last commit that touched its path is
+    // spent unless its content survived that commit — a partial commit leaves
+    // the rest of the file dirty, and the rows that wrote it live.
     // The `file_events` bucket key is canonical (the relay writes it through the
     // gateway), so query the canonical spelling of `project_dir`. Legacy rows
     // written before canonicalization carry the raw spelling; union them in
@@ -360,30 +362,71 @@ pub(crate) async fn compose_snapshot(
             .cloned()
             .unwrap_or_else(|| pfe.event.tug_session_id.clone())
     };
-    // Per-path liveness cut, computed once per dirty path with events.
+    // Each event's repo-relative path, resolved once: both passes below need
+    // it, and a legacy absolute row costs a full resolution to answer.
+    let rels: Vec<String> = events
+        .iter()
+        .map(|pfe| repo_relative(&canonical_root, &repo_root, &pfe.event.file_path))
+        .collect();
+    // Per-path liveness cut, computed once per dirty path with events — and
+    // beside it the paths holding a proof row behind their cut, whose
+    // survival has to be read before the fold can say who owns them.
     let mut live_cuts: HashMap<String, i64> = HashMap::new();
+    let mut behind_cut: BTreeSet<String> = BTreeSet::new();
+    for (pfe, rel) in events.iter().zip(&rels) {
+        if !dirty.contains_key(rel) {
+            continue;
+        }
+        let min_live = match live_cuts.get(rel) {
+            Some(cut) => *cut,
+            None => {
+                let cut =
+                    cached_min_live_at_ms(&canonical_root, &repo_root, rel, head_oid.as_deref())
+                        .await;
+                live_cuts.insert(rel.clone(), cut);
+                cut
+            }
+        };
+        if pfe.event.at < min_live && super::attribution::origin_is_proof(&pfe.event.origin) {
+            behind_cut.insert(rel.clone());
+        }
+    }
+    let survivors = match ledger {
+        Some(ledger) => {
+            surviving_rows(
+                SurvivalScope {
+                    project_dir,
+                    canonical_root: &canonical_root,
+                    repo_root: &repo_root,
+                    head_oid: head_oid.as_deref(),
+                },
+                ledger,
+                &behind_cut,
+                &live_cuts,
+            )
+            .await
+        }
+        None => HashMap::new(),
+    };
     // Per repo-relative path, the owners with a live **proof** row
     // (`exact`/`replay` — the tool input named the file), the genuine authors
     // ([D112]). A `bash`/`turn` row is a whole-tree-delta *claim*
     // (contaminated by concurrent saves, build churn, and the user's own
     // hand-saves), so it never makes a session an owner.
     let mut proof_owners: HashMap<String, HashSet<String>> = HashMap::new();
-    for pfe in &events {
-        let rel = repo_relative(&canonical_root, &repo_root, &pfe.event.file_path);
-        let Some(git_status) = dirty.get(&rel) else {
+    for (pfe, rel) in events.iter().zip(&rels) {
+        let Some(git_status) = dirty.get(rel) else {
             continue;
         };
-        let min_live = match live_cuts.get(&rel) {
-            Some(cut) => *cut,
-            None => {
-                let cut =
-                    cached_min_live_at_ms(&canonical_root, &repo_root, &rel, head_oid.as_deref())
-                        .await;
-                live_cuts.insert(rel.clone(), cut);
-                cut
-            }
-        };
-        if pfe.event.at < min_live {
+        let min_live = live_cuts.get(rel).copied().unwrap_or(0);
+        if pfe.event.at < min_live
+            && !survivors.get(rel).is_some_and(|rows| {
+                rows.contains_key(&(
+                    pfe.event.tug_session_id.clone(),
+                    pfe.event.tool_use_id.clone(),
+                ))
+            })
+        {
             continue;
         }
         let owner_id = owner_key(pfe);
@@ -539,7 +582,16 @@ pub(crate) async fn compose_snapshot(
                      an id missing from it would silently take the live default"
                 );
                 contention_verdict(
-                    &repo_root, path, proof_ids, &dead_ids, min_live, ledger, &canon,
+                    &repo_root,
+                    path,
+                    proof_ids,
+                    &dead_ids,
+                    RowLiveness {
+                        min_live,
+                        survivors: survivors.get(path).map(Arc::as_ref),
+                    },
+                    ledger,
+                    &canon,
                 )
             }))
             .await,
@@ -1015,7 +1067,6 @@ pub(crate) fn attach_live_session_drafts(
     }
 }
 
-/// Deterministic entry order: sessions (by id) before arcs (by ref).
 /// The hunk-aware read of one contended path ([P12], [P14]), or `None` when
 /// there is nothing to refine with — no live spans among the owners, or no
 /// readable hunks. The caller falls back to file-level SHARED there, which is
@@ -1031,7 +1082,7 @@ async fn contention_verdict(
     path: &str,
     proof_ids: &HashSet<String>,
     dead_ids: &HashSet<String>,
-    min_live: i64,
+    liveness: RowLiveness<'_>,
     ledger: Option<&SessionLedger>,
     canon: &HashMap<String, String>,
 ) -> Option<(
@@ -1057,9 +1108,11 @@ async fn contention_verdict(
         if !proof_ids.contains(owner_id) {
             continue;
         }
-        // The same row-liveness cut the owner buckets applied: a spent span
-        // is evidence about committed content, not about this dirty file.
-        if row.at < min_live {
+        // The same row-liveness rule the owner buckets applied. A row behind
+        // the cut speaks only through the anchors that survived the commit,
+        // added below: its other spans are evidence about committed content,
+        // and would widen a live owner's claim to the whole file.
+        if row.at < liveness.min_live {
             continue;
         }
         by_session
@@ -1069,6 +1122,15 @@ async fn contention_verdict(
                 &row.span.kind,
                 &row.span.anchor,
             ));
+    }
+    for ((session, _), anchors) in liveness.survivors.into_iter().flatten() {
+        let owner_id = canon.get(session).unwrap_or(session);
+        if proof_ids.contains(owner_id) {
+            by_session
+                .entry(owner_id.clone())
+                .or_default()
+                .extend(anchors.iter().cloned());
+        }
     }
     if by_session.is_empty() {
         return None;
@@ -1100,6 +1162,280 @@ async fn contention_verdict(
     Some((verdict, hunks))
 }
 
+/// The rows of one path behind its liveness cut whose content survived the
+/// commits since, by `(tug_session_id, tool_use_id)`, each with the anchors it
+/// kept ([`tugchanges_core::surviving_anchors`]).
+type PathSurvivors = HashMap<(String, String), Vec<tugchanges_core::Anchor>>;
+
+/// Which rows of one path are live: those at or after `min_live`, and those
+/// behind it that `survivors` holds.
+struct RowLiveness<'a> {
+    min_live: i64,
+    survivors: Option<&'a PathSurvivors>,
+}
+
+/// The checkout one compose reads survival in.
+#[derive(Clone, Copy)]
+struct SurvivalScope<'a> {
+    project_dir: &'a Path,
+    canonical_root: &'a CanonicalPath,
+    repo_root: &'a Path,
+    head_oid: Option<&'a str>,
+}
+
+/// One proof row behind its path's cut: when it was written and what it
+/// recorded having written.
+struct RowBehindCut {
+    at: i64,
+    anchors: Vec<tugchanges_core::Anchor>,
+}
+
+/// One path's rows behind its cut, by `(tug_session_id, tool_use_id)`.
+type RowsBehindCut = BTreeMap<(String, String), RowBehindCut>;
+
+/// The surviving rows of every path in `behind_cut`, by repo-relative path —
+/// the feed's half of the survival rule the sync engine reads through
+/// `tugchanges_core`'s `path_survivors`. A path none of whose rows survived
+/// is absent.
+///
+/// One span query covers every path, and each path that has spans behind its
+/// cut then costs one `git diff`, run concurrently under the same bound the
+/// contention pass uses. Both are remembered between composes
+/// ([`survivor_cache`]), so an editing session pays for a path again only when
+/// that file or HEAD has moved.
+async fn surviving_rows(
+    scope: SurvivalScope<'_>,
+    ledger: &SessionLedger,
+    behind_cut: &BTreeSet<String>,
+    live_cuts: &HashMap<String, i64>,
+) -> HashMap<String, Arc<PathSurvivors>> {
+    if behind_cut.is_empty() {
+        return HashMap::new();
+    }
+    let paths: Vec<String> = behind_cut.iter().cloned().collect();
+    let read = |project: &str| {
+        ledger
+            .file_event_spans_for_paths(project, &paths)
+            .unwrap_or_else(|err| {
+                crate::ledger_integrity::health::note_error("changes", &err);
+                tracing::warn!(project, error = %err, "span read failed; rows behind the cut stay spent");
+                Vec::new()
+            })
+    };
+    // The same two buckets the events came from: the session's own project
+    // directory, and the repo root when the project is a subdirectory of it.
+    let canonical_project = CanonicalPath::from_raw(scope.project_dir);
+    let mut spans = read(canonical_project.as_str());
+    if scope.canonical_root.as_str() != canonical_project.as_str() {
+        spans.extend(read(scope.canonical_root.as_str()));
+    }
+
+    let mut by_path: BTreeMap<String, RowsBehindCut> = BTreeMap::new();
+    for row in spans {
+        let rel = repo_relative(scope.canonical_root, scope.repo_root, &row.file_path);
+        let Some(cut) = live_cuts.get(&rel) else {
+            continue;
+        };
+        if row.at >= *cut {
+            continue;
+        }
+        by_path
+            .entry(rel)
+            .or_default()
+            .entry((row.tug_session_id, row.tool_use_id))
+            .or_insert_with(|| RowBehindCut {
+                at: row.at,
+                anchors: Vec::new(),
+            })
+            .anchors
+            .push(tugchanges_core::Anchor::from_span(
+                &row.span.kind,
+                &row.span.anchor,
+            ));
+    }
+
+    let work: Vec<(String, RowsBehindCut)> = by_path.into_iter().collect();
+    let mut out = HashMap::new();
+    for batch in work.chunks(CONTENTION_DIFF_CONCURRENCY) {
+        let read = futures::future::join_all(
+            batch
+                .iter()
+                .map(|(rel, rows)| cached_path_survivors(scope, rel, rows)),
+        )
+        .await;
+        for ((rel, _), survivors) in batch.iter().zip(read) {
+            if !survivors.is_empty() {
+                out.insert(rel.clone(), survivors);
+            }
+        }
+    }
+    out
+}
+
+/// What a path's survival read was taken against. The answer is a function of
+/// HEAD (the diff's base and the history), the working file's bytes (the
+/// diff's other side), and the rows judged — so it holds until one of them
+/// moves. The file is stood for by its length and modification time, the way
+/// git's own index stands for it.
+#[derive(Clone, PartialEq, Eq)]
+struct SurvivorStamp {
+    head_oid: String,
+    modified: std::time::SystemTime,
+    len: u64,
+    rows: usize,
+}
+
+/// Survival reads that outlast a compose, keyed `(canonical_project, rel)`.
+/// The project, not the repo root, because the rows judged are read from the
+/// project's own buckets: a subdirectory project and the repo root above it
+/// see different rows of one path, and neither may be handed the other's
+/// answer.
+/// Growth is one entry per path ever read, as for [`live_cut_cache`].
+type SurvivorCache = Mutex<HashMap<(String, String), (SurvivorStamp, Arc<PathSurvivors>)>>;
+
+fn survivor_cache() -> &'static SurvivorCache {
+    static CACHE: OnceLock<SurvivorCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// [`path_survivors`] through [`survivor_cache`]. An unborn HEAD or a file
+/// that cannot be stat'ed has no stamp, and is read every time.
+async fn cached_path_survivors(
+    scope: SurvivalScope<'_>,
+    rel: &str,
+    rows: &RowsBehindCut,
+) -> Arc<PathSurvivors> {
+    let stamp = scope.head_oid.and_then(|head_oid| {
+        let meta = std::fs::metadata(scope.repo_root.join(rel)).ok()?;
+        Some(SurvivorStamp {
+            head_oid: head_oid.to_owned(),
+            modified: meta.modified().ok()?,
+            len: meta.len(),
+            rows: rows.len(),
+        })
+    });
+    let key = (
+        CanonicalPath::from_raw(scope.project_dir).as_str().to_owned(),
+        rel.to_owned(),
+    );
+    if let Some(stamp) = &stamp
+        && let Some((cached, survivors)) = survivor_cache().lock().get(&key)
+        && cached == stamp
+    {
+        return survivors.clone();
+    }
+    let survivors = Arc::new(path_survivors(scope, rel, rows).await);
+    if let Some(stamp) = stamp {
+        survivor_cache()
+            .lock()
+            .insert(key, (stamp, survivors.clone()));
+    }
+    survivors
+}
+
+/// Judge one path's rows behind its cut against its current hunks.
+///
+/// The hunks come from the async diff spelling, as [`contention_verdict`]'s
+/// do. The path's history is read only when some row places at all: a file's
+/// long tail of spent rows describes content already in HEAD, places nowhere,
+/// and stops at the diff. A diff or a history that cannot be read proves no
+/// row survived.
+async fn path_survivors(
+    scope: SurvivalScope<'_>,
+    rel: &str,
+    rows: &RowsBehindCut,
+) -> PathSurvivors {
+    let Some(diff) = super::git::fetch_git_diff(scope.repo_root, &[rel.to_owned()]).await else {
+        return PathSurvivors::new();
+    };
+    let hunks = tugchanges_core::parse_hunks(&diff);
+    if hunks.is_empty() {
+        return PathSurvivors::new();
+    }
+    let file_hash = std::fs::read(scope.repo_root.join(rel))
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .map(|text| tugchanges_core::content_hash(&text));
+
+    let nothing = tugchanges_core::CommittedAdded::default();
+    let placing: Vec<(&(String, String), &RowBehindCut)> = rows
+        .iter()
+        .filter(|(_, row)| {
+            !tugchanges_core::surviving_anchors(
+                &row.anchors,
+                &hunks,
+                file_hash.as_deref(),
+                &nothing,
+            )
+            .is_empty()
+        })
+        .collect();
+    let Some(oldest) = placing.iter().map(|(_, row)| row.at).min() else {
+        return PathSurvivors::new();
+    };
+    let Some(history) = cached_path_history(scope, rel, oldest).await else {
+        return PathSurvivors::new();
+    };
+
+    let mut survivors = PathSurvivors::new();
+    for (key, row) in placing {
+        let anchors = tugchanges_core::surviving_anchors(
+            &row.anchors,
+            &hunks,
+            file_hash.as_deref(),
+            &history.added_since(row.at),
+        );
+        if !anchors.is_empty() {
+            survivors.insert(key.clone(), anchors);
+        }
+    }
+    survivors
+}
+
+/// What the commits to a path added, kept between composes: keyed
+/// `(canonical_root, rel)` → `(head_oid, since_ms, history)`. A history can
+/// only change when HEAD moves, and one read from an earlier time answers for
+/// every row after it, so a hit needs the same oid and a window at least as
+/// wide.
+type PathHistoryCache =
+    Mutex<HashMap<(String, String), (String, i64, Arc<tugchanges_core::PathHistory>)>>;
+
+fn path_history_cache() -> &'static PathHistoryCache {
+    static CACHE: OnceLock<PathHistoryCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The history of `rel` since `since_ms`, through [`path_history_cache`] when
+/// HEAD is known. `None` when git could not read it.
+async fn cached_path_history(
+    scope: SurvivalScope<'_>,
+    rel: &str,
+    since_ms: i64,
+) -> Option<Arc<tugchanges_core::PathHistory>> {
+    let key = (scope.canonical_root.as_str().to_owned(), rel.to_owned());
+    if let Some(head_oid) = scope.head_oid
+        && let Some((oid, since, history)) = path_history_cache().lock().get(&key)
+        && oid == head_oid
+        && *since <= since_ms
+    {
+        return Some(history.clone());
+    }
+    // The async spelling of `tugchanges_core::path_history`: the same
+    // arguments, the same parse, and `git_stdout`'s `GIT_DIFF_OPTS` scrub.
+    let args = tugchanges_core::path_history_args(rel, since_ms);
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let history = Arc::new(tugchanges_core::PathHistory::parse(
+        &git_stdout(scope.repo_root, &refs).await?,
+    ));
+    if let Some(head_oid) = scope.head_oid {
+        path_history_cache()
+            .lock()
+            .insert(key, (head_oid.to_owned(), since_ms, history.clone()));
+    }
+    Some(history)
+}
+
+/// Deterministic entry order: sessions (by id) before arcs (by ref).
 fn entry_sort_key(entry: &ChangesetEntry) -> (u8, &str) {
     match entry {
         ChangesetEntry::Session { owner_id, .. } => (0, owner_id.as_str()),
@@ -1330,13 +1666,17 @@ async fn cached_min_live_at_ms(
     cut
 }
 
-/// The row-liveness cut for `rel` (epoch ms): a ledger row is live iff
-/// `at >= min_live_at_ms`. Derived from the last commit that touched the path
-/// (`git log -1 --format=%ct -- <rel>`), the whole commit second treated as
-/// spent so ties break toward spent (the file degrades to unattributed —
-/// visible, never falsely claimed). A path with no commit history (a
-/// new/untracked file) returns 0: nothing was ever absorbed, every row is
-/// live. Mirrors tugchanges-core's rule of the same name ([D112]).
+/// The row-liveness cut for `rel` (epoch ms): a ledger row with
+/// `at >= min_live_at_ms` is live outright, and a proof row behind it is live
+/// only if its content survived the commits since ([`surviving_rows`]) — a
+/// commit spends what it absorbed, not every row on the path. Derived from
+/// the last commit that touched the path (`git log -1 --format=%ct --
+/// <rel>`), the whole commit second placed behind the cut, so a row written
+/// in a commit's own second has to show it survived; one that cannot leaves
+/// the file unattributed — visible, never falsely claimed. A path with no
+/// commit history (a new/untracked file) returns 0: nothing was ever
+/// absorbed, every row is live. Mirrors tugchanges-core's rule of the same
+/// name ([D112]).
 async fn min_live_at_ms(repo_root: &Path, rel: &str) -> i64 {
     match git_stdout(repo_root, &["log", "-1", "--format=%ct", "--", rel]).await {
         Some(out) => match out.trim().parse::<i64>() {
@@ -2046,6 +2386,151 @@ pub(crate) async fn run_changeset_commit(
     })
     .await
     .map_err(|e| format!("commit task panicked: {e}"))?
+}
+
+/// What one proof owner claimed of one path a hunk election is about to land
+/// part of — the read a partial landing takes before it commits, so it can
+/// say afterwards what each owner still holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LandingClaim {
+    /// Repo-relative path, as the election names it.
+    pub(crate) path: String,
+    /// The owner the composition keys the file under.
+    pub(crate) owner_id: String,
+    /// The provenance verb the owner's row displays, kept across the carry.
+    pub(crate) op: String,
+    /// The hunks the owner's evidence placed it in, or `None` when it claims
+    /// the file whole (a sole owner, or evidence that names no region).
+    pub(crate) hunks: Option<Vec<String>>,
+}
+
+/// Each proof owner's claim on every path in `elected`, read from the same
+/// composition the Changes card shows — so the claim a landing carries
+/// forward is the one the user was looking at when they elected.
+pub(crate) async fn landing_claims(
+    project_dir: &Path,
+    ledger: Option<&SessionLedger>,
+    elected: &BTreeMap<String, Vec<String>>,
+) -> Vec<LandingClaim> {
+    let Some(snapshot) = compose_snapshot(project_dir, ledger).await else {
+        return Vec::new();
+    };
+    let mut claims = Vec::new();
+    for entry in &snapshot.changesets {
+        let ChangesetEntry::Session {
+            owner_id, files, ..
+        } = entry
+        else {
+            continue;
+        };
+        for file in files {
+            if !elected.contains_key(&file.path)
+                || !super::attribution::origin_is_proof(&file.origin)
+            {
+                continue;
+            }
+            claims.push(LandingClaim {
+                path: file.path.clone(),
+                owner_id: owner_id.clone(),
+                op: file.op.clone(),
+                hunks: (!file.own_hunks.is_empty()).then(|| file.own_hunks.clone()),
+            });
+        }
+    }
+    // A file only closed owners hold has no session entry: it is surfaced
+    // under the most recent of them, who is the one the remainder stays with.
+    for file in &snapshot.orphaned {
+        if elected.contains_key(&file.path) && super::attribution::origin_is_proof(&file.origin) {
+            claims.push(LandingClaim {
+                path: file.path.clone(),
+                owner_id: file.prior_owner_id.clone(),
+                op: file.op.clone(),
+                hunks: None,
+            });
+        }
+    }
+    claims
+}
+
+/// The rows a partial landing writes for what it left dirty: one `carry`
+/// proof row per owner in `claims` that still holds a hunk of its path, with
+/// the spans that say which.
+///
+/// A commit spends every row at or before it, and a row whose only evidence is
+/// a bare whole-file assertion cannot be shown to have survived — so the
+/// landing, which knows what each owner claimed and what it took, restates the
+/// remainder as fresh evidence. Each row names the owner's remaining hunks by
+/// the ids the post-commit diff gives them. An id the landing did not take and
+/// the diff no longer has means the hunk's identity moved under it, and that
+/// owner's row carries the bare whole span instead: wider than what it held,
+/// never narrower.
+///
+/// Rows are stamped at or after the path's new liveness cut, so the tie rule
+/// that spends a row in a commit's own second cannot spend these.
+pub(crate) async fn carry_rows(
+    project_dir: &Path,
+    claims: &[LandingClaim],
+    elected: &BTreeMap<String, Vec<String>>,
+    sha: &str,
+) -> (
+    Vec<crate::session_ledger::FileEventRow>,
+    Vec<Vec<crate::session_ledger::FileEventSpan>>,
+) {
+    let mut rows = Vec::new();
+    let mut spans = Vec::new();
+    let Some(repo_root) = repo_root_for(project_dir).await else {
+        return (rows, spans);
+    };
+    let canonical_dir = CanonicalPath::from_raw(project_dir);
+    let paths: BTreeSet<&str> = claims.iter().map(|c| c.path.as_str()).collect();
+    for path in paths {
+        let Some(diff) = super::git::fetch_git_diff(&repo_root, &[path.to_owned()]).await else {
+            continue;
+        };
+        let left: Vec<String> = tugchanges_core::parse_hunks(&diff)
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        if left.is_empty() {
+            continue;
+        }
+        let landed: &[String] = elected.get(path).map(Vec::as_slice).unwrap_or(&[]);
+        let at = crate::session_ledger::now_millis().max(min_live_at_ms(&repo_root, path).await);
+        for claim in claims.iter().filter(|c| c.path == path) {
+            let row_spans = match &claim.hunks {
+                None => super::attribution::hunk_spans(&left),
+                Some(claimed) => {
+                    let kept: Vec<String> = claimed
+                        .iter()
+                        .filter(|id| !landed.contains(id))
+                        .cloned()
+                        .collect();
+                    if kept.is_empty() {
+                        continue;
+                    }
+                    if kept.iter().all(|id| left.contains(id)) {
+                        super::attribution::hunk_spans(&kept)
+                    } else {
+                        vec![super::attribution::whole_span()]
+                    }
+                }
+            };
+            rows.push(crate::session_ledger::FileEventRow {
+                tug_session_id: claim.owner_id.clone(),
+                tool_use_id: format!("carry:{sha}"),
+                file_path: path.to_owned(),
+                tool_name: "Carry".to_string(),
+                op: claim.op.clone(),
+                origin: "carry".to_string(),
+                ambiguous: false,
+                parent_tool_use_id: None,
+                project_dir: canonical_dir.as_str().to_string(),
+                at,
+            });
+            spans.push(row_spans);
+        }
+    }
+    (rows, spans)
 }
 
 /// The `files:` line both landing receipts carry — the per-file stats as
@@ -2901,6 +3386,345 @@ mod tests {
         );
     }
 
+    /// A 60-line tracked file dirtied in three regions, with `sess-lander`
+    /// having written the top one and `sess-keeper` the other two. Every row
+    /// is stamped now, so each is behind the cut of any commit made after it.
+    fn seed_three_regions_two_owners(root: &Path) -> SessionLedger {
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("three.txt"), &original).unwrap();
+        git(root, &["add", "three.txt"]);
+        git(root, &["commit", "-q", "-m", "long file"]);
+        let edited = original
+            .replace("line005\n", "TOP-EDIT\n")
+            .replace("line030\n", "MIDDLE-EDIT\n")
+            .replace("line050\n", "BOTTOM-EDIT\n");
+        std::fs::write(root.join("three.txt"), &edited).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for session in ["sess-lander", "sess-keeper"] {
+            ledger
+                .record_spawn(
+                    session,
+                    "ws",
+                    &root.to_string_lossy(),
+                    "card",
+                    0,
+                    session,
+                    None,
+                )
+                .unwrap();
+        }
+        for (i, (session, old, new)) in [
+            (
+                "sess-lander",
+                "line004\nline005\nline006",
+                "line004\nTOP-EDIT\nline006",
+            ),
+            (
+                "sess-keeper",
+                "line029\nline030\nline031",
+                "line029\nMIDDLE-EDIT\nline031",
+            ),
+            (
+                "sess-keeper",
+                "line049\nline050\nline051",
+                "line049\nBOTTOM-EDIT\nline051",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut row = event(session, &format!("tu-{i}"), &root.join("three.txt"), root);
+            row.at = crate::session_ledger::now_millis() + i as i64;
+            let spans = edit_spans_for(&root.join("three.txt"), old, new);
+            ledger.record_file_event_with_spans(&row, &spans).unwrap();
+        }
+        ledger
+    }
+
+    /// Land the given hunks of `three.txt` and nothing else, through the
+    /// engine's hunk election.
+    fn land_hunks_of_three(root: &Path, ids: &[String]) {
+        let mut hunks = std::collections::BTreeMap::new();
+        hunks.insert("three.txt".to_string(), ids.to_vec());
+        tugchanges_core::commit(tugchanges_core::CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "land part of the file".to_string(),
+            paths: Some(vec!["three.txt".to_string()]),
+            hunks: Some(hunks),
+            ..Default::default()
+        })
+        .expect("the partial landing succeeds");
+    }
+
+    /// Every session entry's row for `three.txt`, with the session that owns it.
+    fn three_rows(snapshot: &ChangesetSnapshot) -> Vec<(String, ChangesetFile)> {
+        snapshot
+            .changesets
+            .iter()
+            .filter_map(|entry| match entry {
+                ChangesetEntry::Session {
+                    owner_id, files, ..
+                } => files
+                    .iter()
+                    .find(|f| f.path == "three.txt")
+                    .map(|f| (owner_id.clone(), f.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The report, at the feed: two sessions share a file, one lands its one
+    /// hunk, and the other's two hunks stay its own — attributed, naming no
+    /// co-owner, and not SHARED.
+    #[tokio::test]
+    async fn compose_keeps_a_co_owners_hunks_attributed_after_a_partial_landing() {
+        let (_dir, root) = init_repo();
+        let ledger = seed_three_regions_two_owners(&root);
+        let ids: Vec<String> = tugchanges_core::file_hunks(&root, "three.txt")
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids.len(), 3);
+
+        let before = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let rows = three_rows(&before);
+        assert_eq!(rows.len(), 2, "both sessions own the file: {rows:?}");
+        for (owner, file) in &rows {
+            assert!(!file.shared, "disjoint regions do not contend");
+            let expected = if owner == "sess-lander" { 1 } else { 2 };
+            assert_eq!(file.own_hunks.len(), expected, "{owner}");
+        }
+
+        land_hunks_of_three(&root, &ids[..1]);
+
+        let after = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(
+            after.unattributed.iter().all(|f| f.path != "three.txt"),
+            "the remainder must not be orphaned: {:?}",
+            after.unattributed
+        );
+        let rows = three_rows(&after);
+        assert_eq!(rows.len(), 1, "the lander's work is committed: {rows:?}");
+        let (owner, file) = &rows[0];
+        assert_eq!(owner, "sess-keeper");
+        assert!(!file.shared);
+        assert!(file.shared_with.is_empty(), "{:?}", file.shared_with);
+        assert!(file.contested_hunks.is_empty());
+    }
+
+    /// The 60-line `three.txt` committed and then dirtied in three regions,
+    /// with one proof row per entry of `rows`, each carrying the spans of
+    /// every `(replaced, written)` edit it names.
+    fn three_regions_with_rows(root: &Path, rows: &[(&str, &[(&str, &str)])]) -> SessionLedger {
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("three.txt"), &original).unwrap();
+        git(root, &["add", "three.txt"]);
+        git(root, &["commit", "-q", "-m", "long file"]);
+        let edited = original
+            .replace("line005\n", "TOP-EDIT\n")
+            .replace("line030\n", "MIDDLE-EDIT\n")
+            .replace("line050\n", "BOTTOM-EDIT\n");
+        std::fs::write(root.join("three.txt"), &edited).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (i, (session, edits)) in rows.iter().enumerate() {
+            if rows[..i].iter().all(|(seen, _)| seen != session) {
+                ledger
+                    .record_spawn(
+                        session,
+                        "ws",
+                        &root.to_string_lossy(),
+                        "card",
+                        0,
+                        session,
+                        None,
+                    )
+                    .unwrap();
+            }
+            let mut row = event(session, &format!("tu-{i}"), &root.join("three.txt"), root);
+            row.at = crate::session_ledger::now_millis() + i as i64;
+            let mut spans: Vec<crate::session_ledger::FileEventSpan> = edits
+                .iter()
+                .flat_map(|(old, new)| edit_spans_for(&root.join("three.txt"), old, new))
+                .collect();
+            for (seq, span) in spans.iter_mut().enumerate() {
+                span.seq = seq as i64;
+            }
+            ledger.record_file_event_with_spans(&row, &spans).unwrap();
+        }
+        ledger
+    }
+
+    /// A line a commit absorbed stays spent when the same text turns up in a
+    /// later change: the anchor places in the new hunk, and the history says
+    /// the row's own writing of that line already landed.
+    #[tokio::test]
+    async fn compose_does_not_revive_a_spent_row_for_a_readded_identical_line() {
+        let (_dir, root) = init_repo();
+        let ledger = three_regions_with_rows(
+            &root,
+            &[(
+                "sess-keeper",
+                &[("line004\nline005\nline006", "line004\nTOP-EDIT\nline006")],
+            )],
+        );
+        git(&root, &["commit", "-q", "-am", "land it all"]);
+        let committed = std::fs::read_to_string(root.join("three.txt")).unwrap();
+        std::fs::write(
+            root.join("three.txt"),
+            committed.replace("line040\n", "TOP-EDIT\n"),
+        )
+        .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(
+            three_rows(&snapshot).is_empty(),
+            "the row wrote a line that has since landed"
+        );
+        assert!(
+            snapshot.unattributed.iter().any(|f| f.path == "three.txt"),
+            "{:?}",
+            snapshot.unattributed
+        );
+    }
+
+    /// One row wrote two hunks and only one of them landed: the row claims the
+    /// hunk still dirty, not the file, so its owner and the owner of the third
+    /// hunk do not contend.
+    #[tokio::test]
+    async fn compose_narrows_a_row_spanning_a_landed_and_an_unlanded_hunk() {
+        let (_dir, root) = init_repo();
+        let ledger = three_regions_with_rows(
+            &root,
+            &[
+                (
+                    "sess-wide",
+                    &[
+                        ("line004\nline005\nline006", "line004\nTOP-EDIT\nline006"),
+                        ("line029\nline030\nline031", "line029\nMIDDLE-EDIT\nline031"),
+                    ],
+                ),
+                (
+                    "sess-other",
+                    &[("line049\nline050\nline051", "line049\nBOTTOM-EDIT\nline051")],
+                ),
+            ],
+        );
+        let ids: Vec<String> = tugchanges_core::file_hunks(&root, "three.txt")
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids.len(), 3);
+
+        land_hunks_of_three(&root, &ids[..1]);
+
+        let after = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let rows = three_rows(&after);
+        assert_eq!(rows.len(), 2, "both still hold a hunk: {rows:?}");
+        for (owner, file) in &rows {
+            assert!(!file.shared, "{owner}: the owners hold different hunks");
+            assert!(file.contested_hunks.is_empty(), "{owner}");
+            let expected = if owner == "sess-wide" {
+                &ids[1]
+            } else {
+                &ids[2]
+            };
+            assert_eq!(&file.own_hunks, std::slice::from_ref(expected), "{owner}");
+        }
+    }
+
+    /// One session lands two of the three hunks it wrote: the one it left is
+    /// still its own, at the feed as in the sync engine.
+    #[tokio::test]
+    async fn compose_keeps_my_own_leftover_hunk_attributed_after_a_partial_landing() {
+        let (_dir, root) = init_repo();
+        let ledger = three_regions_with_rows(
+            &root,
+            &[
+                (
+                    "sess-mine",
+                    &[("line004\nline005\nline006", "line004\nTOP-EDIT\nline006")],
+                ),
+                (
+                    "sess-mine",
+                    &[("line029\nline030\nline031", "line029\nMIDDLE-EDIT\nline031")],
+                ),
+                (
+                    "sess-mine",
+                    &[("line049\nline050\nline051", "line049\nBOTTOM-EDIT\nline051")],
+                ),
+            ],
+        );
+        let ids: Vec<String> = tugchanges_core::file_hunks(&root, "three.txt")
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids.len(), 3);
+
+        land_hunks_of_three(&root, &[ids[0].clone(), ids[2].clone()]);
+
+        let after = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(
+            after.unattributed.iter().all(|f| f.path != "three.txt"),
+            "the leftover must not be orphaned: {:?}",
+            after.unattributed
+        );
+        let rows = three_rows(&after);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].0, "sess-mine");
+        assert!(!rows[0].1.shared);
+    }
+
+    /// A partial commit Tug did not make — one hunk staged with `git apply
+    /// --cached` and committed with plain `git commit` — leaves the remainder
+    /// with the row that wrote it.
+    #[tokio::test]
+    async fn compose_keeps_the_remainder_attributed_after_a_partial_commit_by_plain_git() {
+        let (_dir, root) = init_repo();
+        let ledger = three_regions_with_rows(
+            &root,
+            &[(
+                "sess-mine",
+                &[
+                    ("line004\nline005\nline006", "line004\nTOP-EDIT\nline006"),
+                    ("line029\nline030\nline031", "line029\nMIDDLE-EDIT\nline031"),
+                    ("line049\nline050\nline051", "line049\nBOTTOM-EDIT\nline051"),
+                ],
+            )],
+        );
+        let (diff, parsed) = tugchanges_core::file_diff_hunks(&root, "three.txt").unwrap();
+        assert_eq!(parsed.len(), 3);
+        let patch = tugchanges_core::filtered_patch(
+            &tugchanges_core::file_header(&diff),
+            &parsed,
+            &[parsed[1].id.clone()].into_iter().collect(),
+        )
+        .unwrap();
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let patch_path = scratch.path().join("one-hunk.diff");
+        std::fs::write(&patch_path, patch).unwrap();
+        git(&root, &["apply", "--cached", &patch_path.to_string_lossy()]);
+        git(&root, &["commit", "-q", "-m", "land the middle by hand"]);
+        assert_eq!(
+            tugchanges_core::file_hunks(&root, "three.txt").unwrap().len(),
+            2
+        );
+
+        let after = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(
+            after.unattributed.iter().all(|f| f.path != "three.txt"),
+            "the remainder must not be orphaned: {:?}",
+            after.unattributed
+        );
+        let rows = three_rows(&after);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].0, "sess-mine");
+    }
+
     /// The same file, the same region: still SHARED, and the wire says which
     /// hunk the contention is in.
     #[tokio::test]
@@ -3183,7 +4007,10 @@ mod tests {
             "both.txt",
             &proof_ids,
             &HashSet::new(),
-            i64::MIN,
+            RowLiveness {
+                min_live: i64::MIN,
+                survivors: None,
+            },
             Some(&ledger),
             &HashMap::new(),
         )
@@ -3196,7 +4023,10 @@ mod tests {
             "both.txt",
             &proof_ids,
             &["sess-beta".to_owned()].into_iter().collect(),
-            i64::MIN,
+            RowLiveness {
+                min_live: i64::MIN,
+                survivors: None,
+            },
             Some(&ledger),
             &HashMap::new(),
         )

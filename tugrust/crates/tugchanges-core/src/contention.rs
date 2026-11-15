@@ -55,6 +55,22 @@
 //! claiming the file whether its owner is running or not, and retires only
 //! through a commit, a disclaim, or a sever ([Q02]).
 //!
+//! # Rows a commit has passed
+//!
+//! Which rows reach this module is the readers' business, and the rule they
+//! apply is that a commit spends only the content it absorbed
+//! ([`crate::survival`]). A row written after the last commit to its path
+//! arrives with every anchor it recorded. A row at or before that commit
+//! arrives only if some of what it wrote is still dirty, and then with only
+//! the anchors that survived: an anchor for a hunk that landed is dropped
+//! before the verdict rather than handed over to fail to place, because
+//! evidence about committed content would otherwise widen a live owner to the
+//! whole file and mark SHARED a file whose owners hold different hunks. A
+//! bare [`Anchor::Whole`] behind a commit never arrives at all, which is the
+//! "retires through a commit" above; a partial landing made through Tug
+//! restates what such an owner still holds as fresh rows naming the remaining
+//! hunks.
+//!
 //! Liveness that cannot be resolved reads as live. Dead is the
 //! retirement-eligible state, so absence of an answer must widen like every
 //! other unresolvable input here.
@@ -368,14 +384,14 @@ pub fn classify_contention(
 /// rule ([`crate::anchors::line_is_distinctive`]) is applied when the anchor
 /// is written, and filtering here too could only lose matches the anchor side
 /// already vouched for.
-struct HunkAdded {
-    id: String,
-    text: String,
-    line_hashes: BTreeSet<String>,
+pub(crate) struct HunkAdded {
+    pub(crate) id: String,
+    pub(crate) text: String,
+    pub(crate) line_hashes: BTreeSet<String>,
 }
 
 impl HunkAdded {
-    fn of(hunk: &Hunk) -> HunkAdded {
+    pub(crate) fn of(hunk: &Hunk) -> HunkAdded {
         let text = added_text(hunk);
         HunkAdded {
             id: hunk.id.clone(),
@@ -474,7 +490,7 @@ fn claim_for(
 /// two hunks; multi-match under containment is indistinguishable from a
 /// coincidence, and electing a co-owner's hunk on a coincidence is the
 /// expensive, invisible error. Declining costs only the badge.
-fn added_lines_matches<'a>(
+pub(crate) fn added_lines_matches<'a>(
     added: &'a [HunkAdded],
     line_hashes: &[String],
     added_head: &str,
@@ -513,7 +529,12 @@ fn added_lines_matches<'a>(
 /// carries. The length check is what keeps a short head from matching a hunk
 /// too small to hold what the anchor claims to have written: a contiguous
 /// insertion lands inside one hunk, so that hunk added at least as many bytes.
-fn content_matches(added_text: &str, new_hash: &str, new_head: &str, new_len: usize) -> bool {
+pub(crate) fn content_matches(
+    added_text: &str,
+    new_hash: &str,
+    new_head: &str,
+    new_len: usize,
+) -> bool {
     if content_hash(added_text) == new_hash {
         return true;
     }
@@ -522,7 +543,7 @@ fn content_matches(added_text: &str, new_hash: &str, new_head: &str, new_len: us
 
 /// A hunk's added lines with their `+` markers stripped, newline-joined — the
 /// text the file gained here, which is what an anchor recorded having written.
-fn added_text(hunk: &Hunk) -> String {
+pub(crate) fn added_text(hunk: &Hunk) -> String {
     let mut out = String::new();
     for line in hunk.body.lines() {
         if let Some(rest) = line.strip_prefix('+') {

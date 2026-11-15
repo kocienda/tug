@@ -16,6 +16,7 @@ mod ledger;
 pub mod place;
 pub mod preflight;
 pub mod shell_ops;
+pub mod survival;
 pub mod trailer;
 
 pub use anchors::{
@@ -43,4 +44,8 @@ pub use preflight::{
     preflight,
 };
 pub use shell_ops::{DeclaredKind, DeclaredOp, ParseOutcome, parse_shell_ops};
+pub use survival::{
+    COMMIT_RECORD_MARK, CommittedAdded, PathHistory, path_history, path_history_args,
+    surviving_anchors,
+};
 pub use trailer::{SHORT_SESSION_ID_LEN, append_trailers, session_citation};

@@ -18,11 +18,19 @@
 //!
 //! Two per-file rules govern classification:
 //!
-//! - **Row liveness.** A ledger row is live only while it postdates the last
-//!   commit that touched its path ([`min_live_at_ms`]) — a commit *spends* the
-//!   rows it absorbs, so a spent row neither attributes nor contends when the
-//!   file goes dirty again later. Ties break toward spent, degrading to
-//!   `unattributed` — visible, never falsely claimed.
+//! - **Row liveness.** A commit *spends* the content it absorbed, and only
+//!   that. A row written after the last commit that touched its path
+//!   ([`min_live_at_ms`]) is live. A proof row at or before that commit is
+//!   live only while what it wrote is still dirty: some anchor of it places in
+//!   the file's current hunks, and no commit to the path since the row was
+//!   written added that content ([`crate::survival`]). So a partial commit
+//!   leaves the rest of the file with the rows that wrote it, while a row
+//!   whose work landed neither attributes nor contends when the file goes
+//!   dirty again later — not even when the same line is written again. A row
+//!   that cannot show where it wrote (a bare whole-file assertion, a row with
+//!   no spans) cannot show it survived, and is spent. Every doubt breaks
+//!   toward spent, degrading to `unattributed` — visible, never falsely
+//!   claimed.
 //! - **Contention is computed here at read time, per region.** An attributed
 //!   path that other sessions also hold live rows for names them in
 //!   `sessions`; it is `shared` only when the owners' claimed regions actually
@@ -43,6 +51,7 @@ use crate::git::{self, repo_root_for};
 use crate::hunks;
 use crate::ledger;
 use crate::place::{OwnerPlace, owner_place};
+use crate::survival::{Survivors, path_survivors};
 
 /// Options for [`changes`]. `session` defaults from `$TUG_SESSION_ID`; `project`
 /// defaults to cwd; `all` keeps committed/reverted files; `diff` attaches each
@@ -304,31 +313,13 @@ pub fn changes(opts: ChangesOptions) -> Result<ChangesReport, ChangesError> {
     Ok(ChangesReport::from_resolved(resolve_changes(&opts)?))
 }
 
-/// Invert the join ([P01]): `git status` is the universe, the ledger annotates
-/// it. Classify **every dirty path** into one of three buckets ([P02]) over
-/// **live** rows (the row-liveness rule, [`min_live_at_ms`]), with **proof
-/// rows** (`exact`/`replay` — the tool input named the file) the only evidence
-/// that decides ownership, for any session including this one ([D112]):
-///
-/// - This session has a live proof row → `attributed`; `shared` iff another
-///   session also has a live proof row (genuine same-file contention).
-/// - No self proof row, but another session has a live proof row → the file
-///   is that session's; `foreign`. This session's `bash`/`turn` rows are
-///   ignored — a whole-tree fingerprint delta is contaminated by concurrent
-///   saves and build churn, so it never overrides a real owner.
-/// - No proof owner anywhere → `unattributed`, always. A live self
-///   `bash`/`turn` row does NOT auto-attribute: the same delta that sweeps up
-///   another session's save also sweeps up the **user's own hand-save** made
-///   while the command ran, and the user's editor has no session to claim it
-///   back. The bracket row instead becomes a *hint* on the unattributed entry
-///   (its `op`/`origin` carry through, e.g. `modified`/`bash`) — "likely this
-///   session's" — and inclusion stays an explicit disposition
-///   (`--include-unattributed`/`--paths`), exactly like every other
-///   unattributed file.
-///
-/// `all` additionally keeps this session's committed/reverted files (an event
-/// row but no longer dirty) in `attributed` — a history view, so liveness does
-/// not apply there.
+/// Which rows of one path are live: those at or after `min_live`, and those
+/// behind it that `survivors` holds.
+struct Liveness<'a> {
+    min_live: i64,
+    survivors: &'a Survivors,
+}
+
 /// Whether this session's work on `path` actually collides with the other
 /// owners' — the hunk-aware reading of SHARED ([P12], [P14]).
 ///
@@ -346,8 +337,12 @@ fn paths_contend(
     path: &str,
     selves: &[String],
     foreign: &[String],
-    min_live: i64,
+    liveness: Liveness<'_>,
 ) -> Result<bool, String> {
+    let Liveness {
+        min_live,
+        survivors,
+    } = liveness;
     let spans = ledger::spans_for_path(conn, path)?;
     // Same repo-scoping rule as the owner queries: a span from a checkout
     // that resolves elsewhere through the path gateway ([L29]) is another
@@ -358,18 +353,20 @@ fn paths_contend(
         .then(|| tugcore::pathform::resolve_to_claude_form(repo_root));
     let mut canon_cache: HashMap<&str, bool> = HashMap::new();
     let mut by_session: HashMap<&str, Vec<contention::Anchor>> = HashMap::new();
+    let same_repo_dir = |project_dir: &str| {
+        canon_root.as_deref().is_some_and(|root| {
+            let dir = Path::new(project_dir);
+            dir.exists() && tugcore::pathform::resolve_to_claude_form(dir) == root
+        })
+    };
     for row in &spans {
+        // A row behind the cut speaks only through what survived of it, below.
         if row.at < min_live {
             continue;
         }
         let same_repo = *canon_cache
             .entry(row.project_dir.as_str())
-            .or_insert_with(|| {
-                canon_root.as_deref().is_some_and(|root| {
-                    let dir = Path::new(&row.project_dir);
-                    dir.exists() && tugcore::pathform::resolve_to_claude_form(dir) == root
-                })
-            });
+            .or_insert_with(|| same_repo_dir(&row.project_dir));
         if !same_repo {
             continue;
         }
@@ -377,6 +374,17 @@ fn paths_contend(
             .entry(row.session.as_str())
             .or_default()
             .push(contention::Anchor::from_span(&row.kind, &row.anchor));
+    }
+    for (session, row) in survivors.rows() {
+        let same_repo = *canon_cache
+            .entry(row.project_dir.as_str())
+            .or_insert_with(|| same_repo_dir(&row.project_dir));
+        if same_repo {
+            by_session
+                .entry(session)
+                .or_default()
+                .extend(row.anchors.iter().cloned());
+        }
     }
     if by_session.is_empty() {
         return Ok(true);
@@ -426,6 +434,31 @@ fn paths_contend(
     Ok(contention::classify_contention(&hunks, &owners, current_file_hash.as_deref()).shared)
 }
 
+/// Invert the join ([P01]): `git status` is the universe, the ledger annotates
+/// it. Classify **every dirty path** into one of three buckets ([P02]) over
+/// **live** rows (the row-liveness rule in the module doc), with **proof
+/// rows** (`exact`/`replay` — the tool input named the file) the only evidence
+/// that decides ownership, for any session including this one ([D112]):
+///
+/// - This session has a live proof row → `attributed`; `shared` iff another
+///   session also has a live proof row (genuine same-file contention).
+/// - No self proof row, but another session has a live proof row → the file
+///   is that session's; `foreign`. This session's `bash`/`turn` rows are
+///   ignored — a whole-tree fingerprint delta is contaminated by concurrent
+///   saves and build churn, so it never overrides a real owner.
+/// - No proof owner anywhere → `unattributed`, always. A live self
+///   `bash`/`turn` row does NOT auto-attribute: the same delta that sweeps up
+///   another session's save also sweeps up the **user's own hand-save** made
+///   while the command ran, and the user's editor has no session to claim it
+///   back. The bracket row instead becomes a *hint* on the unattributed entry
+///   (its `op`/`origin` carry through, e.g. `modified`/`bash`) — "likely this
+///   session's" — and inclusion stays an explicit disposition
+///   (`--include-unattributed`/`--paths`), exactly like every other
+///   unattributed file.
+///
+/// `all` additionally keeps this session's committed/reverted files (an event
+/// row but no longer dirty) in `attributed` — a history view, so liveness does
+/// not apply there.
 fn compute_changes(
     conn: &Connection,
     sessions_conn: Option<&Connection>,
@@ -490,19 +523,41 @@ fn compute_changes(
         }
 
         let min_live = min_live_at_ms(repo_root, path);
-        let mut live_self: Vec<&ledger::EventRow> =
-            self_events.iter().filter(|ev| ev.at >= min_live).collect();
+        // A row behind the cut is still live when its content outlived the
+        // commit — a partial commit leaves the rest of the file dirty.
+        let survivors = path_survivors(conn, repo_root, path, path, min_live)?;
+        let is_live = |ev: &ledger::EventRow, cut: i64, survivors: &Survivors| {
+            ev.at >= cut
+                || (ledger::origin_is_proof(&ev.origin)
+                    && survivors.holds(&ev.session, &ev.tool_use_id))
+        };
+        let mut live_self: Vec<&ledger::EventRow> = self_events
+            .iter()
+            .filter(|ev| is_live(ev, min_live, &survivors))
+            .collect();
         let mut foreign_proof =
             ledger::foreign_proof_sessions_for_path(conn, path, selves, repo_root, min_live)?;
+        let survivors_orig;
         if let Some(o) = orig {
             // Each name carries its own liveness cut — the old name's history
-            // ends where the file stopped being called that.
+            // ends where the file stopped being called that. Its rows are
+            // judged against the diff the file has under its new name.
             let min_live_orig = min_live_at_ms(repo_root, o);
-            live_self.extend(orig_events.iter().filter(|ev| ev.at >= min_live_orig));
+            survivors_orig = path_survivors(conn, repo_root, o, path, min_live_orig)?;
+            live_self.extend(
+                orig_events
+                    .iter()
+                    .filter(|ev| is_live(ev, min_live_orig, &survivors_orig)),
+            );
             live_self.sort_by_key(|ev| ev.at);
-            for claimant in
-                ledger::foreign_proof_sessions_for_path(conn, o, selves, repo_root, min_live_orig)?
-            {
+            for claimant in ledger::foreign_proof_sessions_for_old_name(
+                conn,
+                o,
+                path,
+                selves,
+                repo_root,
+                min_live_orig,
+            )? {
                 if !foreign_proof.contains(&claimant) {
                     foreign_proof.push(claimant);
                 }
@@ -525,7 +580,10 @@ fn compute_changes(
                     path,
                     selves,
                     &foreign_proof,
-                    min_live,
+                    Liveness {
+                        min_live,
+                        survivors: &survivors,
+                    },
                 )?;
             attributed.push(Change {
                 path: path.clone(),
@@ -644,13 +702,15 @@ fn unattributed_change(path: &str, git_status: String) -> Change {
     }
 }
 
-/// The row-liveness cut for `path` (epoch ms): a row is live iff
-/// `row.at >= min_live_at_ms`. Derived from the last commit that touched the
+/// The row-liveness cut for `path` (epoch ms): a row with
+/// `row.at >= min_live_at_ms` is live outright, and a proof row behind it is
+/// live only if its content survived the commits since
+/// ([`crate::survival`]). Derived from the last commit that touched the
 /// path (`git log -1 --format=%ct -- <path>`), with the whole commit second
-/// treated as spent so ties break toward spent (degrading to `unattributed` —
-/// visible, never falsely claimed). A path with no commit history (a
-/// new/untracked file) returns 0: nothing was ever absorbed, every row is
-/// live.
+/// placed behind the cut, so a row written in a commit's own second has to
+/// show it survived rather than being presumed to have. A path with no commit
+/// history (a new/untracked file) returns 0: nothing was ever absorbed, every
+/// row is live.
 fn min_live_at_ms(repo_root: &Path, path: &str) -> i64 {
     let out =
         git::git_stdout(repo_root, &["log", "-1", "--format=%ct", "--", path]).unwrap_or_default();
@@ -1521,6 +1581,279 @@ mod tests {
             compute_changes(&open(&db), None, repo.path(), &["mine".to_owned()], false).unwrap();
         assert_eq!(mine.attributed.len(), 1);
         assert!(mine.attributed[0].shared, "one region, two owners");
+    }
+
+    /// A repo with one tracked 60-line file, dirtied in three regions far
+    /// enough apart that git keeps them as separate hunks. Returns the repo,
+    /// its root as a string, and the three hunk ids, top to bottom.
+    fn init_three_region_repo() -> (tempfile::TempDir, String, Vec<String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let fixture = GitFixture::init(root);
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("three.rs"), &original).unwrap();
+        fixture.git(&["add", "-A"]);
+        fixture.git(&["commit", "-q", "-m", "init"]);
+        let edited = original
+            .replace("line005\n", "TOP-EDIT\n")
+            .replace("line030\n", "MIDDLE-EDIT\n")
+            .replace("line050\n", "BOTTOM-EDIT\n");
+        std::fs::write(root.join("three.rs"), &edited).unwrap();
+        let ids: Vec<String> = hunks::file_hunks(root, "three.rs")
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids.len(), 3, "three separate hunks");
+        let rootstr = root.to_string_lossy().into_owned();
+        (dir, rootstr, ids)
+    }
+
+    /// Seed one proof row per `(session, [(replaced, written)])`, each row
+    /// carrying one `replace` span per edit, built the way the writer builds
+    /// one. Every row is stamped now: after the fixture's first commit, and
+    /// before any commit the test goes on to make.
+    fn seed_edit_rows(
+        project_dir: &str,
+        path: &str,
+        rows: &[(&str, &[(&str, &str)])],
+    ) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+        let conn = ledgers.changes();
+        let mut seen: Vec<&str> = Vec::new();
+        for (i, (session, edits)) in rows.iter().enumerate() {
+            if !seen.contains(session) {
+                ledgers.add_session(session, session);
+                seen.push(session);
+            }
+            let tool_use_id = format!("tu-{i}");
+            conn.execute(
+                "INSERT INTO file_events
+                    (tug_session_id, tool_use_id, file_path, tool_name, op, origin, ambiguous, project_dir, at)
+                 VALUES (?1, ?2, ?3, 'Bash', 'edit', 'cmd', 0, ?4, ?5)",
+                rusqlite::params![session, tool_use_id, path, project_dir, now_millis() + i as i64],
+            )
+            .unwrap();
+            for (seq, (replaced, written)) in edits.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO file_event_spans
+                        (tug_session_id, tool_use_id, file_path, seq, kind, anchor)
+                     VALUES (?1, ?2, ?3, ?4, 'replace', ?5)",
+                    rusqlite::params![
+                        session,
+                        tool_use_id,
+                        path,
+                        seq as i64,
+                        crate::anchors::edit_anchor(Some(replaced), written).to_string()
+                    ],
+                )
+                .unwrap();
+            }
+        }
+        dir
+    }
+
+    /// Land `ids` of `three.rs` and nothing else, through the hunk election's
+    /// own staging path.
+    fn land_hunks(root: &Path, ids: &[&String]) {
+        let elections = [(
+            "three.rs".to_owned(),
+            ids.iter().map(|id| (*id).clone()).collect(),
+        )]
+        .into_iter()
+        .collect();
+        crate::commit::stage_partial_and_commit(
+            root,
+            &["three.rs".to_owned()],
+            "land part of the file",
+            &elections,
+        )
+        .expect("partial commit");
+    }
+
+    /// The report: two sessions share a file, one lands its one hunk, and the
+    /// other's two hunks must stay its own.
+    #[test]
+    fn a_co_owners_partial_landing_leaves_my_hunks_attributed() {
+        let (repo, rootstr, ids) = init_three_region_repo();
+        let root = repo.path();
+        let db = seed_edit_rows(
+            &rootstr,
+            "three.rs",
+            &[
+                ("lander", &[("line005", "TOP-EDIT")]),
+                (
+                    "keeper",
+                    &[("line030", "MIDDLE-EDIT"), ("line050", "BOTTOM-EDIT")],
+                ),
+            ],
+        );
+        land_hunks(root, &[&ids[0]]);
+        assert_eq!(hunks::file_hunks(root, "three.rs").unwrap().len(), 2);
+
+        let keeper =
+            compute_changes(&open(&db), None, root, &["keeper".to_owned()], false).unwrap();
+        assert!(
+            keeper.unattributed.is_empty(),
+            "the remainder must not be orphaned: {:?}",
+            keeper.unattributed
+        );
+        assert_eq!(keeper.attributed.len(), 1);
+        assert_eq!(keeper.attributed[0].path, "three.rs");
+        assert_eq!(keeper.attributed[0].origin, "cmd");
+        assert!(
+            keeper.attributed[0].sessions.is_empty(),
+            "the lander's work is committed, so it is no longer a co-owner: {:?}",
+            keeper.attributed[0].sessions
+        );
+        assert!(!keeper.attributed[0].shared);
+
+        // From the lander's side the file is the keeper's alone.
+        let lander =
+            compute_changes(&open(&db), None, root, &["lander".to_owned()], false).unwrap();
+        assert!(lander.attributed.is_empty(), "its one hunk landed");
+        assert_eq!(lander.foreign.len(), 1);
+        assert_eq!(lander.foreign[0].sessions, vec!["keeper".to_string()]);
+    }
+
+    /// One session lands two of its three hunks: the one it left is still its.
+    #[test]
+    fn my_own_partial_landing_leaves_the_leftover_attributed() {
+        let (repo, rootstr, ids) = init_three_region_repo();
+        let root = repo.path();
+        let db = seed_edit_rows(
+            &rootstr,
+            "three.rs",
+            &[
+                ("mine", &[("line005", "TOP-EDIT")]),
+                ("mine", &[("line030", "MIDDLE-EDIT")]),
+                ("mine", &[("line050", "BOTTOM-EDIT")]),
+            ],
+        );
+        land_hunks(root, &[&ids[0], &ids[2]]);
+
+        let mine = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
+        assert!(mine.unattributed.is_empty(), "{:?}", mine.unattributed);
+        assert_eq!(mine.attributed.len(), 1);
+        assert_eq!(mine.attributed[0].path, "three.rs");
+        assert!(!mine.attributed[0].shared);
+
+        // Landing the last hunk too leaves nothing dirty and nothing claimed.
+        let rest: Vec<String> = hunks::file_hunks(root, "three.rs")
+            .unwrap()
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        land_hunks(root, &rest.iter().collect::<Vec<_>>());
+        let mine = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
+        assert!(mine.attributed.is_empty() && mine.unattributed.is_empty());
+    }
+
+    /// A partial commit Tug did not make: one hunk staged with `git apply
+    /// --cached` and committed with `git commit`.
+    #[test]
+    fn a_partial_commit_made_by_plain_git_leaves_the_remainder_attributed() {
+        let (repo, rootstr, ids) = init_three_region_repo();
+        let root = repo.path();
+        let db = seed_edit_rows(
+            &rootstr,
+            "three.rs",
+            &[(
+                "mine",
+                &[
+                    ("line005", "TOP-EDIT"),
+                    ("line030", "MIDDLE-EDIT"),
+                    ("line050", "BOTTOM-EDIT"),
+                ],
+            )],
+        );
+        let (diff, parsed) = hunks::file_diff_hunks(root, "three.rs").unwrap();
+        let patch = hunks::filtered_patch(
+            &hunks::file_header(&diff),
+            &parsed,
+            &[ids[1].clone()].into_iter().collect(),
+        )
+        .unwrap();
+        let scratch = tempfile::tempdir().expect("tempdir");
+        let patch_path = scratch.path().join("one-hunk.diff");
+        std::fs::write(&patch_path, patch).unwrap();
+        let git = |args: &[&str]| tugcore::test_fixtures::git::git(root, args);
+        git(&["apply", "--cached", &patch_path.to_string_lossy()]);
+        git(&["commit", "-q", "-m", "land the middle by hand"]);
+        assert_eq!(hunks::file_hunks(root, "three.rs").unwrap().len(), 2);
+
+        let mine = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
+        assert!(mine.unattributed.is_empty(), "{:?}", mine.unattributed);
+        assert_eq!(mine.attributed.len(), 1);
+        assert_eq!(mine.attributed[0].path, "three.rs");
+    }
+
+    /// The guard on the other side of survival: a row's line that a commit
+    /// absorbed stays spent when the same text turns up in a later change.
+    /// The anchor places in the new hunk, and the history says the row's own
+    /// writing of that line already landed.
+    #[test]
+    fn a_readded_identical_line_does_not_revive_a_spent_row() {
+        let (repo, rootstr, _ids) = init_three_region_repo();
+        let root = repo.path();
+        let db = seed_edit_rows(
+            &rootstr,
+            "three.rs",
+            &[("mine", &[("line005", "TOP-EDIT")])],
+        );
+        let git = |args: &[&str]| tugcore::test_fixtures::git::git(root, args);
+        git(&["commit", "-q", "-am", "land it all"]);
+
+        let committed = std::fs::read_to_string(root.join("three.rs")).unwrap();
+        std::fs::write(
+            root.join("three.rs"),
+            committed.replace("line040\n", "TOP-EDIT\n"),
+        )
+        .unwrap();
+        assert_eq!(hunks::file_hunks(root, "three.rs").unwrap().len(), 1);
+
+        let mine = compute_changes(&open(&db), None, root, &["mine".to_owned()], false).unwrap();
+        assert!(
+            mine.attributed.is_empty(),
+            "the row wrote a line that has since landed: {:?}",
+            mine.attributed
+        );
+        assert_eq!(mine.unattributed.len(), 1);
+        assert_eq!(mine.unattributed[0].path, "three.rs");
+    }
+
+    /// One row wrote two hunks and only one of them landed. The row speaks for
+    /// the hunk still dirty and no longer for the one that is gone, so it does
+    /// not read as evidence that failed to place and widen to the whole file.
+    #[test]
+    fn a_row_spanning_a_landed_and_an_unlanded_hunk_claims_only_the_unlanded_one() {
+        let (repo, rootstr, ids) = init_three_region_repo();
+        let root = repo.path();
+        let db = seed_edit_rows(
+            &rootstr,
+            "three.rs",
+            &[
+                (
+                    "wide",
+                    &[("line005", "TOP-EDIT"), ("line030", "MIDDLE-EDIT")],
+                ),
+                ("other", &[("line050", "BOTTOM-EDIT")]),
+            ],
+        );
+        land_hunks(root, &[&ids[0]]);
+
+        for session in ["wide", "other"] {
+            let changes =
+                compute_changes(&open(&db), None, root, &[session.to_owned()], false).unwrap();
+            assert!(changes.unattributed.is_empty(), "{session}");
+            assert_eq!(changes.attributed.len(), 1, "{session}");
+            assert_eq!(changes.attributed[0].path, "three.rs");
+            assert!(
+                !changes.attributed[0].shared,
+                "{session}: the two owners hold different hunks"
+            );
+        }
     }
 
     /// Seed the two-owner shape with a `state` on each `sessions` row, and an

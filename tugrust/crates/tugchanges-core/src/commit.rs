@@ -429,7 +429,7 @@ fn normalize_elections(
 /// any step after that fails, the whole staged set — whole-file paths included
 /// — is reset, or our own residue would trip the next attempt's index-clean
 /// precondition.
-fn stage_partial_and_commit(
+pub(crate) fn stage_partial_and_commit(
     repo_root: &Path,
     files: &[String],
     message: &str,

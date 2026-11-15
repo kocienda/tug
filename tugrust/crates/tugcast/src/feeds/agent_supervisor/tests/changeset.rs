@@ -2273,6 +2273,352 @@ async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
     );
 }
 
+/// A repo whose one commit is years old, holding `body` at `f.txt`, and a
+/// supervisor with that repo open and `ledger` behind it — the stage a
+/// partial landing is driven on. The old commit puts the path's liveness cut
+/// far behind any row a test seeds, so a seeded row is live before the
+/// landing and behind the cut after it.
+fn partial_landing_stage(
+    repo: &std::path::Path,
+    body: &str,
+    ledger: &Arc<SessionLedger>,
+) -> (AgentSupervisor, broadcast::Receiver<Frame>) {
+    use tugcore::test_fixtures::git::{GitFixture, git};
+
+    GitFixture::init(repo);
+    std::fs::write(repo.join("f.txt"), body).unwrap();
+    git(repo, &["add", "."]);
+    let status = tugcore::git_command()
+        .current_dir(repo)
+        .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
+        .env("GIT_AUTHOR_DATE", "2020-01-01T00:00:00Z")
+        .args(["commit", "-q", "-m", "init"])
+        .status()
+        .unwrap();
+    assert!(status.success(), "backdated init commit failed");
+    // Open sessions rooted on the repo: a closed owner's file is surfaced as
+    // an orphan rather than under its own entry.
+    for session in ["s-claim", "s-first", "s-second"] {
+        ledger
+            .record_spawn(
+                session,
+                "ws",
+                &repo.to_string_lossy(),
+                "card",
+                0,
+                session,
+                None,
+            )
+            .unwrap();
+    }
+
+    let (state_tx, _s) = broadcast::channel(64);
+    let (meta_tx, _m) = broadcast::channel(8);
+    let (code_tx, _c) = broadcast::channel(8);
+    let (control_tx, rx) = broadcast::channel(128);
+    let recorder: Arc<dyn SessionsRecorder> = Arc::new(LedgerSessionsRecorder::with_broadcast(
+        Arc::clone(ledger),
+        control_tx.clone(),
+    ));
+    let registry = Arc::new(WorkspaceRegistry::new_for_test());
+    registry
+        .get_or_create(repo, CancellationToken::new())
+        .expect("register repo");
+    let (sup, mut register_rx) = AgentSupervisor::new_with_ledger(
+        SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+        SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+        SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+        SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+        control_tx,
+        recorder,
+        Some(Arc::clone(ledger)),
+        stall_spawner_factory(),
+        AgentSupervisorConfig::default(),
+        registry,
+        CancellationToken::new(),
+        SupervisorDeps::default(),
+    );
+    tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+    (sup, rx)
+}
+
+/// A time after the stage's backdated commit and long before any landing a
+/// test makes: a row stamped here is live until the landing, spent after it.
+const BEFORE_THE_LANDING_MS: i64 = 1_600_000_000_000;
+
+fn proof_row(
+    repo: &std::path::Path,
+    session: &str,
+    tool_use_id: &str,
+    origin: &str,
+) -> crate::session_ledger::FileEventRow {
+    crate::session_ledger::FileEventRow {
+        tug_session_id: session.into(),
+        tool_use_id: tool_use_id.into(),
+        file_path: "f.txt".into(),
+        tool_name: "Edit".into(),
+        op: "edit".into(),
+        origin: origin.into(),
+        ambiguous: false,
+        parent_tool_use_id: None,
+        project_dir: crate::path_resolver::CanonicalPath::from_raw(repo)
+            .as_str()
+            .to_string(),
+        at: BEFORE_THE_LANDING_MS,
+    }
+}
+
+/// The spans of every carry row on `f.txt`, by the session that holds it.
+fn carried_spans(
+    repo: &std::path::Path,
+    ledger: &SessionLedger,
+) -> std::collections::BTreeMap<String, Vec<(String, String)>> {
+    let root = crate::path_resolver::CanonicalPath::from_raw(repo);
+    let mut out: std::collections::BTreeMap<String, Vec<(String, String)>> = Default::default();
+    for row in ledger
+        .file_event_spans_for_paths(root.as_str(), &["f.txt".to_string()])
+        .expect("span read")
+    {
+        if row.tool_use_id.starts_with("carry:") {
+            out.entry(row.tug_session_id)
+                .or_default()
+                .push((row.span.kind, row.span.anchor));
+        }
+    }
+    out
+}
+
+fn hunk_anchor(id: &str) -> String {
+    serde_json::json!({ "hunk_id": id }).to_string()
+}
+
+fn land(
+    repo: &std::path::Path,
+    session: &str,
+    hunks: Option<Vec<String>>,
+) -> ChangesetCommitPayload {
+    ChangesetCommitPayload {
+        project_dir: repo.to_string_lossy().into_owned(),
+        files: vec!["f.txt".to_string()],
+        message: "Land part of the file".to_string(),
+        session_id: Some(session.to_string()),
+        hunks: hunks.map(|ids| [("f.txt".to_string(), ids)].into_iter().collect()),
+    }
+}
+
+/// Twenty numbered lines, with the lines named in `changed` rewritten.
+fn numbered_lines(changed: &[usize]) -> String {
+    (1..=20)
+        .map(|n| {
+            if changed.contains(&n) {
+                format!("line {n} changed\n")
+            } else {
+                format!("line {n}\n")
+            }
+        })
+        .collect()
+}
+
+/// A hand claim says the file is the claimant's and names no region, so the
+/// commit that lands one hunk of it spends the claim with nothing to show the
+/// rest survived. The landing writes the remainder back as a carry row naming
+/// the hunk still dirty, and the file stays the claimant's.
+#[tokio::test]
+async fn a_claim_survives_a_partial_landing_through_its_carry_row() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().canonicalize().expect("canonicalize");
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let (sup, mut rx) = partial_landing_stage(&repo, &numbered_lines(&[]), &ledger);
+
+    std::fs::write(repo.join("f.txt"), numbered_lines(&[2, 18])).unwrap();
+    let hunks = tugchanges_core::file_hunks(&repo, "f.txt").expect("hunks");
+    assert_eq!(hunks.len(), 2, "two separate hunks");
+    ledger
+        .record_file_events_with_spans(
+            &[proof_row(&repo, "s-claim", "claim:1", "claim")],
+            &[vec![crate::feeds::attribution::whole_span()]],
+        )
+        .unwrap();
+
+    sup.do_changeset_commit(&land(&repo, "s-claim", Some(vec![hunks[0].id.clone()])))
+        .await;
+    let _ = drain_until_action(&mut rx, "changeset_commit_ok");
+
+    let carried = carried_spans(&repo, &ledger);
+    assert_eq!(
+        carried.get("s-claim"),
+        Some(&vec![("hunk".to_string(), hunk_anchor(&hunks[1].id))]),
+        "the carry row names the hunk the landing left, by the id it still has"
+    );
+    let rows = ledger.file_events_for_session("s-claim").unwrap();
+    let carry = rows
+        .iter()
+        .find(|r| r.origin == "carry")
+        .expect("carry row");
+    assert_eq!(carry.op, "edit", "the carry keeps the provenance verb");
+
+    let snapshot = crate::feeds::changeset::compose_snapshot(&repo, Some(&ledger))
+        .await
+        .expect("repo");
+    let owned: Vec<&str> = snapshot
+        .changesets
+        .iter()
+        .filter_map(|entry| match entry {
+            tugcast_core::types::ChangesetEntry::Session {
+                owner_id, files, ..
+            } if files.iter().any(|f| f.path == "f.txt") => Some(owner_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        owned,
+        vec!["s-claim"],
+        "the remainder is still the claimant's"
+    );
+}
+
+/// A landing with no hunk election takes the whole file, so it leaves nothing
+/// to carry and writes nothing.
+#[tokio::test]
+async fn a_whole_file_landing_writes_no_carry_row() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().canonicalize().expect("canonicalize");
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let (sup, mut rx) = partial_landing_stage(&repo, &numbered_lines(&[]), &ledger);
+
+    std::fs::write(repo.join("f.txt"), numbered_lines(&[2, 18])).unwrap();
+    ledger
+        .record_file_events_with_spans(
+            &[proof_row(&repo, "s-claim", "claim:1", "claim")],
+            &[vec![crate::feeds::attribution::whole_span()]],
+        )
+        .unwrap();
+
+    sup.do_changeset_commit(&land(&repo, "s-claim", None)).await;
+    let _ = drain_until_action(&mut rx, "changeset_commit_ok");
+
+    assert!(carried_spans(&repo, &ledger).is_empty());
+    assert!(
+        ledger
+            .file_events_for_session("s-claim")
+            .unwrap()
+            .iter()
+            .all(|r| r.origin != "carry"),
+        "a whole-file landing carries nothing forward"
+    );
+}
+
+/// Two hunks as close as two hunks can be — one unchanged line between the
+/// first's trailing context and the second's leading context, since git folds
+/// any nearer pair into one hunk — keep their ids when one of them lands: a
+/// hunk's id is its own lines, and no line of a neighbouring hunk is among
+/// them. The co-owner's carry row names its hunk.
+#[tokio::test]
+async fn adjacent_hunks_keep_their_ids_across_a_partial_landing() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().canonicalize().expect("canonicalize");
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let (sup, mut rx) = partial_landing_stage(&repo, &numbered_lines(&[]), &ledger);
+
+    std::fs::write(repo.join("f.txt"), numbered_lines(&[5, 13])).unwrap();
+    let hunks = tugchanges_core::file_hunks(&repo, "f.txt").expect("hunks");
+    assert_eq!(hunks.len(), 2, "the two changes are separate hunks");
+    assert_eq!(
+        hunks[0].old_start + hunks[0].old_lines + 1,
+        hunks[1].old_start,
+        "with a single line between them"
+    );
+    ledger
+        .record_file_events_with_spans(
+            &[
+                proof_row(&repo, "s-first", "tu-1", "exact"),
+                proof_row(&repo, "s-second", "tu-2", "exact"),
+            ],
+            &[
+                crate::feeds::attribution::hunk_spans(&[hunks[0].id.clone()]),
+                crate::feeds::attribution::hunk_spans(&[hunks[1].id.clone()]),
+            ],
+        )
+        .unwrap();
+
+    sup.do_changeset_commit(&land(&repo, "s-first", Some(vec![hunks[0].id.clone()])))
+        .await;
+    let _ = drain_until_action(&mut rx, "changeset_commit_ok");
+
+    let carried = carried_spans(&repo, &ledger);
+    assert_eq!(
+        carried.get("s-second"),
+        Some(&vec![("hunk".to_string(), hunk_anchor(&hunks[1].id))]),
+        "the neighbour's hunk is carried under the id it had before the landing"
+    );
+    assert!(
+        !carried.contains_key("s-first"),
+        "the owner whose only hunk landed carries nothing"
+    );
+}
+
+/// Where a hunk's id does move: two hunks with the same lines are told apart
+/// by an ordinal, and landing the first leaves the second wearing the bare
+/// id. The owner of the second claimed an id the diff no longer has, so its
+/// carry row is the whole span — wider than the hunk it held, never a claim on
+/// the wrong one.
+#[tokio::test]
+async fn a_hunk_whose_id_moved_is_carried_as_the_whole_file() {
+    let block = |word: &str| format!("p\nq\nr\n{word}\ns\nt\nu\n");
+    let filler = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n";
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().canonicalize().expect("canonicalize");
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let (sup, mut rx) = partial_landing_stage(
+        &repo,
+        &format!("{}{filler}{}", block("old"), block("old")),
+        &ledger,
+    );
+
+    std::fs::write(
+        repo.join("f.txt"),
+        format!("{}{filler}{}", block("new"), block("new")),
+    )
+    .unwrap();
+    let hunks = tugchanges_core::file_hunks(&repo, "f.txt").expect("hunks");
+    assert_eq!(hunks.len(), 2);
+    assert_eq!(
+        hunks[1].id,
+        format!("{}#2", hunks[0].id),
+        "identical hunks differ only by ordinal"
+    );
+    ledger
+        .record_file_events_with_spans(
+            &[
+                proof_row(&repo, "s-first", "tu-1", "exact"),
+                proof_row(&repo, "s-second", "tu-2", "exact"),
+            ],
+            &[
+                crate::feeds::attribution::hunk_spans(&[hunks[0].id.clone()]),
+                crate::feeds::attribution::hunk_spans(&[hunks[1].id.clone()]),
+            ],
+        )
+        .unwrap();
+
+    sup.do_changeset_commit(&land(&repo, "s-first", Some(vec![hunks[0].id.clone()])))
+        .await;
+    let _ = drain_until_action(&mut rx, "changeset_commit_ok");
+
+    let left = tugchanges_core::file_hunks(&repo, "f.txt").expect("hunks");
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].id, hunks[0].id, "the survivor took the bare id");
+    let carried = carried_spans(&repo, &ledger);
+    assert_eq!(
+        carried.get("s-second"),
+        Some(&vec![("whole".to_string(), "{}".to_string())]),
+        "an id that moved degrades to the whole span"
+    );
+    assert!(
+        !carried.contains_key("s-first"),
+        "the landed hunk's owner does not inherit the id its neighbour moved into"
+    );
+}
+
 /// The changeset handlers' ledger work — a draft upsert, a draft delete, and
 /// a claim's rows plus the sever of the prior owner — driven through the
 /// supervisor's CONTROL entry point on real workers under the strict gauge. A

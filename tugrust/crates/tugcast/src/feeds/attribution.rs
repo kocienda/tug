@@ -989,7 +989,7 @@ fn op_from_status(status: &str) -> &'static str {
 /// only left a bracket hint). `bash`/`turn` bracket rows are correlation (a
 /// whole-tree fingerprint delta), never proof.
 pub fn origin_is_proof(origin: &str) -> bool {
-    matches!(origin, "exact" | "replay" | "claim" | "cmd")
+    matches!(origin, "exact" | "replay" | "claim" | "cmd" | "carry")
 }
 
 /// The canonical repo root **of the file itself** — resolved by walking up
@@ -1116,6 +1116,7 @@ mod tests {
         assert!(origin_is_proof("exact"));
         assert!(origin_is_proof("replay"));
         assert!(origin_is_proof("claim"));
+        assert!(origin_is_proof("carry"));
         assert!(origin_is_proof(CMD_ORIGIN));
         assert!(!origin_is_proof("bash"));
         assert!(!origin_is_proof("turn"));

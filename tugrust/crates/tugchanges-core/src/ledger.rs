@@ -19,10 +19,15 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 
 /// A single decoded `file_events` row, in `at`-ascending order. `at` (epoch
-/// ms) feeds the row-liveness rule: a row is live only while it postdates the
-/// last commit that touched its path — spent rows neither attribute nor
-/// contend.
+/// ms) feeds the row-liveness rule: a row is live while it postdates the last
+/// commit that touched its path, and a proof row at or before that commit is
+/// live while the content it wrote is still dirty and no commit since has
+/// absorbed it ([`crate::survival`]). A commit spends only what it absorbed;
+/// spent rows neither attribute nor contend.
+/// `session` and `tool_use_id` name the row, which is how its spans are found.
 pub(crate) struct EventRow {
+    pub session: String,
+    pub tool_use_id: String,
     pub file_path: String,
     pub op: String,
     pub origin: String,
@@ -82,7 +87,7 @@ pub(crate) fn line_segments(conn: &Connection, session: &str) -> Vec<String> {
 pub(crate) fn query_events(conn: &Connection, selves: &[String]) -> Result<Vec<EventRow>, String> {
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT file_path, op, origin, at
+            "SELECT file_path, op, origin, at, tug_session_id, tool_use_id
              FROM file_events
              WHERE tug_session_id IN ({})
              ORDER BY at ASC, tool_use_id ASC, file_path ASC",
@@ -96,6 +101,8 @@ pub(crate) fn query_events(conn: &Connection, selves: &[String]) -> Result<Vec<E
                 op: r.get::<_, String>(1)?,
                 origin: r.get::<_, String>(2)?,
                 at: r.get::<_, i64>(3)?,
+                session: r.get::<_, String>(4)?,
+                tool_use_id: r.get::<_, String>(5)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -160,8 +167,9 @@ pub(crate) fn sessions_for_path(
 /// Other sessions with a **live proof** claim on `file_path` — the genuine
 /// cross-session owners. A session qualifies when its `project_dir`
 /// resolves through the path gateway ([L29]) to the same directory as
-/// `repo_root` and it has a proof row at or after `min_live_at_ms` (the
-/// row-liveness cut). Bracket
+/// `repo_root` and it has a live proof row: one at or after `min_live_at_ms`
+/// (the row-liveness cut), or one behind it whose content survived the
+/// commits since ([`crate::survival`]). Bracket
 /// (`bash`/`turn`) rows never qualify a session here: a whole-tree fingerprint
 /// delta cannot distinguish this session's own writes from another session's
 /// concurrent save or a build's churn, so it is not authorship ([D112]). A row
@@ -174,17 +182,74 @@ pub(crate) fn foreign_proof_sessions_for_path(
     repo_root: &Path,
     min_live_at_ms: i64,
 ) -> Result<Vec<String>, String> {
+    foreign_proof_sessions(
+        conn,
+        file_path,
+        file_path,
+        exclude,
+        repo_root,
+        min_live_at_ms,
+    )
+}
+
+/// [`foreign_proof_sessions_for_path`] for the former name of a renamed file:
+/// the rows are read under `old_name` and cut at its `min_live_at_ms`, and a
+/// row behind that cut is judged against the diff of `current_name`, which is
+/// where the file's dirt now is.
+pub(crate) fn foreign_proof_sessions_for_old_name(
+    conn: &Connection,
+    old_name: &str,
+    current_name: &str,
+    exclude: &[String],
+    repo_root: &Path,
+    min_live_at_ms: i64,
+) -> Result<Vec<String>, String> {
+    foreign_proof_sessions(
+        conn,
+        old_name,
+        current_name,
+        exclude,
+        repo_root,
+        min_live_at_ms,
+    )
+}
+
+fn foreign_proof_sessions(
+    conn: &Connection,
+    file_path: &str,
+    diff_path: &str,
+    exclude: &[String],
+    repo_root: &Path,
+    min_live_at_ms: i64,
+) -> Result<Vec<String>, String> {
     if !repo_root.exists() {
         return Ok(Vec::new());
     }
     let canon_root = tugcore::pathform::resolve_to_claude_form(repo_root);
+    // Read only when some claimant's newest proof row is behind the cut: the
+    // survival reading costs a diff, and most paths never need it.
+    let mut survivors: Option<crate::survival::Survivors> = None;
     let mut out = Vec::new();
     for claim in sessions_for_path(conn, file_path, exclude)? {
         let Some(exact_at) = claim.max_proof_at else {
             continue;
         };
         if exact_at < min_live_at_ms {
-            continue;
+            if survivors.is_none() {
+                survivors = Some(crate::survival::path_survivors(
+                    conn,
+                    repo_root,
+                    file_path,
+                    diff_path,
+                    min_live_at_ms,
+                )?);
+            }
+            let survived = survivors
+                .as_ref()
+                .is_some_and(|s| s.holds_any(&claim.session, &claim.project_dir));
+            if !survived {
+                continue;
+            }
         }
         let project = Path::new(&claim.project_dir);
         if project.exists() && tugcore::pathform::resolve_to_claude_form(project) == canon_root {
@@ -196,9 +261,12 @@ pub(crate) fn foreign_proof_sessions_for_path(
 
 /// One span row with the owner and event time of its parent — the read side
 /// of [P12]. `at` rides along so the caller can apply the same row-liveness
-/// cut it applies to the parent: a span of a spent row is spent evidence.
+/// rule it applies to the parent: a span of a spent row is spent evidence,
+/// and a row behind the cut speaks only through the anchors that survived.
+/// `tool_use_id` names the parent row, so a row's spans can be judged together.
 pub(crate) struct SpanRow {
     pub session: String,
+    pub tool_use_id: String,
     /// The parent row's `project_dir`, so the caller can scope the read to
     /// one repo — two checkouts sharing a relative path must not
     /// cross-pollinate anchors.
@@ -226,7 +294,7 @@ pub(crate) fn spans_for_path(conn: &Connection, file_path: &str) -> Result<Vec<S
     }
     let mut stmt = conn
         .prepare(&format!(
-            "SELECT e.tug_session_id, e.project_dir, e.at, s.kind, s.anchor
+            "SELECT e.tug_session_id, e.project_dir, e.at, s.kind, s.anchor, e.tool_use_id
              FROM file_event_spans s
              JOIN file_events e
                ON e.tug_session_id = s.tug_session_id
@@ -244,6 +312,7 @@ pub(crate) fn spans_for_path(conn: &Connection, file_path: &str) -> Result<Vec<S
                 at: r.get::<_, i64>(2)?,
                 kind: r.get::<_, String>(3)?,
                 anchor: r.get::<_, String>(4)?,
+                tool_use_id: r.get::<_, String>(5)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -279,9 +348,9 @@ pub(crate) fn origin_is_proof(origin: &str) -> bool {
 /// The proof origins, in one place: [`origin_is_proof`] tests membership and
 /// [`PROOF_ORIGINS_SQL`] is the same set as a SQL tuple, so the row-level rule
 /// and the query-level rule cannot drift apart.
-pub(crate) const PROOF_ORIGINS: [&str; 4] = ["exact", "replay", "claim", "cmd"];
+pub(crate) const PROOF_ORIGINS: [&str; 5] = ["exact", "replay", "claim", "cmd", "carry"];
 
-const PROOF_ORIGINS_SQL: &str = "('exact', 'replay', 'claim', 'cmd')";
+const PROOF_ORIGINS_SQL: &str = "('exact', 'replay', 'claim', 'cmd', 'carry')";
 
 /// Whether a `sessions` row exists for `session` — the "known vs unknown" test
 /// that separates a valid session with no changes (exit 0, empty list) from a

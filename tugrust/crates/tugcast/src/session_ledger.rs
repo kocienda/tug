@@ -900,7 +900,9 @@ pub struct FileEventRow {
     /// it from the working-tree status transition.
     pub op: String,
     /// `exact` (tool input) | `bash` (bracket delta) | `turn` (turn-scoped
-    /// fallback delta) | `replay` (exact tool, backfilled on resume).
+    /// fallback delta) | `replay` (exact tool, backfilled on resume) |
+    /// `claim` (a hand claim) | `cmd` (a readable shell command) | `carry`
+    /// (what a partial landing left its owner holding).
     pub origin: String,
     /// Legacy column, always written `false` and read by nothing. Capture
     /// records provenance only; the cross-session signal is per-file
@@ -7085,7 +7087,7 @@ impl SessionLedger {
               AND e.tool_use_id = s.tool_use_id
               AND e.file_path = s.file_path
              WHERE e.project_dir = ?1
-               AND e.origin IN ('exact', 'replay', 'claim', 'cmd')
+               AND e.origin IN ('exact', 'replay', 'claim', 'cmd', 'carry')
                AND s.file_path IN ({placeholders})
              ORDER BY s.tug_session_id, s.file_path, s.tool_use_id, s.seq"
         );

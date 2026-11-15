@@ -50,6 +50,8 @@
 //!     (`feeds/draft_engine.rs`) for the generation it spawns.
 //!   - `do_changeset_join_resolve_base` passes the ledger to
 //!     `live_base_dirt_for` in `feeds/changeset.rs`.
+//!   - `do_changeset_commit` passes the ledger to `landing_claims` in
+//!     `feeds/changeset.rs`, for a hunk election only.
 //!
 //! **The other ledgers.** `PromptLedger`, `ShellLedger` and `RefsLedger`
 //! each guard their connection with a `parking_lot::Mutex` of their own. To

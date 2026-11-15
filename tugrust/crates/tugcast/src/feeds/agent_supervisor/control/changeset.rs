@@ -1142,6 +1142,25 @@ impl AgentSupervisor {
             .map(|(_, line_id)| line_id.as_str())
             .filter(|s| !s.is_empty());
         let message = changeset_commit_message(request, tag, line_id);
+        // A hunk election lands part of a file, and the commit spends every
+        // row at or before it — so what each owner claims is read now, while
+        // the rows that say so are still live, and restated after the commit
+        // for whatever it left dirty.
+        // LEDGER-SYNC: `landing_claims` composes the snapshot in
+        // `feeds/changeset.rs`, which reads the ledger between its own git
+        // awaits.
+        let handle = self.ledger_handle();
+        let claims = match (&request.hunks, &handle) {
+            (Some(elected), Some(handle)) => {
+                crate::feeds::changeset::landing_claims(
+                    dir,
+                    Some(handle.ledger().as_ref()),
+                    elected,
+                )
+                .await
+            }
+            _ => Vec::new(),
+        };
         match crate::feeds::changeset::run_changeset_commit(
             dir,
             &request.files,
@@ -1151,6 +1170,27 @@ impl AgentSupervisor {
         .await
         {
             Ok(receipt) => {
+                // Written before the bump, so the recompute it triggers reads
+                // the carried rows. A failed write costs the remainder its
+                // attribution and nothing else: the commit has landed.
+                if let (Some(elected), Some(handle)) = (&request.hunks, &handle)
+                    && !claims.is_empty()
+                {
+                    let (rows, spans) =
+                        crate::feeds::changeset::carry_rows(dir, &claims, elected, &receipt.sha)
+                            .await;
+                    if !rows.is_empty() {
+                        let project = project_dir.to_string();
+                        handle
+                            .run(move |ledger| {
+                                if let Err(err) = ledger.record_file_events_with_spans(&rows, &spans)
+                                {
+                                    warn!(error = %err, project_dir = %project, "carry rows for a partial landing failed");
+                                }
+                            })
+                            .await;
+                    }
+                }
                 self.registry.changeset_all_bump().notify_one();
                 let summary = crate::feeds::changeset::format_commit_summary(
                     &receipt.sha,
