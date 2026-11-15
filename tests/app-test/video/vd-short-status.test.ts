@@ -37,8 +37,8 @@
  * and the moves between them to `shot.json`, with a ring round each cell at
  * the moment it is clicked.
  *
- * The times are seconds of a draft read of the narration; they are re-timed
- * to the recording's word timestamps once there is one.
+ * The times are seconds of the narration (`videos/short-status/audio/voice.wav`
+ * in the `vids` repo), taken from its word timestamps.
  *
  * @visible
  */
@@ -122,42 +122,42 @@ const BREAKDOWN = [
 ] as const;
 const CONTEXT_MAX = 200_000;
 
-/** The beats, in seconds of the draft read. */
+/** The beats, in seconds of the narration. */
 const T = {
-  /** "Every session in Tug has a status bar, and it's always telling me something.": the turn is sent, and the camera pushes in on the row's left end. */
-  push: [0.0, 1.4],
-  /** "State shows what the session is doing right now.": its log opens, and takes a row each time the state changes. The camera rests nowhere for more than about three seconds. */
-  stateRing: [3.2, 4.0],
-  stateOpen: 3.9,
-  stateView: [3.9, 4.7],
-  stateClose: 6.9,
-  /** "Time is a live clock. One click shows me where the time went." */
-  toTime: [6.9, 7.7],
-  timeRing: [8.6, 9.4],
-  timeOpen: 9.3,
-  timeView: [9.3, 10.1],
-  timeClose: 13.3,
-  /** "Context shows how full the window is, with a dial that breaks it down." */
-  toContext: [13.3, 14.1],
-  contextRing: [15.5, 16.3],
-  contextOpen: 16.2,
-  contextView: [16.2, 17.0],
-  contextClose: 19.7,
-  /** "Arc shows the step the work is on.": along the row to its right end. */
-  toTasks: [19.7, 20.5],
-  tasksRing: [21.0, 21.8],
-  tasksOpen: 21.7,
-  tasksView: [21.7, 22.5],
-  tasksClose: 23.9,
-  /** "And when I fold a card, the status bar stays." */
-  toWhole: [23.9, 24.8],
-  fold: 24.9,
-  toFolded: [25.5, 26.3],
-  /** "Tug keeps me up to date at a glance.": the turn ends with the row at 7/7, and the card is unfolded as the camera pulls back. */
-  done: 27.2,
-  unfold: 27.7,
-  toEnd: [27.6, 28.7],
-  end: 29.5,
+  /** "Every AI session card in Tug shows a status bar. They're super helpful." (0.6 to 4.9): the turn is sent, and the camera pushes in on the row's left end. */
+  push: [0.0, 2.2],
+  /** "State shows the phase of work for the session." (5.3): its log opens, and takes a row each time the state changes. The camera rests nowhere for more than about three seconds. */
+  stateRing: [4.6, 5.4],
+  stateOpen: 5.3,
+  stateView: [5.3, 6.1],
+  stateClose: 8.2,
+  /** "Time is a live clock. (8.2) One click shows me where the time went." (9.9) */
+  toTime: [8.2, 9.0],
+  timeRing: [9.2, 10.0],
+  timeOpen: 9.9,
+  timeView: [9.9, 10.7],
+  timeClose: 13.0,
+  /** "Context shows AI context window usage (12.5) with a dial graphic that breaks it down." (15.7) */
+  toContext: [13.0, 13.8],
+  contextRing: [15.2, 16.0],
+  contextOpen: 15.9,
+  contextView: [15.9, 16.7],
+  contextClose: 18.4,
+  /** "Arc tracks the progress of longer running projects." (18.4): along the row to its right end. */
+  toTasks: [18.4, 19.2],
+  tasksRing: [19.5, 20.3],
+  tasksOpen: 20.2,
+  tasksView: [20.2, 21.0],
+  tasksClose: 22.4,
+  /** "And when I fold a card, the status bar stays." (22.4, "fold" at 23.1) */
+  toWhole: [22.4, 23.2],
+  fold: 23.3,
+  toFolded: [23.9, 24.7],
+  /** "Tug keeps me up to date at a glance." (25.7): the turn ends with the row at 7/7, and the card is unfolded as the camera pulls back. */
+  done: 26.0,
+  unfold: 26.5,
+  toEnd: [26.4, 27.5],
+  end: 29.7,
 } as const;
 
 interface Rect {
@@ -512,8 +512,8 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
         t = prose(s, t + 150, "r3", "Green. The popup's Clear now takes stopped rows, and its footer counts them as finished, which is what the cell above it says too.", 129_600, 134_200);
         t = call(s, t + 150, "r3", "Bash", { command: "git diff --stat", description: "Check what changed" }, " src/components/jobs-popover.tsx | 2 +-\n src/lib/jobs-reducer.ts          | 4 ++--\n 2 files changed, 3 insertions(+), 3 deletions(-)", 800);
         // Under the TIME popup: more of the same, so the row and the transcript behind keep moving.
-        t = prose(s, Math.max(t + 150, ms(T.timeOpen) + 200), "r4", "Two files, three lines. Next is the whole suite, since the predicate is shared and a count somewhere else could have leaned on the old meaning without a test of its own saying so.", 134_200, 138_500);
-        t = call(s, t + 150, "r4", "Bash", { command: "grep -rln \"running\" src/lib | wc -l", description: "Count who else reads the count" }, "       9", 500);
+        t = prose(s, Math.max(t + 150, ms(T.timeOpen) + 200), "r4", "Two files, three lines. Next is the whole suite, since the predicate is shared and a count somewhere else could have leaned on the old meaning without a test of its own saying so.", 134_200, 138_500, 45);
+        t = call(s, t + 150, "r4", "Bash", { command: "grep -rln \"running\" src/lib | wc -l", description: "Count who else reads the count" }, "       9", 300);
         t = prose(s, t + 150, "r4b", "Nine files read the running count, and seven of them only show it.", 138_500, 141_800, 45);
         if (t > ms(T.timeClose)) throw new Error(`video: the prose under the TIME popup ends at ${t} ms, after the popup closes at ${ms(T.timeClose)} ms`);
         // "Context shows how full the window is": the figure climbs past three quarters of the window while the camera is on it.
@@ -528,7 +528,7 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
         );
         notes.contextProseEnds = t;
         // Under the CONTEXT popup: the figure goes on climbing, so the dial moves while it is looked at.
-        t = prose(s, Math.max(t + 150, ms(T.contextOpen) + 300), "r5b", "The second run agrees with the first: every file green, the two snapshots among them, and nothing slower than it was before the predicate moved. That is the suite, in full, twice over.", 153_600, 156_900, 70);
+        t = prose(s, Math.max(t + 150, ms(T.contextOpen) + 300), "r5b", "The second run agrees with the first: every file green, the two snapshots among them, and nothing slower than it was before the predicate moved. That is the suite, in full, twice over.", 153_600, 156_900, 60);
         if (t > ms(T.contextClose)) throw new Error(`video: the prose under the CONTEXT popup ends at ${t} ms, after the popup closes at ${ms(T.contextClose)} ms`);
         // "Arc shows the step the work is on.": step 4 is finished under the camera, and step 5 under the popup.
         step(s, ms(T.toTasks[1]) + 150, 4);
