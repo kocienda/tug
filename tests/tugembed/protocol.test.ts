@@ -167,7 +167,15 @@ describe("tugembed", () => {
     const { model, vectors } = embedded([], [SPANISH, CHINESE]);
     expect(model).toMatch(/^nl-(contextual|sentence)-r\d+$/);
     const [spanish, chinese] = vectors;
-    expect(chinese).toBeNull();
+    // Chinese is not among the contextual model's languages, so it has no
+    // vector there. A machine that has not fetched its assets yet answers on the
+    // static model, and there Chinese is one more language whose asset the
+    // machine may or may not hold: a clean macOS 27 install holds it.
+    if (model?.startsWith("nl-contextual-")) {
+      expect(chinese).toBeNull();
+    } else if (chinese !== null) {
+      expect(dot(chinese ?? [], chinese ?? [])).toBeCloseTo(1, 3);
+    }
     // The contextual model covers Spanish under the one asset. A machine without
     // those assets answers on the static model, whose Spanish is its own asset a
     // CI image may lack, so there a null is the answer for a language with none.
