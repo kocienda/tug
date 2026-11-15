@@ -438,6 +438,12 @@ export interface TugTextCardEditorDelegate {
    * find opens.
    */
   findEngine(): EditorFindEngine;
+  /**
+   * The directory this document's relative links resolve in: the file's own
+   * for a bound file, the draft's home for an unsaved one, null before either
+   * is known. The same base the editor's ⌘-click and the attachment strip use.
+   */
+  assetBase(): string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +465,14 @@ export interface TugTextCardEditorProps extends Omit<React.ComponentPropsWithout
    * @default false
    */
   readOnly?: boolean;
+  /**
+   * Another surface is laid over the editor (the Text card's Markdown
+   * preview). The editor refuses edits exactly as `readOnly` does, but the
+   * file is as writable as it was, so the save verbs stay valid: a covered
+   * buffer that is dirty is still dirty.
+   * @default false
+   */
+  covered?: boolean;
   /**
    * CM6 view settings (line numbers, soft wrap, soft tabs, tab width,
    * fold gutter, active-line highlight, invisibles). Seeded from the
@@ -511,6 +525,11 @@ export interface TugTextCardEditorProps extends Omit<React.ComponentPropsWithout
    */
   onStats?: (stats: EditorStats) => void;
   /**
+   * Called after any change to the document, whoever made it: an edit, or a
+   * replacement the store drove (a revert, a reload from disk).
+   */
+  onDocChanged?: () => void;
+  /**
    * Register the editor as a focus-engine stop in this group ([P02]).
    * Omit and the editor registers nothing — it is then reachable only by
    * click and by the card's own focus reclaim, never by Tab or by a ring.
@@ -544,6 +563,7 @@ export const TugTextCardEditor = React.forwardRef<
   {
     store,
     readOnly = false,
+    covered = false,
     settings = DEFAULT_TEXT_CARD_SETTINGS,
     languageExt,
     className,
@@ -552,6 +572,7 @@ export const TugTextCardEditor = React.forwardRef<
     onFindNavigated,
     onSaveCommand,
     onStats,
+    onDocChanged,
     focusGroup,
     focusOrder = 0,
     assetProjection,
@@ -571,7 +592,13 @@ export const TugTextCardEditor = React.forwardRef<
   // Live prop/store refs read at event time [L07].
   const storeRef = useRef(store);
   const settingsRef = useRef(settings);
-  const readOnlyRef = useRef(readOnly);
+  // Whether the document refuses edits: the file is read-only, or the editor
+  // is covered. Every edit gate reads this one.
+  const editLocked = readOnly || covered;
+  const readOnlyRef = useRef(editLocked);
+  // Whether the FILE refuses writes. The save verbs read this alone, so a
+  // covered editor can still save.
+  const fileReadOnlyRef = useRef(readOnly);
   const onFindRequestedRef = useRef<(() => void) | undefined>(onFindRequested);
   const onFindSelectionRequestedRef = useRef<((query: string) => void) | undefined>(
     onFindSelectionRequested,
@@ -579,6 +606,7 @@ export const TugTextCardEditor = React.forwardRef<
   const onFindNavigatedRef = useRef<(() => void) | undefined>(onFindNavigated);
   const onSaveCommandRef = useRef<TugTextCardEditorProps["onSaveCommand"]>(onSaveCommand);
   const onStatsRef = useRef<((stats: EditorStats) => void) | undefined>(onStats);
+  const onDocChangedRef = useRef<(() => void) | undefined>(onDocChanged);
   useLayoutEffect(() => {
     onSaveCommandRef.current = onSaveCommand;
   }, [onSaveCommand]);
@@ -705,14 +733,18 @@ export const TugTextCardEditor = React.forwardRef<
     onStatsRef.current = onStats;
   }, [onStats]);
   useLayoutEffect(() => {
+    onDocChangedRef.current = onDocChanged;
+  }, [onDocChanged]);
+  useLayoutEffect(() => {
     storeRef.current = store;
   }, [store]);
   useLayoutEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
   useLayoutEffect(() => {
-    readOnlyRef.current = readOnly;
-  }, [readOnly]);
+    readOnlyRef.current = editLocked;
+    fileReadOnlyRef.current = readOnly;
+  }, [editLocked, readOnly]);
   useLayoutEffect(() => {
     onFindRequestedRef.current = onFindRequested;
   }, [onFindRequested]);
@@ -1238,6 +1270,7 @@ export const TugTextCardEditor = React.forwardRef<
             // call is a string compare and an idle-timer reset; the parse
             // itself never runs on the edit path.
             assetProjectionRef.current?.noteChanged();
+            onDocChangedRef.current?.();
           }
           if (update.docChanged || update.selectionSet) {
             publishStats(update.state);
@@ -1378,10 +1411,10 @@ export const TugTextCardEditor = React.forwardRef<
   useLayoutEffect(() => {
     viewRef.current?.dispatch({
       effects: readOnlyCompartment.reconfigure(
-        EditorState.readOnly.of(readOnly),
+        EditorState.readOnly.of(editLocked),
       ),
     });
-  }, [readOnly]);
+  }, [editLocked]);
 
   // ---- Language / syntax highlighting ----
   //
@@ -1514,6 +1547,7 @@ export const TugTextCardEditor = React.forwardRef<
       revealLine: revealLineFn,
       revealOffsets: revealOffsetsFn,
       findEngine: () => findEngine,
+      assetBase: () => assetBaseRef.current,
     }),
     [
       revealLineFn,
@@ -2034,11 +2068,13 @@ export const TugTextCardEditor = React.forwardRef<
         action === TUG_ACTIONS.EDUCATE_QUOTES ||
         action === TUG_ACTIONS.STRAIGHTEN_QUOTES ||
         action === TUG_ACTIONS.STRIP_QUOTES ||
-        action === TUG_ACTIONS.ZAP_GREMLINS ||
-        action === TUG_ACTIONS.SAVE
+        action === TUG_ACTIONS.ZAP_GREMLINS
       ) {
         return !readOnlyRef.current;
       }
+      // Saving writes the file, not the document: it is refused by a
+      // read-only file and by nothing else.
+      if (action === TUG_ACTIONS.SAVE) return !fileReadOnlyRef.current;
       // The comment pair also needs the language to declare the tokens, read
       // from the live view at query time [L07].
       if (action === TUG_ACTIONS.TOGGLE_LINE_COMMENT || action === TUG_ACTIONS.TOGGLE_BLOCK_COMMENT) {

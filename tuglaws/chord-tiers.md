@@ -118,7 +118,7 @@ Plain ⌘, for future grants under R3.
 | ⌘D, ⌘Y | Safest — weak conventions elsewhere. |
 | ~~⌘E~~ | **Spent** — `find-selection`, Use Selection for Find. The honest use the slot was held for; see below. |
 | ⌘B, ⌘U | Hold in reserve — bold/underline, and Tug renders markdown. |
-| ⌘P | Hold in reserve — the print reflex is strong. The only accepted repurposing is a command palette. |
+| ⌘P | Hold in reserve — the print reflex is strong. The only accepted repurposing is a command palette. Its ⌥ variant is granted: ⌥⌘P Show Markdown Preview, below. |
 | ~~⌘'~~ | **Spent** — `increase-quote-level`, Increase Quote Level, with ⇧⌘' Decrease Quote Level as its counterpart; see below. |
 | ⌘; ⌘\ | Free punctuation. |
 | ⌘[ ⌘] | Reserved for any future back/forward navigation concept — and unable to carry turn navigation, which reads as one. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in both the composer and the text card, so a promoted ⌘[ would kill dedent app-wide and a scoped one would be dead in the composer — the one surface turn stepping is used from ([D184]). |
@@ -126,6 +126,8 @@ Plain ⌘, for future grants under R3.
 Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃⌘1–6 take the reader to those same slots; ⌃⌘7–9 and ⌃⌘0 are free, and free for an *ordered set* under the digit-row rule above — not as loose slots. (⌃⌘7–9 are really the tail of the Go to Slot set, held for an arrangement wider than six-up rather than open for anything else.)
 
 **Freed by [D126]** and returned to the pool: ⇧⌘P, ⇧⌘C, ⇧⌘H, ⇧⌘M, ⌥⌘T, ⌘I.
+
+**Show Markdown Preview is ⌥⌘P.** R1's ⌥ variant of a base that is held rather than bound: plain ⌘P stays in reserve for print, and the ⌥ variant of print is Print Preview, which is what the command shows — a Text card's Markdown buffer as it will read rather than as it is typed. Xcode puts its preview canvas on the same chord, so the hand that knows one finds the other. The grant does not spend the reserve: a future Print or command palette on ⌘P would have this as its variant, which is the pairing R1 asks for. Under R6 it is `menuEligible` at global scope, on View ▸ Show Markdown Preview: the row's gate lights only over a Text card whose effective file type is Markdown, and it keeps the chord while dark, so a press over any other card is refused at the menu bar rather than falling through to a scoped binding that might one day want it.
 
 ---
 

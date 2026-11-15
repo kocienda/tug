@@ -50,6 +50,7 @@ import React, {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -98,9 +99,12 @@ import { findBarStopCount } from "../tug-find-bar";
 import { TugLabel } from "../tug-label";
 import { presentCardSettingsSheet } from "./card-settings-sheet";
 import { TextCardStatusBar } from "./text-card-status-bar";
+import { TugMarkdownBlock } from "../tug-markdown-block";
+import { documentFindEngine } from "../document-find-engine";
 import { useTextCardSettings } from "@/lib/use-text-card-settings";
 import { EditorStatsStore } from "@/lib/editor-stats-store";
 import {
+  MARKDOWN_LANGUAGE_ID,
   extensionForLanguageId,
   languageIdForPath,
 } from "@/lib/language-registry";
@@ -117,6 +121,9 @@ import { useCycleMode } from "../use-cycle-mode";
 import { useCardDelegate, useCardLifecycle } from "@/lib/card-lifecycle";
 import { TUG_ACTIONS } from "../action-vocabulary";
 import { openAttachmentPath } from "@/lib/open-attachment";
+import { previewImageUrl, readPreviewHref } from "@/lib/markdown-preview-links";
+import { helpAnchorSlug } from "@/lib/help-docs";
+import { requestMenuStateRefresh } from "@/lib/host-menu-state";
 
 // ---------------------------------------------------------------------------
 // Keyboard-focus cycle ([P09]/[P10])
@@ -138,8 +145,13 @@ const TEXT_CARD_CYCLE_GROUP = "text-card-cycle";
  * bar's largest span, so the row's three stops never land on its popups.
  */
 const TEXT_CARD_CYCLE_ORDER_FIND_BASE = 4;
-/** The status strip's line-ending popup; the file-type popup takes the next slot. */
-const TEXT_CARD_CYCLE_ORDER_LINE_ENDING =
+/**
+ * The status strip's settable cluster, walked in the order it reads: the
+ * Preview toggle, the file-type popup, the line-ending popup. The toggle is
+ * there only for a Markdown buffer; its slot stays reserved when it is not,
+ * so the popups keep their orders whichever file is open.
+ */
+const TEXT_CARD_CYCLE_ORDER_PREVIEW =
   TEXT_CARD_CYCLE_ORDER_FIND_BASE + findBarStopCount(true);
 /**
  * The editor is LAST, matching the Session card. The lowest order in a group
@@ -153,6 +165,14 @@ const TEXT_CARD_CYCLE_ORDER_LINE_ENDING =
  * (`enterModeAtKeyView`), and that landing is a movement, so the stop parks.
  */
 const TEXT_CARD_CYCLE_ORDER_EDITOR = 19;
+
+/** What the Markdown preview renders, and the mount it renders in. */
+interface TextCardPreview {
+  /** The buffer's text when the snapshot was taken. */
+  text: string;
+  /** Keys the rendered block: a new snapshot is a new mount. */
+  epoch: number;
+}
 
 // ---------------------------------------------------------------------------
 // Bag payload
@@ -345,6 +365,168 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     languageOverrideId ?? languageIdForPath(snapshot.path);
   const effectiveLanguageExt = extensionForLanguageId(effectiveLanguageId);
 
+  // The rendered Markdown preview: null while the card shows its editor, else
+  // the buffer text the preview renders. Card-local like the override above:
+  // it holds across tab switches and pane visits and starts off on a
+  // relaunch. Only a Markdown buffer has a preview, so it is cleared when the
+  // effective file type leaves Markdown, by the popup or by the card
+  // rebinding to another file, and returning to Markdown starts in the
+  // editor.
+  //
+  // The preview is the BUFFER, unsaved edits included, taken when preview is
+  // entered. The Markdown block renders its text once per mount, so each
+  // snapshot carries a fresh `epoch` for the block's key: entering preview is
+  // a new mount, and so is a change to the buffer from outside while the
+  // preview is up (a revert, a reload from disk). The editor refuses edits
+  // for as long as it is covered, so nothing else can change the buffer.
+  const [preview, setPreview] = useState<TextCardPreview | null>(null);
+  const previewAvailable = effectiveLanguageId === MARKDOWN_LANGUAGE_ID;
+  useLayoutEffect(() => {
+    if (!previewAvailable) setPreview(null);
+  }, [previewAvailable]);
+  const previewing = previewAvailable && preview !== null;
+  // Read by handlers registered once ([L07]).
+  const previewingRef = useRef(previewing);
+  previewingRef.current = previewing;
+  const previewEpochRef = useRef(0);
+  const snapshotPreview = useCallback((): TextCardPreview => {
+    previewEpochRef.current += 1;
+    return {
+      text: store.getBufferText() ?? "",
+      epoch: previewEpochRef.current,
+    };
+  }, [store]);
+  const togglePreview = useCallback(() => {
+    if (previewingRef.current) {
+      setPreview(null);
+      return;
+    }
+    // Replace is an edit; its row does not ride into the preview.
+    setReplaceShown(false);
+    setPreview(snapshotPreview());
+  }, [snapshotPreview]);
+  const onEditorDocChanged = useCallback(() => {
+    if (previewingRef.current) setPreview(snapshotPreview());
+  }, [snapshotPreview]);
+  // View ▸ Show Markdown Preview is lit by whether this card has a preview
+  // and checked by whether it is up. Neither moves a focus or a
+  // registration, so nothing in the chain sees them change and the card
+  // republishes the menu state itself, a microtask on so the gate is read
+  // from the render that moved it.
+  useLayoutEffect(() => {
+    queueMicrotask(requestMenuStateRefresh);
+  }, [previewAvailable, previewing]);
+
+  // The preview's scroller, and where the reader left it. The editor keeps
+  // its own scroll by staying mounted; the preview is unmounted when it is
+  // left, so its position is held here and put back on the way in. Neither
+  // side follows the other. A different file starts at the top.
+  const previewScrollerRef = useRef<HTMLDivElement | null>(null);
+  const previewScrollTopRef = useRef(0);
+  useLayoutEffect(() => {
+    previewScrollTopRef.current = 0;
+  }, [snapshot.path]);
+  const previewEpoch = previewing ? (preview?.epoch ?? null) : null;
+  useLayoutEffect(() => {
+    if (previewEpoch === null) return;
+    const scroller = previewScrollerRef.current;
+    if (scroller === null) return;
+    // A relative image names a file beside the document, which the page
+    // cannot load from its own origin. The block's layout effect has just
+    // written the images; this one runs in the same commit, so each is
+    // pointed at its file before the browser starts a fetch for the path as
+    // written.
+    const base = editorRef.current?.assetBase() ?? null;
+    for (const img of scroller.querySelectorAll<HTMLImageElement>("img[src]")) {
+      const url = previewImageUrl(base, img.getAttribute("src") ?? "");
+      if (url !== null) img.setAttribute("src", url);
+    }
+    scroller.scrollTop = previewScrollTopRef.current;
+  }, [previewEpoch]);
+
+  // Links in the preview, caught before the anchor navigates the card's own
+  // page ([L03]: live before the first click). A relative link names a file
+  // beside the document and opens the way the same link does from the
+  // source; a fragment scrolls to its heading; a URL with a scheme is left to
+  // the block. A modified click is caught too, for the reason the Help card
+  // gives: ⌘ or ⇧ on a relative link would load it into this page.
+  useLayoutEffect(() => {
+    const scroller = previewScrollerRef.current;
+    if (!previewing || scroller === null) return;
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const link = target.closest("a[href]");
+      if (!(link instanceof HTMLAnchorElement) || !scroller.contains(link)) return;
+      const read = readPreviewHref(
+        editorRef.current?.assetBase() ?? null,
+        link.getAttribute("href") ?? "",
+      );
+      if (read.kind === "external") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (read.kind === "anchor") {
+        const wanted = helpAnchorSlug(read.anchor);
+        if (wanted === "") return;
+        for (const heading of scroller.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6")) {
+          if (helpAnchorSlug(heading.textContent ?? "") === wanted) {
+            heading.scrollIntoView({ block: "start" });
+            return;
+          }
+        }
+        return;
+      }
+      if (read.path !== null) void openAttachmentPath(read.path, cardId);
+    };
+    scroller.addEventListener("click", onClick, true);
+    return () => scroller.removeEventListener("click", onClick, true);
+  }, [previewing, cardId]);
+
+  // Find over the preview searches the rendered text, as the Help card's
+  // does. One engine per rendering: its matches are ranges into that
+  // rendering's text nodes, so a remount gets a fresh engine and the bar
+  // replays the standing query into it.
+  const previewFindEngine = useMemo(
+    () =>
+      previewEpoch === null
+        ? null
+        : documentFindEngine({
+            root: () =>
+              previewScrollerRef.current?.querySelector<HTMLElement>(
+                '[data-slot="tug-markdown-block"]',
+              ) ?? null,
+            scroller: () => previewScrollerRef.current,
+          }),
+    [previewEpoch],
+  );
+
+  // Put the keyboard where the card's content is. In the editor that is its
+  // caret. In preview there is no caret to give: the rendered document takes
+  // first responder, so Select All and Copy act on it, and the keyboard
+  // leaves the covered editor for the engine, which is what a click on
+  // read-only prose does.
+  const focusContent = useCallback(() => {
+    if (!previewingRef.current) {
+      editorRef.current?.focus();
+      return;
+    }
+    const rendered = previewScrollerRef.current?.firstElementChild ?? null;
+    const responderId = manager?.findResponderForTarget(rendered) ?? null;
+    if (responderId !== null) manager?.makeFirstResponder(responderId);
+    focusManager?.place(cardId, { kind: "none" }, { modality: "pointer" });
+  }, [manager, focusManager, cardId]);
+  // Focus follows the toggle: to the preview on the way in, back to the
+  // editor on the way out. Only while this card holds the keyboard, so a
+  // preview that ends on a background card takes nothing from the key card.
+  const wasPreviewingRef = useRef(false);
+  useLayoutEffect(() => {
+    if (previewing === wasPreviewingRef.current) return;
+    wasPreviewingRef.current = previewing;
+    if (cardLifecycle?.getFirstResponderCardId() !== cardId) return;
+    focusContent();
+  }, [previewing, cardLifecycle, cardId, focusContent]);
+
   // Status-bar line-ending popup: the store owns the on-disk newline
   // representation (applied at the write boundary) and re-serializes.
   const setLineEnding = useCallback(
@@ -389,7 +571,9 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     // re-reading the viewport here would throw that away — the reader has
     // been stepping through matches, so the scrollport's top line is a
     // stale answer to "where are you".
-    if (findBarRef.current === null) {
+    // The preview has no caret and no anchor to take: its engine lands on
+    // the first match at or below the top of what is showing.
+    if (findBarRef.current === null && !previewingRef.current) {
       editorRef.current?.findEngine().captureFindAnchor("viewport");
     }
     findSeedRef.current = "";
@@ -423,8 +607,8 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     setFindOpen(false);
     setReplaceShown(false);
     editorRef.current?.findEngine().clear?.();
-    editorRef.current?.focus();
-  }, []);
+    focusContent();
+  }, [focusContent]);
 
   // Positions restored from the bag before the editor exists; applied
   // once the file binds and the editor attaches.
@@ -1096,7 +1280,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
   // file-type menus and wraps. Relinquishing lands the caret back in the
   // editor.
   const cycle = useCycleMode({
-    restingFocus: () => editorRef.current?.focus(),
+    restingFocus: focusContent,
   });
 
   const {
@@ -1125,7 +1309,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // document is read-only, so the menu item dims and the chord falls
       // through rather than opening a row with nothing to replace into.
       [TUG_ACTIONS.FIND_REPLACE]: () => {
-        if (snapshot.readOnly) return;
+        if (snapshot.readOnly || previewingRef.current) return;
         setReplaceShown(true);
         openFindBar();
       },
@@ -1138,6 +1322,32 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       [TUG_ACTIONS.FIND_REPLACE_ALL]: () => {
         findBarRef.current?.replaceAll();
       },
+      // ⌘E / ⌘G / ⇧⌘G over the preview. The editor answers all three from
+      // its caret; under the preview the walk starts at the rendered
+      // document and arrives here. Validated below, so over the editor these
+      // stay the editor's alone.
+      [TUG_ACTIONS.FIND_SELECTION]: () => {
+        const scroller = previewScrollerRef.current;
+        const sel = window.getSelection();
+        if (scroller === null || sel === null || sel.rangeCount === 0) return;
+        if (!sel.getRangeAt(0).intersectsNode(scroller)) return;
+        const query = sel.toString().trim();
+        if (query !== "") findSelection(query);
+      },
+      [TUG_ACTIONS.FIND_NEXT]: () => {
+        findBarRef.current?.findNext();
+      },
+      [TUG_ACTIONS.FIND_PREVIOUS]: () => {
+        findBarRef.current?.findPrevious();
+      },
+      // The Preview toggle, ⌥⌘P and View ▸ Show Markdown Preview. Validated
+      // below on the card's effective file type.
+      [TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW]: () => {
+        if (!previewAvailable) return;
+        // Bidden, so a folded card opens first.
+        unfoldCardForBiddenSurface(cardId);
+        togglePreview();
+      },
       // ⌥⇥ toggles keyboard-focus-cycling ([P09]/[P10]). Registered on the
       // card-content responder for the same reason the Session card does it
       // there: key-card dispatch starts at this node wherever focus sits, so
@@ -1145,6 +1355,19 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       [TUG_ACTIONS.CYCLE_FOCUS_MODE]: () => {
         cycle.toggle();
       },
+      // The save verbs, for when the editor is not on the walk. The editor
+      // answers them itself on the way up from its caret; under the Markdown
+      // preview the first responder is the rendered document, a sibling of
+      // the editor, so the walk arrives here instead. A covered buffer that
+      // is dirty is still dirty, and these do what the editor's handlers do.
+      [TUG_ACTIONS.SAVE]: () => {
+        if (store.getSnapshot().saveMode === "manual") onSaveCommand("save");
+        else void store.saveNow();
+      },
+      [TUG_ACTIONS.SAVE_AS]: () => onSaveCommand("save-as"),
+      [TUG_ACTIONS.SAVE_A_COPY]: () => onSaveCommand("save-a-copy"),
+      [TUG_ACTIONS.REVERT_TO_SAVED]: () => onSaveCommand("revert-to-saved"),
+      [TUG_ACTIONS.RELOAD_FROM_DISK]: () => onSaveCommand("reload-from-disk"),
       // The strip's ✕ dispatches through the chain and the owner performs the
       // removal ([L11]) — which here is both halves of a compound gesture: the
       // link comes out of the document and the file goes to the macOS Trash,
@@ -1153,7 +1376,8 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         const atomId = typeof payload?.value === "string" ? payload.value : "";
         const tile = assetTilesRef.current.find((t) => t.id === atomId);
         const view = editorRef.current?.view() ?? null;
-        if (tile === undefined || view === null) return;
+        // Removing an attachment edits the document, which preview refuses.
+        if (tile === undefined || view === null || previewingRef.current) return;
         if (tile.failed) {
           // Nothing on disk to remove — dismissing the failed tile is all a ✕
           // can mean here.
@@ -1173,7 +1397,18 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // file — an untitled draft lives in the drafts directory under a name
       // the user never chose.
       if (action === TUG_ACTIONS.REVEAL_CARD_FILE) return isBoundFile;
-      if (action === TUG_ACTIONS.FIND_REPLACE) return !snapshot.readOnly;
+      if (action === TUG_ACTIONS.FIND_REPLACE) {
+        return !snapshot.readOnly && !previewingRef.current;
+      }
+      if (action === TUG_ACTIONS.SAVE) return !snapshot.readOnly;
+      if (action === TUG_ACTIONS.FIND_SELECTION) return previewingRef.current;
+      if (action === TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW) return previewAvailable;
+      if (
+        action === TUG_ACTIONS.FIND_NEXT ||
+        action === TUG_ACTIONS.FIND_PREVIOUS
+      ) {
+        return previewingRef.current && findBarRef.current !== null;
+      }
       if (
         action === TUG_ACTIONS.FIND_REPLACE_NEXT ||
         action === TUG_ACTIONS.FIND_REPLACE_ALL
@@ -1182,6 +1417,11 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       }
       return true;
     },
+    // The View menu row's check mark.
+    queryActionState: (action) =>
+      action === TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW && previewAvailable
+        ? previewing
+        : undefined,
   });
 
   // Compose the responder registration onto the card's root node, which the
@@ -1332,6 +1572,13 @@ export function TextCardContent({ cardId }: { cardId: string }) {
         className="text-card text-card--editor"
         data-slot="text-card"
       >
+        {/* The editor and, laid over it, the Markdown preview. The stack is
+         * always here and the editor is always its first child, so toggling
+         * the preview never moves the editor's mount ([L26]): its undo
+         * history, selection and scroll are simply still there on the way
+         * back. While covered the editor is inert and hidden, takes no
+         * edits, and keeps its box. */}
+        <div className="text-card-editor-stack">
         <cycle.CycleScope>
           <TugTextCardEditor
             ref={editorRef}
@@ -1339,6 +1586,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
             focusGroup={TEXT_CARD_CYCLE_GROUP}
             focusOrder={TEXT_CARD_CYCLE_ORDER_EDITOR}
             readOnly={snapshot.readOnly}
+            covered={previewing}
+            inert={previewing}
+            data-covered={previewing ? "true" : undefined}
+            onDocChanged={onEditorDocChanged}
             settings={editorSettings}
             languageExt={effectiveLanguageExt}
             className="text-card-editor"
@@ -1359,6 +1610,24 @@ export function TextCardContent({ cardId }: { cardId: string }) {
             }}
           />
         </cycle.CycleScope>
+          {previewing && preview !== null ? (
+            <div
+              ref={previewScrollerRef}
+              className="text-card-preview"
+              data-slot="text-card-preview"
+              data-testid="text-card-preview"
+              onScroll={(e) => {
+                previewScrollTopRef.current = e.currentTarget.scrollTop;
+              }}
+            >
+              <TugMarkdownBlock
+                key={preview.epoch}
+                initialText={preview.text}
+                className="text-card-preview-body"
+              />
+            </div>
+          ) : null}
+        </div>
         {/* What this document has attached, derived from its own text ([P01]).
          * The same component the prompt entry mounts — extended for non-image
          * tiles, never forked. It renders inside `CardContentResponderScope`
@@ -1373,7 +1642,7 @@ export function TextCardContent({ cardId }: { cardId: string }) {
             data-testid="text-card-asset-strip"
             // Enabled only now that the ✕ has a restore path: no shipped
             // intermediate state could ever remove a file irreversibly.
-            deletable={!snapshot.readOnly}
+            deletable={!snapshot.readOnly && !previewing}
             onActivateFile={(atom) => {
               // A tile with no pixels: retry the attach that failed, or
               // reveal the link the tile stands for — the document is where
@@ -1396,7 +1665,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
           <cycle.CycleScope>
             <TextCardFindBar
               ref={findBarRef}
-              getDelegate={() => editorRef.current}
+              getEngine={() =>
+                previewFindEngine ?? editorRef.current?.findEngine() ?? null
+              }
+              engineKey={previewEpoch ?? "editor"}
               initialQuery={findSeedRef.current}
               onClose={closeFindBar}
               cardRootRef={cardRootRef}
@@ -1413,8 +1685,10 @@ export function TextCardContent({ cardId }: { cardId: string }) {
             onSetLineEnding={setLineEnding}
             languageId={effectiveLanguageId}
             onSetLanguage={setLanguageOverrideId}
+            previewing={previewing}
+            previewTarget={`${cardId}-card-content`}
             focusGroup={TEXT_CARD_CYCLE_GROUP}
-            focusOrder={TEXT_CARD_CYCLE_ORDER_LINE_ENDING}
+            focusOrder={TEXT_CARD_CYCLE_ORDER_PREVIEW}
           />
         </cycle.CycleScope>
         {renderSheet()}

@@ -265,6 +265,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘G | `find-replace-next` | Replace | JS, global |
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
+| ⌥⌘P | `toggle-markdown-preview` | Show Markdown Preview | menu bar (swept) |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
 | ⌥⌘V | `paste-as-quote` | Paste as Quote | JS, global |
 | ⌥⌘W | `close-all` | Close All Tabs | JS, global |
@@ -435,6 +436,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `view.equalizeHeights` | `equalize-heights` | first responder | registry gate |
 | `view.foldCard` | `toggle-card-fold` | first responder | registry gate |
 | `view.keyboardFocus` | `cycle-focus-mode` | registered handler | host tier |
+| `view.markdownPreview` | `toggle-markdown-preview` | key card | registry gate |
 | `view.nextKeyboardFocus` | `next-keyboard-focus` | registered handler | host tier |
 | `view.nextTheme` | `next-theme` | registered handler | host tier |
 | `view.previousKeyboardFocus` | `previous-keyboard-focus` | registered handler | host tier |

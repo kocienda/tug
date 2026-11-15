@@ -2516,6 +2516,36 @@ export const COMMANDS: readonly CommandEntry[] = [
     dynamicTitle: (chain) =>
       chain.menu.cardFold?.folded === true ? "Unfold Card" : "Fold Card",
   },
+  {
+    // ⌥⌘P — Show Markdown Preview: the Text card's rendered view of a
+    // Markdown buffer, the Preview toggle in its status strip given a chord
+    // and a View menu row.
+    //
+    // **The tier, derived** (tuglaws/chord-tiers.md): R1's ⌥ variant of ⌘P.
+    // Plain ⌘P is held in reserve for print, and the ⌥ variant of print is
+    // Print Preview, which is what this shows: the document as it will read
+    // rather than as it is typed. Xcode puts its preview canvas on the same
+    // chord. `menuEligible`, so the match is at the menu bar and the item's
+    // gate answers the chord too.
+    //
+    // Routed key-card with no predicate: the walk asks the key card's
+    // card-content responder, and only a Text card registers the handler. It
+    // validates true while the card's effective file type is Markdown, so
+    // the row is dark over every other card and every other file, and its
+    // state answer is the row's check mark. The card republishes the menu
+    // state when either moves.
+    id: TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW,
+    title: "Show Markdown Preview",
+    routing: "key-card",
+    menuItemId: "view.markdownPreview",
+    bindings: [
+      chord(
+        { key: "KeyP", meta: true, alt: true, label: "p" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+  },
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
   ...SLOT_SPLIT_COMMANDS,

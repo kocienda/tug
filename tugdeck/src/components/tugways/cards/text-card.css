@@ -40,6 +40,40 @@
   min-height: 0;
 }
 
+/* ---- Editor stack: the editor, and the Markdown preview over it ---- */
+
+/* The stack takes the height the editor used to take directly, and is the
+ * box the preview is laid over. */
+.text-card-editor-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* A covered editor is out of sight but keeps its box, so its scroll position
+ * and layout are untouched when the preview comes off. */
+.text-card-editor[data-covered="true"] {
+  visibility: hidden;
+}
+
+/* The preview fills the stack and scrolls on its own. The rendered document
+ * is the composed TugMarkdownBlock, which owns its type scale and block
+ * styling ([L20]); this styles only the scroller and its reading margins,
+ * the Help card's. */
+.text-card-preview {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 0.75rem 1.25rem 2rem;
+}
+
+.text-card-preview-body {
+  min-width: 0;
+}
+
 /* ---- Attachment strip ---- */
 
 /* What the document has attached, derived from its own text. A single
@@ -71,8 +105,8 @@
 
 /* ---- Bottom status bar ---- */
 
-/* A thin strip below the editor: line ending, file type, caret L/C, and the
- * doc counts (right-aligned). */
+/* A thin strip below the editor: caret L/C and the doc counts on the leading
+ * edge; the Preview toggle, file type and line ending on the trailing one. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .text-card-status-bar {
   display: flex;
@@ -114,9 +148,11 @@
 }
 
 /* The number pair (caret + counts) holds the leading edge and the settable
- * pair (line ending + file type) the trailing one, with the flexible gap
- * between. Numbers grow rightward into that gap, so a changing count never
- * moves the popups, and the popups never move the numbers. */
+ * cluster (Preview toggle, file type, line ending) the trailing one, with the
+ * flexible gap between. Numbers grow rightward into that gap, so a changing
+ * count never moves the popups, and the popups never move the numbers. The
+ * toggle is the cluster's leading member, so its coming and going with the
+ * file type moves neither popup. */
 .text-card-status-group--numbers {
   gap: var(--tug-space-md);
 }
@@ -125,12 +161,26 @@
   margin-left: auto;
 }
 
+/* The Preview toggle reads in the strip's own voice: the popups beside it
+ * are sentence-case labels, and a push button's uppercase tracking would
+ * shout between them and the counts. */
+.tug-push-button.text-card-status-preview {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 /* Reserve width for the caret cell so the counts beside it hold still as
  * the line and column grow: room for a four-digit line and a two-digit
  * column before anything moves. Wider reads as a hole beside a short
  * caret, which is the common case. */
 .text-card-status-caret {
   min-width: 13ch;
+}
+
+/* A preview has no caret. The cell keeps its reserved width so the counts
+ * beside it do not move when the preview goes up or comes down. */
+.text-card-status-bar[data-previewing="true"] .text-card-status-caret {
+  visibility: hidden;
 }
 
 /* ---- Editor options sheet ---- */

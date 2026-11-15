@@ -333,6 +333,12 @@ const LANGUAGE_LABELS: Record<string, string> = {
 /** The file type a new, untitled Text File card starts on. */
 export const UNTITLED_LANGUAGE_ID = "md";
 
+/**
+ * The selectable-language id for Markdown: the one file type the Text card
+ * offers a rendered preview for.
+ */
+export const MARKDOWN_LANGUAGE_ID = "md";
+
 /** Human-readable language name for the status bar (or "Plain Text"). */
 export function languageLabelFor(path: string | null): string {
   if (path === null) return LANGUAGE_LABELS[UNTITLED_LANGUAGE_ID];

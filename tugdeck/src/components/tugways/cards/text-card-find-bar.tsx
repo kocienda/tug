@@ -7,9 +7,12 @@
  *
  * One find CONTROLLER across the deck: the wrapper instantiates the shared
  * {@link FindSession} (query, options, wrap bookkeeping, the cluster face)
- * and hands it the editor's own engine — the shared CM6 engine every editable
- * surface finds through (`editor-find-engine.ts`), which is
- * virtualization-proof because CM6 works off the document. Options
+ * and hands it the engine the card names. Over the editor that is the
+ * editor's own — the shared CM6 engine every editable surface finds through
+ * (`editor-find-engine.ts`), which is virtualization-proof because CM6 works
+ * off the document. Over the card's Markdown preview it is a read-only engine
+ * over the rendered text, and the session follows the card from one to the
+ * other with its query standing. Options
  * seed from the GLOBAL find preference and persist back through the session's
  * `onOptionsChanged` hook (`putFindOptions`) — identical wiring to the
  * Session card. The engine watches the editor's view, so the count and the
@@ -20,7 +23,9 @@
  * cleared on unmount, so dismissing the bar ends the search. The editor's
  * engine is attached to it directly: the editor and the bar mount and unmount
  * together in the card's ready state, so the engine outlives every bar that
- * searches through it and there is nothing to forward.
+ * searches through it and there is nothing to forward. A change of engine
+ * under an open bar clears the one being left and replays the standing query
+ * into the one arriving.
  *
  * @module components/tugways/cards/text-card-find-bar
  */
@@ -33,12 +38,19 @@ import {
   type TugFindBarHandle,
 } from "@/components/tugways/tug-find-bar";
 import { createFindSession } from "@/lib/create-find-session";
-import type { FindSession } from "@/lib/find-session";
-import type { TugTextCardEditorDelegate } from "@/components/tugways/tug-text-card-editor";
+import type { FindEngineDelegate, FindSession } from "@/lib/find-session";
 
 export interface TextCardFindBarProps {
-  /** Resolve the live editor delegate (null while unmounted). */
-  getDelegate: () => TugTextCardEditorDelegate | null;
+  /**
+   * Resolve the engine the bar searches through (null while there is none).
+   * Read when the bar mounts and again whenever {@link engineKey} changes.
+   */
+  getEngine: () => FindEngineDelegate | null;
+  /**
+   * Names the engine {@link getEngine} currently answers with. A new value
+   * moves the session onto the new engine.
+   */
+  engineKey: string | number;
   /**
    * Seeds the query field at mount, selected whole. Empty for a plain ⌘F —
    * this card's session dies with the bar, so there is no remembered query;
@@ -76,7 +88,8 @@ export const TextCardFindBar = React.forwardRef<
   TextCardFindBarProps
 >(function TextCardFindBar(
   {
-    getDelegate,
+    getEngine,
+    engineKey,
     initialQuery,
     onClose,
     cardRootRef,
@@ -86,8 +99,8 @@ export const TextCardFindBar = React.forwardRef<
   }: TextCardFindBarProps,
   ref,
 ): React.ReactElement {
-  const getDelegateRef = useRef(getDelegate);
-  getDelegateRef.current = getDelegate;
+  const getEngineRef = useRef(getEngine);
+  getEngineRef.current = getEngine;
 
   const sessionRef = useRef<FindSession | null>(null);
   if (sessionRef.current === null) {
@@ -98,8 +111,14 @@ export const TextCardFindBar = React.forwardRef<
   // when the two mount in one commit; a query the bar seeds first is replayed
   // into the engine as it attaches. Dismissing the bar ends the search and
   // releases the engine, which stops watching the editor for this session.
+  // The engine being left is cleared, so its match paint does not outlive the
+  // search that moved on.
   useLayoutEffect(() => {
-    session.setDelegate(getDelegateRef.current()?.findEngine() ?? null);
+    const engine = getEngineRef.current();
+    session.setDelegate(engine);
+    return () => engine?.clear?.();
+  }, [session, engineKey]);
+  useLayoutEffect(() => {
     return () => {
       session.clear();
       session.setDelegate(null);

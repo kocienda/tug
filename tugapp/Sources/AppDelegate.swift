@@ -1560,6 +1560,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-card-fold")
     }
 
+    // View ▸ Show Markdown Preview. The key Text card answers it.
+    @objc func toggleMarkdownPreview(_ sender: NSMenuItem) {
+        sendControl("toggle-markdown-preview")
+    }
+
     // Edit ▸ Undo / Redo — two execution paths, matching the two
     // validation sources (see validateMenuItem):
     //   - Native text control focused: drive the web view's NSUndoManager

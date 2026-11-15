@@ -1,6 +1,68 @@
-/* @tug-pairings: none — styling delegated to internal/tug-button.css; this file adds typography only */
+/* @tug-pairings {
+  --tug7-element-control-text-tinted-accent-rest       | --tug7-surface-control-primary-tinted-accent-rest       | control
+  --tug7-element-control-text-tinted-accent-hover      | --tug7-surface-control-primary-tinted-accent-hover      | control
+  --tug7-element-control-text-tinted-accent-active     | --tug7-surface-control-primary-tinted-accent-active     | control
+  --tug7-element-control-border-tinted-accent-rest     | --tug7-surface-control-primary-tinted-accent-rest       | control
+  --tug7-element-control-border-tinted-accent-hover    | --tug7-surface-control-primary-tinted-accent-hover      | control
+  --tug7-element-control-border-tinted-accent-active   | --tug7-surface-control-primary-tinted-accent-active     | control
+} */
+
+/* Typography. Everything else a push button looks like at rest is
+   internal/tug-button.css. */
 
 .tug-push-button {
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+/* ============================================================================
+   Toggle, on
+
+   A push button given `pressed` carries `data-tug-toggle`, and reads lit while
+   `aria-pressed` is true: the accent wash of the `tinted` emphasis, whatever
+   emphasis and role the button rests in. The tokens are the `control` slot's
+   own, the slot this button already paints through, and each exists in every
+   theme.
+
+   The marker is what scopes the look. `aria-pressed` alone does not light a
+   button, because action buttons stamp it for assistive technology and keep
+   their own emphasis.
+
+   Specificity is deliberate. The rest rule outranks the key-view promotion in
+   internal/tug-button.css, so a toggle that holds keyboard focus still shows
+   whether it is on and the focus ring says it is focused. The hover and press
+   rules outrank that file's promoted pointer ramp for the same reason.
+   ========================================================================= */
+
+.tug-button.tug-push-button[data-tug-toggle][aria-pressed="true"] {
+  background-color: var(--tug7-surface-control-primary-tinted-accent-rest);
+  color: var(--tug7-element-control-text-tinted-accent-rest);
+  border-color: var(--tug7-element-control-border-tinted-accent-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-control-primary-tinted-accent-rest */
+.tug-button.tug-push-button[data-tug-toggle][aria-pressed="true"] svg {
+  color: var(--tug7-element-control-text-tinted-accent-rest);
+}
+
+.tug-button.tug-push-button[data-tug-toggle][aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--tug7-surface-control-primary-tinted-accent-hover);
+  color: var(--tug7-element-control-text-tinted-accent-hover);
+  border-color: var(--tug7-element-control-border-tinted-accent-hover);
+}
+
+/* @tug-renders-on: --tug7-surface-control-primary-tinted-accent-hover */
+.tug-button.tug-push-button[data-tug-toggle][aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]) svg {
+  color: var(--tug7-element-control-text-tinted-accent-hover);
+}
+
+.tug-button.tug-push-button[data-tug-toggle][aria-pressed="true"]:is(:active,[data-pressing="true"]):not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--tug7-surface-control-primary-tinted-accent-active);
+  color: var(--tug7-element-control-text-tinted-accent-active);
+  border-color: var(--tug7-element-control-border-tinted-accent-active);
+}
+
+/* @tug-renders-on: --tug7-surface-control-primary-tinted-accent-active */
+.tug-button.tug-push-button[data-tug-toggle][aria-pressed="true"]:is(:active,[data-pressing="true"]):not(:disabled):not([aria-disabled="true"]) svg {
+  color: var(--tug7-element-control-text-tinted-accent-active);
 }

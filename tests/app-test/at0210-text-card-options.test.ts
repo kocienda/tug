@@ -202,6 +202,18 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // line ending).
         expect(statusText).toContain("Plain Text");
         expect(statusText).toContain("Unix (LF)");
+        // The cluster reads file type, then line ending.
+        expect(
+          statusText.indexOf("Plain Text"),
+          "the file-type popup precedes the line-ending popup",
+        ).toBeLessThan(statusText.indexOf("Unix (LF)"));
+        // Preview is Markdown's: a plain-text file's strip has no toggle.
+        expect(
+          await app.body("A").evalJS<number>(
+            `document.querySelectorAll('${CARD} [data-testid="text-card-status-preview"]').length`,
+          ),
+          "no Preview toggle on a plain-text file",
+        ).toBe(0);
         const caretCell = await app.body("A").evalJS<string>(
           `document.querySelector('${CARD} [data-testid="text-card-status-caret"]').innerText`,
         );

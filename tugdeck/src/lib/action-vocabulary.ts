@@ -724,6 +724,16 @@ export const TUG_ACTIONS = {
   //                   (`lib/card-fold.ts`). ⌘M is the window's MINIMIZE and
   //                   ⌃⌘M is the commit message; neither is touched.
   TOGGLE_CARD_FOLD: "toggle-card-fold",
+  // TOGGLE_MARKDOWN_PREVIEW: payload — none. Lay the rendered, read-only view
+  //                   of a Markdown buffer over the key Text card's editor,
+  //                   or take it off. Its doors are the Preview toggle in the
+  //                   card's status strip, View ▸ Show Markdown Preview, and
+  //                   ⌥⌘P ([L11]: one action, many doors). Routed key-card
+  //                   and answered by the Text card's card-content responder,
+  //                   which validates it only while the card's effective
+  //                   file type is Markdown and answers its state query with
+  //                   whether the preview is up.
+  TOGGLE_MARKDOWN_PREVIEW: "toggle-markdown-preview",
   // SET_CARD_FOLDED: payload — `{ cardId: string, folded: boolean }`. Write
   //                  one card's pane into or out of the folded form.
   //                  Internal: its doors are TOGGLE_CARD_FOLD and the Z2

@@ -181,6 +181,25 @@ describe("routing matches the pre-migration mechanism", () => {
     expect(setter?.menuItemId).toBeUndefined();
   });
 
+  test("the Markdown preview is the key card's, on ⌥⌘P and a View row", () => {
+    // Key-card with no predicate: only a Text card's card-content responder
+    // registers the handler, so the chain walk is the whole gate and the row
+    // is dark over every other card. Mirrored, so that answer and the check
+    // mark reach the host.
+    const preview = COMMANDS_BY_ID.get(TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW);
+    expect(preview?.routing).toBe("key-card");
+    expect(preview?.title).toBe("Show Markdown Preview");
+    expect(preview?.menuItemId).toBe("view.markdownPreview");
+    expect(preview?.mirrored).toBe(true);
+    expect(preview?.validate).toBeUndefined();
+    expect(preview?.bindings?.map((b) => formatChord(b.chord))).toEqual(["⌥⌘P"]);
+    expect(preview?.bindings?.[0]?.menuEligible).toBe(true);
+    // Plain ⌘P stays in reserve.
+    expect(
+      COMMANDS.flatMap((e) => e.bindings ?? []).map((b) => formatChord(b.chord)),
+    ).not.toContain("⌘P");
+  });
+
   test("the card's fold is ⌃⌘Y and the window's minimize is still ⌘M", () => {
     // The fold left the ⌥ tier because AppKit claims ⌥⌘M, and landed on a
     // free letter in the Tug tier, read as a shape. The two are asserted
@@ -321,6 +340,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "toggle-history-view": "command",
   "toggle-changes-view": "command",
   "toggle-card-fold": "command",
+  "toggle-markdown-preview": "command",
   undo: "command",
   redo: "command",
   "copy-alternate": "command",
@@ -662,6 +682,9 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // ⌥⇧⌘S already reads as one. ⌃⇧⌘E is the hand shape the user declines.
   ["⌃⌘E", TUG_ACTIONS.EQUALIZE_HEIGHTS],
   ["⌥⇧⌘E", TUG_ACTIONS.EQUALIZE_ALL_HEIGHTS],
+  // The Text card's Markdown preview: the ⌥ variant of the reserved print
+  // key, Print Preview read as a chord, and Xcode's preview canvas.
+  ["⌥⌘P", TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

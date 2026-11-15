@@ -260,6 +260,13 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
         // equivalent is left EMPTY like the rows above — `applyCommandChords`
         // writes ⌃⌘Y from the frontend's keymap.
         menu.addItem(NSMenuItem(title: "Fold Card", action: #selector(AppDelegate.toggleCardFold(_:)), keyEquivalent: "").identified("view.foldCard"))
+        // Show Markdown Preview — the key Text card's rendered view of its
+        // Markdown buffer, on ⌥⌘P. What the card shows rather than where it
+        // stands, but a card's own, so it closes the block of card postures.
+        // The registry gate lights it only over a Text card whose file type
+        // is Markdown and checks it while the preview is up; the key
+        // equivalent is left EMPTY like the rows above.
+        menu.addItem(NSMenuItem(title: "Show Markdown Preview", action: #selector(AppDelegate.toggleMarkdownPreview(_:)), keyEquivalent: "").identified("view.markdownPreview"))
 
         // The slot family — how the cards standing in one slot arrange
         // themselves, and where this card stands among them. Between the card
