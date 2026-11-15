@@ -111,6 +111,8 @@ function manager(): any {
     { sessionsDbPath: null },
   ) as any;
   m.claudeCodeVersion = "2.1.195";
+  // Made-up pid: keep the group signal off the OS ("gone" signals the child).
+  m.claude.signalProcessGroup = () => "gone";
   m.claudeProcess = fakeProcess();
   m.startStdoutDrain(m.claudeProcess);
   return m;

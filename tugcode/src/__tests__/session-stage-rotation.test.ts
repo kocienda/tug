@@ -118,6 +118,8 @@ function manager(): any {
   m.claudeCodeVersion = "2.1.195";
   m.startStdoutDrain = () => {};
   m.claudeProcess = fakeProcess();
+  // Made-up pid: keep the group signal off the OS ("gone" signals the child).
+  m.claude.signalProcessGroup = () => "gone";
   return m;
 }
 

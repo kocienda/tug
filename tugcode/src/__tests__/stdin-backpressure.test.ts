@@ -116,6 +116,8 @@ function makeManager(child: ReturnType<typeof mockClaudeChild>["child"]) {
   (manager as any).stdinWriteTimeoutMs = TEST_TIMEOUT_MS;
   (manager as any).claudeReadyPromise = Promise.resolve();
   (manager as any).claudeProcess = child;
+  // Made-up pid: keep the group signal off the OS ("gone" signals the child).
+  (manager as any).claude.signalProcessGroup = () => "gone";
   return { manager, spawns };
 }
 

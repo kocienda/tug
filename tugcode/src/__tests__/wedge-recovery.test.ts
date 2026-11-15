@@ -142,6 +142,8 @@ function makeManager(): {
       return child.child;
     }),
   });
+  // Made-up pid: keep the group signal off the OS ("gone" signals the child).
+  (manager as any).claude.signalProcessGroup = () => "gone";
   return {
     manager,
     spawns,

@@ -501,7 +501,10 @@ export class ClaudeProcess {
    * before it was group-wide.
    */
   private signalGroupOrChild(child: ClaudeSubprocess, signal: NodeJS.Signals): void {
-    if (this.signalProcessGroup(child.pid, signal) === "gone") {
+    // Anything short of "sent" signals the child directly: a group that
+    // refused the signal (EPERM) must not leave the ladder waiting on an
+    // exit nobody asked for.
+    if (this.signalProcessGroup(child.pid, signal) !== "sent") {
       child.kill(signal);
     }
   }

@@ -119,6 +119,8 @@ function manager(written: string[], grantedDirectories?: string[]): any {
   m.claudeCodeVersion = "2.1.322";
   m.startStdoutDrain = () => {};
   m.claudeProcess = fakeProcess(written);
+  // Made-up pid: keep the group signal off the OS ("gone" signals the child).
+  m.claude.signalProcessGroup = () => "gone";
   return m;
 }
 

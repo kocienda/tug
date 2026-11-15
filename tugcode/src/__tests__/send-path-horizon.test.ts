@@ -110,6 +110,8 @@ function makeManager(): SessionManager {
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
   });
   (manager as any).sendHorizonMs = TEST_HORIZON_MS;
+  // Made-up pid: keep the group signal off the OS ("gone" signals the child).
+  (manager as any).claude.signalProcessGroup = () => "gone";
   return manager;
 }
 

@@ -117,6 +117,12 @@ function makeManager(): SessionManager {
     jsonlReader: async () => ({ kind: "ok" as const, jsonl: "" }),
     spawner: fakeSpawner(() => mockClaudeChild().child),
   });
+  // The fake child's pid is made up, so the process-group signal is stubbed
+  // at its one seam: "gone" sends the ladder to the child itself, and no
+  // signal ever reaches a real group. Left live, `kill(-4242, …)` on a host
+  // where 4242 is someone else's group answers EPERM, the child is never
+  // signalled, and the force-terminate waits on its exit forever.
+  (manager as any).claude.signalProcessGroup = () => "gone";
   return manager;
 }
 
