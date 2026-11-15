@@ -40,3 +40,24 @@
   max-width: 60ch;
   line-height: var(--tug-line-height-sm);
 }
+
+/* Session Notifications: one row per event — its name, then the bounce
+   choice and the notification switch side by side, then its hint. The rows
+   stack with the group's own rhythm; the switch wraps under the choice on a
+   narrow card rather than squeezing its label. */
+.settings-general-notify-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+}
+
+.settings-general-notify-row + .settings-general-notify-row {
+  margin-top: var(--tug-space-lg);
+}
+
+.settings-general-notify-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-xl);
+}

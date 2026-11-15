@@ -3005,6 +3005,8 @@ extension MainWindow {
             }
         case .tooltipDelay(let delay):
             TooltipDelay.apply(milliseconds: delay.delayMs)
+        case .sessionNotify(let note):
+            SessionNotifier.shared.handle(note)
         case .pageZoom(let zoom):
             // The Layout card's Zoom row: a level, chosen directly. The same
             // path as the View menu's, so it persists and is remembered for

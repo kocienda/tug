@@ -24,6 +24,13 @@
  * attribute alike — offered as times and Never, and stored in milliseconds
  * (`lib/tooltip-delay.ts`).
  *
+ * The last group is **Session Notifications**: how Tug asks for the user when
+ * a session card they are not watching finishes its turn, or needs their
+ * answer to go on. Each of the two events has its own dock bounce — Repeat,
+ * Once or Never — and its own switch for a macOS notification beside it. The
+ * shell's watcher (`lib/session-notify.ts`) reads both at the moment the event
+ * happens, and the host acts on them only while Tug is in the background.
+ *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
  * shown in a settled field is a claim about what Tug will do — Open Quickly
  * names that directory in its search bar — so an edit that merely *looks*
@@ -54,6 +61,7 @@ import {
 } from "react";
 import { TugSettingsGroup } from "../tug-settings-group";
 import { TugChoiceGroup } from "../tug-choice-group";
+import { TugSwitch } from "../tug-switch";
 import { TugLabel } from "../tug-label";
 import { TugFileChooser, useFileChooserHost } from "../tug-file-chooser";
 import { useResponderForm } from "../use-responder-form";
@@ -78,6 +86,16 @@ import {
   TOOLTIP_DELAY_KEY,
   parseTooltipDelay,
   putTooltipDelay,
+  SESSION_NOTIFY_DOMAIN,
+  SESSION_NOTIFY_BOUNCE_KEYS,
+  SESSION_NOTIFY_BANNER_KEYS,
+  DEFAULT_DOCK_BOUNCE,
+  parseDockBounce,
+  parseNotifyBanner,
+  putDockBounce,
+  putNotifyBanner,
+  type DockBounce,
+  type SessionNotifyEvent,
 } from "@/settings-api";
 import { TOOLTIP_DELAY_CHOICES_MS, formatTooltipDelay } from "@/lib/tooltip-delay";
 import type { TaggedValue } from "@/lib/tugbank-client";
@@ -89,6 +107,35 @@ function parseStoredPath(entry: TaggedValue | undefined): string {
     return entry.value;
   }
   return "";
+}
+
+/** The bounce choices, in the order the row offers them. */
+const DOCK_BOUNCE_ITEMS: { value: DockBounce; label: string }[] = [
+  { value: "repeat", label: "Repeat" },
+  { value: "once", label: "Once" },
+  { value: "never", label: "Never" },
+];
+
+/** A stored bounce choice, narrowed back from the choice group's string. */
+function asDockBounce(v: string): DockBounce {
+  return v === "repeat" || v === "once" || v === "never" ? v : DEFAULT_DOCK_BOUNCE;
+}
+
+/** One event's two stored choices and the sender ids its controls dispatch with. */
+function useSessionNotifySetting(event: SessionNotifyEvent) {
+  const bounce = useTugbankValue(
+    SESSION_NOTIFY_DOMAIN,
+    SESSION_NOTIFY_BOUNCE_KEYS[event],
+    parseDockBounce,
+    DEFAULT_DOCK_BOUNCE,
+  );
+  const notification = useTugbankValue(
+    SESSION_NOTIFY_DOMAIN,
+    SESSION_NOTIFY_BANNER_KEYS[event],
+    parseNotifyBanner,
+    false,
+  );
+  return { bounce, notification, bounceId: useId(), notificationId: useId() };
 }
 
 export function SettingsGeneralBody() {
@@ -201,13 +248,42 @@ export function SettingsGeneralBody() {
   );
   const tooltipDelayId = useId();
 
+  const notifyComplete = useSessionNotifySetting("complete");
+  const notifyInput = useSessionNotifySetting("input");
+
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
       [mastheadPathsId]: (v: string) =>
         putMastheadPathStyle(v === "project" ? "project" : "full"),
       [tooltipDelayId]: (v: string) => putTooltipDelay(Number(v)),
+      [notifyComplete.bounceId]: (v: string) => putDockBounce("complete", asDockBounce(v)),
+      [notifyInput.bounceId]: (v: string) => putDockBounce("input", asDockBounce(v)),
+    },
+    toggle: {
+      [notifyComplete.notificationId]: (on: boolean) => putNotifyBanner("complete", on),
+      [notifyInput.notificationId]: (on: boolean) => putNotifyBanner("input", on),
     },
   });
+
+  const notifyRows: {
+    event: SessionNotifyEvent;
+    label: string;
+    hint: string;
+    setting: ReturnType<typeof useSessionNotifySetting>;
+  }[] = [
+    {
+      event: "complete",
+      label: "Notify when session completes",
+      hint: "Bounces the dock icon when a working session card goes idle.",
+      setting: notifyComplete,
+    },
+    {
+      event: "input",
+      label: "Notify when session requires your input",
+      hint: "Bounces the dock icon when a working session needs your input to proceed.",
+      setting: notifyInput,
+    },
+  ];
 
   return (
     <ResponderScope>
@@ -314,6 +390,45 @@ export function SettingsGeneralBody() {
             How long the pointer rests on something before its tooltip
             appears; Never turns tooltips off. Chart marks and Layout places
             answer sooner when this is longer than they wait on their own.
+          </TugLabel>
+        </TugSettingsGroup>
+
+        <TugSettingsGroup
+          label="Session Notifications"
+          className="settings-general-group"
+        >
+          {notifyRows.map(({ event, label, hint, setting }) => (
+            <div
+              key={event}
+              className="settings-general-notify-row"
+              data-testid={`settings-notify-${event}-field`}
+            >
+              <TugLabel size="sm">{label}</TugLabel>
+              <div className="settings-general-notify-controls">
+                <TugChoiceGroup
+                  size="sm"
+                  senderId={setting.bounceId}
+                  value={setting.bounce}
+                  aria-label={`${label}: dock bounce`}
+                  items={DOCK_BOUNCE_ITEMS}
+                />
+                <TugSwitch
+                  size="sm"
+                  label="Also post a macOS notification"
+                  checked={setting.notification}
+                  senderId={setting.notificationId}
+                  data-testid={`settings-notify-${event}-notification`}
+                />
+              </div>
+              <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+                {hint}
+              </TugLabel>
+            </div>
+          ))}
+          <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+            Neither happens while Tug is the frontmost app. Clicking a
+            notification opens that session&apos;s card; macOS asks for
+            permission the first time one is posted.
           </TugLabel>
         </TugSettingsGroup>
 

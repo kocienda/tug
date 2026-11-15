@@ -104,6 +104,52 @@ export const tooltipDelayToHost = defineToHost({
   refused: [1500, {}, { delayMs: "1500" }],
 });
 
+/**
+ * A session card the user is not watching finished its turn (`complete`) or
+ * needs their answer (`input`): bounce the dock as `bounce` says and, when
+ * `notification` is on, post a macOS notification with `title` and `body`
+ * that opens `cardId`'s card when clicked. The host acts only while Tug is
+ * not the frontmost app. Posted by the shell's watcher
+ * (`lib/session-notify.ts`), which has already read the user's settings.
+ */
+export const sessionNotifyToHost = defineToHost({
+  name: "sessionNotify",
+  from: "shell",
+  codec: obj({
+    event: literal("complete", "input"),
+    bounce: literal("repeat", "once", "never"),
+    notification: bool,
+    cardId: str,
+    title: str,
+    body: str,
+  }),
+  samples: [
+    {
+      event: "complete",
+      bounce: "once",
+      notification: false,
+      cardId: "card-1",
+      title: "Session finished",
+      body: "brave-otter in tug is done and waiting for you.",
+    },
+    {
+      event: "input",
+      bounce: "repeat",
+      notification: true,
+      cardId: "card-2",
+      title: "Session needs your input",
+      body: "A session is waiting for your answer.",
+    },
+  ],
+  refused: [
+    "complete",
+    {},
+    { event: "done", bounce: "once", notification: false, cardId: "c", title: "t", body: "b" },
+    { event: "complete", bounce: "twice", notification: false, cardId: "c", title: "t", body: "b" },
+    { event: "complete", bounce: "once", notification: "yes", cardId: "c", title: "t", body: "b" },
+  ],
+});
+
 export const clipboardReadToHost = defineToHost({
   name: "clipboardRead",
   from: "any",
