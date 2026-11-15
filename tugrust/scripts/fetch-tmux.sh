@@ -170,14 +170,17 @@ log "building tmux ${TMUX_VER}"
     cd "$WORK/tmux-${TMUX_VER}"
     # Only static .a archives exist in $DEPS/lib, so the linker is forced to
     # link libevent/ncursesw statically. Point configure at our wide ncurses.
+    # configure looks each library up through pkg-config unless its
+    # <NAME>_CFLAGS and <NAME>_LIBS are given, and a fresh Mac has no
+    # pkg-config. The names are configure's own: LIBEVENT and LIBUTF8PROC.
     PKG_CONFIG_PATH="$DEPS/lib/pkgconfig" \
     CFLAGS="$COMMON_FLAGS" \
     CPPFLAGS="-I$DEPS/include -I$DEPS/include/ncursesw" \
     LDFLAGS="-L$DEPS/lib" \
     LIBEVENT_CFLAGS="-I$DEPS/include" \
     LIBEVENT_LIBS="$DEPS/lib/libevent.a" \
-    UTF8PROC_CFLAGS="-I$DEPS/include" \
-    UTF8PROC_LIBS="$DEPS/lib/libutf8proc.a" \
+    LIBUTF8PROC_CFLAGS="-I$DEPS/include" \
+    LIBUTF8PROC_LIBS="$DEPS/lib/libutf8proc.a" \
     ./configure --prefix="$OUT" --enable-sixel --enable-utf8proc
     make -j"$(sysctl -n hw.ncpu)"
     cp tmux "$OUT/bin/tmux"

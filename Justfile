@@ -9,10 +9,12 @@ BUN_HANG_GUARD_MS := "120000"
 # `test-rust` runs everything else; `test-rust-slow` runs exactly this.
 RUST_SLOW_FILTER := "package(tugarc-core) | (package(tugcast) & kind(test)) | (package(tugcast) & test(/^feeds::(arc_runner|operator|attribution|git)::/))"
 
+[private]
 default:
     @just --list
 
 # Build all Rust binaries + tugcode (Claude Code bridge), symlink to ~/.local/bin
+[group('build')]
 build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -43,10 +45,12 @@ build:
     fi
 
 # Build all binaries, then run tugexec (auto-detects source tree, activates dev mode via control socket)
+[group('app')]
 dev: build
     tugrust/target/debug/tugexec
 
 # Build binaries, run tugexec + cargo-watch for hands-free Rust hot reload
+[group('app')]
 dev-watch: build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -61,10 +65,13 @@ dev-watch: build
 
 # Vendor IBM Plex woff2 faces from npm into tugdeck/public/fonts (no runtime web loading).
 # No args = all phase-1 script families; pass a package short name to fetch one (e.g. plex-math).
+# Vendor the IBM Plex woff2 faces into tugdeck/public/fonts (all families, or one package).
+[group('build')]
 fetch-fonts *ARGS:
     cd tugdeck && bun run scripts/fetch-fonts.ts {{ARGS}}
 
-# The push-time gate: the fast lane.
+# The push-time gate: lint, then the fast lane's tests.
+[group('test')]
 ci: lint test-fast
 
 # The fast lane plus the integration suites; nightly, release, and before a
@@ -76,6 +83,8 @@ ci: lint test-fast
 # Every lane runs even after one goes red, and the reds are named together at
 # the end: a chain of dependencies stops at the first failing recipe, so one
 # flaky test would hide every suite after it from the night's verdict.
+# The full lane: `ci` plus the integration suites (nightly, and before a release).
+[group('test')]
 ci-full:
     #!/usr/bin/env bash
     red=()
@@ -98,18 +107,23 @@ ci-full:
     echo "ci-full: every lane green"
 
 # The fast lane's tests: every suite that spawns neither git nor a real tugcast.
+[group('test')]
 test-fast: test-rust test-ts test-swift test-standalone
 
 # The full lane's tests: the Rust slow set and `tugdeck/full-lane/`.
+[group('test')]
 test-slow: test-rust-slow test-ts-slow
 
-# `just test` is the fast lane.
+# Run the fast lane's tests (the same as `test-fast`).
+[group('test')]
 test: test-fast
 
 # Drive the shipped plugin the way a user's machine would: the real hook
 # script and the real `tugtool arc` verbs, from a scratch project with no
 # tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
 # only a bundle-shaped directory holding tugtool and the plugin.
+# Drive the shipped plugin from a scratch project with an empty PATH.
+[group('test')]
 test-standalone:
     #!/usr/bin/env bash
     (cd tugrust && cargo build -p tugtool) || exit 1
@@ -130,6 +144,8 @@ test-standalone:
 # `tugtool test last --failures` names a red run's failures without a second
 # run. With no tugtool that knows `test run` — no build, or only an app build
 # that predates the verb — the bare command runs, unrecorded.
+# Run the Rust fast lane: the workspace minus the suites that spawn git or a real tugcast.
+[group('test')]
 test-rust:
     #!/usr/bin/env bash
     TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
@@ -143,6 +159,8 @@ test-rust:
 
 # Run the Rust slow set: exactly `RUST_SLOW_FILTER`, the suites that spawn
 # git or the real tugcast. Recorded under its own suite.
+# Run the Rust slow set: the suites that spawn git or a real tugcast.
+[group('test')]
 test-rust-slow:
     #!/usr/bin/env bash
     TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
@@ -173,6 +191,8 @@ test-rust-slow:
 # pass names every failure. With no tugtool that knows `test run` — no build,
 # or only an app build that predates the verb — the bare commands run,
 # unrecorded.
+# Run the TypeScript tests: tugdeck, tugcode, tugproto and the app-test harness's own logic.
+[group('test')]
 test-ts:
     #!/usr/bin/env bash
     # The app-test selection tests drive the real `tugtool apptest reach`
@@ -203,6 +223,8 @@ test-ts:
 # Run the TypeScript full lane: `tugdeck/full-lane/`, outside `bunfig.toml`'s
 # `root = "src"`, so a bare `bun test` never discovers it. Its files spawn a
 # real tugcast or a streamer, or run a sweep or a fuzz.
+# Run the TypeScript full lane under `tugdeck/full-lane/`.
+[group('test')]
 test-ts-slow:
     #!/usr/bin/env bash
     # The many-pages suite spawns a real `tugcast` from `tugrust/target/debug/`;
@@ -229,6 +251,8 @@ test-ts-slow:
 # A source joins the bundle when it gets a test, and only a source that
 # imports nothing past Foundation can: a test that needs AppKit, a window or
 # a menu is an app-test and lives in tests/app-test/.
+# Run the TugTests XCTest bundle (Foundation-only sources; never launches the app).
+[group('test')]
 test-swift:
     #!/usr/bin/env bash
     TUGTOOL_BIN="$(bash tugrust/scripts/tugtool-recorder.sh)"
@@ -251,6 +275,8 @@ test-swift:
 # rebuilds it, so the knowledge lives here instead of in a test docstring
 # nobody reads until the gate is already red. Adding a new golden means adding
 # its line here — an unlisted golden is one nothing here can rebuild.
+# Regenerate every checked-in golden fixture from the code that produces it.
+[group('generate')]
 golden:
     @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "card plan" "host parity" "session digest" "tugmark golden"
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test --timeout {{BUN_HANG_GUARD_MS}} ./full-lane/layout-imposer-solutions.test.ts
@@ -267,6 +293,8 @@ golden:
 # Regenerate the tugmark drift golden (tugdeck/crates/tugmark/corpus/golden.json)
 # from the corpus and the newest stream-json catalog, then hold the page's
 # pipeline to it. A changed golden is a changed rendering: review its diff.
+# Regenerate the tugmark drift golden and hold the page's pipeline to it.
+[group('generate')]
 tugmark-golden:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -281,6 +309,8 @@ tugmark-golden:
 # one): its renderer and sanitizer run 200,000 cases reparsed by html5ever. CI
 # runs it once, at the fixed seed in its test file. A failure names its seed
 # and case.
+# Fuzz tugcast's sanitizer at a fresh seed (pass a seed to repeat a run).
+[group('test')]
 tugmark-fuzz seed="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -293,6 +323,7 @@ tugmark-fuzz seed="":
     bash "$report" tugmark-fuzz 1
 
 # Capture Claude Code fixtures + capabilities snapshot (~2-3 min; real-claude)
+[group('generate')]
 capture-capabilities:
     #!/usr/bin/env bash
     set -eo pipefail
@@ -444,6 +475,8 @@ capture-capabilities:
 # a live ledger is a corruption vector (2026-07-27 incident). Pass a name
 # (changes / sessions / shell_exchanges) or an absolute .db path; any
 # extra args go to sqlite3 (e.g. a quoted SQL string).
+# Inspect a copy of a Tug ledger database (name or path, then optional quoted SQL).
+[group('inspect')]
 db-inspect DB *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -469,11 +502,14 @@ db-inspect DB *ARGS:
 # tugdeck/src/lib/session-tag-lexicon.ts owns the words; the ledger's mint
 # reroll needs the same pools. Run this after editing the lexicon — a Rust
 # drift test reads the TS file at test time and fails when the two part.
+# Regenerate the Rust session-tag lexicon from its TypeScript source.
+[group('generate')]
 gen-session-tag-lexicon:
     cd tugdeck && bun run scripts/generate-session-tag-lexicon.ts
     cd tugrust && cargo fmt -p tugcast
 
 # Format Rust code
+[group('lint')]
 fmt:
     cd tugrust && cargo fmt --all
 
@@ -515,17 +551,22 @@ fmt:
 # item per check, so `tugtool test last --failures` names a red check.
 # `wasm-check` is a release rebuild of every WASM crate, so it rides
 # `wasm.yml`, not `lint`.
+# Run every lint: clippy, rustfmt, tsc, oxlint, shellcheck and the repository's own audits.
+[group('lint')]
 lint: lint-audit lint-ts lint-rust
 
 # The audit checks: the repository's own lints, shellcheck and the deck's audits.
+[group('lint')]
 lint-audit:
     just lint-group audit
 
 # The TypeScript checks: tsc and oxlint over tugdeck, tugcode and tests/app-test.
+[group('lint')]
 lint-ts:
     just lint-group ts
 
 # The Rust checks: clippy and fmt over the workspace.
+[group('lint')]
 lint-rust:
     just lint-group rust
 
@@ -543,6 +584,8 @@ lint-group group:
 
 # shellcheck over the runner and build scripts. The few codes the house style
 # disables are in .shellcheckrc, each with its reason.
+# Run shellcheck over the runner and build scripts.
+[group('lint')]
 shellcheck:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -556,6 +599,8 @@ shellcheck:
 # every shape under tugplug/ that leans on this checkout or this machine —
 # `just` recipes, source-tree paths, commit hashes, jq, a tuglaws citation
 # with no absence clause. Contract: tugplug/CLAUDE.md.
+# Refuse checkout-only shapes under `tugplug/` (the standalone contract).
+[group('lint')]
 tugplug-lint:
     bun scripts/tugplug-lint.ts
 
@@ -565,6 +610,8 @@ tugplug-lint:
 # Bash block draws its report panel instead of sitting silent for minutes. The
 # list of long recipes and the named exemptions (each with its reason) are in
 # the script; the test drives the check over a fixture Justfile.
+# Check that every long recipe reports its progress.
+[group('lint')]
 recipe-lint:
     bun scripts/recipe-lint.ts
     bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/__tests__/recipe-lint.test.ts
@@ -574,6 +621,8 @@ recipe-lint:
 # shell spawned with the inherited environment, and no `bun test` here without
 # the hang guard. The rules, and the one exemption comment, are in the script;
 # the test drives them over fixtures. Decision: briefs/test-lanes-reform-brief.md.
+# Check that no test measures the machine it runs on.
+[group('lint')]
 test-shape-lint:
     bun scripts/test-shape-lint.ts
     bun test --timeout {{BUN_HANG_GUARD_MS}} scripts/__tests__/test-shape-lint.test.ts
@@ -584,6 +633,8 @@ test-shape-lint:
 # lockfiles or when a shipped package's license is outside the permissive
 # allow-list — L21's rule, and the no-GPL rule, as a check. Run this after any
 # dependency change.
+# Regenerate the shipped-libraries half of THIRD_PARTY_NOTICES.md from the lockfiles.
+[group('generate')]
 notices:
     bun scripts/third-party-notices.ts
 
@@ -593,6 +644,8 @@ notices:
 # forever; this reads the same diagnostics out of `--message-format=json` and
 # decides for itself. `--explain` reports without applying. The trust criteria
 # live at the top of the script.
+# Apply the clippy suggestions `cargo clippy --fix` refuses to (`--explain` reports only).
+[group('lint')]
 clippy-repair *ARGS:
     bun scripts/clippy-repair.ts {{ARGS}}
 
@@ -601,6 +654,7 @@ clippy-repair *ARGS:
 # and normalizes pkg/.gitignore so the built artifacts can be committed
 # without `git add -f`. See tuglaws/wasm-crates.md for the convention.
 # Build every WASM crate under tugdeck/crates/.
+[group('build')]
 wasm:
     scripts/build-wasm.sh
 
@@ -608,6 +662,8 @@ wasm:
 # so a `pkg/` is always the build of its crates' source under the pinned
 # toolchain (`tugdeck/crates/rust-toolchain.toml`). A failure means the
 # rebuilt package is in the tree: commit it with the source that moved it.
+# Rebuild every WASM package and fail if it differs from the committed one.
+[group('build')]
 wasm-check: wasm
     git diff --exit-code --stat -- tugdeck/crates/*/pkg
     @untracked="$(git ls-files --others --exclude-standard -- tugdeck/crates/*/pkg)"; if [ -n "$untracked" ]; then echo "wasm-check: untracked package files:"; echo "$untracked"; exit 1; fi
@@ -620,10 +676,6 @@ wasm-check: wasm
 # designated requirement (signed by Apple Developer ID) so the AX
 # grant persists across rebuilds. Without it, every rebuild would
 # invalidate the grant.
-#
-# (Note: Step 15 of the multi-instance plan will retire this recipe
-# in favor of `just app-debug`. Until then, this is the canonical
-# debug loop.)
 # ── Multi-instance recipe surface ────────────────────────────────────────────
 #
 # The debug/release axis (per [D17] in tuglaws/code-signing-mac.md,
@@ -647,6 +699,7 @@ wasm-check: wasm
 # SIGKILLs tugcast — the WebView then flashes a disconnect banner
 # during what should be a smooth handoff. Quitting first avoids that.
 # Build a Debug bundle and (re)launch the cwd-derived debug instance.
+[group('app')]
 app-debug: build wasm
     #!/usr/bin/env bash
     set -euo pipefail
@@ -723,6 +776,8 @@ app-debug: build wasm
 # wasted work here (a full dev tugcast rebuild after any Rust edit). The
 # recipe itself needs only the dev tugbank, built below. `just build` is
 # still what refreshes the ~/.local/bin symlinks.
+# Build a Release bundle and (re)launch the cwd-derived release instance.
+[group('app')]
 app-release: wasm
     #!/usr/bin/env bash
     set -euo pipefail
@@ -766,6 +821,7 @@ app-release: wasm
     bash tugrust/scripts/report-phase.sh app-release 4
 
 # Relaunch the cwd-derived debug instance without rebuilding.
+[group('app')]
 launch-debug:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -787,6 +843,7 @@ launch-debug:
     bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
 
 # Relaunch the cwd-derived release instance without rebuilding.
+[group('app')]
 launch-release:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -812,6 +869,7 @@ launch-release:
 # fresh, instead of LaunchServices bringing the previous (stale)
 # Tug.app to front.
 # Stop the cwd-derived debug instance (idempotent).
+[group('app')]
 stop-debug:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -822,6 +880,7 @@ stop-debug:
     bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$INSTANCE_ID"
 
 # Stop the cwd-derived release instance (idempotent).
+[group('app')]
 stop-release:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -832,6 +891,7 @@ stop-release:
     bash tugrust/scripts/quit-tug-bundle.sh "$BUNDLE_ID" "$INSTANCE_ID"
 
 # Stop every live Tug instance.
+[group('app')]
 stop:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -857,6 +917,7 @@ stop:
 # One-line wrapper around `tugtool host instance list`. Forwards any extra
 # args (e.g. `--json`).
 # List running Tug instances (wraps `tugtool host instance list`).
+[group('app')]
 instances *FLAGS:
     tugrust/target/debug/tugtool host instance list {{FLAGS}}
 
@@ -865,16 +926,19 @@ instances *FLAGS:
 # from the instance registry.
 # Show an instance's app system log (`--last 5m`, `--grep X`).
 [positional-arguments]
+[group('inspect')]
 app-log INSTANCE *ARGS:
     @bash tugrust/scripts/app-inspect.sh log "$@"
 
 # Sample an instance's host app (default 3 s) and print the file written.
 [positional-arguments]
+[group('inspect')]
 app-sample INSTANCE *ARGS:
     @bash tugrust/scripts/app-inspect.sh sample "$@"
 
 # Print an instance's host run-loop state from `/api/host/state`.
 [positional-arguments]
+[group('inspect')]
 app-state INSTANCE:
     @bash tugrust/scripts/app-inspect.sh state "$@"
 
@@ -890,6 +954,7 @@ app-state INSTANCE:
 # load. Compare a before and an after taken minutes apart, not across
 # days. Resize mode needs accessibility permission for this terminal.
 # Profile the debug instance's renderer (MODE = resize | idle).
+[group('inspect')]
 perf-resize-profile MODE="resize" SECONDS="6":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -898,6 +963,7 @@ perf-resize-profile MODE="resize" SECONDS="6":
     bash scripts/perf-resize-profile.sh "$BUNDLE_ID" {{MODE}} {{SECONDS}}
 
 # Tail the debug instance's newest tugcast + tugapp logs.
+[group('app')]
 logs-debug:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -905,6 +971,7 @@ logs-debug:
     bash tugrust/scripts/tail-instance-logs.sh "$INSTANCE_ID"
 
 # Tail the release instance's newest tugcast + tugapp logs.
+[group('app')]
 logs-release:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -916,6 +983,7 @@ logs-release:
 # per-instance data dir, optionally TCC), then removes the worktree.
 # Eliminates the "did I forget to clean up first" failure mode.
 # Tug-aware `git worktree remove` — tears down instance state first.
+[group('app')]
 worktree-remove WORKTREE *FLAGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -949,6 +1017,7 @@ worktree-remove WORKTREE *FLAGS:
 # the full firehose. `--line-buffered` keeps grep's output flowing
 # live even when the pipe stage downstream block-buffers.
 # Tail tugcast log filtered to replay + lifecycle targets.
+[group('inspect')]
 tail-replay:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -991,6 +1060,8 @@ tail-replay:
 # Usage:
 #   just reap          # diagnose only — report what's leaked, change nothing
 #   just reap apply    # release everything reported
+# Report the debris crashed runs leave behind (`just reap apply` releases it).
+[group('clean')]
 reap *MODE:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1017,6 +1088,7 @@ reap *MODE:
 # Re-run after editing the SVG; the live app/Applications icons are NOT
 # painted in (Finder draws them), so only the art changes here.
 # Render resources/dmg-preview.svg into the HiDPI dmg-background.tiff (run after editing the SVG).
+[group('release')]
 dmg-background:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1039,6 +1111,7 @@ dmg-background:
 # (e.g., to a tester on the same Mac) but Gatekeeper will reject it
 # on a clean machine.
 # Build an unsigned Tug.dmg — fast; local testing only (Gatekeeper blocks it on other Macs).
+[group('release')]
 dmg:
     tugrust/scripts/build-app.sh --skip-sign --skip-notarize
 
@@ -1056,6 +1129,7 @@ dmg:
 # This is the canonical distribution build. Use `just dmg` for the
 # fast unsigned variant.
 # Build a signed + notarized Tug.dmg — the canonical shippable build.
+[group('release')]
 notarize:
     tugrust/scripts/build-app.sh
 
@@ -1073,6 +1147,7 @@ _bundle-version VERSION:
     echo $(( MAJ * 10000 + MIN * 100 + PAT ))
 
 # Print the current version and the CFBundleVersion derived from it.
+[group('release')]
 version:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1087,6 +1162,7 @@ version:
 # ends by naming it rather than leaving it to be remembered.
 #
 # Bump the version everywhere (major|minor|patch) and name the notes to write.
+[group('release')]
 version-bump COMPONENT:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1111,6 +1187,7 @@ version-bump COMPONENT:
 # is how you end up editing the wrong file.
 #
 # Open release-notes/<current version>.md in $VISUAL or $EDITOR.
+[group('release')]
 release-notes:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1143,6 +1220,7 @@ release-notes:
 # refs/remotes/origin/main.
 #
 # Check a release before cutting it — version, notes, tree, remote (read-only).
+[group('release')]
 bless:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1389,6 +1467,7 @@ bless:
 # draft: `just release patch emphasise the update pill`.
 #
 # Walk a release: bump, notes, commit, push, CI, bless, dispatch, watch (Y/n each).
+[group('release')]
 release *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1424,6 +1503,7 @@ release *ARGS:
 # brief); 0 serves at loopback speed.
 #
 # Stand up a local signed feed and run the app against it (watch the pill).
+[group('release')]
 update-rehearse PORT="8765" RATE="0":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1491,6 +1571,7 @@ update-rehearse PORT="8765" RATE="0":
 #   just appcast --notes notes.md products/Tug-0.8.0.zip /tmp/appcast.xml
 #
 # Generate the Sparkle appcast for a release archive (CI runs its own).
+[group('release')]
 appcast *ARGS:
     tugrust/scripts/make-appcast.sh {{ARGS}}
 
@@ -1507,6 +1588,7 @@ appcast *ARGS:
 # Override the staging dir with LAB_SHARE=/some/path.
 #
 # Build Tug.dmg and stage it on the VM-lab disk (MODE: notarized|unsigned).
+[group('lab')]
 lab-dmg MODE="notarized":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1540,6 +1622,7 @@ lab-dmg MODE="notarized":
 # Override the staging dir with LAB_SHARE=/some/path.
 #
 # Download a published Tug.dmg and stage it on the VM-lab disk (default: newest stable).
+[group('lab')]
 lab-release-dmg VERSION="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1585,18 +1668,22 @@ lab-release-dmg VERSION="":
 #   just lab-app-test <os> [files...]  # run app-tests in a fresh guest
 
 # List golden bases, throwaway runs, and lab-disk free space.
+[group('lab')]
 lab-ls:
     scripts/lab/lab-ls
 
 # Clone a golden base into a throwaway run (lab-new <base> [run]).
+[group('lab')]
 lab-new *ARGS:
     scripts/lab/lab-new {{ARGS}}
 
 # Boot a run VM; extra args pass through to `tart run`.
+[group('lab')]
 lab-run *ARGS:
     scripts/lab/lab-run {{ARGS}}
 
 # Delete a throwaway run (lab-wipe <run> | --all); golden bases untouched.
+[group('lab')]
 lab-wipe *ARGS:
     scripts/lab/lab-wipe {{ARGS}}
 
@@ -1611,6 +1698,7 @@ lab-wipe *ARGS:
 #   just lab-app-test tahoe --keep at0001-tab-switch-fc.test.ts
 #
 # Run app-tests in a fresh lab guest (lab-app-test <os> [--keep] [files...]).
+[group('lab')]
 lab-app-test *ARGS:
     scripts/lab/lab-app-test {{ARGS}}
 
@@ -1635,6 +1723,7 @@ lab-app-test *ARGS:
 # Inside the booted guest, the dmg appears at:
 #   /Volumes/My Shared Files/drop/Tug.dmg
 # Stage a dmg (released by default), then boot a fresh clone with it mounted (the inner loop).
+[group('lab')]
 lab-cycle OS="sequoia" SOURCE="release" VERSION="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1685,6 +1774,7 @@ lab-cycle OS="sequoia" SOURCE="release" VERSION="":
 # requirements (signed by Apple), so TCC Accessibility grants
 # persist across rebuilds without a fragile self-signed shim.
 # Verify a Developer ID Application cert is installed (one-time per machine).
+[group('signing')]
 setup-dev-signing:
     scripts/setup-dev-signing.sh
 
@@ -1701,6 +1791,7 @@ setup-dev-signing:
 # Idempotent: reports "nothing to remove" and exits 0 if the
 # sentinel doesn't exist.
 # Clear the per-machine code-sign drift sentinel.
+[group('signing')]
 teardown-dev-signing:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1734,6 +1825,7 @@ teardown-dev-signing:
 # Prereqs (one-time per machine):
 #   just setup-dev-signing                 # verifies Developer ID cert
 # Build the signed app-test bundle (stable bundle id) for 'just app-test'.
+[group('app-test')]
 build-app:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1908,6 +2000,7 @@ build-app:
 # terminal-only run that could never show a dialog is worse.
 #
 # Build the app-test bundle if missing, then run the given files (core tier if none).
+[group('app-test')]
 app-test *FILES:
     #!/usr/bin/env bash
     exec tests/app-test/scripts/app-test.sh {{FILES}}
@@ -1930,6 +2023,7 @@ app-test *FILES:
 # core tier — is the honest answer to it.
 #
 # Run the app-tests whose @covers match your working diff.
+[group('app-test')]
 app-test-changed *PATHS:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1946,6 +2040,7 @@ app-test-changed *PATHS:
     TUG_APPTEST_SELECTION=changed just app-test $FILES
 
 # Print the app-test selection for the working diff without running it.
+[group('app-test')]
 app-test-select *PATHS:
     @cd tests/app-test && bun scripts/select-tests.ts --print {{PATHS}}
 
@@ -1954,6 +2049,8 @@ app-test-select *PATHS:
 #
 # Every app-test file, in run order, less the `@lab` files that run only in a
 # lab guest (`just lab-app-test`). Slow — one Tug.app launch per file.
+# Run every app-test file (slow: one Tug.app launch per file; rarely what you want).
+[group('app-test')]
 app-test-all:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1968,6 +2065,8 @@ app-test-all:
 # costs frames (tuglaws/app-test-harness.md), so frame-sensitive files may go
 # red here and only green files' maps are recorded. A sweep by design — run it
 # on purpose, never as a selection.
+# Run every app-test on an instrumented deck and record each file's reach map (a sweep).
+[group('app-test')]
 app-test-reach:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1976,6 +2075,8 @@ app-test-reach:
 
 # Print each test's executed share of the modules it covers, from the recorded
 # reach maps, and the tests that execute nearly everything they cover.
+# Print each test's executed share of the modules it covers, from the recorded reach maps.
+[group('app-test')]
 app-test-reach-report *FILES:
     @cd tests/app-test && bun scripts/select-tests.ts --reach {{FILES}}
 
@@ -1984,6 +2085,7 @@ app-test-reach-report *FILES:
 # drift, along with a check that every @covers path still resolves.
 #
 # Lint the @covers declarations across every app-test file.
+[group('app-test')]
 app-test-covers-check:
     @cd tests/app-test && bun scripts/select-tests.ts --check
 
@@ -1992,6 +2094,8 @@ app-test-covers-check:
 # evaluates a card selector in the shell's page and fails on one whose
 # {file, kind} pair `tests/app-test/scripts/card-dom-allow.json` does not
 # allow; the list shrinks as each kind becomes a body.
+# Lint app-test calls that evaluate a card selector in the shell's page.
+[group('app-test')]
 app-test-body-scope-check:
     @cd tests/app-test && bun scripts/card-dom-census.ts --check
 
@@ -2005,6 +2109,8 @@ app-test-body-scope-check:
 # the list, or `lifecycle` on a file that calls no lifecycle verb is a
 # screen-taker nobody has justified. Part of `just lint`, so a new one cannot
 # land unannounced.
+# Lint the `@foreground` declarations against what each app-test does.
+[group('app-test')]
 app-test-foreground-check:
     @cd tests/app-test && bun scripts/select-tests.ts --foreground-check
 
@@ -2023,6 +2129,8 @@ app-test-foreground-check:
 #   just app-debug          # then, once it is up:
 #   just model-eval
 #   just model-eval release-main
+# Score the SharedAgent's session descriptions against a running instance.
+[group('eval')]
 model-eval INSTANCE="debug-main":
     @python3 tests/model-eval/run.py {{INSTANCE}}
 
@@ -2033,6 +2141,8 @@ model-eval INSTANCE="debug-main":
 #
 #   just operator-eval
 #   just operator-eval --only arc
+# Score the Operator against the help documents (spends real model turns).
+[group('eval')]
 operator-eval *ARGS:
     @cd tugrust && cargo build -p tugcast
     @bash tugrust/scripts/compile-tugembed.sh tugrust/target/debug/tugembed
@@ -2050,6 +2160,8 @@ operator-eval *ARGS:
 #
 #   just model-classify
 #   just model-classify release-main
+# Score shell routing against a running instance.
+[group('eval')]
 model-classify INSTANCE="debug-main":
     @python3 tests/model-eval/classify.py {{INSTANCE}}
 
@@ -2061,6 +2173,8 @@ model-classify INSTANCE="debug-main":
 #
 #   just model-liveness
 #   just model-liveness release-main
+# Check that the live SharedAgent path answers inside its ceiling.
+[group('eval')]
 model-liveness INSTANCE="debug-main":
     @python3 tests/model-eval/liveness.py {{INSTANCE}}
 
@@ -2071,6 +2185,8 @@ model-liveness INSTANCE="debug-main":
 #
 #   just model-stats
 #   just model-stats release-main
+# Summarize the SharedAgent's accumulated logs for an instance.
+[group('eval')]
 model-stats INSTANCE="debug-main":
     @python3 tests/model-eval/analyze.py {{INSTANCE}}
 
@@ -2084,6 +2200,8 @@ model-stats INSTANCE="debug-main":
 #   just arc-lab --list
 #   just arc-lab clean_crossing
 #   just arc-lab clean_crossing --instance debug-main --keep
+# Run one arc crossing scenario against a running instance (`--list` names them).
+[group('eval')]
 arc-lab *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2103,6 +2221,7 @@ arc-lab *ARGS:
 # is the bundle, and a run must never launch tests nobody asked for. The core
 # tier is still exactly one sentence away — `just app-test` with no arguments.
 # Force a fresh app-test build, then run the given files (none: build only).
+[group('app-test')]
 app-test-build *FILES:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2134,6 +2253,7 @@ app-test-build *FILES:
 # "+"), and toggle it on. The entry is named "Tug-apptest" so it's
 # distinct from the interactive "Tug" debug instance.
 # One-time Accessibility grant for the app-test identity.
+[group('app-test')]
 app-test-grant:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2162,6 +2282,7 @@ app-test-grant:
 # to confirm the pipeline still works without running the full sweep.
 # Runtime ~20-30s (vs ~3min for the full sweep).
 # Fast smoke: bridge + handshake + one AT scenario (~20-30s).
+[group('app-test')]
 app-test-smoke: (app-test "harness-smoke/smoke.test.ts" "harness-smoke/version-handshake.test.ts" "at0001-tab-switch-fc.test.ts")
 
 # Read the Overview a real session would have produced, at a cadence you choose.
@@ -2186,6 +2307,8 @@ app-test-smoke: (app-test "harness-smoke/smoke.test.ts" "harness-smoke/version-h
 # Other flags: --last-k, --max-frames, --token-wake-tokens, --model.
 # Nothing here reads or writes tugbank, and the subcommand returns before any
 # listener binds — a replay never contends with a live tugcast.
+# Replay a Claude Code transcript through the Overview's wake core at a chosen cadence.
+[group('inspect')]
 overview-replay JSONL *FLAGS:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2201,6 +2324,7 @@ overview-replay JSONL *FLAGS:
 # Remove the interactive debug build's per-variant DerivedData (matches
 # `app-debug` — the cwd-derived debug variant, e.g. Tug-debug / Tug-worktree).
 # Remove the interactive debug build's per-variant DerivedData.
+[group('clean')]
 clean-debug:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2210,6 +2334,7 @@ clean-debug:
 # Remove the interactive release build's per-variant DerivedData (matches
 # `app-release`).
 # Remove the interactive release build's per-variant DerivedData.
+[group('clean')]
 clean-release:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -2217,6 +2342,7 @@ clean-release:
     rm -rf "$(bash tugrust/scripts/derived-data-path.sh release)"
 
 # Clean the Rust workspace target dir (shared by debug + release)
+[group('clean')]
 clean-rust:
     cd tugrust && cargo clean
 
@@ -2224,6 +2350,7 @@ clean-rust:
 # release, apptest, worktree — plus the legacy shared per-project default)
 # and the Rust target/.
 # Wipe every build artifact: all per-variant DerivedData + the Rust target/.
+[group('clean')]
 clean-all: clean-rust
     #!/usr/bin/env bash
     set -euo pipefail

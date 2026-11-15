@@ -32,10 +32,55 @@ Building Tug from source needs more than running it does. Beyond the requirement
 - Xcode 26.3 or later, for the Swift app and the macOS 26 SDK it compiles against
 - A Rust toolchain from [rustup](https://rustup.rs) (the checkout pins the version), plus `cargo-nextest` for the tests
 - [Bun](https://bun.sh) 1.3, for the frontend, the Claude Code bridge, and the TypeScript tests
+- [Node.js](https://nodejs.org), which runs the frontend's dev server inside the debug build
 - [`just`](https://github.com/casey/just), which runs every build, test, and lint recipe
-- `tmux`, `wasm-pack`, and `shellcheck` for the day-to-day development loop
+- `tmux`, `wasm-pack`, and `shellcheck` for the day-to-day development loop, and Python 3.10 or later for building a disk image
 
-An Apple Developer ID certificate is optional for building and running Tug. It is needed for the app-test suite and for builds you share with other Macs. [DEVELOPING.md](DEVELOPING.md) walks through installing the tools and going from a fresh checkout to a running build.
+An Apple Developer ID certificate is optional for building and running Tug. It is needed for the app-test suite and for builds you share with other Macs.
+
+### Build and run
+
+With the tools installed, a fresh checkout becomes a running app in five commands:
+
+```sh
+git clone https://github.com/kocienda/tug.git && cd tug
+bun install --cwd tugcode --frozen-lockfile
+bun install --cwd tugdeck --frozen-lockfile
+bun install --cwd tests/app-test --frozen-lockfile
+just app-debug
+```
+
+`just app-debug` builds every piece, signs the bundle, and launches it as `Tug-debug.app`. The first build takes several minutes; later ones are incremental. The debug app is separate from a Tug you downloaded, so the two run side by side. Frontend edits under `tugdeck/` reload in the running app; after a Rust or Swift edit, run `just app-debug` again.
+
+### Everyday recipes
+
+Every build, test, and lint command is a `just` recipe. Run `just` alone to list them all, grouped by purpose. These are the ones you will use most:
+
+| To… | Run |
+|-----|-----|
+| Build and launch the app | `just app-debug`, `just app-release` |
+| Relaunch without rebuilding | `just launch-debug`, `just launch-release` |
+| See what is running, read its logs, stop it | `just instances`, `just logs-debug`, `just stop-debug`, `just stop` |
+| Build only the command-line tools | `just build` |
+| Check your work before sending a change | `just ci` (or its halves, `just lint` and `just test`) |
+| Run the app-tests your change touches | `just app-test-changed` |
+| Package a disk image | `just dmg`, `just notarize` |
+| Clear build products | `just clean-debug`, `just clean-release`, `just clean-all` |
+
+### Several Tugs at once
+
+A build's identity comes from its flavor and the git branch it was built on. Each identity is its own app, with its own bundle ID, build directory, settings, and macOS permissions, so they all run at the same time:
+
+| Build | Bundle ID | App | Instance |
+|-------|-----------|-----|----------|
+| Release on `main` | `dev.tugapp.app` | `Tug.app` | `release-main` |
+| Debug on `main` | `dev.tugapp.app.debug` | `Tug-debug.app` | `debug-main` |
+| Debug on another branch | `dev.tugapp.app.debug-<branch>` | `Tug-debug-<branch>.app` | `debug-<branch>` |
+| Release on another branch | `dev.tugapp.app.release-<branch>` | `Tug-release-<branch>.app` | `release-<branch>` |
+
+The recipes act on the identity of the directory you run them in, so `just app-debug` in a git worktree builds and relaunches that worktree's app and leaves the others alone. One identity is shared: `just app-release` on `main` produces the same bundle ID as the Tug you downloaded, and the two share settings and sessions. Use `just app-debug` for daily work if you also use a released Tug.
+
+[DEVELOPING.md](DEVELOPING.md) has the full walkthrough: installing the tools, how the pieces fit together, the build identities in detail, signing, the tests, and what to do when something goes wrong.
 
 ## Learn more
 

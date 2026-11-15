@@ -187,20 +187,27 @@ describe("tugembed", () => {
     }
   });
 
-  test("--static gives a language with a model its dimension, and has none for Chinese", () => {
+  test("--static gives a language with a model its dimension, and null to one with none", () => {
     if (!hasModel(["--static"])) {
       return;
     }
     const { model, vectors } = embedded(["--static"], [SPANISH, CHINESE, "an English sentence about arcs"]);
     expect(model).toMatch(/^nl-sentence-r\d+$/);
     const [spanish, chinese, english] = vectors;
-    expect(chinese).toBeNull();
     expect(english?.length).toBe(512);
-    // Each language's static model is its own asset, and a CI image may hold
-    // English alone, so a null here is the answer for a language with none.
+    // Each language's static model is its own asset, and which ones a machine
+    // holds is the machine's business: a CI image may hold English alone, and a
+    // clean macOS 27 install holds Chinese where a long-used one may not. So a
+    // null is the answer for a language with no model here, and a language
+    // with one answers with a unit vector of that model's own dimension.
     if (spanish !== null) {
       expect(spanish?.length).toBe(640);
-      expect(dot(spanish ?? [], spanish ?? [])).toBeCloseTo(1, 3);
+    }
+    for (const vector of [spanish, chinese]) {
+      if (vector !== null) {
+        expect(vector?.length).toBeGreaterThan(0);
+        expect(dot(vector ?? [], vector ?? [])).toBeCloseTo(1, 3);
+      }
     }
   });
 });

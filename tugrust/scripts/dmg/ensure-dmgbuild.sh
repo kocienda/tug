@@ -45,6 +45,14 @@ if ! "$VENV_DMGBUILD" --help >/dev/null 2>&1; then
     else
         echo "==> Bootstrapping dmgbuild $DMGBUILD_VERSION venv at $VENV" >&2
     fi
+    # dmgbuild 1.6.7 needs Python 3.10, and the python3 a fresh Mac has is
+    # Xcode's 3.9. pip's answer to that is a page of version numbers, so say
+    # it here, with the fix.
+    if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+        echo "error: dmgbuild $DMGBUILD_VERSION needs Python 3.10 or later, and python3 on PATH is $(python3 --version 2>&1 | awk '{print $2}')." >&2
+        echo "       Install a newer one (brew install python) and run this again." >&2
+        exit 1
+    fi
     python3 -m venv "$VENV" >&2
     "$VENV/bin/pip" install --quiet --upgrade pip >&2
     "$VENV/bin/pip" install --quiet "dmgbuild==$DMGBUILD_VERSION" >&2

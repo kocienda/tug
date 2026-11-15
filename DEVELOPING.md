@@ -14,7 +14,11 @@ Tug is made of several pieces that build with different toolchains and come toge
 | `tugapp/` | The Swift macOS app that hosts everything | `xcodebuild` |
 | `tugplug/` | The Claude Code plugin the app ships inside its bundle | nothing; copied as-is |
 
-Every build, test, and lint command is a `just` recipe in the top-level [`Justfile`](Justfile). Run `just` with no arguments to list them all.
+At runtime the pieces stack like this. `Tug.app`, the Swift host, owns the windows and shows the `tugdeck` frontend in web views. The frontend talks over a WebSocket to `tugcast`, which runs beside the app and multiplexes everything the cards show: sessions, shell output, file changes, git state. Each Claude Code session runs through `tugcode`, which speaks Claude Code's stream-json protocol on one side and `tugcast`'s on the other. `tugtool` is the command-line door to the same machinery, used by the recipes, by the plugin, and by you.
+
+Every build, test, and lint command is a `just` recipe in the top-level [`Justfile`](Justfile). Run `just` with no arguments to list them all, grouped by purpose: `app` builds and runs the app, `build` covers the pieces, `test` and `lint` check your work, `app-test` drives the real app, `inspect` reads a running instance, `clean` removes build products, and the rest (`release`, `lab`, `eval`, `generate`, `signing`) are for particular jobs.
+
+If you only want a running build, the short path is the `bun install` lines in [section 2](#2-get-the-source-and-build-the-command-line-tools) followed by `just app-debug` from [section 4](#4-build-and-run-the-developer-bundle). The sections between explain what each step does.
 
 ## 1. Install the tools
 
@@ -22,10 +26,12 @@ You need a Mac with Apple silicon running macOS 15 or later. Then install the fo
 
 ### Xcode
 
-Install Xcode 26.3 or later from the App Store, from [developer.apple.com](https://developer.apple.com/xcode/), or from [xcodereleases.com](https://xcodereleases.com), which links every Xcode release directly. Launch it once to accept the license, and make sure it is the active developer directory:
+Install Xcode 26.3 or later from the App Store, from [developer.apple.com](https://developer.apple.com/xcode/), or from [xcodereleases.com](https://xcodereleases.com), which links every Xcode release directly. Make it the active developer directory, then accept the license and install its components. Launching Xcode once does the last two; these commands do the same from a terminal:
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app
+sudo xcodebuild -license accept
+sudo xcodebuild -runFirstLaunch
 xcodebuild -version
 ```
 
@@ -72,12 +78,15 @@ curl -LsSf https://get.nexte.st/latest/mac | tar zxf - -C "${CARGO_HOME:-$HOME/.
 cargo nextest --version
 ```
 
-`wasm-pack` builds the WebAssembly crates. Its installer script downloads the prebuilt binary and puts it beside `rustup` in `~/.cargo/bin`:
+`wasm-pack` builds the WebAssembly crates. Install version 0.15.0 exactly, by unpacking its prebuilt binary beside `rustup` in `~/.cargo/bin`:
 
 ```sh
-curl https://wasm-bindgen.github.io/wasm-pack/installer/init.sh -sSf | sh
+curl -LsSf https://github.com/wasm-bindgen/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-aarch64-apple-darwin.tar.gz \
+    | tar zxf - --strip-components 1 -C "${CARGO_HOME:-$HOME/.cargo}/bin" wasm-pack-v0.15.0-aarch64-apple-darwin/wasm-pack
 wasm-pack --version
 ```
+
+The version matters. The built WebAssembly packages under `tugdeck/crates/*/pkg/` are checked in, and `wasm-pack` chooses the optimizer that produces them. `just app-debug` rebuilds them every time, so a different `wasm-pack` rewrites three `.wasm` files and leaves your checkout modified after its first build. Version 0.15.0 is the one the CI workflow pins, and it reproduces the committed files byte for byte.
 
 Use the prebuilt binaries rather than `cargo install`. Compiling either tool from source pulls in C libraries that can fail to build on a fresh Mac, and neither tool needs to be built locally.
 
@@ -104,11 +113,13 @@ brew --version
 Then install the tools:
 
 ```sh
-brew install oven-sh/bun/bun@1.3.9 just tmux shellcheck
+brew install oven-sh/bun/bun@1.3.9 node python just tmux shellcheck
 bun --version
 ```
 
-- `bun` is the only JavaScript runtime and package manager the project uses. There is no Node or npm step anywhere. It comes from the Bun project's own Homebrew tap, `oven-sh/bun`. The formula is pinned to `bun@1.3.9` because Tug builds with Bun 1.3 and the tap's unversioned `bun` has moved on to 1.4.
+- `bun` is the package manager, the test runner, the bundler, and the runtime for the Claude Code bridge. There is no npm step anywhere. It comes from the Bun project's own Homebrew tap, `oven-sh/bun`. The formula is pinned to `bun@1.3.9` because Tug builds with Bun 1.3 and the tap's unversioned `bun` has moved on to 1.4.
+- `node` runs one thing: the Vite dev server that the debug bundle loads its frontend from. Bun 1.3 cannot run that server, because Vite's WebSocket proxy calls a Node API Bun does not have. Without `node` on your `PATH`, `just app-debug` builds and launches and the window stays empty. Any current Node works; Vite 7 needs 20.19 or later.
+- `python` is for the disk-image builds, `just dmg` and `just notarize`. The tool that lays out the image needs Python 3.10 or later, and the `python3` that comes with Xcode is 3.9. Nothing else uses it.
 - `just` runs the recipes.
 - `tmux` hosts every shell the app runs. Distribution builds bundle their own copy of tmux, but the developer bundles built by `just app-debug` and `just app-release` find it on your `PATH`, and the app refuses to start without it.
 - `shellcheck` is used by `just lint` over the build scripts.
@@ -125,10 +136,11 @@ git clone https://github.com/kocienda/tug.git
 cd tug
 bun install --cwd tugcode --frozen-lockfile
 bun install --cwd tugdeck --frozen-lockfile
+bun install --cwd tests/app-test --frozen-lockfile
 just build
 ```
 
-The two `bun install` lines fetch the dependencies of the Claude Code bridge and the frontend. `just build` compiles the bridge from `tugcode/` and expects its packages to be present, and the debug bundle in [section 4](#4-build-the-signed-developer-bundle) runs the frontend from `tugdeck/` the same way. The disk-image build in the next section installs both on its own.
+The three `bun install` lines fetch the dependencies of the Claude Code bridge, the frontend, and the app-test harness. The third is what `just lint` and `just test` type-check the harness against, so `just ci` fails without it. `just build` compiles the bridge from `tugcode/` and expects its packages to be present, and the debug bundle in [section 4](#4-build-and-run-the-developer-bundle) runs the frontend from `tugdeck/` the same way. The disk-image build in the next section installs both on its own.
 
 `just build` compiles the Rust binaries and the Claude Code bridge in debug mode into `tugrust/target/debug/`, then symlinks them into `~/.local/bin`. Those symlinks are what the recipes and the app's development mode use, so add `~/.local/bin` to your `PATH` if it is not already there. The first build downloads and compiles every crate and takes several minutes; later builds are incremental.
 
@@ -160,13 +172,66 @@ just app-debug      # Debug bundle: frontend served live by Vite, Rust debug bin
 just app-release    # Release bundle: optimized binaries, built frontend assets
 ```
 
-Each recipe quits the previous instance of that bundle, builds, signs the bundle, and opens it. The bundles are named for their build flavor and your current git branch (for example `Tug-debug.app` for the debug build on `main`), so a debug build, a release build, and a build from another worktree can all run at once without clobbering each other. Use `just launch-debug` or `just launch-release` to relaunch without rebuilding, `just stop` to quit every running instance, and `just logs-debug` or `just logs-release` to tail the logs.
+Each recipe quits the previous instance of that bundle, builds, signs the bundle, and opens it. `just app-debug` runs `just build` and `just wasm` first, so it is the one command that takes a fresh checkout to a running app. The recipes that go with them:
+
+| Recipe | What it does |
+|--------|--------------|
+| `just launch-debug`, `just launch-release` | Relaunch the bundle already built, without rebuilding |
+| `just stop-debug`, `just stop-release` | Quit this checkout's debug or release instance |
+| `just stop` | Quit every running Tug instance |
+| `just instances` | List the running instances with their process id, port, and bundle path |
+| `just logs-debug`, `just logs-release` | Tail the instance's newest `tugcast` and app logs |
+| `just clean-debug`, `just clean-release` | Remove that bundle's build products |
 
 The debug bundle is the normal inner loop:
 
 - Edit the frontend under `tugdeck/`, and Vite reloads it in the running app.
 - Edit Rust, and run `just app-debug` again, or run `just dev-watch` in a terminal to have `tugcast` rebuilt on save.
 - Edit Swift, and run `just app-debug` again.
+
+### Build identities: several Tugs at once
+
+Tug is built to run in several copies at the same time: the released app you use, the debug build you are changing, and a build from each git worktree you have open. What keeps them apart is a build identity, computed from two things: the build flavor (`debug` or `release`) and the git branch the build was made on.
+
+| Build | Bundle ID | App | Instance ID |
+|-------|-----------|-----|-------------|
+| Release on `main` | `dev.tugapp.app` | `Tug.app` | `release-main` |
+| Debug on `main` | `dev.tugapp.app.debug` | `Tug-debug.app` | `debug-main` |
+| Debug on another branch | `dev.tugapp.app.debug-<slug>` | `Tug-debug-<slug>.app` | `debug-<slug>` |
+| Release on another branch | `dev.tugapp.app.release-<slug>` | `Tug-release-<slug>.app` | `release-<slug>` |
+| App-tests, on any branch | `dev.tugapp.app.apptest` | `Tug-apptest.app` | `apptest-…`, one per test run |
+
+The slug is the branch name in lowercase with every character outside `a-z` and `0-9` turned into a hyphen, so `feature/New_Thing` becomes `feature-new-thing`. A detached `HEAD` builds as `detached-<sha8>`.
+
+Each identity gets four things of its own:
+
+- **A bundle ID.** macOS keys permissions, LaunchServices, and the saved window state on it, so each build is a separate row in System Settings and none inherits another's grants.
+- **An app file.** `Tug-debug.app` and `Tug.app` are different files, so building one never rewrites the binaries another is running from.
+- **A build directory.** Xcode's default DerivedData is shared per project, which would have every variant overwrite the same product. The recipes pass their own `-derivedDataPath`: `~/Library/Developer/Xcode/DerivedData/Tug-debug` for the debug build on `main`, `…/Tug` for the release build, and so on.
+- **A data directory.** `~/Library/Application Support/Tug/instances/<instance-id>/` holds that instance's workspaces, session ledger, and settings. A debug build starts with its own empty state and never touches the sessions of the Tug you work in.
+
+The recipes are cwd-derived: they compute the identity from the directory you run them in. `just app-debug` in the main checkout builds and relaunches `debug-main`; the same command in a worktree on branch `fix-scroll` builds and relaunches `debug-fix-scroll`, and `debug-main` keeps running. `just stop-debug`, `just launch-debug`, and `just logs-debug` follow the same rule. `just stop` is the exception and quits everything.
+
+Three things follow that are worth knowing before they surprise you:
+
+- **`just app-release` on `main` is the same identity as the released Tug.** A downloaded `Tug.app` is also `dev.tugapp.app` and `release-main`, so the two share one data directory and one set of permissions, and `just app-release` quits the released app before it launches its own build. If you use a released Tug for your own work, do your development in `just app-debug`, or build release from a branch.
+- **Instance data directories are yours, and nothing deletes them for you.** When a worktree is finished, `just worktree-remove <path>` removes it and, after asking, tears down its instance state in the same step. To retire a single instance's data, use `tugtool host instance remove <id>`, which confirms and moves the directory aside instead of deleting it. Do not `rm -rf` one by hand.
+- **The app-test bundle is deliberately one identity for every branch.** Its Accessibility grant is given once and has to cover every worktree, so the bundle ID is forced to `dev.tugapp.app.apptest` while each worktree still builds into its own directory. Each test launches under a throwaway `apptest-…` instance, which is the only kind of instance directory the tooling reclaims on its own.
+
+The mapping lives in three small scripts under `tugrust/scripts/`: `bundle-id-from-cwd.sh`, `product-name-from-cwd.sh`, and `derived-data-path.sh`. The reasoning is in [`tuglaws/code-signing-mac.md`](tuglaws/code-signing-mac.md).
+
+### Inspecting a running instance
+
+The `inspect` recipes take an instance ID from `just instances`:
+
+```sh
+just instances                        # which instances are up, and where their bundles are
+just app-log debug-main --last 5m     # the app's system log; add --grep <text> to filter
+just app-state debug-main             # the host's run-loop state
+just app-sample debug-main            # a 3-second CPU sample of the host app, written to a file
+```
+
+`just logs-debug` tails the `tugcast` and app log files for this checkout's debug instance, and is usually the first place to look. The ledger databases under `~/Library/Application Support/Tug/` are live SQLite files; read them with `just db-inspect <name>`, which inspects a copy, and never with `sqlite3` directly.
 
 ### Signing: ad-hoc by default, Developer ID if you have one
 
@@ -237,6 +302,20 @@ xcrun notarytool store-credentials tug-notary \
 ```
 
 Notarization submits the bundle to Apple and waits for the ticket, which typically takes five to fifteen minutes. The published releases and the nightly build are produced by the GitHub Actions workflows in `.github/workflows/`, which run this same script.
+
+## When something goes wrong
+
+- **`just` reports a missing tool.** `just build` needs the Rust toolchain and Bun; `just app-debug` also needs `wasm-pack` and Xcode. [Section 1](#1-install-the-tools) lists them all.
+- **`just dmg` stops with "dmgbuild needs Python 3.10 or later".** The `python3` on your `PATH` is Xcode's. Run `brew install python`, open a new terminal, and run `just dmg` again.
+- **`just app-debug` launches, and the window stays empty.** The debug bundle could not start its Vite dev server. `just logs-debug` shows the reason; `env: node: No such file or directory` means Node is not installed. Run `brew install node`, then `just launch-debug`.
+- **`git status` shows modified `.wasm` files after a build you did not touch them in.** Your `wasm-pack` is not version 0.15.0. Install that version as [section 1](#rust) describes, run `just wasm`, and the files return to their committed bytes.
+- **A recipe cannot find `tugtool` or `tugcast`.** `just build` symlinks the binaries into `~/.local/bin`. Add that directory to your `PATH`.
+- **The bridge build fails on a missing package.** Run the `bun install` lines from [section 2](#2-get-the-source-and-build-the-command-line-tools); `just build` does not install dependencies.
+- **macOS asks for microphone or Accessibility access after every rebuild.** The bundle is ad-hoc signed, and an ad-hoc signature changes with each build. A Developer ID certificate makes grants persist; see [Signing](#signing-ad-hoc-by-default-developer-id-if-you-have-one).
+- **A Rust or Swift change does not show up in the running app.** Only frontend edits reload live. Run `just app-debug` again.
+- **A Rust or Swift change does not show up in an app-test.** `just app-test` builds its bundle only when none exists. Run `just app-test-build` after changing Rust or Swift.
+- **The wrong app comes to the front, or an old build keeps launching.** Run `just instances` to see which bundle each instance runs from, `just stop` to quit them all, then launch the one you want.
+- **A build is confused in a way nothing explains.** `just clean-debug` removes the debug bundle's build products and `just clean-all` removes everything; the next build starts cold.
 
 ## Cleaning up
 
