@@ -53,6 +53,7 @@ pub struct RecipeArgs {
     pub depth: Option<u32>,
     pub limit: Option<usize>,
     pub kind: Option<String>,
+    pub form: Option<String>,
     pub subjects: Vec<String>,
 }
 
@@ -69,12 +70,16 @@ pub enum RecipeOutcome {
 pub enum RecipeError {
     Git(String),
     Ledger(String),
+    /// A `--form` the recipe's chart cannot be redrawn in.
+    Form(String),
 }
 
 impl fmt::Display for RecipeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RecipeError::Git(message) | RecipeError::Ledger(message) => f.write_str(message),
+            RecipeError::Git(message)
+            | RecipeError::Ledger(message)
+            | RecipeError::Form(message) => f.write_str(message),
         }
     }
 }

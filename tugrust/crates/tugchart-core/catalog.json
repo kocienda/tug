@@ -17,6 +17,11 @@
         "takes": "day or week"
       },
       {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
+      },
+      {
         "flag": "title",
         "help": "The chart's title, in place of the recipe's own",
         "takes": "text"
@@ -70,6 +75,11 @@
         "flag": "path",
         "help": "Only commits touching this path, relative to the repository root",
         "takes": "text"
+      },
+      {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
       },
       {
         "flag": "title",
@@ -140,6 +150,11 @@
         "flag": "path",
         "help": "Only commits touching this path, relative to the repository root",
         "takes": "text"
+      },
+      {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
       },
       {
         "flag": "title",
@@ -220,6 +235,11 @@
         "flag": "path",
         "help": "Only commits touching this path, relative to the repository root",
         "takes": "text"
+      },
+      {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "heat or bar or line or area"
       },
       {
         "flag": "title",
@@ -358,6 +378,11 @@
         "flag": "path",
         "help": "Only commits touching this path, relative to the repository root",
         "takes": "text"
+      },
+      {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "heat or bar or line or area"
       },
       {
         "flag": "title",
@@ -546,6 +571,11 @@
         "takes": "nothing"
       },
       {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
+      },
+      {
         "flag": "title",
         "help": "The chart's title, in place of the recipe's own",
         "takes": "text"
@@ -657,6 +687,11 @@
         "flag": "days",
         "help": "Days of history to read, ending now (default 90)",
         "takes": "number"
+      },
+      {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
       },
       {
         "flag": "title",
@@ -956,6 +991,11 @@
         "takes": "output or input or cache-read or cache-creation"
       },
       {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
+      },
+      {
         "flag": "title",
         "help": "The chart's title, in place of the recipe's own",
         "takes": "text"
@@ -1019,6 +1059,11 @@
         "takes": "number"
       },
       {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
+      },
+      {
         "flag": "title",
         "help": "The chart's title, in place of the recipe's own",
         "takes": "text"
@@ -1080,6 +1125,11 @@
         "flag": "days",
         "help": "Days of history to read, ending now (default 30)",
         "takes": "number"
+      },
+      {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
       },
       {
         "flag": "title",

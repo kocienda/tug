@@ -32,8 +32,8 @@ use std::process::ExitCode;
 
 use serde_json::{Value, json};
 use tugchart_core::{
-    Arg, ArgKind, RECIPES, Recipe, RecipeContext, RecipeOutcome, args_from_matches, catalog_json,
-    clap_command, find,
+    Arg, ArgKind, FORMS, FormKind, RECIPES, Recipe, RecipeContext, RecipeOutcome,
+    args_from_matches, catalog_json, clap_command, find, forms_json,
 };
 use tuggraphics::{CompileOpts, FaceMeasurer, Layers, Palette, TypeRole, compile_with, validate};
 
@@ -247,6 +247,48 @@ pub fn run_list(json: bool) -> Result<(), AppError> {
         let args: Vec<String> = recipe.args.iter().map(arg_usage).collect();
         println!("    {}", args.join("  "));
         println!("    {}: {}", recipe.group, recipe.tells);
+    }
+    Ok(())
+}
+
+/// `tugtool chart forms`: the forms a figure can take, a section for the
+/// charts and one for the diagrams, each form with what it shows, the words
+/// that ask for it and a request to try. `kind` narrows it to one section.
+pub fn run_forms(kind: Option<&str>, json: bool) -> Result<(), AppError> {
+    let kind = match kind {
+        Some("chart") => Some(FormKind::Chart),
+        Some("diagram") => Some(FormKind::Diagram),
+        _ => None,
+    };
+    if json {
+        print_ok("chart forms", forms_json(kind));
+        return Ok(());
+    }
+    let sections = [
+        (
+            FormKind::Chart,
+            "Charts, drawn from numbers. Ask with /viz and end the request with \"as <form>\".",
+        ),
+        (
+            FormKind::Diagram,
+            "Diagrams, drawn from reading code. Ask with /explain, or /viz for one figure, and end the request with \"as <form>\".",
+        ),
+    ];
+    let mut first = true;
+    for (section, heading) in sections {
+        if kind.is_some_and(|k| k != section) {
+            continue;
+        }
+        if !first {
+            println!();
+        }
+        first = false;
+        println!("{heading}");
+        for form in FORMS.iter().filter(|f| f.kind == section) {
+            println!("{}  {}", form.name, form.shows);
+            println!("    also said: {}", form.said.join(", "));
+            println!("    try: {}", form.ask);
+        }
     }
     Ok(())
 }

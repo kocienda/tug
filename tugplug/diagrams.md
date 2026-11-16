@@ -110,6 +110,25 @@ One example per form. Each is a complete, valid spec.
  "across": {"title": "Shared", "names": ["logging", "config"]}}
 ```
 
+## A form the user names
+
+**A form the user names is the form you draw.** The table under *The forms* is how you choose when the request leaves the form to you. It is never a reason to overrule a request that names one. "As a sequence diagram" and "show it as layers" each settle the form, wherever in the request they come.
+
+People name forms in their own words. Read these as the form beside them:
+
+| They say… | Draw |
+|---|---|
+| flowchart, pipeline, data flow | `flow` |
+| message diagram, who calls whom, handshake | `sequence` |
+| levels, what it passes through, top to bottom | `layers` |
+| architecture, block diagram, big picture | `stack` |
+
+When the subject cannot take the named form, say why in one sentence and draw the nearest form that can: a `sequence` needs parties that exchange messages, and `layers` need strata that something passes down through.
+
+**A follow-up that names another form redraws the last figure.** "Same thing as layers" needs no command: draw the subject again from what you already read, reading further only for what the new form shows and the old one did not. Compile it as you would any other figure.
+
+`tugtool chart forms --kind diagram` prints the four forms with what each shows, these words, and a request that draws one. Run it when the user asks what they can ask for.
+
 ## Colour is a role, never a value
 
 You name no colour. The accent is spent on the key discs and nowhere else; boxes are plain, and names are ordinary ink. The one colour choice you make is a **tone**: `tone` on an edge or a message, `lit` on a flow row. A tone is a word about meaning, one of four:
@@ -160,4 +179,4 @@ What the compiler repairs, each with a warning:
 
 ## Explaining code
 
-`/explain <subject>` is the door to a written explanation of how something works: it reads the code, and for each question it answers it gives a title that states the finding, the diagram, one caption sentence, a short lead, and the keyed table. A diagram you add to your own explanation is simply the fence.
+`/explain <subject>` is the door to a written explanation of how something works: it reads the code, and for each question it answers it gives a title that states the finding, the diagram, one caption sentence, a short lead, and the keyed table. A request that ends `as <form>` gets its figure in that form. `/viz` draws a single diagram when the user asks to visualise how something is built. A diagram you add to your own explanation is simply the fence.

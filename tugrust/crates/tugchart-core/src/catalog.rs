@@ -6,6 +6,7 @@ use clap::{ArgAction, ArgMatches, Command, value_parser};
 use serde_json::{Value, json};
 
 use crate::context::{RecipeArgs, RecipeContext, RecipeError, RecipeOutcome};
+use crate::forms::{ROW_FORMS, SERIES_FORMS, reform};
 use crate::tests as test_recipes;
 use crate::{arcs, commits, gaps, models};
 
@@ -48,12 +49,17 @@ pub struct Recipe {
 }
 
 impl Recipe {
+    /// The recipe's answer, redrawn in `args.form` when one is named.
     pub fn run(
         &self,
         ctx: &RecipeContext,
         args: &RecipeArgs,
     ) -> Result<RecipeOutcome, RecipeError> {
-        (self.run)(ctx, args)
+        let mut outcome = (self.run)(ctx, args)?;
+        if let (Some(form), RecipeOutcome::Chart { spec, .. }) = (&args.form, &mut outcome) {
+            reform(spec, form).map_err(RecipeError::Form)?;
+        }
+        Ok(outcome)
     }
 }
 
@@ -71,6 +77,18 @@ const TITLE: Arg = Arg {
     flag: "title",
     kind: ArgKind::Str,
     help: "The chart's title, in place of the recipe's own",
+};
+/// `--form` for a recipe whose chart is categories and series.
+const FORM_SERIES: Arg = Arg {
+    flag: "form",
+    kind: ArgKind::Choice(&SERIES_FORMS),
+    help: "Draw the same data in this form, in place of the recipe's own",
+};
+/// `--form` for a recipe whose chart is one row of values.
+const FORM_ROW: Arg = Arg {
+    flag: "form",
+    kind: ArgKind::Choice(&ROW_FORMS),
+    help: "Draw the same data in this form, in place of the recipe's own",
 };
 
 /// The categories of a sample that covers days.
@@ -92,6 +110,7 @@ pub static RECIPES: [Recipe; 18] = [
                 kind: ArgKind::Choice(&["day", "week"]),
                 help: "Count commits per day or per week (default day)",
             },
+            FORM_SERIES,
             TITLE,
         ],
         sample: || {
@@ -111,7 +130,7 @@ pub static RECIPES: [Recipe; 18] = [
         group: "Activity",
         form: "stacked area",
         data: "git log --numstat, per day",
-        args: &[DAYS, PATH, TITLE],
+        args: &[DAYS, PATH, FORM_SERIES, TITLE],
         sample: || {
             json!({
                 "tugchart": 1, "form": "area", "layout": "stacked",
@@ -132,7 +151,7 @@ pub static RECIPES: [Recipe; 18] = [
         group: "Activity",
         form: "stacked area",
         data: "git log subjects",
-        args: &[DAYS, PATH, TITLE],
+        args: &[DAYS, PATH, FORM_SERIES, TITLE],
         sample: || {
             json!({
                 "tugchart": 1, "form": "area", "layout": "stacked",
@@ -154,7 +173,7 @@ pub static RECIPES: [Recipe; 18] = [
         group: "Activity",
         form: "heat",
         data: "git log committer times",
-        args: &[DAYS, PATH, TITLE],
+        args: &[DAYS, PATH, FORM_ROW, TITLE],
         sample: || {
             json!({
                 "tugchart": 1, "form": "heat",
@@ -198,7 +217,7 @@ pub static RECIPES: [Recipe; 18] = [
         group: "Activity",
         form: "heat",
         data: "git log committer times",
-        args: &[DAYS, PATH, TITLE],
+        args: &[DAYS, PATH, FORM_ROW, TITLE],
         sample: || {
             json!({
                 "tugchart": 1, "form": "heat",
@@ -303,6 +322,7 @@ pub static RECIPES: [Recipe; 18] = [
                 kind: ArgKind::Flag,
                 help: "Lines added minus removed, in place of added plus removed",
             },
+            FORM_SERIES,
             TITLE,
         ],
         sample: || {
@@ -359,6 +379,7 @@ pub static RECIPES: [Recipe; 18] = [
                 kind: ArgKind::U32,
                 help: "Days of history to read, ending now (default 90)",
             },
+            FORM_SERIES,
             TITLE,
         ],
         sample: || {
@@ -492,6 +513,7 @@ pub static RECIPES: [Recipe; 18] = [
                 kind: ArgKind::Choice(&models::TOKEN_KINDS),
                 help: "Which tokens to draw (default output)",
             },
+            FORM_SERIES,
             TITLE,
         ],
         sample: || {
@@ -514,7 +536,7 @@ pub static RECIPES: [Recipe; 18] = [
         group: "Models",
         form: "stacked bar",
         data: "the session ledger's turns",
-        args: &[DAYS, TITLE],
+        args: &[DAYS, FORM_SERIES, TITLE],
         sample: || {
             json!({
                 "tugchart": 1, "form": "bar", "layout": "stacked",
@@ -535,7 +557,7 @@ pub static RECIPES: [Recipe; 18] = [
         group: "Models",
         form: "stacked bar",
         data: "the session ledger's turns",
-        args: &[DAYS, TITLE],
+        args: &[DAYS, FORM_SERIES, TITLE],
         sample: || {
             json!({
                 "tugchart": 1, "form": "bar", "layout": "stacked",
@@ -607,6 +629,7 @@ pub fn args_from_matches(recipe: &Recipe, m: &ArgMatches) -> RecipeArgs {
             "depth" => out.depth = m.get_one::<u32>(arg.flag).copied(),
             "limit" => out.limit = m.get_one::<usize>(arg.flag).copied(),
             "kind" => out.kind = m.get_one::<String>(arg.flag).cloned(),
+            "form" => out.form = m.get_one::<String>(arg.flag).cloned(),
             "name" | "files" => out.subjects = strings(arg, m),
             other => unreachable!("no RecipeArgs field reads --{other}"),
         }
@@ -691,6 +714,7 @@ mod tests {
             "depth" => args.depth == Some(7),
             "limit" => args.limit == Some(7),
             "kind" => args.kind.as_deref() == Some("output"),
+            "form" => matches!(args.form.as_deref(), Some("bar" | "heat")),
             "name" | "files" => &args.subjects == strings,
             _ => false,
         }
@@ -735,7 +759,7 @@ mod tests {
                 "{name}"
             );
             assert!(!name.starts_with('-') && !name.ends_with('-'), "{name}");
-            assert!(*name != "render" && *name != "list", "{name}");
+            assert!(!["render", "list", "forms"].contains(name), "{name}");
         }
         names.sort_unstable();
         names.dedup();

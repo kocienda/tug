@@ -222,6 +222,9 @@ fn main() -> ExitCode {
         Some(Commands::Chart(cli::ChartCommands::List)) => {
             changes::finish("chart list", json, chart::run_list(json))
         }
+        Some(Commands::Chart(cli::ChartCommands::Forms { kind })) => {
+            changes::finish("chart forms", json, chart::run_forms(kind.as_deref(), json))
+        }
         Some(Commands::Chart(cli::ChartCommands::Recipe(argv))) => chart::run_recipe(argv, json),
 
         // The unit-test results ledger.

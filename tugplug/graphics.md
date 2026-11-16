@@ -152,6 +152,32 @@ One example per form. Each is a complete, valid spec.
             {"name": "integration", "points": [{"x": 80, "y": 21}, {"x": 410, "y": 34}, {"x": 760, "y": 58}, {"x": 1400, "y": 92}]}]}
 ```
 
+## A form the user names
+
+**A form the user names is the form you draw.** The table under *The forms* is how you choose when the request leaves the form to you. It is never a reason to overrule a request that names one. "As a histogram", "show it as a line" and "make that a bar chart" each settle the form, wherever in the request they come.
+
+People name forms in their own words. Read these as the form beside them:
+
+| They say… | Draw |
+|---|---|
+| bars, columns, ranking | `bar` |
+| trend, over time, time series | `line` |
+| filled trend, stacked over time, share over time | `area` |
+| mini chart, tiny trend | `sparkline` |
+| pass/fail grid, run history, streaks | `dots` |
+| distribution, spread, buckets | `histogram` |
+| timeline, gantt, waterfall | `spans` |
+| heatmap, busiest, hot spots in time | `heat` |
+| gauge, against target, budget | `bullet` |
+| correlation, x versus y, plotted against | `scatter` |
+| pie, donut | one `bar` with `"layout": "stacked"`, and a sentence saying it stands in for the pie |
+
+When the data cannot take the named form, such as a histogram of three numbers or a scatter of one measure, say why in one sentence and draw the nearest form that can. Never draw the named form badly, and never draw a different one without saying so.
+
+**A follow-up that names another form redraws the last figure.** "Same thing as a line" needs no command and no new reading: draw the same numbers again in the form named.
+
+`tugtool chart forms` prints every form, charts and diagrams both, with what each shows, these words, and a request that draws one. Run it when the user asks what they can ask for.
+
 ## Colour is a role, never a value
 
 You name no colour anywhere. A chart's colours are roles — `ink`, `ink-muted`, `grid`, `surface`, `accent`, `good`, `bad`, `caution`, `outside` and `series-1` through `series-8` — and the user's theme decides what each one looks like, so a chart restyles itself when the theme changes. Series take `series-1` onward in order, fixed to the entity and never cycled. The only colour choice you make is a `role` on a series, a `status` on a span, or an item kind in `dots`, and each of those is a word about meaning: `good` and `bad` are reserved for outcomes and never used to tell two ordinary series apart; `caution` is the outcome between them — allowed but degraded, a fallback, a retry, a run past its budget — and `outside` is a place rather than an outcome, a context series from beyond the system the chart is about.
@@ -187,8 +213,10 @@ A well-known chart is a `tugtool chart <recipe>` verb that computes its data fro
 
 `tugtool chart list` is the one place the list lives, with each recipe's question, what its data tells, its form and its arguments, and `tugtool chart <recipe> --help` says the rest. Read it when data you are about to chart might already have a recipe. Commits per day, lines changed per week, which files have been red, how many arcs ran, tokens by model, and where a change landed are all there.
 
+A recipe whose numbers can be drawn more than one way takes `--form`: `tugtool chart commits --form line` draws the same counts as a line, and the list shows which forms each recipe takes. When the user names a form a recipe offers, pass it, so the numbers stay computed.
+
 A recipe prints one summary line and then a line beginning `TUG-CHART: ` carrying the spec, which the Session card renders beneath the Bash block and strips from the terminal text. Run the verb and the chart appears; you write nothing. When there is nothing to draw it prints one plain line saying why, and exits 0.
 
 `--json` reads the summary and the numbers without drawing. To put a finding in the title, read with `--json` first, then run once with `--title "<the finding>"`, because every run without `--json` draws another figure.
 
-`/viz` is the one door to a chart when one is asked for, for the user and for you alike: when the user asks to chart, plot, graph or visualise something, reach for it, and it takes the recipe when there is one and otherwise reads the data the request names and writes the fence. A figure you add to your own explanation is simply the fence. A spec from a recipe is the same shape as one you write by hand, so the two read as one system.
+`/viz` is the one door to a figure when one is asked for, for the user and for you alike: when the user asks to chart, plot, graph or visualise something, reach for it, and it takes the recipe when there is one and otherwise reads the data the request names and writes the fence. A request to visualise how something is built is a diagram, and `/viz` draws that too, as one figure. A figure you add to your own explanation is simply the fence. A spec from a recipe is the same shape as one you write by hand, so the two read as one system.

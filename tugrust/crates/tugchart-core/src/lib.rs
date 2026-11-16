@@ -15,6 +15,7 @@ mod arcs;
 pub mod catalog;
 pub mod commits;
 pub mod context;
+pub mod forms;
 mod gaps;
 mod models;
 pub mod tests;
@@ -23,3 +24,4 @@ pub use catalog::{
     Arg, ArgKind, RECIPES, Recipe, args_from_matches, catalog_json, clap_command, find,
 };
 pub use context::{RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, git_gate};
+pub use forms::{FORMS, Form, FormKind, forms_json, reform};

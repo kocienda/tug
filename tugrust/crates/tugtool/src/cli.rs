@@ -305,7 +305,8 @@ pub enum Commands {
     #[command(
         subcommand,
         after_help = "Any other name is a recipe, a well-known chart of this project: \
-                      `tugtool chart <recipe>`. `tugtool chart list` lists them."
+                      `tugtool chart <recipe>`. `tugtool chart list` lists them, and \
+                      `tugtool chart forms` lists the forms a figure can be asked for in."
     )]
     Chart(ChartCommands),
 
@@ -797,6 +798,14 @@ pub enum ChartCommands {
     },
     /// List the recipes: each one's name, form, question and arguments.
     List,
+    /// List the forms a figure can take, charts and diagrams both: what each
+    /// one shows, the everyday words that ask for it, and a request that
+    /// draws one.
+    Forms {
+        /// Only the charts, or only the diagrams.
+        #[arg(long, value_parser = ["chart", "diagram"])]
+        kind: Option<String>,
+    },
     /// One recipe and its arguments. The catalog parses them, so a recipe's
     /// flags and its `--help` have one source.
     #[command(external_subcommand)]

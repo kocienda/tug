@@ -722,7 +722,7 @@ fn list_names_every_recipe_with_its_arguments() {
     assert_eq!(lines[0], "commits  bar  How active has this been?");
     assert_eq!(
         lines[1],
-        "    --days N  --path TEXT  --by day|week  --title TEXT"
+        "    --days N  --path TEXT  --by day|week  --form bar|line|area  --title TEXT"
     );
     assert_eq!(lines[2], "    Activity: Commits per day.");
     assert!(
@@ -730,6 +730,72 @@ fn list_names_every_recipe_with_its_arguments() {
         "the arc's positional: {text}"
     );
     assert!(text.contains("    [files...]  --title TEXT"), "{text}");
+}
+
+#[test]
+fn a_named_form_redraws_the_recipes_own_numbers() {
+    let project = Project::with_history();
+    let (summary, bar) = project.chart(&["commits", "--days", LONG_WINDOW]);
+    let (as_line, line) = project.chart(&["commits", "--days", LONG_WINDOW, "--form", "line"]);
+    assert_eq!(as_line, summary);
+    assert_eq!(line["form"], "line");
+    assert_eq!(line["x"], bar["categories"]);
+    assert_eq!(line["series"], bar["series"]);
+    assert_eq!(line["title"], bar["title"]);
+
+    let (_, churn) = project.chart(&["churn", "--days", LONG_WINDOW, "--form", "bar"]);
+    assert_eq!(churn["form"], "bar");
+    assert_eq!(churn["layout"], "stacked");
+    assert_eq!(series_names(&churn), ["added", "removed"]);
+
+    let (_, hours) = project.chart(&["commit-hours", "--days", LONG_WINDOW, "--form", "bar"]);
+    assert_eq!(hours["form"], "bar");
+    assert_eq!(hours["series"][0]["values"][12], 2);
+
+    // A form the data cannot take is refused by the parser, which names the
+    // forms it can.
+    let out = project.run(&["chart", "commits", "--form", "dots"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stderr(&out).contains("bar, line, area"), "{}", stderr(&out));
+    // A recipe whose data has one shape takes no `--form` at all.
+    let out = project.run(&["chart", "commit-size", "--form", "bar"]);
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
+fn forms_lists_every_form_with_how_to_ask_for_it() {
+    let project = Project::bare();
+    let out = project.run(&["chart", "forms", "--json"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let envelope: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(envelope["command"], "chart forms");
+    let forms = envelope["data"].as_array().unwrap();
+    assert_eq!(forms.len(), 14);
+    assert_eq!(forms[0]["name"], "bar");
+    assert_eq!(forms[0]["kind"], "chart");
+    assert_eq!(forms[13]["name"], "stack");
+    assert_eq!(forms[13]["kind"], "diagram");
+
+    let out = project.run(&["chart", "forms"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    // Two headings, a blank line between the sections, three lines a form.
+    assert_eq!(text.lines().count(), 2 + 1 + 14 * 3, "{text}");
+    assert!(text.contains("spans  see when things started and ended on one timeline"));
+    assert!(
+        text.contains("    also said: timeline, gantt, waterfall"),
+        "{text}"
+    );
+    assert!(
+        text.contains("    try: /explain how login works as a sequence"),
+        "{text}"
+    );
+
+    let out = project.run(&["chart", "forms", "--kind", "diagram"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert_eq!(text.lines().count(), 1 + 4 * 3, "{text}");
+    assert!(!text.contains("histogram"), "{text}");
 }
 
 #[test]

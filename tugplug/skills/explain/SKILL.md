@@ -1,18 +1,18 @@
 ---
 name: explain
-description: Explain how a piece of code works, as diagrams drawn from reading it, each with a keyed table saying what every numbered part does and where it is. Use for "explain how X works", "how does X work", "walk me through X", "draw how X fits together". Answers in the transcript; writes a file only when asked to keep the explainer.
-argument-hint: "<subject> [keep [path]]"
+description: Explain how a piece of code works, as diagrams drawn from reading it, each with a keyed table saying what every numbered part does and where it is. Use for "explain how X works", "how does X work", "walk me through X", "draw how X fits together". The request may name the figure's form, as in "as a sequence diagram" or "as layers". Answers in the transcript; writes a file only when asked to keep the explainer.
+argument-hint: "<subject> [as flow|sequence|layers|stack] [keep [path]]"
 allowed-tools: Bash, Read, Glob, Grep, Write
 disallowed-tools: Task, Edit
 ---
 
 You explain one subject in this project: how a feature works, how a request travels, how a part is put together. The explanation is drawn from the code as it is, so you read before you draw, and every part you draw is one you found.
 
-Do not ask for confirmation, and do not ask which form to use. An explainer is cheap to read and cheap to redraw.
+Do not ask for confirmation, and do not ask which form to use: a form the request names is the form, and otherwise you choose. An explainer is cheap to read and cheap to redraw.
 
 ## No arguments
 
-Say in one sentence that `/explain` takes a subject, such as a feature, a flow, a file or a directory, and stop.
+Run `tugtool chart forms --kind diagram`, which prints the four forms a figure can take and a request that draws each. Then say in one sentence that `/explain` takes a subject, such as a feature, a flow, a file or a directory, and that ending the request with `as <form>` chooses the figure. Stop there.
 
 ## 1. Read the code
 
@@ -24,12 +24,14 @@ Write down, for each part you will draw, its path relative to the project root. 
 
 An explainer answers **one to four questions**, one section each, in the order a reader would ask them. "What happens when a user saves?" is a question; "the save module" is not. Most subjects need two. A question whose answer is one sentence is not a section: put the sentence in another section's lead.
 
+**A form the request names decides the figure.** `as a sequence`, `as layers`, or an everyday word for one such as *flowchart* or *architecture* (the session's diagram guidance lists them) means the reader asked to see the subject drawn that way. Answer in one section whose figure is that form, on the question that form answers about the subject: for a `flow`, where the work goes and where it branches; for a `sequence`, who says what to whom, in order; for `layers`, what it passes down through and what crosses each boundary; for a `stack`, what sits on what and what is outside. Add a second section only when the subject will not fit one figure's limits, and keep it in the named form. When the subject cannot take the form at all, draw the nearest form that can and say why in the first sentence of that section's lead.
+
 ## 3. Write each section
 
 Each section has the same five parts, in this order:
 
 1. **A title that states the finding**, as a heading: "A save is one transaction, and the editor waits for it", not "Saving". If you cannot state the finding, you have not finished reading.
-2. **The figure**: one `tugdiagram` fence, in the form the question asks for (the session's diagram guidance says which form fits what, the fields of each, and the limits a figure must stay inside). Key the four to eight parts the reader needs, each with a `what` sentence and its `where`. Leave the rest unkeyed.
+2. **The figure**: one `tugdiagram` fence, in the form the request named, or else the form the question asks for (the session's diagram guidance says which form fits what, the fields of each, and the limits a figure must stay inside). Key the four to eight parts the reader needs, each with a `what` sentence and its `where`. Leave the rest unkeyed.
 3. **One caption sentence** under the figure, saying how to read it: what the tones mean, which way the edges run, what is outside.
 4. **A short lead**: two to four sentences of plain prose giving the argument the figure is the evidence for: why it is shaped this way, what would surprise someone who had not read the code.
 5. **The keyed table**, which the card draws beneath the figure from the keys you gave. Do not write it again in prose.
