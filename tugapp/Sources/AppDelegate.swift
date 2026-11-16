@@ -1858,6 +1858,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("move-in-slot", params: ["value": target])
     }
 
+    /// Go ▸ Back / Forward. No payload: the frontend holds the trail of cards
+    /// the reader had focused and steps it. Enablement rides each item's
+    /// registry gate on the menuState push, so a row is dark exactly when the
+    /// trail has nothing that way.
+    @objc func goFocusTrailBack(_ sender: Any?) {
+        sendControl("go-back")
+    }
+
+    @objc func goFocusTrailForward(_ sender: Any?) {
+        sendControl("go-forward")
+    }
+
     /// Go ▸ Focus Card Left / Right / Above / Below. The direction rides
     /// `representedObject`, the shape the slot-move rows use. NOT
     /// selection-relative, unlike those: the frontend reads the first responder,

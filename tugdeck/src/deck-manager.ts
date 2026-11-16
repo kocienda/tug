@@ -113,6 +113,7 @@ import {
   type PlaceRuns,
 } from "./deck-store-selectors";
 import { resolveCloseSuccessor } from "./lib/close-successor";
+import { FocusTrail, type FocusTrailDirection } from "./lib/focus-trail";
 import { fitHeights, railNaturalOf } from "./lib/rail-fit";
 import { sidebarWidthStore } from "./lib/sidebar-width-store";
 import {
@@ -978,6 +979,21 @@ export class DeckManager implements IDeckManagerStore {
    */
   private _activationHistory: string[] = [];
 
+  /**
+   * The cards the reader had focused, in the order they focused them, with a
+   * cursor: what Back and Forward step along. A separate record from
+   * {@link _activationHistory}, which holds each card once and has no
+   * forward. Written wherever an activation is noted, held in memory only,
+   * and deck-wide like the history: a workspace switch leaves it standing.
+   */
+  private readonly _focusTrail = new FocusTrail();
+
+  /**
+   * True while a Back or Forward step's own activation commits, so the
+   * arrival moves the cursor and records no visit.
+   */
+  private _focusTrailStepping = false;
+
   private initialLayout: object | null;
 
   // ---- Spaces: the level above the deck ([P03]) ----
@@ -1592,6 +1608,7 @@ export class DeckManager implements IDeckManagerStore {
     // focus the swap could not carry is activated now, showing its rail first.
     if (focusInSwap && focus !== null) {
       this._noteActivation(focus);
+      this._noteLanding(focus, outgoing.focusedCardId ?? null);
       this.cardLifecycle.setResponderChainKey(focus);
     } else if (focus !== null) {
       this.activateCard(focus);
@@ -4769,6 +4786,94 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * Record on the focus trail that the reader landed on `cardId`, coming
+   * from `from`. A Back or Forward step's own arrival records nothing.
+   *
+   * `from` seeds an empty trail: the card focused at boot was raised by no
+   * activation this manager noted, and without it the first Back after
+   * launch would have nowhere to go.
+   */
+  private _noteLanding(cardId: string, from: string | null): void {
+    if (this._focusTrailStepping) return;
+    if (from !== null && this._focusTrail.current === null) {
+      this._focusTrail.land(from);
+    }
+    this._focusTrail.land(cardId);
+  }
+
+  /**
+   * The parked workspace whose deck record holds `cardId`, or `undefined`
+   * when none does. Only a listed workspace answers: one held pending while
+   * its name is asked is not a place a switch can go.
+   */
+  private _parkedSpaceHolding(cardId: string): SpaceRecord | undefined {
+    return this.spacesStore.list.find(
+      (space) =>
+        space.deck !== null && space.deck.cards.some((card) => card.id === cardId),
+    );
+  }
+
+  /**
+   * Whether a focus-trail step may land on `cardId`: the card stands in the
+   * shown deck or in a parked workspace's.
+   */
+  private _focusTrailStands = (cardId: string): boolean =>
+    this.deckState.cards.some((card) => card.id === cardId) ||
+    this._parkedSpaceHolding(cardId) !== undefined;
+
+  /**
+   * Step the focus trail one standing card in `direction` and activate it,
+   * as a keyboard arrival. Returns whether there was anywhere to go; a
+   * refusal changes nothing the reader can see.
+   *
+   * A target in a parked workspace is reached by the switch itself: the
+   * workspace's remembered focus is set to the target first, so the swap's
+   * one commit arrives on it and no second focus move follows. Either way
+   * the arrival moves the trail's cursor and records no visit.
+   */
+  private _stepFocusTrail(direction: FocusTrailDirection): boolean {
+    const target = this._focusTrail.step(direction, this._focusTrailStands);
+    if (target === null) return false;
+    if (!this.deckState.cards.some((card) => card.id === target)) {
+      const parked = this._parkedSpaceHolding(target);
+      if (parked === undefined) return false;
+      parked.focusedCardId = target;
+      this._focusTrailStepping = true;
+      try {
+        this.activateSpace(parked.id);
+      } finally {
+        this._focusTrailStepping = false;
+      }
+      return true;
+    }
+    transferFocusForActivation({
+      outgoingCardId: this.getFirstResponderCardId(),
+      incomingCardId: target,
+      store: this,
+      commitMutation: () => {
+        this._focusTrailStepping = true;
+        try {
+          this.activateCard(target);
+        } finally {
+          this._focusTrailStepping = false;
+        }
+      },
+      deferCommit: mayDeferCommit(this, target),
+    });
+    return true;
+  }
+
+  public canGoBack = (): boolean =>
+    this._focusTrail.canStep("back", this._focusTrailStands);
+
+  public canGoForward = (): boolean =>
+    this._focusTrail.canStep("forward", this._focusTrailStands);
+
+  public goBack = (): boolean => this._stepFocusTrail("back");
+
+  public goForward = (): boolean => this._stepFocusTrail("forward");
+
+  /**
    * Close a stack by id.
    *
    * Ordering: when the close owes a handoff, flip the composite bit to
@@ -4977,7 +5082,10 @@ export class DeckManager implements IDeckManagerStore {
     trigger: string,
   ): void {
     const oldFR = this.getFirstResponderCardId();
-    if (newFR !== null) this._noteActivation(newFR);
+    if (newFR !== null) {
+      this._noteActivation(newFR);
+      this._noteLanding(newFR, oldFR);
+    }
     if (oldFR === newFR) {
       commit();
       // Same-bit refresh still counts as a flip trigger for trace

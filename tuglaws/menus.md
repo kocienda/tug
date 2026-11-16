@@ -215,6 +215,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-slot:down` | Move Card Down in Slot | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
+| ⌃⌥⌘[ | `go-back` | Back | menu bar (swept) |
+| ⌃⌥⌘] | `go-forward` | Forward | menu bar (swept) |
 | ⌘" | `decrease-quote-level` | Decrease Quote Level | menu bar (swept) |
 | ⌘' | `increase-quote-level` | Increase Quote Level | menu bar (swept) |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
@@ -360,11 +362,13 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `file.saveACopy` | `save-a-copy` | first responder | registry gate |
 | `file.saveAs` | `save-as` | first responder | registry gate |
 | `file.shareTurns` | `run-slash-command:share` | key card | registry gate |
+| `go.back` | `go-back` | first responder | registry gate |
 | `go.firstTurn` | `first-turn` | key card | registry gate |
 | `go.focusCardAbove` | `focus-card:above` | first responder | registry gate |
 | `go.focusCardBelow` | `focus-card:below` | first responder | registry gate |
 | `go.focusCardLeft` | `focus-card:left` | first responder | registry gate |
 | `go.focusCardRight` | `focus-card:right` | first responder | registry gate |
+| `go.forward` | `go-forward` | first responder | registry gate |
 | `go.goToSlot.1` | `go-to-slot:1` | first responder | registry gate |
 | `go.goToSlot.2` | `go-to-slot:2` | first responder | registry gate |
 | `go.goToSlot.3` | `go-to-slot:3` | first responder | registry gate |

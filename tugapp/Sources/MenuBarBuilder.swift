@@ -19,6 +19,8 @@ import AppKit
     func firstTurn(_ sender: Any?)
     func focusCardFromMenu(_ sender: NSMenuItem)
     func focusPrompt(_ sender: Any?)
+    func goFocusTrailBack(_ sender: Any?)
+    func goFocusTrailForward(_ sender: Any?)
     func goToSlotFromMenu(_ sender: NSMenuItem)
     func insertFile(_ sender: Any?)
     func lastTurn(_ sender: Any?)
@@ -618,6 +620,23 @@ struct MenuBarBuilder {
         let gMenu = NSMenu(title: "Go")
         goMenuItem.submenu = gMenu
 
+        // Back / Forward — the cards the reader had focused, in the order
+        // they focused them, wherever each stands; a card in a parked
+        // workspace is reached by switching to it. First in the menu, where
+        // Finder puts the pair, and named for time because Previous / Next
+        // Card below already name position. Empty key equivalents:
+        // `applyCommandChords` writes ⌃⌥⌘[ / ⌃⌥⌘] from the frontend's keymap.
+        // Each row is gated by its registry entry on the menuState push and
+        // keeps its chord while dark, so a press with nowhere to go reaches
+        // the web view and is answered with a border flash.
+        //
+        // The selectors are NOT `goBack:` / `goForward:`. Those are
+        // WKWebView's own actions, and a card's web view is the first
+        // responder: a nil-target row carrying either would be validated and
+        // performed by WebKit's page history and never reach this delegate.
+        gMenu.addItem(NSMenuItem(title: "Back", action: #selector(MenuBarActions.goFocusTrailBack(_:)), keyEquivalent: "").identified("go.back"))
+        gMenu.addItem(NSMenuItem(title: "Forward", action: #selector(MenuBarActions.goFocusTrailForward(_:)), keyEquivalent: "").identified("go.forward"))
+        gMenu.addItem(NSMenuItem.separator())
         // Card navigation — one relationship, two axes. Previous/Next Card
         // walk the deck's visible cards side to side (every tab of every
         // front pane, one ring); Previous/Next Card in Stack rotate the

@@ -516,6 +516,7 @@ function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
       { rail: deck.getRailRunHeight(), slot: deck.getSlotRunHeight() },
       deck.getFirstResponderCardId(),
     ),
+    focusTrail: { back: deck.canGoBack(), forward: deck.canGoForward() },
     slot: resolveSlotMenuFact(deck),
   };
 }

@@ -387,6 +387,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "set-pane-width": { bridgeFor: TUG_ACTIONS.SET_PANE_WIDTH },
   "go-to-slot": { bridgeFor: TUG_ACTIONS.GO_TO_SLOT },
   "focus-card": { bridgeFor: TUG_ACTIONS.FOCUS_CARD },
+  "go-back": "command",
+  "go-forward": "command",
   "toggle-bullseye": "command",
   "toggle-slot-split": "command",
   "move-in-slot": { bridgeFor: TUG_ACTIONS.MOVE_IN_SLOT },
@@ -685,6 +687,12 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // The Text card's Markdown preview: the ⌥ variant of the reserved print
   // key, Print Preview read as a chord, and Xcode's preview canvas.
   ["⌥⌘P", TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW],
+  // Back and Forward along the cards the reader had focused: the bracket
+  // row's reading of [ and ], on the one ⌘-bearing set the row had left. A
+  // granted exception to the ⌃⌥⌘ closure, made on two keys Keyboard Maestro
+  // does not hold.
+  ["⌃⌥⌘[", TUG_ACTIONS.GO_BACK],
+  ["⌃⌥⌘]", TUG_ACTIONS.GO_FORWARD],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

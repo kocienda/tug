@@ -1036,6 +1036,14 @@ export class HostMenuStatePublisher {
   private focusTravelFactSource:
     | (() => CommandMenuFacts["focusTravel"])
     | null = null;
+  /**
+   * Asked for {@link CommandMenuFacts.focusTrail} on every flush, never
+   * stored: the trail lives on the deck store and not in `DeckState`, so it
+   * cannot be projected, {@link focusTravelFactSource}'s reason again.
+   */
+  private focusTrailFactSource:
+    | (() => CommandMenuFacts["focusTrail"])
+    | null = null;
   /** Recent-document MRU, mirrored outward for the Open Recent submenu. */
   private recentDocuments: string[] = [];
   /** The active theme, for the Theme submenu's checkmark. */
@@ -1072,6 +1080,15 @@ export class HostMenuStatePublisher {
     source: () => CommandMenuFacts["focusTravel"],
   ): void {
     this.focusTravelFactSource = source;
+    this.scheduleFlush();
+  }
+
+  /** Register the closure the flush asks for
+   *  {@link CommandMenuFacts.focusTrail}. */
+  setFocusTrailFactSource(
+    source: () => CommandMenuFacts["focusTrail"],
+  ): void {
+    this.focusTrailFactSource = source;
     this.scheduleFlush();
   }
 
@@ -1298,6 +1315,7 @@ export class HostMenuStatePublisher {
       sidebars,
       slot: this.slotFactSource?.() ?? null,
       focusTravel: this.focusTravelFactSource?.() ?? null,
+      focusTrail: this.focusTrailFactSource?.() ?? null,
       // The same array the payload's Workspaces section is built from, so the
       // Delete row's gate and the rows it would delete from can never
       // disagree about how many there are ([P07]).
@@ -1395,6 +1413,12 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
       deck.getFirstResponderCardId(),
     ),
   );
+  // Back and Forward's gate. The trail moves only with an activation or a
+  // close, each of which notifies the deck and so pushes a projection.
+  publisher.setFocusTrailFactSource(() => ({
+    back: deck.canGoBack(),
+    forward: deck.canGoForward(),
+  }));
   cardsSelectionStore.subscribe(() => {
     publisher.refresh();
   });
@@ -1582,6 +1606,9 @@ export function initBodyHostMenuState(deck: CardDeck, view: DeckView | null): vo
   bodyPush = push;
   publisher.setFocusTravelFactSource(
     () => (shellMenuFacts?.focusTravel as CommandMenuFacts["focusTravel"] | undefined) ?? null,
+  );
+  publisher.setFocusTrailFactSource(
+    () => (shellMenuFacts?.focusTrail as CommandMenuFacts["focusTrail"] | undefined) ?? null,
   );
   publisher.setSlotFactSource(
     () => (shellMenuFacts?.slot as CommandMenuFacts["slot"] | undefined) ?? null,

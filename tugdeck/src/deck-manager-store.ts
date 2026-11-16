@@ -408,6 +408,26 @@ export interface IDeckManagerStore extends DeckView {
   initialFocusedCardId?: string;
 
   /**
+   * Whether Back has a card to go to: one the reader had focused before the
+   * current one, in the order they focused them, that still stands.
+   */
+  canGoBack: () => boolean;
+
+  /** Whether Forward has a card to go to: one a Back stepped away from. */
+  canGoForward: () => boolean;
+
+  /**
+   * Move focus to the card the reader was on before the current one. The
+   * arrival is a step along the trail and not a new visit, so Forward
+   * retraces it. Returns `false`, having changed nothing, when there is no
+   * such card.
+   */
+  goBack: () => boolean;
+
+  /** Retrace a Back. Returns `false` when there is nothing ahead. */
+  goForward: () => boolean;
+
+  /**
    * Add a workspace at the end of the list, activate it, and stand its
    * factory rail ([P05]). The name is the caller's when given, and
    * `Workspace N` otherwise. Returns the new space's id. New Workspace itself

@@ -255,6 +255,16 @@ export interface CommandMenuFacts {
     readonly below: boolean;
   } | null;
   /**
+   * Whether Back and Forward have a card to go to: one behind or ahead of
+   * the reader on the focus trail that still stands. `null` before the deck
+   * has answered. A measurement off the deck store rather than a field of
+   * its state, so it is asked at flush time like {@link focusTravel}.
+   */
+  readonly focusTrail: {
+    readonly back: boolean;
+    readonly forward: boolean;
+  } | null;
+  /**
    * Every registered sidebar card, keyed by component id — the registry's
    * set rather than whatever is open, so a hidden card still has an entry
    * and its row still has something to say. A component id absent from the
@@ -345,6 +355,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   equalizableSlots: 0,
   slot: null,
   focusTravel: null,
+  focusTrail: null,
   sidebars: {},
   spaceCount: 0,
   spaceThemesDiffer: false,
@@ -1169,6 +1180,50 @@ const FOCUS_CARD_COMMANDS: readonly CommandEntry[] = (
   ],
   validate: (chain: CommandValidationSource) =>
     chain.menu.focusTravel?.[direction] === true,
+  disabledChord: "keep" as const,
+}));
+
+/**
+ * ⌃⌥⌘[ / ⌃⌥⌘] — Back and Forward along the cards the reader had focused.
+ *
+ * **Time, where every other Go verb is position.** The lateral ring, the
+ * stack ring, the four directions and the slots all move through the
+ * arrangement; this pair moves through the order the reader visited it in,
+ * and crosses into a parked workspace when that is where the card is.
+ *
+ * **The seat is a granted exception** (tuglaws/chord-tiers.md, "⌃⌥⌘ is spoken
+ * for outside Tug"). The bracket row reads `[` as back and `]` as forward in
+ * every family on it, plain ⌘[/] belongs to CodeMirror's dedent and indent in
+ * the composer and the text card, and ⌃⌥⌘ is the one ⌘-bearing set the row
+ * had left. The set is closed because Keyboard Maestro claims keys on it
+ * machine-wide; neither bracket is among them, which is what the grant rests
+ * on.
+ *
+ * Promoted to the Go menu with empty Swift key equivalents, gated on the
+ * trail, and `disabledChord: "keep"` for the directional family's reason: a
+ * dark row leaves the keydown alone, it reaches this entry's own binding in
+ * the web view, and the handler answers the refusal with a border flash on
+ * the pane that is not going anywhere.
+ */
+const GO_TRAIL_COMMANDS: readonly CommandEntry[] = (
+  [
+    [TUG_ACTIONS.GO_BACK, "Back", "go.back", "BracketLeft", "[", "back"],
+    [TUG_ACTIONS.GO_FORWARD, "Forward", "go.forward", "BracketRight", "]", "forward"],
+  ] as const
+).map(([id, title, menuItemId, key, label, direction]) => ({
+  id,
+  title,
+  routing: "first-responder" as const,
+  menuItemId,
+  mirrored: true,
+  bindings: [
+    chord(
+      { key, ctrl: true, alt: true, meta: true, label },
+      { preventDefault: true, menuEligible: true },
+    ),
+  ],
+  validate: (chain: CommandValidationSource) =>
+    chain.menu.focusTrail?.[direction] === true,
   disabledChord: "keep" as const,
 }));
 
@@ -2441,6 +2496,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     disabledChord: "detach",
   },
   ...GO_TO_SLOT_COMMANDS,
+  ...GO_TRAIL_COMMANDS,
   ...FOCUS_CARD_COMMANDS,
   ...RAIL_TOGGLE_COMMANDS,
   ...CARD_WIDTH_COMMANDS,

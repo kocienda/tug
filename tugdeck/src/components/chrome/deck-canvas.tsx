@@ -1185,6 +1185,8 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.MOVE_TO_SLOT,
   TUG_ACTIONS.GO_TO_SLOT,
   TUG_ACTIONS.FOCUS_CARD,
+  TUG_ACTIONS.GO_BACK,
+  TUG_ACTIONS.GO_FORWARD,
   TUG_ACTIONS.NUDGE_SLOT,
   TUG_ACTIONS.TOGGLE_SLOT_SPLIT,
   TUG_ACTIONS.MOVE_IN_SLOT,
@@ -2551,6 +2553,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           deferCommit: mayDeferCommit(store, target.cardId),
         });
         flashCardPane(store, target.cardId);
+      },
+      // ⌃⌥⌘[ / ⌃⌥⌘] — Back and Forward along the focus trail. The deck owns
+      // the trail and the arrival, a parked workspace's switch included, so
+      // all the canvas adds is the refusal: with nowhere to go, the pane the
+      // reader is standing in flashes, the directional family's receipt.
+      [TUG_ACTIONS.GO_BACK]: () => {
+        if (reactivateWhenDeselected()) return;
+        const sourceCardId = store.getFirstResponderCardId();
+        if (!store.goBack() && sourceCardId !== null) {
+          flashCardPane(store, sourceCardId);
+        }
+      },
+      [TUG_ACTIONS.GO_FORWARD]: () => {
+        if (reactivateWhenDeselected()) return;
+        const sourceCardId = store.getFirstResponderCardId();
+        if (!store.goForward() && sourceCardId !== null) {
+          flashCardPane(store, sourceCardId);
+        }
       },
       // ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the
       // arrangement. The canvas owns it for the same reason it owns ⌘1..9,

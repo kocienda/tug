@@ -79,6 +79,7 @@ export const deckFacts = defineSharedStore<DeckFactsValue>({
 export interface DeckMenuValue {
   projection: unknown;
   focusTravel: unknown;
+  focusTrail: unknown;
   slot: unknown;
 }
 
@@ -86,7 +87,7 @@ export const deckMenu = defineSharedStore<DeckMenuValue | null>({
   key: "deck.menu",
   owner: "shell",
   scope: { deck: true },
-  codec: nullable(obj({ projection: carried, focusTravel: carried, slot: carried })),
+  codec: nullable(obj({ projection: carried, focusTravel: carried, focusTrail: carried, slot: carried })),
   initial: null,
 });
 

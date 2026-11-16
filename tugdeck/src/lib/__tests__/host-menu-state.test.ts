@@ -960,6 +960,7 @@ describe("initBodyHostMenuState", () => {
       applyShellMenuFacts({
         projection: projectDeckState(state),
         focusTravel: null,
+        focusTrail: null,
         slot: { mode: "split", canMoveUp: false, canMoveDown: true, canEqualize: true },
       });
       const gates = posted[posted.length - 1];
@@ -967,6 +968,18 @@ describe("initBodyHostMenuState", () => {
       expect(gates["view.slotMoveDown"]?.enabled).toBe(true);
       expect(gates["view.slotMoveUp"]?.enabled).toBe(false);
       expect(gates["view.equalizeHeights"]?.enabled).toBe(true);
+      // With no trail fact from the shell, Back and Forward are dark.
+      expect(gates["go.back"]?.enabled).toBe(false);
+      expect(gates["go.forward"]?.enabled).toBe(false);
+      applyShellMenuFacts({
+        projection: projectDeckState(state),
+        focusTravel: null,
+        focusTrail: { back: true, forward: false },
+        slot: null,
+      });
+      const walked = posted[posted.length - 1];
+      expect(walked["go.back"]?.enabled).toBe(true);
+      expect(walked["go.forward"]?.enabled).toBe(false);
     } finally {
       host.webkit = before;
     }

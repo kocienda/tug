@@ -1517,6 +1517,16 @@ function wireActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.FOCUS_CARD}:${direction}`);
   });
 
+  // go-back / go-forward: the Go ▸ Back / Forward round-trip, and the
+  // ⌃⌥⌘[ / ⌃⌥⌘] chords with it, since both items are `menuEligible` and
+  // AppKit resolves the key equivalent before the web view sees a keydown.
+  registerAction(TUG_ACTIONS.GO_BACK, () => {
+    dispatchCommand(TUG_ACTIONS.GO_BACK);
+  });
+  registerAction(TUG_ACTIONS.GO_FORWARD, () => {
+    dispatchCommand(TUG_ACTIONS.GO_FORWARD);
+  });
+
   // toggle-bullseye: the View ▸ Bullseye round-trip. No payload — the
   // command is selection-relative, so the round-trip through
   // `dispatchCommand` is what keeps the "which pane am I in" answer on the

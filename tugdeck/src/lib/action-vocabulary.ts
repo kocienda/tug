@@ -656,6 +656,16 @@ export const TUG_ACTIONS = {
   MOVE_TO_SLOT:   "move-to-slot",
   GO_TO_SLOT:    "go-to-slot",
   FOCUS_CARD:     "focus-card",
+  // GO_BACK / GO_FORWARD: payload — none. Deck-level: step the keyboard
+  //                 along the focus trail, the cards the reader had focused
+  //                 in the order they focused them. Back goes to the card
+  //                 before the current one, wherever it stands — a parked
+  //                 workspace is switched to — and Forward retraces a Back.
+  //                 A step is not a visit, so the pair is a browser's. Used
+  //                 by ⌃⌥⌘[ / ⌃⌥⌘] (Go ▸ Back / Forward), handled by the
+  //                 deck canvas; a refusal flashes the focused pane.
+  GO_BACK:        "go-back",
+  GO_FORWARD:     "go-forward",
   NUDGE_SLOT:     "nudge-slot",
   SET_PANE_WIDTH: "set-pane-width",
   TOGGLE_BULLSEYE: "toggle-bullseye",
