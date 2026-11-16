@@ -46,7 +46,11 @@ The user then looked at the second rev on the deck and settled the open look que
 
 **[F10] Edge crossings are cheap to count.** The spike counts strict crossings between the axis-aligned runs of different edges and reports the number under each figure. All five subjects read zero. **(verified)**
 
-**[F11] Whether the Text card's Markdown preview renders chart fences was not checked.** The preview landed in `656188211`; nothing in this conversation read whether it runs the same fence pipeline as the transcript. **(not verified)**
+**[F11] The Text card's Markdown preview uses the block that renders chart fences.** The preview landed in `656188211`, whose message says it is `TugMarkdownBlock` in static mode, and `tugdeck/src/components/tugways/tug-markdown-block.tsx` imports the chart stylesheet "for the ```tugchart fences this block's enhancer renders". So a `tugdiagram` fence should render in a previewed file once the enhancer knows it. Nobody opened a chart file in a preview to confirm. **(read from the code and the commit message; not exercised)**
+
+**[F12] Every light theme already has a legible caution ink.** The ten theme files carry two caution tones. The fill tone is `yellow, l 860, c 260` on the five dark themes and `gold, l 850, c 320` on the five light ones; the spike used it, and on a light surface it is a background colour [F07]. The text tone, `--tug7-element-tone-text-normal-caution-rest`, is the same yellow on dark themes and `yellow, l 680, c 320` on light ones, beside success at `green, l 630` and data at `teal, l 590`. **(verified, read from all ten theme files; not run through the audit)**
+
+**[F13] Wrapping fits the measure protocol as it stands.** `MAX_MEASURE_REQUESTS` in `tuggraphics/src/measure.rs` is 2: the first request asks for every full string, the second for the truncation candidates of strings that overflow. A first request that also asks for each word of a wrappable string, and a second that asks for the lines chosen, stays inside that limit. **(the limit is verified, read; the scheme is a design, not built)**
 
 ---
 
@@ -73,7 +77,7 @@ The user then looked at the second rev on the deck and settled the open look que
 
 **[B05] A key is a disc, level with the top of what it numbers, with its number centred by its ink.** In a row or cell the disc sits on the first text line, not the row's middle. In a sequence it sits on the label's line, not the arrow's. In a centred stack cell it sits in the box's top-left corner. There is no inline-number variant.
 
-**[B06] Two semantic roles are added: `caution` and `outside`.** `caution` is the outcome between good and bad: allowed but degraded, a fallback, a retry; in a chart, a run past its budget or a stalled item. `outside` is a place and never an outcome: what lies beyond the system the figure explains; in a chart, a context series from elsewhere. They are roles of the whole graphics language, so charts get them too. `good` and `bad` stay reserved for outcomes. The user chose `outside` over the alternative `agent`, which would have meant "what the model does". `outside` is painted from the themes' existing data tone. `caution` starts from the caution tone on dark themes, and on light themes it must be darker than that tone is today [F07]: it has to read as clearly as `good` and `bad` do as a 1.5 px stroke and as small label text on the content surface. So `caution` gets its own chart token in the theme files, equal to the tone where that passes and tuned where it does not, and ironclad stays the exemplar and is not edited to make a light theme pass.
+**[B06] Two semantic roles are added: `caution` and `outside`.** `caution` is the outcome between good and bad: allowed but degraded, a fallback, a retry; in a chart, a run past its budget or a stalled item. `outside` is a place and never an outcome: what lies beyond the system the figure explains; in a chart, a context series from elsewhere. They are roles of the whole graphics language, so charts get them too. `good` and `bad` stay reserved for outcomes. The user chose `outside` over the alternative `agent`, which would have meant "what the model does". `outside` is painted from the themes' existing data tone. Each role is its own chart token in every theme file, with values the themes already own [F12]: `caution` is `yellow, l 860, c 260` on dark themes and `yellow, l 680, c 320` on light ones, which is each theme's caution text tone; `outside` is the data fill tone, `teal, l 760, c 300` dark and `teal, l 590, c 300` light. Both are registered against the content surface at the role `good` and `bad` hold, and `bun run audit:theme-contrast` passing on all ten themes is the gate, not a question. Ironclad stays the exemplar and is not edited to make another theme pass. The known risk is that yellow at l 680 reads as mustard; it is what the light themes already show for caution text.
 
 **[B07] The keyed table is part of the figure and is shown by default.** Each keyed mark has a row: number, name, what it does, where it is. It is the diagram's table alternative, and unlike a chart's it is on screen with the figure, not behind a toggle. The "where it is" cell is a live file reference through the existing resolver.
 
@@ -85,17 +89,21 @@ The user then looked at the second rev on the deck and settled the open look que
 
 **[B11] The door is an `/explain` skill in `tugplug`.** It carries the template from [F01]: one question per section, a title that states the finding, figure, one caption sentence, a short lead, the keyed table. Given a subject it explains that subject. It ships in the plugin, so it works on any project, per the standalone contract. The prompt doc that teaches the fence is written last, as the chart doc was.
 
+**[B15] Names never wrap; secondary text wraps to two lines; a third line is an error.** A box, row, cell or actor name is one line, and one too long is a validation error carrying its measured width. A sub-label, an edge label and a note wrap by words at a width the form sets, to at most two lines. A sequence message label stays one line, because its row height is the figure's rhythm. A figure whose natural width still exceeds a cap is an error that says to split it; the cap starts at 960 px and is the arc's to tune against the spike's subjects. The measure protocol is unchanged [F13].
+
+**[B16] An explainer is kept only when asked, as a Markdown file.** `/explain <subject>` answers in the transcript and writes nothing. Asked to keep it, the skill writes a Markdown file: an explicit path wins, otherwise `explainers/<slug>.md` at the project root. There is no new setting; if the directory wants to be configurable it follows the Briefs Directory pattern later. The skill does not commit the file, since an explainer describes the code as it is and landing it is the user's act. The file is read in the Text card's Markdown preview [F11].
+
+**[B17] A kept explainer records the commit it was drawn at.** One comment line at the top of the file names the sha. It costs nothing to write and cannot be recovered afterwards. Nothing reads it in this arc.
+
+**[B18] There is no fifth type role.** The hierarchy in a box is already three levels: box name in `title`, row name in `label`, sub-label in muted `value`. The user accepted the figures that way [F04], and a new role would touch the enum, the stylesheet, the fixed-metric table, the standalone face measurer and the deck's probes for a modest gain.
+
 **[B12] The spike stays.** `spike-code-explainer.tsx`, `spike-code-explainer-layout.ts`, `spike-code-explainer-subjects.ts`, `spike-code-explainer.css` and their two lines in `spike-registry.tsx` are the reference for layout and look while this is built, and no step of the arc deletes them. Its five subjects are the natural goldens for the Rust forms. It graduates or is deleted after the real forms have been judged against it.
 
 ---
 
 ## Open Questions {#open-questions}
 
-- **What does the contrast audit say about `outside` and the retuned `caution`?** `bun run audit:theme-contrast` extended to the two roles settles it for all ten themes. `caution` on the five light themes is already known to need work [F07]; the audit says how much, and whether `outside` needs any.
-- **Does one more type role land, and what is it called?** [F04]. A semibold at label size would let a row name carry weight without colour. The user accepted the figures with row names in plain `label`, so nothing requires it; it is open only as an improvement.
-- **How does text wrap?** [F06]. Wrapping by measured words means more rounds of the measure protocol than the current limit of three calls, or a different shape of request. This changes what gets written in the compiler.
-- **Where does a kept explainer live, and does the Text card render it?** The sketch proposed a Markdown file in a project `explainers/` directory, viewed in the Text card's preview. [F11] is unverified, and the directory was never confirmed by the user.
-- **Does a kept explainer record the commit it was drawn at?** The sketch proposed it, with a `tugtool` verb that says which `where` paths have changed since. It was not discussed further.
+- **What if the audit fails one of the two roles' proposed values in some theme?** [B06] names the values and makes the audit the gate, but the audit has not been run on them. A failure is settled by tuning that theme's chart token, which touches no other decision here.
 
 ---
 
@@ -107,6 +115,10 @@ The user then looked at the second rev on the deck and settled the open look que
 - **Accent on boxes, borders or names.** Ruled out by [B04].
 - **Tinted boxes, square elbows, and curved forward edges.** The spike offers all three on its controls; the user chose plain and rounded [B13] [B14].
 - **An `agent` colour role.** Considered for the second new role and passed over for `outside` [B06].
+- **A `strong` type role.** Semibold at label size, for row names. Rejected by [B18]; revisit only if a real explainer reads flat.
+- **A staleness verb.** A `tugtool` verb that reads a kept explainer's recorded commit [B17] and reports which of its locations have changed since. Deferred: a `where` whose file was moved or deleted already shows as unresolved when the figure renders [B08].
+- **An explainers-directory setting, and the skill committing an explainer.** Ruled out for now by [B16].
+- **Wrapping names, or more than two lines of anything.** Ruled out by [B15]; a figure that needs it is two figures.
 - **Inline key numbers.** The first rev offered them; the second removed them [B05].
 - **A state-machine form and an annotated tree form.** Named in the sketch as the obvious next two. They wait until the first four are in use.
 - **A project tour.** `/explain` with no subject, proposing the five to eight flows worth knowing in a project, was sketched and is a later piece of work than the forms and the single-subject skill.
@@ -120,9 +132,9 @@ The user then looked at the second rev on the deck and settled the open look que
 
 1. The two colour roles [B06] in `tuggraphics`, the deck's chart stylesheet, the theme files and the standalone palette, with the contrast audit extended to them and `caution` made legible on the light themes. This is small, serves charts at once, and lets the spike's `series-7`/`series-8` stand-ins be pointed at the real roles.
 2. Ink bounds in the measure contract [B10], answered by all three measurers.
-3. The `diagram` module: the spec, validation with errors addressed by JSON pointer, and the `flow` form with goldens taken from the spike's benchmark and edit-gate subjects.
+3. The `diagram` module: the spec, validation with errors addressed by JSON pointer, wrapping [B15], and the `flow` form with goldens taken from the spike's benchmark and edit-gate subjects.
 4. The `tugdiagram` fence, the body kind's keyed table [B07], and unresolved-location marking [B08].
 5. `sequence`, `layers` and `stack`, each with a golden from its spike subject, and the refusal bars [B09].
-6. The `/explain` skill and the prompt doc [B11].
+6. The `/explain` skill, keeping an explainer on request with its commit line [B16] [B17], and the prompt doc [B11].
 
 The spike is read beside every form step and is not deleted [B12]. The look is settled: plain boxes, rounded elbows, accent on discs only [B04] [B13] [B14].
