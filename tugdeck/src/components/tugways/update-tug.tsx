@@ -195,6 +195,7 @@ import { TugLink } from "./tug-link";
 import { TugMarkdownBlock } from "./tug-markdown-block";
 import { TugPushButton } from "./tug-push-button";
 import { TugStepRow } from "./tug-step-row";
+import { DialogCancelResponder } from "./internal/dialog-cancel-responder";
 import {
   deriveUpdateRows,
   isOfferedStage,
@@ -557,6 +558,14 @@ export function UpdateTug(): ReactElement {
     setUpdateTugOpen(false);
   }, [skipNextExit]);
 
+  // Escape and ⌘. — `cancelDialog`, answered by the panel's
+  // `DialogCancelResponder` (#173): the same act as the bottom button, on
+  // every stage. Gated on the open flag, so a press during the exit fade does
+  // not post a terminal stage's `dismiss` a second time.
+  const handleCancel = useCallback(() => {
+    if (openNow.current) close();
+  }, [close]);
+
   const act = useCallback((action: UpdateAction) => {
     // Retry re-arms the horizon as well as posting: a host that does not move on
     // the action would otherwise hand back the failed row immediately, and the
@@ -637,11 +646,14 @@ export function UpdateTug(): ReactElement {
           onEscapeKeyDown={(e) => {
             // Escape is the same act as the bottom button, on every stage — so
             // there is no way out that leaves Sparkle waiting on a reply the
-            // user believes they sent.
+            // user believes they sent. The keyboard's Escape arrives as
+            // `cancelDialog`, through the responder below; this is the path for
+            // one the chain did not take.
             e.preventDefault();
-            close();
+            handleCancel();
           }}
         >
+          <DialogCancelResponder onCancel={handleCancel}>
           {/* In-jail key sink ([P13]): AlertDialog.Content's FocusScope is
               always trapped, so the engine's park must land inside it or every
               park while the wizard is up is answered by a Radix refocus. */}
@@ -740,6 +752,7 @@ export function UpdateTug(): ReactElement {
               {exit.label}
             </TugPushButton>
           </div>
+          </DialogCancelResponder>
         </AlertDialog.Content>
       </AlertDialog.Portal>
     </AlertDialog.Root>

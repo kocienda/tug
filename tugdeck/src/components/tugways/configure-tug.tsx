@@ -159,6 +159,7 @@ import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser, useFileChooserHost } from "./tug-file-chooser";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
 import { TugProgressIndicator } from "./tug-progress-indicator";
+import { DialogCancelResponder } from "./internal/dialog-cancel-responder";
 import {
   ClaudeDownloadBar,
   ClaudeDownloadDetail,
@@ -570,6 +571,15 @@ export function ConfigureTug(): ReactElement {
   const [showingOnDemand, setShowingOnDemand] = useState(false);
   if (open && showingOnDemand !== onDemand) setShowingOnDemand(onDemand);
   const dismissible = showingOnDemand && !required;
+
+  // Escape and ⌘. — `cancelDialog`, answered by the panel's
+  // `DialogCancelResponder` (#173). A wizard the user opened themselves
+  // closes, the same act as Done; required setup has no exit, so the press is
+  // taken and nothing happens. Gated on `open` too, so a press during the exit
+  // fade does nothing more.
+  const handleCancel = (): void => {
+    if (open && dismissible) closeConfigureTugOnDemand();
+  };
 
   const handleInstall = (): void => {
     authStore.setInstalling(true);
@@ -1110,12 +1120,13 @@ export function ConfigureTug(): ReactElement {
           data-slot="configure-tug"
           aria-describedby={undefined}
           onEscapeKeyDown={(e) => {
-            // Required setup has no exit. A wizard the user opened themselves
-            // does — Escape is the same act as Done.
+            // The keyboard's Escape arrives as `cancelDialog`, through the
+            // responder below; this is the path for one the chain did not take.
             e.preventDefault();
-            if (dismissible) closeConfigureTugOnDemand();
+            handleCancel();
           }}
         >
+          <DialogCancelResponder onCancel={handleCancel}>
           {/* In-jail key sink ([P13]): AlertDialog.Content's FocusScope is
               always trapped — it yanks focus back from anywhere outside the
               jail. The engine's park must land INSIDE it (the engine parks
@@ -1172,6 +1183,7 @@ export function ConfigureTug(): ReactElement {
               </TugPushButton>
             </div>
           )}
+          </DialogCancelResponder>
         </AlertDialog.Content>
       </AlertDialog.Portal>
     </AlertDialog.Root>

@@ -126,6 +126,12 @@ body {
   pointer-events: none !important;
 }
 
+/* `DialogCancelResponder`'s wrapper: an element for the chain to find, and
+   nothing for layout — the panel lays out its children as if it were absent. */
+.tug-dialog-cancel-responder {
+  display: contents;
+}
+
 /* ---- Content panel ---- */
 
 .tug-alert-content {
