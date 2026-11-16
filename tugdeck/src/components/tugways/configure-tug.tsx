@@ -159,7 +159,7 @@ import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser, useFileChooserHost } from "./tug-file-chooser";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
 import { TugProgressIndicator } from "./tug-progress-indicator";
-import { DialogCancelResponder } from "./internal/dialog-cancel-responder";
+import { DialogCancelResponder } from "./dialog-cancel-responder";
 import {
   ClaudeDownloadBar,
   ClaudeDownloadDetail,

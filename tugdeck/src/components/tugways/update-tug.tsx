@@ -195,7 +195,7 @@ import { TugLink } from "./tug-link";
 import { TugMarkdownBlock } from "./tug-markdown-block";
 import { TugPushButton } from "./tug-push-button";
 import { TugStepRow } from "./tug-step-row";
-import { DialogCancelResponder } from "./internal/dialog-cancel-responder";
+import { DialogCancelResponder } from "./dialog-cancel-responder";
 import {
   deriveUpdateRows,
   isOfferedStage,

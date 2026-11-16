@@ -22,10 +22,10 @@
 
 import { type ReactNode, useId, useLayoutEffect, useRef } from "react";
 
-import { TUG_ACTIONS } from "../action-vocabulary";
-import { useResponderChain } from "../responder-chain-provider";
-import { useOptionalResponder } from "../use-responder";
-import "../tug-alert.css";
+import { TUG_ACTIONS } from "./action-vocabulary";
+import { useResponderChain } from "./responder-chain-provider";
+import { useOptionalResponder } from "./use-responder";
+import "./tug-alert.css";
 
 export interface DialogCancelResponderProps {
   /** The panel's Escape / ⌘. — the same act as its own way out. */
