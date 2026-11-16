@@ -20,6 +20,8 @@ The user's framing of the work: "a project explainer. For this, I think we'll ne
 
 A design spike was then built and revised once. After the second rev the user said: "These are *amazing*. Brief this. Preserve the spike for now. We might want to refer back to it as we implement and try this for real."
 
+The user then looked at the second rev on the deck and settled the open look questions: "rounded. plain. outside.", "discs look great", and "caution needs to be more legible on light themes; fine on dark".
+
 ---
 
 ## Evidence {#evidence}
@@ -32,11 +34,11 @@ A design spike was then built and revised once. After the second rev the user sa
 
 **[F04] The four type roles are one short.** `TypeRole` in `tugdeck/crates/tuggraphics/src/measure.rs` is `title`, `label`, `value`, `mono`. A row name inside a box wants a semibold at label size; the only semibold is `title`, one size up. The spike sets row names in plain `label`. **(verified, read)**
 
-**[F05] The measure contract carries the font box only, which cannot centre a digit in a disc.** `Metrics` is advance width plus font-box ascent and descent. A number centred by the font box sits low in a key disc. The spike reads the glyph's actual bounds from the page canvas (`actualBoundingBoxAscent` and its siblings) and places the number by those. This placement was not confirmed visually: the headless check used an approximate measurer, and nobody has yet reported how it looks on the deck. **(the gap is verified by reading the code; the fix is unconfirmed)**
+**[F05] The measure contract carries the font box only, which cannot centre a digit in a disc.** `Metrics` is advance width plus font-box ascent and descent. A number centred by the font box sits low in a key disc. The spike reads the glyph's actual bounds from the page canvas (`actualBoundingBoxAscent` and its siblings) and places the number by those. The user judged the result on the deck: "discs look great". **(verified; the user judged it)**
 
 **[F06] There is no text wrapping.** Every label in every form is one line, so long names make wide figures. The edit-gate flow comes out about 1,190 px wide. **(verified)**
 
-**[F07] Two more semantic colours can be had without new theme ink.** `ColourRole` today is `ink`, `ink-muted`, `grid`, `surface`, `accent`, `good`, `bad` and `series-1` to `series-8`. Every theme file already carries tone tokens the chart roles do not use: `--tug7-element-tone-fill-normal-caution-rest` and `--tug7-element-tone-fill-normal-data-rest` among them (also `agent` and `active`). The spike writes the two proposed roles as `series-7` and `series-8` and repaints those two classes from the caution and data tones inside its own figures. Whether those tones pass the chart contrast budget on the content surface in all ten themes was not checked. **(the tokens are verified in `ironclad.css` and `sloop.css`; the contrast is not)**
+**[F07] Two more semantic colours can be had without new theme ink.** `ColourRole` today is `ink`, `ink-muted`, `grid`, `surface`, `accent`, `good`, `bad` and `series-1` to `series-8`. Every theme file already carries tone tokens the chart roles do not use: `--tug7-element-tone-fill-normal-caution-rest` and `--tug7-element-tone-fill-normal-data-rest` among them (also `agent` and `active`). The spike writes the two proposed roles as `series-7` and `series-8` and repaints those two classes from the caution and data tones inside its own figures. On the deck the user found the caution tone "fine on dark" and not legible enough on light themes: in a screenshot of the edit-gate flow on a light theme, the caution edge and its label read as pale yellow on a near-white surface, visibly weaker than the green and red beside them. The data tone drew no complaint. Neither tone has been run through the contrast audit. **(the tokens are verified in `ironclad.css` and `sloop.css`; the legibility is the user's judgment on the deck; the audit has not been run)**
 
 **[F08] The delivery path exists.** The `tugchart` fence transformer, the `ChartBlock` body kind, `renderChartInto`, the measure protocol, the table alternative, Find text, hover hit regions and entrance animation are all in place for charts. Hit regions name a table row, which is what a keyed diagram mark needs. **(verified, read)**
 
@@ -63,11 +65,15 @@ A design spike was then built and revised once. After the second rev the user sa
 
 `layers` and `stack` overlap. Both are kept for now because `layers` says what crosses each boundary and `stack` says what is outside and what cuts across.
 
-**[B04] The accent is spent on key discs and nowhere else.** The user's note on the first rev: "There's too much accent color. We need to limit to just the discs." Boxes that hold things are neutral, and names are ordinary ink.
+**[B04] The accent is spent on key discs and nowhere else.** The user's note on the first rev: "There's too much accent color. We need to limit to just the discs." Names are ordinary ink.
+
+**[B13] Boxes are plain.** A box that holds things is the surface colour with a muted outline, the same as a box that holds nothing; there is no tint. This is the spike's Fill control at "Plain". The spike's default is "Tinted", so read it with the control switched.
+
+**[B14] Elbows are rounded.** An edge that turns does so on a small radius; a forward edge is never a single curve and never a square elbow. This is the spike's Routing control at "Rounded", which is its default.
 
 **[B05] A key is a disc, level with the top of what it numbers, with its number centred by its ink.** In a row or cell the disc sits on the first text line, not the row's middle. In a sequence it sits on the label's line, not the arrow's. In a centred stack cell it sits in the box's top-left corner. There is no inline-number variant.
 
-**[B06] Two semantic roles are added: `caution` and `outside`.** `caution` is the outcome between good and bad: allowed but degraded, a fallback, a retry; in a chart, a run past its budget or a stalled item. `outside` is a place and never an outcome: what lies beyond the system the figure explains; in a chart, a context series from elsewhere. They are painted from the themes' existing caution and data tones [F07], and they are roles of the whole graphics language, so charts get them too. `good` and `bad` stay reserved for outcomes.
+**[B06] Two semantic roles are added: `caution` and `outside`.** `caution` is the outcome between good and bad: allowed but degraded, a fallback, a retry; in a chart, a run past its budget or a stalled item. `outside` is a place and never an outcome: what lies beyond the system the figure explains; in a chart, a context series from elsewhere. They are roles of the whole graphics language, so charts get them too. `good` and `bad` stay reserved for outcomes. The user chose `outside` over the alternative `agent`, which would have meant "what the model does". `outside` is painted from the themes' existing data tone. `caution` starts from the caution tone on dark themes, and on light themes it must be darker than that tone is today [F07]: it has to read as clearly as `good` and `bad` do as a 1.5 px stroke and as small label text on the content surface. So `caution` gets its own chart token in the theme files, equal to the tone where that passes and tuned where it does not, and ironclad stays the exemplar and is not edited to make a light theme pass.
 
 **[B07] The keyed table is part of the figure and is shown by default.** Each keyed mark has a row: number, name, what it does, where it is. It is the diagram's table alternative, and unlike a chart's it is on screen with the figure, not behind a toggle. The "where it is" cell is a live file reference through the existing resolver.
 
@@ -85,11 +91,8 @@ A design spike was then built and revised once. After the second rev the user sa
 
 ## Open Questions {#open-questions}
 
-- **Rounded elbows or curves for forward edges?** The spike offers elbow, rounded and curve. Rounded is its default and what the user saw first, but the user has not picked one. The spike's Routing control settles it.
-- **Tinted or plain for boxes that hold things?** The neutral tint is the default the user praised; plain is still on the control. Same door.
-- **Is `outside` the right second colour, or `agent`?** `agent` (the violet tone) would mean "what the model does, versus what you or the code does". `outside` was chosen because every architecture diagram has externals. The user accepted the rev without choosing between them explicitly.
-- **Do the caution and data tones pass the chart contrast budget in all ten themes?** Not checked [F07]. `bun run audit:theme-contrast` extended to the two roles settles it; a failing theme means tuning that theme's tone or giving the role its own token.
-- **Does one more type role land, and what is it called?** [F04]. A semibold at label size would let a row name carry weight without colour. Whether the figures need it now that keyed names are plain ink is a look question for the spike.
+- **What does the contrast audit say about `outside` and the retuned `caution`?** `bun run audit:theme-contrast` extended to the two roles settles it for all ten themes. `caution` on the five light themes is already known to need work [F07]; the audit says how much, and whether `outside` needs any.
+- **Does one more type role land, and what is it called?** [F04]. A semibold at label size would let a row name carry weight without colour. The user accepted the figures with row names in plain `label`, so nothing requires it; it is open only as an improvement.
 - **How does text wrap?** [F06]. Wrapping by measured words means more rounds of the measure protocol than the current limit of three calls, or a different shape of request. This changes what gets written in the compiler.
 - **Where does a kept explainer live, and does the Text card render it?** The sketch proposed a Markdown file in a project `explainers/` directory, viewed in the Text card's preview. [F11] is unverified, and the directory was never confirmed by the user.
 - **Does a kept explainer record the commit it was drawn at?** The sketch proposed it, with a `tugtool` verb that says which `where` paths have changed since. It was not discussed further.
@@ -102,6 +105,8 @@ A design spike was then built and revised once. After the second rev the user sa
 - **Diagram forms inside `tugchart`.** Rejected by [B01]; the two specs share a crate and a body kind, not a schema.
 - **A `tugdraw` fence for the model.** Still deferred, as in the graphics language brief. A diagram is a form, never freehand layer 0.
 - **Accent on boxes, borders or names.** Ruled out by [B04].
+- **Tinted boxes, square elbows, and curved forward edges.** The spike offers all three on its controls; the user chose plain and rounded [B13] [B14].
+- **An `agent` colour role.** Considered for the second new role and passed over for `outside` [B06].
 - **Inline key numbers.** The first rev offered them; the second removed them [B05].
 - **A state-machine form and an annotated tree form.** Named in the sketch as the obvious next two. They wait until the first four are in use.
 - **A project tour.** `/explain` with no subject, proposing the five to eight flows worth knowing in a project, was sketched and is a later piece of work than the forms and the single-subject skill.
@@ -113,11 +118,11 @@ A design spike was then built and revised once. After the second rev the user sa
 
 **An arc.** Its first steps, in the order they must land:
 
-1. The two colour roles [B06] in `tuggraphics`, the deck's chart stylesheet and the standalone palette, with the contrast audit extended to them. This is small, serves charts at once, and removes the spike's `series-7`/`series-8` stand-ins.
+1. The two colour roles [B06] in `tuggraphics`, the deck's chart stylesheet, the theme files and the standalone palette, with the contrast audit extended to them and `caution` made legible on the light themes. This is small, serves charts at once, and lets the spike's `series-7`/`series-8` stand-ins be pointed at the real roles.
 2. Ink bounds in the measure contract [B10], answered by all three measurers.
 3. The `diagram` module: the spec, validation with errors addressed by JSON pointer, and the `flow` form with goldens taken from the spike's benchmark and edit-gate subjects.
 4. The `tugdiagram` fence, the body kind's keyed table [B07], and unresolved-location marking [B08].
 5. `sequence`, `layers` and `stack`, each with a golden from its spike subject, and the refusal bars [B09].
 6. The `/explain` skill and the prompt doc [B11].
 
-The spike is read beside every form step and is not touched [B12]. The open look questions (routing, tint, the second colour) are answered in the spike before step 3 fixes them in Rust.
+The spike is read beside every form step and is not deleted [B12]. The look is settled: plain boxes, rounded elbows, accent on discs only [B04] [B13] [B14].
