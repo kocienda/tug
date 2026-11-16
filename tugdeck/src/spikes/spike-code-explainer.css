@@ -1,0 +1,121 @@
+/* ============================================================================
+   Code Explainer spike — a figure, its caption, and its keyed table
+   ========================================================================= */
+
+/**
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role          | Context                         |
+ * |------------------------------------------------|---------------------------------------------------|---------------|---------------------------------|
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | content       | .sp-ce-title, .sp-ce-lead, .sp-ce-table td |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest | informational | .sp-ce-caption, .sp-ce-readout, .sp-ce-table th |
+ * | --tug7-element-global-fill-normal-accent-rest  | --tug7-surface-global-primary-normal-default-rest | informational | .sp-ce-title-n, .sp-ce-key      |
+ */
+
+.sp-ce-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--tug-space-lg);
+}
+
+.sp-ce-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
+.sp-ce-explainer {
+  gap: var(--tug-space-sm);
+  font-family: var(--tug-font-family-sans);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-title {
+  margin: 0;
+  padding-bottom: var(--tug-space-xs);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  font-size: var(--tug-font-size-md);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-title-n {
+  margin-right: var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-global-fill-normal-accent-rest);
+}
+
+/* The figure sits on the chart's own surface role, so a row's `surface` fill
+   reads as paper against a tinted box. */
+.sp-ce-figure {
+  margin: 0;
+  background: var(--tugx-chart-surface);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-readout {
+  margin-top: var(--tug-space-2xs);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-caption {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-lead {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ce-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--tug-font-size-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-table th {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  text-align: left;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-table td {
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  vertical-align: top;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ce-table td.sp-ce-key {
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-fill-normal-accent-rest);
+}
+
+.sp-ce-table td.sp-ce-name {
+  font-weight: var(--tug-font-weight-semibold);
+  white-space: nowrap;
+}
+
+.sp-ce-where {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  overflow-wrap: anywhere;
+}
