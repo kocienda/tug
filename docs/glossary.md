@@ -18,6 +18,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Awaiting.** The session state in which the model has asked you something, a question or a permission, and is waiting on your answer. The *pulsing dot* turns yellow.
 
+**Back and Forward.** The pair in the Go menu that retraces the cards you had focused, in the order you focused them, as a browser retraces pages. A step can cross into another workspace, a closed card is skipped, and the trail starts empty at each launch. Control-Option-Command-Left Bracket goes back and Control-Option-Command-Right Bracket forward.
+
 **Band.** One of the lettered regions of a *split* slot. Bands are stacked top to bottom, A at the top, with a seam to drag between them.
 
 **Base.** The branch an *arc* departed from and will *join* back onto, usually `main`. "The base moved" means new commits landed there while the arc was out.
@@ -32,7 +34,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Canvas.** The single macOS window's working area, on which Tug lays out a *deck* of *cards*. Also the name of the thing the *Layout* card controls.
 
-**Card.** The unit of the *deck*. There are cards for AI sessions, text files, diffs, images, PDFs, commits, settings, keyboard shortcuts and about, the two *help* documents, and *sidebar cards* for Overview, Arcs, Jots, Workspaces and Layout. Every card has a *masthead* and lives in a *slot* at a width you set.
+**Card.** The unit of the *deck*. There are cards for AI sessions, text files, diffs, images, PDFs, commits, settings, keyboard shortcuts and about, the *help* documents, and *sidebar cards* for Overview, Arcs, Jots, Workspaces and Layout. Every card has a *masthead* and lives in a *slot* at a width you set.
 
 **Carry.** An option when creating an arc: move the uncommitted work already on the *base* into the new *worktree* and leave the base clean. For the case where you were halfway through a change before deciding it should be an arc.
 
@@ -122,11 +124,17 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Mark.** A declaration a stage writes into the *arc log* that git cannot see: `built` after a build, `audited` when the audit has run. The audit's mark is its whole product; an arc whose audit ends without one is stopped with `audit did not mark`.
 
+**Markdown preview.** The rendered, read-only view a *Text card* lays over its editor when the file is Markdown. It shows what is in the editor, unsaved edits included, and the editor keeps its place underneath. The Preview toggle in the card's status bar, Option-Command-P or View > Show Markdown Preview turns it on and off.
+
 **Masthead.** The strip across the top of every card that names it and carries its controls. A session card's masthead carries the *pulsing dot*, the session's name, its *address* badges, a live activity *sparkline*, and two lines of narration from the *Observer*: what the session is working on and what it is doing right now.
+
+**Mention.** A file, a session or a commit put into a prompt by typing `@` and picking it from the list. `@@` narrows the list to sessions and `@#` to commits. The pick lands as an *atom*, and a session's becomes a *session reference*.
 
 **Observer.** The narrator behind the *Overview*. It digests what each session is doing into sentences as it goes and writes the two narration lines in each masthead. It only narrates; questions go to the *Operator*.
 
-**Operator.** The voice in the *Overview* that answers questions. Ask it, in the Overview *composer*, how Tug works or what happened in your projects, recent or historical. It looks the answer up rather than recalling it: the sessions, prompts, shell commands, changes and commits Tug has recorded, the project's tree, and the two *help* documents. Each answer links to what it rests on, a session, a file, a commit, a document or a passage of help.
+**Offer.** A command the model wants you to run yourself, drawn in the transcript in a frame with Play and Copy. Play runs it in the card's shell and shows its output under the command. The result is yours: the model sees it only if you press Add to context under the output. A command that needs a password has no Play and is run in a terminal instead.
+
+**Operator.** The voice in the *Overview* that answers questions. Ask it, in the Overview *composer*, how Tug works or what happened in your projects, recent or historical. It looks the answer up rather than recalling it: the sessions, prompts, shell commands, changes and commits Tug has recorded, the project's tree, and the *help* documents. Each answer links to what it rests on, a session, a file, a commit, a document or a passage of help.
 
 **Orphaned.** Changes that belonged to a session that has since closed. Nothing is lost: the files stay in the tree and any session can *claim* them.
 
@@ -162,7 +170,9 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Session card.** The card that holds one *session* as one scrolling document: the *masthead*, the transcript, the *status row* and the *composer*. Many can run at once, on one project or several.
 
-**Session reference.** A way to hand one session to another: the marker `@session:<project>/<callsign>`, placed by dropping a session *atom* into a prompt. The receiving session can read the referenced transcript with `tugtool session show`, and only read it.
+**Session notifications.** How Tug calls you back when it is not the frontmost app: a bounce of the Dock icon, and if you turn it on a macOS notification, when a session completes or when it needs your input. Set under Session Notifications on the General tab of *Settings*. Clicking a notification opens that session's card.
+
+**Session reference.** A way to hand one session to another: the marker `@session:<project>/<callsign>`, placed by dropping a session *atom* into a prompt or picking the session as a *mention*. The receiving session can read the referenced transcript with `tugtool session show`, and only read it.
 
 **Settings.** The card for app-wide preferences (Command-Comma). Card Settings, from a card's menu, hold the per-kind preferences for text, image and PDF cards.
 
@@ -198,7 +208,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Task list.** The step list a *plain arc* carries instead of a *plan*, written by the *door* beside the brief. Shorter, with no decisions and no checkpoints, and walked the same way.
 
-**Text card.** A CodeMirror editor over a file, with autosave or manual save, a find bar and conflict handling.
+**Text card.** A CodeMirror editor over a file, with autosave or manual save, a find bar and conflict handling, and a *Markdown preview* for a Markdown file.
 
 **Theme.** One of ten colorings, five dark (Ironclad, Caravel, Barque, Galleon, Collier) and five light (Sloop, Ketch, Skiff, Kayak, Pinnace), each a single tint hue laid over a shared tone skeleton. A *workspace* wears its own theme. Shift-Command-T steps to the next.
 

@@ -157,6 +157,18 @@ Type `/btw <question>`. It works while the model is busy and disturbs nothing: t
 
 Type `/shell <command>`. The command runs in the card's own shell and its output lands in the transcript as a block. One runs at a time: a second is refused with "A shell command is already running". There is no shell mode in the composer, and no menu item or chord for it.
 
+### Run a command the model offers
+<!-- source: tugdeck/src/lib/markdown/enhance-run-offer.ts; tugdeck/src/lib/run-offer-store.ts; tugdeck/src/lib/run-offer-terminal.ts; tugplug/run-offers.md -->
+
+Press **Play** on the command's frame in the transcript. The command runs in the card's shell, the same one `/shell` uses, so it starts in the directory the last command left. Its output streams in under the command, and the footer shows the exit status, how long it took and where it ran. **Copy** copies the command instead, and **Stop** stops one that is running.
+
+Play is dim until the model has finished its turn, and while any other command is running. A command still running after two minutes is stopped, so start a server or a watcher in a terminal. A command that needs a password, such as one starting with `sudo` or `ssh`, has no Play and says it needs a terminal. An ordinary shell example in a reply has a small Play in its header too. There is no chord for it.
+
+### Show the model what a command printed
+<!-- source: tugdeck/src/lib/markdown/enhance-run-offer.ts (Add to context); tugdeck/src/lib/run-offer-binding.ts -->
+
+After running a command the model offered, click **Add to context** in the footer under its output. The result is attached to your next prompt, and the button reads as staged until you send. Without that press the model never learns the command ran or what it printed: the result is yours.
+
 ### See every slash command
 <!-- source: tugdeck/src/components/tugways/command-registry.ts (OPEN_COMMAND_PICKER Command-Slash); tugdeck/src/components/tugways/tug-prompt-entry.tsx (openCommandPicker); tugapp/Sources/MenuBarBuilder.swift (session.commandPicker); tugdeck/src/components/tugways/cards/help-sheet.tsx; tugdeck/src/lib/slash-commands.ts -->
 
@@ -165,12 +177,17 @@ Press Command-Slash, choose Session > Open Command Picker, or type `/` in an emp
 ### Put a file in my prompt
 <!-- source: tugdeck/src/components/tugways/cards/use-session-card-services.ts ("@" provider); tugdeck/src/components/tugways/command-registry.ts (INSERT_FILE Shift-Command-I); tugapp/Sources/MenuBarBuilder.swift (session.insertFile); tugdeck/src/components/tugways/use-composer-drop.ts -->
 
-Type `@` and start the file's name, then pick it from the list. Press Shift-Command-I or choose Session > Insert File to choose one from a panel. Or drag a file into the composer. Each way puts a file atom in the prompt, a small mark the model reads as the path. `@` completes files only; it does not complete sessions, commits or arcs.
+Type `@` and start the file's name, then pick it from the list. Press Shift-Command-I or choose Session > Insert File to choose one from a panel. Or drag a file into the composer. Each way puts a file atom in the prompt, a small mark the model reads as the path. `@` offers sessions and commits beside files; it does not complete arcs.
+
+### Mention a session or a commit in my prompt
+<!-- source: tugdeck/src/lib/mention-kinds.ts (MENTION_SIGIL_HINT); tugdeck/src/components/tugways/cards/completion-providers/mention-merge.ts -->
+
+Type `@` and part of its name, and pick it from the list, which offers files, sessions and commits together. Type `@@` to see sessions only, or `@#` for commits only. The pick lands as an atom, the same mark the session or commit wears everywhere else, and the model reads it as a reference. The Overview's composer completes the same way. There is no menu item or chord for it.
 
 ### Refer to another session
 <!-- source: tugdeck/src/components/tugways/session-identity-menu.tsx (Copy as Atom); tugdeck/src/lib/session-ref-block.ts; tugdeck/src/lib/atom-mention-marker.ts -->
 
-Right-click the session's atom, in its masthead or wherever else it shows, choose **Copy as Atom**, and paste into the composer. The paste is a session atom, and the model is told how to read that session's transcript for itself, whichever project it ran in. If the session is not on this machine, the model is told that rather than left to guess. The other session is only read: nothing is resumed and nothing reaches whoever is working in it.
+Type `@@` in the composer and pick the session, or right-click the session's atom, in its masthead or wherever else it shows, choose **Copy as Atom**, and paste into the composer. Either way the prompt holds a session atom, and the model is told how to read that session's transcript for itself, whichever project it ran in. If the session is not on this machine, the model is told that rather than left to guess. The other session is only read: nothing is resumed and nothing reaches whoever is working in it.
 
 ### Dictate a prompt
 <!-- source: tugdeck/src/components/tugways/command-registry.ts (TOGGLE_DICTATION Command-D, STOP_DICTATION_AND_SEND Shift-Command-D); tugapp/Sources/MenuBarBuilder.swift (session.dictate, session.dictateAndSend); tugdeck/src/components/tugways/tug-dictation-button.tsx -->
@@ -362,6 +379,13 @@ Press Command-O or choose File > Open File for a panel, or press Shift-Command-O
 
 Press Command-S or choose File > Save. File > Save As, Save a Copy, Revert to Saved and Reload from Disk are beside it in the File menu.
 
+### Preview a Markdown file
+<!-- source: tugdeck/src/components/tugways/cards/text-card.tsx (the Preview toggle); tugdeck/src/components/tugways/command-registry.ts (toggle-markdown-preview Option-Command-P) -->
+
+With the file open in a Text card, click **Preview** in the card's status bar, press Option-Command-P, or choose View > Show Markdown Preview. The rendered document covers the editor, including edits you have not saved. The same gesture brings the editor back with its caret, selection and undo history as they were. Command-F searches the rendered text, a link to a file beside the document opens it, and Command-S still saves.
+
+The preview is read-only. The toggle shows only when the card's file type is Markdown, so a file with another extension gets it once you set its type to Markdown in the status bar, and Option-Command-P does nothing over any other card.
+
 ### See a commit in its own card
 <!-- source: tugdeck/src/components/tugways/command-registry.ts (OPEN_COMMIT, its doors) -->
 
@@ -397,6 +421,13 @@ Press Command-1 through Command-6, click the slot badge in the card's masthead a
 
 Press Control-Command-1 through Control-Command-6 to go to a slot, or Shift-Command-Left Bracket and Shift-Command-Right Bracket to step across the deck. Option-Command-Left Bracket and Option-Command-Right Bracket step through a stack, and Command-R shows what is in it. Option-Command with an arrow key goes to the card to the left, above, right or below. All of these are in the Go menu. To jump to a session you can name, use its row in the Workspaces sidebar.
 
+### Go back to the card I was just in
+<!-- source: tugdeck/src/lib/focus-trail.ts; tugapp/Sources/MenuBarBuilder.swift (go.back, go.forward); tugdeck/src/components/tugways/command-registry.ts -->
+
+Press Control-Option-Command-Left Bracket, or choose Go > Back. Each press steps one card further back through the cards you had focused, in the order you focused them, and Control-Option-Command-Right Bracket, or Go > Forward, retraces the steps. A sidebar card counts as a stop, a card in another workspace takes you to that workspace, and a card you have closed is skipped.
+
+It works as a browser's Back does: focus a different card after going back and the forward steps are gone. At either end of the trail the focused card's border flashes and nothing moves. The trail is not kept across a relaunch.
+
 ### Show two cards in one slot at once
 <!-- source: tugdeck/src/components/tugways/command-registry.ts (TOGGLE_SLOT_SPLIT Control-Command-Slash, Move Card in Slot, Equalize Heights); tugapp/Sources/MenuStateSync.swift (view.slotSplit) -->
 
@@ -430,7 +461,7 @@ Press Command-J, or choose File > New Jot, and write it. It lands in the Jots si
 ### Keep separate decks for separate work
 <!-- source: tugapp/Sources/MenuBarBuilder.swift (window.newWorkspace, window.renameWorkspace, window.duplicateWorkspace, window.deleteWorkspace); docs/features.md (Workspaces) -->
 
-Choose Window > New Workspace. Each workspace is a named deck with its own cards and theme, and the Window menu cuts between them and holds Rename, Duplicate and Delete. Control-Command-W shows the Workspaces sidebar, where you can drop a session on another workspace to move it there. There is no chord for making one.
+Choose Window > New Workspace and type its name; Cancel makes nothing. Each workspace is a named deck with its own cards and theme, and the Window menu cuts between them and holds Rename, Duplicate and Delete. Control-Command-W shows the Workspaces sidebar, where you can drop a session on another workspace to move it there. There is no chord for making one.
 
 ### Change the theme
 <!-- source: tugapp/Sources/MenuBarBuilder.swift (dynamic Theme menu); tugdeck/src/components/tugways/command-registry.ts (Next Theme Shift-Command-T, apply-theme-to-all-workspaces); tugdeck/src/action-dispatch.ts (SHIPPED_THEME_NAMES) -->
@@ -442,6 +473,18 @@ Choose View > Theme, or press Shift-Command-T for the next one. The theme belong
 
 Press Command-Comma or choose Tug > Settings. The card has four tabs: General, Sessions, Text Files and Viewer Cards. A Text, image or PDF card also has **Card Settings** in its own menu, for that card alone.
 
+### Be told when a session finishes or needs me
+<!-- source: tugdeck/src/components/tugways/cards/settings-general-body.tsx (Session Notifications); tugdeck/src/lib/session-notify.ts; tugapp/Sources/SessionNotifier.swift -->
+
+Open Settings with Command-Comma and find **Session Notifications** on the General tab. **When a session completes** and **When a session needs your input** each choose **Keep bouncing**, **Bounce once** or **Don't bounce** for the Dock icon, and each has a **Post macOS notification** switch. macOS asks for permission the first time a notification is posted, and clicking one opens that session's card.
+
+Tug starts with one bounce and no notifications. Nothing bounces or posts while Tug is the frontmost app, since the session's dot already tells you there.
+
+### Make tooltips appear sooner or later
+<!-- source: tugdeck/src/components/tugways/cards/settings-general-body.tsx (Tooltip Delay); tugdeck/src/lib/tooltip-delay.ts -->
+
+Open Settings with Command-Comma and set **Tooltip Delay** on the General tab, from 0s to 0.7s, or Never to turn tooltips off.
+
 ### See or change a keyboard shortcut
 <!-- source: tugdeck/src/components/tugways/command-registry.ts (SHOW_KEYBOARD_SHORTCUTS Control-Command-K); tugdeck/src/components/tugways/cards/keyboard-card.tsx; tugdeck/src/components/tugways/cards/settings-keymap-body.tsx -->
 
@@ -451,6 +494,8 @@ Press Control-Command-K, or choose Tug > Keyboard Shortcuts. The card lists ever
 <!-- source: tugapp/Sources/MenuBarBuilder.swift (Check for Updates); tugapp/Sources/UpdateState.swift (menuTitle) -->
 
 Choose Tug > Check for Updates. The item's title follows the update as it goes, reading "Update to Tug <version>…" when one is available and "Install and Relaunch Tug <version>…" when it is ready. A build that cannot replace itself does not show the item.
+
+When the new version needs a newer Claude Code than you have, the update panel shows an **Update Claude Code** step naming both versions, and holds the install until that step is done. Decline and nothing is installed: the Tug you have keeps working. Escape closes the panel.
 
 ### Ask Tug how something works
 <!-- source: tugdeck/src/components/tugways/command-registry.ts (TOGGLE_OVERVIEW Control-Command-O); tugapp/Sources/MenuBarBuilder.swift (Help menu); tugrust/crates/tugcast/src/feeds/overview_agent.rs -->

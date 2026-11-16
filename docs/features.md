@@ -11,7 +11,7 @@ Tug needs a Mac with Apple silicon and macOS 15 Sequoia or later, including macO
 - A paid Claude plan that includes Claude Code (Pro or Max; the free plan does not). First launch installs the `claude` program if needed and logs you in.
 - `git`, for changes and commits. If it is missing, setup offers to install Apple's Command Line Tools (about 3 GB). You can skip this at first and add `git` before your first commit.
 
-Press Command-N, or choose File > New Session, for a session card, and pick a project or an earlier session from the list it opens. Tug > Configure Tug runs setup again, and Tug > Log Out or `/logout` logs you out and returns you to it. Tug > Check for Updates fetches a new version; a build that cannot replace itself does not show the item. Tug is beta software: expect rough edges and frequent changes.
+Press Command-N, or choose File > New Session, for a session card, and pick a project or an earlier session from the list it opens. Tug > Configure Tug runs setup again, and Tug > Log Out or `/logout` logs you out and returns you to it. Tug > Check for Updates fetches a new version; a build that cannot replace itself does not show the item. When a new version needs a newer Claude Code than the one you have, the update says so before it installs anything, naming both versions, and offers to update Claude Code first; decline and the Tug you have stays in place. Escape closes the update panel, and Configure Tug when you opened it yourself. Tug is beta software: expect rough edges and frequent changes.
 
 ## The window: canvas, deck, cards
 
@@ -43,7 +43,7 @@ Every card shows its **address** in its masthead. The first part is the slot num
 
 - **By name.** Press the slot badge in a card's masthead and the whole arrangement opens as a picker, a miniature of the deck with every slot drawn. One click sends the card there. From the keyboard, Command-1 through Command-6 does the same. Option-Shift-Command-Left Bracket and Option-Shift-Command-Right Bracket nudge a card one slot left or right.
 - **By hand.** Drag a card by its masthead. Exactly one drop zone lights at a time, the slot it will land in if you let go, and the zone snaps from slot to slot as the pointer crosses the deck. Escape cancels and the card goes home.
-- **Moving yourself.** Control-Command-1 through Control-Command-6 go to a slot, bringing it into view under Flow. Shift-Command-Left Bracket and Shift-Command-Right Bracket step to the previous or next card across the deck. Option-Command with an arrow key hands the keyboard to the card to the left, above, right or below. The Go menu carries the same moves, with Reveal Stack and a Go to Slot row for each slot.
+- **Moving yourself.** Control-Command-1 through Control-Command-6 go to a slot, bringing it into view under Flow. Shift-Command-Left Bracket and Shift-Command-Right Bracket step to the previous or next card across the deck. Option-Command with an arrow key hands the keyboard to the card to the left, above, right or below. The Go menu carries the same moves, with Reveal Stack and a Go to Slot row for each slot. **Back** and **Forward** (Control-Option-Command-Left Bracket and Control-Option-Command-Right Bracket, first in the Go menu) retrace the cards you had focused, in the order you focused them, as a browser retraces pages: sidebar cards count, a step crosses into another workspace when that is where the card stands, a closed card is skipped, and at either end of the trail the focused card's border flashes. The trail starts empty at each launch.
 
 ### Fold and Bullseye
 
@@ -54,7 +54,7 @@ Two ways to concentrate without rebuilding the deck.
 
 ### Workspaces
 
-A **workspace** is a named deck with its own arrangement and its own theme, one per project or per kind of work. The Window menu cuts between workspaces, and carries New Workspace, Rename Workspace, Duplicate Workspace and Delete Workspace; none has a chord. A parked workspace keeps every card exactly as you left it, so coming back to a project is a cut, not a rebuild. The Workspaces sidebar lists every workspace with the cards on each, and you can drop a session on another workspace to move it there.
+A **workspace** is a named deck with its own arrangement and its own theme, one per project or per kind of work. The Window menu cuts between workspaces, and carries New Workspace, Rename Workspace, Duplicate Workspace and Delete Workspace; none has a chord. New Workspace and Duplicate Workspace ask for the name first, and Cancel there makes nothing. A parked workspace keeps every card exactly as you left it, so coming back to a project is a cut, not a rebuild. The Workspaces sidebar lists every workspace with the cards on each, and you can drop a session on another workspace to move it there.
 
 ### Zoom and themes
 
@@ -75,6 +75,8 @@ The masthead carries, left to right: the session's **pulsing dot**, its name (wh
 Read it top to bottom. Your prompts, the model's replies, and each shell command and file edit as its own block. A tool block opens and closes on its chevron, shows a blue running dot with a ticking clock while it runs, and settles green with its time or red with its exit status. A diff inside a block renders as a diff, inline or side by side. A test run draws its progress as it goes: a count, a bar, a row per unit, the failures as they land. Every commit lands as a **receipt** with its hash, message and files.
 
 When the model needs an answer or a permission, it asks in the transcript, with its options and Cancel and Submit buttons, and you answer there. The status row reads Awaiting and the dot turns yellow until you do.
+
+**Commands you can run.** When the model wants you to run a command yourself, a check after its change, an install step, it offers the command in a frame of its own with a **Play** button and a **Copy** button. Press Play and the command runs in the card's shell, the one `/shell` uses, and its output streams in under the command, inside the same frame, growing to twenty lines and then scrolling within itself. The footer gives the exit status, the time it took and the directory it ran in. Nothing about the run reaches the model unless you press **Add to context** in that footer, which attaches the result to your next prompt. Play is dim until the model's turn has finished and while another command is running, the running one shows **Stop**, and a command still going after two minutes is stopped. A command that asks for a password, such as one beginning with `sudo` or `ssh`, has no Play and says it needs a terminal: copy it and run it there. An ordinary shell example in a reply carries a small Play in its header as well.
 
 Control-Command-Left Bracket and Control-Command-Right Bracket move between turns; Control-Shift-Command-Left Bracket and Control-Shift-Command-Right Bracket jump to the first and last. The Go menu has all four. Select text in the transcript and **Copy** (Command-C) gives plain text, ready to paste into a prompt, a message or an email, with lists keeping their markers and any atoms intact; **Copy as Markdown** (Option-Shift-Command-C, in the Edit menu and the context menu) gives the same selection with its Markdown. The Overview card copies the same way. `/copy` or Edit > Copy Last Response copies the model's latest message, and `/export` or File > Export Session saves the whole transcript as Markdown or JSON Lines. To hand someone else a chosen part of it, see Sharing turns below.
 
@@ -120,7 +122,7 @@ The composer is at the bottom, where any messaging app puts it. Command-K, or Se
 - **Earlier prompts.** Option-Up Arrow and Option-Down Arrow walk your prompts wherever the caret is; Command-Up Arrow does so with the caret at the very start and Command-Down Arrow at the very end.
 - **Markdown styles itself as you type**: headings, bold, code, italics and task lists.
 - **Atoms paste intact.** Drop or paste a file, a commit, a session or an arc from anywhere in Tug and the prompt carries the same mark the rest of the app uses. A session atom becomes a session reference the model can read.
-- **Files.** Type `@` and part of a name to pick a file. **Insert File** (Shift-Command-I, or the Session menu) picks one from a panel, and a dragged file lands the same way. `@` completes files only.
+- **Files and mentions.** Type `@` and part of a name to pick a file, a session or a commit; `@@` narrows the list to sessions and `@#` to commits, and the Overview's composer does the same. **Insert File** (Shift-Command-I, or the Session menu) picks a file from a panel, and a dragged file lands the same way.
 - **Jots.** Drag a saved fragment from the Jots sidebar into the composer.
 - **Dictation.** Command-D or the microphone starts dictation into the composer, and Command-D again stops it; Shift-Command-D stops it and sends. Session > Start Dictation and Stop Dictation and Send are the same two acts. A microphone that cannot start says why on its hover.
 - **Stop.** The send button becomes a red Stop while a turn runs. It, Command-Period and Escape each take back the newest queued prompt first and stop the turn once the queue is empty, and an open sheet takes the Escape before any of that. Session > Stop stops the turn. A taken-back prompt returns to the composer if the composer is empty.
@@ -147,16 +149,20 @@ The **AI Model Settings** chip, Control-Command-I, `/ai` or Session > AI Setting
 
 Every session's masthead says what the session is doing. The narrator, the **Observer**, writes those lines and posts a digest of each session's progress to the Overview sidebar. It only narrates. Questions go to the **Operator**, in the Overview's composer: ask it how Tug works or what any session did, today or last week. It answers from what Tug has recorded and from this guide, the recipes and the glossary, and links each answer to what it rests on.
 
+### Notifications
+
+When Tug is not the frontmost app, it can call you back. Settings > General > **Session Notifications** has two rows, **When a session completes** and **When a session needs your input**, the second for a question or a permission request. Each chooses how the Dock icon behaves, **Keep bouncing**, **Bounce once** or **Don't bounce**, and has a **Post macOS notification** switch of its own. Out of the box the Dock icon bounces once and no notification is posted, so macOS does not ask for its permission until you turn one on. Clicking a notification brings Tug forward and opens that session's card, even in a workspace that is not showing. Nothing bounces or posts while Tug is in front.
+
 ## Other cards
 
 What a session works with opens beside it, on the same deck, rather than in another app. A file, a diff, a screenshot or a PDF the model mentions opens as a card in a slot next to the session. File > New Text File (Option-Command-N), Open File (Command-O), Open Quickly (Shift-Command-O) and Open Recent open files by hand, `/diff` or Session > Show Project Diff opens the project diff, and a commit atom opens its commit on a click. Command-T makes a new card in the active pane. Command-W or File > Close closes a card; Option-Command-W or File > Close All Tabs closes every card in its stack.
 
-- **Text card.** A CodeMirror editor with line numbers, a find bar (Command-F), and a status bar. Save with Command-S, or turn on autosave in Card Settings. Save As (Shift-Command-S), Save a Copy, Revert to Saved and Reload from Disk are in the File menu. Settings > Text Files holds the defaults. If the file changes on disk while you have unsaved edits, the card says so and lets you choose.
+- **Text card.** A CodeMirror editor with line numbers, a find bar (Command-F), and a status bar. Save with Command-S, or turn on autosave in Card Settings. Save As (Shift-Command-S), Save a Copy, Revert to Saved and Reload from Disk are in the File menu. Settings > Text Files holds the defaults. If the file changes on disk while you have unsaved edits, the card says so and lets you choose. A Markdown file has a **Preview** toggle in the status bar, also Option-Command-P and View > Show Markdown Preview, which lays the rendered document over the editor, read-only. It renders what is in the editor, unsaved edits included; Find searches the rendered text; a link to a file beside the document opens it; and the editor underneath keeps its undo history, selection and scroll for when you toggle back.
 - **Diff card.** The project diff, inline or side by side, whole or scoped to a path, a range or a commit.
 - **Image card.** A picture at Fit, Fill or Actual Size, over a Checkerboard, Surface, Black or White background. A click opens it full screen. Read-only.
 - **PDF card.** A document as Continuous, Single Page or Two Pages, at Fit Width, Fit Page or Actual Size. The arrow and page keys turn pages. Read-only.
 - **Commit card.** One commit's full record: message, trailers, and files with their diffs.
-- **Settings** (Command-Comma), **Keyboard Shortcuts** (Control-Command-K), **About** and the four **help** cards (this guide, the recipes, the glossary and the release notes, from the Help menu) round out the set. Settings has four tabs: General, Sessions, Text Files and Viewer Cards. Keyboard Shortcuts shows every command, its chord and any chord that shadows it, and rebinds the ones that are yours to change. Card Settings in a card's menu holds the same preferences for that one text, image or PDF card.
+- **Settings** (Command-Comma), **Keyboard Shortcuts** (Control-Command-K), **About** and the four **help** cards (this guide, the recipes, the glossary and the release notes, from the Help menu) round out the set. Settings has four tabs: General, Sessions, Text Files and Viewer Cards. General holds, among others, **Tooltip Delay**, how long a tooltip waits before it shows, from 0s to 0.7s or Never. Keyboard Shortcuts shows every command, its chord and any chord that shadows it, and rebinds the ones that are yours to change. Card Settings in a card's menu holds the same preferences for that one text, image or PDF card.
 
 Reveal in Finder is in the card's menu for any card backed by a file.
 
@@ -186,7 +192,7 @@ When several sessions work at once on one checkout, git sees one tangled pile. T
 
 A session's link to an edit is a **claim**, and most are written for you as the work happens: a file edit claims its file, and a shell command that names its files claims those. A command that names nothing earns only a **hint**, from what git saw change while it ran, and a hint never makes a session an owner. Edits you make yourself, in your editor or in the card's shell, are never claimed by anyone: they show as **unattributed**. Git status, not the ledger, decides what exists.
 
-What this buys: three sessions can run on main at once, each committing its own work as it finishes, without a worktree or branch apiece. You can review one session's changes while the others keep going, land half of what a session did and leave the rest for later, and close a session with work uncommitted without losing it: its files become **orphaned**, and any session can claim them. When two sessions reach into the same lines, Tug marks the file as shared and asks, rather than letting one bury the other.
+What this buys: three sessions can run on main at once, each committing its own work as it finishes, without a worktree or branch apiece. You can review one session's changes while the others keep going, land half of what a session did and leave the rest for later, still that session's, and close a session with work uncommitted without losing it: its files become **orphaned**, and any session can claim them. When two sessions reach into the same lines, Tug marks the file as shared and asks, rather than letting one bury the other.
 
 ### The Changes tab
 
@@ -270,6 +276,7 @@ The Keyboard Shortcuts card (Control-Command-K) lists everything. A shortcut is 
 | Option-Command-Left Bracket / Option-Command-Right Bracket | Previous or next card in the stack |
 | Command-R | Reveal the stack behind the focused card |
 | Option-Command with an arrow key | Focus the card to the left, above, right or below |
+| Control-Option-Command-Left Bracket / Control-Option-Command-Right Bracket | Back or forward through the cards you had focused |
 | Control-Command-Up Arrow / Control-Command-Down Arrow | Move the card up or down within its split slot |
 | Control-Shift-Command-Up Arrow / Control-Shift-Command-Down Arrow | Move the card to the top or bottom of its split slot |
 | Control-Command-Slash | Split or stack the slot |
@@ -302,6 +309,7 @@ The Keyboard Shortcuts card (Control-Command-K) lists everything. A shortcut is 
 | Control-Command-U / Control-Command-V | Usage; Data Visualization |
 | Command-J | New jot |
 | Command-S / Shift-Command-S | Save; Save As |
+| Option-Command-P | Show or hide a Markdown file's preview |
 | Command-Comma | Settings |
 | Control-Command-K | Keyboard Shortcuts |
 | Control-Command-F | Enter full screen |
