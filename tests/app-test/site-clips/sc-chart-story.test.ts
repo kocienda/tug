@@ -36,8 +36,8 @@ const REPO = resolve(import.meta.dir, "../../..");
 const SESSION = process.env.TUG_SITE_STORY_SESSION;
 const CONTENT_SIZE = { width: 1120, height: 1420 };
 
-/** The figures, each one conversation turn (1-based) of the session: its prompt and its answer. */
-const FIGURES: readonly { name: string; turn: number }[] = [
+/** The chart story's figures, each one conversation turn (1-based) of the session: its prompt and its answer. */
+const CHART_STORY: readonly { name: string; turn: number }[] = [
   { name: "commits", turn: 1 },
   { name: "recipe-list", turn: 2 },
   { name: "commit-kinds", turn: 3 },
@@ -46,6 +46,15 @@ const FIGURES: readonly { name: string; turn: number }[] = [
   { name: "test-history", turn: 6 },
   { name: "commit-hours", turn: 7 },
 ];
+/** Another story names its own: `TUG_SITE_STORY_FIGURES` as `name:turn,name:turn`, and `TUG_SITE_STORY_NAME` for its folder. */
+const STORY = process.env.TUG_SITE_STORY_NAME ?? "chart-story";
+const FIGURES: readonly { name: string; turn: number }[] =
+  process.env.TUG_SITE_STORY_FIGURES === undefined
+    ? CHART_STORY
+    : process.env.TUG_SITE_STORY_FIGURES.split(",").map((pair) => {
+        const [name, turn] = pair.split(":");
+        return { name: name!.trim(), turn: Number(turn) };
+      });
 const TURNS = Math.max(...FIGURES.map((f) => f.turn));
 
 const countJs = `(function(){ var el = document.querySelector(${JSON.stringify(COUNT)}); var m = el === null ? null : /\\d+/.exec(el.textContent || ""); return m === null ? -1 : Number(m[0]); })()`;
@@ -81,7 +90,7 @@ describe.skipIf(!RUNS || SESSION === undefined)("site still: the chart story", (
         await Bun.sleep(3_000);
         await chooseFormat(app, "png");
 
-        const outDir = outDirFor("chart-story");
+        const outDir = outDirFor(STORY);
         for (const figure of FIGURES) {
           await body.nativeClickAtElement(CLEAR);
           // A cleared shade's count carries no number.
