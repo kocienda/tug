@@ -29,11 +29,20 @@
 
 import React from "react";
 
-import { pressRunOffer, syncRunOffers } from "@/lib/run-offer-binding";
+import { drawRunOffers, pressRunOffer, syncRunOffers } from "@/lib/run-offer-binding";
+import type { RunOfferStore } from "@/lib/run-offer-store";
 import type { ShellSessionStore } from "@/lib/shell-session-store";
 
 /** The shell session the offers beneath a transcript run in. */
 export const RunOfferShellContext = React.createContext<ShellSessionStore | null>(null);
+
+/**
+ * The runs a page draws but cannot make: the share page's, which holds the
+ * card's runs as they were when the share was made. Under it the offers look
+ * as they do on the card, Play included, and nothing can be pressed. A shell
+ * session, where there is one, wins.
+ */
+export const RunOfferRunsContext = React.createContext<RunOfferStore | null>(null);
 
 /**
  * `scope` names the message the block renders, and is the first part of
@@ -48,17 +57,19 @@ export function useRunOffers(
   commandsFinal: boolean,
 ): (container: HTMLElement) => void {
   const shell = React.useContext(RunOfferShellContext);
-  const live = React.useRef({ shell, scope, commandsFinal });
-  live.current = { shell, scope, commandsFinal };
+  const drawn = React.useContext(RunOfferRunsContext);
+  const live = React.useRef({ shell, drawn, scope, commandsFinal });
+  live.current = { shell, drawn, scope, commandsFinal };
 
   /** The container last annotated, and the release of the listener on it. */
   const listening = React.useRef<{ container: HTMLElement; release: () => void } | null>(null);
 
   const sync = React.useCallback((): void => {
     const container = listening.current?.container;
-    const { shell: store, scope: at, commandsFinal: final } = live.current;
-    if (container === undefined || store === null) return;
-    syncRunOffers(container, store, at, final);
+    const { shell: store, drawn: runs, scope: at, commandsFinal: final } = live.current;
+    if (container === undefined) return;
+    if (store !== null) syncRunOffers(container, store, at, final);
+    else if (runs !== null) drawRunOffers(container, runs, at);
   }, []);
 
   const onAnnotated = React.useCallback(

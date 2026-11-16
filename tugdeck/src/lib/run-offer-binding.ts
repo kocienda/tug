@@ -21,7 +21,7 @@ import {
   runOfferNeedsTerminal,
   syncRunOfferFrame,
 } from "./markdown/enhance-run-offer";
-import { runOfferKey, type RunOfferRun } from "./run-offer-store";
+import { runOfferKey, type RunOfferRun, type RunOfferStore } from "./run-offer-store";
 import type { ShellSessionStore } from "./shell-session-store";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
@@ -33,7 +33,7 @@ import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
  */
 function keyedFrames(
   container: HTMLElement,
-  shell: ShellSessionStore,
+  offers: RunOfferStore,
   scope: string,
 ): Array<{ frame: HTMLElement; key: string; command: string; run: RunOfferRun | undefined }> {
   const keyed = runOfferFrames(container).map((frame, index) => {
@@ -41,7 +41,7 @@ function keyedFrames(
     return { frame, command, key: runOfferKey(scope, index, command) };
   });
   const present = new Set(keyed.map((entry) => entry.key));
-  return keyed.map((entry) => ({ ...entry, run: shell.offers.match(entry.key, present) }));
+  return keyed.map((entry) => ({ ...entry, run: offers.match(entry.key, present) }));
 }
 
 /**
@@ -62,12 +62,24 @@ export function syncRunOffers(
 ): void {
   const canRun = commandsFinal && shell.getSnapshot().inflight === null;
   const hasQueue = shell.hasContextQueue();
-  for (const { frame, run } of keyedFrames(container, shell, scope)) {
+  for (const { frame, run } of keyedFrames(container, shell.offers, scope)) {
     syncRunOfferFrame(frame, {
       canRun,
       run,
       staged: !hasQueue ? null : run !== undefined && shell.offerRunStaged(run),
     });
+  }
+}
+
+/**
+ * Draw every offer in `container` as a picture of the card it came from:
+ * Play shown as it stands on a finished turn, and each offer's run under it.
+ * Nothing here can run, so nothing listens for a press, and a result offers
+ * no Add to context, which belongs to a card's queue.
+ */
+export function drawRunOffers(container: HTMLElement, offers: RunOfferStore, scope: string): void {
+  for (const { frame, run } of keyedFrames(container, offers, scope)) {
+    syncRunOfferFrame(frame, { canRun: true, run, staged: null });
   }
 }
 
@@ -90,14 +102,14 @@ export function pressRunOffer(
   const add = target.closest(`.${RUN_OFFER_ADD_CLASS}`);
   if (add !== null && container.contains(add)) {
     const owner = add.closest(RUN_FRAME_SELECTOR);
-    const run = keyedFrames(container, shell, scope).find((entry) => entry.frame === owner)?.run;
+    const run = keyedFrames(container, shell.offers, scope).find((entry) => entry.frame === owner)?.run;
     if (run !== undefined) shell.toggleOfferRunContext(run);
     return true;
   }
   const play = target.closest(`.${RUN_OFFER_PLAY_CLASS}`);
   if (play === null || !container.contains(play)) return false;
   const frame = play.closest(RUN_FRAME_SELECTOR);
-  const hit = keyedFrames(container, shell, scope).find((entry) => entry.frame === frame);
+  const hit = keyedFrames(container, shell.offers, scope).find((entry) => entry.frame === frame);
   if (hit === undefined) return true;
 
   if (hit.run?.status === "running") {

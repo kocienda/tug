@@ -207,6 +207,24 @@ export class RunOfferStore extends Subscribable {
     if (changed) this.notify();
   }
 
+  /** Every run held, in no particular order. */
+  runs(): RunOfferRun[] {
+    return Array.from(this._runs.values());
+  }
+
+  /**
+   * Take runs in exactly as given, as a page that only draws them does: the
+   * share page holds the runs the card had when the share was made, and
+   * draws them under their offers with nothing to run.
+   */
+  seed(runs: ReadonlyArray<RunOfferRun>): void {
+    for (const run of runs) {
+      this._runs.set(run.key, run);
+      this._keyByExchange.set(run.exchangeId, run.key);
+    }
+    if (runs.length > 0) this.notify();
+  }
+
   /** The offer an exchange belongs to, or `undefined` for any other exchange. */
   keyForExchange(exchangeId: string): string | undefined {
     return this._keyByExchange.get(exchangeId);

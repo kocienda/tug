@@ -44,6 +44,7 @@ import { composeShellShareText } from "@/lib/shell-share";
 import { turnNumberAt, walkTurnGroups } from "@/lib/session-transcript-data-source";
 import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import type { ToolCallMode } from "@/lib/turn-entry-markdown";
+import { parseRunOfferKey, runOfferKey, type RunOfferRun } from "@/lib/run-offer-store";
 
 export { toolCallSummaryLine } from "@/lib/turn-entry-markdown";
 
@@ -528,6 +529,9 @@ export interface ShareRenderDocument {
   turns: TurnEntry[];
   /** Each turn's number in the card, parallel to `turns`. */
   turnNumbers: number[];
+  /** The settled runs of the offers in the slice's messages, scrubbed, so the
+   *  render shows each result under its offer as the card does. */
+  offerRuns: RunOfferRun[];
 }
 
 /**
@@ -569,6 +573,7 @@ export function buildShareRenderDocument(input: {
   modelName: string | null;
   slice: TurnEntry[];
   turnNumbers: number[];
+  offerRuns: RunOfferRun[];
 }): ShareRenderDocument {
   return {
     version: 1,
@@ -579,6 +584,7 @@ export function buildShareRenderDocument(input: {
     modelName: input.modelName,
     turns: input.slice,
     turnNumbers: input.turnNumbers,
+    offerRuns: input.offerRuns,
   };
 }
 
@@ -627,5 +633,71 @@ export function decodeShareRenderDocument(json: string): ShareRenderDocument | n
     }
   }
   if (!value.turnNumbers.every((n) => typeof n === "number" && Number.isInteger(n))) return null;
+  if (!Array.isArray(value.offerRuns)) return null;
+  for (const run of value.offerRuns) {
+    if (
+      !isRecord(run) ||
+      typeof run.key !== "string" ||
+      typeof run.exchangeId !== "string" ||
+      typeof run.command !== "string" ||
+      typeof run.output !== "string" ||
+      typeof run.cwd !== "string" ||
+      run.status !== "settled"
+    ) {
+      return null;
+    }
+  }
   return value as unknown as ShareRenderDocument;
+}
+
+/**
+ * The settled runs among `runs` whose offers are in the slice: an offer's key
+ * opens with the message it was written in, so a run belongs when that
+ * message is one of the slice's.
+ */
+export function shareOfferRuns(
+  slice: ReadonlyArray<TurnEntry>,
+  runs: ReadonlyArray<RunOfferRun>,
+): RunOfferRun[] {
+  const scopes = new Set<string>();
+  for (const turn of slice) {
+    for (const m of turn.messages) if (m.kind === "assistant_text") scopes.add(m.messageKey);
+  }
+  return runs.filter((run) => {
+    if (run.status !== "settled") return false;
+    const parsed = parseRunOfferKey(run.key);
+    return parsed !== null && scopes.has(parsed.scope);
+  });
+}
+
+/** The strings of `runs` a share shows, in the order {@link applyOfferRunStrings} takes them back. */
+export function collectOfferRunStrings(runs: ReadonlyArray<RunOfferRun>): string[] {
+  return runs.flatMap((run) => [run.command, run.output, run.cwd]);
+}
+
+/**
+ * `runs` with their strings replaced by `texts`, the scrub's answer to
+ * {@link collectOfferRunStrings}; `null` when the answer is the wrong length.
+ *
+ * Each run is keyed again from its scrubbed command. The render page keys an
+ * offer from the fence it draws, whose text was scrubbed with the prose, so a
+ * command the scrub changed (a home directory turned to `~`) must carry the
+ * hash of what the page will read.
+ */
+export function applyOfferRunStrings(
+  runs: ReadonlyArray<RunOfferRun>,
+  texts: ReadonlyArray<string>,
+): RunOfferRun[] | null {
+  if (texts.length !== runs.length * 3) return null;
+  return runs.map((run, i) => {
+    const command = texts[i * 3]!;
+    const parsed = parseRunOfferKey(run.key);
+    return {
+      ...run,
+      key: parsed === null ? run.key : runOfferKey(parsed.scope, parsed.index, command),
+      command,
+      output: texts[i * 3 + 1]!,
+      cwd: texts[i * 3 + 2]!,
+    };
+  });
 }

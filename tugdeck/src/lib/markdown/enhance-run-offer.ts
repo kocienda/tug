@@ -52,6 +52,22 @@ export function markdownFenceLang(lang: string | null): string | null {
   return isRunOfferLang(lang) ? RUN_OFFER_SHELL_LANG : lang;
 }
 
+/** A fence's opening line whose language is `tugrun`: indent, fence, rest. */
+const RUN_FENCE_OPENER = /^( {0,3})(`{3,}|~{3,})[ \t]*tugrun(?=[ \t]|$)(.*)$/gim;
+
+/**
+ * Markdown source with every `tugrun` fence opened as a `bash` one, as a copy
+ * or a share writes it out, so the text reads normally to somebody who has
+ * never heard of Tug. Only an opening line can carry a language, so a closing
+ * fence or a fence's body is never touched.
+ */
+export function rewriteRunFences(markdown: string): string {
+  return markdown.replace(
+    RUN_FENCE_OPENER,
+    (_line, indent: string, fence: string, rest: string) => `${indent}${fence}${RUN_OFFER_SHELL_LANG}${rest}`,
+  );
+}
+
 /** The class of an offer's frame; an enhanced offer's `<pre>` sits inside one. */
 export const RUN_OFFER_CLASS = "tugx-md-run";
 

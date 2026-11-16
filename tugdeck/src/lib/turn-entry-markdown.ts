@@ -42,6 +42,7 @@
  */
 
 import type { Message, ToolUseMessage, TurnEntry } from "@/lib/code-session-store/types";
+import { rewriteRunFences } from "@/lib/markdown/enhance-run-offer";
 
 // ---------------------------------------------------------------------------
 // Fenced-code helpers
@@ -278,7 +279,8 @@ export function turnEntryToMarkdown(
   // Messages; today's COPY surface gives them back as one continuous
   // prose body. Future work could intersperse tool sections in
   // arrival position if that reads better.
-  const prose = proseChunks.join("\n\n").trim();
+  // A runnable offer is written out as the shell it is.
+  const prose = rewriteRunFences(proseChunks.join("\n\n").trim());
   if (prose.length > 0) {
     // A heading delimits the prose from the tool sections above it;
     // a pure-prose turn copies as just its prose, with no heading.

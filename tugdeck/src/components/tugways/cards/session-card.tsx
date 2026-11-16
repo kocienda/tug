@@ -3719,6 +3719,7 @@ export function SessionCardBody({
       tugSessionId,
       projectDir: binding?.projectDir ?? "",
       modelName: () => sessionMetadataStore.getSnapshot().model,
+      offerRuns: () => shellSessionStore.offers.runs(),
       isPrivate: () => tugSessionId !== "" && sessionPrivateStore.isPrivate(tugSessionId),
       confirmPrivate: () =>
         showAlert({
@@ -3729,7 +3730,7 @@ export function SessionCardBody({
         }),
       notify: () => paneBulletinRef.current,
     };
-  }, [cardId, codeSessionStore, sessionMetadataStore, shareTurnsStore, showAlert]);
+  }, [cardId, codeSessionStore, sessionMetadataStore, shellSessionStore, shareTurnsStore, showAlert]);
   const handleSharePreview = useCallback(() => {
     void previewShare(shareActionContext());
   }, [shareActionContext]);

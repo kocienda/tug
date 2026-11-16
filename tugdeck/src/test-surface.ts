@@ -114,6 +114,7 @@ import {
   selectableEntryKeys,
   shareHeader,
   shareTurnNumbers,
+  shareOfferRuns,
   type ShareToolMode,
 } from "./lib/share-turns";
 import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clipboard-filters";
@@ -4503,6 +4504,7 @@ function pageStoreSurfaceMethods() {
         modelName: services.sessionMetadataStore.getSnapshot().model,
         slice,
         turnNumbers: shareTurnNumbers(slice, snapshot.transcript, snapshot),
+        offerRuns: shareOfferRuns(slice, services.shellSessionStore.offers.runs()),
       });
       return shareRender(format, JSON.stringify(doc));
     },

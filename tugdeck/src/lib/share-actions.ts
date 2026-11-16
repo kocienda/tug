@@ -37,13 +37,17 @@ import {
   applyShareStrings,
   buildShareRenderDocument,
   buildShareSlice,
+  applyOfferRunStrings,
+  collectOfferRunStrings,
   collectShareStrings,
   shareDocumentMarkdown,
+  shareOfferRuns,
   shareHeader,
   shareSignature,
   shareTurnNumbers,
 } from "./share-turns";
 import type { ShareArtifact, ShareTurnsStore } from "./share-turns-store";
+import type { RunOfferRun } from "./run-offer-store";
 import { resolveSessionIdentity } from "./session-identity";
 import { writeClipboardViaNative } from "./tug-native-clipboard";
 import { exportBaseName } from "./transcript-export";
@@ -62,6 +66,9 @@ export interface ShareActionContext {
   projectDir: string;
   /** The model the session's turns were answered by, for a rendering's cells; `null` when unknown. */
   modelName: () => string | null;
+  /** The runs of the card's runnable offers, read when an artifact is made,
+   *  so a rendering shows each result under its offer as the card does. */
+  offerRuns: () => ReadonlyArray<RunOfferRun>;
   /** Whether the session is private, read when an artifact is made. */
   isPrivate: () => boolean;
   /** Ask whether a private session's turns may be rendered; `true` to go on. */
@@ -112,9 +119,16 @@ async function makeArtifact(ctx: ShareActionContext): Promise<ShareArtifact | nu
       selected,
       snapshot,
     });
-    const scrubbed = await scrubShareTexts(collectShareStrings(slice, header));
-    const applied = scrubbed === null ? null : applyShareStrings(slice, header, scrubbed);
-    if (applied === null) {
+    // The offers' runs ride the same scrub as the turns: one request, split
+    // back at the turns' count.
+    const runs = format === "markdown" ? [] : shareOfferRuns(slice, ctx.offerRuns());
+    const turnTexts = collectShareStrings(slice, header);
+    const scrubbed = await scrubShareTexts([...turnTexts, ...collectOfferRunStrings(runs)]);
+    const applied =
+      scrubbed === null ? null : applyShareStrings(slice, header, scrubbed.slice(0, turnTexts.length));
+    const appliedRuns =
+      scrubbed === null ? null : applyOfferRunStrings(runs, scrubbed.slice(turnTexts.length));
+    if (applied === null || appliedRuns === null) {
       ctx.notify()?.caution(SCRUB_FAILED_TEXT);
       return null;
     }
@@ -143,6 +157,7 @@ async function makeArtifact(ctx: ShareActionContext): Promise<ShareArtifact | nu
       modelName: ctx.modelName(),
       slice: applied.slice,
       turnNumbers: shareTurnNumbers(applied.slice, snapshot.transcript, snapshot),
+      offerRuns: appliedRuns,
     });
     const outcome = await shareRender(format, JSON.stringify(renderDocument));
     if (!store.getSnapshot().active) return null;

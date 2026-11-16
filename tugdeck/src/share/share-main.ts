@@ -78,6 +78,7 @@ import {
   type ShareRenderDocument,
 } from "../lib/share-turns";
 import { FeedId } from "../protocol";
+import { RunOfferStore } from "../lib/run-offer-store";
 import { styledHtml } from "./share-html";
 import { ShareRoot } from "./share-root";
 
@@ -120,6 +121,10 @@ function mount(doc: ShareRenderDocument): void {
   expansion.seed({ overrides: shareExpansionOverrides(doc.turns, doc.toolMode) });
   const turnNumbers = new Map<string, number>();
   doc.turns.forEach((turn, i) => turnNumbers.set(turn.turnKey, doc.turnNumbers[i]!));
+  // The card's runs, as they were when the share was made, so each offer
+  // draws its result under it.
+  const offerRuns = new RunOfferStore();
+  offerRuns.seed(doc.offerRuns);
 
   const container = document.getElementById("deck-container") ?? document.body;
   const root = createRoot(container);
@@ -133,6 +138,7 @@ function mount(doc: ShareRenderDocument): void {
         sessionMetadataStore,
         expansion,
         turnNumbers,
+        offerRuns,
       }),
     );
   });

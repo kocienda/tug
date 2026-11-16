@@ -25,6 +25,8 @@ import {
   ShareTurnNumberContext,
 } from "../components/tugways/cards/session-card-transcript";
 import type { CodeSessionStore } from "../lib/code-session-store";
+import type { RunOfferStore } from "../lib/run-offer-store";
+import { RunOfferRunsContext } from "../components/tugways/cards/use-run-offers";
 import type { SessionMetadataStore } from "../lib/session-metadata-store";
 import type { ShareHeader } from "../lib/share-turns";
 
@@ -34,6 +36,8 @@ export interface ShareRootProps {
   sessionMetadataStore: SessionMetadataStore;
   expansion: ToolBlockExpansionState;
   turnNumbers: ReadonlyMap<string, number>;
+  /** The runs the card's offers had, drawn under them. */
+  offerRuns: RunOfferStore;
 }
 
 /** The facts line under the title: whichever of project, dates and turns are known. */
@@ -47,6 +51,7 @@ export function ShareRoot({
   sessionMetadataStore,
   expansion,
   turnNumbers,
+  offerRuns,
 }: ShareRootProps): React.ReactElement {
   const facts = factsLine(header);
   return (
@@ -55,6 +60,7 @@ export function ShareRoot({
         <ResponderChainProvider>
           <ToolBlockExpansionContext.Provider value={expansion}>
             <ShareTurnNumberContext.Provider value={turnNumbers}>
+            <RunOfferRunsContext.Provider value={offerRuns}>
               <main className="share-page" data-slot="share-page">
                 <header className="share-page__header" data-slot="share-page-header">
                   <h1 className="share-page__title">{header.title}</h1>
@@ -65,6 +71,7 @@ export function ShareRoot({
                   sessionMetadataStore={sessionMetadataStore}
                 />
               </main>
+            </RunOfferRunsContext.Provider>
             </ShareTurnNumberContext.Provider>
           </ToolBlockExpansionContext.Provider>
         </ResponderChainProvider>

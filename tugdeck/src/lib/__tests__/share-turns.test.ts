@@ -16,9 +16,11 @@ import type {
 } from "@/lib/code-session-store/types";
 import type { SessionIdentity } from "@/lib/session-identity";
 import {
+  applyOfferRunStrings,
   applyShareStrings,
   buildShareRenderDocument,
   buildShareSlice,
+  collectOfferRunStrings,
   collectShareStrings,
   compressTurnNumbers,
   decodeShareRenderDocument,
@@ -29,6 +31,7 @@ import {
   shareDocumentMarkdown,
   shareExpansionOverrides,
   shareHeader,
+  shareOfferRuns,
   shareSignature,
   shareTurnNumbers,
   toggleTurn,
@@ -37,6 +40,8 @@ import {
   type ShareSelection,
 } from "@/lib/share-turns";
 import { transcriptToMarkdown } from "@/lib/transcript-export";
+import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
+import { hashCommand, runOfferKey, type RunOfferRun } from "@/lib/run-offer-store";
 import { ShareTurnsStore, type ShareArtifact } from "@/lib/share-turns-store";
 import { seedPathsFor } from "@/lib/code-session-store";
 
@@ -621,6 +626,7 @@ describe("decodeShareRenderDocument", () => {
     modelName: null,
     turns: [{ turnKey: "t1", origin: "user", messages: [] }],
     turnNumbers: [1],
+    offerRuns: [],
   };
 
   test("accepts the S03 shape", () => {
@@ -676,8 +682,71 @@ describe("the render document", () => {
       modelName: "claude-x",
       slice,
       turnNumbers: shareTurnNumbers(slice, transcript, snapshotAt(null)),
+      offerRuns: [],
     });
     expect(decodeShareRenderDocument(JSON.stringify(doc))).toEqual(doc);
+  });
+});
+
+describe("a share of runnable offers", () => {
+  function run(key: string, over: Partial<RunOfferRun> = {}): RunOfferRun {
+    return {
+      key,
+      exchangeId: `x-${key}`,
+      command: "ls /Users/me",
+      status: "settled",
+      output: "a\nb\n",
+      exitCode: 0,
+      cwd: "/Users/me/proj",
+      startedAtMs: 1,
+      settledAtMs: 2,
+      stoppedBy: null,
+      refused: false,
+      ...over,
+    };
+  }
+
+  test("only the settled runs of the slice's messages ride along", () => {
+    const turns = [turn("a", "user", 1, [user("ua", "go"), prose("pa", "offer")])];
+    const inSlice = run(runOfferKey("pa", 0, "ls /Users/me"));
+    const running = run(runOfferKey("pa", 1, "sleep 5"), { status: "running" });
+    const elsewhere = run(runOfferKey("pz", 0, "ls /Users/me"));
+    expect(shareOfferRuns(turns, [inSlice, running, elsewhere])).toEqual([inSlice]);
+  });
+
+  test("a scrubbed run is keyed by its scrubbed command, which is what the page reads", () => {
+    const before = run(runOfferKey("pa", 2, "ls /Users/me"));
+    const texts = collectOfferRunStrings([before]);
+    expect(texts).toEqual(["ls /Users/me", "a\nb\n", "/Users/me/proj"]);
+    const [after] = applyOfferRunStrings([before], ["ls ~", "a\nb\n", "~/proj"])!;
+    expect(after!.key).toBe(`pa#2#${hashCommand("ls ~")}`);
+    expect(after!.command).toBe("ls ~");
+    expect(after!.cwd).toBe("~/proj");
+    expect(applyOfferRunStrings([before], ["ls ~"])).toBeNull();
+  });
+
+  test("the runs decode as built", () => {
+    const slice = [turn("a", "user", 1, [user("ua", "go"), prose("pa", "offer")])];
+    const doc = buildShareRenderDocument({
+      theme: "ironclad",
+      header: { title: "t", project: "p", dates: "d", turns: "#1" },
+      toolMode: "full",
+      modelName: null,
+      slice,
+      turnNumbers: [1],
+      offerRuns: [run("m#0#00000000")],
+    });
+    expect(decodeShareRenderDocument(JSON.stringify(doc))).toEqual(doc);
+    expect(decodeShareRenderDocument(JSON.stringify({ ...doc, offerRuns: undefined }))).toBeNull();
+  });
+
+  test("a tugrun fence is written out as bash, and nothing else is touched", () => {
+    const t = turn("a", "user", 1, [
+      prose("pa", "Run it:\n\n```tugrun\nmake check\n```\n\n````TugRun extra\nx\n````\n\nA ```tugrun``` mention."),
+    ]);
+    expect(turnEntryToMarkdown(t)).toBe(
+      "Run it:\n\n```bash\nmake check\n```\n\n````bash extra\nx\n````\n\nA ```tugrun``` mention.",
+    );
   });
 });
 
