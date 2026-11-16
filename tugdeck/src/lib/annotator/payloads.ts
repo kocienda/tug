@@ -121,6 +121,23 @@ export interface SessionPayload {
   target: string;
 }
 
+/**
+ * An arc the project's arc log holds.
+ *
+ * `joinSha` is set only when the arc was joined and there is a repository to
+ * open the join commit in; a live arc, or a joined one with no repository,
+ * acts by revealing the Arcs rail instead.
+ */
+export interface ArcPayload {
+  kind: "arc";
+  /** The arc's name, as the log records it. */
+  name: string;
+  /** The project whose arc log holds it. */
+  root: string;
+  /** The join's squash commit, when the arc was joined. */
+  joinSha?: string;
+}
+
 /** A passage of the bundled help — a document, and where in it. */
 export interface HelpPayload extends HelpCardSeed {
   kind: "help";
@@ -137,6 +154,7 @@ export type AnnotationPayload =
   | ImagePayload
   | CommitShaPayload
   | SessionPayload
+  | ArcPayload
   | HelpPayload;
 
 /** The fields of an atom this needs to decide what it is. */
@@ -252,6 +270,7 @@ export function annotationOpensSurface(kind: AnnotationKind): boolean {
     kind === "directory" ||
     kind === "image" ||
     kind === "commit-sha" ||
+    kind === "arc" ||
     kind === "help"
   );
 }
@@ -284,6 +303,9 @@ export const ANNOTATION_DATASET_KEYS = [
   "root",
   "commitPaths",
   "target",
+  "arcName",
+  "arcRoot",
+  "arcJoinSha",
   "helpDoc",
   "helpAnchor",
 ] as const;
@@ -326,6 +348,14 @@ export function datasetForPayload(payload: AnnotationPayload): AnnotationDataset
       };
     case "session":
       return { target: payload.target };
+    case "arc":
+      return payload.joinSha === undefined
+        ? { arcName: payload.name, arcRoot: payload.root }
+        : {
+            arcName: payload.name,
+            arcRoot: payload.root,
+            arcJoinSha: payload.joinSha,
+          };
     case "help":
       return payload.anchor === undefined
         ? { helpDoc: payload.doc }
@@ -440,6 +470,16 @@ export function payloadFromDataset(
       const target = record.target;
       return target === undefined || target === "" ? null : { kind, target };
     }
+    case "arc": {
+      const name = record.arcName;
+      const root = record.arcRoot;
+      if (name === undefined || name === "") return null;
+      if (root === undefined || root === "") return null;
+      const joinSha = record.arcJoinSha;
+      return joinSha === undefined || joinSha === ""
+        ? { kind, name, root }
+        : { kind, name, root, joinSha };
+    }
     case "help": {
       const doc = record.helpDoc;
       if (!isHelpDocName(doc)) return null;
@@ -492,6 +532,10 @@ export function annotationValue(payload: AnnotationPayload): string {
       // paste of this has to name the session anywhere it is pasted, and the
       // sentence already carries the readable form.
       return payload.target;
+    case "arc":
+      // The spelling an arc is written in prose and in a chart's refs, which
+      // is what a paste of this can be read back from.
+      return `arc:${payload.name}`;
     case "help":
       // The spelling a post's help ref is written in, which is what a paste
       // of this can be read back from.

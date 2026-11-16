@@ -24,7 +24,7 @@ use super::build::{rect, segment, Builder, Pen};
 use super::spec::{Annotation, Data, Series, Spec};
 use super::ticks::{Axis, PX_PER_TICK_H, PX_PER_TICK_V};
 use crate::draw::{Anchor, ColourRole, Program, Seg};
-use crate::measure::{fit_text, Measure, TypeRole};
+use crate::measure::{fit_text, Measure, Metrics, TypeRole};
 
 /// Row heights, by the role set in them.
 pub(crate) const TITLE_ROW: f64 = 20.0;
@@ -43,26 +43,30 @@ const SWATCH: f64 = 10.0;
 /// Lays out `spec` in a `w` × `h` frame.
 pub(crate) fn layout(spec: &Spec, w: f64, h: f64, animate: bool, m: &dyn Measure) -> Program {
     let mut b = Builder::new(animate);
+    b.rule_rows(spec.ruled_rows());
     match &spec.data {
         Data::Bar {
             categories,
             series,
             orient,
             stacked,
+            ..
         } => bar::layout(&mut b, spec, categories, series, *orient, *stacked, w, h, m),
-        Data::Line { x, series } => line::layout(&mut b, spec, x, series, w, h, m),
-        Data::Area { x, series, stacked } => {
-            area::layout(&mut b, spec, x, series, *stacked, w, h, m)
-        }
+        Data::Line { x, series, .. } => line::layout(&mut b, spec, x, series, w, h, m),
+        Data::Area {
+            x, series, stacked, ..
+        } => area::layout(&mut b, spec, x, series, *stacked, w, h, m),
         Data::Sparkline { values, highlight } => {
             sparkline::layout(&mut b, values, *highlight, w, h)
         }
         Data::Dots { rows } => dots::layout(&mut b, spec, rows, w, h, m),
-        Data::Histogram { values, bins } => histogram::layout(&mut b, spec, values, *bins, w, h, m),
-        Data::Spans { items } => spans::layout(&mut b, spec, items, w, h, m),
-        Data::Heat { categories, values } => {
-            heat::layout(&mut b, spec, categories, values, w, h, m)
+        Data::Histogram { values, bins, .. } => {
+            histogram::layout(&mut b, spec, values, *bins, w, h, m)
         }
+        Data::Spans { items } => spans::layout(&mut b, spec, items, w, h, m),
+        Data::Heat {
+            categories, values, ..
+        } => heat::layout(&mut b, spec, categories, values, w, h, m),
         Data::Bullet { items } => bullet::layout(&mut b, spec, items, w, h, m),
         Data::Scatter {
             series,
@@ -208,6 +212,7 @@ impl RowsLayout<'_> {
                 Anchor::Start,
                 None,
             );
+            b.label_rule(0.0, rule_y(plot.center(i), &fit.metrics), fit.metrics.w, i);
         }
         if self.axis.is_some() {
             let labels: Vec<String> = plot
@@ -246,6 +251,12 @@ impl RowsLayout<'_> {
 /// The width of `text` in `role`; 0 while it is not measured yet.
 pub(crate) fn width(m: &dyn Measure, role: TypeRole, text: &str) -> f64 {
     m.measure(role, text).map_or(0.0, |x| x.w)
+}
+
+/// Where a label's rule runs: just under the baseline of a label set
+/// centred on `cy`, inside its row.
+fn rule_y(cy: f64, metrics: &Metrics) -> f64 {
+    cy + (metrics.a - metrics.d) / 2.0 + 2.0
 }
 
 /// Asks for every string a header could place.
@@ -478,6 +489,12 @@ fn category_labels(
             Anchor::Middle,
             None,
         );
+        b.label_rule(
+            cx - fit.metrics.w / 2.0,
+            rule_y(y, &fit.metrics),
+            fit.metrics.w,
+            i,
+        );
     }
 }
 
@@ -498,11 +515,17 @@ fn value_box(x: f64, y: f64, w: f64, anchor: Anchor) -> LabelBox {
     [left, y - VALUE_ROW / 2.0, left + w, y + VALUE_ROW / 2.0]
 }
 
+/// An annotation label placed at `(x, y)` from its anchor, with the mark's
+/// index and row when the mark carries a ref.
+type PlacedLabel = (f64, f64, String, Anchor, Option<(usize, usize)>);
+
 /// The rules and marks of a chart, laid out before its marks so value
 /// labels can keep clear of theirs, and drawn over them.
 pub(crate) struct Annotations {
     strokes: Vec<Vec<Seg>>,
-    labels: Vec<(f64, f64, String, Anchor)>,
+    /// Each label, with the mark annotation's index and row when the mark
+    /// carries a ref and so takes a hit over its label.
+    labels: Vec<PlacedLabel>,
     pub boxes: Vec<LabelBox>,
 }
 
@@ -514,18 +537,23 @@ impl Annotations {
             boxes: Vec::new(),
         };
         let room = (plot.right - plot.left) / 3.0;
-        for a in &spec.annotations {
-            let (path, label, at) = match a {
+        for (index, a) in spec.annotations.iter().enumerate() {
+            let (path, label, at, hit) = match a {
                 Annotation::Rule { value, label } => {
                     let y = plot.y(*value);
                     let mut path = Vec::new();
                     segment(&mut path, plot.left, y, plot.right, y);
-                    (path, label, (plot.right, y - VALUE_ROW / 2.0, None))
+                    (path, label, (plot.right, y - VALUE_ROW / 2.0, None), None)
                 }
-                Annotation::Mark { at, label } => {
+                Annotation::Mark {
+                    at,
+                    label,
+                    ref_slot,
+                } => {
                     let x = plot.center(*at);
                     let path = vec![Seg::Move(x, plot.top), Seg::Line(x, plot.bottom)];
-                    (path, label, (x, plot.top + VALUE_ROW / 2.0, Some(x)))
+                    let hit = ref_slot.as_ref().map(|_| (index, *at));
+                    (path, label, (x, plot.top + VALUE_ROW / 2.0, Some(x)), hit)
                 }
             };
             out.strokes.push(path);
@@ -541,7 +569,7 @@ impl Annotations {
                 (_, y, Some(x)) => (x + 3.0, y, Anchor::Start),
             };
             out.boxes.push(value_box(x, y, fit.metrics.w, anchor));
-            out.labels.push((x, y, fit.text, anchor));
+            out.labels.push((x, y, fit.text, anchor, hit));
         }
         out
     }
@@ -556,18 +584,23 @@ impl Annotations {
             boxes: Vec::new(),
         };
         let room = (plot.right - plot.left) / 3.0;
-        for a in &spec.annotations {
-            let (path, label, at) = match a {
+        for (index, a) in spec.annotations.iter().enumerate() {
+            let (path, label, at, hit) = match a {
                 Annotation::Rule { value, label } => {
                     let x = plot.x(*value);
                     let path = vec![Seg::Move(x, plot.top), Seg::Line(x, plot.bottom)];
-                    (path, label, (x, plot.top + VALUE_ROW / 2.0, true))
+                    (path, label, (x, plot.top + VALUE_ROW / 2.0, true), None)
                 }
-                Annotation::Mark { at, label } => {
+                Annotation::Mark {
+                    at,
+                    label,
+                    ref_slot,
+                } => {
                     let y = plot.center(*at);
                     let mut path = Vec::new();
                     segment(&mut path, plot.left, y, plot.right, y);
-                    (path, label, (plot.right, y - VALUE_ROW / 2.0, false))
+                    let hit = ref_slot.as_ref().map(|_| (index, *at));
+                    (path, label, (plot.right, y - VALUE_ROW / 2.0, false), hit)
                 }
             };
             out.strokes.push(path);
@@ -581,7 +614,7 @@ impl Annotations {
                 (x, y, false) => (x, y, Anchor::End),
             };
             out.boxes.push(value_box(x, y, fit.metrics.w, anchor));
-            out.labels.push((x, y, fit.text, anchor));
+            out.labels.push((x, y, fit.text, anchor, hit));
         }
         out
     }
@@ -596,7 +629,12 @@ impl Annotations {
         for path in self.strokes {
             b.stroke(path, dashed, None);
         }
-        for (x, y, text, anchor) in self.labels {
+        for ((x, y, text, anchor, hit), bx) in self.labels.into_iter().zip(self.boxes) {
+            // A ref-bearing mark is reached by its label: its line runs the
+            // plot's height, and a hit there would take every bar's clicks.
+            if let Some((index, at)) = hit.filter(|_| !text.is_empty()) {
+                b.hit_mark(rect(bx[0], bx[1], bx[2] - bx[0], bx[3] - bx[1]), at, index);
+            }
             b.text(
                 x,
                 y,

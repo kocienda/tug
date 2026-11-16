@@ -241,27 +241,33 @@ pub fn log(opts: LogOptions) -> Result<LogReport, String> {
 // ---------------------------------------------------------------------------
 
 /// Lines added and deleted on one committer day (`YYYY-MM-DD`), and how many
-/// commits landed on it.
+/// commits landed on it, by their short shas in log order (newest first).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DayStat {
     pub day: String,
     pub added: u64,
     pub deleted: u64,
     pub commits: u32,
+    pub shas: Vec<String>,
 }
 
 /// Lines added and deleted under one path, and how many commits touched it.
+/// `is_file` says the group is one file rather than a directory: a file whose
+/// path is its own prefix formed it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PathStat {
     pub path: String,
     pub added: u64,
     pub deleted: u64,
     pub commits: u32,
+    pub is_file: bool,
 }
 
-/// One commit of a numstat read: its committer day and each file it changed.
+/// One commit of a numstat read: its short sha, its committer day and each
+/// file it changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NumstatCommit {
+    sha: String,
     day: String,
     files: Vec<NumstatFile>,
 }
@@ -298,23 +304,25 @@ pub fn numstat_by_path(
     ))
 }
 
-/// The same read as the lines each commit changed, newest first. A commit that
-/// changed no lines, such as a merge, says nothing about size and has no entry.
+/// The same read as each commit's short sha and the lines it changed, newest
+/// first. A commit that changed no lines, such as a merge, says nothing about
+/// size and has no entry.
 pub fn numstat_by_commit(
     repo_root: &Path,
     days: u32,
     path: Option<&str>,
-) -> Result<Vec<u64>, String> {
+) -> Result<Vec<(String, u64)>, String> {
     Ok(read_numstat_log(repo_root, days, path)?
-        .iter()
+        .into_iter()
         .map(|commit| {
-            commit
+            let lines: u64 = commit
                 .files
                 .iter()
                 .map(|file| file.added + file.deleted)
-                .sum()
+                .sum();
+            (commit.sha, lines)
         })
-        .filter(|lines| *lines > 0)
+        .filter(|(_, lines)| *lines > 0)
         .collect())
 }
 
@@ -327,7 +335,7 @@ fn read_numstat_log(
     let mut args = vec![
         "log",
         since.as_str(),
-        "--format=%x01%cs",
+        "--format=%x01%h %cs",
         "--numstat",
         "HEAD",
     ];
@@ -338,16 +346,18 @@ fn read_numstat_log(
     Ok(parse_numstat_log(&records))
 }
 
-/// Parse the records of `git log -z --format=%x01%cs --numstat`: a
-/// `\x01`-prefixed record opens a commit's day and the numstat records after
-/// it are its files, the first of them led by a newline. A binary file's `-`
-/// counts 0, and a renamed file counts under where it ended up.
+/// Parse the records of `git log -z --format='%x01%h %cs' --numstat`: a
+/// `\x01`-prefixed record opens a commit as its short sha and its day, and
+/// the numstat records after it are its files, the first of them led by a
+/// newline. A binary file's `-` counts 0, and a renamed file counts under
+/// where it ended up.
 fn parse_numstat_log(records: &[String]) -> Vec<NumstatCommit> {
-    let mut commits: Vec<(&str, Vec<String>)> = Vec::new();
+    let mut commits: Vec<(&str, &str, Vec<String>)> = Vec::new();
     for record in records {
-        if let Some(day) = record.strip_prefix('\u{1}') {
-            commits.push((day, Vec::new()));
-        } else if let Some((_, rows)) = commits.last_mut() {
+        if let Some(head) = record.strip_prefix('\u{1}') {
+            let (sha, day) = head.split_once(' ').unwrap_or((head, ""));
+            commits.push((sha, day, Vec::new()));
+        } else if let Some((_, _, rows)) = commits.last_mut() {
             let row = if rows.is_empty() {
                 record.strip_prefix('\n').unwrap_or(record)
             } else {
@@ -358,7 +368,8 @@ fn parse_numstat_log(records: &[String]) -> Vec<NumstatCommit> {
     }
     commits
         .into_iter()
-        .map(|(day, rows)| NumstatCommit {
+        .map(|(sha, day, rows)| NumstatCommit {
+            sha: sha.to_string(),
             day: day.to_string(),
             files: git::parse_numstat_records(&rows)
                 .into_iter()
@@ -380,8 +391,10 @@ fn sum_by_day(commits: &[NumstatCommit]) -> Vec<DayStat> {
             added: 0,
             deleted: 0,
             commits: 0,
+            shas: Vec::new(),
         });
         stat.commits += 1;
+        stat.shas.push(commit.sha.clone());
         for file in &commit.files {
             stat.added += file.added;
             stat.deleted += file.deleted;
@@ -409,7 +422,9 @@ fn group_by_depth(commits: &[NumstatCommit], depth: usize) -> Vec<PathStat> {
                 added: 0,
                 deleted: 0,
                 commits: 0,
+                is_file: false,
             });
+            stat.is_file |= prefix == file.path;
             stat.added += file.added;
             stat.deleted += file.deleted;
             if seen.insert(prefix) {
@@ -548,7 +563,7 @@ mod tests {
 
     fn numstat_fixture() -> Vec<String> {
         numstat_records(
-            "\u{1}2026-10-29\0\n1\t2\ta/b/x.rs\x003\t4\ta/c/y.rs\0\u{1}2026-10-29\0\n5\t6\ta/b/z.rs\0-\t-\tb/logo.png\0\u{1}2026-10-28\0\n7\t0\tREADME.md\0",
+            "\u{1}aaa1111 2026-10-29\0\n1\t2\ta/b/x.rs\x003\t4\ta/c/y.rs\0\u{1}bbb2222 2026-10-29\0\n5\t6\ta/b/z.rs\0-\t-\tb/logo.png\0\u{1}ccc3333 2026-10-28\0\n7\t0\tREADME.md\0",
         )
     }
 
@@ -563,12 +578,14 @@ mod tests {
                     added: 7,
                     deleted: 0,
                     commits: 1,
+                    shas: vec!["ccc3333".to_string()],
                 },
                 DayStat {
                     day: "2026-10-29".to_string(),
                     added: 9,
                     deleted: 12,
                     commits: 2,
+                    shas: vec!["aaa1111".to_string(), "bbb2222".to_string()],
                 },
             ]
         );
@@ -576,8 +593,12 @@ mod tests {
 
     #[test]
     fn numstat_log_counts_a_binary_file_as_zero() {
-        let commits = parse_numstat_log(&numstat_records("\u{1}2026-10-29\0\n-\t-\tlogo.png\0"));
+        let commits = parse_numstat_log(&numstat_records(
+            "\u{1}abc1234 2026-10-29\0\n-\t-\tlogo.png\0",
+        ));
         assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].sha, "abc1234");
+        assert_eq!(commits[0].day, "2026-10-29");
         assert_eq!(
             commits[0].files,
             vec![NumstatFile {
@@ -591,10 +612,12 @@ mod tests {
     #[test]
     fn numstat_log_counts_a_rename_where_it_ended_up_and_keeps_an_empty_commit() {
         let commits = parse_numstat_log(&numstat_records(
-            "\u{1}2026-10-30\0\u{1}2026-10-29\0\n2\t1\t\0old/f.rs\0new/f.rs\x003\t0\tg.rs\0",
+            "\u{1}d4d4d4d 2026-10-30\0\u{1}e5e5e5e 2026-10-29\0\n2\t1\t\0old/f.rs\0new/f.rs\x003\t0\tg.rs\0",
         ));
         assert_eq!(commits.len(), 2);
         assert!(commits[0].files.is_empty());
+        assert_eq!(commits[0].sha, "d4d4d4d");
+        assert_eq!(commits[1].sha, "e5e5e5e");
         assert_eq!(
             commits[1].files,
             vec![
@@ -638,6 +661,20 @@ mod tests {
                 ("b/logo.png".to_string(), 0, 1),
             ]
         );
+        // A group is a file exactly when a file's path is its own prefix.
+        let files = |stats: Vec<PathStat>| -> Vec<(String, bool)> {
+            stats.into_iter().map(|s| (s.path, s.is_file)).collect()
+        };
+        assert_eq!(
+            files(group_by_depth(&commits, 1)),
+            vec![
+                ("a".to_string(), false),
+                ("README.md".to_string(), true),
+                ("b".to_string(), false),
+            ]
+        );
+        assert!(files(group_by_depth(&commits, 2)).contains(&("b/logo.png".to_string(), true)));
+        assert!(files(group_by_depth(&commits, 2)).contains(&("a/b".to_string(), false)));
     }
 
     #[test]
@@ -667,6 +704,17 @@ mod tests {
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].commits, 4);
         assert_eq!(days[0].added, 6);
+        // The day carries its commits, newest first, as `git log` spells them.
+        let head = git::listing(root, &["log", "-1", "--format=%h"]).expect("head sha");
+        assert_eq!(days[0].shas.len(), 4);
+        assert_eq!(days[0].shas[0], head[0].trim());
+        let sized = numstat_by_commit(root, 1, None).expect("by commit");
+        // `move` changed no lines and has no entry; the rest read newest first.
+        assert_eq!(sized.len(), 3);
+        assert_eq!(sized[0].0, head[0].trim());
+        assert_eq!(sized[0].1, 1);
+        assert_eq!(sized[1].1, 4);
+        assert_eq!(sized[2].1, 1);
     }
 
     #[test]

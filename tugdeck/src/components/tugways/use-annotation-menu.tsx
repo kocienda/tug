@@ -367,12 +367,20 @@ export function useAnnotationMenu({
     });
   }, [cardId]);
 
+  // A joined arc's Open Join Commit reaches here too: its commit is the join's
+  // squash, so the same open serves both kinds.
   const handleOpenAnnotatedCommit = useCallback((): ActionHandlerResult => {
     const payload = contextAnnotationRef.current;
-    if (payload === null || payload.kind !== "commit-sha") return;
+    if (payload === null) return;
+    const target =
+      payload.kind === "commit-sha"
+        ? { root: payload.root, sha: payload.sha }
+        : payload.kind === "arc" && payload.joinSha !== undefined
+          ? { root: payload.root, sha: payload.joinSha }
+          : null;
+    if (target === null) return;
     dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
-      root: payload.root,
-      sha: payload.sha,
+      ...target,
       ...(cardId !== null ? { originCardId: cardId } : {}),
     });
   }, [cardId]);
@@ -483,9 +491,13 @@ export function useAnnotationMenu({
   // entity, and a highlight that names less than the menu does is a lie about
   // what the gesture is about to do. Handing the element back is what lets
   // the surface select all of it instead.
+  // A chart mark is an SVG path with no text to select, so it hands back
+  // nothing and the selection is left alone.
   const wholeEntityTarget = useCallback(
-    (event: MouseEvent): HTMLElement | null =>
-      annotationFromEvent(event)?.element ?? null,
+    (event: MouseEvent): HTMLElement | null => {
+      const element = annotationFromEvent(event)?.element;
+      return element instanceof HTMLElement ? element : null;
+    },
     [],
   );
 

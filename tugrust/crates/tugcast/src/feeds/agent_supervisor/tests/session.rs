@@ -1025,6 +1025,91 @@ async fn resolve_sessions_refuses_a_malformed_payload_and_answers_an_empty_one()
     assert!(response["unknown"].as_array().expect("array").is_empty());
 }
 
+/// `resolve_arcs { project_dir, names }` reads the project's arc log and
+/// answers every asked name in exactly one of `found` and `missing`: a live
+/// arc, a joined arc with its squash sha, and a discarded arc or a name the
+/// log never held as missing.
+#[tokio::test]
+async fn resolve_arcs_answers_found_and_missing_in_one_frame() {
+    let (sup, _ledger, mut rx) = make_supervisor_with_ledger();
+    let repo = tempfile::tempdir().expect("tempdir");
+    let paths = tugcore::instance::Paths::from_env();
+    let root = repo.path();
+    for (arc, marker, note) in [
+        ("still-open", "arc-start", "arc/still-open-brief.md"),
+        ("landed", "arc-start", "arc/landed-brief.md"),
+        ("landed", "302d43b5d1", "joined via card"),
+        ("thrown-away", "arc-start", "arc/thrown-away-brief.md"),
+        ("thrown-away", "discarded", ""),
+    ] {
+        tugarc_core::log::append_arc_log(&paths, root, arc, marker, note)
+            .expect("append a scratch arc log line");
+    }
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "resolve_arcs",
+        "project_dir": root.to_str().unwrap(),
+        "names": ["still-open", "landed", "thrown-away", "never-was"],
+    }))
+    .unwrap();
+    sup.handle_control("resolve_arcs", &payload, 10)
+        .await
+        .expect_handled();
+
+    let response = drain_until_action(&mut rx, "resolve_arcs_ok");
+    assert_eq!(response["project_dir"], root.to_str().unwrap());
+    assert_eq!(
+        response["found"],
+        serde_json::json!([
+            { "name": "still-open", "fate": "live" },
+            { "name": "landed", "fate": "joined", "join_sha": "302d43b5d1" },
+        ]),
+        "response: {response}"
+    );
+    assert_eq!(
+        response["missing"],
+        serde_json::json!(["thrown-away", "never-was"]),
+        "response: {response}"
+    );
+}
+
+/// A malformed `resolve_arcs` is answered as `resolve_arcs_err` rather than
+/// left unanswered, and a project with no arc log answers every name missing.
+#[tokio::test]
+async fn resolve_arcs_refuses_a_malformed_payload_and_answers_a_logless_project() {
+    let (sup, _ledger, mut rx) = make_supervisor_with_ledger();
+    let bad = serde_json::to_vec(&serde_json::json!({
+        "action": "resolve_arcs",
+        "names": ["x"],
+    }))
+    .unwrap();
+    sup.handle_control("resolve_arcs", &bad, 10)
+        .await
+        .expect_handled();
+    let refusal = drain_until_action(&mut rx, "resolve_arcs_err");
+    assert!(
+        refusal["message"]
+            .as_str()
+            .expect("a message")
+            .contains("project_dir"),
+        "refusal: {refusal}"
+    );
+
+    let repo = tempfile::tempdir().expect("tempdir");
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "action": "resolve_arcs",
+        "project_dir": repo.path().to_str().unwrap(),
+        "names": ["anything"],
+    }))
+    .unwrap();
+    sup.handle_control("resolve_arcs", &payload, 10)
+        .await
+        .expect_handled();
+    let response = drain_until_action(&mut rx, "resolve_arcs_ok");
+    assert_eq!(response["found"], serde_json::json!([]));
+    assert_eq!(response["missing"], serde_json::json!(["anything"]));
+}
+
 /// `list_card_bindings` reports `is_alive: true` for a session
 /// whose subprocess entry in the in-memory ledger is in the
 /// `Spawning` or `Live` state. This is the third signal the client

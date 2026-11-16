@@ -17,6 +17,7 @@ use crate::commits::{labels, week_axis};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_back, clip_front,
 };
+use crate::refs::{RefBudget, arc_ref, commit_ref, is_sha, session_slot, set_slots};
 
 /// A weekly bucket needs weeks to show, so its chart reads a quarter.
 const DEFAULT_ARCS_DAYS: u32 = 90;
@@ -31,6 +32,8 @@ struct SpanRow {
     start_ms: u64,
     end_ms: u64,
     status: Option<&'static str>,
+    /// What the row links: a stage its session, a step its round's commit.
+    reference: Option<String>,
 }
 
 /// A stage as the chart names it: the log's `devise` reads `Devise`.
@@ -59,6 +62,7 @@ fn stage_rows(timeline: &ArcTimeline, now_ms: u64) -> Vec<SpanRow> {
                 .or(timeline.done_at_ms)
                 .unwrap_or(now_ms),
             status: None,
+            reference: stage.session.as_deref().and_then(session_slot),
         })
         .collect()
 }
@@ -76,6 +80,11 @@ fn step_rows(timeline: &ArcTimeline, now_ms: u64) -> Vec<SpanRow> {
                 .as_deref()
                 .map(|title| format!("{number} {}", title.replace('`', "")))
                 .unwrap_or(number);
+            let reference = step
+                .commit
+                .as_deref()
+                .filter(|sha| is_sha(sha))
+                .map(commit_ref);
             step.spans.iter().map(move |span| SpanRow {
                 label: label.clone(),
                 start_ms: span.start_ms,
@@ -87,6 +96,7 @@ fn step_rows(timeline: &ArcTimeline, now_ms: u64) -> Vec<SpanRow> {
                     // An earlier span of a step reopened and still open.
                     (Some(_), None) => None,
                 },
+                reference: reference.clone(),
             })
         })
         .collect();
@@ -138,6 +148,9 @@ fn arc_chart(name: &str, timeline: &ArcTimeline, now_ms: u64) -> Option<ArcChart
             item.insert("end".to_string(), json!(secs(row.end_ms).max(start)));
             if let Some(status) = row.status {
                 item.insert("status".to_string(), json!(status));
+            }
+            if let Some(reference) = &row.reference {
+                item.insert("ref".to_string(), json!(reference));
             }
             Value::Object(item)
         })
@@ -229,11 +242,36 @@ struct WeekCounts {
     discarded: u32,
 }
 
+/// The arcs started, joined and discarded in one bucket, by name and in log
+/// order; the counts are their lengths.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ArcEvents {
+    started: Vec<String>,
+    joined: Vec<String>,
+    discarded: Vec<String>,
+}
+
+impl ArcEvents {
+    fn counts(&self) -> WeekCounts {
+        WeekCounts {
+            started: self.started.len() as u32,
+            joined: self.joined.len() as u32,
+            discarded: self.discarded.len() as u32,
+        }
+    }
+
+    fn extend(&mut self, other: &ArcEvents) {
+        self.started.extend(other.started.iter().cloned());
+        self.joined.extend(other.joined.iter().cloned());
+        self.discarded.extend(other.discarded.iter().cloned());
+    }
+}
+
 /// What the log says happened on each local day from `since`, which is what
 /// a weekly bucket is then read from.
-fn arc_events(log: &str, since: NaiveDate) -> BTreeMap<NaiveDate, WeekCounts> {
-    let mut days: BTreeMap<NaiveDate, WeekCounts> = BTreeMap::new();
-    for (timestamp, _, marker, note) in log.lines().filter_map(split_log_line) {
+fn arc_events(log: &str, since: NaiveDate) -> BTreeMap<NaiveDate, ArcEvents> {
+    let mut days: BTreeMap<NaiveDate, ArcEvents> = BTreeMap::new();
+    for (timestamp, name, marker, note) in log.lines().filter_map(split_log_line) {
         let started = marker == "arc-start";
         if !started && !is_terminal(marker, note) {
             continue;
@@ -245,13 +283,13 @@ fn arc_events(log: &str, since: NaiveDate) -> BTreeMap<NaiveDate, WeekCounts> {
         if day < since {
             continue;
         }
-        let counts = days.entry(day).or_default();
+        let events = days.entry(day).or_default();
         if started {
-            counts.started += 1;
+            events.started.push(name.to_string());
         } else if marker == "discarded" || marker == "released" {
-            counts.discarded += 1;
+            events.discarded.push(name.to_string());
         } else {
-            counts.joined += 1;
+            events.joined.push(name.to_string());
         }
     }
     days
@@ -264,29 +302,47 @@ struct ArcsChart {
     totals: WeekCounts,
 }
 
-/// Arcs per week as a stacked bar, empty weeks included. `None` when nothing
-/// happened in the window.
-fn arcs_chart(days: &BTreeMap<NaiveDate, WeekCounts>, subtitle: &str) -> Option<ArcsChart> {
+/// Arcs per week as a stacked bar, empty weeks included, each series carrying
+/// the arcs it counted in `refs`. `None` when nothing happened in the window.
+fn arcs_chart(days: &BTreeMap<NaiveDate, ArcEvents>, subtitle: &str) -> Option<ArcsChart> {
     let (axis, _) = week_axis(days.keys().copied());
     if axis.is_empty() {
         return None;
     }
-    let mut weeks = vec![WeekCounts::default(); axis.len()];
-    let mut totals = WeekCounts::default();
-    for (day, counts) in days {
+    let mut weeks = vec![ArcEvents::default(); axis.len()];
+    let mut totals = ArcEvents::default();
+    for (day, events) in days {
         let Some(week) = axis.iter().rposition(|start| start <= day) else {
             continue;
         };
-        for slot in [&mut weeks[week], &mut totals] {
-            slot.started += counts.started;
-            slot.joined += counts.joined;
-            slot.discarded += counts.discarded;
-        }
+        weeks[week].extend(events);
+        totals.extend(events);
     }
-    let read = |pick: fn(&WeekCounts) -> u32| -> Vec<u32> { weeks.iter().map(pick).collect() };
+    let mut budget = RefBudget::new();
+    let mut series = |name: &str, pick: fn(&ArcEvents) -> &Vec<String>, role: Option<&str>| {
+        let values: Vec<usize> = weeks.iter().map(|w| pick(w).len()).collect();
+        let buckets: Vec<Vec<String>> = weeks
+            .iter()
+            .map(|w| pick(w).iter().map(|name| arc_ref(name)).collect())
+            .collect();
+        let refs = set_slots("arc", buckets, &mut budget);
+        let mut s = Map::new();
+        s.insert("name".to_string(), json!(name));
+        s.insert("values".to_string(), json!(values));
+        s.insert("refs".to_string(), json!(refs));
+        if let Some(role) = role {
+            s.insert("role".to_string(), json!(role));
+        }
+        Value::Object(s)
+    };
+    let drawn = vec![
+        series("started", |w| &w.started, None),
+        series("joined", |w| &w.joined, Some("good")),
+        series("discarded", |w| &w.discarded, Some("bad")),
+    ];
     Some(ArcsChart {
         weeks: axis.len(),
-        totals,
+        totals: totals.counts(),
         spec: json!({
             "tugchart": 1,
             "form": "bar",
@@ -296,11 +352,7 @@ fn arcs_chart(days: &BTreeMap<NaiveDate, WeekCounts>, subtitle: &str) -> Option<
             "unit": "arcs",
             "format": "int",
             "categories": labels(&axis),
-            "series": [
-                { "name": "started", "values": read(|w| w.started) },
-                { "name": "joined", "values": read(|w| w.joined), "role": "good" },
-                { "name": "discarded", "values": read(|w| w.discarded), "role": "bad" },
-            ],
+            "series": drawn,
         }),
     })
 }
@@ -382,6 +434,7 @@ fn arc_stages_chart(arcs: &[(String, ArcTimeline)]) -> Option<Value> {
         .iter()
         .map(|(name, _)| clip_back(name, MAX_LABEL))
         .collect();
+    let refs: Vec<String> = arcs.iter().map(|(name, _)| arc_ref(name)).collect();
     Some(json!({
         "tugchart": 1,
         "form": "bar",
@@ -392,6 +445,7 @@ fn arc_stages_chart(arcs: &[(String, ArcTimeline)]) -> Option<Value> {
         "format": "secs",
         "categories": categories,
         "series": series,
+        "refs": refs,
     }))
 }
 
@@ -454,10 +508,20 @@ mod tests {
     fn spans_run_from_the_first_stage_and_steps_read_by_how_they_ended() {
         let log = [
             line(0, "a", "arc-start", "brief.md"),
-            line(10, "a", "arc-stage", "devise s1 opus"),
-            line(70, "a", "arc-stage", "implement s2 -"),
+            line(
+                10,
+                "a",
+                "arc-stage",
+                "devise 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90 opus",
+            ),
+            line(
+                70,
+                "a",
+                "arc-stage",
+                "implement 1a2b3c4d-9b27-4c1d-8e36-5a7f2d4b6c91 -",
+            ),
             line(80, "a", "step-start", "1/3 Step 1: First"),
-            line(100, "a", "step-done", "1/3 aaa"),
+            line(100, "a", "step-done", "1/3 aaa1111"),
             line(110, "a", "step-start", "2/3 Step 2: Second"),
             line(120, "a", "step-withdrawn", "2/3"),
             line(130, "a", "step-start", "3/3"),
@@ -473,12 +537,14 @@ mod tests {
         assert_eq!(chart.total, 3);
         assert_eq!(chart.finished, 1);
         assert_eq!(chart.spec["title"], "Arc a: 3 steps, 2h46m");
+        // A stage links the session it was seated on, a done step its round's
+        // commit; a session id the spec cannot name (`s3`) links nothing.
         assert_eq!(
             chart.spec["items"],
             json!([
-                { "label": "Devise", "start": 0.0, "end": 60.0 },
-                { "label": "Implement", "start": 60.0, "end": 140.0 },
-                { "label": "1/3 First", "start": 70.0, "end": 90.0, "status": "good" },
+                { "label": "Devise", "start": 0.0, "end": 60.0, "ref": "session:0f3c1e5a" },
+                { "label": "Implement", "start": 60.0, "end": 140.0, "ref": "session:1a2b3c4d" },
+                { "label": "1/3 First", "start": 70.0, "end": 90.0, "status": "good", "ref": "commit:aaa1111" },
                 { "label": "2/3 Second", "start": 100.0, "end": 110.0, "status": "bad" },
                 { "label": "3/3", "start": 120.0, "end": 9989.0, "status": "accent" },
                 { "label": "Audit", "start": 140.0, "end": 190.0 },
@@ -607,6 +673,13 @@ mod tests {
         assert_eq!(series[2]["name"], "discarded");
         assert_eq!(series[2]["role"], "bad");
         assert_eq!(series[2]["values"], json!([0, 0, 2]));
+        // Each series carries the arcs it counted, per week.
+        assert_eq!(
+            series[0]["refs"],
+            json!([["arc:a", "arc:b"], null, "arc:c"])
+        );
+        assert_eq!(series[1]["refs"], json!(["arc:a", null, "arc:d"]));
+        assert_eq!(series[2]["refs"], json!([null, null, ["arc:b", "arc:c"]]));
         assert!(arcs_chart(&BTreeMap::new(), "s").is_none());
     }
 
@@ -639,6 +712,7 @@ mod tests {
         assert_eq!(spec["series"][0]["values"], json!([30.0, 120.0]));
         assert_eq!(spec["series"][1]["name"], "Audit");
         assert_eq!(spec["series"][1]["values"], json!([0.0, 10.0]));
+        assert_eq!(spec["refs"], json!(["arc:left", "arc:done"]));
         assert!(arc_stages_chart(&[]).is_none());
     }
 

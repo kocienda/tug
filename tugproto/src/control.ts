@@ -37,6 +37,7 @@ export const CONTROL_ACTIONS = [
   "arc_run",
   "arc_stop",
   "unbind_arc",
+  "resolve_arcs",
 
   // Supervisor: changesets, landings and joins.
   "changeset_git_init",

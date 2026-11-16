@@ -36,6 +36,8 @@ import {
 } from "@/lib/annotator/commit-resolution";
 import { makeReferenceResolver } from "@/lib/annotator/resolve-reference";
 import { resolveSessionRef } from "@/lib/annotator/session-resolution";
+import { REFUTED_ARC, resolveArcRef } from "@/lib/annotator/arc-resolution";
+import { arcCitationStore } from "@/lib/arc-citation-store";
 import { VerdictBatcher } from "@/lib/annotator/verdict-batching";
 import { sessionCitationStore } from "@/lib/session-citation-store";
 
@@ -119,6 +121,13 @@ export function useAnnotationContextFor({
     () => (sha: string) => commits?.lookup(sha) ?? NO_COMMIT_VERDICT,
     [commits],
   );
+  // An arc lives in its project's arc log, so a surface with no project has
+  // no log to ask and refutes every name rather than leaving it pending.
+  const resolveArc = useMemo(
+    () => (name: string) =>
+      projectDir === null ? REFUTED_ARC : resolveArcRef(projectDir, name),
+    [projectDir],
+  );
   // Verdicts arrive asynchronously, long after the ink they belong to was
   // painted. They travel as batched notifications, not as context identity:
   // consumers subscribe and re-mark only the containers still awaiting an
@@ -128,6 +137,7 @@ export function useAnnotationContextFor({
     const sources = [
       pathResolutionStore,
       sessionCitationStore,
+      arcCitationStore,
       names,
       commits,
     ].filter((source): source is NonNullable<typeof source> => source !== null);
@@ -146,6 +156,7 @@ export function useAnnotationContextFor({
       resolvePath,
       resolveCommit,
       resolveSession: resolveSessionRef,
+      resolveArc,
       commitRoot: projectDir,
       ...(withAtomRoots ? { atomPathRoots } : {}),
       ...(unanswerable ? { unanswerable } : {}),
@@ -158,6 +169,7 @@ export function useAnnotationContextFor({
       isKnownSlashCommand,
       resolvePath,
       resolveCommit,
+      resolveArc,
       projectDir,
       withAtomRoots,
       atomPathRoots,

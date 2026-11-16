@@ -21,13 +21,21 @@
  *     their faces, with a 3 s deadline, after which whatever face is present
  *     is measured.
  *  5. Run the measure protocol at the host's width, read once.
- *  6. Build the figure off-document: the block header (title, Copy, a Table
- *     toggle), the SVG, and the `<table>` alternative built with
- *     `textContent`; the remembered view; the entrance attribute. The header
- *     is the title's one home, so the SVG is compiled without it, and an
- *     untitled chart wears quiet chrome with no placeholder word.
- *     A chart's marks read their row of that table on hover (`chart-hover`).
+ *  6. Build the figure off-document: the block header (title, Copy, a link
+ *     glyph when the chart carries refs, a Table toggle), the SVG, and the
+ *     `<table>` alternative built with `textContent`; the remembered view;
+ *     the entrance attribute. The header is the title's one home, so the SVG
+ *     is compiled without it, and an untitled chart wears quiet chrome with
+ *     no placeholder word. A chart's marks read their row of that table on
+ *     hover (`chart-hover`), and each mark carries its effective ref on its
+ *     hit path, so a mark links as its Table atom does and a set mark opens
+ *     its list (`chart-ref-set`).
  *  7. Replace the host's children in one write and set `rendered`.
+ *  8. With the surface's annotation context, annotate the figure: a chart's
+ *     refs, drawn as atoms in its Table view, are resolved through the one
+ *     gate every reference passes, and a diagram's locations are checked.
+ *     The surface hears of it through `CHART_ANNOTATED_EVENT`, which is how
+ *     a confirmed atom gets its pill or chip.
  *
  * Colour and type never appear here: the SVG carries role classes and
  * `chart-block.css` maps them to tokens, which is what lets a theme switch
@@ -60,16 +68,33 @@
  * @module lib/chart/render-chart
  */
 
+import { annotateElement } from "@/lib/annotator/annotate-content";
+import {
+  NO_SCAN_ATTR,
+  REF_ATTR,
+  REF_KIND_ATTR,
+  REF_LABEL_ATTR,
+  REF_ROW_ATTR,
+  REF_SET_ATTR,
+} from "@/lib/annotator/chart-refs";
+import type { AnnotationContext } from "@/lib/annotator/types";
+import { CHART_ANNOTATED_EVENT, setChartFigureData } from "@/lib/chart/chart-figure-data";
 import { attachChartHover, endChartHoverIn } from "@/lib/chart/chart-hover";
 import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded, runMeasureLoop } from "@/lib/chart/chart-measure";
+import { attachRefLight } from "@/lib/chart/chart-ref-light";
+import { attachRefSets, closeRefSetIn } from "@/lib/chart/chart-ref-set";
 import { recallChartView, rememberChartView, type ChartView } from "@/lib/chart/chart-view-memory";
+import { effectiveRef, foldItemSlots, isActionableSet, slotKind, slotLabel, type RefTarget } from "@/lib/chart/chart-table-refs";
 import { isDiagramSource, keyedRows } from "@/lib/chart/keyed-table";
 import { textHash } from "@/lib/ingest/text-hash";
 import {
   getTuggraphicsSync,
   loadTuggraphics,
   type ChartLayers,
+  type ChartMarkRef,
+  type ChartRefSlot,
   type ChartTable,
+  type ChartTableRefs,
   type TuggraphicsEngine,
 } from "@/lib/lazy/load-tuggraphics";
 import { buildBlockHeader, buildCopyButton, buildFoldButton } from "@/lib/markdown/enhance-block-chrome";
@@ -104,6 +129,9 @@ export const DIAGRAM_CHECKED_ATTR = "data-tugx-where-checked";
 /** The width a thumbnail is laid out at, before CSS scales it to its host. */
 export const THUMBNAIL_LAYOUT_WIDTH = 480;
 
+/** The figure's record and its annotated event, which the set list shares. */
+export { CHART_ANNOTATED_EVENT, chartFigureData, type ChartFigureData } from "@/lib/chart/chart-figure-data";
+
 /** How long a chart waits for the engine before showing the source as code. */
 export const ENGINE_DEADLINE_MS = 10_000;
 
@@ -121,6 +149,13 @@ export interface RenderChartOptions {
   layers?: ChartLayers;
   /** Draw the figure alone, scaled to its host and still. */
   thumbnail?: boolean;
+  /**
+   * The surface's annotation context. Given, a rendered figure is annotated
+   * with it — a chart's refs resolved and stamped, a diagram's locations
+   * checked — and {@link CHART_ANNOTATED_EVENT} is dispatched on it. A
+   * thumbnail is never annotated: it is not meant to be read.
+   */
+  annotation?: AnnotationContext;
 }
 
 /** The source hashes that have entered on this page, oldest first. */
@@ -270,6 +305,77 @@ function buildTableIcon(): SVGSVGElement {
   return svg;
 }
 
+/** Lucide `Link` (24×24 viewBox), in the chrome's stroke style. */
+function buildLinkIcon(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  for (const d of [
+    "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71",
+    "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  ]) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+/**
+ * The header's link glyph: the resting sign that this figure links
+ * somewhere, shown only once the annotation pass has confirmed a ref or
+ * found an actionable set (`data-tugx-chart-linked`, CSS reveals it). A
+ * press shows the Table view, where every link is an atom; it presses the
+ * Table toggle itself, so the toggle's state, its label and the view memory
+ * all move together. In the Table view already, it does nothing more.
+ */
+function buildLinksButton(figure: HTMLElement, toggle: HTMLButtonElement): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tugx-md-chrome-btn tugx-chart-links";
+  button.setAttribute("aria-label", "Show links as table");
+  button.appendChild(buildLinkIcon());
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (figure.getAttribute(CHART_VIEW_ATTR) !== "table") toggle.click();
+  });
+  return button;
+}
+
+/**
+ * Write each mark's effective ref (Spec S03) on its hit path, so the
+ * annotation pass stamps a mark exactly as it stamps a Table atom, and a set
+ * mark opens its list ([P07]). A mark whose ref is its row's says so, which
+ * is what lights the row's label rule.
+ */
+function markHits(body: HTMLElement, refs: ChartTableRefs): void {
+  for (const hit of body.querySelectorAll<SVGElement>(".tgh[data-row]")) {
+    const col = hit.getAttribute("data-col");
+    const item = hit.getAttribute("data-item");
+    const mark = hit.getAttribute("data-mark");
+    const row = Number(hit.getAttribute("data-row"));
+    const target: RefTarget = {
+      row,
+      ...(col === null ? {} : { col: Number(col) }),
+      ...(item === null ? {} : { item: Number(item) }),
+      ...(mark === null ? {} : { mark: Number(mark) }),
+    };
+    const slot = effectiveRef(refs, target);
+    if (slot === null) continue;
+    if (typeof slot === "string") hit.setAttribute(REF_ATTR, slot);
+    else if (isActionableSet(slot)) {
+      hit.setAttribute(REF_SET_ATTR, "");
+      hit.setAttribute(REF_KIND_ATTR, slotKind(slot));
+    } else continue;
+    if (Object.is(slot, refs.rows[row] ?? null)) hit.setAttribute(REF_ROW_ATTR, String(row));
+  }
+}
+
 /**
  * The Table toggle, built in the block chrome's style. It flips the
  * figure's view attribute and writes the choice to the view memory; CSS
@@ -296,35 +402,118 @@ function buildViewToggle(figure: HTMLElement, hash: string): HTMLButtonElement {
   return button;
 }
 
-/** The table alternative, every cell written with `textContent`. */
+/**
+ * One ref slot drawn as an atom, appended after its cell's own text, which
+ * is left as it is ([P04]).
+ *
+ *  - A single ref is a `.tugx-chart-ref` host carrying the ref. The
+ *    annotation pass stamps it when the ref resolves, and it stays plain
+ *    text when it does not.
+ *  - A set with members is a `.tugx-chart-set` button reading `57 commits`;
+ *    its members are read from the figure's table when it is pressed.
+ *  - A count form reads the same and offers nothing: no role, no focus, no
+ *    act, so it makes no promise it cannot keep ([L31]).
+ *
+ * `address` says where in the table the slot lives (`row:3`, `cell:3:2`,
+ * `col:2`, `items:3`, `mark:0`), which is how a press finds the members.
+ */
+function buildRefAtom(slot: ChartRefSlot, address: string, row: number | null): HTMLSpanElement {
+  const span = document.createElement("span");
+  const label = slotLabel(slot);
+  span.textContent = label;
+  span.setAttribute(REF_LABEL_ATTR, label);
+  span.setAttribute("data-tugx-ref-at", address);
+  if (row !== null) span.setAttribute(REF_ROW_ATTR, String(row));
+  if (typeof slot === "string") {
+    span.className = "tugx-chart-ref";
+    span.setAttribute(REF_ATTR, slot);
+    return span;
+  }
+  span.className = "tugx-chart-set";
+  span.setAttribute(REF_KIND_ATTR, slotKind(slot));
+  if (isActionableSet(slot)) {
+    span.setAttribute(REF_SET_ATTR, "");
+    span.setAttribute("role", "button");
+    span.tabIndex = 0;
+  }
+  return span;
+}
+
+/** Append `slot`'s atom to `cell` when there is one. */
+function appendAtom(cell: HTMLElement, slot: ChartRefSlot | null | undefined, address: string, row: number | null): void {
+  if (slot === null || slot === undefined) return;
+  cell.appendChild(buildRefAtom(slot, address, row));
+}
+
+/**
+ * The table alternative, every cell written with `textContent`, and the
+ * atoms of whatever its refs name appended after the text they stand
+ * beside. The table is read only through those refs: it carries
+ * `data-tugx-no-scan`, so the prose scan never reads a clipped label as a
+ * path ([P05]).
+ */
 function buildTable(table: ChartTable): HTMLTableElement {
+  const refs = table.refs;
   const el = document.createElement("table");
   el.className = "tugx-chart-table";
+  el.setAttribute(NO_SCAN_ATTR, "");
   const caption = document.createElement("caption");
   caption.textContent = table.caption;
   el.appendChild(caption);
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const cell of table.head) {
+  table.head.forEach((cell, j) => {
     const th = document.createElement("th");
     th.scope = "col";
     th.textContent = cell;
+    if (j > 0) appendAtom(th, refs?.cols[j], `col:${j}`, null);
     headRow.appendChild(th);
-  }
+  });
   thead.appendChild(headRow);
   el.appendChild(thead);
   const tbody = document.createElement("tbody");
-  for (const row of table.rows) {
+  table.rows.forEach((row, i) => {
     const tr = document.createElement("tr");
-    for (const cell of row) {
+    row.forEach((cell, j) => {
       const td = document.createElement("td");
       td.textContent = cell;
+      if (j === 0) {
+        appendAtom(td, refs?.rows[i], `row:${i}`, i);
+        for (const folded of foldItemSlots(refs?.items[i])) appendAtom(td, folded, `items:${i}`, null);
+      } else {
+        appendAtom(td, refs?.cells[i]?.[j], `cell:${i}:${j}`, null);
+      }
       tr.appendChild(td);
-    }
+    });
     tbody.appendChild(tr);
-  }
+  });
   el.appendChild(tbody);
+  if (refs !== undefined && refs.marks.length > 0) {
+    el.appendChild(buildRefsFoot(refs.marks, Math.max(table.head.length, 2)));
+  }
   return el;
+}
+
+/**
+ * The mark annotations that carry a ref, one footer row each: the mark's
+ * label and its atom. A mark's label is drawn in the figure, not in a cell,
+ * so this is where the Table view reaches its ref.
+ */
+function buildRefsFoot(marks: readonly ChartMarkRef[], columns: number): HTMLTableSectionElement {
+  const foot = document.createElement("tfoot");
+  foot.className = "tugx-chart-refs-foot";
+  foot.setAttribute(NO_SCAN_ATTR, "");
+  for (const mark of marks) {
+    const tr = document.createElement("tr");
+    const label = document.createElement("td");
+    label.textContent = mark.label;
+    const atom = document.createElement("td");
+    atom.colSpan = columns - 1;
+    appendAtom(atom, mark.slot, `mark:${mark.index}`, null);
+    tr.append(label, atom);
+    foot.appendChild(tr);
+  }
+  return foot;
 }
 
 /**
@@ -406,6 +595,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   renders.set(el, token);
   const current = (): boolean => renders.get(el) === token;
   endChartHoverIn(el);
+  closeRefSetIn(el);
 
   el.classList.add(CHART_CLASS);
   el.removeAttribute(CHART_PENDING_ATTR);
@@ -491,7 +681,12 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
     buildCopyButton(() => source, diagram ? "Copy diagram source" : "Copy chart source"),
   ];
   const withTable = hasTable(round.table);
-  if (withTable && !diagram) actions.push(buildViewToggle(el, hash));
+  const refs = round.table.refs;
+  if (withTable && !diagram) {
+    const toggle = buildViewToggle(el, hash);
+    if (refs !== undefined) actions.push(buildLinksButton(el, toggle));
+    actions.push(toggle);
+  }
   let identity: HTMLElement | null = null;
   if (round.table.caption !== "") {
     identity = document.createElement("span");
@@ -509,6 +704,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   // that width to hold the figure at a size its text can be read at ([L06]).
   if (diagram) body.style.setProperty(DIAGRAM_NATURAL_WIDTH_PROPERTY, `${round.width}px`);
   if (withTable) attachChartHover(body, round.table);
+  if (refs !== undefined) markHits(body, refs);
 
   const children: Node[] = [header, body];
   if (withTable) children.push(diagram ? buildKeyedTable(round.table) : buildTable(round.table));
@@ -517,4 +713,39 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   el.removeAttribute(COLLAPSED_ATTR);
   el.replaceChildren(...children);
   el.setAttribute(CHART_STATE_ATTR, "rendered");
+  setChartFigureData(el, { table: round.table, context: options.annotation });
+  if (refs !== undefined) {
+    attachRefSets(el);
+    attachRefLight(el);
+  }
+  annotateFigure(el, options.annotation, diagram);
+}
+
+/**
+ * Annotate a figure that has just landed, with the surface's context.
+ *
+ * A chart's refs are resolved and stamped; a diagram's keyed table names
+ * where each mark is in the code, and its locations are resolved the same
+ * way. The table was written after the surface's own annotation pass ran over
+ * the placeholder, so the figure is annotated again here, and the pass files
+ * what it consulted, so a verdict that lands later re-marks it.
+ *
+ * A diagram's table says a resolver was asked (`DIAGRAM_CHECKED_ATTR`),
+ * which is what lets a location nobody confirmed wear its "unresolved" mark,
+ * only where one could answer. On a page with nobody to ask
+ * (`unanswerable`, the share page) every location would wear the mark, so
+ * there the table shows each location as written.
+ *
+ * Then {@link CHART_ANNOTATED_EVENT} goes out, in a microtask: the surface
+ * fills the hosts this pass marked with their portals, and a render that
+ * finished inside React's commit would otherwise announce from within it.
+ * A microtask still runs before the paint.
+ */
+function annotateFigure(el: HTMLElement, annotation: AnnotationContext | undefined, diagram: boolean): void {
+  if (annotation === undefined || !el.isConnected) return;
+  if (diagram && annotation.unanswerable !== true) el.setAttribute(DIAGRAM_CHECKED_ATTR, "");
+  annotateElement(el, annotation);
+  queueMicrotask(() => {
+    if (el.isConnected) el.dispatchEvent(new CustomEvent(CHART_ANNOTATED_EVENT, { bubbles: true }));
+  });
 }

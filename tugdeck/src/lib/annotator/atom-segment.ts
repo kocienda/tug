@@ -36,7 +36,7 @@ import {
  * distinguishing by. A URL that will not parse falls back to itself, which is
  * honest rather than clever.
  */
-function linkAtomLabel(url: string): string {
+export function linkAtomLabel(url: string): string {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -110,6 +110,8 @@ export function atomSegmentFor(payload: AnnotationPayload): AtomSegment | null {
       value: payload.sha,
     };
   }
+  // An arc has no atom type: it inserts as its text, `arc:<name>`, which is
+  // the spelling the prose scan reads back.
   return null;
 }
 

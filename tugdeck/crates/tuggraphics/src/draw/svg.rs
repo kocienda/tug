@@ -83,6 +83,9 @@ pub fn render_svg(p: &Program, opts: &RenderOpts) -> String {
             // A file has nothing to show on hover, and no stylesheet.
             Item::Hit(hit) if opts.standalone.is_none() => write_hit(&mut body, hit),
             Item::Hit(_) => {}
+            // Nor any stylesheet to reveal a label's rule with.
+            Item::Rule(rule) if opts.standalone.is_none() => write_rule(&mut body, rule),
+            Item::Rule(_) => {}
         }
     }
 
@@ -208,6 +211,12 @@ fn write_hit(out: &mut String, hit: &HitOp) {
     if let Some(col) = hit.col {
         let _ = write!(out, " data-col=\"{col}\"");
     }
+    if let Some(item) = hit.item {
+        let _ = write!(out, " data-item=\"{item}\"");
+    }
+    if let Some(mark) = hit.mark {
+        let _ = write!(out, " data-mark=\"{mark}\"");
+    }
     out.push_str("/>\n");
     if !hit.cross.is_empty() {
         let _ = writeln!(
@@ -216,6 +225,16 @@ fn write_hit(out: &mut String, hit: &HitOp) {
             path_d(&hit.cross)
         );
     }
+}
+
+/// A row label's rule, hidden until the deck marks the row's ref live.
+fn write_rule(out: &mut String, rule: &RuleOp) {
+    let _ = writeln!(
+        out,
+        "<path class=\"tgl tgs-ink\" d=\"{}\" fill=\"none\" stroke-width=\"1\" visibility=\"hidden\" pointer-events=\"none\" data-row=\"{}\"/>",
+        path_d(&rule.path),
+        rule.row
+    );
 }
 
 fn write_text(out: &mut String, t: &TextOp) {

@@ -124,5 +124,6 @@ pub fn table(spec: &Spec) -> ChartTable {
         caption: spec.title.clone(),
         head,
         rows,
+        refs: Default::default(),
     }
 }

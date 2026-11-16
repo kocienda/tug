@@ -34,6 +34,8 @@ pub struct DayUsage {
     pub cache_read_tokens: i64,
     pub cache_creation_tokens: i64,
     pub cost_usd: f64,
+    /// The distinct sessions that took those turns, in the order first met.
+    pub sessions: Vec<String>,
 }
 
 /// One model family for every way a model is named: `opus` and
@@ -73,7 +75,8 @@ const TURNS_SQL: &str = "
                CASE WHEN json_valid(CAST(m.payload AS TEXT))
                     THEN CAST(json_extract(CAST(m.payload AS TEXT), '$.model') AS TEXT)
                END
-           )
+           ),
+           t.session_id
     FROM turn_telemetry t
     JOIN sessions s ON s.session_id = t.session_id
     LEFT JOIN session_metadata m ON m.session_id = t.session_id
@@ -102,11 +105,14 @@ pub fn usage_from(conn: &Connection, project: &Path) -> Vec<DayUsage> {
                 r.get::<_, i64>(4)?,
                 r.get::<_, f64>(5)?,
                 r.get::<_, Option<String>>(6)?,
+                r.get::<_, String>(7)?,
             ))
         }) else {
             return Vec::new();
         };
-        for (ended_at, input, output, cache_read, cache_creation, cost, model) in rows.flatten() {
+        for (ended_at, input, output, cache_read, cache_creation, cost, model, session) in
+            rows.flatten()
+        {
             let Some(day) = local_day(ended_at) else {
                 continue;
             };
@@ -122,8 +128,12 @@ pub fn usage_from(conn: &Connection, project: &Path) -> Vec<DayUsage> {
                     cache_read_tokens: 0,
                     cache_creation_tokens: 0,
                     cost_usd: 0.0,
+                    sessions: Vec::new(),
                 });
             usage.turns += 1;
+            if !usage.sessions.contains(&session) {
+                usage.sessions.push(session);
+            }
             usage.input_tokens += input;
             usage.output_tokens += output;
             usage.cache_read_tokens += cache_read;
@@ -310,6 +320,11 @@ mod tests {
         assert_eq!(opus.cache_creation_tokens, 6);
         assert_eq!(opus.cache_read_tokens, 8);
         assert!((opus.cost_usd - 0.02).abs() < 1e-9);
+        // The day's sessions, each once however many turns it took.
+        let mut sessions = opus.sessions.clone();
+        sessions.sort();
+        assert_eq!(sessions, ["live", "staged"]);
+        assert_eq!(usage[3].sessions, ["live"]);
     }
 
     #[test]

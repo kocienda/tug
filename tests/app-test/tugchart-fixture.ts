@@ -63,18 +63,33 @@ export function chartMessage(spec: unknown, index: number, lang: string = "tugch
 /**
  * Launch the card, stream one message per spec, and wait until the turn has
  * ended and every chart on the page is `rendered` or `invalid`.
+ *
+ * `projectDir` binds the card to that project, which is the annotator's
+ * commit root; a fresh empty directory when not given. `message` composes
+ * each message's markdown in place of `chartMessage`, for a test whose
+ * prose has to say something beside the fence.
  */
 export async function launchWithCharts(
   testName: string,
   specs: readonly unknown[],
   lang: string = "tugchart",
+  projectDir?: string,
+  message: (spec: unknown, index: number, lang: string) => string = chartMessage,
 ): Promise<{ app: Launched["app"]; tugbankPath: string; page: ChartPage }> {
   const stubDir = stubDirectory();
   const { app, tugbankPath } = await launch(1, blobFor(1), testName, {
     resumeCards: [],
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
-  const stubs = await bindStreamingStubs(app, [CARD], stubDir, specs.length, 1, (i) => chartMessage(specs[i], i, lang));
+  const stubs = await bindStreamingStubs(
+    app,
+    [CARD],
+    stubDir,
+    specs.length,
+    1,
+    (i) => message(specs[i], i, lang),
+    projectDir,
+  );
   await startStreams(app, stubs);
   const page = app.body(CARD);
   await page.waitForCondition<boolean>(

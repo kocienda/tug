@@ -26,7 +26,8 @@ import { ANNOTATION_CLASS, type AnnotationKind } from "./types";
 
 /** An annotation resolved from the DOM: the element and what it carries. */
 export interface ResolvedAnnotation {
-  element: HTMLElement;
+  /** An SVG element too: a chart mark's hit path carries an annotation. */
+  element: HTMLElement | SVGElement;
   payload: AnnotationPayload;
 }
 
@@ -61,7 +62,7 @@ export interface StampOptions {
  * the label the chip is drawn and found by.
  */
 export function stampAnnotation(
-  element: HTMLElement,
+  element: HTMLElement | SVGElement,
   payload: AnnotationPayload,
   options: StampOptions = {},
 ): void {
@@ -108,7 +109,7 @@ export function stampAnnotationKind(
  * Remove every trace of an annotation from `element`. Safe on an element
  * that never carried one.
  */
-export function clearAnnotation(element: HTMLElement): void {
+export function clearAnnotation(element: HTMLElement | SVGElement): void {
   if (element.dataset.tugAnnotation === undefined) return;
   element.classList.remove(ANNOTATION_CLASS);
   delete element.dataset.tugAnnotation;
@@ -126,7 +127,7 @@ export function clearAnnotation(element: HTMLElement): void {
  * annotation stamps no duplicate copy of a value the DOM is already
  * storing. This is where that asymmetry is resolved, once.
  */
-export function readAnnotation(element: HTMLElement): AnnotationPayload | null {
+export function readAnnotation(element: HTMLElement | SVGElement): AnnotationPayload | null {
   const kind = element.dataset.tugAnnotation as AnnotationKind | undefined;
   if (kind === undefined) return null;
   const record: AnnotationDataset = {};
@@ -153,7 +154,7 @@ export function annotationFromEvent(
 ): ResolvedAnnotation | null {
   const target = event.target;
   if (!(target instanceof Element)) return null;
-  const element = target.closest<HTMLElement>(`.${ANNOTATION_CLASS}`);
+  const element = target.closest<HTMLElement | SVGElement>(`.${ANNOTATION_CLASS}`);
   if (element === null) return null;
   const payload = readAnnotation(element);
   return payload === null ? null : { element, payload };

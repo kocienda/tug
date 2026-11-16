@@ -29,10 +29,10 @@ use crate::measure::{
 
 pub use format::Format;
 pub use spec::{
-    validate, ChartError, Layers, Source, Spec, DIAGRAM_IN_CHART_FENCE, LAYER0_IN_FENCE,
-    MAX_SERIES, NOT_A_DIAGRAM,
+    validate, ChartError, Layers, Source, Spec, DIAGRAM_IN_CHART_FENCE, LAYER0_IN_FENCE, MAX_REFS,
+    MAX_SERIES, MAX_SET, NOT_A_DIAGRAM,
 };
-pub use table::ChartTable;
+pub use table::{ChartTable, MarkRef, RefSlot, TableRefs};
 
 /// How to compile: the width available, the prefix for the SVG's ids,
 /// whether entrances are written at all, which layers the door takes, and
@@ -134,7 +134,7 @@ pub enum Round {
         texts: Vec<(String, String)>,
         ink: Vec<(String, String)>,
     },
-    Done(Compiled),
+    Done(Box<Compiled>),
     Invalid {
         errors: Vec<ChartError>,
     },
@@ -197,6 +197,7 @@ fn drawing(mut program: Program, opts: &CompileOpts) -> Compiled {
                 Item::Group(g) => g.motion = None,
                 Item::End => {}
                 Item::Hit(_) => {}
+                Item::Rule(_) => {}
             }
         }
     }
@@ -265,14 +266,16 @@ fn diagram_finish(spec: &diagram::Spec, laid: diagram::Laid, opts: &CompileOpts)
 pub fn compile_round(source: &str, opts: &CompileOpts, table: &MeasureTable) -> Round {
     match validate(source, opts.layers) {
         Err(errors) => Round::Invalid { errors },
-        Ok(Source::Draw(program)) => Round::Done(drawing(program, opts)),
+        Ok(Source::Draw(program)) => Round::Done(Box::new(drawing(program, opts))),
         Ok(Source::Chart(spec)) => match measure_round(table, |m| layout(&spec, opts, m)) {
-            RoundOutcome::Done(program) => Round::Done(finish(&spec, &program, opts)),
+            RoundOutcome::Done(program) => Round::Done(Box::new(finish(&spec, &program, opts))),
             RoundOutcome::Measure(requests) => measure(requests),
         },
         Ok(Source::Diagram(spec)) => {
             match measure_round(table, |m| diagram_layout(&spec, opts, m)) {
-                RoundOutcome::Done(laid) => Round::Done(diagram_finish(&spec, laid, opts)),
+                RoundOutcome::Done(laid) => {
+                    Round::Done(Box::new(diagram_finish(&spec, laid, opts)))
+                }
                 RoundOutcome::Measure(requests) => measure(requests),
             }
         }

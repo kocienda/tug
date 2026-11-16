@@ -27,6 +27,9 @@ import { ANNOTATION_CLASS } from "./types";
 /** Marks an element this pass created, rather than the renderer. */
 export const WRAPPED_ATTRIBUTE = "data-tugx-wrapped";
 
+/** A subtree the text scan does not read: a chart's table, refs footer and set list. */
+export const NO_SCAN_ATTRIBUTE = "data-tugx-no-scan";
+
 /** The namespace prose lives in. Everything else is a drawing. */
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 
@@ -75,6 +78,12 @@ export interface TextRunMatch {
  *    width it was measured at — an empty atom chip. An atom is a placed
  *    value the host already speaks for; the mark belongs on that host, not
  *    inside the drawing of it.
+ *  - anything marked `data-tugx-no-scan` — a chart's table, its refs footer
+ *    and its set list. A chart says what its rows are about in typed refs,
+ *    which the resolver gates on their own (`chart-refs.ts`); its labels are
+ *    clipped, abbreviated display text, and a run of one read as a path is
+ *    wrong or a near miss. A ref host not yet confirmed carries no
+ *    annotation class, so without this its text would be claimed too.
  *
  * Every collected node is scanned the same way. Whether the text sits
  * inside a `<code>` span decides how it is *painted*, never whether it is
@@ -94,6 +103,7 @@ export function collectTextNodes(root: HTMLElement): Text[] {
       if (element.namespaceURI !== HTML_NAMESPACE) continue;
       if (element.tagName === "A" || element.tagName === "PRE") continue;
       if (element.classList.contains(ANNOTATION_CLASS)) continue;
+      if (element.hasAttribute(NO_SCAN_ATTRIBUTE)) continue;
       visit(element);
     }
   };

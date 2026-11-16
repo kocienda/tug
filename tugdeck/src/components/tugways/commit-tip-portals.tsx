@@ -82,8 +82,13 @@ import { useSpanPortals } from "@/components/tugways/use-span-portals";
 import type { CommitFacts } from "@/lib/annotator/commit-resolution";
 import type { AnnotationContext } from "@/lib/annotator/types";
 
-/** Every confirmed commit span the annotator has marked in a container. */
-const COMMIT_SPANS = '[data-tug-annotation="commit-sha"]';
+/**
+ * Every confirmed commit span the annotator has marked in a container. A chart
+ * mark (`.tgh`) is excluded: it is an SVG `<path>`, which must never host a
+ * portal — emptying it would take the mark's hit area, and HTML inside an SVG
+ * paints nothing.
+ */
+const COMMIT_SPANS = '[data-tug-annotation="commit-sha"]:not(.tgh)';
 
 /**
  * Which form a confirmed run takes — the pill, or the characters somebody

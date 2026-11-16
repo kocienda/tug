@@ -99,6 +99,15 @@
    absent from the `code` lists for the older reason: nothing classifies inline
    code as a commit.
 
+   `arc` is a wrapped run only: the annotator splits `arc:<name>` out of
+   prose and nothing mounts into it, so it is characters and takes the rule
+   a confirmed path takes.
+
+   `.tugx-chart-ref` is a chart's ref drawn as an atom in its Table view. It
+   is a whole element, not a run, so it is not `[data-tugx-wrapped]`; the run
+   kinds take the same rule a prose run does. A commit and a session hold a
+   pill and a chip there, as in prose, so they are not listed.
+
    It comes BACK on one surface, and the qualifier is the whole of the
    exception: the session row's two prose runs — the description line, and
    the Observer's post on the account run under it — draw a confirmed sha as
@@ -117,6 +126,13 @@
    @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"],
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"],
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="arc"],
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="file-path"],
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="directory"],
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="url"],
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="slash-command"],
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="shell-command"],
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="arc"],
 .tug-session-row-description
   [data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"],
 .session-identity-activity-post
@@ -140,6 +156,13 @@ code.tugx-annotation[data-tug-annotation="shell-command"],
    @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="file-path"]:hover,
 [data-tugx-wrapped].tugx-annotation[data-tug-annotation="directory"]:hover,
+[data-tugx-wrapped].tugx-annotation[data-tug-annotation="arc"]:hover,
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="file-path"]:hover,
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="directory"]:hover,
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="url"]:hover,
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="slash-command"]:hover,
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="shell-command"]:hover,
+.tugx-chart-ref.tugx-annotation[data-tug-annotation="arc"]:hover,
 .tug-session-row-description
   [data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"]:hover,
 .session-identity-activity-post
@@ -149,6 +172,28 @@ code.tugx-annotation[data-tug-annotation="directory"]:hover,
 code.tugx-annotation[data-tug-annotation="slash-command"]:hover,
 code.tugx-annotation[data-tug-annotation="shell-command"]:hover {
   color: var(--tugx-md-link-color-hover);
+  text-decoration: var(--tugx-md-link-decoration);
+}
+
+/* A lit annotation wears the hover face without the pointer: the light
+   (`chart-ref-light.ts`) marks every annotation in a message that names
+   what the hovered one names, so a prose mention of a file lights when its
+   chart mark is read, and the reverse. Same specificity as the rest rules
+   above, later in the file, so the light wins on every host they style.
+
+   @tug-renders-on: the surrounding surface's own background */
+.tugx-annotation[data-tug-annotation][data-tugx-ref-lit] {
+  color: var(--tugx-md-link-color-hover);
+  text-decoration: var(--tugx-md-link-decoration);
+}
+
+/* @tug-renders-on: the host surface's own background */
+.tugx-annotation[data-tug-annotation][data-tugx-ref-lit] > .tug-atom-ref {
+  color: var(--tugx-md-link-color-hover);
+}
+
+/* @tug-renders-on: the host surface's own background */
+.tugx-annotation[data-tug-annotation][data-tugx-ref-lit] > .tug-atom-ref > .tug-atom-ref-label {
   text-decoration: var(--tugx-md-link-decoration);
 }
 

@@ -243,12 +243,24 @@ pub struct GroupOp {
 /// column when one value in that row is the one pointed at. The chart forms
 /// write these; the drawing language has no spelling for one, so a drawing has
 /// no hover. `cross` is a line the deck shows while the region is hovered.
+/// `item` is a dot's index within its row, and `mark` a mark annotation's
+/// index, for the deck to find the region's ref by.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HitOp {
     pub path: Vec<Seg>,
     pub row: usize,
     pub col: Option<usize>,
+    pub item: Option<usize>,
+    pub mark: Option<usize>,
     pub cross: Vec<Seg>,
+}
+
+/// A hidden 1 px rule under a row's label, for the deck to reveal when the
+/// row's ref is confirmed. Like a hit, only the chart forms write one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuleOp {
+    pub path: Vec<Seg>,
+    pub row: usize,
 }
 
 /// One item of a validated program, in paint order.
@@ -259,6 +271,7 @@ pub enum Item {
     Group(GroupOp),
     End,
     Hit(HitOp),
+    Rule(RuleOp),
 }
 
 /// A validated layer 0 program.

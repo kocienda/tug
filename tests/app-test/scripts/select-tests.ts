@@ -538,7 +538,15 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // Both of the tests declaring this subtree, `at0225` over the
     // slash-command menu and `at0307` over transcript path links, assert
     // exactly that, so the declaration already names its true subject.
-    "tugdeck/src/lib/annotator/": 21,
+    //
+    // Raised to 24 for three modules that are one unit with the rest for the
+    // same reason: `detect-arc-ref.ts` and `arc-resolution.ts`, which make an
+    // `arc:<name>` in prose a mark the arc log confirms, and `chart-refs.ts`,
+    // which resolves a chart's refs through the same resolvers and stamps the
+    // same annotation contract. Each is observable only as an annotation on
+    // ink: whether a run or an atom is a live link. Raised in place, which
+    // trips the refinance rule until it is committed.
+    "tugdeck/src/lib/annotator/": 24,
 
     // Raised from 30 for `hooks/use-session-fields.ts`, which is not new
     // reach: it is the store's own field selector, the one door every session

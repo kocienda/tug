@@ -2256,7 +2256,12 @@ impl AgentSupervisor {
                 self.handle_session_control(action, payload, client_id)
                     .await
             }
-            A::BindArc | A::ArcResume | A::ArcRun | A::ArcStop | A::UnbindArc => {
+            A::BindArc
+            | A::ArcResume
+            | A::ArcRun
+            | A::ArcStop
+            | A::UnbindArc
+            | A::ResolveArcs => {
                 self.handle_arc_control(action, payload).await
             }
             A::ChangesetGitInit

@@ -113,6 +113,7 @@ import {
 } from "@/lib/annotator/annotate-content";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { useAnnotationScope } from "@/components/tugways/annotation-scope";
+import { CHART_ANNOTATED_EVENT } from "@/lib/chart/render-chart";
 import {
   renderIncremental,
   renderIncrementalFromBlocks,
@@ -537,6 +538,21 @@ const MarkdownBlockBody: React.FC<
       announceAnnotated(target, onAnnotatedRef.current, false);
     });
   }, [annotation]);
+
+  // A chart figure in this block annotates itself once it has landed, and a
+  // set list opening or closing changes its hosts too; either says so with
+  // `CHART_ANNOTATED_EVENT`. Re-announcing the whole container is what gives
+  // a ref confirmed on the first pass its pill without waiting for a verdict
+  // batch, and drops a closed list's hosts, since a portal hook replaces its
+  // mount list with what it finds. [L03] registered before any gesture;
+  // [L27] removed by the cleanup.
+  React.useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    const onChartAnnotated = (): void => announceAnnotated(el, onAnnotatedRef.current, false);
+    el.addEventListener(CHART_ANNOTATED_EVENT, onChartAnnotated);
+    return () => el.removeEventListener(CHART_ANNOTATED_EVENT, onChartAnnotated);
+  }, []);
 
   return (
     <div

@@ -1,6 +1,7 @@
 //! The arc family of CONTROL actions: `bind_arc`, `arc_resume`, `arc_run`,
 //! `arc_stop`, and `unbind_arc` — a card's mating to an arc and the
-//! transport presses that start, resume, and stop it.
+//! transport presses that start, resume, and stop it — and `resolve_arcs`,
+//! the read that says which arc names a project's log holds.
 
 use super::super::*;
 use tugcast_core::ControlAction;
@@ -43,6 +44,63 @@ pub(in crate::feeds::agent_supervisor) fn parse_bind_arc_payload(
         tug_session_id,
         project_dir,
         arc,
+    })
+}
+
+/// A `resolve_arcs` request: the project whose arc log to read, and the arc
+/// names to answer for. The error is the message `resolve_arcs_err` carries.
+fn parse_resolve_arcs_payload(payload: &[u8]) -> Result<(String, Vec<String>), String> {
+    /// The most names one request may ask after.
+    const MAX_NAMES: usize = 512;
+    let value: serde_json::Value = serde_json::from_slice(payload)
+        .map_err(|_| "resolve_arcs payload is not valid JSON".to_owned())?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "resolve_arcs payload is missing project_dir".to_owned())?
+        .to_owned();
+    let names = value
+        .get("names")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "resolve_arcs payload is missing names".to_owned())?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .take(MAX_NAMES)
+        .map(str::to_owned)
+        .collect();
+    Ok((project_dir, names))
+}
+
+/// The `resolve_arcs_ok` body for `names` over an arc log's text: each asked
+/// name in exactly one of `found` and `missing`, with a joined arc's squash
+/// sha beside its fate.
+fn resolve_arcs_body(project_dir: &str, names: &[String], log_text: &str) -> serde_json::Value {
+    let fates = tugarc_core::log::arc_fates(log_text);
+    let mut found = Vec::new();
+    let mut missing = Vec::new();
+    for name in names {
+        match fates.get(name) {
+            Some(tugarc_core::log::ArcFate::Live) => {
+                found.push(serde_json::json!({ "name": name, "fate": "live" }));
+            }
+            Some(tugarc_core::log::ArcFate::Joined { sha }) => {
+                found.push(serde_json::json!({
+                    "name": name,
+                    "fate": "joined",
+                    "join_sha": sha,
+                }));
+            }
+            None => missing.push(name.clone()),
+        }
+    }
+    serde_json::json!({
+        "action": "resolve_arcs_ok",
+        "project_dir": project_dir,
+        "found": found,
+        "missing": missing,
     })
 }
 
@@ -99,6 +157,26 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            // A malformed ask is answered in its own vocabulary rather than
+            // as a router error, so the deck's store can settle every name it
+            // was holding pending instead of waiting on a reply that never
+            // comes.
+            ControlAction::ResolveArcs => match parse_resolve_arcs_payload(payload) {
+                Ok((project_dir, names)) => {
+                    self.do_resolve_arcs(project_dir, names).await;
+                    Ok(())
+                }
+                Err(message) => {
+                    send_control(
+                        &self.control_tx,
+                        serde_json::json!({
+                            "action": "resolve_arcs_err",
+                            "message": message,
+                        }),
+                    );
+                    Ok(())
+                }
+            },
             _ => return ControlOutcome::PassThrough,
         };
 
@@ -106,6 +184,32 @@ impl AgentSupervisor {
             Ok(()) => ControlOutcome::Handled,
             Err(e) => ControlOutcome::Error(e),
         }
+    }
+
+    /// Answer "which of these arc names does this project's log hold, and
+    /// what became of each?" — the read behind an `arc:` reference.
+    ///
+    /// An arc's existence is recorded only in the project's arc log, which
+    /// the deck cannot read, so the deck asks here, the way it asks
+    /// `resolve_sessions` about a cited session. A missing log is not an
+    /// error: it answers every name missing, because a project that never
+    /// ran an arc holds none. The read walks a file, so it runs off the
+    /// reactor.
+    async fn do_resolve_arcs(&self, project_dir: String, names: Vec<String>) {
+        let read_dir = project_dir.clone();
+        let text = tokio::task::spawn_blocking(move || {
+            let path = tugtool_core::paths::arc_log_path_at(
+                &Paths::from_env(),
+                std::path::Path::new(&read_dir),
+            );
+            std::fs::read_to_string(path).unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default();
+        send_control(
+            &self.control_tx,
+            resolve_arcs_body(&project_dir, &names, &text),
+        );
     }
 
     /// Handle a `bind_arc` CONTROL request (Spec S03): mate a session to an

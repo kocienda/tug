@@ -39,6 +39,164 @@ pub const MAX_ROWS: usize = 40;
 /// The histogram's bin count range.
 pub const MIN_BINS: usize = 4;
 pub const MAX_BINS: usize = 40;
+/// At most this many refs in one set slot; past it a recipe writes the
+/// count form.
+pub const MAX_SET: usize = 100;
+/// At most this many refs across a spec: a single ref counts one, a set its
+/// members, a count form none.
+pub const MAX_REFS: usize = 800;
+/// The longest `file:`, `dir:` or `command:` value, in characters.
+const MAX_REF_TEXT: usize = 512;
+/// The longest `arc:` name, the arc log's own limit.
+const MAX_ARC_NAME: usize = 120;
+const REF_KINDS: &str = "commit, file, dir, session, arc, url or command";
+
+/// What a ref names: the prefix before its colon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefKind {
+    Commit,
+    File,
+    Dir,
+    Session,
+    Arc,
+    Url,
+    Command,
+}
+
+impl RefKind {
+    pub fn parse(s: &str) -> Option<RefKind> {
+        match s {
+            "commit" => Some(RefKind::Commit),
+            "file" => Some(RefKind::File),
+            "dir" => Some(RefKind::Dir),
+            "session" => Some(RefKind::Session),
+            "arc" => Some(RefKind::Arc),
+            "url" => Some(RefKind::Url),
+            "command" => Some(RefKind::Command),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            RefKind::Commit => "commit",
+            RefKind::File => "file",
+            RefKind::Dir => "dir",
+            RefKind::Session => "session",
+            RefKind::Arc => "arc",
+            RefKind::Url => "url",
+            RefKind::Command => "command",
+        }
+    }
+
+    /// Whether `value` is one this kind can name; the message says what one
+    /// is when it is not.
+    fn check(self, value: &str) -> Result<(), &'static str> {
+        let ok = match self {
+            RefKind::Commit => {
+                (4..=40).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit())
+            }
+            RefKind::File | RefKind::Dir | RefKind::Command => {
+                !value.is_empty()
+                    && !value.contains(['\n', '\r', '\0'])
+                    && value.chars().count() <= MAX_REF_TEXT
+            }
+            RefKind::Session => is_session_value(value),
+            RefKind::Arc => {
+                value.len() <= MAX_ARC_NAME
+                    && value.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit())
+                    && value
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            }
+            RefKind::Url => is_url_value(value),
+        };
+        if ok {
+            return Ok(());
+        }
+        Err(match self {
+            RefKind::Commit => "a commit ref is 4 to 40 hex characters",
+            RefKind::File => "a file ref is a path of 1 to 512 characters on one line",
+            RefKind::Dir => "a dir ref is a path of 1 to 512 characters on one line",
+            RefKind::Session => {
+                "a session ref is a project/callsign pair, an 8-character short id or a full uuid"
+            }
+            RefKind::Arc => {
+                "an arc ref is a name of lowercase letters, digits and hyphens, at most 120 characters"
+            }
+            RefKind::Url => "a url ref begins http:// or https:// and holds no space",
+            RefKind::Command => "a command ref is one line of 1 to 512 characters",
+        })
+    }
+}
+
+/// A `project/callsign` pair, an 8-hex short id, or a 36-character uuid.
+fn is_session_value(v: &str) -> bool {
+    let hex = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
+    if v.len() == 8 && hex(v) {
+        return true;
+    }
+    if v.len() == 36 {
+        let parts: Vec<&str> = v.split('-').collect();
+        if parts.iter().map(|p| p.len()).eq([8, 4, 4, 4, 12]) && parts.iter().all(|p| hex(p)) {
+            return true;
+        }
+    }
+    match v.split_once('/') {
+        Some((project, callsign)) => {
+            !project.is_empty()
+                && !callsign.is_empty()
+                && !callsign.contains('/')
+                && !v.chars().any(char::is_whitespace)
+        }
+        None => false,
+    }
+}
+
+fn is_url_value(v: &str) -> bool {
+    let rest = v
+        .strip_prefix("https://")
+        .or_else(|| v.strip_prefix("http://"));
+    rest.is_some_and(|r| !r.is_empty()) && !v.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// What a ref slot holds: one ref, a set of refs of one kind, or — past
+/// [`MAX_SET`] — how many there were. Serialized as the spec spells it, so
+/// the table hands the deck the same shapes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum RefSlot {
+    /// `"commit:63de5762a"`.
+    One(String),
+    /// `{"kind": "commit", "members": […]}`.
+    Set { kind: String, members: Vec<String> },
+    /// `{"kind": "commit", "count": 312}`.
+    Count { kind: String, count: u32 },
+}
+
+impl RefSlot {
+    /// How many refs the slot counts toward [`MAX_REFS`].
+    pub fn members(&self) -> usize {
+        match self {
+            RefSlot::One(_) => 1,
+            RefSlot::Set { members, .. } => members.len(),
+            RefSlot::Count { .. } => 0,
+        }
+    }
+
+    /// The slot's kind, as its prefix spells it.
+    pub fn kind(&self) -> &str {
+        match self {
+            RefSlot::One(r) => r.split_once(':').map_or(r.as_str(), |(k, _)| k),
+            RefSlot::Set { kind, .. } | RefSlot::Count { kind, .. } => kind,
+        }
+    }
+}
+
+/// How many members a parallel array of slots counts.
+fn slot_members(slots: &[Option<RefSlot>]) -> usize {
+    slots.iter().flatten().map(RefSlot::members).sum()
+}
 
 /// A spec error, addressed by JSON pointer: `""` is the spec itself,
 /// `/series/0/values/3` one value.
@@ -91,6 +249,10 @@ pub struct Series {
     pub name: String,
     pub values: Vec<Option<f64>>,
     pub role: ColourRole,
+    /// The series' own ref: its column's.
+    pub ref_slot: Option<RefSlot>,
+    /// A ref per value, or empty: the cells'.
+    pub refs: Vec<Option<RefSlot>>,
 }
 
 /// One series of a `scatter`: its `(x, y)` points in the order given.
@@ -99,6 +261,8 @@ pub struct ScatterSeries {
     pub name: String,
     pub points: Vec<(f64, f64)>,
     pub role: ColourRole,
+    /// A ref per point, or empty: each point's table row.
+    pub refs: Vec<Option<RefSlot>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,8 +276,12 @@ pub enum Highlight {
 pub enum Annotation {
     /// A level across the plot.
     Rule { value: f64, label: Option<String> },
-    /// A category or point, by index.
-    Mark { at: usize, label: Option<String> },
+    /// A category or point, by index, and what it names.
+    Mark {
+        at: usize,
+        label: Option<String>,
+        ref_slot: Option<RefSlot>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +321,9 @@ impl Dot {
 pub struct DotRow {
     pub label: String,
     pub items: Vec<Dot>,
+    pub ref_slot: Option<RefSlot>,
+    /// A ref per dot, or empty.
+    pub refs: Vec<Option<RefSlot>>,
 }
 
 /// One bar of a `spans` chart, from `start` to `end` on the shared axis.
@@ -164,6 +335,7 @@ pub struct SpanItem {
     pub start: f64,
     pub end: f64,
     pub status: Option<String>,
+    pub ref_slot: Option<RefSlot>,
 }
 
 impl SpanItem {
@@ -183,6 +355,7 @@ pub struct BulletItem {
     pub range: Option<(f64, f64)>,
     pub target: Option<f64>,
     pub history: Vec<Option<f64>>,
+    pub ref_slot: Option<RefSlot>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -192,10 +365,13 @@ pub enum Data {
         series: Vec<Series>,
         orient: Orient,
         stacked: bool,
+        /// A ref per category, or empty: the rows'.
+        refs: Vec<Option<RefSlot>>,
     },
     Line {
         x: Vec<String>,
         series: Vec<Series>,
+        refs: Vec<Option<RefSlot>>,
     },
     /// As `line`, filled to the baseline: translucent overlapping fills,
     /// or stacked ones.
@@ -203,6 +379,7 @@ pub enum Data {
         x: Vec<String>,
         series: Vec<Series>,
         stacked: bool,
+        refs: Vec<Option<RefSlot>>,
     },
     Sparkline {
         values: Vec<Option<f64>>,
@@ -216,6 +393,9 @@ pub enum Data {
     Histogram {
         values: Vec<f64>,
         bins: Option<usize>,
+        /// A single ref per sample (gaps dropped with their values), or
+        /// empty. A bin's row takes the union of its samples'.
+        refs: Vec<Option<String>>,
     },
     Spans {
         items: Vec<SpanItem>,
@@ -223,6 +403,7 @@ pub enum Data {
     Heat {
         categories: Vec<String>,
         values: Vec<Option<f64>>,
+        refs: Vec<Option<RefSlot>>,
     },
     Bullet {
         items: Vec<BulletItem>,
@@ -318,6 +499,73 @@ impl Spec {
             Data::Bullet { items } => rows(items.len(), 28.0, 40.0),
             Data::Scatter { .. } => (560.0, 280.0),
         }
+    }
+
+    /// Per table row, whether the row carries a ref of its own: the rows
+    /// whose drawn label gets the hidden rule the deck reveals.
+    pub fn ruled_rows(&self) -> Vec<bool> {
+        let rows = |slots: &[Option<RefSlot>]| slots.iter().map(Option::is_some).collect();
+        match &self.data {
+            Data::Bar { refs, .. }
+            | Data::Line { refs, .. }
+            | Data::Area { refs, .. }
+            | Data::Heat { refs, .. } => rows(refs),
+            Data::Dots { rows } => rows.iter().map(|r| r.ref_slot.is_some()).collect(),
+            Data::Spans { items } => items.iter().map(|i| i.ref_slot.is_some()).collect(),
+            Data::Bullet { items } => items.iter().map(|i| i.ref_slot.is_some()).collect(),
+            Data::Sparkline { .. } | Data::Histogram { .. } | Data::Scatter { .. } => Vec::new(),
+        }
+    }
+
+    /// How many refs the spec carries, counted as [`MAX_REFS`] counts them.
+    pub fn ref_members(&self) -> usize {
+        let series = |series: &[Series]| -> usize {
+            series
+                .iter()
+                .map(|s| s.ref_slot.as_ref().map_or(0, RefSlot::members) + slot_members(&s.refs))
+                .sum()
+        };
+        let data = match &self.data {
+            Data::Bar {
+                refs, series: s, ..
+            }
+            | Data::Line {
+                refs, series: s, ..
+            }
+            | Data::Area {
+                refs, series: s, ..
+            } => slot_members(refs) + series(s),
+            Data::Heat { refs, .. } => slot_members(refs),
+            Data::Histogram { refs, .. } => refs.iter().flatten().count(),
+            Data::Dots { rows } => rows
+                .iter()
+                .map(|r| r.ref_slot.as_ref().map_or(0, RefSlot::members) + slot_members(&r.refs))
+                .sum(),
+            Data::Spans { items } => items
+                .iter()
+                .filter_map(|i| i.ref_slot.as_ref())
+                .map(RefSlot::members)
+                .sum(),
+            Data::Bullet { items } => items
+                .iter()
+                .filter_map(|i| i.ref_slot.as_ref())
+                .map(RefSlot::members)
+                .sum(),
+            Data::Scatter { series, .. } => series.iter().map(|s| slot_members(&s.refs)).sum(),
+            Data::Sparkline { .. } => 0,
+        };
+        let marks: usize = self
+            .annotations
+            .iter()
+            .map(|a| match a {
+                Annotation::Mark {
+                    ref_slot: Some(slot),
+                    ..
+                } => slot.members(),
+                _ => 0,
+            })
+            .sum();
+        data + marks
     }
 }
 
@@ -559,13 +807,26 @@ impl Validator {
                 self.err(&base, "a series is an object {\"name\", \"values\"}");
                 continue;
             };
-            self.known_keys(s, &base, &["name", "values", "role"]);
+            self.known_keys(s, &base, &["name", "values", "role", "ref", "refs"]);
             let name = self
                 .opt_label(s, &base, "name")
                 .unwrap_or_else(|| format!("series {}", i + 1));
             let role = self.series_role(s, &base, i);
+            let ref_slot = self.opt_slot(s, &base, "ref");
             if let Some(values) = self.values(s.get("values"), &format!("{base}/values")) {
-                out.push(Series { name, values, role });
+                let refs = self.ref_array(
+                    s.get("refs"),
+                    values.len(),
+                    &format!("{base}/refs"),
+                    "values",
+                );
+                out.push(Series {
+                    name,
+                    values,
+                    role,
+                    ref_slot,
+                    refs,
+                });
             }
         }
         (self.errors.len() == before).then_some(out)
@@ -598,16 +859,27 @@ impl Validator {
                 .opt_label(s, &base, "name")
                 .unwrap_or_else(|| format!("series {}", i + 1));
             let role = self.series_role(s, &base, i);
-            if let Some(points) = self.points(s.get("points"), &format!("{base}/points")) {
-                out.push(ScatterSeries { name, points, role });
+            if let Some((points, refs)) = self.points(s.get("points"), &format!("{base}/points")) {
+                out.push(ScatterSeries {
+                    name,
+                    points,
+                    role,
+                    refs,
+                });
             }
         }
         (self.errors.len() == before).then_some(out)
     }
 
     /// An array of `{x, y}` objects, 1 to [`MAX_VALUES`] long. A point has
-    /// both numbers or it is not a point, so there is no gap to hold.
-    fn points(&mut self, value: Option<&Value>, path: &str) -> Option<Vec<(f64, f64)>> {
+    /// both numbers or it is not a point, so there is no gap to hold. The
+    /// points' refs come beside them, empty when no point carries one.
+    #[allow(clippy::type_complexity)]
+    fn points(
+        &mut self,
+        value: Option<&Value>,
+        path: &str,
+    ) -> Option<(Vec<(f64, f64)>, Vec<Option<RefSlot>>)> {
         let Some(value) = value else {
             self.err(path, "points is required");
             return None;
@@ -622,13 +894,15 @@ impl Validator {
         }
         let before = self.errors.len();
         let mut out = Vec::with_capacity(items.len());
+        let mut refs = Vec::with_capacity(items.len());
         for (i, item) in items.iter().enumerate() {
             let base = format!("{path}/{i}");
             let Value::Object(p) = item else {
                 self.err(&base, "a point is an object {\"x\", \"y\"}");
                 continue;
             };
-            self.known_keys(p, &base, &["x", "y"]);
+            self.known_keys(p, &base, &["x", "y", "ref"]);
+            refs.push(self.opt_slot(p, &base, "ref"));
             let mut axis = |key: &str| match p.get(key) {
                 Some(n) => self.number(n, &format!("{base}/{key}"), key),
                 None => {
@@ -642,7 +916,10 @@ impl Validator {
                 out.push((x, y));
             }
         }
-        (self.errors.len() == before).then_some(out)
+        if refs.iter().all(Option::is_none) {
+            refs.clear();
+        }
+        (self.errors.len() == before).then_some((out, refs))
     }
 
     /// Every series has `n` values.
@@ -671,6 +948,210 @@ impl Validator {
         }
     }
 
+    /// One ref, `<kind>:<value>`.
+    fn one_ref(&mut self, value: &Value, path: &str) -> Option<(RefKind, String)> {
+        let Value::String(s) = value else {
+            self.err(path, "a ref is a string \"<kind>:<value>\"");
+            return None;
+        };
+        let Some((prefix, rest)) = s.split_once(':') else {
+            self.err(
+                path,
+                format!("a ref is \"<kind>:<value>\", with kind one of {REF_KINDS}"),
+            );
+            return None;
+        };
+        let Some(kind) = RefKind::parse(prefix) else {
+            self.err(
+                path,
+                format!("unknown ref kind \"{prefix}\": expected {REF_KINDS}"),
+            );
+            return None;
+        };
+        if let Err(message) = kind.check(rest) {
+            self.err(path, message);
+            return None;
+        }
+        Some((kind, s.clone()))
+    }
+
+    /// A slot: a ref, an array of 1 to [`MAX_SET`] refs of one kind (one
+    /// member reads as its ref), or `{"kind", "count"}`.
+    fn ref_slot(&mut self, value: &Value, path: &str) -> Option<RefSlot> {
+        match value {
+            Value::String(_) => self.one_ref(value, path).map(|(_, r)| RefSlot::One(r)),
+            Value::Array(items) => {
+                if items.is_empty() || items.len() > MAX_SET {
+                    self.err(path, format!("a set holds 1 to {MAX_SET} refs"));
+                    return None;
+                }
+                let before = self.errors.len();
+                let mut kind: Option<RefKind> = None;
+                let mut members = Vec::with_capacity(items.len());
+                for (i, item) in items.iter().enumerate() {
+                    let p = format!("{path}/{i}");
+                    let Some((k, r)) = self.one_ref(item, &p) else {
+                        continue;
+                    };
+                    match kind {
+                        Some(first) if first != k => self.err(
+                            &p,
+                            format!(
+                                "a set holds refs of one kind: \"{}\" among \"{}\"",
+                                k.name(),
+                                first.name()
+                            ),
+                        ),
+                        _ => kind = Some(k),
+                    }
+                    members.push(r);
+                }
+                if self.errors.len() != before {
+                    return None;
+                }
+                let kind = kind?;
+                if members.len() == 1 {
+                    return members.pop().map(RefSlot::One);
+                }
+                Some(RefSlot::Set {
+                    kind: kind.name().to_string(),
+                    members,
+                })
+            }
+            Value::Object(o) => {
+                self.known_keys(o, path, &["kind", "count"]);
+                let kind = match o.get("kind") {
+                    Some(Value::String(k)) => match RefKind::parse(k) {
+                        Some(kind) => Some(kind),
+                        None => {
+                            self.err(
+                                format!("{path}/kind"),
+                                format!("unknown ref kind \"{k}\": expected {REF_KINDS}"),
+                            );
+                            None
+                        }
+                    },
+                    _ => {
+                        self.err(
+                            format!("{path}/kind"),
+                            format!("a count's kind is one of {REF_KINDS}"),
+                        );
+                        None
+                    }
+                };
+                let count = match o.get("count").and_then(Value::as_u64) {
+                    Some(n) if n >= 1 && n <= u64::from(u32::MAX) => Some(n as u32),
+                    _ => {
+                        self.err(
+                            format!("{path}/count"),
+                            "a count is an integer of at least 1",
+                        );
+                        None
+                    }
+                };
+                Some(RefSlot::Count {
+                    kind: kind?.name().to_string(),
+                    count: count?,
+                })
+            }
+            _ => {
+                self.err(
+                    path,
+                    "a ref slot is a ref, an array of refs of one kind, or {\"kind\", \"count\"}",
+                );
+                None
+            }
+        }
+    }
+
+    /// An optional slot under `key`.
+    fn opt_slot(&mut self, obj: &Map<String, Value>, base: &str, key: &str) -> Option<RefSlot> {
+        obj.get(key)
+            .and_then(|v| self.ref_slot(v, &key_path(base, key)))
+    }
+
+    /// A parallel array of slots or nulls, `len` long, beside the `len`
+    /// entries of `of`. Absent, it is empty.
+    fn ref_array(
+        &mut self,
+        value: Option<&Value>,
+        len: usize,
+        path: &str,
+        of: &str,
+    ) -> Vec<Option<RefSlot>> {
+        let Some(value) = value else {
+            return Vec::new();
+        };
+        let Value::Array(items) = value else {
+            self.err(path, "refs is an array of ref slots or nulls");
+            return Vec::new();
+        };
+        if items.len() != len {
+            self.err(
+                path,
+                format!("refs has {} entries for {len} {of}", items.len()),
+            );
+            return Vec::new();
+        }
+        items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| match item {
+                Value::Null => None,
+                item => self.ref_slot(item, &format!("{path}/{i}")),
+            })
+            .collect()
+    }
+
+    /// A histogram's refs: a single ref or null per sample, all one kind. A
+    /// sample is one thing, so a set or a count is not a sample's.
+    fn sample_refs(&mut self, value: Option<&Value>, len: usize) -> Vec<Option<String>> {
+        let Some(value) = value else {
+            return Vec::new();
+        };
+        let Value::Array(items) = value else {
+            self.err("/refs", "refs is an array of refs or nulls");
+            return Vec::new();
+        };
+        if items.len() != len {
+            self.err(
+                "/refs",
+                format!("refs has {} entries for {len} values", items.len()),
+            );
+            return Vec::new();
+        }
+        let mut kind: Option<RefKind> = None;
+        let mut out = Vec::with_capacity(len);
+        for (i, item) in items.iter().enumerate() {
+            let p = format!("/refs/{i}");
+            match item {
+                Value::Null => out.push(None),
+                Value::String(_) => match self.one_ref(item, &p) {
+                    Some((k, r)) => {
+                        match kind {
+                            Some(first) if first != k => self.err(
+                                &p,
+                                format!(
+                                    "a histogram's refs are of one kind: \"{}\" among \"{}\"",
+                                    k.name(),
+                                    first.name()
+                                ),
+                            ),
+                            _ => kind = Some(k),
+                        }
+                        out.push(Some(r));
+                    }
+                    None => out.push(None),
+                },
+                _ => {
+                    self.err(&p, "a histogram sample's ref is a single ref");
+                    out.push(None);
+                }
+            }
+        }
+        out
+    }
+
     fn spec(&mut self, obj: &Map<String, Value>) -> Option<Spec> {
         if obj.get("tugchart").and_then(Value::as_u64) != Some(1) {
             self.err("/tugchart", "a chart spec starts with \"tugchart\": 1");
@@ -691,14 +1172,14 @@ impl Validator {
             }
         };
         let data_keys: &[&str] = match form.as_str() {
-            "bar" => &["categories", "series", "orient", "layout"],
-            "line" => &["x", "series"],
-            "area" => &["x", "series", "layout"],
+            "bar" => &["categories", "series", "orient", "layout", "refs"],
+            "line" => &["x", "series", "refs"],
+            "area" => &["x", "series", "layout", "refs"],
             "sparkline" => &["values", "highlight"],
             "dots" => &["rows"],
-            "histogram" => &["values", "bins"],
+            "histogram" => &["values", "bins", "refs"],
             "spans" => &["items"],
-            "heat" => &["categories", "values"],
+            "heat" => &["categories", "values", "refs"],
             "scatter" => &["series", "xunit", "xformat"],
             _ => &["items"],
         };
@@ -742,11 +1223,16 @@ impl Validator {
                         );
                     }
                 }
+                let refs = match &categories {
+                    Some(c) => self.ref_array(obj.get("refs"), c.len(), "/refs", "categories"),
+                    None => Vec::new(),
+                };
                 Data::Bar {
                     categories: categories?,
                     series: series?,
                     orient,
                     stacked,
+                    refs,
                 }
             }
             "line" | "area" => {
@@ -763,10 +1249,16 @@ impl Validator {
                         .collect(),
                 };
                 self.same_length(&series, x.len(), "x values");
+                let refs = self.ref_array(obj.get("refs"), x.len(), "/refs", "x values");
                 if form == "line" {
-                    Data::Line { x, series }
+                    Data::Line { x, series, refs }
                 } else {
-                    Data::Area { x, series, stacked }
+                    Data::Area {
+                        x,
+                        series,
+                        stacked,
+                        refs,
+                    }
                 }
             }
             "sparkline" => {
@@ -788,11 +1280,19 @@ impl Validator {
                 rows: self.dot_rows(obj)?,
             },
             "histogram" => {
-                let values: Vec<f64> = self
-                    .values(obj.get("values"), "/values")?
-                    .into_iter()
-                    .flatten()
-                    .collect();
+                let raw = self.values(obj.get("values"), "/values")?;
+                let sample_refs = self.sample_refs(obj.get("refs"), raw.len());
+                // A gap is no sample, so its ref goes with it.
+                let refs: Vec<Option<String>> = if sample_refs.is_empty() {
+                    Vec::new()
+                } else {
+                    raw.iter()
+                        .zip(sample_refs)
+                        .filter(|(v, _)| v.is_some())
+                        .map(|(_, r)| r)
+                        .collect()
+                };
+                let values: Vec<f64> = raw.into_iter().flatten().collect();
                 if values.is_empty() {
                     self.err("/values", "a histogram needs at least one number");
                 }
@@ -811,7 +1311,7 @@ impl Validator {
                         }
                     },
                 };
-                Data::Histogram { values, bins }
+                Data::Histogram { values, bins, refs }
             }
             "spans" => Data::Spans {
                 items: self.span_items(obj)?,
@@ -828,9 +1328,14 @@ impl Validator {
                         );
                     }
                 }
+                let refs = match &categories {
+                    Some(c) => self.ref_array(obj.get("refs"), c.len(), "/refs", "categories"),
+                    None => Vec::new(),
+                };
                 Data::Heat {
                     categories: categories?,
                     values: values?,
+                    refs,
                 }
             }
             "scatter" => {
@@ -860,7 +1365,7 @@ impl Validator {
             Data::Bar { .. } | Data::Line { .. } | Data::Area { .. }
         );
         let annotations = self.annotations(obj, annotated.then_some(data.points()), data.form());
-        Some(Spec {
+        let spec = Spec {
             title,
             subtitle,
             unit,
@@ -870,7 +1375,15 @@ impl Validator {
             motion,
             annotations,
             data,
-        })
+        };
+        let members = spec.ref_members();
+        if members > MAX_REFS {
+            self.err(
+                "",
+                format!("a chart carries at most {MAX_REFS} refs; this one carries {members}"),
+            );
+        }
+        Some(spec)
     }
 
     fn format_field(&mut self, obj: &Map<String, Value>, key: &str) -> Format {
@@ -960,32 +1473,49 @@ impl Validator {
     }
 
     fn dot_rows(&mut self, obj: &Map<String, Value>) -> Option<Vec<DotRow>> {
-        self.rows(obj, "rows", &["label", "items"], |v, row, base, label| {
-            let path = format!("{base}/items");
-            let Some(Value::Array(items)) = row.get("items") else {
-                v.err(&path, "items is an array of good, bad or neutral");
-                return None;
-            };
-            if items.is_empty() || items.len() > MAX_VALUES {
-                v.err(&path, format!("items holds 1 to {MAX_VALUES} entries"));
-                return None;
-            }
-            let mut dots = Vec::with_capacity(items.len());
-            for (i, item) in items.iter().enumerate() {
-                match item.as_str().and_then(Dot::parse) {
-                    Some(d) => dots.push(d),
-                    None => v.err(format!("{path}/{i}"), "an item is good, bad or neutral"),
+        self.rows(
+            obj,
+            "rows",
+            &["label", "items", "ref", "refs"],
+            |v, row, base, label| {
+                let path = format!("{base}/items");
+                let Some(Value::Array(items)) = row.get("items") else {
+                    v.err(&path, "items is an array of good, bad or neutral");
+                    return None;
+                };
+                if items.is_empty() || items.len() > MAX_VALUES {
+                    v.err(&path, format!("items holds 1 to {MAX_VALUES} entries"));
+                    return None;
                 }
-            }
-            Some(DotRow { label, items: dots })
-        })
+                let mut dots = Vec::with_capacity(items.len());
+                for (i, item) in items.iter().enumerate() {
+                    match item.as_str().and_then(Dot::parse) {
+                        Some(d) => dots.push(d),
+                        None => v.err(format!("{path}/{i}"), "an item is good, bad or neutral"),
+                    }
+                }
+                let ref_slot = v.opt_slot(row, base, "ref");
+                let refs = v.ref_array(
+                    row.get("refs"),
+                    items.len(),
+                    &format!("{base}/refs"),
+                    "items",
+                );
+                Some(DotRow {
+                    label,
+                    items: dots,
+                    ref_slot,
+                    refs,
+                })
+            },
+        )
     }
 
     fn span_items(&mut self, obj: &Map<String, Value>) -> Option<Vec<SpanItem>> {
         self.rows(
             obj,
             "items",
-            &["label", "start", "end", "status"],
+            &["label", "start", "end", "status", "ref"],
             |v, row, base, label| {
                 let mut end_of = |key: &str| match row.get(key) {
                     Some(n) => v.number(n, &format!("{base}/{key}"), key),
@@ -1014,11 +1544,13 @@ impl Validator {
                     v.err(format!("{base}/end"), "end is at least start");
                     return None;
                 }
+                let ref_slot = v.opt_slot(row, base, "ref");
                 Some(SpanItem {
                     label,
                     start,
                     end,
                     status,
+                    ref_slot,
                 })
             },
         )
@@ -1028,7 +1560,7 @@ impl Validator {
         self.rows(
             obj,
             "items",
-            &["label", "value", "range", "target", "history"],
+            &["label", "value", "range", "target", "history", "ref"],
             |v, row, base, label| {
                 let value = match row.get("value") {
                     Some(n) => v.number(n, &format!("{base}/value"), "value"),
@@ -1068,12 +1600,14 @@ impl Validator {
                         .values(Some(h), &format!("{base}/history"))
                         .unwrap_or_default(),
                 };
+                let ref_slot = v.opt_slot(row, base, "ref");
                 Some(BulletItem {
                     label,
                     value: value?,
                     range,
                     target,
                     history,
+                    ref_slot,
                 })
             },
         )
@@ -1128,11 +1662,13 @@ impl Validator {
                     }
                 }
                 Some("mark") => {
-                    self.known_keys(a, &base, &["kind", "at", "label"]);
+                    self.known_keys(a, &base, &["kind", "at", "label", "ref"]);
+                    let ref_slot = self.opt_slot(a, &base, "ref");
                     match a.get("at").and_then(Value::as_u64) {
                         Some(at) if (at as usize) < points => out.push(Annotation::Mark {
                             at: at as usize,
                             label,
+                            ref_slot,
                         }),
                         _ => self.err(
                             format!("{base}/at"),

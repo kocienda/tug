@@ -186,6 +186,22 @@ class SessionCitationStore {
   }
 
   /**
+   * The `found` answer that speaks for the session `sessionId` names, by its
+   * FULL id, whatever spelling it was asked under — or `null` when no asked
+   * spelling resolved to it. The answers are keyed by what was asked, so a
+   * session a chart mark cited by its short id is not under its full id; this
+   * is the walk {@link cites} makes, returning the answer instead of the fact.
+   */
+  foundAnswerFor(sessionId: string): Extract<CitedSessionAnswer, { status: "found" }> | null {
+    const full = sessionId.trim();
+    if (full.length === 0) return null;
+    for (const answer of this.answers.values()) {
+      if (answer.status === "found" && answer.sessionId === full) return answer;
+    }
+    return null;
+  }
+
+  /**
    * Ask the ledger about `citedId` unless it is already asked or answered.
    * Called from an effect ([L02]); safe to call on every render of every chip.
    */

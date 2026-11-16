@@ -2336,6 +2336,11 @@ export class BodyApp implements HarnessCaller {
     return client.nativeClickAtElement(this, selector, opts);
   }
 
+  /** A trusted right-click at a point in this body's viewport. */
+  nativeRightClick(viewportPoint: ViewportPoint): Promise<void> {
+    return client.nativeRightClick(this, viewportPoint);
+  }
+
   /** A trusted right-click at the center of `selector` in this body. */
   nativeRightClickAtElement(selector: string): Promise<void> {
     return client.nativeRightClickAtElement(this, selector);

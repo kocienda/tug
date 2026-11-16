@@ -1352,6 +1352,11 @@ export const TUG_ACTIONS = {
   //                         `action-dispatch.ts`, which calls
   //                         `openHelpInCard`.
   OPEN_HELP:              "open-help",
+  // REVEAL_ARCS:            no payload. Show the Arcs rail and bring the
+  //                         keyboard to it, never hide it — what a link to
+  //                         an arc means, as distinct from the Show Arcs
+  //                         toggle. Registry handler in `action-dispatch.ts`.
+  REVEAL_ARCS:            "reveal-arcs",
   REVEAL_IN_FINDER:       "reveal-in-finder",
   REVEAL_CARD_FILE:       "reveal-card-file",
   SHOW_CARD_SETTINGS:     "show-card-settings",

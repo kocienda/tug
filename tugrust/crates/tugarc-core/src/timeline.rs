@@ -31,6 +31,9 @@ pub struct TimelineStage {
     pub at_ms: u64,
     /// `None` is the account default, which the log spells `-`.
     pub model: Option<String>,
+    /// The session the stage was seated on; `None` when the log spells `-`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 /// One open → close of a step. A reopened step has more than one.
@@ -157,7 +160,7 @@ impl Fold {
             "arc-stage" => {
                 let mut fields = note.split_whitespace();
                 let Some(stage) = fields.next() else { return };
-                let _session = fields.next();
+                let session = fields.next().filter(|s| *s != "-").map(str::to_owned);
                 let model = fields.next().filter(|m| *m != "-").map(str::to_owned);
                 if stage == "audit" {
                     audit_open.insert(name.to_owned(), at_ms);
@@ -171,6 +174,7 @@ impl Fold {
                         stage: stage.to_owned(),
                         at_ms,
                         model,
+                        session,
                     });
             }
             "step-start" | "step-reopen" | "step-done" | "step-withdrawn" | "step-reset" => {
@@ -415,6 +419,8 @@ mod tests {
         assert_eq!(a.stages.len(), 2);
         assert_eq!(a.stages[0].model.as_deref(), Some("opus"));
         assert_eq!(a.stages[1].model, None);
+        assert_eq!(a.stages[0].session.as_deref(), Some("s1"));
+        assert_eq!(a.stages[1].session.as_deref(), Some("s2"));
         assert_eq!(a.run_through, Some(2));
         assert_eq!(a.steps.len(), 2);
         let first = &a.steps[0];

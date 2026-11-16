@@ -110,7 +110,7 @@ fn drive(source: &str, opts: &CompileOpts) -> (usize, Result<Compiled, Vec<Chart
     let mut requests = 0;
     loop {
         match compile_round(source, opts, &table) {
-            Round::Done(out) => return (requests, Ok(out)),
+            Round::Done(out) => return (requests, Ok(*out)),
             Round::Invalid { errors } => return (requests, Err(errors)),
             Round::Measure { texts, ink } => {
                 requests += 1;
@@ -676,7 +676,7 @@ fn a_drawing_is_refused_by_a_fence_and_taken_by_a_tool() {
 fn opts_read_the_protocol_shape() {
     // A finished round serializes flat, tagged by status, as the deck reads it.
     let out = compile_with(&golden("sparkline-last"), &opts(), &FixedMetrics).unwrap();
-    let json = serde_json::to_value(Round::Done(out)).unwrap();
+    let json = serde_json::to_value(Round::Done(Box::new(out))).unwrap();
     assert_eq!(json["status"], "done");
     assert_eq!(json["width"], 120.0);
     assert_eq!(json["table"]["head"][1], "value");

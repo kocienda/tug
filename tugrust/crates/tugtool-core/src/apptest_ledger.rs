@@ -439,6 +439,8 @@ pub fn file_history(
 pub struct FileRun {
     pub status: String,
     pub ended_at: i64,
+    /// The tree the run stood on, as the run recorded it.
+    pub head_sha: String,
 }
 
 /// The newest `n` outcomes of `file` under `base_root`, newest first by
@@ -452,7 +454,7 @@ pub fn recent_file_runs(
     n: usize,
 ) -> Result<Vec<FileRun>, ApptestLedgerError> {
     let mut stmt = conn.prepare(
-        "SELECT r.status, u.ended_at
+        "SELECT r.status, u.ended_at, u.head_sha
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1 AND r.file = ?2
             AND r.status NOT IN ('SKIP', 'WEDGED', 'STALLED')
@@ -466,6 +468,7 @@ pub fn recent_file_runs(
                 Ok(FileRun {
                     status: row.get(0)?,
                     ended_at: row.get(1)?,
+                    head_sha: row.get(2)?,
                 })
             },
         )?

@@ -190,6 +190,22 @@ describe("what the ledger said", () => {
     expect(sessionCitationStore.cites("")).toBe(false);
   });
 
+  test("foundAnswerFor finds a session by its full id whatever spelling was asked", () => {
+    // A chart mark cites a session by its short id; the press reads the act by
+    // the full id the payload carries. The answer is keyed by what was asked,
+    // so the lookup walks the answers rather than reading the map.
+    sessionCitationStore.applyResolved({
+      found: [{ queried: SHORT, session: row({ state: "closed" }) }],
+      elsewhere: [{ queried: "tug/odd-kiln", sessionId: "0badf00d-1111-2222-3333-444455556666", projectDir: "/elsewhere", callsign: "odd-kiln", title: null, instance: null }],
+      unknown: ["deadbeef"],
+    });
+    expect(sessionCitationStore.foundAnswerFor(FULL)?.sessionId).toBe(FULL);
+    expect(sessionCitationStore.foundAnswerFor(FULL)?.state).toBe("closed");
+    expect(sessionCitationStore.foundAnswerFor("0badf00d-1111-2222-3333-444455556666")).toBeNull();
+    expect(sessionCitationStore.foundAnswerFor("deadbeef")).toBeNull();
+    expect(sessionCitationStore.foundAnswerFor(SHORT), "a short id is not a full one").toBeNull();
+  });
+
   test("forgetAll drops every answer — what a reconnect does", () => {
     sessionCitationStore.applyResolved({
       found: [{ queried: FULL, session: row() }],

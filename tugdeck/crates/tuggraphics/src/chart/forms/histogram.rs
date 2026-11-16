@@ -22,6 +22,8 @@ const EDGE_SLACK: f64 = 1e-9;
 pub(crate) struct Bins {
     pub labels: Vec<String>,
     pub counts: Vec<u32>,
+    /// Each bin's samples, by their index in the values, in order.
+    pub members: Vec<Vec<usize>>,
 }
 
 /// Bins `values` (at least one, all finite) on nice edges, asking for `bins`
@@ -62,10 +64,12 @@ pub(crate) fn bins(values: &[f64], bins: Option<usize>, format: Format) -> Bins 
         ((min - 0.5) / step, step, wanted)
     };
     let mut counts = vec![0u32; count];
-    for v in values {
+    let mut members = vec![Vec::new(); count];
+    for (i, v) in values.iter().enumerate() {
         let k = ((v / step - first + EDGE_SLACK).floor() as isize).clamp(0, count as isize - 1)
             as usize;
         counts[k] += 1;
+        members[k].push(i);
     }
     let labels = (0..count)
         .map(|k| {
@@ -76,7 +80,11 @@ pub(crate) fn bins(values: &[f64], bins: Option<usize>, format: Format) -> Bins 
             )
         })
         .collect();
-    Bins { labels, counts }
+    Bins {
+        labels,
+        counts,
+        members,
+    }
 }
 
 /// The first edge in steps, the step, and the bin count covering `[min, max]`,
@@ -110,6 +118,8 @@ pub(super) fn layout(
         name: "count".to_string(),
         values: bins.counts.iter().map(|&c| Some(f64::from(c))).collect(),
         role: ColourRole::Series(1),
+        ref_slot: None,
+        refs: Vec::new(),
     }];
     bar::layout(
         b,

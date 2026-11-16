@@ -50,10 +50,11 @@ pub(super) fn layout(
                 Dot::Neutral => (ColourRole::InkMuted, 3),
             };
             b.fill(circle(cx, cy, r), role, b.enter(Enter::Fade, k));
-            b.hit(
+            b.hit_item(
                 rect(cx - pitch / 2.0, cy - plot.band() / 2.0, pitch, plot.band()),
                 i,
                 Some(col),
+                k,
             );
         }
     }

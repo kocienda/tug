@@ -70,6 +70,7 @@ control_actions! {
     ArcRun => "arc_run",
     ArcStop => "arc_stop",
     UnbindArc => "unbind_arc",
+    ResolveArcs => "resolve_arcs",
 
     // Supervisor: changesets, landings and joins.
     ChangesetGitInit => "changeset_git_init",

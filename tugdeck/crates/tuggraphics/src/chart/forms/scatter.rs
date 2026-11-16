@@ -140,6 +140,8 @@ pub(super) fn layout(
             name: s.name.clone(),
             values: Vec::new(),
             role: s.role,
+            ref_slot: None,
+            refs: Vec::new(),
         })
         .collect();
     end_labels(b, ends, TieOrder::SeriesOrder, &names, &plot, w, cap, m);

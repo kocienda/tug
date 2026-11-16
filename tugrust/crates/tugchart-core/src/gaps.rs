@@ -9,6 +9,7 @@ use crate::commits::{left_out_older, median, without_the_largest_tenth};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_front,
 };
+use crate::refs::command_ref;
 
 const DEFAULT_LIMIT: usize = 12;
 
@@ -20,6 +21,7 @@ fn ranked(summaries: Vec<GapSummary>) -> Vec<GapSummary> {
     gaps
 }
 
+/// The heads as a horizontal bar, each row linked to its command.
 fn gaps_chart(gaps: &[GapSummary]) -> Value {
     let categories: Vec<String> = gaps
         .iter()
@@ -29,6 +31,7 @@ fn gaps_chart(gaps: &[GapSummary]) -> Value {
         .iter()
         .map(|gap| gap.total_ms as f64 / 1000.0)
         .collect();
+    let refs: Vec<String> = gaps.iter().map(|gap| command_ref(&gap.head)).collect();
     json!({
         "tugchart": 1,
         "form": "bar",
@@ -38,6 +41,7 @@ fn gaps_chart(gaps: &[GapSummary]) -> Value {
         "format": "secs",
         "categories": categories,
         "series": [{ "name": "wall time", "values": values }],
+        "refs": refs,
     })
 }
 
@@ -156,6 +160,11 @@ mod tests {
         assert_eq!(spec["orient"], "horizontal");
         assert_eq!(spec["format"], "secs");
         assert_eq!(spec["series"][0]["values"], json!([90.0, 40.0]));
+        // Each row links its head as a command.
+        assert_eq!(
+            spec["refs"],
+            json!(["command:just ci", "command:cargo build"])
+        );
     }
 
     #[test]

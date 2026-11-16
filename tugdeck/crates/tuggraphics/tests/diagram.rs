@@ -196,7 +196,7 @@ fn drive(source: &str, opts: &CompileOpts) -> (usize, Result<Compiled, Vec<Chart
     let mut requests = 0;
     loop {
         match compile_round(source, opts, &table) {
-            Round::Done(out) => return (requests, Ok(out)),
+            Round::Done(out) => return (requests, Ok(*out)),
             Round::Invalid { errors } => return (requests, Err(errors)),
             Round::Measure { texts, ink } => {
                 requests += 1;

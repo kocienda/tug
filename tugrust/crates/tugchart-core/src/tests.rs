@@ -15,6 +15,7 @@ use tugtool_core::test_ledger::{self, SuiteRun};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, row_label,
 };
+use crate::refs::{RefBudget, commit_ref, is_sha, set_slots};
 
 /// How many newest runs per suite `test last --chart` reads.
 pub const RUNS_PER_SUITE: usize = 30;
@@ -104,12 +105,16 @@ fn suite_names(runs: &[SuiteRun]) -> Vec<String> {
 /// any, oldest left, `PASS` good, a `FAIL`, `ERR` or `OVERTIME` bad, and
 /// anything else neutral. `runs` are newest first, as the ledger answers;
 /// at most the chart's row limit of files is kept, in the order given.
-/// `None` when no file has an outcome.
+/// Each row links its file (`ref`) and each dot the commit its run stood on
+/// (`refs`, in the dots' order), all through one budget; a run whose
+/// recorded sha is not one carries no ref. `None` when no file has an
+/// outcome.
 pub fn file_outcomes(
     files: &[(String, Vec<FileRun>)],
     title: &str,
     subtitle: &str,
 ) -> Option<Value> {
+    let mut budget = RefBudget::new();
     let rows: Vec<Value> = files
         .iter()
         .filter(|(_, runs)| !runs.is_empty())
@@ -124,7 +129,24 @@ pub fn file_outcomes(
                     _ => "neutral",
                 })
                 .collect();
-            json!({ "label": row_label(file), "items": items })
+            let file_ref = format!(
+                "file:tests/app-test/{}",
+                apptest_ledger::ledger_file_name(file)
+            );
+            let row_ref = set_slots("file", vec![vec![file_ref]], &mut budget).remove(0);
+            let dots: Vec<Vec<String>> = runs
+                .iter()
+                .rev()
+                .map(|r| {
+                    if is_sha(&r.head_sha) {
+                        vec![commit_ref(&r.head_sha)]
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .collect();
+            let refs = set_slots("commit", dots, &mut budget);
+            json!({ "label": row_label(file), "items": items, "ref": row_ref, "refs": refs })
         })
         .collect();
     if rows.is_empty() {
@@ -210,7 +232,7 @@ mod unit {
             ended_at: at,
             run_root: ctx.repo_root.to_string_lossy().into_owned(),
             branch: "main".into(),
-            head_sha: "abc".into(),
+            head_sha: "abc1234".into(),
             dirty: false,
             sweep: "explicit-files".into(),
             selection: "explicit".into(),
@@ -259,6 +281,12 @@ mod unit {
             .map(|row| row["label"].as_str().unwrap())
             .collect();
         assert_eq!(labels, ["new", "old"]);
+        // Each row links its file, and each dot the tree its run stood on.
+        let rows = spec["rows"].as_array().unwrap();
+        assert_eq!(rows[0]["ref"], "file:tests/app-test/new.test.ts");
+        assert_eq!(rows[0]["refs"], json!(["commit:abc1234"]));
+        assert_eq!(rows[1]["ref"], "file:tests/app-test/old.test.ts");
+        assert_eq!(rows[1]["refs"], json!(["commit:abc1234"]));
         assert!(summary.starts_with("2 of 2 file(s)"), "{summary}");
     }
 
@@ -366,6 +394,12 @@ mod unit {
         assert_eq!(spec["rows"].as_array().unwrap().len(), 2);
         assert_eq!(spec["rows"][0]["label"], "a");
         assert_eq!(spec["rows"][0]["items"], json!(["bad", "bad", "good"]));
+        assert_eq!(spec["rows"][0]["ref"], "file:tests/app-test/a.test.ts");
+        // The dots' commits read in the dots' order, oldest left.
+        assert_eq!(
+            spec["rows"][0]["refs"],
+            json!(["commit:00010000", "commit:00020000", "commit:00030000"])
+        );
         assert_eq!(spec["rows"][1]["items"], json!(["neutral"]));
         assert_valid(&spec);
         assert!(file_outcomes(&[("x".to_string(), Vec::new())], "t", "s").is_none());
@@ -398,6 +432,7 @@ mod unit {
         FileRun {
             status: status.to_string(),
             ended_at,
+            head_sha: format!("{ended_at:04x}0000"),
         }
     }
 

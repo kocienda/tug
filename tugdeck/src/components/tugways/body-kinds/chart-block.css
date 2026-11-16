@@ -291,7 +291,8 @@ body {
  * placed from a mark's rect and holding a table row adds to it.
  */
 
-.tgh[data-tgh-active] + .tgh-cross {
+.tgh[data-tgh-active] + .tgh-cross,
+.tgh[data-tugx-ref-lit] + .tgh-cross {
   visibility: visible;
 }
 
@@ -311,6 +312,12 @@ body {
 }
 .tugx-chart-tip-row[data-current] {
   font-weight: var(--tug-font-weight-semibold);
+}
+/* Under the row, what a press on the mark does: muted, the row's own size. */
+/* @tug-renders-on: --tugx-tooltip-bg */
+.tugx-chart-tip-foot {
+  color: var(--tugx-tooltip-kbd-fg);
+  margin-top: var(--tug-space-2xs);
 }
 .tugx-chart-tip > .tug-tooltip-arrow {
   position: absolute;
@@ -357,6 +364,87 @@ body {
 .tugx-chart-table th:not(:first-child),
 .tugx-chart-table td:not(:first-child) {
   text-align: end;
+}
+
+/* ---- Ref atoms in the Table view ------------------------------------------
+ *
+ * A chart's refs are drawn after the text of the cell they belong to, which
+ * is left as it is. A single ref (`.tugx-chart-ref`) is an annotation host:
+ * a confirmed commit holds its pill and a session its chip, and the run
+ * kinds take the resting underline from `tug-annotation.css`, where the
+ * class is enumerated beside prose runs. A set (`.tugx-chart-set`) is a
+ * button when it has members to list; a count form offers nothing, so it
+ * takes no pointer ([L31]).
+ *
+ * @tug-renders-on: the block's own surface */
+.tugx-chart-table .tugx-chart-ref,
+.tugx-chart-table .tugx-chart-set {
+  margin-inline-start: var(--tug-space-xs);
+  white-space: nowrap;
+}
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-chart-set[data-tugx-ref-set] {
+  color: var(--tugx-md-link-color);
+  cursor: pointer;
+}
+.tugx-chart-refs-foot td {
+  border-bottom: none;
+}
+
+/* ---- Refs in the figure ---------------------------------------------------
+ *
+ * A mark carries its ref on its hit path and the annotation pass stamps it
+ * there, so a stamped mark takes the pointer a link takes, and so does a set
+ * mark with members to list. No tint at rest: the resting sign that a row
+ * links is the compiler's hidden rule under its label, revealed once the
+ * pass marks the row live ([P08]), and the header's link glyph, shown once
+ * any ref in the figure links ([P07]). A thinned axis draws no rule, which
+ * is why the glyph exists. A set's list stands inside the figure under its
+ * anchor, painted as the tooltip is, scrolling inside its own height so a
+ * long set never runs past the transcript's scroller.
+ */
+.tgh.tugx-annotation,
+.tgh[data-tugx-ref-set] {
+  cursor: pointer;
+}
+.tgl[data-tugx-ref-live],
+.tgl[data-tugx-ref-lit] {
+  visibility: visible;
+}
+.tugx-chart:not([data-tugx-chart-linked]) .tugx-chart-links {
+  display: none;
+}
+
+/* @tug-renders-on: --tugx-tooltip-bg */
+.tugx-chart-set-list {
+  position: absolute;
+  z-index: 1;
+  min-width: 10rem;
+  max-width: calc(100% - 2 * var(--tug-space-md));
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  background: var(--tugx-tooltip-bg);
+  color: var(--tugx-tooltip-fg);
+  border: 1px solid var(--tugx-tooltip-border);
+  border-radius: var(--tugx-block-radius);
+  box-shadow: var(--tugx-tooltip-shadow);
+  font-size: var(--tugx-chart-table-size);
+}
+/* @tug-renders-on: --tugx-tooltip-bg */
+.tugx-chart-set-list-head {
+  font-weight: var(--tug-font-weight-semibold);
+  padding-bottom: var(--tug-space-2xs);
+  border-bottom: 1px solid var(--tugx-block-hairline);
+}
+.tugx-chart-set-list-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tugx-chart-set-list-rows > li {
+  padding: var(--tug-space-2xs) 0;
+  white-space: nowrap;
 }
 
 .tugx-chart:not([data-tugx-chart-view="table"]) > .tugx-chart-table:not(.tugx-diagram-table):not([data-tugx-find-unclamp]) {

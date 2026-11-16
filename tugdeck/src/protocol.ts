@@ -776,6 +776,23 @@ export function encodeResolveSessions(ids: readonly string[]): Frame {
 }
 
 /**
+ * Build a `resolve_arcs` CONTROL request frame — "which of these arc names
+ * does this project's arc log hold, and what became of each?"
+ *
+ * An arc's existence is recorded only in the project's arc log, which the deck
+ * cannot read, so an `arc:` reference asks here. The response broadcasts
+ * `resolve_arcs_ok { project_dir, found: [{ name, fate, join_sha? }],
+ * missing: string[] }`, every asked name in exactly one of the two lists; a
+ * discarded arc is `missing`, because nothing of it is left to open.
+ */
+export function encodeResolveArcs(
+  projectDir: string,
+  names: readonly string[],
+): Frame {
+  return controlFrame("resolve_arcs", { project_dir: projectDir, names });
+}
+
+/**
  * Build a `search_sessions` CONTROL request frame — "which sessions on this
  * machine does this fragment name?", the read behind the composer's `@` popup.
  *
@@ -1642,6 +1659,61 @@ export interface SearchSessionsOk {
   requestId: string | null;
   /** Most relevant first: the asking project's sessions, then recency. */
   sessions: readonly SearchedSession[];
+}
+
+/** One arc a `resolve_arcs_ok` found in the project's log. */
+export interface ResolvedArc {
+  name: string;
+  /** `live` while the arc is open; `joined` once its work landed. */
+  fate: "live" | "joined";
+  /** The join's squash commit, present exactly when `fate` is `joined`. */
+  joinSha?: string;
+}
+
+/** The decoded `resolve_arcs_ok` CONTROL response. */
+export interface ResolveArcsOk {
+  projectDir: string;
+  found: readonly ResolvedArc[];
+  /** The asked names the log does not hold, or holds only as discarded. */
+  missing: readonly string[];
+}
+
+/**
+ * Type guard + decoder for `resolve_arcs_ok`. A frame with no project is not
+ * an answer to anything and is refused; a malformed row is dropped rather than
+ * failing the frame, on `decodeResolveSessionsOk`'s terms, and a joined row
+ * with no sha is dropped too, since a join with nothing to open is not one.
+ */
+export function decodeResolveArcsOk(payload: unknown): ResolveArcsOk | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const obj = payload as Record<string, unknown>;
+  if (obj.action !== "resolve_arcs_ok") return null;
+  if (typeof obj.project_dir !== "string" || obj.project_dir.length === 0) {
+    return null;
+  }
+  const found: ResolvedArc[] = [];
+  if (Array.isArray(obj.found)) {
+    for (const entry of obj.found) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const e = entry as Record<string, unknown>;
+      if (typeof e.name !== "string" || e.name.length === 0) continue;
+      if (e.fate === "live") {
+        found.push({ name: e.name, fate: "live" });
+      } else if (
+        e.fate === "joined" &&
+        typeof e.join_sha === "string" &&
+        e.join_sha.length > 0
+      ) {
+        found.push({ name: e.name, fate: "joined", joinSha: e.join_sha });
+      }
+    }
+  }
+  const missing = Array.isArray(obj.missing)
+    ? obj.missing.filter(
+        (name): name is string => typeof name === "string" && name.length > 0,
+      )
+    : [];
+  return { projectDir: obj.project_dir, found, missing };
 }
 
 /**

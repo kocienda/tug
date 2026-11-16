@@ -37,6 +37,19 @@ Series forms (`bar`, `line`, `area`) take `series`, a list of `{"name", "values"
 
 The spec is validated before it renders, and an invalid one shows its errors in place with a path to each. Unknown keys are errors, so spell the fields exactly as written here.
 
+### Refs
+
+A chart's rows, columns, cells and marks can name the things they stand for, and a named thing is drawn as the same atom it would be anywhere else in the transcript: a file opens, a commit raises its card, a session can be reached, a directory shows in the Finder. A *ref* is a string `<prefix>:<value>` with one of seven prefixes: `commit:` (4 to 40 hex characters), `file:` and `dir:` (a path, relative to the project or absolute), `session:` (a `project/callsign` pair, an eight-character short id or a full uuid), `arc:` (an arc's name), `url:` (`http://` or `https://`) and `command:` (one line of shell). A *slot* holds one ref, an array of up to 100 refs of one prefix, or `{"kind": "<prefix>", "count": n}` when there are more than fit; inside a parallel array, `null` means no ref. Where a slot goes depends on the form:
+
+- `bar`, `line`, `area` and `heat`: a top-level `refs` array parallel to `categories` or `x`, one slot per row; a series may carry `ref` for its column or `refs` parallel to its `values` for its cells; a `mark` annotation may carry `ref`.
+- `dots`: a row may carry `ref` and a `refs` array parallel to its `items`.
+- `spans` and `bullet`: an item may carry `ref`; `scatter`: a point may carry `ref`.
+- `histogram`: a top-level `refs` array parallel to `values`, each a single ref or `null`; a bin links the union of its samples.
+
+A spec carries at most 800 ref members in all. Past that, or past 100 in a slot, write the count form: it still says how many, and only has no list to open.
+
+**The rule: when a row is a file, a commit, a session, an arc, a directory, a url or a command, put it in the ref, and never invent one.** A ref is a claim that the thing exists, and the card checks it: a file that is not there, a sha the project does not have and a session not on this machine are shown as plain text, never as a working link. A recipe fills its own refs, so a chart from `tugtool chart` needs nothing added; a fence written by hand from data that names such things carries them too.
+
 ## The forms
 
 Pick the form from what the reader has to do with the data, before anything else.

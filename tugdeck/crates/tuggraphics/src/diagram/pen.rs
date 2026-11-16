@@ -389,6 +389,8 @@ impl Pen {
             path: rect(x, y, w, h),
             row,
             col: None,
+            item: None,
+            mark: None,
             cross: Vec::new(),
         }));
     }

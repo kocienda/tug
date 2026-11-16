@@ -55,7 +55,7 @@ Compute what the chart needs from what you read, with a read-only command when t
 
 ### 3. Draw it as one fence
 
-Write one `tugchart` fence, the way the session's chart guidance describes: the form the request named, or else the form from what the reader has to do with the data, and a title that states the message. Say the finding in one sentence beside it, and say in one line where the numbers came from.
+Write one `tugchart` fence, the way the session's chart guidance describes: the form the request named, or else the form from what the reader has to do with the data, and a title that states the message. When a row, a cell or a point stands for a file, a commit, a session, an arc, a directory, a url or a command, put it in the spec's `refs` as the guidance's *Refs* section spells it, so the reader can open it from the chart, and never invent one: a ref is a claim the card checks. Say the finding in one sentence beside it, and say in one line where the numbers came from.
 
 ## A diagram
 

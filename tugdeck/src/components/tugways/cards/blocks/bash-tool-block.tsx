@@ -95,7 +95,7 @@ import "./bash-tool-block.css";
 
 import React from "react";
 
-import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
+import { useAnnotatedElement, useAnnotationScope } from "@/components/tugways/annotation-scope";
 
 import {
   TerminalBlock,
@@ -398,6 +398,8 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   );
 
   const commandRef = useAnnotatedElement<HTMLElement>([bashInput.command]);
+  // A chart's refs resolve through the transcript's context, as its prose does.
+  const chartAnnotation = useAnnotationScope() ?? undefined;
 
   // A run that named its unit, settled when this call returned. Its panel
   // takes the body, its strip the collapsed band.
@@ -576,7 +578,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
     !preview && status !== "streaming" && commit === null && terminalData.charts.length > 0 ? (
       <div data-slot="bash-tool-block-charts" className="bash-tool-block-charts">
         {terminalData.charts.map((source, i) => (
-          <ChartBlock key={i} source={source} layers="any" findable />
+          <ChartBlock key={i} source={source} layers="any" findable annotation={chartAnnotation} />
         ))}
         {terminalData.chartsDropped > 0 ? (
           <span data-slot="bash-tool-block-charts-dropped" className="bash-tool-block-charts-dropped">

@@ -13,6 +13,7 @@ use crate::commits::{day_axis, labels, left_out_older};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_front,
 };
+use crate::refs::{RefBudget, session_slot, set_slots};
 
 const DEFAULT_DAYS: u32 = 30;
 
@@ -72,26 +73,45 @@ const TURNS: Measure = Measure {
     total: |n| format!("{n} turn(s)"),
 };
 
+/// One family's days: a value per axis day, and the session refs behind it.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct FamilyDays {
+    values: Vec<f64>,
+    sessions: Vec<Vec<String>>,
+}
+
+impl FamilyDays {
+    fn empty(days: usize) -> Self {
+        Self {
+            values: vec![0.0; days],
+            sessions: vec![Vec::new(); days],
+        }
+    }
+}
+
 /// Per family, one value per axis day. Past [`MAX_SERIES`] families, the
-/// smallest fold into one series.
-fn fold_the_tail(mut series: BTreeMap<String, Vec<f64>>) -> Vec<(String, Vec<f64>)> {
+/// smallest fold into one series, their sessions with them.
+fn fold_the_tail(mut series: BTreeMap<String, FamilyDays>) -> Vec<(String, FamilyDays)> {
     if series.len() > MAX_SERIES {
         let mut by_total: Vec<(String, f64)> = series
             .iter()
-            .map(|(family, values)| (family.clone(), values.iter().sum()))
+            .map(|(family, days)| (family.clone(), days.values.iter().sum()))
             .collect();
         by_total.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let days = series.values().next().map_or(0, Vec::len);
-        let mut other = vec![0.0; days];
+        let days = series.values().next().map_or(0, |d| d.values.len());
+        let mut other = FamilyDays::empty(days);
         for (family, _) in &by_total[MAX_SERIES - 1..] {
-            let Some(values) = series.remove(family) else {
+            let Some(folded) = series.remove(family) else {
                 continue;
             };
-            for (sum, value) in other.iter_mut().zip(values) {
+            for (sum, value) in other.values.iter_mut().zip(folded.values) {
                 *sum += value;
             }
+            for (set, sessions) in other.sessions.iter_mut().zip(folded.sessions) {
+                set.extend(sessions);
+            }
         }
-        let mut kept: Vec<(String, Vec<f64>)> = series.into_iter().collect();
+        let mut kept: Vec<(String, FamilyDays)> = series.into_iter().collect();
         kept.push((OTHER_FAMILY.to_string(), other));
         return kept;
     }
@@ -127,28 +147,33 @@ fn model_chart(
     if axis.is_empty() {
         return None;
     }
-    let mut series: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut series: BTreeMap<String, FamilyDays> = BTreeMap::new();
     let mut total = 0.0;
     for u in &kept {
         let Ok(at) = axis.binary_search(&u.day) else {
             continue;
         };
         let value = (measure.read)(u);
-        series
+        let days = series
             .entry(u.family.clone())
-            .or_insert_with(|| vec![0.0; axis.len()])[at] += value;
+            .or_insert_with(|| FamilyDays::empty(axis.len()));
+        days.values[at] += value;
+        days.sessions[at].extend(u.sessions.iter().filter_map(|id| session_slot(id)));
         total += value;
     }
     let series = fold_the_tail(series);
     let families = series.len();
+    let mut budget = RefBudget::new();
     let drawn: Vec<Value> = series
         .into_iter()
-        .map(|(name, values)| {
-            let cents: Vec<f64> = values
+        .map(|(name, days)| {
+            let cents: Vec<f64> = days
+                .values
                 .into_iter()
                 .map(|value| (value * 100.0).round() / 100.0)
                 .collect();
-            json!({ "name": name, "values": cents })
+            let refs = set_slots("session", days.sessions, &mut budget);
+            json!({ "name": name, "values": cents, "refs": refs })
         })
         .collect();
     Some(ModelChart {
@@ -242,6 +267,8 @@ mod tests {
             cache_read_tokens: turns * 4,
             cache_creation_tokens: 0,
             cost_usd: turns as f64 * 0.125,
+            // One session, whose short id is the day and the turns in hex.
+            sessions: vec![format!("{day:04x}{turns:04x}-{family}")],
         }
     }
 
@@ -264,6 +291,15 @@ mod tests {
         assert_eq!(chart.spec["series"][0]["values"], json!([1.0, 0.0, 0.0]));
         assert_eq!(chart.spec["series"][1]["name"], "opus");
         assert_eq!(chart.spec["series"][1]["values"], json!([2.0, 0.0, 3.0]));
+        // Each cell links the sessions that took its turns.
+        assert_eq!(
+            chart.spec["series"][0]["refs"],
+            json!(["session:00140001", null, null])
+        );
+        assert_eq!(
+            chart.spec["series"][1]["refs"],
+            json!(["session:00140002", null, "session:00160003"])
+        );
         assert_eq!(chart.total, 6.0);
         assert_eq!(chart.days, 3);
         assert_eq!(chart.families, 2);
@@ -321,6 +357,27 @@ mod tests {
         assert_eq!(last["name"], OTHER_FAMILY);
         // The two smallest: one turn and two.
         assert_eq!(last["values"], json!([3.0]));
+        // Their sessions fold with them, the larger first.
+        assert_eq!(
+            last["refs"],
+            json!([["session:00140002", "session:00140001"]])
+        );
+    }
+
+    #[test]
+    fn a_day_with_two_sessions_links_both_and_an_unnameable_one_is_left_out() {
+        let mut row = usage(20, "opus", 5);
+        row.sessions = vec![
+            "048e4155-f644-46f7-a839-d22ac02a564f".to_string(),
+            "scratch".to_string(),
+            "63bcd0c2-5d98-4e84-b88f-cdac1ed0f66f".to_string(),
+        ];
+        let chart = model_chart(&[row], date(20), 30, &TURNS, "").unwrap();
+        assert_valid(&chart.spec);
+        assert_eq!(
+            chart.spec["series"][0]["refs"],
+            json!([["session:048e4155", "session:63bcd0c2"]])
+        );
     }
 
     #[test]

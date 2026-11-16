@@ -86,6 +86,7 @@ import {
 import { sessionTagStore } from "./lib/session-tag-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
+import { arcCitationStore } from "./lib/arc-citation-store";
 import { deliverSessionSearchAnswer } from "./lib/session-search-answers";
 import { deliverScrubShareAnswer } from "./lib/share-scrub";
 import {
@@ -119,6 +120,7 @@ import { getAppLifecycle } from "./lib/app-lifecycle";
 import { keyboardAccessStore } from "./keyboard-access-store";
 import {
   decodeResolveSessionsOk,
+  decodeResolveArcsOk,
   decodeScrubShareTextErr,
   decodeScrubShareTextOk,
   decodeSearchSessionsOk,
@@ -741,7 +743,7 @@ function wireActionDispatch(
   // What a link means, as distinct from what a shortcut means — an arc chip
   // on an Overview post promises to reveal the arc, and a toggle would take
   // the rail away from a reader who already had it open.
-  registerAction("reveal-arcs", () => {
+  registerAction(TUG_ACTIONS.REVEAL_ARCS, () => {
     revealSidebarCard(deckManager, ARCS_CARD_ID);
   });
 
@@ -1885,6 +1887,23 @@ export function registerStoreTailActions(): void {
       return;
     }
     sessionCitationStore.applyResolved(decoded);
+  });
+
+  // resolve_arcs_ok / _err: the arc log's answer to "which of these arc names
+  // does this project hold, and what became of each?" — the read behind an
+  // `arc:` reference. A refusal says nothing about any arc, so the asks in
+  // flight are dropped rather than cached as misses.
+  registerAction("resolve_arcs_ok", (payload) => {
+    const decoded = decodeResolveArcsOk(payload);
+    if (decoded === null) {
+      console.warn("resolve_arcs_ok: undecodable payload", payload);
+      return;
+    }
+    arcCitationStore.applyResolved(decoded);
+  });
+  registerAction("resolve_arcs_err", (payload) => {
+    console.warn("resolve_arcs_err", payload.message);
+    arcCitationStore.applyFailed();
   });
 
   // search_sessions_ok / _err: the answer to a composer's `@` session search.

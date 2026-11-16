@@ -7,7 +7,7 @@
 //! append-only visibility log.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
@@ -609,6 +609,66 @@ pub fn arc_has_ended(paths: &Paths, repo_root: &Path, arc: &str) -> bool {
     ended
 }
 
+/// What became of an arc name's newest generation, as the log records it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArcFate {
+    /// The generation has no terminal line after it: the arc is still open.
+    Live,
+    /// The generation ended in a join; `sha` is the join line's marker, the
+    /// squash commit the arc's work landed as.
+    Joined { sha: String },
+}
+
+/// Every arc name the log knows, with its newest generation's fate.
+///
+/// This is the walk [`arc_has_ended`] makes, over every name at once and with
+/// the same [`is_terminal`] spellings, so the two cannot disagree about where
+/// a generation ends. A name whose newest generation was discarded (or, in the
+/// historical spelling, released) is **absent** from the map: nothing of it is
+/// left to open, so a reader asking after it is told it is missing rather than
+/// handed a fate with no act behind it.
+///
+/// A name's first line opens its first generation whatever its marker. Most
+/// generations begin with `arc-start`, but older logs hold names whose first
+/// line is a `created` or a round, and those arcs were real — some of them
+/// joined. After a terminal line only `arc-start` opens a new generation; a
+/// late `note` or a second teardown belongs to the generation that just
+/// ended, which is the rule [`arc_has_ended`] keeps.
+pub fn arc_fates(text: &str) -> BTreeMap<String, ArcFate> {
+    // Per name: `Some(fate)` while the newest generation is open or joined,
+    // `None` once it was discarded. The `bool` is whether the generation has
+    // ended, so a line after a terminal one can be told apart.
+    let mut walk: BTreeMap<&str, (Option<ArcFate>, bool)> = BTreeMap::new();
+    for line in text.lines() {
+        let Some((_, name, marker, note)) = split_log_line(line) else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let entry = walk.entry(name).or_insert((Some(ArcFate::Live), false));
+        if is_terminal(marker, note) {
+            if entry.1 {
+                // A second teardown belongs to the generation that ended.
+                continue;
+            }
+            entry.1 = true;
+            entry.0 = if marker == "discarded" || marker == "released" {
+                None
+            } else {
+                Some(ArcFate::Joined {
+                    sha: marker.to_owned(),
+                })
+            };
+        } else if marker == "arc-start" && entry.1 {
+            *entry = (Some(ArcFate::Live), false);
+        }
+    }
+    walk.into_iter()
+        .filter_map(|(name, (fate, _))| fate.map(|f| (name.to_owned(), f)))
+        .collect()
+}
+
 /// Read the `i`/`N` a step declaration's note leads with. An unparseable note
 /// is skipped rather than guessed at.
 ///
@@ -1105,6 +1165,73 @@ pub fn append_mark_declaration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arc_fates_reads_each_names_newest_generation() {
+        let log = "\
+2026-11-01T00:00:00Z  live-one  arc-start  arc/live-one-brief.md
+2026-11-01T00:01:00Z  live-one  abc1234  Step 1: something
+2026-11-02T00:00:00Z  joined-one  arc-start  arc/joined-one-brief.md
+2026-11-02T00:05:00Z  joined-one  302d43b5d1  joined
+2026-11-02T00:06:00Z  joined-one  note  a late word after the join
+2026-11-03T00:00:00Z  via-card  arc-start  arc/via-card-brief.md
+2026-11-03T00:05:00Z  via-card  9ac1e0f2aa  joined via card
+2026-11-04T00:00:00Z  gone  arc-start  arc/gone-brief.md
+2026-11-04T00:05:00Z  gone  discarded
+2026-11-05T00:00:00Z  old-gone  arc-start  arc/old-gone-brief.md
+2026-11-05T00:05:00Z  old-gone  released
+2026-11-06T00:00:00Z  reborn  arc-start  arc/reborn-brief.md
+2026-11-06T00:05:00Z  reborn  discarded
+2026-11-06T00:06:00Z  reborn  arc-start  arc/reborn-brief.md
+2026-11-07T00:00:00Z  no-start  created  worktree made
+2026-11-07T00:05:00Z  no-start  77aa88bb  joined
+2026-11-08T00:00:00Z  twice  arc-start  arc/twice-brief.md
+2026-11-08T00:05:00Z  twice  11112222  joined
+2026-11-08T00:06:00Z  twice  discarded
+";
+        let fates = arc_fates(log);
+        assert_eq!(fates.get("live-one"), Some(&ArcFate::Live));
+        assert_eq!(
+            fates.get("joined-one"),
+            Some(&ArcFate::Joined {
+                sha: "302d43b5d1".into()
+            }),
+            "a note after the join belongs to the generation that ended"
+        );
+        assert_eq!(
+            fates.get("via-card"),
+            Some(&ArcFate::Joined {
+                sha: "9ac1e0f2aa".into()
+            })
+        );
+        assert_eq!(fates.get("gone"), None, "a discarded arc is absent");
+        assert_eq!(fates.get("old-gone"), None, "the historical spelling too");
+        assert_eq!(
+            fates.get("reborn"),
+            Some(&ArcFate::Live),
+            "arc-start after a discard opens a new generation"
+        );
+        assert_eq!(
+            fates.get("no-start"),
+            Some(&ArcFate::Joined {
+                sha: "77aa88bb".into()
+            }),
+            "a first line other than arc-start still opens a generation"
+        );
+        assert_eq!(
+            fates.get("twice"),
+            Some(&ArcFate::Joined {
+                sha: "11112222".into()
+            }),
+            "a second teardown belongs to the generation that ended"
+        );
+        assert_eq!(fates.len(), 6);
+    }
+
+    #[test]
+    fn arc_fates_of_an_empty_log_is_empty() {
+        assert!(arc_fates("").is_empty());
+    }
 
     /// A scratch data dir plus the repo root whose arc log it holds. Both
     /// live as long as the fixture; `paths` roots the engine at the data dir.

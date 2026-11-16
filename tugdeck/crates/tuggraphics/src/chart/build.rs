@@ -5,13 +5,19 @@
 
 use crate::draw::{
     Anchor, Baseline, Cap, ColourRole, Edge, Enter, HitOp, Item, Join, Motion, PaintKind, PaintOp,
-    Program, Seg, TextOp, TypeRole, MAX_DELAY,
+    Program, RuleOp, Seg, TextOp, TypeRole, MAX_DELAY,
 };
 
 pub(crate) struct Builder {
     items: Vec<Item>,
     /// Hit targets, written after every mark so that they sit over them all.
     hits: Vec<Item>,
+    /// Mark annotations' hit targets, written after the rows' so that a
+    /// label's small box is not covered by the band it sits in.
+    marks: Vec<Item>,
+    /// Per table row, whether the row carries a ref: the rows whose drawn
+    /// label gets a rule.
+    ruled: Vec<bool>,
     animate: bool,
 }
 
@@ -29,8 +35,15 @@ impl Builder {
         Builder {
             items: Vec::new(),
             hits: Vec::new(),
+            marks: Vec::new(),
+            ruled: Vec::new(),
             animate,
         }
+    }
+
+    /// Which rows carry a ref of their own, so their labels get a rule.
+    pub fn rule_rows(&mut self, ruled: Vec<bool>) {
+        self.ruled = ruled;
     }
 
     /// An entrance, or none when the chart does not animate. Stagger
@@ -136,6 +149,43 @@ impl Builder {
         self.hit_with_cross(path, row, col, Vec::new());
     }
 
+    /// A hit target for dot `item` of row `row`.
+    pub fn hit_item(&mut self, path: Vec<Seg>, row: usize, col: Option<usize>, item: usize) {
+        self.hits.push(Item::Hit(HitOp {
+            path,
+            row,
+            col,
+            item: Some(item),
+            mark: None,
+            cross: Vec::new(),
+        }));
+    }
+
+    /// A hit target over mark annotation `mark`'s label, at row `row`.
+    pub fn hit_mark(&mut self, path: Vec<Seg>, row: usize, mark: usize) {
+        self.marks.push(Item::Hit(HitOp {
+            path,
+            row,
+            col: None,
+            item: None,
+            mark: Some(mark),
+            cross: Vec::new(),
+        }));
+    }
+
+    /// A hidden rule `w` px long from `(x, y)`, under row `row`'s label — but
+    /// only when that row carries a ref, and only under a label that was
+    /// drawn.
+    pub fn label_rule(&mut self, x: f64, y: f64, w: f64, row: usize) {
+        if w <= 0.0 || !self.ruled.get(row).copied().unwrap_or(false) {
+            return;
+        }
+        self.items.push(Item::Rule(RuleOp {
+            path: vec![Seg::Move(x, y), Seg::Line(x + w, y)],
+            row,
+        }));
+    }
+
     /// A hit target with a line to show while it is hovered.
     pub fn hit_with_cross(
         &mut self,
@@ -148,12 +198,15 @@ impl Builder {
             path,
             row,
             col,
+            item: None,
+            mark: None,
             cross,
         }));
     }
 
     pub fn finish(mut self, w: f64, h: f64) -> Program {
         self.items.append(&mut self.hits);
+        self.items.append(&mut self.marks);
         Program {
             frame: (w, h),
             items: self.items,

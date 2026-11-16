@@ -18,6 +18,7 @@ pub mod context;
 pub mod forms;
 mod gaps;
 mod models;
+pub mod refs;
 pub mod tests;
 
 pub use catalog::{

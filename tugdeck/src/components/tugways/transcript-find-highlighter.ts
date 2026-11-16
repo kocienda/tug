@@ -288,6 +288,14 @@ export function compareRowUnits(
  *    projects for it. Counting both would count every label twice.
  *  - `.tugx-chart-note` — a chart's error list or "engine did not load"
  *    note: Tug's words, not the author's, like a block's chrome.
+ *  - `.tugx-chart-ref`, `.tugx-chart-set`, `.tugx-chart-refs-foot` — the
+ *    atoms a chart's refs are drawn as in its Table view, and the footer that
+ *    lists its marks' refs. A set reads "57 commits" and a ref its basename
+ *    or short sha: Tug's words over the spec's refs, which the engine's
+ *    `find_text` never reads, so the index does not project them. Counting
+ *    them would also count a cell's label twice when its atom repeats it.
+ *  - `.tugx-chart-set-list` — the list a set opens inside the figure: its
+ *    heading and rows are the same words, and the list comes and goes.
  *
  * Excluding these mirrors the index so count ↔ paint stay aligned.
  */
@@ -299,7 +307,11 @@ function isInExcludedSubtree(node: Node): boolean {
       el.classList.contains("tug-atom-chip-host") ||
       el.classList.contains("tugx-md-chrome-header") ||
       el.classList.contains("tugx-chart-svg") ||
-      el.classList.contains("tugx-chart-note")
+      el.classList.contains("tugx-chart-note") ||
+      el.classList.contains("tugx-chart-ref") ||
+      el.classList.contains("tugx-chart-set") ||
+      el.classList.contains("tugx-chart-refs-foot") ||
+      el.classList.contains("tugx-chart-set-list")
     ) {
       return true;
     }

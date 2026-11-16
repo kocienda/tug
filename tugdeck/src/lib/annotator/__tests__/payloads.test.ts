@@ -48,6 +48,16 @@ const PAYLOADS: ReadonlyArray<[string, AnnotationPayload]> = [
     "file path at a match span",
     { kind: "file-path", path: "/repo/lib/a.ts", line: 12, columns: [4, 13] },
   ],
+  ["live arc", { kind: "arc", name: "chart-cross-references", root: "/repo" }],
+  [
+    "joined arc",
+    {
+      kind: "arc",
+      name: "chart-cross-references",
+      root: "/repo",
+      joinSha: "302d43b5d1",
+    },
+  ],
 ];
 
 describe("payload ↔ dataset round trip", () => {
@@ -103,6 +113,17 @@ describe("payloadFromDataset refuses an unusable record", () => {
 });
 
 describe("annotationValue — what Copy and Insert carry", () => {
+  test("an arc copies as the spelling prose and chart refs write it", () => {
+    expect(
+      annotationValue({
+        kind: "arc",
+        name: "chart-cross-references",
+        root: "/repo",
+        joinSha: "302d43b5d1",
+      }),
+    ).toBe("arc:chart-cross-references");
+  });
+
   test("a slash command regains its leading slash", () => {
     expect(
       annotationValue({ kind: "slash-command", name: "diff", args: "" }),

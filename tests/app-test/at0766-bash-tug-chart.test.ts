@@ -14,15 +14,23 @@
  *    projects the chart's table the way the painter walks it,
  *  - expanding the block keeps the one chart beneath the body, and the
  *    terminal's text holds the prose and not the chart line.
+ *  - a `file:` ref the spec carries on a row resolves in the chart's Table
+ *    view: the recipe door (`ChartBlock` under the Bash block) is handed the
+ *    transcript's annotation context, so a recipe's chart links on the same
+ *    terms a fence's does.
  *
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
  * @covers tugdeck/src/lib/chart/chart-lines.ts
  * @covers tugdeck/src/lib/chart/chart-find-text.ts
  * @covers tugdeck/src/components/tugways/body-kinds/chart-block.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-search-index.ts
+ * @covers tugdeck/src/lib/annotator/chart-refs.ts
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
@@ -42,15 +50,31 @@ const CHART = `${BLOCK} [data-slot="bash-tool-block-charts"] .tugx-chart`;
 /** A category found nowhere else in the transcript. */
 const LABEL = "quokka";
 
-const SPEC = {
-  tugchart: 1,
-  form: "bar",
-  title: "Runs per animal",
-  categories: ["wombat", LABEL, "numbat"],
-  series: [{ name: "runs", values: [3, 5, 2] }],
-};
+/** The project the card is bound to, holding the file the first row names. */
+let project = "";
+let wombatPath = "";
+
+beforeAll(() => {
+  if (!SHOULD_RUN) return;
+  project = realpathSync(mkdtempSync(join(tmpdir(), "at0766-")));
+  wombatPath = join(project, "wombat.txt");
+  writeFileSync(wombatPath, "wombat\n", "utf8");
+});
+afterAll(() => {
+  if (project !== "" && existsSync(project)) rmSync(project, { recursive: true, force: true });
+});
+
+function spec(): unknown {
+  return {
+    tugchart: 1,
+    form: "bar",
+    title: "Runs per animal",
+    categories: ["wombat", LABEL, "numbat"],
+    series: [{ name: "runs", values: [3, 5, 2] }],
+    refs: [`file:${wombatPath}`, null, null],
+  };
+}
 const PROSE = "measured the week";
-const STDOUT = `${PROSE}\nTUG-CHART: ${JSON.stringify(SPEC)}\n`;
 
 function frame(app: App, decoded: Record<string, unknown>): Promise<unknown> {
   return app.driveSession("A", {
@@ -70,7 +94,7 @@ describe.skipIf(!SHOULD_RUN)("AT0766: a TUG-CHART line renders beneath the Bash 
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", { tugSessionId: SID });
+        await app.bindSession("A", { tugSessionId: SID, projectDir: project });
         const card = app.body("A");
 
         await app.driveSession("A", { op: "send", text: "chart the week" });
@@ -87,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("AT0766: a TUG-CHART line renders beneath the Bash 
           type: "tool_result",
           tool_use_id: USE_ID,
           is_error: false,
-          output: STDOUT,
+          output: `${PROSE}\nTUG-CHART: ${JSON.stringify(spec())}\n`,
         });
         await frame(app, { type: "turn_complete", seq: 0, msg_id: `${SID}-m1`, result: "success" });
 
@@ -122,6 +146,20 @@ describe.skipIf(!SHOULD_RUN)("AT0766: a TUG-CHART line renders beneath the Bash 
         expect(facts.findable, "the chart is a Find unit").toBe(true);
         expect(facts.svg, "the chart drew").toBe(true);
         expect(facts.height, "the chart takes its box on screen").toBeGreaterThan(100);
+
+        // The recipe door resolves refs: the row's `file:` atom is stamped.
+        const WOMBAT_ATOM = `${CHART} table.tugx-chart-table .tugx-chart-ref[data-tugx-ref-row="0"]`;
+        await card
+          .waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(WOMBAT_ATOM)})?.getAttribute("data-tug-annotation") === "file-path"`,
+            { timeoutMs: 15_000 },
+          )
+          .catch(() => undefined);
+        const atom = await card.evalJS<string>(
+          `document.querySelector(${JSON.stringify(WOMBAT_ATOM)})?.getAttribute("data-tug-annotation") || ""`,
+        );
+        note(`at0766 wombat ref annotation: ${JSON.stringify(atom)}`);
+        expect(atom, "a recipe chart's file ref resolves in its Table view").toBe("file-path");
 
         // Find, still collapsed: the label is in the chart's table and nowhere else.
         await openFindBar(app);

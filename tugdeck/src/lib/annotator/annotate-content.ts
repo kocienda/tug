@@ -123,6 +123,8 @@ import {
   recordElementPass,
 } from "./annotate-counters";
 import { scanCommitShas } from "./detect-commit-sha";
+import { scanArcRefs } from "./detect-arc-ref";
+import { annotateChartRefs } from "./chart-refs";
 import { isSessionShortId, scanSessionRefs } from "./detect-session-ref";
 import {
   classifyInlineCode,
@@ -244,6 +246,11 @@ function annotatePathsInText(
       if (payload === null) continue;
       matches.push({ start: found.start, end: found.end, payload });
     }
+    for (const found of scanArcRefs(text)) {
+      const payload = payloadForArc(found.name, context);
+      if (payload === null) continue;
+      matches.push({ start: found.start, end: found.end, payload });
+    }
     // One text node, two scans: the wrapper takes them in order and drops
     // any that overlaps a run already taken.
     matches.sort((a, b) => a.start - b.start);
@@ -306,6 +313,29 @@ function sessionMatch(
     end: found.end,
     payload: { kind: "session", target: verdict.sessionId },
   };
+}
+
+/**
+ * The arc payload for a name the project's arc log confirms. `null` when the
+ * surface does not resolve arcs, the arc is unknown or discarded, or the
+ * answer is still out — a later batch re-marks it.
+ *
+ * The join commit rides the payload only when there is a repository to open
+ * it in, which is `commitRoot`; the arc's act falls back to the Arcs rail
+ * otherwise.
+ */
+function payloadForArc(
+  name: string,
+  context: AnnotationContext,
+): AnnotationPayload | null {
+  if (context.resolveArc === undefined || context.commitRoot === null) {
+    return null;
+  }
+  const verdict = context.resolveArc(name);
+  if (verdict.state !== "confirmed") return null;
+  return verdict.fate === "joined" && verdict.joinSha !== undefined
+    ? { kind: "arc", name, root: context.commitRoot, joinSha: verdict.joinSha }
+    : { kind: "arc", name, root: context.commitRoot };
 }
 
 /**
@@ -555,6 +585,7 @@ export function annotateElement(
     dropStaleWraps(container, context);
     annotateInlineCode(container, context);
     nodes = annotatePathsInText(container, context);
+    annotateChartRefs(container, context);
   });
   ledgers.set(container, keys);
   container.setAttribute(LEDGER_ATTRIBUTE, "");

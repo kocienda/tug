@@ -27,13 +27,26 @@
  * Theme awareness needs nothing here: the SVG carries role classes and the
  * CSS maps them to tokens, so a theme switch restyles the figure in place.
  *
+ * **A chart's refs are annotated here as prose is.** With an `annotation`
+ * context the renderer resolves the refs the figure names and stamps the
+ * confirmed ones; this block mounts the portals those stamps earn (a commit
+ * pill, a session chip) beside its root, re-marks the figure when a verdict
+ * it consulted lands, and re-announces the figure to its portals whenever
+ * the figure says its annotated hosts changed (`CHART_ANNOTATED_EVENT`).
+ *
  * Laws:
  *  - [L03] the render runs in `useLayoutEffect`, before paint.
+ *  - [L03] the verdict subscription and the event listener are registered
+ *    in a layout effect, so they stand before any gesture.
  *  - [L06] no React state for visual state — the renderer writes DOM; React
- *    owns only the mount.
+ *    owns only the mount and the portals.
  *  - [L19] file pair (`.tsx` + `.css`), module docstring, exported props
  *    interface, `data-slot="chart-body"` on the root.
  *  - [L20] owns `--tugx-chart-*`; consumes `--tugx-block-*` for the frame.
+ *  - [L22] the verdicts are external state the annotator reads
+ *    synchronously; nothing renders from them through React.
+ *  - [L27] the subscription's release and the listener's removal are the
+ *    effect's cleanup.
  *
  * @module components/tugways/body-kinds/chart-block
  */
@@ -42,7 +55,11 @@ import "./chart-block.css";
 
 import React from "react";
 
-import { renderChartInto } from "@/lib/chart/render-chart";
+import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
+import { annotateElement, containerDependsOnVerdicts } from "@/lib/annotator/annotate-content";
+import type { AnnotationContext } from "@/lib/annotator/types";
+import { CHART_ANNOTATED_EVENT, CHART_STATE_ATTR, renderChartInto } from "@/lib/chart/render-chart";
+import { flushSync } from "@/lib/gesture-scope";
 import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
 
 export interface ChartBlockProps {
@@ -72,19 +89,65 @@ export interface ChartBlockProps {
    * wrapping element of definite height.
    */
   thumbnail?: boolean;
+  /**
+   * The surface's annotation context. Given, the refs the chart names are
+   * resolved through it and a confirmed one becomes the same link, pill or
+   * chip prose gets. Absent, every ref is shown as written.
+   */
+  annotation?: AnnotationContext;
 }
 
-export const ChartBlock: React.FC<ChartBlockProps> = ({ source, layers, className, findable = false, thumbnail = false }) => {
+export const ChartBlock: React.FC<ChartBlockProps> = ({
+  source,
+  layers,
+  className,
+  findable = false,
+  thumbnail = false,
+  annotation,
+}) => {
   const ref = React.useRef<HTMLDivElement | null>(null);
+  const { onAnnotated, portals } = useAnnotationPortals(annotation);
+  // Live-ref'd, so a fresh callback per render does not re-run the effects ([L07]).
+  const onAnnotatedRef = React.useRef(onAnnotated);
+  onAnnotatedRef.current = onAnnotated;
 
   React.useLayoutEffect(() => {
     const el = ref.current;
     if (el === null) return;
-    void renderChartInto(el, source, { layers, thumbnail });
-  }, [source, layers, thumbnail]);
+    void renderChartInto(el, source, { layers, thumbnail, annotation });
+  }, [source, layers, thumbnail, annotation]);
+
+  // The figure's hosts reach the portals two ways. The renderer annotates a
+  // figure that has landed and says so with `CHART_ANNOTATED_EVENT` (as does
+  // a set list opening or closing); a verdict the figure consulted, landing
+  // later on a timer, re-marks it here. Both arrive outside React's commit,
+  // so each fills the hosts it emptied before the paint with `flushSync`.
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null || annotation === undefined || thumbnail) return;
+    const announce = (): void => {
+      flushSync(() => onAnnotatedRef.current(el));
+    };
+    el.addEventListener(CHART_ANNOTATED_EVENT, announce);
+    const release = annotation.subscribe?.((changed) => {
+      if (el.getAttribute(CHART_STATE_ATTR) !== "rendered") return;
+      if (!containerDependsOnVerdicts(el, changed)) return;
+      annotateElement(el, annotation);
+      announce();
+    });
+    return () => {
+      el.removeEventListener(CHART_ANNOTATED_EVENT, announce);
+      release?.();
+    };
+  }, [annotation, thumbnail]);
 
   const baseClass = "tugx-chart";
   const composed = className === undefined ? baseClass : `${baseClass} ${className}`;
 
-  return <div ref={ref} data-slot="chart-body" className={composed} data-tugx-findable={findable ? "" : undefined} />;
+  return (
+    <>
+      <div ref={ref} data-slot="chart-body" className={composed} data-tugx-findable={findable ? "" : undefined} />
+      {portals}
+    </>
+  );
 };

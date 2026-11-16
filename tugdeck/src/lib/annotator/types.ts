@@ -14,6 +14,7 @@
  * @module lib/annotator/types
  */
 
+import type { ArcVerdict } from "./arc-resolution";
 import type { CommitVerdict } from "./commit-resolution";
 import type { PathReference } from "./detect-path-reference";
 import type { PathVerdict } from "./path-resolution";
@@ -32,6 +33,7 @@ export type AnnotationKind =
   | "image"
   | "commit-sha"
   | "session"
+  | "arc"
   | "help";
 
 /**
@@ -93,6 +95,16 @@ export interface AnnotationContext {
    * cannot simply be ordered.
    */
   resolveSession?: (target: string) => SessionVerdict;
+  /**
+   * Does this name an arc in the project's arc log, and was it joined?
+   * Optional, and its absence means "do not resolve arcs at all" — a surface
+   * with no project, or a hand-built context, never marks an `arc:` reference.
+   *
+   * Same contract as {@link resolveCommit}: synchronous, cached, and an answer
+   * that arrives later re-runs the pass through {@link subscribe}. A
+   * discarded arc is `refuted`, because nothing of it is left to open.
+   */
+  resolveArc?: (name: string) => ArcVerdict;
   /**
    * Verdict arrivals, batched, each naming the keys whose answer moved. A
    * consumer subscribes here and re-runs the pass per batch — only over the

@@ -36,6 +36,7 @@ const ALL_KINDS: ReadonlyArray<AnnotationKind> = [
   "directory",
   "image",
   "commit-sha",
+  "arc",
   "help",
 ];
 
@@ -57,6 +58,12 @@ const SAMPLE: Record<AnnotationKind, unknown> = {
   session: {
     kind: "session",
     target: "123e4567-e89b-42d3-a456-426614174000",
+  },
+  arc: {
+    kind: "arc",
+    name: "chart-cross-references",
+    root: "/repo",
+    joinSha: "302d43b5d1",
   },
   help: { kind: "help", doc: "recipes", anchor: "create-an-arc" },
 };
@@ -149,6 +156,41 @@ describe("a help ref is a kind like any other", () => {
   test("a dataset naming no help document is a miss", () => {
     expect(payloadFromDataset("help", {})).toBeNull();
     expect(payloadFromDataset("help", { helpDoc: "manual" })).toBeNull();
+  });
+});
+
+describe("an arc is reached through its join, or through the Arcs rail", () => {
+  test("a joined arc opens its join commit, then copies and inserts", () => {
+    const entries = bareEntries("arc");
+    expect(entries.map((e) => e.label)).toEqual([
+      "Open Join Commit",
+      "Copy Arc Name",
+      "Insert into Prompt",
+    ]);
+    expect(entries[0]?.action).toBe(TUG_ACTIONS.OPEN_COMMIT);
+    expect(entries[0]?.value).toEqual({ root: "/repo", sha: "302d43b5d1" });
+    expect(entries[1]?.separatorBefore).toBe(true);
+    expect(entries[2]?.separatorBefore).toBe(true);
+  });
+
+  test("a live arc shows itself in the Arcs rail instead", () => {
+    const entries =
+      annotationEntryFor("arc")?.menuEntries(
+        { kind: "arc", name: "chart-cross-references", root: "/repo" },
+        { kind: "none" },
+      ) ?? [];
+    expect(entries.map((e) => e.label)).toEqual([
+      "Show in Arcs",
+      "Copy Arc Name",
+      "Insert into Prompt",
+    ]);
+    expect(entries[0]?.action).toBe(TUG_ACTIONS.REVEAL_ARCS);
+  });
+
+  test("a click is registered, and the standard block stays", () => {
+    const entry = annotationEntryFor("arc");
+    expect(entry?.primaryClick).toBeFunction();
+    expect(entry?.suppressStandardItems).toBe(false);
   });
 });
 

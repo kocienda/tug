@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { tipContent } from "../chart-hover";
+import { footLine, tipContent } from "../chart-hover";
 
 const TABLE = {
   caption: "Both suites got slower",
@@ -48,5 +48,41 @@ describe("tipContent", () => {
 
   test("a row the table does not have is nothing", () => {
     expect(tipContent(TABLE, 9, null)).toBeNull();
+  });
+});
+
+describe("footLine", () => {
+  test("says what a press on each kind of mark does", () => {
+    expect(footLine({ payload: { kind: "file-path", path: "/repo/src/app.ts" } }, null)).toBe("Open app.ts");
+    expect(footLine({ payload: { kind: "directory", path: "/repo/src/" } }, null)).toBe("Show src in Finder");
+    expect(footLine({ payload: { kind: "commit-sha", sha: "63de5762a9c1", root: "/repo", paths: [] } }, null)).toBe(
+      "Open commit:63de5762",
+    );
+    expect(footLine({ payload: { kind: "arc", name: "x", root: "/repo", joinSha: "302d43b5d1" } }, null)).toBe(
+      "Open the join commit",
+    );
+    expect(footLine({ payload: { kind: "arc", name: "x", root: "/repo" } }, null)).toBe("Show x in Arcs");
+    expect(footLine({ payload: { kind: "url", url: "https://www.example.com/a/b" } }, null)).toBe("Open example.com");
+    expect(footLine({ payload: { kind: "slash-command", name: "commit", args: "" } }, null)).toBe(
+      "Put the command in the prompt",
+    );
+    expect(footLine({ payload: { kind: "shell-command", command: "just ci" } }, null)).toBe("Put the command in the prompt");
+  });
+
+  test("a session mark says the act the press would take now", () => {
+    const session = { payload: { kind: "session" as const, target: "048e4155-f644-46f7-a839-d22ac02a564f" } };
+    expect(footLine(session, "raise")).toBe("Go to session");
+    expect(footLine(session, "resume")).toBe("Resume session");
+    expect(footLine(session, null)).toBe("Session not open here");
+  });
+
+  test("a set offers its list; a count form and a bare mark offer nothing", () => {
+    expect(footLine({ set: { kind: "commit", members: ["commit:a1", "commit:b2"] } }, null)).toBe("Show 2 commits");
+    expect(footLine({ set: { kind: "commit", count: 312 } }, null)).toBeNull();
+    expect(footLine(null, null)).toBeNull();
+  });
+
+  test("a kind no chart ref is has no foot", () => {
+    expect(footLine({ payload: { kind: "email", address: "a@b.c" } }, null)).toBeNull();
   });
 });

@@ -57,10 +57,46 @@ export interface ChartCompileOpts {
   figure_title?: boolean;
 }
 
+/**
+ * What one place in a chart's table names: a ref (`"commit:63de5762a"`), a
+ * set of refs of one kind, or — past the set cap — how many there were.
+ */
+export type ChartRefSlot =
+  | string
+  | { kind: string; members: string[] }
+  | { kind: string; count: number };
+
+/** A mark annotation's ref: its index among the annotations, the category it marks, and its label. */
+export interface ChartMarkRef {
+  index: number;
+  at: number;
+  label: string;
+  slot: ChartRefSlot;
+}
+
+/**
+ * A table's refs, addressed as its text is. Each list is empty when
+ * nothing at that address carries a ref.
+ */
+export interface ChartTableRefs {
+  /** Per table row. */
+  rows: (ChartRefSlot | null)[];
+  /** Per head column; index 0, the label column, is always null. */
+  cols: (ChartRefSlot | null)[];
+  /** `[row][col]`, column 0 always null. */
+  cells: (ChartRefSlot | null)[][];
+  /** `dots` only: `[row][dot index]`. */
+  items: (ChartRefSlot | null)[][];
+  /** The mark annotations that carry a ref, in annotation order. */
+  marks: ChartMarkRef[];
+}
+
 export interface ChartTable {
   caption: string;
   head: string[];
   rows: string[][];
+  /** Absent when the spec carries no refs. */
+  refs?: ChartTableRefs;
 }
 
 export interface ChartError {

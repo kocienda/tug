@@ -68,6 +68,11 @@ export function sessionVerdictKey(queried: string): VerdictKey {
   return `session:${queried}`;
 }
 
+/** The key for one arc name in one project's arc log. */
+export function arcVerdictKey(root: string, name: string): VerdictKey {
+  return compound("arc", root, name);
+}
+
 /**
  * The collection open right now, or `null` outside a pass. Module-scoped
  * because the notes come from four stores at the bottom of a call stack the

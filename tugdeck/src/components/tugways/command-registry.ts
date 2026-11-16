@@ -1483,7 +1483,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     // Its door is an Overview post's arc chip — a link, not a menu item or
     // a chord. Distinct from Show Arcs on purpose: a link reveals the rail,
     // where the toggle would take it away from a reader who had it open.
-    id: "reveal-arcs",
+    id: TUG_ACTIONS.REVEAL_ARCS,
     title: "Reveal Arcs",
     routing: "registry",
     internal: true,

@@ -43,8 +43,12 @@ import { SessionCitation } from "@/components/tugways/cards/session-identity";
 import { SESSION_TEXT_ATTRIBUTE } from "@/lib/annotator/annotate-content";
 import { useSpanPortals } from "@/components/tugways/use-span-portals";
 
-/** Every confirmed session span the annotator has marked in a container. */
-const SESSION_SPANS = '[data-tug-annotation="session"]';
+/**
+ * Every confirmed session span the annotator has marked in a container. A
+ * chart mark (`.tgh`) is excluded: it is an SVG `<path>`, which must never
+ * host a portal — its press is the chart's own (`openCitedSession`).
+ */
+const SESSION_SPANS = '[data-tug-annotation="session"]:not(.tgh)';
 
 /**
  * Which register a confirmed run is drawn at.

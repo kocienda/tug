@@ -791,6 +791,54 @@ registerAnnotationKind("session", {
   suppressStandardItems: false,
 });
 
+/**
+ * An arc's menu — reach it, take its name, send it.
+ *
+ * A joined arc's work is its join commit, so that is where its menu goes; a
+ * live arc has no commit of its own yet, and the Arcs rail is where it is
+ * shown and joined. The two reach rows are one row whose label says which it
+ * will be, the session menu's rule: a reader right-clicking an arc wants to
+ * reach it, and which surface that costs is the app's problem.
+ */
+function arcMenuEntries(payload: AnnotationPayload): AnnotationMenuEntry[] {
+  const joined =
+    payload.kind === "arc" && payload.joinSha !== undefined ? payload : null;
+  return buildEntityMenu(payload, {
+    goTo: [
+      joined !== null
+        ? {
+            action: TUG_ACTIONS.OPEN_COMMIT,
+            label: "Open Join Commit",
+            value: { root: joined.root, sha: joined.joinSha },
+          }
+        : { action: TUG_ACTIONS.REVEAL_ARCS, label: "Show in Arcs" },
+    ],
+    copy: [
+      { action: TUG_ACTIONS.COPY_ANNOTATION_VALUE, label: "Copy Arc Name" },
+    ],
+    send: [insertEntry(payload)],
+  });
+}
+
+registerAnnotationKind("arc", {
+  // The click does what the menu's first row does: the join commit's card for
+  // a joined arc, the Arcs rail for a live one.
+  primaryClick: (payload, ctx) => {
+    if (payload.kind !== "arc") return;
+    if (payload.joinSha === undefined) {
+      dispatchCommand(TUG_ACTIONS.REVEAL_ARCS);
+      return;
+    }
+    dispatchCommand(TUG_ACTIONS.OPEN_COMMIT, {
+      root: payload.root,
+      sha: payload.joinSha,
+      ...(ctx.hostCardId !== undefined ? { originCardId: ctx.hostCardId } : {}),
+    });
+  },
+  menuEntries: arcMenuEntries,
+  suppressStandardItems: false,
+});
+
 registerAnnotationKind("image", {
   // A pasted image is bytes under an id, with no file to open — the strip
   // that holds those bytes owns the only full-size view of it.

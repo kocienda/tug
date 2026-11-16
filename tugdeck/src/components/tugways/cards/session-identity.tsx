@@ -88,7 +88,6 @@ import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { EyeOff } from "lucide-react";
 
-import { dispatchCommand } from "@/command-dispatch";
 import { ArcSigil } from "@/components/tugways/arc-sigil";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
@@ -101,8 +100,8 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isSessionResumable } from "@/lib/session-resume";
+import { performSessionOpenAct } from "@/lib/session-open";
 import { arcReviewPaints, arcReviewTooltip } from "@/lib/arc-review";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
@@ -702,14 +701,13 @@ export function SessionCitation({
     cited.status === "found"
       ? { sessionId: cited.sessionId, projectDir: cited.projectDir }
       : null;
+  // Both branches are performed by `session-open.ts`, which a chart mark
+  // citing a session reads at press time with no hooks: one module performs
+  // the act, so the chip and the mark cannot drift.
   const onOpen = canRaise
-    ? () => dispatchCommand("focus-session-card", { cardId })
+    ? () => performSessionOpenAct({ kind: "raise", cardId })
     : resumable && resumeTarget !== null
-      ? () => {
-          // The shell's command, for the menu's reason: the deck work lives
-          // in the shell's `action-dispatch.ts`.
-          dispatchCommand(TUG_ACTIONS.RESUME_SESSION, resumeTarget);
-        }
+      ? () => performSessionOpenAct({ kind: "resume", ...resumeTarget })
       : undefined;
   return (
     <SessionIdentityView

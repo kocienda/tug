@@ -20,14 +20,10 @@
  * @module lib/markdown/enhance-chart
  */
 
-import { annotateElement } from "@/lib/annotator/annotate-content";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import {
   CHART_CLASS,
-  CHART_KIND_ATTR,
   CHART_PENDING_ATTR,
-  CHART_STATE_ATTR,
-  DIAGRAM_CHECKED_ATTR,
   renderChartInto,
 } from "@/lib/chart/render-chart";
 import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
@@ -53,18 +49,16 @@ export function placeholderLayers(el: Element): ChartLayers {
  * found has reached a terminal state; callers that do not care can
  * fire-and-forget.
  *
- * A diagram's keyed table names where each mark is in the code, and that
- * table is written after the block's own annotation pass ran over the
- * placeholder. So a rendered diagram is annotated again on its own, with the
- * block's context: a location the resolver confirms becomes the same file
- * link prose gets, and the pass files what it consulted, so a verdict that
- * lands later re-marks the block it sits in.
- *
- * The table says a resolver was asked (`DIAGRAM_CHECKED_ATTR`), which is
- * what lets a location nobody confirmed wear its "unresolved" mark, only
- * where one could answer. On a page with nobody to ask
- * (`annotation.unanswerable`, the share page) every location would wear
- * the mark, so there the table shows each location as written.
+ * The block's `annotation` context goes to the renderer, which annotates
+ * the figure once it has landed: a chart's table is written after the
+ * block's own annotation pass ran over the placeholder, and so is a
+ * diagram's keyed table, so each is annotated again on its own. A chart's
+ * refs resolve to the same links prose gets; a diagram's locations do too,
+ * and its table says a resolver was asked (`DIAGRAM_CHECKED_ATTR`), which is
+ * what lets a location nobody confirmed wear its "unresolved" mark only where
+ * one could answer — never on the share page, whose context is
+ * `unanswerable`. The pass files what it consulted, so a verdict that lands
+ * later re-marks the block it sits in.
  *
  * The pass is registered with `pending-enhancements`: the engine loads
  * lazily, so a page about to be photographed waits for its figures as it
@@ -74,17 +68,6 @@ export function enhanceChart(container: HTMLElement, annotation?: AnnotationCont
   const pending = Array.from(container.querySelectorAll<HTMLElement>(PENDING_SELECTOR));
   if (pending.length === 0) return Promise.resolve();
   return trackEnhancement(Promise.all(
-    pending.map(async (el) => {
-      await renderChartInto(el, el.textContent ?? "", { layers: placeholderLayers(el) });
-      if (
-        annotation !== undefined &&
-        el.isConnected &&
-        el.getAttribute(CHART_KIND_ATTR) === "diagram" &&
-        el.getAttribute(CHART_STATE_ATTR) === "rendered"
-      ) {
-        if (annotation.unanswerable !== true) el.setAttribute(DIAGRAM_CHECKED_ATTR, "");
-        annotateElement(el, annotation);
-      }
-    }),
+    pending.map((el) => renderChartInto(el, el.textContent ?? "", { layers: placeholderLayers(el), annotation })),
   ).then(() => undefined));
 }

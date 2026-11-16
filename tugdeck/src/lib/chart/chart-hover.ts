@@ -21,17 +21,27 @@
  * a toolbar raises nothing, and a reader resting on a bar is asking the question.
  * Moving from one mark to the next retargets the standing bubble at once.
  *
+ * Under the row, a mark that opens something says what a press does
+ * ({@link footLine}): the stamp the annotation pass wrote on the mark names
+ * the kind, and the act's words are the same ones the Table view's atom
+ * would act on, so the bubble and the click cannot disagree.
+ *
  * Laws: [L06] the bubble and the active target are DOM and attributes, styled
  * by CSS, and no React state moves; [L22] this lives outside the React tree.
  *
  * @module lib/chart/chart-hover
  */
 
+import { readAnnotation } from "@/lib/annotator/annotation-element";
+import { REF_SET_ATTR, refActionLabel, type SessionActKind } from "@/lib/annotator/chart-refs";
+import type { AnnotationPayload } from "@/lib/annotator/payloads";
 import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
-import type { ChartTable } from "@/lib/lazy/load-tuggraphics";
+import { effectiveRef, isActionableSet, slotLabel, type RefTarget } from "@/lib/chart/chart-table-refs";
+import type { ChartRefSlot, ChartTable } from "@/lib/lazy/load-tuggraphics";
 import { anyMenuOpen, observeOpenMenus } from "@/lib/open-menu-registry";
 import { claimSoleTooltip, releaseSoleTooltip, type TooltipClaim } from "@/lib/open-tooltip-registry";
 import { deckRootElement, layoutPxOf } from "@/lib/page-zoom-store";
+import { sessionOpenAct } from "@/lib/session-open";
 import { observeTooltipDismiss } from "@/lib/tooltip-dismiss";
 import { tooltipDelayNow, tooltipsOff } from "@/lib/tooltip-delay";
 
@@ -81,12 +91,29 @@ export function tipContent(table: ChartTable, row: number, col: number | null): 
   return { label: cells[0] ?? "", rows };
 }
 
-/** The `(row, col)` a hit target carries, or null for one that names no row. */
-function readTarget(hit: Element): { row: number; col: number | null } | null {
+/** The address a hit target carries, or null for one that names no row. */
+function readTarget(hit: Element): { row: number; col: number | null; item?: number; mark?: number } | null {
   const row = hit.getAttribute("data-row");
   if (row === null) return null;
   const col = hit.getAttribute("data-col");
-  return { row: Number(row), col: col === null ? null : Number(col) };
+  const item = hit.getAttribute("data-item");
+  const mark = hit.getAttribute("data-mark");
+  return {
+    row: Number(row),
+    col: col === null ? null : Number(col),
+    ...(item === null ? {} : { item: Number(item) }),
+    ...(mark === null ? {} : { mark: Number(mark) }),
+  };
+}
+
+/** `readTarget`'s answer as the table-refs module addresses it. */
+function refTarget(target: NonNullable<ReturnType<typeof readTarget>>): RefTarget {
+  return {
+    row: target.row,
+    ...(target.col === null ? {} : { col: target.col }),
+    ...(target.item === undefined ? {} : { item: target.item }),
+    ...(target.mark === undefined ? {} : { mark: target.mark }),
+  };
 }
 
 function buildArrow(): SVGSVGElement {
@@ -102,7 +129,44 @@ function buildArrow(): SVGSVGElement {
   return svg;
 }
 
-function fillBubble(bubble: HTMLElement, content: TipContent): void {
+/**
+ * What the bubble's foot is about: the payload a stamped mark carries, or
+ * the set an actionable set mark stands for.
+ */
+export type FootSubject = { payload: AnnotationPayload } | { set: ChartRefSlot };
+
+/**
+ * The foot line under a mark's row (Spec S06): what a press on the mark
+ * does. A stamped mark reads its kind's act; a set mark offers its list; a
+ * mark that is neither has no foot. The session act is passed in, read by
+ * the caller at show time, so this stays a function of its arguments.
+ */
+export function footLine(subject: FootSubject | null, sessionAct: SessionActKind): string | null {
+  if (subject === null) return null;
+  if ("set" in subject) return isActionableSet(subject.set) ? `Show ${slotLabel(subject.set)}` : null;
+  return refActionLabel(subject.payload, sessionAct);
+}
+
+/** The foot's subject for `hit`, read from the mark: its stamp, or its set. */
+function footSubject(hit: Element, table: ChartTable): FootSubject | null {
+  if (hit instanceof HTMLElement || hit instanceof SVGElement) {
+    const payload = readAnnotation(hit);
+    if (payload !== null) return { payload };
+  }
+  if (!hit.hasAttribute(REF_SET_ATTR)) return null;
+  const target = readTarget(hit);
+  if (target === null) return null;
+  const set = effectiveRef(table.refs, refTarget(target));
+  return set === null ? null : { set };
+}
+
+/** The act a press on a session payload takes now, as the foot words it. */
+function sessionActFor(subject: FootSubject | null): SessionActKind {
+  if (subject === null || !("payload" in subject) || subject.payload.kind !== "session") return null;
+  return sessionOpenAct(subject.payload.target)?.kind ?? null;
+}
+
+function fillBubble(bubble: HTMLElement, content: TipContent, foot: string | null): void {
   const children: Node[] = [];
   if (content.label !== "") {
     const label = document.createElement("div");
@@ -119,6 +183,12 @@ function fillBubble(bubble: HTMLElement, content: TipContent): void {
     const value = document.createElement("span");
     value.textContent = row.value;
     line.append(name, value);
+    children.push(line);
+  }
+  if (foot !== null) {
+    const line = document.createElement("div");
+    line.className = "tugx-chart-tip-foot";
+    line.textContent = foot;
     children.push(line);
   }
   children.push(buildArrow());
@@ -181,10 +251,13 @@ export function endChartHoverIn(figure: HTMLElement): void {
 function showRow(s: Standing): void {
   const target = readTarget(s.hit);
   const content = target === null ? null : tipContent(s.table, target.row, target.col);
+  // The row's cells are the bubble; under them, what a press on the mark does.
   if (content === null) {
     endHover();
     return;
   }
+  const subject = footSubject(s.hit, s.table);
+  const foot = footLine(subject, sessionActFor(subject));
   if (s.bubble === null) {
     const bubble = document.createElement("div");
     bubble.setAttribute("data-slot", "tug-tooltip");
@@ -194,10 +267,10 @@ function showRow(s: Standing): void {
     bubble.setAttribute("aria-hidden", "true");
     bubble.className = "tug-tooltip-content tugx-chart-tip";
     s.bubble = bubble;
-    fillBubble(bubble, content);
+    fillBubble(bubble, content, foot);
     (canvasOverlayRegistry.getRoot() ?? deckRootElement()).appendChild(bubble);
   } else {
-    fillBubble(s.bubble, content);
+    fillBubble(s.bubble, content, foot);
   }
   placeBubble(s.bubble, s.hit, s.pointerX);
 }
