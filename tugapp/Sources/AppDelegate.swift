@@ -240,6 +240,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         lap("start", entering: .starting)
 
+        // The Session Notifications settings' host half. The delegate is set
+        // here, at launch, so a click on a notification an earlier run posted
+        // still opens its card; a click reaches the shell as the same
+        // `focus-session-card` action a Workspaces row sends.
+        SessionNotifier.shared.sendControl = { [weak self] action, params in
+            self?.sendControl(action, params: params)
+        }
+        SessionNotifier.shared.install()
+
         // Cocoa's StandardKeyBinding.dict binds ⌃⌘↓ / ⌃⌘← / ⌃⌘→ to the
         // writing-direction commands (`makeBaseWritingDirectionNatural:` and
         // friends), and WebKit runs every keydown through that table in the UI

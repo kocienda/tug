@@ -656,6 +656,26 @@ struct TooltipDelay: Decodable, Equatable {
     var delayMs: Double
 }
 
+/// `sessionNotify`: a session card the user is not watching finished its
+/// turn or needs their answer. Bounce the dock as `bounce` says and, when
+/// `notification` is on, post a macOS notification with `title` and `body`
+/// that opens `cardId`'s card when clicked — only while Tug is not the
+/// frontmost app. The shell's watcher has already read the user's settings.
+struct SessionNotify: Decodable, Equatable {
+    enum Event: String, Decodable, Equatable {
+        case complete, input
+    }
+    enum Bounce: String, Decodable, Equatable {
+        case `repeat`, once, never
+    }
+    var event: Event
+    var bounce: Bounce
+    var notification: Bool
+    var cardId: String
+    var title: String
+    var body: String
+}
+
 /// `clipboardRead`: read the pasteboard, answered with `onClipboardRead`.
 struct ClipboardReadRequest: Decodable, Equatable {
     var requestId: String
@@ -1144,7 +1164,7 @@ enum ToHostName: String, CaseIterable {
     case bodyHello, painted, bodyThemed, bodyStale, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
     case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
-    case sourceTree, choosePath, getSettings, setTheme, tooltipDelay
+    case sourceTree, choosePath, getSettings, setTheme, tooltipDelay, sessionNotify
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
     case openPath, lookUpInDictionary, spellingGuesses, rememberSpelling, trashPath, restorePath, thumbnailPath
     case exportSession, sharePreview, shareSave, shareRender, shareHello, shareRenderReady, shareRenderHtml
@@ -1157,7 +1177,7 @@ enum ToHostName: String, CaseIterable {
     /// card's own body, and the answer is the window's whole zoom either way.
     var shellOnly: Bool {
         switch self {
-        case .sourceTree, .setTheme, .tooltipDelay, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
+        case .sourceTree, .setTheme, .tooltipDelay, .sessionNotify, .updateAction, .frontendLaunchStalled, .launchLap, .quitConfirmed,
              .bodyCreate, .bodyDestroy, .bodyDelays, .bodyFocus, .hostFrames,
              .cardPlan, .placeCards, .overlayCreate:
             return true
@@ -1230,6 +1250,7 @@ enum ToHost {
     case getSettings
     case setTheme(SetTheme)
     case tooltipDelay(TooltipDelay)
+    case sessionNotify(SessionNotify)
     case clipboardRead(ClipboardReadRequest)
     case clipboardWrite(ClipboardWrite)
     case clipboardWriteImage(ClipboardWriteImage)
@@ -1300,6 +1321,7 @@ enum ToHost {
         case .getSettings: _ = try read(EmptyPayload.self); return .getSettings
         case .setTheme: return .setTheme(try read(SetTheme.self))
         case .tooltipDelay: return .tooltipDelay(try read(TooltipDelay.self))
+        case .sessionNotify: return .sessionNotify(try read(SessionNotify.self))
         case .clipboardRead: return .clipboardRead(try read(ClipboardReadRequest.self))
         case .clipboardWrite: return .clipboardWrite(try read(ClipboardWrite.self))
         case .clipboardWriteImage: return .clipboardWriteImage(try read(ClipboardWriteImage.self))

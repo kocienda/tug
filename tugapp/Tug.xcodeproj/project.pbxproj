@@ -69,6 +69,7 @@
 		AA00000100000000000000F8 /* ExportChoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F5 /* ExportChoiceTests.swift */; };
 		AA00000100000000000000F9 /* SharePreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F6 /* SharePreviewSheet.swift */; };
 		AA00000100000000000000FA /* ShareRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F7 /* ShareRenderer.swift */; };
+		AA0000010000000000000E13 /* SessionNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000E12 /* SessionNotifier.swift */; };
 		AA00000100000000000000FB /* ShareRenderOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F8 /* ShareRenderOutput.swift */; };
 		AA00000100000000000000FC /* ShareRenderOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F8 /* ShareRenderOutput.swift */; };
 		AA00000100000000000000FD /* ShareRenderOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000200000000000000F9 /* ShareRenderOutputTests.swift */; };
@@ -174,6 +175,7 @@
 		AA00000200000000000000F5 /* ExportChoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportChoiceTests.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F6 /* SharePreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePreviewSheet.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F7 /* ShareRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderer.swift; sourceTree = "<group>"; };
+		AA0000020000000000000E12 /* SessionNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionNotifier.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F8 /* ShareRenderOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderOutput.swift; sourceTree = "<group>"; };
 		AA00000200000000000000F9 /* ShareRenderOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareRenderOutputTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000047 /* MenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuState.swift; sourceTree = "<group>"; };
@@ -254,6 +256,7 @@
 				AA00000200000000000000F4 /* ExportChoice.swift */,
 				AA00000200000000000000F6 /* SharePreviewSheet.swift */,
 				AA00000200000000000000F7 /* ShareRenderer.swift */,
+				AA0000020000000000000E12 /* SessionNotifier.swift */,
 				AA00000200000000000000F8 /* ShareRenderOutput.swift */,
 				AA0000020000000000000047 /* MenuState.swift */,
 				AA0000020000000000000002 /* MainWindow.swift */,
@@ -454,6 +457,7 @@
 				AA00000100000000000000F6 /* ExportChoice.swift in Sources */,
 				AA00000100000000000000F9 /* SharePreviewSheet.swift in Sources */,
 				AA00000100000000000000FA /* ShareRenderer.swift in Sources */,
+				AA0000010000000000000E13 /* SessionNotifier.swift in Sources */,
 				AA00000100000000000000FB /* ShareRenderOutput.swift in Sources */,
 				AA000001000000000000004F /* BridgeHandler.swift in Sources */,
 				AA0000010000000000000050 /* MenuBarBuilder.swift in Sources */,

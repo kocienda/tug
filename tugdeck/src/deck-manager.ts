@@ -262,6 +262,9 @@ import {
   type LifecycleCascadeHandle,
 } from "./lib/lifecycle-cascade";
 import { installSessionAttention } from "./lib/session-attention";
+import { deckSessionNotifySources, installSessionNotify } from "./lib/session-notify";
+import { postToHost } from "./host/channel";
+import { sessionNotifyToHost } from "./host/declarations/services";
 import type { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
 import {
   CardStateOrchestrator,
@@ -1102,6 +1105,9 @@ export class DeckManager implements IDeckManagerStore {
 
   /** Release for the session-attention reporter ([B04]). */
   private readonly releaseSessionAttention: () => void;
+
+  /** Release for the session-notify watcher (`lib/session-notify.ts`). */
+  private readonly releaseSessionNotify: () => void;
 
   public addCardToPane: (
     paneId: string,
@@ -2529,6 +2535,13 @@ export class DeckManager implements IDeckManagerStore {
       },
       send: (frame) => this.connection.send(frame.feedId, frame.payload),
     });
+
+    // The dock bounce and notification for a session card that finished or
+    // needs the user. The shell is the one page that sees every card, so it
+    // is the one page that watches them.
+    this.releaseSessionNotify = installSessionNotify(
+      deckSessionNotifySources((note) => postToHost(sessionNotifyToHost, note)),
+    );
 
     // Fire CONSTRUCTION for every card loaded from the saved layout so the
     // lifecycle's `constructedCards` set matches reality and later-subscribing
@@ -7752,5 +7765,6 @@ export class DeckManager implements IDeckManagerStore {
     this.lifecycleCascade.dispose();
     this.releaseAppActivity();
     this.releaseSessionAttention();
+    this.releaseSessionNotify();
   }
 }

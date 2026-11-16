@@ -515,6 +515,78 @@ export function putMastheadPathStyle(style: MastheadPathStyle): void {
   });
 }
 
+/** tugbank domain holding the two session-notification settings. */
+export const SESSION_NOTIFY_DOMAIN = "dev.tugapp.app";
+
+/**
+ * The two moments a session card can ask for the user from the background:
+ * a working session that `complete`s its turn and goes idle, and a working
+ * session that needs the user's `input` — a question or a permission request
+ * — to proceed (`lib/session-notify.ts` decides which, from the card's phase).
+ */
+export type SessionNotifyEvent = "complete" | "input";
+
+/**
+ * How the dock icon answers an event: `repeat` bounces until the app is
+ * brought forward, `once` bounces a single time, `never` leaves it still.
+ */
+export type DockBounce = "repeat" | "once" | "never";
+
+/** The bounce key for each event, stored as `Value::String`. */
+export const SESSION_NOTIFY_BOUNCE_KEYS: Readonly<Record<SessionNotifyEvent, string>> = {
+  complete: "notify-session-complete-bounce",
+  input: "notify-session-input-bounce",
+};
+
+/** The macOS-notification key for each event, stored as `Value::Bool`. */
+export const SESSION_NOTIFY_BANNER_KEYS: Readonly<Record<SessionNotifyEvent, string>> = {
+  complete: "notify-session-complete-notification",
+  input: "notify-session-input-notification",
+};
+
+/**
+ * An absent key bounces once: a single bounce is the quietest answer that is
+ * still an answer, and it asks nothing of macOS — unlike a notification,
+ * whose first post raises the permission prompt, so that one is off until
+ * the user turns it on.
+ */
+export const DEFAULT_DOCK_BOUNCE: DockBounce = "once";
+
+/** Read a bounce key; anything unreadable is {@link DEFAULT_DOCK_BOUNCE}. */
+export function parseDockBounce(entry: TaggedValue | undefined): DockBounce {
+  if (entry?.kind !== "string") return DEFAULT_DOCK_BOUNCE;
+  return entry.value === "repeat" || entry.value === "once" || entry.value === "never"
+    ? entry.value
+    : DEFAULT_DOCK_BOUNCE;
+}
+
+/** Read a notification key; absent or unreadable is off. */
+export function parseNotifyBanner(entry: TaggedValue | undefined): boolean {
+  return entry?.kind === "bool" && entry.value === true;
+}
+
+/** Write one app-wide key, local cache first, like `putTooltipDelay`. */
+function putAppDefault(domain: string, key: string, value: TaggedValue): void {
+  getTugbankClient()?.setLocalValue(domain, key, value);
+  fetch(`/api/defaults/${domain}/${key}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  }).catch((err) => {
+    console.warn(`[settings] PUT ${key} failed:`, err);
+  });
+}
+
+/** Persist how the dock bounces for `event`. App-wide and fire-and-forget. */
+export function putDockBounce(event: SessionNotifyEvent, bounce: DockBounce): void {
+  putAppDefault(SESSION_NOTIFY_DOMAIN, SESSION_NOTIFY_BOUNCE_KEYS[event], { kind: "string", value: bounce });
+}
+
+/** Persist whether `event` also posts a macOS notification. */
+export function putNotifyBanner(event: SessionNotifyEvent, on: boolean): void {
+  putAppDefault(SESSION_NOTIFY_DOMAIN, SESSION_NOTIFY_BANNER_KEYS[event], { kind: "bool", value: on });
+}
+
 /** tugbank domain/key holding how long a tooltip waits before it appears, in ms. */
 export const TOOLTIP_DELAY_DOMAIN = "dev.tugapp.app";
 export const TOOLTIP_DELAY_KEY = "tooltip-delay-ms";
