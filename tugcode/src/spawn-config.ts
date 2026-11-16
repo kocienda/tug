@@ -190,8 +190,9 @@ export interface ClaudeSpawnConfig {
  * reader, and the shape a question must have to arrive — then what a session
  * reference in a prompt means and how to read the session it names, and what
  * a landings block reports, then the working rules that hold on every project,
- * and last the charts the card draws: when to chart, the fence and its forms,
- * and the verbs that emit one.
+ * then the charts the card draws: when to chart, the fence and its forms,
+ * and the verbs that emit one; and last the commands the card runs for the
+ * user: when a command is an offer, and the fence that declares one.
  */
 export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "work-grammar.md",
@@ -203,6 +204,7 @@ export const PLUGIN_PROMPT_FILES: readonly string[] = [
   "landings.md",
   "working-rules.md",
   "graphics.md",
+  "run-offers.md",
 ];
 
 /**

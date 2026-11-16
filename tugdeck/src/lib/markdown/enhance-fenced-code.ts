@@ -21,6 +21,9 @@
  * wrapper (e.g., the same block is re-walked during an incremental
  * update), the function is a no-op for that `<pre>`.
  *
+ * A `tugrun` fence is a runnable offer rather than code to read, and gets
+ * the frame `enhance-run-offer` builds in place of this chrome.
+ *
  * No event-listener cleanup is needed — when a parent block element is
  * replaced (`replaceChildren`, the same `el.innerHTML = ...` write, or
  * the windowing engine's prune step), the buttons are detached and
@@ -36,6 +39,15 @@ import {
   buildCopyButton,
   buildFoldButton,
 } from "./enhance-block-chrome";
+import {
+  buildPlayButton,
+  buildRunOfferFrame,
+  isRunOfferLang,
+  isShellFenceLang,
+  RUN_FENCE_ATTR,
+  RUN_OFFER_CLASS,
+  RUN_OFFER_SHELL_LANG,
+} from "./enhance-run-offer";
 import { highlightFragmentToHtml } from "@/lib/language-registry";
 import { trackEnhancement } from "./pending-enhancements";
 
@@ -65,15 +77,20 @@ function readLanguage(codeEl: HTMLElement): string | null {
 export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlightOptions): void {
   const preEls = container.querySelectorAll("pre");
   for (const pre of preEls) {
-    // Already enhanced — skip. The wrapper `.tugx-md-fenced-code` is
-    // an immediate parent for an enhanced `<pre>`.
-    const parent = pre.parentElement;
-    if (parent !== null && parent.classList.contains("tugx-md-fenced-code")) {
-      continue;
-    }
+    // Already enhanced — skip. An enhanced `<pre>` sits inside its frame:
+    // the fence wrapper, or a runnable offer's.
+    if (pre.closest(`.tugx-md-fenced-code, .${RUN_OFFER_CLASS}`) !== null) continue;
 
     const codeEl = pre.querySelector(":scope > code") as HTMLElement | null;
     const lang = codeEl !== null ? readLanguage(codeEl) : null;
+
+    // A runnable offer wears its own frame, not the fence chrome, and its
+    // command is coloured as shell.
+    if (codeEl !== null && isRunOfferLang(lang)) {
+      buildRunOfferFrame(pre, codeEl);
+      highlightFence(codeEl, RUN_OFFER_SHELL_LANG, options);
+      continue;
+    }
 
     const wrapper = document.createElement("div");
     wrapper.className = "tugx-md-fenced-code";
@@ -84,9 +101,15 @@ export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlig
     langEl.className = "tugx-md-fenced-code-lang";
     langEl.textContent = lang ?? "code";
 
+    // A shell fence can be run where it stands: the same Play an offer has,
+    // beside Copy, hidden until a surface that can run it adopts the fence.
+    const runnable = codeEl !== null && isShellFenceLang(lang);
+    if (runnable) wrapper.setAttribute(RUN_FENCE_ATTR, "");
+
     const header = buildBlockHeader({
       identity: langEl,
       actions: [
+        ...(runnable ? [buildPlayButton()] : []),
         buildCopyButton(() => codeEl?.textContent ?? "", "Copy code"),
         buildFoldButton(wrapper, {
           ariaExpand: "Expand code",
@@ -144,7 +167,8 @@ function highlightFence(codeEl: HTMLElement, lang: string, options: FenceHighlig
  */
 export function highlightPendingFences(container: HTMLElement, isStreaming: () => boolean): void {
   for (const codeEl of container.querySelectorAll<HTMLElement>(`code[${PENDING_ATTR}]`)) {
-    const lang = readLanguage(codeEl);
+    const declared = readLanguage(codeEl);
+    const lang = isRunOfferLang(declared) ? RUN_OFFER_SHELL_LANG : declared;
     if (lang !== null) scheduleHighlightWhenSettled(codeEl, lang, isStreaming);
   }
 }

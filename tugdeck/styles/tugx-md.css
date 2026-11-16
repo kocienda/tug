@@ -105,6 +105,17 @@ body {
   --tugx-md-fenced-code-line-height: 1.5;
   --tugx-md-fenced-code-margin:      var(--tug-space-md);
 
+  /* Runnable offer (`tugrun` fence) — the accent rail and the `$` sigil
+   * that set it apart from a code fence. */
+  --tugx-md-run-rail-width:  3px;
+  --tugx-md-run-rail-color:  var(--tug7-element-global-border-normal-accent-rest);
+  --tugx-md-run-sigil-color: var(--tug7-element-tone-text-normal-accent-rest);
+  --tugx-md-run-sigil-width: 2ch;
+  --tugx-md-run-status-ok:   var(--tug7-element-tone-text-normal-success-rest);
+  --tugx-md-run-status-fail: var(--tug7-element-tone-text-normal-danger-rest);
+  /* How many lines of output a result shows before it scrolls inside itself. */
+  --tugx-md-run-output-max-lines: 20;
+
   /* The fenced-code header + buttons match the tool-block header and its
    * `.tug-button-ghost-action` controls directly off the shared
    * `--tugx-block-*` / `--tug-button-xs-*` / `--tug7-*` tokens — no
@@ -204,7 +215,7 @@ body {
    document opening with a heading stays flush to the top. */
 
 /* Zero the inner element margins so only the wrapper spaces blocks. */
-.tugx-md-block > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, pre, hr, .tugx-md-fenced-code),
+.tugx-md-block > :is(h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, pre, hr, .tugx-md-fenced-code, .tugx-md-run),
 .tugx-md-block .tugx-katex--display,
 .tugx-md-block .katex-display {
   margin-block: 0;
@@ -568,6 +579,194 @@ body {
   line-height: var(--tugx-md-fenced-code-line-height);
   margin: var(--tugx-md-fenced-code-margin) 0;
   overflow-x: auto;
+}
+
+/* Runnable offer — `enhanceFencedCode` hands a `tugrun` fence to
+   `buildRunOfferFrame`, which wraps its `<pre>` in a `.tugx-md-run` frame
+   holding one row: the command, then Play and Copy. The frame is the
+   tool-block card every fence is, so the offer belongs to the same family,
+   and the accent rail and `$` sigil are what say it is a command to run
+   and not code to read. No header strip and no fold: the command is the
+   whole of the block and all of it stays in view. */
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-run {
+  background: var(--tugx-block-chrome-bg);
+  color: var(--tugx-block-text-color);
+  border: 1px solid var(--tugx-block-border);
+  border-left: var(--tugx-md-run-rail-width) solid var(--tugx-md-run-rail-color);
+  border-radius: var(--tugx-block-radius);
+  margin: var(--tugx-md-fenced-code-margin) 0;
+  overflow: clip;
+}
+
+.tugx-md-block .tugx-md-run-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-xs) var(--tug-space-sm) var(--tug-space-xs) var(--tug-space-lg);
+}
+
+/* The command wraps to as many lines as it needs and is never clipped or
+   scrolled sideways: the user sees all of what they are about to run. Its
+   block padding centres a one-line command on the buttons beside it, and
+   its inline padding is the hanging indent the sigil sits in, so a wrapped
+   line starts under the command and not under the `$`. */
+.tugx-md-block .tugx-md-run-row > pre {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: max(0px, calc((var(--tug-button-xs-height) - 1lh) / 2)) 0;
+  padding-left: var(--tugx-md-run-sigil-width);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--tugx-md-fenced-code-size);
+  line-height: var(--tugx-md-fenced-code-line-height);
+  color: var(--tugx-block-text-color);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+}
+
+/* The sigil is generated content, so it is never selected and never
+   copied: a copy of the block is the command alone. */
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-run-row > pre::before {
+  content: "$";
+  position: absolute;
+  left: 0;
+  color: var(--tugx-md-run-sigil-color);
+  font-weight: var(--tug-font-weight-semibold);
+  user-select: none;
+}
+
+/* Play and Copy ride the row with no header to divide them from, so the
+   cluster drops the divider it wears in a header strip. */
+.tugx-md-block .tugx-md-run-actions {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.tugx-md-block .tugx-md-chrome-btn:disabled {
+  opacity: var(--tugx-control-disabled-opacity);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Play shows only on a frame a surface has adopted (`data-runnable`, set by
+   `syncRunOfferFrame`). Anywhere else the offer can be copied and nothing
+   more, so it draws no control that could never act. The control holds both
+   glyphs and its pose picks one: Play at rest, Stop while its command runs. */
+.tugx-md-block :is(.tugx-md-run, .tugx-md-fenced-code):not([data-runnable]) .tugx-md-run-play {
+  display: none;
+}
+
+/* An offer whose command needs a terminal cannot succeed here, so it draws
+   no Play on any surface, and a note under the command says why. Copy
+   stays: the command is still the one to run, in a terminal. */
+.tugx-md-block :is(.tugx-md-run, .tugx-md-fenced-code)[data-needs-terminal] .tugx-md-run-play {
+  display: none;
+}
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-md-block .tugx-md-run-note {
+  padding: 0 var(--tug-space-sm) var(--tug-space-xs) calc(var(--tug-space-lg) + var(--tugx-md-run-sigil-width));
+  color: var(--tugx-block-text-color-muted);
+  font-family: var(--tugx-block-strip-font);
+  font-size: var(--tugx-block-strip-size);
+  user-select: none;
+}
+.tugx-md-block .tugx-md-run-play[data-pose="play"] .tugx-md-run-play-icon--stop,
+.tugx-md-block .tugx-md-run-play[data-pose="stop"] .tugx-md-run-play-icon--play {
+  display: none;
+}
+
+/* A runnable plain fence keeps its result under its code, and a folded
+   fence folds the result away with it. */
+.tugx-md-block [data-collapsed] > .tugx-md-run-result {
+  display: none;
+}
+
+/* The result, under the command and inside the same frame: the output, then
+   a footer saying how the run ended, how long it took and where it ran. */
+.tugx-md-block .tugx-md-run-result {
+  border-top: 1px solid var(--tugx-block-strip-border);
+}
+
+.tugx-md-block .tugx-md-run-output {
+  margin: 0;
+  padding: var(--tugx-md-fenced-code-padding);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: var(--tugx-md-fenced-code-size);
+  line-height: var(--tugx-md-fenced-code-line-height);
+  color: var(--tugx-block-text-color);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* A result sits in the middle of the transcript, so it does not grow
+     without bound: past its cap it scrolls inside itself, and the prose
+     below it stays where the reader left it. */
+  box-sizing: content-box;
+  max-height: calc(var(--tugx-md-run-output-max-lines) * 1lh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* @tug-renders-on: --tugx-block-strip-bg */
+.tugx-md-block .tugx-md-run-footer {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-md);
+  padding: var(--tug-space-xs) var(--tug-space-lg);
+  background: var(--tugx-block-strip-bg);
+  color: var(--tugx-block-text-color-muted);
+  font-family: var(--tugx-block-strip-font);
+  font-size: var(--tugx-block-strip-size);
+  user-select: none;
+}
+.tugx-md-block .tugx-md-run-output + .tugx-md-run-footer {
+  border-top: 1px solid var(--tugx-block-strip-border);
+}
+
+.tugx-md-block .tugx-md-run-status {
+  flex: 0 0 auto;
+  font-weight: var(--tug-font-weight-semibold);
+}
+/* @tug-renders-on: --tugx-block-strip-bg */
+.tugx-md-block .tugx-md-run-result[data-tone="ok"] .tugx-md-run-status {
+  color: var(--tugx-md-run-status-ok);
+}
+/* @tug-renders-on: --tugx-block-strip-bg */
+.tugx-md-block .tugx-md-run-result[data-tone="fail"] .tugx-md-run-status {
+  color: var(--tugx-md-run-status-fail);
+}
+
+.tugx-md-block .tugx-md-run-duration {
+  flex: 0 0 auto;
+}
+
+/* The directory is the one part that can be long, so it is the part that
+   gives way; its whole path is on the element's title. */
+.tugx-md-block .tugx-md-run-cwd {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--tugx-block-code-font);
+}
+
+/* Add to context, at the footer's end. It holds both glyphs and its pressed
+   state picks one: the upload at rest, the check once the result is queued. */
+.tugx-md-block .tugx-md-run-add {
+  flex: 0 0 auto;
+  align-self: center;
+}
+.tugx-md-block .tugx-md-run-add[aria-pressed="false"] .tugx-md-run-add-icon--staged,
+.tugx-md-block .tugx-md-run-add[aria-pressed="true"] .tugx-md-run-add-icon--add {
+  display: none;
 }
 
 /* The inline-code chrome (background, padding, radius) is for inline

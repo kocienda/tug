@@ -2050,6 +2050,7 @@ impl AgentSupervisor {
             started_at_ms: at_ms,
             settled_at_ms: at_ms,
             anchor_msg_id,
+            offer_key: None,
         }) {
             Ok(id) => Some(id),
             Err(e) => {

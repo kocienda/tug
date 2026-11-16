@@ -56,6 +56,7 @@ import { formatAtomTextForCopy } from "@/lib/atom-text";
 import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
 
 import SANITIZE_ALLOWLIST from "./sanitize-allowlist.json";
+import { markdownFenceLang } from "./enhance-run-offer";
 
 export interface Marks {
   bold?: boolean;
@@ -146,6 +147,7 @@ function isBlockBoundary(el: Element): boolean {
 function inChrome(el: Element | null): boolean {
   return el !== null && (
     el.closest(".tugx-md-chrome-header") !== null
+    || el.closest(".tugx-md-run-result") !== null
     || el.closest(".footnote-definition-label") !== null
   );
 }
@@ -289,7 +291,8 @@ function tableAligns(table: Element): Align[] {
   return Array.from(header.children).map(alignOf);
 }
 
-/** The fence's language: the enhancer's `data-lang`, else the `<code>` class. */
+/** The fence's language: the enhancer's `data-lang`, else the `<code>` class.
+ *  A runnable offer is written out as the shell it is. */
 function langOf(pre: Element): string | null {
   const wrapper = pre.closest(".tugx-md-fenced-code") as HTMLElement | null;
   const fromWrapper = wrapper?.dataset.lang;
@@ -299,7 +302,7 @@ function langOf(pre: Element): string | null {
     for (const cls of code.classList) {
       if (cls.startsWith("language-")) {
         const lang = cls.slice("language-".length).trim();
-        if (lang !== "") return lang;
+        if (lang !== "") return markdownFenceLang(lang);
       }
     }
   }

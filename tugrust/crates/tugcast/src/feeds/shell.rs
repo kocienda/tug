@@ -63,6 +63,12 @@ use crate::shell_ledger::{NewShellExchange, ShellLedger};
 /// volume; the restore tail comes from the ledger CONTROL read, not replay.
 pub const SHELL_BROADCAST_CAPACITY: usize = 256;
 
+/// How long a running command's output is gathered before it is sent on as
+/// one `exchange_output` frame. A chatty command writes thousands of lines a
+/// second, and a frame per line would flood the feed for no gain: nobody
+/// reads faster than this.
+const OUTPUT_CHUNK_WINDOW: Duration = Duration::from_millis(80);
+
 /// Unique-per-process sentinel marker. The pid keeps it from colliding with
 /// any literal text a command might print (a bare `__TUG_SHELL_SENTINEL__`
 /// in a file, say) across concurrent tugcast instances.
@@ -103,6 +109,11 @@ enum ShellInput {
         command: String,
         #[serde(default)]
         cwd: Option<String>,
+        /// Set when the command was run from a runnable offer: the key the
+        /// deck gave the offer's fence, ledgered beside the exchange so a
+        /// restore puts the result back under that fence.
+        #[serde(default)]
+        offer_key: Option<String>,
     },
     // `kill` reaps the session's whole process group (the shell + whatever it
     // is running), so it needs only the routing key; any `exchange_id` the
@@ -636,6 +647,7 @@ enum ShellCmd {
     Exec {
         exchange_id: String,
         command: String,
+        offer_key: Option<String>,
     },
 }
 
@@ -813,7 +825,12 @@ async fn spawn_shell_child(
     // file printed and confirms the shell answers the sentinel; a login shell
     // whose profile hangs or never reaches the sentinel is unusable, so reap
     // its process group and report failure for the plain-shell fallback.
-    match tokio::time::timeout(WARMUP_TIMEOUT, run_command(&mut sh, marker, ":")).await {
+    match tokio::time::timeout(
+        WARMUP_TIMEOUT,
+        run_command(&mut sh, marker, ":", &mut |_| {}),
+    )
+    .await
+    {
         Ok(Ok(r)) if r.exit_code.is_some() => Ok((sh, pid)),
         _ => {
             reap_group(pid);
@@ -833,20 +850,49 @@ struct ExecResult {
 /// can't swallow the sentinel), then the sentinel emitter, and read the merged
 /// stream until the sentinel line. `None` exit code = the stream ended before
 /// the sentinel (the child was reaped mid-command).
+///
+/// The group's closing brace sits on a line of its own. On the command's last
+/// line it would be swallowed by a trailing `#` comment, leaving the group
+/// open and the shell waiting on input that never comes.
+///
+/// While the command runs, what it has written is handed to `on_chunk` in
+/// pieces: each piece is whole lines, gathered for [`OUTPUT_CHUNK_WINDOW`]
+/// from its first line. The pieces are a view of the output as it grows and
+/// nothing more. The result still carries all of it, and what was gathered
+/// but not yet handed over when the sentinel arrives is never sent as a
+/// piece, since the caller has the whole in hand at that moment.
 async fn run_command(
     child: &mut ShellChild,
     marker: &str,
     command: &str,
+    on_chunk: &mut (dyn FnMut(&str) + Send),
 ) -> std::io::Result<ExecResult> {
     let line = format!(
-        "{{ {command} ; }} </dev/null\nprintf '\\n%s\\t%d\\t%s\\n' \"{marker}\" \"$?\" \"$PWD\"\n"
+        "{{ {command}\n}} </dev/null\nprintf '\\n%s\\t%d\\t%s\\n' \"{marker}\" \"$?\" \"$PWD\"\n"
     );
     child.stdin.write_all(line.as_bytes()).await?;
     child.stdin.flush().await?;
 
     let mut output = String::new();
+    // Where the next piece starts in `output`, and when it is due.
+    let mut sent = 0usize;
+    let mut due: Option<tokio::time::Instant> = None;
     loop {
-        match child.lines.next_line().await? {
+        // `next_line` is cancellation safe, so losing the race to the timer
+        // loses no bytes: the partial line stays in the reader.
+        let next = match due {
+            Some(at) => tokio::select! {
+                line = child.lines.next_line() => line?,
+                _ = tokio::time::sleep_until(at) => {
+                    on_chunk(&output[sent..]);
+                    sent = output.len();
+                    due = None;
+                    continue;
+                }
+            },
+            None => child.lines.next_line().await?,
+        };
+        match next {
             Some(l) => {
                 if let Some(rest) = l.strip_prefix(marker) {
                     // `<marker>\t<code>\t<cwd>`
@@ -866,6 +912,9 @@ async fn run_command(
                 }
                 output.push_str(&l);
                 output.push('\n');
+                if due.is_none() {
+                    due = Some(tokio::time::Instant::now() + OUTPUT_CHUNK_WINDOW);
+                }
             }
             // EOF before the sentinel — the child was reaped (kill / crash).
             None => {
@@ -924,6 +973,7 @@ async fn shell_session_task(
         let ShellCmd::Exec {
             exchange_id,
             command,
+            offer_key,
         } = cmd;
 
         // Lazy spawn / respawn.
@@ -977,15 +1027,38 @@ async fn shell_session_task(
         );
 
         shared.lock().killed = false;
-        let result = tokio::time::timeout(exec_timeout, run_command(sh, &marker, &command)).await;
+        // Output as it is produced: one frame per gathered piece, between the
+        // started frame and the settle. The settle still carries the whole
+        // output, so a consumer that ignores these loses nothing.
+        let mut send_chunk = |chunk: &str| {
+            emit(
+                &output,
+                &tug_session_id,
+                json!({
+                    "type": "exchange_output", "exchange_id": exchange_id,
+                    "chunk": chunk,
+                }),
+            );
+        };
+        let result = tokio::time::timeout(
+            exec_timeout,
+            run_command(sh, &marker, &command, &mut send_chunk),
+        )
+        .await;
         // An out-of-band `kill` reaps the group mid-exchange. The signal settles
         // the outcome differently across platforms — the shell dies (EOF → no
         // exit code) or its child dies (128+SIGTERM) while the shell survives to
         // emit the sentinel — so honor the kill flag and settle as reaped either
         // way, rather than leaking the child's signal-death code to the deck.
         let killed = std::mem::take(&mut shared.lock().killed);
+        // What stopped an exchange that did not exit on its own. The deck
+        // cannot tell a kill from the timeout by the null exit code they share.
+        let mut stopped_by: Option<&'static str> = None;
         let (mut out, exit_code, cwd_after, reaped) = match result {
-            Ok(Ok(r)) if killed => (r.output, None, r.cwd_after, true),
+            Ok(Ok(r)) if killed => {
+                stopped_by = Some("kill");
+                (r.output, None, r.cwd_after, true)
+            }
             Ok(Ok(r)) => {
                 let reaped = r.exit_code.is_none();
                 (r.output, r.exit_code, r.cwd_after, reaped)
@@ -995,6 +1068,7 @@ async fn shell_session_task(
                 // Timed out — reap the wedged group.
                 let pid = shared.lock().pid.unwrap_or(0);
                 reap_group(pid);
+                stopped_by = Some("timeout");
                 (String::new(), None, None, true)
             }
         };
@@ -1020,6 +1094,7 @@ async fn shell_session_task(
                 "exit_code": exit_code.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
                 "cwd_after": cwd, "duration_ms": duration_ms, "output": out,
                 "started_at": started_at, "settled_at": settled_at,
+                "stopped_by": stopped_by,
             }),
         );
 
@@ -1060,6 +1135,7 @@ async fn shell_session_task(
                 started_at_ms: started_at as i64,
                 settled_at_ms: settled_at as i64,
                 anchor_msg_id,
+                offer_key,
             };
             if let Err(e) = ledger.record_exchange(&row) {
                 warn!(error = %e, %tug_session_id, "shell ledger: record_exchange failed");
@@ -1239,6 +1315,7 @@ async fn run_dispatcher(
                 exchange_id,
                 command,
                 cwd,
+                offer_key,
             } => {
                 // A `$` exec is the user acting in this session's card right
                 // now — live-borne by construction (the restore tail is a
@@ -1289,6 +1366,7 @@ async fn run_dispatcher(
                     .send(ShellCmd::Exec {
                         exchange_id,
                         command,
+                        offer_key,
                     })
                     .await
                     .is_err()
@@ -1586,7 +1664,36 @@ mod tests {
         .await;
         assert_eq!(done.len(), 2);
         assert_eq!(done[0]["exit_code"], serde_json::Value::Null, "vim reaped");
+        assert_eq!(done[0]["stopped_by"], "timeout");
         assert!(done[1]["output"].as_str().unwrap().contains("recovered"));
+        assert_eq!(
+            done[1]["stopped_by"],
+            serde_json::Value::Null,
+            "an exchange that exits on its own was stopped by nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn multi_line_command_ending_in_a_comment_settles() {
+        // One exchange carries the whole script. Its last line ends in a
+        // comment, which must not swallow the brace that closes the group:
+        // if it did, the shell would wait on input that never comes and the
+        // exchange would only end at the timeout, with no exit code.
+        let done = drive(
+            vec![
+                exec_frame("s1", "e1", "echo first\necho second # the last word", None),
+                exec_frame("s1", "e2", "echo after", None),
+            ],
+            "s1",
+            2,
+        )
+        .await;
+        assert_eq!(done.len(), 2);
+        assert_eq!(done[0]["exit_code"], 0);
+        assert_eq!(done[0]["output"], "first\nsecond\n");
+        assert_eq!(done[0]["stopped_by"], serde_json::Value::Null);
+        assert_eq!(done[1]["exit_code"], 0);
+        assert_eq!(done[1]["output"], "after\n");
     }
 
     #[tokio::test]
@@ -1643,6 +1750,146 @@ mod tests {
         assert_eq!(rows[0].command, "echo persisted");
         assert!(rows[0].output.contains("persisted"));
         assert_eq!(rows[0].exit_code, Some(0));
+    }
+
+    /// Every `SHELL_OUTPUT` payload for exchange `e1` of session `s1`, from
+    /// its start through its settle, in the order the feed carried them.
+    async fn frames_of_one_exchange(command: &str) -> Vec<serde_json::Value> {
+        let (_home, policy) = bare_policy().await;
+        let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 1024, LagPolicy::Warn);
+        let mut rx = output.subscribe();
+        let (tx, in_rx) = mpsc::channel(64);
+        let cancel = CancellationToken::new();
+        let handle = tokio::spawn(run_dispatcher(
+            in_rx,
+            output.clone(),
+            None,
+            None,
+            None,
+            cancel.clone(),
+            Duration::from_secs(10),
+            policy,
+        ));
+        tx.send(exec_frame("s1", "e1", command, Some("/tmp")))
+            .await
+            .unwrap();
+        let mut seen = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        while let Ok(Ok(f)) = tokio::time::timeout_at(deadline, rx.recv()).await {
+            let v = payload_json(&f);
+            if v["exchange_id"] != "e1" {
+                continue;
+            }
+            let done = v["type"] == "exchange_complete";
+            seen.push(v);
+            if done {
+                break;
+            }
+        }
+        cancel.cancel();
+        drop(tx);
+        let _ = handle.await;
+        seen
+    }
+
+    #[tokio::test]
+    async fn a_slow_command_yields_its_first_line_before_it_completes() {
+        // The second line is held back by the sleep for far longer than the
+        // gathering window, so the first has to arrive as a piece of its own,
+        // ahead of the settle.
+        let seen = frames_of_one_exchange("echo first; sleep 1; echo second").await;
+        let kinds: Vec<&str> = seen.iter().map(|v| v["type"].as_str().unwrap()).collect();
+        assert_eq!(kinds.first(), Some(&"exchange_started"));
+        assert_eq!(kinds.last(), Some(&"exchange_complete"));
+        let chunks: Vec<&str> = seen
+            .iter()
+            .filter(|v| v["type"] == "exchange_output")
+            .map(|v| v["chunk"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            chunks.first(),
+            Some(&"first\n"),
+            "the first line arrives before the command completes: {kinds:?}"
+        );
+        // The settle is whole whatever the pieces carried.
+        assert_eq!(seen.last().unwrap()["output"], "first\nsecond\n");
+    }
+
+    #[tokio::test]
+    async fn a_chatty_command_is_gathered_into_few_pieces() {
+        let seen = frames_of_one_exchange("seq 1 2000").await;
+        let chunks: Vec<&str> = seen
+            .iter()
+            .filter(|v| v["type"] == "exchange_output")
+            .map(|v| v["chunk"].as_str().unwrap())
+            .collect();
+        assert!(
+            chunks.len() < 200,
+            "2000 lines must not be 2000 frames; saw {}",
+            chunks.len()
+        );
+        // The pieces are the output in order, with nothing repeated: together
+        // they are a prefix of what the settle carries.
+        let whole = seen.last().unwrap()["output"].as_str().unwrap();
+        assert!(whole.starts_with(&chunks.concat()));
+        assert_eq!(whole.lines().count(), 2000);
+    }
+
+    #[tokio::test]
+    async fn an_offers_exchange_is_ledgered_with_its_key() {
+        // A command run from a runnable offer carries the offer's key on the
+        // `exec` frame, and the settle writes it beside the exchange: that is
+        // what a restore reads to put the result back under its fence.
+        let (_home, policy) = bare_policy().await;
+        let ledger = Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().unwrap());
+        let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
+        let mut rx = output.subscribe();
+        let (tx, in_rx) = mpsc::channel(64);
+        let cancel = CancellationToken::new();
+        let handle = tokio::spawn(run_dispatcher(
+            in_rx,
+            output.clone(),
+            Some(Arc::clone(&ledger)),
+            None,
+            None,
+            cancel.clone(),
+            Duration::from_secs(3),
+            policy,
+        ));
+        let offered = json!({
+            "type": "exec", "tug_session_id": "s1", "exchange_id": "e1",
+            "command": "echo offered", "cwd": "/tmp",
+            "offer_key": "msg_01-b0#0#1a2b3c4d",
+        });
+        tx.send(Frame::new(
+            FeedId::SHELL_INPUT,
+            offered.to_string().into_bytes(),
+        ))
+        .await
+        .unwrap();
+        tx.send(exec_frame("s1", "e2", "echo typed", Some("/tmp")))
+            .await
+            .unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while let Ok(Ok(f)) = tokio::time::timeout_at(deadline, rx.recv()).await {
+            let v = payload_json(&f);
+            if v["type"] == "exchange_complete" && v["exchange_id"] == "e2" {
+                break;
+            }
+        }
+        cancel.cancel();
+        drop(tx);
+        let _ = handle.await;
+        let rows = ledger.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.command.as_str(), r.offer_key.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("echo offered", Some("msg_01-b0#0#1a2b3c4d")),
+                ("echo typed", None),
+            ],
+        );
     }
 
     /// The `$` route is the second of the two places a shell command becomes
@@ -1756,6 +2003,7 @@ mod tests {
         let _ = handle.await;
         let v = settled.expect("killed exchange must settle");
         assert_eq!(v["exit_code"], serde_json::Value::Null);
+        assert_eq!(v["stopped_by"], "kill");
     }
 
     // ── path_commands ([P08]) ──────────────────────────────────────────────

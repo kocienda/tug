@@ -282,6 +282,245 @@ describe("ShellSessionStore — fold + mirror", () => {
   });
 });
 
+describe("ShellSessionStore — a runnable offer's exchange", () => {
+  const KEY = "turn-1/m1#0#abcd1234";
+
+  /** The exchange id `exec` minted, read off the frame it sent. */
+  function sentExchangeId(): string {
+    const exec = sentFrames
+      .map((f) => JSON.parse(f.payload) as Record<string, unknown>)
+      .find((p) => p.type === "exec");
+    return String(exec?.exchange_id ?? "");
+  }
+
+  function settle(feed: MockFeedStore, id: string, extra: Record<string, unknown> = {}) {
+    feed.emit(FeedId.SHELL_OUTPUT, {
+      type: "exchange_complete",
+      exchange_id: id,
+      command: "make check",
+      output: "ok\n",
+      exit_code: 0,
+      cwd: "/proj/build",
+      cwd_after: "/proj/build",
+      started_at: 1000,
+      settled_at: 2200,
+      ...extra,
+    });
+  }
+
+  test("it runs through the same exec frame, and shows as running from the press", () => {
+    const { store } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const frame = JSON.parse(sentFrames[sentFrames.length - 1].payload);
+    expect(frame.type).toBe("exec");
+    expect(frame.command).toBe("make check");
+    expect(store.getSnapshot().inflight?.command).toBe("make check");
+    const run = store.offers.get(KEY);
+    expect(run?.status).toBe("running");
+    expect(run?.exchangeId).toBe(frame.exchange_id);
+  });
+
+  test("it mints no transcript turn, started or settled", () => {
+    const { store, feed, code } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const id = sentExchangeId();
+    feed.emit(FeedId.SHELL_OUTPUT, {
+      type: "exchange_started",
+      exchange_id: id,
+      command: "make check",
+      cwd: "/proj/build",
+      started_at: 1000,
+    });
+    expect(shellTurns(code).length).toBe(0);
+    expect(store.offers.get(KEY)?.cwd).toBe("/proj/build");
+    settle(feed, id);
+    expect(shellTurns(code).length).toBe(0);
+  });
+
+  test("its result settles under the offer, with the exit, the times and the directory", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    settle(feed, sentExchangeId());
+    const run = store.offers.get(KEY);
+    expect(run?.status).toBe("settled");
+    expect(run?.output).toBe("ok\n");
+    expect(run?.exitCode).toBe(0);
+    expect(run?.cwd).toBe("/proj/build");
+    expect(run?.startedAtMs).toBe(1000);
+    expect(run?.settledAtMs).toBe(2200);
+    // The shell is free again, and its directory moved as any exchange moves it.
+    expect(store.getSnapshot().inflight).toBeNull();
+    expect(store.getSnapshot().cwd).toBe("/proj/build");
+  });
+
+  test("a stopped run carries what stopped it", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    settle(feed, sentExchangeId(), { exit_code: null, stopped_by: "kill" });
+    expect(store.offers.get(KEY)?.exitCode).toBeNull();
+    expect(store.offers.get(KEY)?.stoppedBy).toBe("kill");
+  });
+
+  test("an offer cannot start while any exchange is in flight", () => {
+    const { store } = setup();
+    store.exec("sleep 5");
+    const sent = sentFrames.length;
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    expect(sentFrames.length).toBe(sent);
+    expect(store.offers.get(KEY)).toBeUndefined();
+  });
+
+  test("an exchange that is not an offer's still mints its turn", () => {
+    const { store, feed, code } = setup();
+    store.exec("ls");
+    settle(feed, sentExchangeId(), { command: "ls" });
+    expect(shellTurns(code).length).toBe(1);
+    expect(store.offers.get(KEY)).toBeUndefined();
+  });
+
+  test("a program that never ends is refused under the offer, and nothing is sent", () => {
+    const { store, code } = setup();
+    store.exec("yes", { origin: "offer", offerKey: KEY });
+    expect(sentFrames.filter((f) => JSON.parse(f.payload).type === "exec")).toHaveLength(0);
+    expect(store.getSnapshot().inflight).toBeNull();
+    expect(shellTurns(code).length).toBe(0);
+    const run = store.offers.get(KEY);
+    expect(run?.refused).toBe(true);
+    expect(run?.status).toBe("settled");
+    expect(run?.output).toContain("never ends");
+  });
+
+  test("interactive staging is refused under the offer by the same check", () => {
+    const { store, code } = setup();
+    store.exec("git add -p", { origin: "offer", offerKey: KEY });
+    expect(sentFrames.filter((f) => JSON.parse(f.payload).type === "exec")).toHaveLength(0);
+    expect(shellTurns(code).length).toBe(0);
+    expect(store.offers.get(KEY)?.refused).toBe(true);
+    expect(store.offers.get(KEY)?.output).toContain("Interactive staging");
+  });
+
+  test("a settled offer stages for context when shell exchanges are context", () => {
+    const { store, feed, pendingContext } = setup();
+    pendingContext.setContext("shell", true);
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    settle(feed, sentExchangeId());
+    expect(pendingContext.getSnapshot().items).toHaveLength(1);
+  });
+
+  test("output pieces grow the offer's result while it runs", () => {
+    const { store, feed, code } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const id = sentExchangeId();
+    feed.emit(FeedId.SHELL_OUTPUT, { type: "exchange_output", exchange_id: id, chunk: "one\n" });
+    feed.emit(FeedId.SHELL_OUTPUT, { type: "exchange_output", exchange_id: id, chunk: "two\n" });
+    expect(store.offers.get(KEY)?.status).toBe("running");
+    expect(store.offers.get(KEY)?.output).toBe("one\ntwo\n");
+    settle(feed, id, { output: "one\ntwo\nthree\n" });
+    expect(store.offers.get(KEY)?.output).toBe("one\ntwo\nthree\n");
+    expect(shellTurns(code).length).toBe(0);
+  });
+
+  test("an output piece for a typed command changes nothing", () => {
+    const { store, feed, code } = setup();
+    store.exec("ls");
+    const id = sentExchangeId();
+    feed.emit(FeedId.SHELL_OUTPUT, { type: "exchange_output", exchange_id: id, chunk: "a\n" });
+    expect(store.getSnapshot().inflight?.exchangeId).toBe(id);
+    expect(store.offers.get(KEY)).toBeUndefined();
+    settle(feed, id, { command: "ls", output: "a\n" });
+    expect(shellTurns(code).length).toBe(1);
+  });
+
+  test("the exec frame carries the offer's key, and a typed command carries none", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const offered = JSON.parse(sentFrames[sentFrames.length - 1].payload);
+    expect(offered.offer_key).toBe(KEY);
+    settle(feed, sentExchangeId());
+    store.exec("ls");
+    const typed = JSON.parse(sentFrames[sentFrames.length - 1].payload);
+    expect("offer_key" in typed).toBe(false);
+  });
+
+  test("a ledgered row with an offer key restores under the offer and mints no turn", () => {
+    const { store, code } = setup();
+    store.applyRestore(
+      [
+        {
+          id: 7,
+          command: "make check",
+          output: "ok\n",
+          exit_code: 0,
+          cwd: "/proj",
+          started_at_ms: 1000,
+          settled_at_ms: 1200,
+          offer_key: KEY,
+        },
+        {
+          id: 8,
+          command: "ls",
+          output: "a\n",
+          exit_code: 0,
+          cwd: "/proj",
+          started_at_ms: 2000,
+          settled_at_ms: 2010,
+          offer_key: null,
+        },
+      ],
+      { total: 2 },
+    );
+    const run = store.offers.get(KEY);
+    expect(run?.status).toBe("settled");
+    expect(run?.output).toBe("ok\n");
+    expect(run?.exitCode).toBe(0);
+    expect(run?.cwd).toBe("/proj");
+    // The typed command is the one transcript turn; the offer's run is none.
+    expect(shellTurns(code).length).toBe(1);
+    // Both rows were accounted for, so the restore is complete.
+    expect(store.getSnapshot().restore.complete).toBe(true);
+  });
+
+  test("of two ledgered runs of one offer, the later is the one restored", () => {
+    const { store, code } = setup();
+    const row = (id: number, output: string, at: number) => ({
+      id,
+      command: "make check",
+      output,
+      exit_code: 0,
+      cwd: "/proj",
+      started_at_ms: at,
+      settled_at_ms: at + 5,
+      offer_key: KEY,
+    });
+    store.applyRestore([row(1, "first\n", 1000), row(2, "second\n", 2000)]);
+    expect(store.offers.get(KEY)?.output).toBe("second\n");
+    expect(shellTurns(code).length).toBe(0);
+  });
+
+  test("a result is added to context from the offer, and taken back out", () => {
+    const { store, feed, pendingContext } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    settle(feed, sentExchangeId(), { output: "built\n" });
+    const run = store.offers.get(KEY)!;
+    expect(store.offerRunStaged(run)).toBe(false);
+    store.toggleOfferRunContext(run);
+    expect(store.offerRunStaged(run)).toBe(true);
+    const items = pendingContext.getSnapshot().items;
+    expect(items).toHaveLength(1);
+    expect(items[0].body).toContain("make check");
+    expect(items[0].body).toContain("built");
+    store.toggleOfferRunContext(run);
+    expect(pendingContext.getSnapshot().items).toHaveLength(0);
+  });
+
+  test("a refused offer has nothing to add to context", () => {
+    const { store, pendingContext } = setup();
+    store.exec("yes", { origin: "offer", offerKey: KEY });
+    store.toggleOfferRunContext(store.offers.get(KEY)!);
+    expect(pendingContext.getSnapshot().items).toHaveLength(0);
+  });
+});
+
 describe("applyRestoredShellExchanges — restore interleave ([P07])", () => {
   function code() {
     return new CodeSessionStore({

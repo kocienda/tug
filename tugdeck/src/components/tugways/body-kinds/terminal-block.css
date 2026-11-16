@@ -331,29 +331,29 @@ body {
 
 /* ---- ANSI 16-color palette mapping ---- */
 
-.tugx-term .ansi-black-fg   { color: var(--tugx-term-ansi-black); }
-.tugx-term .ansi-red-fg     { color: var(--tugx-term-ansi-red); }
-.tugx-term .ansi-green-fg   { color: var(--tugx-term-ansi-green); }
-.tugx-term .ansi-yellow-fg  { color: var(--tugx-term-ansi-yellow); }
-.tugx-term .ansi-blue-fg    { color: var(--tugx-term-ansi-blue); }
-.tugx-term .ansi-magenta-fg { color: var(--tugx-term-ansi-magenta); }
-.tugx-term .ansi-cyan-fg    { color: var(--tugx-term-ansi-cyan); }
-.tugx-term .ansi-white-fg   { color: var(--tugx-term-ansi-white); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-black-fg   { color: var(--tugx-term-ansi-black); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-red-fg     { color: var(--tugx-term-ansi-red); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-green-fg   { color: var(--tugx-term-ansi-green); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-yellow-fg  { color: var(--tugx-term-ansi-yellow); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-blue-fg    { color: var(--tugx-term-ansi-blue); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-magenta-fg { color: var(--tugx-term-ansi-magenta); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-cyan-fg    { color: var(--tugx-term-ansi-cyan); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-white-fg   { color: var(--tugx-term-ansi-white); }
 
-.tugx-term .ansi-bright-black-fg   { color: var(--tugx-term-ansi-bright-black); }
-.tugx-term .ansi-bright-red-fg     { color: var(--tugx-term-ansi-bright-red); }
-.tugx-term .ansi-bright-green-fg   { color: var(--tugx-term-ansi-bright-green); }
-.tugx-term .ansi-bright-yellow-fg  { color: var(--tugx-term-ansi-bright-yellow); }
-.tugx-term .ansi-bright-blue-fg    { color: var(--tugx-term-ansi-bright-blue); }
-.tugx-term .ansi-bright-magenta-fg { color: var(--tugx-term-ansi-bright-magenta); }
-.tugx-term .ansi-bright-cyan-fg    { color: var(--tugx-term-ansi-bright-cyan); }
-.tugx-term .ansi-bright-white-fg   { color: var(--tugx-term-ansi-bright-white); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-black-fg   { color: var(--tugx-term-ansi-bright-black); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-red-fg     { color: var(--tugx-term-ansi-bright-red); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-green-fg   { color: var(--tugx-term-ansi-bright-green); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-yellow-fg  { color: var(--tugx-term-ansi-bright-yellow); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-blue-fg    { color: var(--tugx-term-ansi-bright-blue); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-magenta-fg { color: var(--tugx-term-ansi-bright-magenta); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-cyan-fg    { color: var(--tugx-term-ansi-bright-cyan); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-bright-white-fg   { color: var(--tugx-term-ansi-bright-white); }
 
-.tugx-term .ansi-black-bg   { background-color: var(--tugx-term-ansi-black); }
-.tugx-term .ansi-red-bg     { background-color: var(--tugx-term-ansi-red); }
-.tugx-term .ansi-green-bg   { background-color: var(--tugx-term-ansi-green); }
-.tugx-term .ansi-yellow-bg  { background-color: var(--tugx-term-ansi-yellow); }
-.tugx-term .ansi-blue-bg    { background-color: var(--tugx-term-ansi-blue); }
-.tugx-term .ansi-magenta-bg { background-color: var(--tugx-term-ansi-magenta); }
-.tugx-term .ansi-cyan-bg    { background-color: var(--tugx-term-ansi-cyan); }
-.tugx-term .ansi-white-bg   { background-color: var(--tugx-term-ansi-white); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-black-bg   { background-color: var(--tugx-term-ansi-black); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-red-bg     { background-color: var(--tugx-term-ansi-red); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-green-bg   { background-color: var(--tugx-term-ansi-green); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-yellow-bg  { background-color: var(--tugx-term-ansi-yellow); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-blue-bg    { background-color: var(--tugx-term-ansi-blue); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-magenta-bg { background-color: var(--tugx-term-ansi-magenta); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-cyan-bg    { background-color: var(--tugx-term-ansi-cyan); }
+:is(.tugx-term, .tugx-md-run-output) .ansi-white-bg   { background-color: var(--tugx-term-ansi-white); }

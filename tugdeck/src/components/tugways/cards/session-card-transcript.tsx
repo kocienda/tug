@@ -197,6 +197,7 @@ import {
 } from "@/lib/session-card-restore-gate";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
+import { RunOfferShellContext, useRunOffers } from "./use-run-offers";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
 import { SessionUsageLimitNotice } from "@/components/tugways/cards/session-usage-limit-notice";
@@ -1337,13 +1338,27 @@ const StreamedTextGate: React.FC<StreamedTextGateProps> = ({
  * `useAnnotationPortals` is a hook and the builder is a loop. The hook
  * drives off the block's own `onAnnotated`, which is what guarantees the
  * confirmed spans exist before anything goes looking for them.
+ *
+ * The same callback is what makes a runnable offer in the prose live: each
+ * pass hands the block to {@link useRunOffers}, keyed under `runScope` (the
+ * message), with `commandsFinal` saying whether the turn has finished.
  */
 const AssistantTextBody: React.FC<{
   streamingStore: PropertyStore;
   streamingPath: string;
   annotation: AnnotationContext | undefined;
-}> = ({ streamingStore, streamingPath, annotation }) => {
-  const { onAnnotated, portals } = useAnnotationPortals(annotation);
+  runScope: string;
+  commandsFinal: boolean;
+}> = ({ streamingStore, streamingPath, annotation, runScope, commandsFinal }) => {
+  const { onAnnotated: portalsAnnotated, portals } = useAnnotationPortals(annotation);
+  const offersAnnotated = useRunOffers(runScope, commandsFinal);
+  const onAnnotated = React.useCallback(
+    (container: HTMLElement): void => {
+      portalsAnnotated(container);
+      offersAnnotated(container);
+    },
+    [portalsAnnotated, offersAnnotated],
+  );
   return (
     <>
       <TugMarkdownBlock
@@ -1691,6 +1706,8 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
             streamingStore={streamingStore}
             streamingPath={path}
             annotation={annotation}
+            runScope={message.messageKey}
+            commandsFinal={committed}
           />
         </StreamedTextGate>,
       );
@@ -3492,6 +3509,7 @@ export const SessionTranscriptHost = forwardRef<
             <ShareTurnsContext.Provider value={shareTurns}>
             <ReportContext.Provider value={codeSessionStore.reports}>
             <FindTargetRegistryContext.Provider value={findTargets}>
+            <RunOfferShellContext.Provider value={shellSessionStore}>
             <TugListView
               ref={listViewRef}
               dataSource={dataSource}
@@ -3557,6 +3575,7 @@ export const SessionTranscriptHost = forwardRef<
               // click that brings a background session card forward.
               interactive={false}
             />
+            </RunOfferShellContext.Provider>
             </FindTargetRegistryContext.Provider>
             </ReportContext.Provider>
             </ShareTurnsContext.Provider>

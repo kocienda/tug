@@ -36,7 +36,7 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** One element of an inlined lucide icon — a tag plus its attributes. */
-interface IconChild {
+export interface IconChild {
   tag: string;
   attrs: Record<string, string>;
 }
@@ -69,7 +69,7 @@ const CHEVRONS_UP_ICON: ReadonlyArray<IconChild> = [
  * styling, classed `{baseClass}` + `{baseClass}--{variant}` so the CSS
  * can swap which of a button's two icons is visible by state.
  */
-function buildIcon(
+export function buildIcon(
   children: ReadonlyArray<IconChild>,
   baseClass: string,
   variant: string,

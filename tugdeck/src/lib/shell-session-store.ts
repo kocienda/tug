@@ -10,6 +10,10 @@
  * dual-ingest race ([P12]). `SHELL_OUTPUT` is deliberately absent from the
  * code-session feed filter, so shell frames reach only this store.
  *
+ * One kind of exchange mints no turn: a run started from a runnable offer's
+ * Play. Its result is read under the offer, so the store keeps it in
+ * {@link RunOfferStore} (`offers`) and the transcript never hears of it.
+ *
  * The [L02] store surface (`subscribe` / `getSnapshot`) drives the cwd chip
  * and the route-aware Z5. Session-scoped: the feed is filtered to this card's
  * `tug_session_id`, and `exec` / `kill` stamp it on the outbound frame.
@@ -32,6 +36,14 @@ import type { PendingContextStore } from "./pending-context-store";
 import { composeShellShareText } from "./shell-share";
 import { interactiveStagingSteer } from "./shell-interactive-staging";
 import { unendingProgram } from "./shell-line-classifier";
+import { RunOfferStore, type RunOfferRun } from "./run-offer-store";
+
+/** How a command reached {@link ShellSessionStore.exec}. */
+export type ShellExecOrigin =
+  /** The PATH classifier routed a prompt line here ([P09]). */
+  | { origin: "auto" }
+  /** A runnable offer's Play; the result belongs to the offer `offerKey` names. */
+  | { origin: "offer"; offerKey: string };
 
 /** A running exchange — drives the `stop` pose on the `$` route ([P13]). */
 export interface ShellInflight {
@@ -95,6 +107,8 @@ export class ShellSessionStore extends Subscribable {
   private readonly _pendingContextStore: PendingContextStore | undefined;
   /** Exchange ids the PATH classifier auto-routed here ([P09]); client-side. */
   private readonly _autoRoutedExchanges = new Set<string>();
+  /** The runs of this card's runnable offers; their exchanges mint no turn. */
+  readonly offers = new RunOfferStore();
   /** The retrying `list_shell_exchanges` read ([P07]). */
   private readonly _restoreFetch: LedgerRestoreFetch;
   /** Unsubscribe from the code store's window watch; cleared on dispose. */
@@ -205,7 +219,29 @@ export class ShellSessionStore extends Subscribable {
     rows: ReadonlyArray<Record<string, unknown>>,
     census?: { total?: unknown; answered?: unknown },
   ): void {
-    applyRestoredShellExchanges(this._codeSessionStore, rows);
+    // A row that carries an offer's key is that offer's result, read under
+    // its fence; every other row is a transcript turn, as it always was.
+    const turns: Array<Record<string, unknown>> = [];
+    const offered: Array<Parameters<RunOfferStore["restore"]>[0][number]> = [];
+    for (const r of rows) {
+      if (typeof r.offer_key !== "string" || r.offer_key.length === 0) {
+        turns.push(r);
+        continue;
+      }
+      const started = numberOr(r.started_at_ms, 0);
+      offered.push({
+        key: r.offer_key,
+        exchangeId: `restored-${r.id}`,
+        command: String(r.command ?? ""),
+        output: typeof r.output === "string" ? r.output : "",
+        exitCode: typeof r.exit_code === "number" ? r.exit_code : null,
+        cwd: typeof r.cwd === "string" ? r.cwd : "",
+        startedAtMs: started,
+        settledAtMs: numberOr(r.settled_at_ms, started),
+      });
+    }
+    applyRestoredShellExchanges(this._codeSessionStore, turns);
+    this.offers.restore(offered);
 
     const total = typeof census?.total === "number" ? census.total : rows.length;
     const hadLedger = census?.answered !== false;
@@ -261,14 +297,31 @@ export class ShellSessionStore extends Subscribable {
       case "exchange_started": {
         const cwd = typeof p.cwd === "string" ? p.cwd : this._snapshot.cwd;
         this._set({ ...this._snapshot, live: true, cwd });
+        const startedId = String(p.exchange_id ?? "");
+        if (this.offers.keyForExchange(startedId) !== undefined) {
+          this.offers.started(startedId, {
+            cwd: typeof p.cwd === "string" ? p.cwd : this._projectDir,
+            startedAtMs: numberOr(p.started_at, Date.now()),
+          });
+          break;
+        }
         this._codeSessionStore.ingestShellExchange({
           phase: "started",
-          exchangeId: String(p.exchange_id ?? ""),
+          exchangeId: startedId,
           command: String(p.command ?? ""),
           cwd: typeof p.cwd === "string" ? p.cwd : this._projectDir,
           startedAtMs: numberOr(p.started_at, Date.now()),
           autoRouted: this._autoRoutedExchanges.has(String(p.exchange_id ?? "")),
         });
+        break;
+      }
+      case "exchange_output": {
+        // Output as it is produced. Only an offer's result shows it as it
+        // grows; a transcript row mounts its body at the settle, which
+        // carries the whole output, so a piece for one is not needed.
+        if (typeof p.chunk === "string") {
+          this.offers.append(String(p.exchange_id ?? ""), p.chunk);
+        }
         break;
       }
       case "exchange_complete": {
@@ -290,18 +343,31 @@ export class ShellSessionStore extends Subscribable {
         const exitCode = typeof p.exit_code === "number" ? p.exit_code : null;
         const settledAt = numberOr(p.settled_at, startedAt);
         const autoRouted = this._autoRoutedExchanges.has(exchangeId);
-        this._codeSessionStore.ingestShellExchange({
-          phase: "complete",
-          exchangeId,
-          command,
+        const ranIn = typeof p.cwd === "string" ? p.cwd : (cwdAfter ?? this._projectDir);
+        // An offer's exchange settles under its offer and mints no turn.
+        const offered = this.offers.settle(exchangeId, {
           output,
           exitCode,
-          cwd: typeof p.cwd === "string" ? p.cwd : (cwdAfter ?? this._projectDir),
-          cwdAfter,
+          cwd: ranIn,
           startedAtMs: startedAt,
           settledAtMs: settledAt,
-          autoRouted,
+          stoppedBy:
+            p.stopped_by === "kill" || p.stopped_by === "timeout" ? p.stopped_by : null,
         });
+        if (!offered) {
+          this._codeSessionStore.ingestShellExchange({
+            phase: "complete",
+            exchangeId,
+            command,
+            output,
+            exitCode,
+            cwd: ranIn,
+            cwdAfter,
+            startedAtMs: startedAt,
+            settledAtMs: settledAt,
+            autoRouted,
+          });
+        }
         // The exchange has settled; forget its auto-route marker.
         this._autoRoutedExchanges.delete(exchangeId);
         // VISIBILITY=Context ([P08], the submission-time variant): a newly
@@ -340,11 +406,17 @@ export class ShellSessionStore extends Subscribable {
    * one off the `❯` route, but this route is typed rather than inferred, and a
    * `yes` typed here wedges the app exactly as hard — so the refusal sits at
    * the one door every caller comes through.
+   *
+   * A runnable offer comes through the same door (`origin: "offer"`), so both
+   * refusals apply to it; what differs is where the answer is read. Its
+   * exchange, or the notice that stands in for one, belongs to the offer and
+   * mints no transcript turn.
    */
-  exec(command: string, opts?: { origin?: "auto" }): void {
+  exec(command: string, opts?: ShellExecOrigin): void {
     const trimmed = command.trim();
     if (trimmed.length === 0) return;
     if (this._snapshot.inflight !== null) return;
+    const offerKey = opts?.origin === "offer" ? opts.offerKey : null;
     const unending = unendingProgram(trimmed);
     if (unending !== null) {
       this._steerRefusal(
@@ -353,12 +425,13 @@ export class ShellSessionStore extends Subscribable {
           "to stop it from — a command's stdin is /dev/null, so there is no ⌃C " +
           "to send. It would fill the exchange until the 120-second reap.\n\n" +
           "Run it in a form that finishes, or in a terminal outside Tug.",
+        offerKey,
       );
       return;
     }
     const steer = interactiveStagingSteer(trimmed);
     if (steer !== null) {
-      this._steerRefusal(trimmed, steer);
+      this._steerRefusal(trimmed, steer, offerKey);
       return;
     }
     this._seq += 1;
@@ -367,13 +440,24 @@ export class ShellSessionStore extends Subscribable {
     // `exchange_started` frame echoes back) renders the `→ shell` attribution.
     // Client-side only — the shell ledger schema is untouched ([P09]).
     if (opts?.origin === "auto") this._autoRoutedExchanges.add(exchangeId);
-    this._set({ ...this._snapshot, inflight: { exchangeId, command: trimmed } });
     const conn = getConnection();
     if (!conn) {
-      // No transport — drop the in-flight marker; nothing was sent.
-      this._set({ ...this._snapshot, inflight: null });
+      // No transport — nothing was sent, so nothing is in flight.
       return;
     }
+    const cwd = this._snapshot.cwd ?? this._projectDir;
+    // An offer's run shows under its offer from the press, not from the echo:
+    // the frame is where the user is looking.
+    if (offerKey !== null) {
+      this.offers.start({
+        key: offerKey,
+        exchangeId,
+        command: trimmed,
+        cwd,
+        startedAtMs: Date.now(),
+      });
+    }
+    this._set({ ...this._snapshot, inflight: { exchangeId, command: trimmed } });
     conn.send(
       FeedId.SHELL_INPUT,
       new TextEncoder().encode(
@@ -382,7 +466,10 @@ export class ShellSessionStore extends Subscribable {
           tug_session_id: this._tugSessionId,
           exchange_id: exchangeId,
           command: trimmed,
-          cwd: this._snapshot.cwd ?? this._projectDir,
+          cwd,
+          // Ledgered beside the exchange, so a reload restores the result
+          // under its fence and not as a turn.
+          ...(offerKey !== null ? { offer_key: offerKey } : {}),
         }),
       ),
     );
@@ -395,13 +482,18 @@ export class ShellSessionStore extends Subscribable {
    * The row is minted locally — nothing is sent, nothing is spawned, and the
    * shell ledger records nothing, because nothing happened. It settles
    * immediately with a non-zero exit so the row reads as a refusal and not as
-   * a command that ran and printed advice.
+   * a command that ran and printed advice. A refused offer gets the notice as
+   * its result, under the offer, in place of a row.
    */
-  private _steerRefusal(command: string, notice: string): void {
+  private _steerRefusal(command: string, notice: string, offerKey: string | null): void {
     this._seq += 1;
     const exchangeId = `sh-steer-${this._seq}`;
     const at = Date.now();
     const cwd = this._snapshot.cwd ?? this._projectDir;
+    if (offerKey !== null) {
+      this.offers.refuse({ key: offerKey, exchangeId, command, cwd, notice, atMs: at });
+      return;
+    }
     this._codeSessionStore.ingestShellExchange({
       phase: "started",
       exchangeId,
@@ -422,6 +514,48 @@ export class ShellSessionStore extends Subscribable {
       settledAtMs: at,
       autoRouted: false,
     });
+  }
+
+  /** Whether this card has a pending-context queue a result could join. */
+  hasContextQueue(): boolean {
+    return this._pendingContextStore !== undefined;
+  }
+
+  /** Whether an offer's run is staged to ride the next submission. */
+  offerRunStaged(run: RunOfferRun): boolean {
+    return this._pendingContextStore?.has("shell", run.exchangeId) === true;
+  }
+
+  /**
+   * Add an offer's settled run to the next submission's context, or take it
+   * back out. This is the one route by which the result reaches the model:
+   * nothing sends it on its own. Staged under the exchange's id, the same
+   * handle VISIBILITY=Context stages a live completion under, so the two
+   * can never queue one run twice.
+   */
+  toggleOfferRunContext(run: RunOfferRun): void {
+    const queue = this._pendingContextStore;
+    if (queue === undefined || run.status !== "settled" || run.refused) return;
+    if (queue.has("shell", run.exchangeId)) {
+      queue.unstageRef("shell", run.exchangeId);
+      return;
+    }
+    queue.stage({
+      source: "shell",
+      ref: run.exchangeId,
+      label: `$ ${run.command}`,
+      body: composeShellShareText({
+        command: run.command,
+        output: run.output,
+        exitCode: run.exitCode,
+        settledAtMs: run.settledAtMs ?? run.startedAtMs,
+      }),
+    });
+  }
+
+  /** Hear when the pending-context queue moves; `null` where a card has none. */
+  subscribeContext(listener: () => void): (() => void) | null {
+    return this._pendingContextStore?.subscribe(listener) ?? null;
   }
 
   /** Kill the running command — reaps the shell's process group ([Q03]). */
@@ -449,6 +583,7 @@ export class ShellSessionStore extends Subscribable {
     this._unsubscribeFeed = null;
     this._unsubscribeWindow?.();
     this._unsubscribeWindow = null;
+    this.offers.clearListeners();
     this.clearListeners();
   }
 

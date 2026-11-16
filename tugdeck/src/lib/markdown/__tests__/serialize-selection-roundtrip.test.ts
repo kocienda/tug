@@ -34,6 +34,8 @@ import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import { initSync } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 
 import { renderIncremental } from "../render-incremental";
+import { enhanceFencedCode } from "../enhance-fenced-code";
+import { isRunOfferLang, markdownFenceLang } from "../enhance-run-offer";
 import {
   selectionToTranscriptMarkdown,
   selectionToTranscriptPlainSubstrate,
@@ -346,6 +348,102 @@ describe("round trip — inline constructs with no text node", () => {
   test("a rule with selected text on both sides is carried", () => {
     const container = render("above\n\n---\n\nbelow");
     expect(copyBetween(container, "above", "below", 2)).toBe("above\n\n---\n\nbe");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runnable offers — a `tugrun` fence
+// ---------------------------------------------------------------------------
+
+const OFFER = "```tugrun\nlaunchctl kickstart -k gui/$(id -u)/foundation.example.local-ci\n```";
+const OFFER_COMMAND = "launchctl kickstart -k gui/$(id -u)/foundation.example.local-ci";
+
+describe("a runnable offer — the fence language", () => {
+  test("only `tugrun` declares an offer, in any case", () => {
+    expect(isRunOfferLang("tugrun")).toBe(true);
+    expect(isRunOfferLang("TugRun")).toBe(true);
+    expect(isRunOfferLang("bash")).toBe(false);
+    expect(isRunOfferLang("tugchart")).toBe(false);
+    expect(isRunOfferLang(null)).toBe(false);
+  });
+
+  test("an offer is written out as bash, and every other language as itself", () => {
+    expect(markdownFenceLang("tugrun")).toBe("bash");
+    expect(markdownFenceLang("ts")).toBe("ts");
+    expect(markdownFenceLang(null)).toBeNull();
+  });
+});
+
+describe("a runnable offer — the frame", () => {
+  test("a `tugrun` fence wears the offer frame and not the fence chrome", () => {
+    const container = render(OFFER);
+    const frame = container.querySelector(".tugx-md-run");
+    expect(frame).not.toBeNull();
+    expect(container.querySelector(".tugx-md-fenced-code")).toBeNull();
+    expect(container.querySelector(".tugx-md-chrome-header")).toBeNull();
+    expect(container.querySelector(".tugx-md-chrome-fold")).toBeNull();
+    // The command is still the fence's own `<pre><code>`, inside the frame.
+    const code = frame?.querySelector(".tugx-md-run-row > pre > code.language-tugrun");
+    expect(code?.textContent).toBe(OFFER_COMMAND + "\n");
+    // Play is drawn and inert; Copy is beside it.
+    const play = frame?.querySelector<HTMLButtonElement>("button.tugx-md-run-play");
+    expect(play?.disabled).toBe(true);
+    expect(frame?.querySelector("button.tugx-md-chrome-copy")).not.toBeNull();
+    container.remove();
+  });
+
+  test("a bash fence keeps the fence chrome", () => {
+    const container = render("```bash\nls -la\n```");
+    expect(container.querySelector(".tugx-md-run")).toBeNull();
+    expect(container.querySelector(".tugx-md-fenced-code")).not.toBeNull();
+    container.remove();
+  });
+
+  test("a second enhance pass over the same block builds nothing more", () => {
+    const container = render(OFFER);
+    const before = container.innerHTML;
+    enhanceFencedCode(container);
+    expect(container.innerHTML).toBe(before);
+    expect(container.querySelectorAll(".tugx-md-run").length).toBe(1);
+    container.remove();
+  });
+
+  test("a rebuilt block arrives at one frame holding the new command", () => {
+    // A streaming delta rewrites the block's `innerHTML`; the pass after
+    // it has to put the frame back, once, around what the fence now says.
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    renderIncremental(container, "```tugrun\nmake\n```");
+    renderIncremental(container, "```tugrun\nmake check\n```");
+    expect(container.querySelectorAll(".tugx-md-run").length).toBe(1);
+    expect(container.querySelectorAll(".tugx-md-run-play").length).toBe(1);
+    expect(container.querySelector(".tugx-md-run pre > code")?.textContent).toBe("make check\n");
+    // The same source rendered again leaves the frame as it stands.
+    renderIncremental(container, "```tugrun\nmake check\n```");
+    expect(container.querySelectorAll(".tugx-md-run").length).toBe(1);
+    container.remove();
+  });
+});
+
+describe("a runnable offer — the copy", () => {
+  test("copy as Markdown writes the fence as bash", () => {
+    expect(copyAll(render(OFFER))).toBe("```bash\n" + OFFER_COMMAND + "\n```");
+  });
+
+  test("an offer among prose copies as a bash fence in its place", () => {
+    expect(copyAll(render("Restart the agent:\n\n" + OFFER + "\n\nThen check the log."))).toBe(
+      "Restart the agent:\n\n```bash\n" + OFFER_COMMAND + "\n```\n\nThen check the log.",
+    );
+  });
+
+  test("the plain form is the command alone", () => {
+    expect(plainAll(render(OFFER))).toBe(OFFER_COMMAND);
+  });
+
+  test("a multi-line offer keeps its lines", () => {
+    expect(copyAll(render("```tugrun\ncd build\nmake check\n```"))).toBe(
+      "```bash\ncd build\nmake check\n```",
+    );
   });
 });
 

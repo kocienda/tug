@@ -163,6 +163,10 @@ pub struct NewShellExchange {
     /// anchor column existed, or by a session whose JSONL holds no assistant
     /// line yet; such a row restores by timestamp, as every row once did.
     pub anchor_msg_id: Option<String>,
+    /// The runnable offer this exchange was run from, when it was: the key
+    /// the deck gave the offer's fence. A row carrying one restores as that
+    /// offer's result, under the fence, and not as a transcript turn.
+    pub offer_key: Option<String>,
 }
 
 /// A persisted exchange row, serialized into the `list_shell_exchanges_ok`
@@ -182,6 +186,9 @@ pub struct ShellExchangeRow {
     pub started_at_ms: i64,
     pub settled_at_ms: i64,
     pub anchor_msg_id: Option<String>,
+    /// The runnable offer this exchange belongs to, or `None` for a command
+    /// typed at the prompt.
+    pub offer_key: Option<String>,
 }
 
 /// An anchored shell row as the re-anchoring repair reads it
@@ -252,6 +259,7 @@ impl ShellLedger {
         tugcore::ledger_db::apply_pragmas(&conn)?;
         Self::migrate_add_anchor_msg_id(&conn)?;
         Self::migrate_add_line_id(&conn)?;
+        Self::migrate_add_offer_key(&conn)?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS shell_exchanges (
@@ -269,7 +277,10 @@ impl ShellLedger {
                 cwd_after      TEXT,
                 started_at_ms  INTEGER NOT NULL,
                 settled_at_ms  INTEGER NOT NULL,
-                anchor_msg_id  TEXT
+                anchor_msg_id  TEXT,
+                -- The runnable offer the exchange was run from; NULL for a
+                -- command typed at the prompt.
+                offer_key      TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_shell_exchanges_line
                 ON shell_exchanges(line_id, id);
@@ -346,6 +357,20 @@ impl ShellLedger {
         }
     }
 
+    /// Self-healing add of `offer_key`. Every row written before it reads
+    /// back NULL, which is what a command typed at the prompt carries.
+    fn migrate_add_offer_key(conn: &Connection) -> Result<(), ShellLedgerError> {
+        let cols = crate::ledger_integrity::table_columns(conn, "main", "shell_exchanges")?;
+        if cols.is_empty() || cols.iter().any(|c| c == "offer_key") {
+            return Ok(());
+        }
+        match conn.execute("ALTER TABLE shell_exchanges ADD COLUMN offer_key TEXT", []) {
+            Ok(_) => Ok(()),
+            Err(err) if crate::ledger_integrity::is_duplicate_column(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     fn migrate_add_anchor_msg_id(conn: &Connection) -> Result<(), ShellLedgerError> {
         let cols = crate::ledger_integrity::table_columns(conn, "main", "shell_exchanges")?;
         if cols.is_empty() || cols.iter().any(|c| c == "anchor_msg_id") {
@@ -377,8 +402,8 @@ impl ShellLedger {
         )?;
         conn.execute(
             "INSERT INTO shell_exchanges
-                (tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after, started_at_ms, settled_at_ms, anchor_msg_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                (tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after, started_at_ms, settled_at_ms, anchor_msg_id, offer_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 ex.tug_session_id,
                 ex.line_id,
@@ -391,6 +416,7 @@ impl ShellLedger {
                 ex.started_at_ms,
                 ex.settled_at_ms,
                 ex.anchor_msg_id,
+                ex.offer_key,
             ],
         )?;
         let id = conn.last_insert_rowid();
@@ -569,7 +595,7 @@ impl ShellLedger {
 
         let mut sql = String::from(
             "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
-                    started_at_ms, settled_at_ms, anchor_msg_id
+                    started_at_ms, settled_at_ms, anchor_msg_id, offer_key
              FROM shell_exchanges
              WHERE (?1 IS NULL OR line_id = ?1)
                AND (?2 IS NULL OR command LIKE ?2 ESCAPE '\\')
@@ -623,7 +649,7 @@ impl ShellLedger {
         let conn = self.db.lock();
         let mut stmt = conn.prepare(
             "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
-                    started_at_ms, settled_at_ms, anchor_msg_id
+                    started_at_ms, settled_at_ms, anchor_msg_id, offer_key
              FROM shell_exchanges
              WHERE line_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)
              ORDER BY id ASC",
@@ -644,7 +670,7 @@ impl ShellLedger {
         let told = &*TOLD_COMMANDS_SQL;
         let mut stmt = conn.prepare(&format!(
             "SELECT id, tug_session_id, line_id, seq, command, output, exit_code, cwd, cwd_after,
-                    started_at_ms, settled_at_ms, anchor_msg_id
+                    started_at_ms, settled_at_ms, anchor_msg_id, offer_key
              FROM shell_exchanges
              WHERE line_id = ?1
                AND command IN ({told})
@@ -768,6 +794,7 @@ fn exchange_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ShellExchangeR
         started_at_ms: row.get(9)?,
         settled_at_ms: row.get(10)?,
         anchor_msg_id: row.get(11)?,
+        offer_key: row.get(12)?,
     })
 }
 
@@ -787,6 +814,7 @@ mod tests {
             started_at_ms: 1000,
             settled_at_ms: 1012,
             anchor_msg_id: None,
+            offer_key: None,
         }
     }
 
@@ -854,6 +882,7 @@ mod tests {
             started_at_ms: settled - 10,
             settled_at_ms: settled,
             anchor_msg_id: None,
+            offer_key: None,
         };
         led.record_exchange(&at("old", 1_000)).unwrap();
         led.record_exchange(&at("edge", 5_000)).unwrap();
@@ -1145,6 +1174,73 @@ mod tests {
         let rows = led.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01KEEP"));
+    }
+
+    // ── the offer key ────────────────────────────────────────────────────────
+
+    #[test]
+    fn an_offer_key_round_trips_through_both_reads() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        led.record_exchange(&NewShellExchange {
+            offer_key: Some("msg_01-b0#0#1a2b3c4d".to_string()),
+            ..ex("s1", "make check", Some(0))
+        })
+        .unwrap();
+        led.record_exchange(&ex("s1", "ls", Some(0))).unwrap();
+
+        let listed = led.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|r| r.offer_key.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("msg_01-b0#0#1a2b3c4d"), None],
+            "a typed command carries no offer key",
+        );
+
+        let searched = led
+            .search_exchanges(Some("s1"), Some("make"), None, None, &[], 5)
+            .unwrap();
+        assert_eq!(
+            searched[0].offer_key.as_deref(),
+            Some("msg_01-b0#0#1a2b3c4d")
+        );
+    }
+
+    #[test]
+    fn a_database_from_before_the_offer_key_is_migrated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shell_exchanges.db");
+
+        // A database as the previous binary left it: the line and the anchor
+        // present, no offer key, one row.
+        write_pre_watermark_file(&path);
+
+        let led = ShellLedger::open(&path).unwrap();
+        let rows = led.list_exchanges_since("L", None).unwrap();
+        assert_eq!(rows.len(), 1, "the legacy row survives the migration");
+        assert_eq!(rows[0].command, "/commit");
+        assert_eq!(rows[0].offer_key, None);
+
+        // A row written after the migration carries its key beside it.
+        led.record_exchange(&NewShellExchange {
+            line_id: "L".to_string(),
+            offer_key: Some("m-b0#0#00000000".to_string()),
+            ..ex("s1", "make", Some(0))
+        })
+        .unwrap();
+        drop(led);
+
+        // Reopening runs the migration again; it finds the column and leaves
+        // the schema and the rows alone.
+        let led = ShellLedger::open(&path).unwrap();
+        let rows = led.list_exchanges_since("L", None).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.offer_key.as_deref())
+                .collect::<Vec<_>>(),
+            vec![None, Some("m-b0#0#00000000")],
+        );
     }
 
     // ── the landing watermark ────────────────────────────────────────────────

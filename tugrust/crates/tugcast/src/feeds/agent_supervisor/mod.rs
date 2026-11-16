@@ -12161,6 +12161,7 @@ mod tests {
                 started_at_ms: 1,
                 settled_at_ms: 2,
                 anchor_msg_id: None,
+                offer_key: None,
             })
             .expect("record receipt")
     }

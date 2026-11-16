@@ -5124,6 +5124,7 @@ mod tests {
                 started_at_ms: at_ms - 10,
                 settled_at_ms: at_ms,
                 anchor_msg_id: None,
+                offer_key: None,
             })
             .expect("exchange recorded");
     }

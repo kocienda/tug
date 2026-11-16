@@ -53,6 +53,7 @@ async fn a_restore_read_under_any_segment_returns_the_lines_ink() {
                 started_at_ms: 1,
                 settled_at_ms: 2,
                 anchor_msg_id: None,
+                offer_key: None,
             })
             .expect("record");
     }
@@ -95,6 +96,7 @@ async fn a_restore_read_for_the_newest_segment_is_the_same_answer() {
             started_at_ms: 1,
             settled_at_ms: 2,
             anchor_msg_id: None,
+            offer_key: None,
         })
         .expect("record");
 
@@ -128,6 +130,7 @@ async fn list_shell_exchanges_returns_the_session_tail() {
                 started_at_ms: 1,
                 settled_at_ms: 2,
                 anchor_msg_id: None,
+                offer_key: None,
             })
             .unwrap();
     }

@@ -6605,6 +6605,7 @@ Some context.
             started_at_ms: 0,
             settled_at_ms: 0,
             anchor_msg_id: None,
+            offer_key: None,
         }
     }
 
