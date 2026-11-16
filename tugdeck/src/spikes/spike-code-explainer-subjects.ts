@@ -1,10 +1,10 @@
 /**
  * spike-code-explainer-subjects.ts — what the spike draws.
  *
- * One benchmark and three subjects from this repository. The benchmark is
+ * One benchmark and four subjects from this repository. The benchmark is
  * the figure the idea came from, restated as a spec, so the question "can a
  * form reach that figure from names and order alone" has a direct answer.
- * The three subjects are real parts of Tug, one per form.
+ * The four subjects are real parts of Tug, one per form.
  *
  * @module spikes/spike-code-explainer-subjects
  */
@@ -75,7 +75,7 @@ export const SUBJECTS: readonly Subject[] = [
     id: "edit-gate",
     title: "A shell edit the gate cannot read never reaches the file",
     caption:
-      "Green: a command whose file operands can be read runs, and its receipt attributes the change. Red: a shape proven unreadable is denied before it runs, with the edit program to write instead.",
+      "Green: a command whose file operands can be read runs, and its receipt attributes the change. Red: a shape proven unreadable is denied before it runs. Yellow: a shape the gate can prove nothing about still runs, and its change lands unattributed.",
     lead: "Every change to a project file is recorded against the session that made it. The gate reads a Bash command before it runs; tugcast reads the receipt after.",
     spec: {
       form: "flow",
@@ -110,7 +110,7 @@ export const SUBJECTS: readonly Subject[] = [
             sub: "what tugtool changes reads",
             rows: [
               { name: "attributed", mono: true, lit: "good" },
-              { name: "unattributed", mono: true },
+              { name: "unattributed", mono: true, lit: "caution" },
               { name: "foreign", mono: true },
             ],
           },
@@ -121,6 +121,7 @@ export const SUBJECTS: readonly Subject[] = [
         { from: "gate.1", to: "cast.1", tone: "good", label: "runs, prints its receipt" },
         { from: "gate.2", to: "model", tone: "bad", dashed: true, label: "denied before it runs" },
         { from: "cast.2", to: "ledger.1", tone: "good" },
+        { from: "gate", to: "ledger", tone: "caution", label: "unprovable either way: runs, lands unattributed" },
       ],
     },
   },
@@ -207,6 +208,56 @@ export const SUBJECTS: readonly Subject[] = [
           ],
         },
       ],
+    },
+  },
+  {
+    id: "architecture",
+    title: "Tug is four layers between you and Claude Code",
+    caption:
+      "Grey: what Tug is, top to bottom. Teal: what is outside it. The bars at the right are what every layer uses.",
+    lead: "The plain block diagram: layers on a grid, a layer narrower than the stack where it serves only part of it, and an outside block reaching the first layer in its way.",
+    spec: {
+      form: "stack",
+      columns: 4,
+      above: [{ name: "You", sub: "keyboard, pointer, voice", span: [2, 3] }],
+      layers: [
+        {
+          name: "Tug.app",
+          sub: "macOS host",
+          rows: [[{ name: "Windows and menus" }, { name: "Web views" }, { name: "Updates" }]],
+        },
+        {
+          name: "tugdeck",
+          sub: "web frontend",
+          rows: [
+            [{ key: 1, name: "Session card", sub: "shell commands and AI turns on one surface", does: "The surface that replaces the terminal.", where: "tugdeck/src/components/tugways/cards" }],
+            [{ name: "Deck", sub: "slots and panes" }, { name: "Sidebar cards" }, { name: "Themes", sub: "ten token files" }],
+          ],
+        },
+        {
+          name: "tugcast",
+          sub: "WebSocket multiplexer",
+          rows: [
+            [
+              { key: 2, name: "Feeds", does: "Reads tool results as they pass and records what they say.", where: "tugrust/crates/tugcast/src/feeds" },
+              { name: "Session ledger" },
+              { key: 3, name: "Semantic index", does: "Embeds transcripts, facts and documents on the device.", where: "tugrust/crates/tugcast/src/semantic" },
+              { name: "Operator" },
+            ],
+          ],
+        },
+        {
+          name: "tugcode",
+          sub: "bridge",
+          span: [1, 2],
+          rows: [[{ key: 4, name: "Spawn config", does: "Builds the argument list Claude Code is started with.", where: "tugcode/src/spawn-config.ts" }, { name: "Event mapping" }]],
+        },
+      ],
+      below: [
+        { name: "Claude Code", sub: "stream-json over stdio", span: [1, 2] },
+        { name: "Ledgers on disk", sub: "Application Support/Tug", span: [3, 4] },
+      ],
+      across: { title: "Shared", names: ["tugtool — the CLI", "tugcore — shared library", "tugproto — protocol types"] },
     },
   },
 ];

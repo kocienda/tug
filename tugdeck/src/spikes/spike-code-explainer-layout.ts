@@ -1,5 +1,5 @@
 /**
- * spike-code-explainer-layout.ts — a prototype of the three diagram forms.
+ * spike-code-explainer-layout.ts — a prototype of the four diagram forms.
  *
  * Each form is one function from a spec and a measurer to a layer 0
  * `tugdraw` program, the same contract a chart form has in
@@ -10,6 +10,14 @@
  * The rule every form keeps: the author gives names, relations and order,
  * and the form gives every coordinate. A spec has no x and no y.
  *
+ * Colour, as of the second rev: the accent is spent on the key discs and
+ * nowhere else. Boxes are neutral; an edge or a lit row takes a colour only
+ * when it means an outcome. Two semantic roles are proposed beside `good`
+ * and `bad` — `caution` and `outside` — and since layer 0 has no spelling
+ * for them yet, they are written as `series-7` and `series-8` and the
+ * spike's stylesheet repaints those two classes from the theme's own tone
+ * tokens.
+ *
  * @module spikes/spike-code-explainer-layout
  */
 
@@ -19,8 +27,13 @@ import type { ChartTypeRole, TextBox } from "@/lib/lazy/load-tuggraphics";
  * Specs
  * ---------------------------------------------------------------------------*/
 
-/** What an edge or a lit row means. `ink` means nothing in particular. */
-export type Tone = "ink" | "good" | "bad" | "accent";
+/**
+ * What an edge, a lit row or a block means. `ink` means nothing in
+ * particular. `caution` is the outcome between good and bad: allowed but
+ * degraded, a fallback, a retry. `outside` is not an outcome but a place:
+ * something beyond the system the figure explains.
+ */
+export type Tone = "ink" | "good" | "bad" | "accent" | "caution" | "outside";
 
 /** A row of the keyed table under a figure. */
 export interface Keyed {
@@ -108,7 +121,43 @@ export interface LayersSpec {
   layers: Layer[];
 }
 
-export type DiagramSpec = FlowSpec | SequenceSpec | LayersSpec;
+/** A span of the stack's grid columns, 1-based and inclusive. Absent, every column. */
+export type Span = [number, number];
+
+export interface StackBlock {
+  name: string;
+  sub?: string;
+  span?: Span;
+}
+
+export interface StackCell extends Keyed {
+  name: string;
+  sub?: string;
+}
+
+export interface StackLayer {
+  name: string;
+  sub?: string;
+  span?: Span;
+  /** Rows of cells; each row shares the layer's width equally. */
+  rows: StackCell[][];
+}
+
+export interface StackSpec {
+  form: "stack";
+  /** How many grid columns the stack is ruled into. */
+  columns: number;
+  /** What sits outside, above the top layer. */
+  above?: StackBlock[];
+  /** Top to bottom. */
+  layers: StackLayer[];
+  /** What sits outside, beneath the bottom layer. */
+  below?: StackBlock[];
+  /** What every layer uses: bars down the side. */
+  across?: { title: string; names: string[] };
+}
+
+export type DiagramSpec = FlowSpec | SequenceSpec | LayersSpec | StackSpec;
 
 /* ---------------------------------------------------------------------------
  * Look
@@ -119,11 +168,24 @@ export type Routing = "elbow" | "rounded" | "curve";
 export interface Look {
   routing: Routing;
   fill: "tinted" | "plain";
-  keys: "inline" | "disc";
   motion: boolean;
 }
 
 export type Measure = (role: ChartTypeRole, text: string) => TextBox;
+
+/**
+ * The ink of a string: how far its drawn shape reaches left and right of
+ * its origin and above and below its baseline. The font box a layout
+ * stacks lines with is taller than any digit, so a number centred by the
+ * font box sits low in a disc; centring it takes the ink.
+ */
+export interface InkBox {
+  l: number;
+  r: number;
+  a: number;
+  d: number;
+}
+export type Ink = (role: ChartTypeRole, text: string) => InkBox;
 
 export interface Drawn {
   /** The layer 0 program, as source. */
@@ -145,8 +207,10 @@ export function legendOf(spec: DiagramSpec): { key: number; name: string; does: 
     for (const col of spec.columns) for (const node of col) for (const row of node.rows ?? []) take(row.name, row);
   } else if (spec.form === "sequence") {
     for (const m of spec.messages) take(m.label, m);
-  } else {
+  } else if (spec.form === "layers") {
     for (const layer of spec.layers) for (const cell of layer.cells) take(cell.name, cell);
+  } else {
+    for (const layer of spec.layers) for (const row of layer.rows) for (const cell of row) take(cell.name, cell);
   }
   return out.sort((a, b) => a.key - b.key);
 }
@@ -155,15 +219,29 @@ export function legendOf(spec: DiagramSpec): { key: number; name: string; does: 
  * The pen: layer 0 ops, nothing else
  * ---------------------------------------------------------------------------*/
 
-type Colour = "ink" | "ink-muted" | "grid" | "surface" | "accent" | "good" | "bad";
+type Colour = "ink" | "ink-muted" | "grid" | "surface" | "accent" | "good" | "bad" | "caution" | "outside";
 type Op = (string | number | number[] | Record<string, unknown>)[];
 type Pt = [number, number];
 
 const MAX_DELAY = 64;
 const MAX_STRING = 200;
+/** A key disc's radius. */
+const DISC = 8;
 
 function toneColour(tone: Tone | undefined): Colour {
   return tone === undefined || tone === "ink" ? "ink-muted" : tone;
+}
+
+/** The layer 0 spelling of a colour: the two proposed roles ride two series classes. */
+function role(c: Colour): string {
+  return c === "caution" ? "series-7" : c === "outside" ? "series-8" : c;
+}
+
+/** The neutral paint of a box that holds things. */
+function holder(look: Look): { fill: Colour; fillOpacity: number; stroke: Colour; strokeOpacity: number } {
+  return look.fill === "tinted"
+    ? { fill: "ink-muted", fillOpacity: 0.09, stroke: "ink-muted", strokeOpacity: 0.9 }
+    : { fill: "surface", fillOpacity: 1, stroke: "ink-muted", strokeOpacity: 0.9 };
 }
 
 interface TextOpts {
@@ -177,7 +255,10 @@ interface TextOpts {
 class Pen {
   readonly ops: Op[] = [];
 
-  constructor(private readonly motion: boolean) {}
+  constructor(
+    private readonly motion: boolean,
+    private readonly ink: Ink,
+  ) {}
 
   private enter(kind: "fade" | "draw", delay: number | undefined): Record<string, unknown> | undefined {
     if (!this.motion || delay === undefined) return undefined;
@@ -186,7 +267,7 @@ class Pen {
 
   private paint(verb: "fill" | "stroke", colour: Colour, opacity: number, opts?: Record<string, unknown>): void {
     this.ops.push(["opacity", opacity]);
-    this.ops.push(opts === undefined ? [verb, colour] : [verb, colour, opts]);
+    this.ops.push(opts === undefined ? [verb, role(colour)] : [verb, role(colour), opts]);
   }
 
   /** A rounded box, filled and then outlined. */
@@ -205,21 +286,37 @@ class Pen {
     }
   }
 
-  disc(cx: number, cy: number, r: number, fill: Colour, delay?: number): void {
-    this.ops.push(["circle", cx, cy, r]);
-    this.paint("fill", fill, 1, this.enter("fade", delay));
+  /**
+   * A key: an accent disc centred on `(cx, cy)` with its number centred by
+   * its ink, not by its font box.
+   */
+  key(cx: number, cy: number, n: number, delay?: number): void {
+    this.ops.push(["circle", cx, cy, DISC]);
+    this.paint("fill", "accent", 1, this.enter("fade", delay));
+    const s = String(n);
+    const box = this.ink("value", s);
+    this.text(cx - (box.r - box.l) / 2, cy + (box.a - box.d) / 2, s, {
+      role: "value", fill: "surface", anchor: "start", baseline: "alphabetic", delay,
+    });
   }
 
   text(x: number, y: number, s: string, o: TextOpts = {}): void {
     const opts: Record<string, unknown> = {
       role: o.role ?? "label",
-      fill: o.fill ?? "ink",
+      fill: role(o.fill ?? "ink"),
       anchor: o.anchor ?? "start",
       baseline: o.baseline ?? "top",
       ...this.enter("fade", o.delay),
     };
     this.ops.push(["opacity", 1]);
     this.ops.push(["text", x, y, s.length > MAX_STRING ? s.slice(0, MAX_STRING - 1) + "…" : s, opts]);
+  }
+
+  /** Text turned to read bottom to top, centred on `(cx, cy)`. */
+  upright(cx: number, cy: number, s: string, o: TextOpts = {}): void {
+    this.ops.push(["group", { translate: [cx, cy], rotate: -90 }]);
+    this.text(0, 0, s, { ...o, anchor: "middle", baseline: "middle" });
+    this.ops.push(["end"]);
   }
 
   /** A straight segment in a colour, for rules and lifelines. */
@@ -326,8 +423,8 @@ function dist(a: Pt, b: Pt): number {
 
 /** A role's line height: the font box of a string with an ascender and a descender. */
 function lineHeights(measure: Measure): Record<ChartTypeRole, number> {
-  const lh = (role: ChartTypeRole): number => {
-    const m = measure(role, "Hg");
+  const lh = (r: ChartTypeRole): number => {
+    const m = measure(r, "Hg");
     return Math.ceil(m.a + m.d);
   };
   return { title: lh("title"), label: lh("label"), value: lh("value"), mono: lh("mono") };
@@ -358,6 +455,8 @@ function countCrossings(paths: Pt[][]): number {
  * ---------------------------------------------------------------------------*/
 
 const MARGIN = 16;
+/** The room a key takes before the text it numbers. */
+const KEY_LEAD = DISC * 2 + 7;
 
 interface Rect {
   x: number;
@@ -381,8 +480,8 @@ interface End {
   fixed: boolean;
 }
 
-export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn {
-  const pen = new Pen(look.motion);
+export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure, ink: Ink): Drawn {
+  const pen = new Pen(look.motion, ink);
   const lh = lineHeights(measure);
   const PAD = 14;
   const INSET = 12;
@@ -390,14 +489,10 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
   const ROW_PAD_Y = 7;
   const ROW_GAP = 8;
   const NODE_GAP = 28;
-  const DISC = 8;
-  const disc = look.keys === "disc";
 
-  const rowName = (row: FlowRow): string =>
-    !disc && row.key !== undefined ? `${row.key}  ${row.name}` : row.name;
   const rowRole = (row: FlowRow): ChartTypeRole => (row.mono === true ? "mono" : "label");
-  const rowLead = (row: FlowRow): number => (disc && row.key !== undefined ? DISC * 2 + 7 : 0);
-  const w = (role: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(role, s).w));
+  const rowLead = (row: FlowRow): number => (row.key !== undefined ? KEY_LEAD : 0);
+  const w = (r: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(r, s).w));
 
   // Sizes: every box from its text, then every box stretched to its column.
   const sized = spec.columns.map((col, c) =>
@@ -406,8 +501,8 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
       const head = Math.max(w("title", node.name), w("value", node.sub));
       const headH = lh.title + (node.sub !== undefined ? 3 + lh.value : 0);
       const rowSizes = rows.map((row) => ({
-        w: rowLead(row) + Math.max(w(rowRole(row), rowName(row)), w("value", row.sub)) + 2 * ROW_PAD_X,
-        h: 2 * ROW_PAD_Y + lh[rowRole(row)] + (row.sub !== undefined ? 2 + lh.value : 0),
+        w: rowLead(row) + Math.max(w(rowRole(row), row.name), w("value", row.sub)) + 2 * ROW_PAD_X,
+        h: 2 * ROW_PAD_Y + Math.max(lh[rowRole(row)], row.key !== undefined ? DISC * 2 : 0) + (row.sub !== undefined ? 2 + lh.value : 0),
       }));
       const noteW = Math.max(0, ...(node.notes ?? []).map((n) => w("value", n)));
       const leaf = rows.length === 0;
@@ -418,7 +513,7 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
         ? headH + 2 * (PAD - 3)
         : PAD - 2 + headH + 10 + rowSizes.reduce((s, r) => s + r.h, 0) + ROW_GAP * (rows.length - 1) + INSET;
       const notesH = (node.notes?.length ?? 0) > 0 ? 8 + (node.notes ?? []).length * (lh.value + 2) : 0;
-      return { node, col: c, width: Math.max(width, noteW), box: width, height, headH, rowSizes, notesH };
+      return { node, col: c, width: Math.max(width, noteW), height, headH, rowSizes, notesH };
     }),
   );
   const colW = sized.map((col) => Math.max(...col.map((n) => n.width)));
@@ -548,14 +643,9 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
   for (const p of placed) {
     const { node } = p;
     const leaf = p.rows.length === 0;
-    const tinted = look.fill === "tinted" && !leaf;
-    pen.box(p.x, p.y, p.w, p.h, 8, {
-      fill: tinted ? "accent" : "surface",
-      fillOpacity: tinted ? 0.07 : 1,
-      stroke: tinted ? "accent" : "ink-muted",
-      strokeOpacity: tinted ? 0.75 : 0.9,
-      delay: p.col,
-    });
+    pen.box(p.x, p.y, p.w, p.h, 8, leaf
+      ? { fill: "surface", stroke: "ink-muted", strokeOpacity: 0.9, delay: p.col }
+      : { ...holder(look), delay: p.col });
     const cx = p.x + Math.round(p.w / 2);
     const headY = leaf ? p.y + PAD - 3 : p.y + PAD - 2;
     pen.text(cx, headY, node.name, { role: "title", anchor: "middle", delay: p.col });
@@ -567,26 +657,15 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
       const lit = row.lit !== undefined ? toneColour(row.lit) : undefined;
       pen.box(r.x, r.y, r.w, r.h, 5, { fill: "surface", stroke: lit ?? "grid", delay: p.col });
       if (lit !== undefined) pen.box(r.x, r.y, r.w, r.h, 5, { fill: lit, fillOpacity: 0.14, delay: p.col });
-      const lead = rowLead(row);
-      if (lead > 0 && row.key !== undefined) {
-        const cy = r.y + Math.round(r.h / 2);
-        pen.disc(r.x + ROW_PAD_X + DISC, cy, DISC, "accent", p.col);
-        pen.text(r.x + ROW_PAD_X + DISC, cy, String(row.key), {
-          role: "value", fill: "surface", anchor: "middle", baseline: "middle", delay: p.col,
-        });
-      }
-      const tx = r.x + ROW_PAD_X + lead;
-      const keyed = row.key !== undefined && row.mono !== true;
-      if (row.sub === undefined) {
-        // One line sits on the row's middle, whatever the face's own box is.
-        pen.text(tx, r.y + Math.round(r.h / 2), rowName(row), {
-          role: rowRole(row), fill: keyed ? "accent" : "ink", baseline: "middle", delay: p.col,
-        });
-      } else {
-        pen.text(tx, r.y + ROW_PAD_Y, rowName(row), { role: rowRole(row), fill: keyed ? "accent" : "ink", delay: p.col });
-      }
+      const rr = rowRole(row);
+      // The first line's band: a key sits on it, level with the text's top, never on the row's middle.
+      const band = Math.max(lh[rr], row.key !== undefined ? DISC * 2 : 0);
+      const lineY = r.y + ROW_PAD_Y + Math.round(band / 2);
+      if (row.key !== undefined) pen.key(r.x + ROW_PAD_X + DISC, lineY, row.key, p.col);
+      const tx = r.x + ROW_PAD_X + rowLead(row);
+      pen.text(tx, lineY, row.name, { role: rr, baseline: "middle", delay: p.col });
       if (row.sub !== undefined) {
-        pen.text(tx, r.y + ROW_PAD_Y + lh[rowRole(row)] + 2, row.sub, { role: "value", fill: "ink-muted", delay: p.col });
+        pen.text(tx, r.y + ROW_PAD_Y + band + 2, row.sub, { role: "value", fill: "ink-muted", delay: p.col });
       }
     });
     (node.notes ?? []).forEach((note, i) => {
@@ -626,7 +705,7 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
         });
       }
     } else {
-      // Out to the right, down past everything, back under, and up into the target.
+      // Out to the right, down past everything, along underneath, and up into the target.
       const k = outer.indexOf(r);
       const lane = colX[r.from.node.col] + colW[r.from.node.col] + LANE0 + LANE * r.lane;
       const channel = bottom + CHANNEL0 + CHANNEL * k;
@@ -634,7 +713,7 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
       const n = landings.get(id) ?? 0;
       landings.set(id, n + 1);
       const tx = r.to.node.x + Math.round(r.to.node.w / 2) + n * 14;
-      pts = [[x1, r.y1], [lane, r.y1], [lane, channel], [tx, channel], [tx, r.to.node.y + r.to.node.h]];
+      pts = [[x1, r.y1], [lane, r.y1], [lane, channel], [tx, channel], [tx, r.to.node.y + r.to.node.slot]];
       if (r.edge.label !== undefined) {
         const lx = Math.round((lane + tx) / 2);
         const ly = bottom + CHANNEL0 + CHANNEL * (outer.length - 1) + 6;
@@ -656,15 +735,12 @@ export function layoutFlow(spec: FlowSpec, look: Look, measure: Measure): Drawn 
  * sequence — actors across, messages down
  * ---------------------------------------------------------------------------*/
 
-export function layoutSequence(spec: SequenceSpec, look: Look, measure: Measure): Drawn {
-  const pen = new Pen(look.motion);
+export function layoutSequence(spec: SequenceSpec, look: Look, measure: Measure, ink: Ink): Drawn {
+  const pen = new Pen(look.motion, ink);
   const lh = lineHeights(measure);
-  const w = (role: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(role, s).w));
-  const DISC = 8;
-  const disc = look.keys === "disc";
+  const w = (r: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(r, s).w));
   const anyKey = spec.messages.some((m) => m.key !== undefined);
-  const gutter = disc && anyKey ? DISC * 2 + 12 : 0;
-  const text = (m: SeqMessage): string => (!disc && m.key !== undefined ? `${m.key}  ${m.label}` : m.label);
+  const gutter = anyKey ? DISC * 2 + 12 : 0;
 
   const index = new Map(spec.actors.map((a, i) => [a.id, i]));
   const at = (id: string): number => {
@@ -684,7 +760,7 @@ export function layoutSequence(spec: SequenceSpec, look: Look, measure: Measure)
   for (const m of spec.messages) {
     const a = at(m.from);
     const b = at(m.to);
-    const need = w("value", text(m));
+    const need = w("value", m.label);
     if (a === b) {
       if (a === n - 1) tail = Math.max(tail, need + 40);
       else gap[a] = Math.max(gap[a], need + 52);
@@ -707,18 +783,9 @@ export function layoutSequence(spec: SequenceSpec, look: Look, measure: Measure)
   for (let i = 0; i < n; i++) pen.rule([cx[i], top + actorH], [cx[i], end], "grid", { dash: [3, 4], delay: 0 });
 
   spec.actors.forEach((a, i) => {
-    const tinted = look.fill === "tinted";
-    pen.box(cx[i] - Math.round(actorW[i] / 2), top, actorW[i], actorH, 8, {
-      fill: "surface",
-      delay: 0,
-    });
-    pen.box(cx[i] - Math.round(actorW[i] / 2), top, actorW[i], actorH, 8, {
-      fill: tinted ? "accent" : undefined,
-      fillOpacity: 0.07,
-      stroke: tinted ? "accent" : "ink-muted",
-      strokeOpacity: tinted ? 0.75 : 0.9,
-      delay: 0,
-    });
+    const ax = cx[i] - Math.round(actorW[i] / 2);
+    pen.box(ax, top, actorW[i], actorH, 8, { fill: "surface", delay: 0 });
+    pen.box(ax, top, actorW[i], actorH, 8, { ...holder(look), delay: 0 });
     pen.text(cx[i], top + 9, a.name, { role: "title", anchor: "middle", delay: 0 });
     if (a.sub !== undefined) {
       pen.text(cx[i], top + 9 + lh.title + 3, a.sub, { role: "value", fill: "ink-muted", anchor: "middle", delay: 0 });
@@ -731,24 +798,22 @@ export function layoutSequence(spec: SequenceSpec, look: Look, measure: Measure)
     const yy = y(k);
     const delay = 1 + k;
     const colour: Colour = m.reply === true && m.tone === undefined ? "ink-muted" : m.tone === undefined ? "ink" : toneColour(m.tone);
-    const label = text(m);
-    const labelW = w("value", label);
-    if (disc && m.key !== undefined) {
-      pen.disc(MARGIN + DISC, yy, DISC, "accent", delay);
-      pen.text(MARGIN + DISC, yy, String(m.key), { role: "value", fill: "surface", anchor: "middle", baseline: "middle", delay });
-    }
+    const labelW = w("value", m.label);
+    // The label's own line: a message's key sits level with what it numbers, not with the arrow under it.
+    const labelY = a === b ? yy : yy - 5 - Math.round(lh.value / 2);
+    if (m.key !== undefined) pen.key(MARGIN + DISC, labelY, m.key, delay);
     if (a === b) {
       // A step the actor takes alone: a short loop off its lifeline.
       const x0 = cx[a];
       pen.edge([[x0, yy - 7], [x0 + 20, yy - 7], [x0 + 20, yy + 7], [x0, yy + 7]], { colour, routing: look.routing === "elbow" ? "elbow" : "rounded", delay });
-      pen.text(x0 + 28, yy, label, { role: "value", fill: m.tone === undefined ? "ink" : colour, baseline: "middle", delay });
+      pen.text(x0 + 28, yy, m.label, { role: "value", fill: m.tone === undefined ? "ink" : colour, baseline: "middle", delay });
       return;
     }
     const mx = Math.round((cx[a] + cx[b]) / 2);
     // A label over a lifeline it crosses is knocked out of it.
     pen.box(mx - Math.round(labelW / 2) - 3, yy - 6 - lh.value, labelW + 6, lh.value + 2, 0, { fill: "surface", delay });
-    pen.text(mx, yy - 5, label, {
-      role: "value", fill: m.reply === true ? "ink-muted" : m.tone === undefined ? "ink" : colour, anchor: "middle", baseline: "bottom", delay,
+    pen.text(mx, labelY, m.label, {
+      role: "value", fill: m.reply === true ? "ink-muted" : m.tone === undefined ? "ink" : colour, anchor: "middle", baseline: "middle", delay,
     });
     pen.edge([[cx[a], yy], [cx[b], yy]], { colour, routing: "elbow", dashed: m.reply, delay });
   });
@@ -760,40 +825,31 @@ export function layoutSequence(spec: SequenceSpec, look: Look, measure: Measure)
  * layers — strata, and what crosses each boundary
  * ---------------------------------------------------------------------------*/
 
-export function layoutLayers(spec: LayersSpec, look: Look, measure: Measure): Drawn {
-  const pen = new Pen(look.motion);
+export function layoutLayers(spec: LayersSpec, look: Look, measure: Measure, ink: Ink): Drawn {
+  const pen = new Pen(look.motion, ink);
   const lh = lineHeights(measure);
-  const w = (role: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(role, s).w));
-  const DISC = 8;
-  const disc = look.keys === "disc";
+  const w = (r: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(r, s).w));
   const CELL_GAP = 8;
   const BAND_PAD = 10;
 
-  const cellName = (c: LayerCell): string => (!disc && c.key !== undefined ? `${c.key}  ${c.name}` : c.name);
   const cellRole = (c: LayerCell): ChartTypeRole => (c.mono === true ? "mono" : "label");
-  const cellLead = (c: LayerCell): number => (disc && c.key !== undefined ? DISC * 2 + 7 : 0);
-  const natural = (c: LayerCell): number => cellLead(c) + Math.max(w(cellRole(c), cellName(c)), w("value", c.sub)) + 24;
+  const cellLead = (c: LayerCell): number => (c.key !== undefined ? KEY_LEAD : 0);
+  const natural = (c: LayerCell): number => cellLead(c) + Math.max(w(cellRole(c), c.name), w("value", c.sub)) + 24;
 
   const labelW = Math.max(...spec.layers.map((l) => Math.max(w("title", l.name), w("value", l.sub)))) + 28;
   const inner = Math.max(
     ...spec.layers.map((l) => l.cells.length * Math.max(...l.cells.map(natural)) + CELL_GAP * (l.cells.length - 1)),
   );
   const anySub = spec.layers.some((l) => l.cells.some((c) => c.sub !== undefined));
-  const cellH = 2 * 8 + lh.label + (anySub ? 2 + lh.value : 0);
+  const band1 = Math.max(lh.label, DISC * 2);
+  const cellH = 2 * 8 + band1 + (anySub ? 2 + lh.value : 0);
   const bandH = cellH + 2 * BAND_PAD;
   const bandW = labelW + inner + BAND_PAD;
-  const tinted = look.fill === "tinted";
 
   let y = MARGIN;
   spec.layers.forEach((layer, i) => {
     const x = MARGIN;
-    pen.box(x, y, bandW, bandH, 8, {
-      fill: tinted ? "accent" : "surface",
-      fillOpacity: tinted ? 0.07 : 1,
-      stroke: tinted ? "accent" : "ink-muted",
-      strokeOpacity: tinted ? 0.75 : 0.9,
-      delay: i,
-    });
+    pen.box(x, y, bandW, bandH, 8, { ...holder(look), delay: i });
     const headH = lh.title + (layer.sub !== undefined ? 3 + lh.value : 0);
     const ty = y + Math.round((bandH - headH) / 2);
     pen.text(x + 14, ty, layer.name, { role: "title", delay: i });
@@ -804,21 +860,14 @@ export function layoutLayers(spec: LayersSpec, look: Look, measure: Measure): Dr
     layer.cells.forEach((cell, k) => {
       const cx = Math.round(x + labelW + k * (cw + CELL_GAP));
       const cy = y + BAND_PAD;
-      const width = Math.round(cw);
-      pen.box(cx, cy, width, cellH, 5, { fill: "surface", stroke: "grid", delay: i });
-      const lead = cellLead(cell);
-      if (lead > 0 && cell.key !== undefined) {
-        pen.disc(cx + 12 + DISC, cy + Math.round(cellH / 2), DISC, "accent", i);
-        pen.text(cx + 12 + DISC, cy + Math.round(cellH / 2), String(cell.key), {
-          role: "value", fill: "surface", anchor: "middle", baseline: "middle", delay: i,
-        });
-      }
-      const role = cellRole(cell);
-      const textH = lh[role] + (cell.sub !== undefined ? 2 + lh.value : 0);
+      pen.box(cx, cy, Math.round(cw), cellH, 5, { fill: "surface", stroke: "grid", delay: i });
+      const textH = band1 + (cell.sub !== undefined ? 2 + lh.value : 0);
       const top = cy + Math.round((cellH - textH) / 2);
-      const keyed = cell.key !== undefined && cell.mono !== true;
-      pen.text(cx + 12 + lead, top, cellName(cell), { role, fill: keyed ? "accent" : "ink", delay: i });
-      if (cell.sub !== undefined) pen.text(cx + 12 + lead, top + lh[role] + 2, cell.sub, { role: "value", fill: "ink-muted", delay: i });
+      const lineY = top + Math.round(band1 / 2);
+      if (cell.key !== undefined) pen.key(cx + 12 + DISC, lineY, cell.key, i);
+      const tx = cx + 12 + cellLead(cell);
+      pen.text(tx, lineY, cell.name, { role: cellRole(cell), baseline: "middle", delay: i });
+      if (cell.sub !== undefined) pen.text(tx, top + band1 + 2, cell.sub, { role: "value", fill: "ink-muted", delay: i });
     });
 
     y += bandH;
@@ -836,13 +885,178 @@ export function layoutLayers(spec: LayersSpec, look: Look, measure: Measure): Dr
   return pen.finish(MARGIN + bandW + MARGIN, y + MARGIN, 0);
 }
 
-export function layoutDiagram(spec: DiagramSpec, look: Look, measure: Measure): Drawn {
+/* ---------------------------------------------------------------------------
+ * stack — the block diagram: layers on a grid, what is outside, what cuts across
+ * ---------------------------------------------------------------------------*/
+
+export function layoutStack(spec: StackSpec, look: Look, measure: Measure, ink: Ink): Drawn {
+  const pen = new Pen(look.motion, ink);
+  const lh = lineHeights(measure);
+  const w = (r: ChartTypeRole, s: string | undefined): number => (s === undefined ? 0 : Math.ceil(measure(r, s).w));
+  const GUTTER = 12;
+  const PAD = 10;
+  const CELL_GAP = 8;
+  const LAYER_GAP = 12;
+  const ARROW = 34;
+  const KEY_INSET = 5;
+
+  const span = (s: Span | undefined): Span => s ?? [1, spec.columns];
+  const count = (s: Span): number => s[1] - s[0] + 1;
+  const above = spec.above ?? [];
+  const below = spec.below ?? [];
+
+  // A keyed cell keeps its text centred by leaving the disc's room on both sides.
+  const natural = (c: StackCell): number =>
+    Math.max(w("label", c.name), w("value", c.sub)) + 24 + (c.key !== undefined ? 2 * (DISC * 2 + KEY_INSET) : 0);
+  const blockNeed = (b: StackBlock): number => Math.max(w("title", b.name), w("value", b.sub)) + 36;
+
+  // The grid unit: the narrowest column every layer and block still fits its span at.
+  let unitW = 64;
+  const fit = (need: number, s: Span): void => {
+    const n = count(s);
+    unitW = Math.max(unitW, Math.ceil((need - (n - 1) * GUTTER) / n));
+  };
+  for (const layer of spec.layers) {
+    for (const row of layer.rows) {
+      fit(row.length * Math.max(...row.map(natural)) + CELL_GAP * (row.length - 1) + 2 * PAD, span(layer.span));
+    }
+  }
+  for (const b of [...above, ...below]) fit(blockNeed(b), span(b.span));
+
+  const labelW = Math.max(...spec.layers.map((l) => Math.max(w("title", l.name), w("value", l.sub))));
+  const x0 = MARGIN + labelW + 14;
+  const spanX = (s: Span): number => x0 + (s[0] - 1) * (unitW + GUTTER);
+  const spanW = (s: Span): number => count(s) * unitW + (count(s) - 1) * GUTTER;
+  const gridW = spanW([1, spec.columns]);
+
+  const anyCellSub = spec.layers.some((l) => l.rows.some((r) => r.some((c) => c.sub !== undefined)));
+  const cellH = 2 * 8 + lh.label + (anyCellSub ? 2 + lh.value : 0);
+  const anyBlockSub = [...above, ...below].some((b) => b.sub !== undefined);
+  const blockH = 2 * 10 + lh.title + (anyBlockSub ? 3 + lh.value : 0);
+
+  const acrossTitleH = spec.across !== undefined ? lh.label + 8 : 0;
+  let y = MARGIN + (above.length > 0 ? 0 : acrossTitleH);
+
+  const block = (b: StackBlock, by: number, delay: number): void => {
+    const s = span(b.span);
+    const bx = spanX(s);
+    const bw = spanW(s);
+    pen.box(bx, by, bw, blockH, 8, { fill: "surface", delay });
+    pen.box(bx, by, bw, blockH, 8, { fill: "outside", fillOpacity: 0.16, stroke: "outside", delay });
+    const headH = lh.title + (b.sub !== undefined ? 3 + lh.value : 0);
+    const ty = by + Math.round((blockH - headH) / 2);
+    pen.text(bx + Math.round(bw / 2), ty, b.name, { role: "title", anchor: "middle", delay });
+    if (b.sub !== undefined) {
+      pen.text(bx + Math.round(bw / 2), ty + lh.title + 3, b.sub, { role: "value", fill: "ink-muted", anchor: "middle", delay });
+    }
+  };
+
+  const aboveY = y;
+  if (above.length > 0) {
+    for (const b of above) block(b, y, 0);
+    y += blockH + ARROW;
+  }
+
+  // Layers.
+  const layerTop = y;
+  const layerRects: Rect[] = [];
+  spec.layers.forEach((layer, i) => {
+    const s = span(layer.span);
+    const lx = spanX(s);
+    const lw = spanW(s);
+    const rows = layer.rows.length;
+    const lhgt = 2 * PAD + rows * cellH + (rows - 1) * CELL_GAP;
+    const delay = i + 1;
+    pen.box(lx, y, lw, lhgt, 8, { ...holder(look), delay });
+    layerRects.push({ x: lx, y, w: lw, h: lhgt });
+
+    // The layer's name stands outside it, at the left, as on a drawing's margin.
+    const headH = lh.title + (layer.sub !== undefined ? 3 + lh.value : 0);
+    const ty = y + Math.round((lhgt - headH) / 2);
+    pen.text(x0 - 14, ty, layer.name, { role: "title", anchor: "end", delay });
+    if (layer.sub !== undefined) {
+      pen.text(x0 - 14, ty + lh.title + 3, layer.sub, { role: "value", fill: "ink-muted", anchor: "end", delay });
+    }
+
+    layer.rows.forEach((row, r) => {
+      const inner = lw - 2 * PAD;
+      const cw = (inner - CELL_GAP * (row.length - 1)) / row.length;
+      const cy = y + PAD + r * (cellH + CELL_GAP);
+      row.forEach((cell, k) => {
+        const cx = Math.round(lx + PAD + k * (cw + CELL_GAP));
+        const width = Math.round(cw);
+        pen.box(cx, cy, width, cellH, 6, { fill: "surface", stroke: "grid", delay });
+        // In a centred cell the key belongs to the box: its top-left corner.
+        if (cell.key !== undefined) pen.key(cx + KEY_INSET + DISC, cy + KEY_INSET + DISC, cell.key, delay);
+        const textH = lh.label + (cell.sub !== undefined ? 2 + lh.value : 0);
+        const top = cy + Math.round((cellH - textH) / 2);
+        const mx = cx + Math.round(width / 2);
+        pen.text(mx, top, cell.name, { role: "label", anchor: "middle", delay });
+        if (cell.sub !== undefined) {
+          pen.text(mx, top + lh.label + 2, cell.sub, { role: "value", fill: "ink-muted", anchor: "middle", delay });
+        }
+      });
+    });
+    y += lhgt + (i < spec.layers.length - 1 ? LAYER_GAP : 0);
+  });
+  const layerBottom = y;
+
+  let belowY = y;
+  if (below.length > 0) {
+    belowY = y + ARROW;
+    for (const b of below) block(b, belowY, spec.layers.length + 1);
+    y = belowY + blockH;
+  }
+
+  // Each outside block reaches the first layer in its way: past a narrower layer, into the one behind it.
+  const reach = (b: StackBlock, fromTop: boolean, delay: number): void => {
+    const s = span(b.span);
+    const order = fromTop ? spec.layers.map((_, i) => i) : spec.layers.map((_, i) => spec.layers.length - 1 - i);
+    for (const i of order) {
+      const ls = span(spec.layers[i].span);
+      const lo = Math.max(s[0], ls[0]);
+      const hi = Math.min(s[1], ls[1]);
+      if (lo > hi) continue;
+      const ax = Math.round(spanX([lo, hi]) + spanW([lo, hi]) / 2);
+      const r = layerRects[i];
+      const pts: Pt[] = fromTop ? [[ax, aboveY + blockH + 3], [ax, r.y - 3]] : [[ax, r.y + r.h + 3], [ax, belowY - 3]];
+      pen.edge(pts, { colour: "ink-muted", routing: "elbow", delay, headAtStart: true });
+      return;
+    }
+  };
+  for (const b of above) reach(b, true, 1);
+  for (const b of below) reach(b, false, spec.layers.length + 1);
+
+  // What cuts across: bars the height of the stack, read bottom to top.
+  let right = x0 + gridW;
+  if (spec.across !== undefined) {
+    const BAR = lh.label + 16;
+    const names = spec.across.names;
+    const ax = right + 28;
+    const aw = names.length * BAR + (names.length - 1) * 6 + 2 * PAD;
+    const delay = spec.layers.length + 2;
+    pen.text(ax + Math.round(aw / 2), layerTop - 8, spec.across.title, { role: "title", anchor: "middle", baseline: "bottom", delay });
+    pen.box(ax, layerTop, aw, layerBottom - layerTop, 8, { ...holder(look), delay });
+    names.forEach((name, k) => {
+      const bx = ax + PAD + k * (BAR + 6);
+      pen.box(bx, layerTop + PAD, BAR, layerBottom - layerTop - 2 * PAD, 6, { fill: "surface", stroke: "grid", delay });
+      pen.upright(bx + Math.round(BAR / 2), Math.round((layerTop + layerBottom) / 2), name, { role: "label", delay });
+    });
+    right = ax + aw;
+  }
+
+  return pen.finish(right + MARGIN, y + MARGIN, 0);
+}
+
+export function layoutDiagram(spec: DiagramSpec, look: Look, measure: Measure, ink: Ink): Drawn {
   switch (spec.form) {
     case "flow":
-      return layoutFlow(spec, look, measure);
+      return layoutFlow(spec, look, measure, ink);
     case "sequence":
-      return layoutSequence(spec, look, measure);
+      return layoutSequence(spec, look, measure, ink);
     case "layers":
-      return layoutLayers(spec, look, measure);
+      return layoutLayers(spec, look, measure, ink);
+    case "stack":
+      return layoutStack(spec, look, measure, ink);
   }
 }

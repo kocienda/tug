@@ -10,18 +10,24 @@
  * gives every coordinate.
  *
  * This spike is where the forms' layouts and looks are decided. It draws
- * four subjects through three prototype forms (`flow`, `sequence`,
- * `layers`), each compiled to a real layer 0 program and rendered by the
- * real engine, so colour, type and entrances are the shipping ones. The
- * first subject is the figure the idea came from, restated as a spec.
+ * five subjects through four prototype forms (`flow`, `sequence`,
+ * `layers`, `stack`), each compiled to a real layer 0 program and rendered
+ * by the real engine, so colour, type and entrances are the shipping ones.
+ * The first subject is the figure the idea came from, restated as a spec.
+ *
+ * Settled in the second rev: the accent is spent on the key discs and
+ * nowhere else; a key is a disc, level with the top of what it numbers,
+ * with its number centred by its ink.
  *
  * What to judge:
  *
  *  - **Routing.** Square elbows, rounded elbows, or one curve per forward
  *    edge.
- *  - **Fill.** A box that holds rows tinted in the accent, or every box
+ *  - **Fill.** A box that holds things tinted in a neutral, or every box
  *    plain.
- *  - **Keys.** The number inline before the name, or on a disc.
+ *  - **Two more semantic colours.** `caution`, the outcome between good and
+ *    bad, and `outside`, what lies beyond the system. The swatches at the
+ *    top say what each is for; the edit-gate flow and the stack use them.
  *  - **The unit.** Title, figure, caption, lead, keyed table — whether that
  *    stack is the explainer.
  *
@@ -49,7 +55,7 @@ import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded } from "@/lib/chart/chart-measure";
 import { loadTuggraphics } from "@/lib/lazy/load-tuggraphics";
 
-import { layoutDiagram, legendOf, type DiagramSpec, type Look, type Routing } from "./spike-code-explainer-layout";
+import { layoutDiagram, legendOf, type DiagramSpec, type Ink, type Look, type Routing } from "./spike-code-explainer-layout";
 import { SUBJECTS, type Subject } from "./spike-code-explainer-subjects";
 import type { SpikeDef } from "./spike-registry";
 
@@ -57,6 +63,28 @@ import type { SpikeDef } from "./spike-registry";
 const FACE_SAMPLE = "Hamburgefonstiv 0123";
 
 let figureSeq = 0;
+
+/**
+ * An ink measurer over the role probes: the drawn shape of a string, read
+ * from the canvas's actual bounding box in the role's computed font. The
+ * chart measure contract carries only the font box, which is what stacking
+ * lines needs and not what centring a digit in a disc needs.
+ */
+function inkMeasurer(probes: Record<string, HTMLElement>): Ink | null {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (ctx === null) return null;
+  return (role, text) => {
+    const style = window.getComputedStyle(probes[role]);
+    ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const m = ctx.measureText(text);
+    return {
+      l: -m.actualBoundingBoxLeft,
+      r: m.actualBoundingBoxRight,
+      a: m.actualBoundingBoxAscent,
+      d: m.actualBoundingBoxDescent,
+    };
+  };
+}
 
 /**
  * Lays a spec out and renders it into `body`. Everything it writes is DOM:
@@ -76,13 +104,14 @@ async function drawInto(
   if (!roleFacesLoaded(probes, FACE_SAMPLE)) await awaitRoleFaces(probes, FACE_SAMPLE);
   if (!live()) return;
   const measure = probeMeasurer(probes);
-  if (measure === null) {
+  const ink = inkMeasurer(probes);
+  if (measure === null || ink === null) {
     readout.textContent = "no canvas to measure text with";
     return;
   }
   let reading: string;
   try {
-    const drawn = layoutDiagram(spec, look, measure);
+    const drawn = layoutDiagram(spec, look, measure, ink);
     const out = engine.render_program(drawn.program, `spce${++figureSeq}`);
     if (out.status === "done") {
       root.toggleAttribute("data-tugx-chart-animate", look.motion);
@@ -175,26 +204,27 @@ const FILL_ITEMS = [
   { value: "tinted", label: "Tinted" },
   { value: "plain", label: "Plain" },
 ];
-const KEY_ITEMS = [
-  { value: "inline", label: "Inline" },
-  { value: "disc", label: "Disc" },
+/** The semantic colours a figure may spend, and what each one is for. */
+const COLOURS: readonly { name: string; cls: string; status: string; use: string }[] = [
+  { name: "accent", cls: "tgf-accent", status: "today", use: "The key discs, and nothing else." },
+  { name: "good", cls: "tgf-good", status: "today", use: "The outcome that succeeded: the allowed path, the row it reached." },
+  { name: "bad", cls: "tgf-bad", status: "today", use: "The outcome that was refused or failed." },
+  { name: "caution", cls: "tgf-series-7", status: "proposed", use: "The outcome between the two: allowed but degraded, a fallback, a retry, a run past its budget." },
+  { name: "outside", cls: "tgf-series-8", status: "proposed", use: "Not an outcome but a place: what lies beyond the system the figure explains." },
 ];
 
 function SpikeCodeExplainer(): React.ReactElement {
   const [routing, setRouting] = useState<string>("rounded");
   const [fill, setFill] = useState<string>("tinted");
-  const [keys, setKeys] = useState<string>("inline");
   const [replay, setReplay] = useState(0);
 
   const routingId = useId();
   const fillId = useId();
-  const keysId = useId();
 
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
       [routingId]: setRouting,
       [fillId]: setFill,
-      [keysId]: setKeys,
     },
   });
 
@@ -202,20 +232,19 @@ function SpikeCodeExplainer(): React.ReactElement {
     () => ({
       routing: routing as Routing,
       fill: fill === "plain" ? "plain" : "tinted",
-      keys: keys === "disc" ? "disc" : "inline",
       motion: true,
     }),
-    [routing, fill, keys],
+    [routing, fill],
   );
 
   return (
     <ResponderScope>
       <div className="sp-content" ref={responderRef as (el: HTMLDivElement | null) => void}>
         <section className="sp-section">
-          <h2 className="sp-section-title">Code explainer — three forms, one look</h2>
+          <h2 className="sp-section-title">Code explainer — four forms, one look</h2>
           <TugLabel size="2xs" emphasis="calm">
             Every figure below is compiled from a spec with no coordinates in it to a layer 0 program, and drawn by
-            the chart engine. Change the look for all four at once.
+            the chart engine. Change the look for all five at once.
           </TugLabel>
           <div className="sp-ce-controls">
             <div className="sp-ce-control">
@@ -226,13 +255,26 @@ function SpikeCodeExplainer(): React.ReactElement {
               <TugLabel size="2xs" emphasis="calm">Fill</TugLabel>
               <TugChoiceGroup items={FILL_ITEMS} value={fill} senderId={fillId} size="sm" />
             </div>
-            <div className="sp-ce-control">
-              <TugLabel size="2xs" emphasis="calm">Keys</TugLabel>
-              <TugChoiceGroup items={KEY_ITEMS} value={keys} senderId={keysId} size="sm" />
-            </div>
+
             <TugPushButton size="sm" onClick={() => setReplay((v) => v + 1)}>
               Replay entrance
             </TugPushButton>
+          </div>
+        </section>
+
+        <section className="sp-section">
+          <h2 className="sp-section-title">Semantic colour — three today, two proposed</h2>
+          <div className="sp-ce-colours sp-ce-figure">
+            {COLOURS.map((c) => (
+              <div className="sp-ce-colour" key={c.name}>
+                <svg className="sp-ce-swatch" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle className={c.cls} cx="8" cy="8" r="8" />
+                </svg>
+                <code className="sp-ce-colour-name">{c.name}</code>
+                <span className="sp-ce-colour-status">{c.status}</span>
+                <span className="sp-ce-colour-use">{c.use}</span>
+              </div>
+            ))}
           </div>
         </section>
 

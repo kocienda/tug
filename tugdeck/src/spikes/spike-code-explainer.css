@@ -53,6 +53,59 @@
   background: var(--tugx-chart-surface);
 }
 
+/* The two proposed semantic roles. Layer 0 has no spelling for them yet, so
+   the spike's forms write them as two series classes, and those two classes
+   are repainted here, inside the spike's figures only, from the theme's own
+   tone tokens: `caution` from the caution tone, `outside` from the data
+   tone. Every theme already carries both, so a real role would cost a
+   class and an alias and no new theme ink. */
+.sp-ce-figure .tgf-series-7 { fill: var(--tug7-element-tone-fill-normal-caution-rest); }
+.sp-ce-figure .tgs-series-7 { stroke: var(--tug7-element-tone-fill-normal-caution-rest); }
+.sp-ce-figure .tgf-series-8 { fill: var(--tug7-element-tone-fill-normal-data-rest); }
+.sp-ce-figure .tgs-series-8 { stroke: var(--tug7-element-tone-fill-normal-data-rest); }
+
+/* The colour key: one row per semantic colour, on the figures' own surface
+   so each swatch is judged where it would be drawn. */
+.sp-ce-colours {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  align-items: center;
+  gap: var(--tug-space-xs) var(--tug-space-md);
+  padding: var(--tug-space-md);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tugx-block-radius);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+}
+
+.sp-ce-colour {
+  display: contents;
+}
+
+.sp-ce-swatch {
+  width: 16px;
+  height: 16px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ce-colour-name {
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ce-colour-status {
+  font-size: var(--tug-font-size-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ce-colour-use {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 .sp-ce-readout {
   margin-top: var(--tug-space-2xs);
