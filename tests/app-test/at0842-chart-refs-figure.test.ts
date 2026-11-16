@@ -157,6 +157,8 @@ interface ListFacts {
   label: string;
   rows: { annotation: string; pill: boolean; text: string }[];
   noScan: boolean;
+  /** Every member's box lies inside the list's, and the list's inside the figure's, which clips. */
+  shown: boolean;
 }
 
 const LIST_JS = `(function(){
@@ -166,6 +168,16 @@ const LIST_JS = `(function(){
     count: lists.length,
     label: list === null ? "" : (list.getAttribute("aria-label") || ""),
     noScan: list !== null && list.hasAttribute("data-tugx-no-scan"),
+    shown: (function () {
+      if (list === null) return false;
+      var figure = list.closest(".tugx-chart");
+      if (figure === null) return false;
+      var f = figure.getBoundingClientRect();
+      var l = list.getBoundingClientRect();
+      var within = function (r, o) { return r.height > 0 && r.width > 0 && r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5 && r.left >= o.left - 0.5 && r.right <= o.right + 0.5; };
+      if (!within(l, f)) return false;
+      return Array.from(list.querySelectorAll(".tugx-chart-ref")).every(function (a) { return within(a.getBoundingClientRect(), l); });
+    })(),
     rows: list === null ? [] : Array.from(list.querySelectorAll(".tugx-chart-ref")).map(function (a) {
       return {
         annotation: a.getAttribute("data-tug-annotation") || "",
@@ -265,6 +277,7 @@ describe.skipIf(!SHOULD_RUN)("at0842 — a chart's marks open what they name", (
         expect(list.count, "one list, inside the figure").toBe(1);
         expect(list.label).toBe("2 commits");
         expect(list.noScan, "the list is read only through its refs").toBe(true);
+        expect(list.shown, "the list and its members are inside the figure's clip, not cut off by it").toBe(true);
         expect(list.rows.map((r) => r.annotation), "both members are commit references").toEqual(["commit-sha", "commit-sha"]);
         expect(list.rows[0]!.text, "a member reads as the commit atom does").toBe(`commit:${HEAD_SHA.slice(0, 8)}`);
 

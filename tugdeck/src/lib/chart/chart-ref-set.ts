@@ -10,6 +10,14 @@
  * a pill with the commit's click and the commit's menu, and nothing here
  * knows what a commit is.
  *
+ * **A panel of the figure, in flow.** The list is appended to the figure
+ * and laid out under its plot (or its table, in the Table view), so the
+ * figure grows to hold it. It is never floated over the figure: the figure
+ * clips to its radius, so a list placed under a bar ran past the figure's
+ * bottom edge and was cut off, and a heat strip is too short to hold one at
+ * any placement. Opening scrolls the panel into view when the figure's foot
+ * is off screen.
+ *
  * **Inside the figure, on purpose.** The figure stands in the transcript
  * root, so the transcript's delegated click and its context menu serve the
  * list's rows unchanged and the surface's portals give them pills and chips.
@@ -49,9 +57,6 @@ import { openCitedSession } from "@/lib/session-open";
 
 /** The list's class, excluded from Find ([P04]) and from the prose scan ([P05]). */
 export const SET_LIST_CLASS = "tugx-chart-set-list";
-
-/** The list's distance under its anchor, in layout px. */
-const GAP_PX = 4;
 
 /** The one list open on this page. */
 interface Open {
@@ -110,23 +115,6 @@ function buildList(slot: ChartRefSlot): HTMLElement {
   return list;
 }
 
-/**
- * Put the list under its anchor, inside the figure's width. Rects are
- * viewport px and the list is placed in the figure's own layout px, so the
- * figure's rect-to-offset ratio converts them, which is what keeps the list
- * under its anchor on a zoomed deck.
- */
-function placeList(figure: HTMLElement, anchor: Element, list: HTMLElement): void {
-  const fig = figure.getBoundingClientRect();
-  const a = anchor.getBoundingClientRect();
-  const scale = figure.offsetWidth > 0 ? fig.width / figure.offsetWidth : 1;
-  const top = (a.bottom - fig.top) / scale + GAP_PX;
-  const width = list.offsetWidth;
-  const left = Math.max(0, Math.min((a.left - fig.left) / scale, figure.offsetWidth - width));
-  list.style.top = `${top}px`;
-  list.style.left = `${left}px`;
-}
-
 function announce(figure: HTMLElement): void {
   figure.dispatchEvent(new CustomEvent(CHART_ANNOTATED_EVENT, { bubbles: true }));
 }
@@ -168,7 +156,6 @@ export function openRefSet(figure: HTMLElement, anchor: Element): void {
 
   const list = buildList(slot);
   figure.appendChild(list);
-  placeList(figure, anchor, list);
   anchor.setAttribute("aria-expanded", "true");
 
   const onKey = (ev: KeyboardEvent): void => {
@@ -194,6 +181,8 @@ export function openRefSet(figure: HTMLElement, anchor: Element): void {
 
   if (data.context !== undefined) annotateElement(figure, data.context);
   announce(figure);
+  // The panel opens at the figure's foot, which may be below the fold.
+  list.scrollIntoView({ block: "nearest" });
 }
 
 /** Figures whose listeners are attached; a figure is attached once. */
