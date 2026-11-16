@@ -10,7 +10,9 @@ The request, made on 2026-11-16 against a post on X: "Let's figure out how to *h
 
 Today a chart is a dead end. The `commits` recipe draws a 57-commit bar and the reader cannot get to one of the 57. The `hotspots` recipe prints a row per file and the row is not the file. The `test-history` recipe shows a red dot and nothing says which run or which commit it was. Every one of those entities is something the rest of the transcript already links, with one rule and one menu per kind.
 
-The post itself was never read: the agent fetch was refused and `WebFetch` returned HTTP 402 for the x.com URL. Everything below rests on the one-sentence description in the request.
+The post, replying to a `commits` chart: "Can a bar in that commit chart take you straight to the commits behind it? That would make the chart a navigation tool as well as a summary, especially when investigating an unexpected spike."
+
+That is the lead case and the measure of the work: a reader sees a spike, presses the bar, and is looking at that day's commits. Everything else here is the same move made for the other forms and the other kinds of content.
 
 ---
 
@@ -84,7 +86,6 @@ A slot is optional everywhere, so every spec written today stays valid.
 
 ## Open Questions {#open-questions}
 
-- **What the post shows.** It could not be read. If it demonstrates a specific interaction, it may move [B05] or [B07]; the text or a screenshot settles it.
 - **Do ref atoms enter Find?** The engine's `find_text` and the Table view's DOM text are held equal [F02]. A ref's label either joins both or is excluded from both, and which reads better in a Find for `commit:63de5762` is a judgment about what a reader expects a chart to match.
 - **The cap on a set.** Large enough for a busy day's commits, small enough that a 90-day recipe's spec stays a line a terminal can carry. A number wants one look at the largest real spec.
 - **What an arc ref and a session ref open from `arc-timeline`.** The timeline has no commit per step and no session per stage [F09]; whether the arc record holds them elsewhere decides whether those spans link or only the arc does.
@@ -110,5 +111,5 @@ A slot is optional everywhere, so every spec written today stays valid.
 2. The spec and the table: ref slots validated in `chart/spec.rs`, carried in `ChartTable`, with the set shape and its cap [B01]–[B03].
 3. The context through `ChartBlock` [B09], then the Table view's atoms [B05] and the gate [B06]. At this point every ref is reachable and nothing in the figure has changed.
 4. The figure: the mark's click and menu, the bubble's foot, the label rule and the header glyph [B05] [B07], and the set's popover [B04].
-5. The recipes, single-entity rows first (`hotspots`, `landed`, `test-history`), then the sets [B10]; the prompt rule beside them.
+5. The recipes [B10], `commits` first, because a bar that opens its day's commits is the case the request was made for and it exercises the set, the popover and the mark's click end to end. Then the other commit sets, then the single-entity rows (`hotspots`, `landed`, `test-history`), with the prompt rule beside them.
 6. The two-way highlight [B08].
