@@ -75,7 +75,35 @@ export interface FlowPlusSpec {
   legend?: { tone: Tone; text: string }[];
 }
 
-export type PlusSpec = LayersPlusSpec | StackPlusSpec | SequencePlusSpec | FlowPlusSpec;
+/** A new form: what a thing can be, and what moves it from one to another. */
+export interface StatesPlusSpec {
+  form: "states";
+  /** The state a thing begins in. */
+  start: string;
+  /**
+   * States without `under` are the main line, left to right in the order
+   * given. A state `under` another hangs beneath it: a failure, a side exit.
+   */
+  states: { id: string; name: string; sub?: string; key?: number; tone?: Tone; end?: boolean; under?: string }[];
+  transitions: { from: string; to: string; label?: string; tone?: Tone; dashed?: boolean }[];
+}
+
+export interface TreeNode {
+  name: string;
+  sub?: string;
+  mono?: boolean;
+  key?: number;
+  tone?: Tone;
+  children?: TreeNode[];
+}
+
+/** A new form: what is inside what. */
+export interface TreePlusSpec {
+  form: "tree";
+  root: TreeNode;
+}
+
+export type PlusSpec = LayersPlusSpec | StackPlusSpec | SequencePlusSpec | FlowPlusSpec | StatesPlusSpec | TreePlusSpec;
 
 export type Measure = (role: ChartTypeRole, text: string) => TextBox;
 export type Ink = (role: ChartTypeRole, text: string) => InkBox;
@@ -132,6 +160,8 @@ interface ArrowOpts {
   open?: boolean;
   /** A head at the start too. */
   both?: boolean;
+  /** No head at all: a line that joins, not one that points. */
+  bare?: boolean;
   delay?: number;
 }
 
@@ -195,6 +225,7 @@ class Pen {
     x: number, y: number, w: number, h: number, r: number,
     o: { fill?: Colour; fillOpacity?: number; stroke?: Colour; strokeOpacity?: number; delay?: number },
   ): void {
+    this.reach = [Math.min(this.reach[0], x), Math.max(this.reach[1], x + w)];
     if (o.fill !== undefined) {
       this.ops.push(["rect", x, y, w, h, { r }]);
       this.paint("fill", o.fill, o.fillOpacity ?? 1, this.enter("fade", o.delay));
@@ -263,7 +294,7 @@ class Pen {
     const d = unit(pts[n - 2], tip);
     const line = pts.slice();
     // A filled head covers the stroke's end; an open one is the stroke's end.
-    if (o.open !== true) line[n - 1] = [tip[0] - d[0] * (HEAD - 1), tip[1] - d[1] * (HEAD - 1)];
+    if (o.open !== true && o.bare !== true) line[n - 1] = [tip[0] - d[0] * (HEAD - 1), tip[1] - d[1] * (HEAD - 1)];
     const d0 = unit(pts[1], pts[0]);
     if (o.both === true) line[0] = [pts[0][0] - d0[0] * (HEAD - 1), pts[0][1] - d0[1] * (HEAD - 1)];
 
@@ -287,7 +318,7 @@ class Pen {
     const enter = this.enter(o.dashed === true ? "fade" : "draw", o.delay);
     this.paint("stroke", colour, 1, { join: "round", cap: "butt", ...enter });
     if (o.dashed === true) this.ops.push(["dash", []]);
-    this.head(tip, d, colour, o.open === true, o.delay);
+    if (o.bare !== true) this.head(tip, d, colour, o.open === true, o.delay);
     if (o.both === true) this.head(pts[0], d0, colour, false, o.delay);
   }
 
@@ -333,10 +364,14 @@ class Pen {
     );
   }
 
-  finish(width: number, height: number): Drawn {
+  /** How far left and right the boxes and chips drawn so far reach. */
+  reach: [number, number] = [Infinity, -Infinity];
+
+  /** The finished program, every mark moved `dx` to the right. */
+  finish(width: number, height: number, dx = 0): Drawn {
     const w = Math.ceil(width);
     const h = Math.ceil(height);
-    const ops: Op[] = [["group", { translate: [0.5, 0.5] }], ...this.ops, ["end"]];
+    const ops: Op[] = [["group", { translate: [0.5 + dx, 0.5] }], ...this.ops, ["end"]];
     return { program: JSON.stringify({ tugdraw: 1, frame: [w + 1, h + 1], ops }), width: w + 1, height: h + 1 };
   }
 }
@@ -908,6 +943,238 @@ function layoutFlow(spec: FlowPlusSpec, pen: Pen): Drawn {
   return pen.finish(right + MARGIN, y + MARGIN);
 }
 
+/* ---------------------------------------------------------------------------
+ * states — a new form: a main line of states, side exits beneath, and every
+ * transition that is not the next step carried over the top
+ * ---------------------------------------------------------------------------*/
+
+function layoutStates(spec: StatesPlusSpec, pen: Pen): Drawn {
+  const H_PAD = 18;
+  const LANE = 36;
+  type State = StatesPlusSpec["states"][number];
+  const byId = new Map(spec.states.map((s) => [s.id, s]));
+  const main = spec.states.filter((s) => s.under === undefined);
+  const mainAt = new Map(main.map((s, i) => [s.id, i]));
+  const sideOf = (id: string): State | undefined => spec.states.find((s) => s.under === id);
+
+  const subs = new Map(spec.states.map((s) => [s.id, pen.wrap("value", s.sub, 130)]));
+  const sw = (s: State): number =>
+    (s.key !== undefined ? KEY_LEAD : 0) + Math.max(pen.w("title", s.name), pen.widest("value", subs.get(s.id) ?? [])) + 2 * H_PAD;
+  const subLines = Math.max(0, ...spec.states.map((s) => (subs.get(s.id) ?? []).length));
+  const band1 = Math.max(pen.lh.title, DISC * 2);
+  const SH = 12 + band1 + (subLines > 0 ? LINE_GAP + pen.block("value", subLines) : 0) + 12;
+
+  // What each transition is, by where its two ends stand.
+  type Kind = "step" | "over" | "drop" | "back" | "none";
+  const kindOf = (t: StatesPlusSpec["transitions"][number]): Kind => {
+    const [a, b] = [byId.get(t.from), byId.get(t.to)];
+    if (a === undefined || b === undefined || a === b) return "none";
+    const [i, j] = [mainAt.get(a.id), mainAt.get(b.id)];
+    if (i !== undefined && j !== undefined) return j === i + 1 ? "step" : "over";
+    if (i !== undefined && b.under === a.id) return "drop";
+    if (j !== undefined && a.under !== undefined && a.under !== b.id) return "back";
+    return "none";
+  };
+  const kinds = spec.transitions.map(kindOf);
+  const labels = spec.transitions.map((t, k) => pen.wrap("value", t.label, kinds[k] === "over" ? 160 : 110));
+  const chipW = (k: number): number => (labels[k].length === 0 ? 0 : pen.chipSize(labels[k]).w);
+
+  // A column is as wide as the widest thing that stands in it.
+  const colW = main.map((s) => {
+    const side = sideOf(s.id);
+    const drop = spec.transitions.findIndex((t, k) => kinds[k] === "drop" && t.from === s.id);
+    return Math.max(sw(s), side === undefined ? 0 : sw(side), drop < 0 ? 0 : chipW(drop));
+  });
+  const cx: number[] = [MARGIN + 34 + colW[0] / 2];
+  for (let i = 1; i < main.length; i++) {
+    let gap = 56;
+    spec.transitions.forEach((t, k) => {
+      if (kinds[k] === "step" && mainAt.get(t.from) === i - 1) gap = Math.max(gap, chipW(k) + 46);
+    });
+    let between = Math.max(colW[i - 1] / 2 + colW[i] / 2 + 20, sw(main[i - 1]) / 2 + sw(main[i]) / 2 + gap);
+    // A side state's way back to the next main state needs room for its label on the way.
+    spec.transitions.forEach((t, k) => {
+      if (kinds[k] !== "back") return;
+      const from = byId.get(t.from);
+      const [u, j] = [mainAt.get(from?.under ?? ""), mainAt.get(t.to)];
+      if (from === undefined || u === undefined || j === undefined) return;
+      if (Math.min(u, j) === i - 1 && Math.max(u, j) === i) between = Math.max(between, sw(from) / 2 + chipW(k) + 40);
+    });
+    cx.push(Math.round(cx[i - 1] + between));
+  }
+  cx[0] = Math.round(cx[0]);
+
+  const overs = kinds.filter((k) => k === "over").length;
+  const mainY = MARGIN + (overs > 0 ? 24 + 30 + (overs - 1) * LANE : 0);
+  const sideY = mainY + SH + 66;
+  const hasSide = spec.states.some((s) => s.under !== undefined);
+
+  const rects = new Map<string, Rect>();
+  const draw = (s: State, mid: number, y: number, delay: number): void => {
+    const w = sw(s);
+    const r: Rect = { x: Math.round(mid - w / 2), y, w, h: SH };
+    rects.set(s.id, r);
+    pen.box(r.x, r.y, r.w, r.h, Math.min(SH / 2, 18), {
+      fill: s.tone ?? "surface",
+      fillOpacity: s.tone === undefined ? 1 : 0.16,
+      stroke: s.tone ?? "ink-muted",
+      strokeOpacity: 0.9,
+      delay,
+    });
+    // A state nothing leaves wears a second outline.
+    if (s.end === true) pen.box(r.x + 4, r.y + 4, r.w - 8, r.h - 8, Math.min(SH / 2, 18) - 4, { stroke: s.tone ?? "ink-muted", strokeOpacity: 0.6, delay });
+    const lines = subs.get(s.id) ?? [];
+    const textH = band1 + (lines.length > 0 ? LINE_GAP + pen.block("value", lines.length) : 0);
+    const top = y + Math.round((SH - textH) / 2);
+    const lineY = top + Math.round(band1 / 2);
+    const groupW = (s.key !== undefined ? KEY_LEAD : 0) + pen.w("title", s.name);
+    const left = Math.round(mid - groupW / 2);
+    if (s.key !== undefined) pen.key(left + DISC, lineY, s.key, delay);
+    pen.text(left + (s.key !== undefined ? KEY_LEAD : 0), lineY, s.name, { role: "title", baseline: "middle", delay });
+    pen.lines(mid, top + band1 + LINE_GAP, lines, { fill: "ink-muted", anchor: "middle", delay });
+  };
+  main.forEach((s, i) => {
+    draw(s, cx[i], mainY, i);
+    const side = sideOf(s.id);
+    if (side !== undefined) draw(side, cx[i], sideY, i + 1);
+  });
+
+  // Where it begins: a dot, and an arrow into the first state.
+  const first = rects.get(spec.start);
+  if (first !== undefined) {
+    const my = Math.round(first.y + first.h / 2);
+    pen.dot(first.x - 28, my, 5, "ink", 0);
+    pen.arrow([[first.x - 23, my], [first.x, my]], { delay: 0 });
+  }
+
+  const taken: { id: string; side: string; at: number }[] = [];
+  const port = (id: string, side: string, want: number, r: Rect): number => {
+    const [lo, hi] = [r.x + 20, r.x + r.w - 20];
+    const clash = (v: number): boolean => taken.some((t) => t.id === id && t.side === side && Math.abs(t.at - v) < 22);
+    let at = Math.min(Math.max(want, lo), hi);
+    for (let k = 1; clash(at) && k < 8; k++) {
+      const tryAt = Math.min(Math.max(want + Math.ceil(k / 2) * 24 * (k % 2 === 1 ? 1 : -1), lo), hi);
+      if (!clash(tryAt)) at = tryAt;
+    }
+    taken.push({ id, side, at });
+    return at;
+  };
+
+  const chips: (() => void)[] = [];
+  let lane = 0;
+  spec.transitions.forEach((t, k) => {
+    const [a, b] = [rects.get(t.from), rects.get(t.to)];
+    if (a === undefined || b === undefined || kinds[k] === "none") return;
+    const colour: Colour = t.tone ?? "ink";
+    const delay = main.length + k;
+    const o = { colour, dashed: t.dashed, delay };
+    const chip = (x: number, y: number): void => {
+      if (labels[k].length > 0) chips.push(() => pen.chip(Math.round(x), Math.round(y), labels[k], { colour: t.tone, delay }));
+    };
+    const [amid, bmid] = [Math.round(a.x + a.w / 2), Math.round(b.x + b.w / 2)];
+    if (kinds[k] === "step") {
+      const y = Math.round(a.y + a.h / 2);
+      pen.arrow([[a.x + a.w, y], [b.x, y]], o);
+      pen.dot(a.x + a.w, y, 3.5, colour, delay);
+      chip((a.x + a.w + b.x) / 2 - 4, y);
+    } else if (kinds[k] === "over") {
+      const y = mainY - 30 - lane * LANE;
+      lane++;
+      // Each end leans toward the other, so the lane is as short as it can be.
+      const lean = bmid > amid ? 1 : -1;
+      const sx = port(t.from, "t", amid + lean * 14, a);
+      const tx = port(t.to, "t", bmid - lean * 14, b);
+      pen.arrow([[sx, a.y], [sx, y], [tx, y], [tx, b.y]], o);
+      pen.dot(sx, a.y, 3.5, colour, delay);
+      chip((sx + tx) / 2, y);
+    } else if (kinds[k] === "drop") {
+      const x = port(t.from, "b", amid, a);
+      pen.arrow([[x, a.y + a.h], [x, b.y]], o);
+      pen.dot(x, a.y + a.h, 3.5, colour, delay);
+      chip(x, (a.y + a.h + b.y) / 2 - 4);
+    } else {
+      const dir = bmid > amid ? 1 : -1;
+      const sx = dir > 0 ? a.x + a.w : a.x;
+      const y = Math.round(a.y + a.h / 2);
+      const tx = port(t.to, "b", bmid, b);
+      pen.arrow([[sx, y], [tx, y], [tx, b.y + b.h]], o);
+      pen.dot(sx, y, 3.5, colour, delay);
+      chip((sx + tx) / 2, y);
+    }
+  });
+  for (const drawChip of chips) drawChip();
+
+  // A wide chip may reach past the first state; the whole figure moves right to keep it in.
+  const dx = Math.max(0, MARGIN - pen.reach[0]);
+  return pen.finish(pen.reach[1] + dx + MARGIN, (hasSide ? sideY : mainY) + SH + MARGIN, dx);
+}
+
+/* ---------------------------------------------------------------------------
+ * tree — a new form: what is inside what, root at the left, a column per
+ * depth, a parent centred on its children
+ * ---------------------------------------------------------------------------*/
+
+function layoutTree(spec: TreePlusSpec, pen: Pen): Drawn {
+  const V_GAP = 8;
+  const H_GAP = 44;
+  const sizes = new Map<TreeNode, { w: number; h: number }>();
+  const colW: number[] = [];
+  const role = (n: TreeNode, d: number): ChartTypeRole => (n.mono === true ? "mono" : d === 0 ? "title" : "label");
+  const measure = (n: TreeNode, d: number): void => {
+    const w = (n.key !== undefined ? KEY_LEAD : 0) + Math.max(pen.w(role(n, d), n.name), pen.w("value", n.sub)) + 24;
+    const h = 14 + Math.max(pen.lh.label, DISC * 2) + (n.sub === undefined ? 0 : LINE_GAP + pen.lh.value);
+    sizes.set(n, { w, h });
+    colW[d] = Math.max(colW[d] ?? 0, w);
+    for (const c of n.children ?? []) measure(c, d + 1);
+  };
+  measure(spec.root, 0);
+  const colX: number[] = [MARGIN];
+  for (let d = 1; d < colW.length; d++) colX.push(colX[d - 1] + colW[d - 1] + H_GAP);
+
+  const kidsH = (n: TreeNode): number => {
+    const kids = n.children ?? [];
+    return kids.reduce((s, c) => s + extent(c), 0) + V_GAP * Math.max(0, kids.length - 1);
+  };
+  const extent = (n: TreeNode): number => Math.max(sizes.get(n)?.h ?? 0, kidsH(n));
+
+  /** Draws `n` and all beneath it from `top` down, and returns the y of its middle. */
+  const place = (n: TreeNode, d: number, top: number): number => {
+    const { h } = sizes.get(n) ?? { h: 0 };
+    const ext = extent(n);
+    const y = Math.round(top + (ext - h) / 2);
+    const mid = Math.round(y + h / 2);
+    const x = colX[d];
+    const delay = d;
+
+    let ky = top + (ext - kidsH(n)) / 2;
+    for (const c of n.children ?? []) {
+      const cmid = place(c, d + 1, ky);
+      const lx = x + colW[d] + H_GAP / 2;
+      const pts: Pt[] = cmid === mid ? [[x + colW[d], mid], [colX[d + 1], cmid]] : [[x + colW[d], mid], [lx, mid], [lx, cmid], [colX[d + 1], cmid]];
+      pen.arrow(pts, { colour: c.tone ?? "ink-muted", width: 1.5, bare: true, delay: d + 1 });
+      ky += extent(c) + V_GAP;
+    }
+
+    pen.box(x, y, colW[d], h, 6, {
+      fill: n.tone ?? "surface",
+      fillOpacity: n.tone === undefined ? 1 : 0.16,
+      stroke: n.tone ?? "ink-muted",
+      strokeOpacity: (n.children ?? []).length > 0 ? 0.9 : 0.4,
+      delay,
+    });
+    const band1 = Math.max(pen.lh.label, DISC * 2);
+    const lineY = y + 7 + Math.round(band1 / 2);
+    if (n.key !== undefined) pen.key(x + 12 + DISC, lineY, n.key, delay);
+    const tx = x + 12 + (n.key !== undefined ? KEY_LEAD : 0);
+    pen.text(tx, lineY, n.name, { role: role(n, d), baseline: "middle", delay });
+    if (n.sub !== undefined) pen.text(tx, y + 7 + band1 + LINE_GAP, n.sub, { role: "value", fill: "ink-muted", delay });
+    return mid;
+  };
+  place(spec.root, 0, MARGIN);
+
+  return pen.finish(colX[colX.length - 1] + colW[colW.length - 1] + MARGIN, MARGIN + extent(spec.root) + MARGIN);
+}
+
 /** Lays out one spec with the proposed looks. */
 export function layoutPlus(spec: PlusSpec, motion: boolean, measure: Measure, ink: Ink): Drawn {
   const pen = new Pen(motion, measure, ink);
@@ -920,5 +1187,9 @@ export function layoutPlus(spec: PlusSpec, motion: boolean, measure: Measure, in
       return layoutSequence(spec, pen);
     case "flow":
       return layoutFlow(spec, pen);
+    case "states":
+      return layoutStates(spec, pen);
+    case "tree":
+      return layoutTree(spec, pen);
   }
 }

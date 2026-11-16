@@ -27,12 +27,13 @@ export interface Note {
 }
 
 export interface Subject {
-  form: "layers" | "stack" | "sequence" | "flow";
+  form: "layers" | "stack" | "sequence" | "flow" | "states" | "tree";
   /** What the form is for, in a clause. */
   purpose: string;
   /** The single thing most wrong with it today. */
   verdict: string;
-  today: Record<string, unknown>;
+  /** The shipped form's spec; absent for a form that does not exist yet. */
+  today?: Record<string, unknown>;
   plus: PlusSpec;
   notes: Note[];
 }
@@ -495,4 +496,136 @@ const FLOW: Subject = {
   ],
 };
 
-export const SUBJECTS: readonly Subject[] = [LAYERS, STACK, SEQUENCE, FLOW];
+const STATES: Subject = {
+  form: "states",
+  purpose: "what a thing can be, and what moves it from one state to another",
+  verdict:
+    "A new form. None of the four can draw a cycle: `flow` only runs left to right, and `sequence` is one run through time. \"What states can this be in, and how does it get back?\" has no figure today.",
+  plus: {
+    form: "states",
+    start: "idle",
+    states: [
+      { id: "idle", name: "idle", sub: "nothing asked for yet" },
+      { id: "loading", name: "loading", sub: "one request in flight", key: 1 },
+      { id: "ready", name: "ready", sub: "a payload to show", tone: "good", key: 2 },
+      { id: "error", name: "error", sub: "a message, no payload", tone: "bad", under: "idle" },
+    ],
+    transitions: [
+      { from: "idle", to: "loading", label: "requestDiff()" },
+      { from: "loading", to: "ready", label: "the reply whose id matches", tone: "good" },
+      { from: "ready", to: "loading", label: "Refresh: the old payload stays up meanwhile" },
+      { from: "idle", to: "error", label: "asked with no connection", tone: "bad" },
+      { from: "error", to: "loading", label: "asked again" },
+    ],
+  },
+  notes: [
+    {
+      kind: "spec", drawn: true,
+      title: "What it answers",
+      body:
+        "Lifecycles: a store's phases, a connection, a session, a card. The subject here is the diff store (`src/lib/git-diff-store.ts`), and the same four phases recur in at least three other stores. The author gives `states`, a `start`, and `transitions` with a label saying what causes each one.",
+    },
+    {
+      kind: "layout", drawn: true,
+      title: "A main line, and everything else placed by rule",
+      body:
+        "States without `under` stand left to right in the order given: the path when all goes well. A state `under` another hangs beneath it, for a failure or a side exit. A transition to the next state on the line is a straight arrow; any other transition between two states on the line goes over the top in a lane of its own; a side state returns along the bottom. No coordinates and no general graph layout, so the same spec always draws the same figure.",
+    },
+    {
+      kind: "look", drawn: true,
+      title: "A state does not look like a box",
+      body:
+        "States are round-ended, so a reader never takes this for a `flow`. The start is a dot with an arrow; a state marked `end` wears a second outline. A tone on a state is an outcome, with the same wash a lit row has.",
+    },
+    {
+      kind: "spec", drawn: true,
+      title: "Budget",
+      body:
+        "Six states on the main line, one side state under each, twelve transitions, three lanes over the top. A machine past that is two figures, or it is really a `flow`.",
+    },
+    {
+      kind: "layout", drawn: false,
+      title: "A transition from a state to itself",
+      body:
+        "The diff store ignores a stale reply and stays in loading, which is the most interesting fact about it. A self-loop needs a place that the lanes and ports do not already use; a short loop on the state's lower edge with its label below is the likely answer.",
+    },
+    {
+      kind: "spec", drawn: false,
+      title: "A guard beside a cause",
+      body:
+        "A transition label today mixes what happened with the condition under which it counts. Separate `on` and `when` fields would let the chip set the guard in muted ink.",
+    },
+  ],
+};
+
+const TREE: Subject = {
+  form: "tree",
+  purpose: "what is inside what: modules, components, ownership",
+  verdict:
+    "A new form. Explaining code usually starts with \"what are the parts and where do they live\", and today that is a paragraph or a nested list. `stack` shows layers, not containment.",
+  plus: {
+    form: "tree",
+    root: {
+      name: "tuggraphics", sub: "the chart engine",
+      children: [
+        {
+          name: "draw/", sub: "layer 0: the drawing language", mono: true,
+          children: [{ name: "parse.rs", mono: true }, { name: "svg.rs", mono: true }],
+        },
+        {
+          name: "chart/", sub: "layer 1: charts", mono: true,
+          children: [
+            { name: "spec.rs", mono: true },
+            { name: "forms/", sub: "one file per chart form", mono: true },
+            { name: "build.rs", sub: "shapes the forms share", mono: true },
+          ],
+        },
+        {
+          name: "diagram/", sub: "layer 1: diagrams", mono: true, key: 1,
+          children: [
+            { name: "spec.rs", mono: true },
+            { name: "pen.rs", sub: "the look every form draws with", mono: true, key: 2 },
+            { name: "wrap.rs", sub: "names and wrapped text", mono: true },
+            { name: "budget.rs", mono: true },
+            { name: "flow · sequence · layers · stack", sub: "one file per diagram form", key: 3 },
+          ],
+        },
+        { name: "measure.rs", sub: "how a form asks for text sizes", mono: true },
+      ],
+    },
+  },
+  notes: [
+    {
+      kind: "spec", drawn: true,
+      title: "What it answers",
+      body:
+        "Containment: a crate's modules, a component and its children, which object owns which. The author gives one `root` whose nodes nest `children`. A node takes the same `sub`, `mono`, `key` and `tone` as a cell elsewhere, so a keyed node gets its row in the table with its path.",
+    },
+    {
+      kind: "layout", drawn: true,
+      title: "Root at the left, a column per depth",
+      body:
+        "Left to right keeps every name horizontal and lets depth cost width only once per level; a top-down tree runs out of width at the second level of real code. Every node in a column is the column's width, a parent is centred on its children, and the joining lines turn in one lane per level so they never cross.",
+    },
+    {
+      kind: "look", drawn: true,
+      title: "Lines that join, not arrows",
+      body:
+        "Containment has no direction to read, so these are the one connector drawn without a head and at 1.5 px in muted ink. A node with children has the full outline and a leaf a fainter one, so the structure reads before the names do.",
+    },
+    {
+      kind: "spec", drawn: true,
+      title: "Budget",
+      body:
+        "Four levels and twenty nodes. Several siblings that need no telling apart fold into one node, as the four form files do here.",
+    },
+    {
+      kind: "spec", drawn: false,
+      title: "A count on a folded node",
+      body:
+        "A node standing for many (\"forms/\", eleven files) could carry a `count` drawn as a small figure at its right edge, so folding does not hide how much was folded.",
+    },
+  ],
+};
+
+export const SUBJECTS: readonly Subject[] = [LAYERS, STACK, SEQUENCE, FLOW, STATES, TREE];

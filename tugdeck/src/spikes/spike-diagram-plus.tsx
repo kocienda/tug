@@ -2,7 +2,9 @@
  * spike-diagram-plus.tsx — what would make each `/explain` diagram form
  * say more, and say it more clearly?
  *
- * One section per form: `layers`, `stack`, `sequence`, `flow`. Each shows
+ * One section per form. The four shipped ones (`layers`, `stack`,
+ * `sequence`, `flow`) come first, and after them two proposed new forms,
+ * `states` and `tree`, which have no Today figure. Each shipped form shows
  * the same subject twice. **Today** is the shipped form, drawn by the real
  * renderer from a `tugdiagram` spec, so it is exactly what an explainer
  * shows now. **Plus** is the form with this spike's changes applied, laid
@@ -152,10 +154,14 @@ function FormSection({ subject }: { subject: Subject }): React.ReactElement {
       </h2>
       <p className="sp-dp-verdict">{subject.verdict}</p>
 
-      <TugLabel size="2xs" emphasis="calm">Today</TugLabel>
-      <TodayFigure spec={subject.today} />
+      {subject.today === undefined ? null : (
+        <>
+          <TugLabel size="2xs" emphasis="calm">Today</TugLabel>
+          <TodayFigure spec={subject.today} />
+        </>
+      )}
 
-      <TugLabel size="2xs" emphasis="calm">Plus</TugLabel>
+      <TugLabel size="2xs" emphasis="calm">{subject.today === undefined ? "Proposed" : "Plus"}</TugLabel>
       <PlusFigure spec={subject.plus} />
 
       <ol className="sp-dp-notes">
@@ -171,11 +177,12 @@ function SpikeDiagramPlus(): React.ReactElement {
   return (
     <div className="sp-content">
       <section className="sp-section">
-        <h2 className="sp-section-title">Diagram Plus — four forms, each made to say more</h2>
+        <h2 className="sp-section-title">Diagram Plus — four forms made to say more, and two new ones</h2>
         <TugLabel size="2xs" emphasis="calm">
           Each form below is drawn twice from one subject: as it ships, and with the numbered changes applied. A
           change is tagged look (the shared pen), layout (the form) or spec (a new field for the author). The ones
-          marked not drawn are proposals only.
+          marked not drawn are proposals only. The last two sections, states and tree, are forms that do not exist
+          yet.
         </TugLabel>
         <div className="sp-dp-common">
           <span className="sp-dp-common-title">One connector for all four forms</span>
