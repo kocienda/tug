@@ -12,7 +12,7 @@ import UserNotifications
 /// bounce from an active app anyway, and a banner over the window the user
 /// is already reading says what the card's dot and dialog say.
 ///
-/// - `repeat` is `NSApp.requestUserAttention(.criticalRequest)`, which
+/// - `continued` is `NSApp.requestUserAttention(.criticalRequest)`, which
 ///   bounces until the app is brought forward; `once` is
 ///   `.informationalRequest`, a single bounce.
 /// - A notification asks macOS for permission the first time one is posted,
@@ -43,7 +43,7 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
     func handle(_ note: SessionNotify) {
         guard !NSApp.isActive else { return }
         switch note.bounce {
-        case .repeat: NSApp.requestUserAttention(.criticalRequest)
+        case .continued: NSApp.requestUserAttention(.criticalRequest)
         case .once: NSApp.requestUserAttention(.informationalRequest)
         case .never: break
         }

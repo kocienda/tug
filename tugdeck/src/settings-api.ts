@@ -527,10 +527,10 @@ export const SESSION_NOTIFY_DOMAIN = "dev.tugapp.app";
 export type SessionNotifyEvent = "complete" | "input";
 
 /**
- * How the dock icon answers an event: `repeat` bounces until the app is
+ * How the dock icon answers an event: `continued` bounces until the app is
  * brought forward, `once` bounces a single time, `never` leaves it still.
  */
-export type DockBounce = "repeat" | "once" | "never";
+export type DockBounce = "continued" | "once" | "never";
 
 /** The bounce key for each event, stored as `Value::String`. */
 export const SESSION_NOTIFY_BOUNCE_KEYS: Readonly<Record<SessionNotifyEvent, string>> = {
@@ -555,7 +555,7 @@ export const DEFAULT_DOCK_BOUNCE: DockBounce = "once";
 /** Read a bounce key; anything unreadable is {@link DEFAULT_DOCK_BOUNCE}. */
 export function parseDockBounce(entry: TaggedValue | undefined): DockBounce {
   if (entry?.kind !== "string") return DEFAULT_DOCK_BOUNCE;
-  return entry.value === "repeat" || entry.value === "once" || entry.value === "never"
+  return entry.value === "continued" || entry.value === "once" || entry.value === "never"
     ? entry.value
     : DEFAULT_DOCK_BOUNCE;
 }

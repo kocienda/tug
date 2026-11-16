@@ -117,7 +117,7 @@ export const sessionNotifyToHost = defineToHost({
   from: "shell",
   codec: obj({
     event: literal("complete", "input"),
-    bounce: literal("repeat", "once", "never"),
+    bounce: literal("continued", "once", "never"),
     notification: bool,
     cardId: str,
     title: str,
@@ -134,7 +134,7 @@ export const sessionNotifyToHost = defineToHost({
     },
     {
       event: "input",
-      bounce: "repeat",
+      bounce: "continued",
       notification: true,
       cardId: "card-2",
       title: "Session needs your input",

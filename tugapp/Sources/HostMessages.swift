@@ -666,7 +666,7 @@ struct SessionNotify: Decodable, Equatable {
         case complete, input
     }
     enum Bounce: String, Decodable, Equatable {
-        case `repeat`, once, never
+        case continued, once, never
     }
     var event: Event
     var bounce: Bounce

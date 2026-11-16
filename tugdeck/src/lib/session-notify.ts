@@ -16,7 +16,7 @@
  *   was already standing when the shell first saw the card, or that comes
  *   back with a reconnect, asked once already and does not ask again.
  *
- * Each answers with a dock bounce (Repeat, Once or Never) and, if the user
+ * Each answers with a dock bounce (Continued, Once or Never) and, if the user
  * turned it on, a macOS notification. The host decides whether to act: both
  * are for a user who is somewhere else, so the host does nothing while Tug is
  * the frontmost app — where the card's own dot and dialog already say it.

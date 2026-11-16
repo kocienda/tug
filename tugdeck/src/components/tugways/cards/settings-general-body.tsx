@@ -26,7 +26,7 @@
  *
  * The last group is **Session Notifications**: how Tug asks for the user when
  * a session card they are not watching finishes its turn, or needs their
- * answer to go on. Each of the two events has its own dock bounce — Repeat,
+ * answer to go on. Each of the two events has its own dock bounce — Continued,
  * Once or Never — and its own switch for a macOS notification beside it. The
  * shell's watcher (`lib/session-notify.ts`) reads both at the moment the event
  * happens, and the host acts on them only while Tug is in the background.
@@ -111,14 +111,14 @@ function parseStoredPath(entry: TaggedValue | undefined): string {
 
 /** The bounce choices, in the order the row offers them. */
 const DOCK_BOUNCE_ITEMS: { value: DockBounce; label: string }[] = [
-  { value: "repeat", label: "Repeat" },
-  { value: "once", label: "Once" },
-  { value: "never", label: "Never" },
+  { value: "continued", label: "Keep bouncing" },
+  { value: "once", label: "Bounce once" },
+  { value: "never", label: "Don’t bounce" },
 ];
 
 /** A stored bounce choice, narrowed back from the choice group's string. */
 function asDockBounce(v: string): DockBounce {
-  return v === "repeat" || v === "once" || v === "never" ? v : DEFAULT_DOCK_BOUNCE;
+  return v === "continued" || v === "once" || v === "never" ? v : DEFAULT_DOCK_BOUNCE;
 }
 
 /** One event's two stored choices and the sender ids its controls dispatch with. */
@@ -268,19 +268,16 @@ export function SettingsGeneralBody() {
   const notifyRows: {
     event: SessionNotifyEvent;
     label: string;
-    hint: string;
     setting: ReturnType<typeof useSessionNotifySetting>;
   }[] = [
     {
       event: "complete",
-      label: "Notify when session completes",
-      hint: "Bounces the dock icon when a working session card goes idle.",
+      label: "When a session completes",
       setting: notifyComplete,
     },
     {
       event: "input",
-      label: "Notify when session requires your input",
-      hint: "Bounces the dock icon when a working session needs your input to proceed.",
+      label: "When a session needs your input",
       setting: notifyInput,
     },
   ];
@@ -397,39 +394,42 @@ export function SettingsGeneralBody() {
           label="Session Notifications"
           className="settings-general-group"
         >
-          {notifyRows.map(({ event, label, hint, setting }) => (
+          {notifyRows.map(({ event, label, setting }) => (
             <div
               key={event}
               className="settings-general-notify-row"
               data-testid={`settings-notify-${event}-field`}
             >
-              <TugLabel size="sm">{label}</TugLabel>
+              <TugLabel size="sm" emphasis="strong">{label}</TugLabel>
               <div className="settings-general-notify-controls">
                 <TugChoiceGroup
                   size="sm"
                   senderId={setting.bounceId}
                   value={setting.bounce}
-                  aria-label={`${label}: dock bounce`}
+                  aria-label={`${label}: bounce dock icon`}
                   items={DOCK_BOUNCE_ITEMS}
                 />
                 <TugSwitch
                   size="sm"
-                  label="Also post a macOS notification"
+                  label="Post macOS notification"
                   checked={setting.notification}
                   senderId={setting.notificationId}
                   data-testid={`settings-notify-${event}-notification`}
                 />
               </div>
-              <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
-                {hint}
-              </TugLabel>
             </div>
           ))}
-          <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
-            Neither happens while Tug is the frontmost app. Clicking a
-            notification opens that session&apos;s card; macOS asks for
-            permission the first time one is posted.
-          </TugLabel>
+          <div className="settings-general-notify-hints">
+            <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+              Tug doesn’t bounce or notify while it’s the frontmost app.
+            </TugLabel>
+            <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+              Clicking a notification opens the card for that session.
+            </TugLabel>
+            <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
+              macOS asks for permission the first time a notification is posted.
+            </TugLabel>
+          </div>
         </TugSettingsGroup>
 
       </div>

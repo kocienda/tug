@@ -67,7 +67,7 @@ describe("notifyEventFor", () => {
 
 describe("parseDockBounce / parseNotifyBanner", () => {
   it("reads the three bounce choices and defaults anything else", () => {
-    expect(parseDockBounce({ kind: "string", value: "repeat" })).toBe("repeat");
+    expect(parseDockBounce({ kind: "string", value: "continued" })).toBe("continued");
     expect(parseDockBounce({ kind: "string", value: "never" })).toBe("never");
     expect(parseDockBounce({ kind: "string", value: "twice" })).toBe(DEFAULT_DOCK_BOUNCE);
     expect(parseDockBounce(undefined)).toBe(DEFAULT_DOCK_BOUNCE);
@@ -108,7 +108,7 @@ function fakeDeck(settings: Record<SessionNotifyEvent, { bounce: DockBounce; not
 describe("installSessionNotify", () => {
   const both = {
     complete: { bounce: "once" as DockBounce, notification: false },
-    input: { bounce: "repeat" as DockBounce, notification: true },
+    input: { bounce: "continued" as DockBounce, notification: true },
   };
 
   it("posts nothing for the phases standing when it is installed", () => {
@@ -129,7 +129,7 @@ describe("installSessionNotify", () => {
     deck.set("a", "tool_work");
     deck.set("a", "idle");
     expect(deck.posts).toEqual([
-      { event: "input", bounce: "repeat", notification: true, cardId: "a", title: "input", body: "a" },
+      { event: "input", bounce: "continued", notification: true, cardId: "a", title: "input", body: "a" },
       { event: "complete", bounce: "once", notification: false, cardId: "a", title: "complete", body: "a" },
     ]);
   });
