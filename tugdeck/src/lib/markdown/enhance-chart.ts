@@ -31,6 +31,7 @@ import {
   renderChartInto,
 } from "@/lib/chart/render-chart";
 import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
+import { trackEnhancement } from "./pending-enhancements";
 
 /** Selector for pending chart placeholders. */
 const PENDING_SELECTOR = `.${CHART_CLASS}[${CHART_PENDING_ATTR}="true"]`;
@@ -58,11 +59,21 @@ export function placeholderLayers(el: Element): ChartLayers {
  * block's context: a location the resolver confirms becomes the same file
  * link prose gets, and the pass files what it consulted, so a verdict that
  * lands later re-marks the block it sits in.
+ *
+ * The table says a resolver was asked (`DIAGRAM_CHECKED_ATTR`), which is
+ * what lets a location nobody confirmed wear its "unresolved" mark, only
+ * where one could answer. On a page with nobody to ask
+ * (`annotation.unanswerable`, the share page) every location would wear
+ * the mark, so there the table shows each location as written.
+ *
+ * The pass is registered with `pending-enhancements`: the engine loads
+ * lazily, so a page about to be photographed waits for its figures as it
+ * waits for coloured code and math.
  */
 export function enhanceChart(container: HTMLElement, annotation?: AnnotationContext): Promise<void> {
   const pending = Array.from(container.querySelectorAll<HTMLElement>(PENDING_SELECTOR));
   if (pending.length === 0) return Promise.resolve();
-  return Promise.all(
+  return trackEnhancement(Promise.all(
     pending.map(async (el) => {
       await renderChartInto(el, el.textContent ?? "", { layers: placeholderLayers(el) });
       if (
@@ -71,9 +82,9 @@ export function enhanceChart(container: HTMLElement, annotation?: AnnotationCont
         el.getAttribute(CHART_KIND_ATTR) === "diagram" &&
         el.getAttribute(CHART_STATE_ATTR) === "rendered"
       ) {
-        el.setAttribute(DIAGRAM_CHECKED_ATTR, "");
+        if (annotation.unanswerable !== true) el.setAttribute(DIAGRAM_CHECKED_ATTR, "");
         annotateElement(el, annotation);
       }
     }),
-  ).then(() => undefined);
+  ).then(() => undefined));
 }

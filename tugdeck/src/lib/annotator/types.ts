@@ -117,4 +117,13 @@ export interface AnnotationContext {
    * are already absolute.
    */
   atomPathRoots?: AtomPathRoots;
+  /**
+   * `true` on a page with nobody to ask: no connection, so no path, commit
+   * or session verdict will ever arrive. The resolvers still answer, with
+   * `unknown` or `pending`, and nothing becomes a link. What this adds is
+   * the difference between "not answered yet" and "never will be", which a
+   * surface that marks an unconfirmed reference needs: where nobody can be
+   * asked, a reference is shown as written and claimed neither way.
+   */
+  unanswerable?: boolean;
 }

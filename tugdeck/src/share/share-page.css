@@ -63,3 +63,13 @@ html[data-share-page] .session-share-transcript {
 html[data-share-page] .tug-transcript-entry__pin {
   position: static;
 }
+
+/* A diagram wider than the column scrolls sideways in a live card once it
+   has scaled to its floor. A page that is photographed has no scrolling, so
+   here the figure scales as far as the column needs and is drawn whole. */
+html[data-share-page] .tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-body {
+  overflow-x: visible;
+}
+html[data-share-page] .tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-body > .tugx-chart-svg {
+  min-width: 0;
+}

@@ -1,12 +1,13 @@
 /**
  * pending-enhancements.ts — the markdown enhancements still in flight.
  *
- * A rendered block is drawn synchronously, and then two passes may still
+ * A rendered block is drawn synchronously, and then three passes may still
  * change what it looks like: a fenced block's syntax colouring, whose grammar
- * chunk loads lazily, and math, whose KaTeX engine does. Each is a promise
- * that patches the DOM when it resolves. A live transcript never waits on
- * them; a page that is about to be photographed has to, or the picture shows
- * plain code and raw TeX.
+ * chunk loads lazily, math, whose KaTeX engine does, and a chart or diagram,
+ * whose graphics engine does. Each is a promise that patches the DOM when it
+ * resolves. A live transcript never waits on them; a page that is about to
+ * be photographed has to, or the picture shows plain code, raw TeX and a
+ * figure's spec.
  *
  * So each such pass registers its promise here, and
  * {@link enhancementsSettled} resolves once none is outstanding — including

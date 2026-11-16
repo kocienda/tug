@@ -25,7 +25,7 @@
  * @module components/tugways/use-annotation-context
  */
 
-import { useMemo } from "react";
+import { createContext, useContext, useMemo } from "react";
 
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
@@ -48,6 +48,15 @@ import { sessionCitationStore } from "@/lib/session-citation-store";
  * this module promises not to do.
  */
 export const NO_SLASH_COMMANDS = (_name: string): boolean => false;
+
+/**
+ * Whether the page these surfaces are on has nobody to ask. `false`
+ * everywhere but the share page, which is loaded with no connection and
+ * draws only what its one document carries: there every context built here
+ * says `unanswerable`, so no surface marks a reference as unconfirmed for
+ * want of an answer that cannot come.
+ */
+export const AnnotationUnanswerableContext = createContext(false);
 
 /** The per-surface inputs to {@link useAnnotationContextFor}. */
 export interface AnnotationContextInputs {
@@ -99,6 +108,7 @@ export function useAnnotationContextFor({
   isKnownSlashCommand,
   withAtomRoots = false,
 }: AnnotationContextInputs): AnnotationContext {
+  const unanswerable = useContext(AnnotationUnanswerableContext);
   const names = fileNameResolverFor(projectDir, workspaceKey);
   const commits = commitResolverFor(projectDir, workspaceKey);
   const resolvePath = useMemo(
@@ -138,6 +148,7 @@ export function useAnnotationContextFor({
       resolveSession: resolveSessionRef,
       commitRoot: projectDir,
       ...(withAtomRoots ? { atomPathRoots } : {}),
+      ...(unanswerable ? { unanswerable } : {}),
       subscribe,
     }),
     // `resolveSessionRef` is a module function, not a closure over anything
@@ -150,6 +161,7 @@ export function useAnnotationContextFor({
       projectDir,
       withAtomRoots,
       atomPathRoots,
+      unanswerable,
       subscribe,
     ],
   );
