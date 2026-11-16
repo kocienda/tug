@@ -124,16 +124,19 @@
    Detail
    ----------------------------------------------------------------------------- */
 
-/* The detail area owns the scroller. `scrollbar-gutter: stable` reserves the
-   bar's lane whether or not the panel overflows, so content never shifts —
-   and never sits under the bar — as sections of different heights come and
-   go. */
+/* The detail area owns the scroller, and its bar's lane is always taken:
+   `overflow-y: scroll` draws the 12px track (`tug.css`) whether or not the
+   panel overflows, so content never shifts — and never sits under the bar —
+   as sections of different heights come and go ([D182]). Never
+   `scrollbar-gutter: stable`: under classic scroll bars WebKit reserves 5px
+   more for a panel that does not overflow than the bar takes from one that
+   does, so switching from a tall section to a short one moved every group
+   5px sideways. */
 .tug-tab-view-detail {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow-y: scroll;
 }
 
 .tug-tab-view-panel {

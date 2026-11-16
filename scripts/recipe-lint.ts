@@ -77,9 +77,11 @@ const REPORTS = [
 /**
  * A script the recipe runs, by its path from the repository root — with an
  * extension or without one, as the `scripts/lab/` helpers are. A path that
- * names a directory or nothing reads as no script.
+ * names a directory or nothing reads as no script. The `scripts/` directory
+ * may be nested (`tests/app-test/scripts/app-test.sh`, which `app-test`
+ * execs): a recipe that delegates there reports through what it runs.
  */
-const SCRIPT_REF = /(?:^|[\s"'=(])((?:tugrust\/)?scripts\/[\w./-]*\w)/g;
+const SCRIPT_REF = /(?:^|[\s"'=(])((?:[\w.-]+\/)*scripts\/[\w./-]*\w)/g;
 
 export interface Recipe {
   name: string;

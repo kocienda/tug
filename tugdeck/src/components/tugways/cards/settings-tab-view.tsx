@@ -13,7 +13,8 @@
  *
  * **The detail area owns the scroller.** The root fills its container and
  * never grows past it; the sidebar stays put while the detail scrolls, with
- * `scrollbar-gutter: stable` so the bar never lands on content. A host card
+ * `overflow-y: scroll` so the bar's lane is always taken and never lands on
+ * content, whichever section is showing. A host card
  * built on this fills its pane (`height: 100%`) rather than letting the
  * pane's own scroller run.
  *
