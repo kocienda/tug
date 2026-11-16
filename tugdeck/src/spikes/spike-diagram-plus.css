@@ -1,0 +1,130 @@
+/* ============================================================================
+   Diagram Plus spike — a form drawn as it ships and as proposed, and the
+   changes between the two
+   ========================================================================= */
+
+/**
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role          | Context                         |
+ * |------------------------------------------------|---------------------------------------------------|---------------|---------------------------------|
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | content       | .sp-dp-title, .sp-dp-verdict, .sp-dp-note-title, .sp-dp-note-body, .sp-dp-common-title |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest | informational | .sp-dp-readout, .sp-dp-note-n   |
+ * | --tug7-element-global-fill-normal-accent-rest  | --tug7-surface-global-primary-normal-default-rest | informational | .sp-dp-form-name                |
+ */
+
+.sp-dp-form {
+  gap: var(--tug-space-sm);
+  font-family: var(--tug-font-family-sans);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-title {
+  margin: 0;
+  padding-bottom: var(--tug-space-xs);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  font-size: var(--tug-font-size-md);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-form-name {
+  margin-right: var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-global-fill-normal-accent-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-verdict {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-dp-figure {
+  margin: 0;
+}
+
+/* The proposed figure sits on the chart's own surface role, as a rendered
+   block does, so a chip's `surface` fill hides the line that runs under it. */
+.sp-dp-plus {
+  padding: var(--tug-space-sm);
+  overflow-x: auto;
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tugx-block-radius);
+  background: var(--tugx-chart-surface);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-readout {
+  margin-top: var(--tug-space-2xs);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.sp-dp-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  margin: var(--tug-space-xs) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sp-dp-note {
+  display: flex;
+  gap: var(--tug-space-sm);
+  align-items: baseline;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-note-n {
+  flex: none;
+  width: 1.5em;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  text-align: right;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-dp-note-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+.sp-dp-note-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-note-title,
+.sp-dp-common-title {
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-dp-note-body {
+  max-width: 76ch;
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  user-select: text;
+}
+
+.sp-dp-common {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  font-family: var(--tug-font-family-sans);
+}
