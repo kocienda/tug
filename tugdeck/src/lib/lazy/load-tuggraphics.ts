@@ -78,6 +78,13 @@ export type ChartRound =
       find_text: string;
       width: number;
       height: number;
+      /**
+       * What is wrong with the source that did not stop it drawing. They
+       * are for whoever wrote the source, and `tugtool chart render` is
+       * where that author reads them: the deck draws the figure and shows
+       * the reader none of them.
+       */
+      warnings: ChartError[];
     }
   | { status: "invalid"; errors: ChartError[] };
 

@@ -184,6 +184,13 @@ function sourceBlock(source: string): HTMLPreElement {
 const COLLAPSED_ATTR = "data-collapsed";
 
 /**
+ * The custom property a diagram's body carries its figure's natural width
+ * in, in px. `chart-block.css` scales a diagram wider than its card down to
+ * a floor of that width and scrolls it sideways past the floor.
+ */
+export const DIAGRAM_NATURAL_WIDTH_PROPERTY = "--tg-diagram-natural-w";
+
+/**
  * A figure that has not drawn: one header line saying so, and behind its
  * fold cue the notes and the spec. The spec is drawing commands the reader
  * did not ask to see, so it starts folded in every such state and Copy
@@ -498,6 +505,9 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   const body = document.createElement("div");
   body.className = "tugx-chart-body";
   body.innerHTML = round.svg;
+  // A diagram takes its natural width whatever the card's, so the CSS needs
+  // that width to hold the figure at a size its text can be read at ([L06]).
+  if (diagram) body.style.setProperty(DIAGRAM_NATURAL_WIDTH_PROPERTY, `${round.width}px`);
   if (withTable) attachChartHover(body, round.table);
 
   const children: Node[] = [header, body];

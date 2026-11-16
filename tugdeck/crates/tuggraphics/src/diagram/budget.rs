@@ -1,19 +1,22 @@
-//! The budgets that refuse a figure too full to read.
+//! The budgets that say a figure is too full to read.
 //!
-//! Each form carries a ceiling on what it may hold — boxes, rows, edges,
-//! actors, messages, layers, cells — and a figure over one is an error at
-//! the part that overflowed, saying to split the figure in two. Names are
-//! capped by their measured width ([`super::wrap`]) and the whole figure
-//! by its width ([`super::MAX_W`]); edge crossings are barred at layout
-//! ([`MAX_CROSSINGS`]). The numbers are set so the reference subjects pass
-//! with room, and a figure past them is one a reader would have to work at.
+//! Each form carries a ceiling on what it should hold — boxes, rows,
+//! edges, actors, messages, layers, cells — and a figure over one is drawn
+//! all the same, with a warning at the part that overflowed saying to
+//! split the figure in two. Names are capped by their measured width
+//! ([`super::wrap`]) and the whole figure by its width ([`super::MAX_W`]);
+//! edge crossings are counted at layout ([`MAX_CROSSINGS`]). The numbers
+//! are set so the reference subjects pass with room, and a figure past
+//! them is one a reader would have to work at. None of them withholds a
+//! figure: a reader is better served by a crowded figure than by none, and
+//! the warning is how whoever wrote the spec learns to split it.
 
 use crate::chart::ChartError;
 
 use super::spec::{err, Form, Spec};
 
 /// The most columns, boxes, rows in one box, rows in all, and edges a
-/// `flow` may hold.
+/// `flow` should hold.
 pub const FLOW_COLUMNS: usize = 5;
 pub const FLOW_BOXES: usize = 10;
 pub const FLOW_BOX_ROWS: usize = 6;
@@ -37,7 +40,7 @@ pub const STACK_ACROSS: usize = 4;
 /// of an order that reads well; two means the boxes want reordering.
 pub const MAX_CROSSINGS: usize = 1;
 
-/// Each budget `spec` is over, as an error at the part that overflowed.
+/// Each budget `spec` is over, as a warning at the part that overflowed.
 pub(crate) fn check(spec: &Spec) -> Vec<ChartError> {
     let form = spec.form_name();
     let mut errors = Vec::new();
@@ -46,7 +49,7 @@ pub(crate) fn check(spec: &Spec) -> Vec<ChartError> {
             errors.push(err(
                 path,
                 format!(
-                    "this {form} has {have} {what}; it may hold at most {most}, so split it into two figures"
+                    "this {form} has {have} {what}; it reads well with at most {most}, so split it into two figures"
                 ),
             ));
         }

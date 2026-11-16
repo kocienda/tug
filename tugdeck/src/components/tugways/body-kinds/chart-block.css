@@ -247,6 +247,20 @@ body {
   height: auto;
 }
 
+/* A diagram is laid out at its natural width, never to the card's, and one
+ * wider than the card is still drawn: it scales down with the card as far
+ * as its text stays readable, and past that floor it keeps its size and
+ * the body scrolls sideways. The keyed table beneath is outside the body,
+ * so it neither scales nor scrolls. The natural width is written on the
+ * body by `renderChartInto`; the floor is three quarters of it, which
+ * holds the smallest face, 11 px, above 8 px. */
+.tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-body {
+  overflow-x: auto;
+}
+.tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-body > .tugx-chart-svg {
+  min-width: calc(var(--tg-diagram-natural-w, 0px) * 0.75);
+}
+
 /* ---- Thumbnail -----------------------------------------------------------
  *
  * The figure alone, filling a host of definite height. The SVG keeps its
@@ -321,6 +335,13 @@ body {
   border-collapse: collapse;
   margin: var(--tug-space-sm) var(--tug-space-md);
   font-size: var(--tugx-chart-table-size);
+}
+/* In a transcript block every table is `width: 100%` (`tugx-md.css`), and
+ * this one has a margin either side of that, so it would overhang the
+ * figure by its margin and lose its right edge to the figure's clip. It
+ * takes the width its margins leave. */
+.tugx-md-block .tugx-chart > .tugx-chart-table {
+  width: calc(100% - 2 * var(--tug-space-md));
 }
 .tugx-chart-table caption {
   text-align: start;

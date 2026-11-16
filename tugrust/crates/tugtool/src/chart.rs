@@ -135,8 +135,11 @@ fn face_measurer() -> Result<FaceMeasurer<'static>, AppError> {
 
 /// Render a chart spec, a diagram spec or a drawing, read from `spec` (`-` for stdin), to
 /// a standalone SVG at `out`, coloured by `theme`, at most `width` px wide.
-/// Prints where it wrote and the figure's size, or the same as a `--json`
-/// envelope.
+/// Prints where it wrote and the figure's size, then one `warning:` line for
+/// each thing wrong with the source that did not stop it drawing, or the
+/// same as a `--json` envelope with a `warnings` array. A warning leaves the
+/// exit status 0: the figure was written, and the warning is how whoever
+/// wrote the source learns what to split or shorten.
 pub fn run_render(
     spec: &str,
     out: &Path,
@@ -171,17 +174,15 @@ pub fn run_render(
         palette: Some(palette),
         figure_title: true,
     };
+    let line = |e: &tuggraphics::ChartError| {
+        if e.path.is_empty() {
+            e.message.clone()
+        } else {
+            format!("{}: {}", e.path, e.message)
+        }
+    };
     let compiled = compile_with(&source, &opts, &measurer).map_err(|errors| {
-        let listed: Vec<String> = errors
-            .iter()
-            .map(|e| {
-                if e.path.is_empty() {
-                    e.message.clone()
-                } else {
-                    format!("{}: {}", e.path, e.message)
-                }
-            })
-            .collect();
+        let listed: Vec<String> = errors.iter().map(line).collect();
         AppError::Exit1(
             "invalid",
             format!(
@@ -200,6 +201,11 @@ pub fn run_render(
                 "theme": theme,
                 "width": compiled.width,
                 "height": compiled.height,
+                "warnings": compiled
+                    .warnings
+                    .iter()
+                    .map(|w| json!({"path": w.path, "message": w.message}))
+                    .collect::<Vec<_>>(),
             }),
         );
     } else {
@@ -209,6 +215,9 @@ pub fn run_render(
             compiled.width,
             compiled.height
         );
+        for warning in &compiled.warnings {
+            println!("warning: {}", line(warning));
+        }
     }
     Ok(())
 }

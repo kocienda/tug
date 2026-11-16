@@ -58,6 +58,8 @@ The user then looked at the second rev on the deck and settled the open look que
 
 **[B01] Diagrams are a sibling spec, `tugdiagram`, in the same crate as `tugchart`.** A `diagram` module beside `chart` in `tuggraphics`, compiled to the same layer 0, rendered by the same body kind, with its own fence. It is separate from `tugchart` because the chart fields (`unit`, `format`, `series`) mean nothing here, and unknown keys being errors only stays useful when the two do not share a schema.
 
+> **Settled after landing (2026-11-16): unknown keys are no longer errors for a diagram.** They are ignored with a warning, under the rule that replaced [B09]. The sibling spec stands on its first reason alone: a chart's fields mean nothing in a diagram. `tugchart` is unchanged and still refuses an unknown key.
+
 **[B02] There is no general graph layout.** A diagram is one of a closed set of forms, as a chart is. The author gives names, relations and order; the form gives every coordinate. A spec has no x and no y. This is the same rule as "the model never positions a bar", and it is what separates these figures from Mermaid's [F03].
 
 **[B03] The first form set is four: `flow`, `sequence`, `layers`, `stack`.**
@@ -85,11 +87,22 @@ The user then looked at the second rev on the deck and settled the open look que
 
 **[B09] The compiler refuses a figure that would be ugly.** Each form carries a budget for nodes and edges, caps on name length measured exactly, and a bar on edge crossings [F10]. A spec over a bar is an error that says to split the figure in two. The numbers are the arc's to set against the spike's subjects.
 
+> **Reversed after landing (2026-11-16): a diagram that parses always draws.** [B09] treated "a reader would have to work at this" as "invalid", and the cost fell on the wrong person. The first `/explain` answer after the arc landed had a five-column `flow` that laid out 1,096 px wide against the 1,040 px cap, and the reader was shown "Diagram not drawn" in its place; the model that wrote the spec never saw the refusal. A generator that can produce what the renderer withholds is the defect, so the bars stop being gates:
+>
+> - **Every limit survives as a number and becomes a warning.** The width cap, each form's budget, the crossing bar, the name's one line, the two lines of secondary text and the 120-character limit are reported beside the finished figure (`Compiled.warnings`), with the messages the errors carried. `tugtool chart render` prints one `warning:` line each and exits 0; the deck draws the figure and shows the reader none of them.
+> - **Fit is the form's job.** A figure past the width cap is laid out at its own width, and the card scales it down to no less than three quarters of that and scrolls it sideways past the floor. A crowded or crossing figure is drawn as it is.
+> - **Errors are what leaves nothing to draw:** not JSON, no known `form`, a required field missing or of the wrong type. What is recoverable is repaired with a warning: an unknown key ignored, a malformed optional field left out, an edge or message whose end names nothing dropped, a key number given twice kept by its first mark.
+> - **The pressure toward a good figure moves to the author.** `tugplug/diagrams.md` and the `/explain` skill now say to compile every spec with `tugtool chart render` before writing its fence, and to answer a warning by splitting or shortening.
+>
+> The tests that asserted each refusal in `tugdeck/crates/tuggraphics/tests/diagram.rs` now assert the same limit as a warning on a figure that still compiles, under names that say so, and `at0839-tugdiagram-over-wide.test.ts` holds the reader's side.
+
 **[B10] The measure contract gains ink bounds.** Centring a number in a disc needs the drawn shape of the string, which the font box does not give [F05]. The contract grows by the ink box for the strings a form asks it for, and the deck, the standalone face measurer and the fixed-metric test measurer all answer it.
 
 **[B11] The door is an `/explain` skill in `tugplug`.** It carries the template from [F01]: one question per section, a title that states the finding, figure, one caption sentence, a short lead, the keyed table. Given a subject it explains that subject. It ships in the plugin, so it works on any project, per the standalone contract. The prompt doc that teaches the fence is written last, as the chart doc was.
 
 **[B15] Names never wrap; secondary text wraps to two lines; a third line is an error.** A box, row, cell or actor name is one line, and one too long is a validation error carrying its measured width. A sub-label, an edge label and a note wrap by words at a width the form sets, to at most two lines. A sequence message label stays one line, because its row height is the figure's rhythm. A figure whose natural width still exceeds a cap is an error that says to split it; the cap starts at 960 px and is the arc's to tune against the spike's subjects. The measure protocol is unchanged [F13].
+
+> **Reversed in part after landing (2026-11-16), with [B09].** The layout rules stand: a name is one line, secondary text wraps to at most two, a message label stays on one. What is reversed is each "is an error". A name or label wider than its line is cut to fit and ends in an ellipsis, with the keyed table still carrying a keyed name whole; a third line of secondary text is dropped and the second ends in an ellipsis; a figure wider than the cap is drawn at its width and scaled or scrolled by the card. Each is a warning. The measure protocol is still two requests: a cut name is sized at exactly its cap, so nothing waits on the cut's own measurements.
 
 **[B16] An explainer is kept only when asked, as a Markdown file.** `/explain <subject>` answers in the transcript and writes nothing. Asked to keep it, the skill writes a Markdown file: an explicit path wins, otherwise `explainers/<slug>.md` at the project root. There is no new setting; if the directory wants to be configurable it follows the Briefs Directory pattern later. The skill does not commit the file, since an explainer describes the code as it is and landing it is the user's act. The file is read in the Text card's Markdown preview [F11].
 

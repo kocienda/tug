@@ -9,7 +9,7 @@
 //!   → { status: "done", svg } | { status: "invalid", errors: { op: number | null, message }[] }
 //! compile_round(source, opts_json, table_json)
 //!   → { status: "measure", texts: [role, text][], ink: [role, text][] }
-//!   | { status: "done", svg, table, find_text, width, height }
+//!   | { status: "done", svg, table, find_text, width, height, warnings: { path, message }[] }
 //!   | { status: "invalid", errors: { path, message }[] }
 //! validate(source, layers) → { status: "valid" } | { status: "invalid", errors: { path, message }[] }
 //! find_text(source, layers) → string

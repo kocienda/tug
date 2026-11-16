@@ -193,7 +193,7 @@ pub(crate) fn layout(spec: &Layers, title: Option<&str>, animate: bool, m: &dyn 
         pen.text(
             x + LABEL_INSET,
             ty,
-            &layer.name,
+            t.shown(TypeRole::Title, &layer.name),
             TypeRole::Title,
             ColourRole::Ink,
             Anchor::Start,
@@ -248,7 +248,7 @@ pub(crate) fn layout(spec: &Layers, title: Option<&str>, animate: bool, m: &dyn 
             pen.text(
                 tx,
                 line_y,
-                &cell.name,
+                t.shown(cell_role(cell), &cell.name),
                 cell_role(cell),
                 ColourRole::Ink,
                 Anchor::Start,
@@ -309,6 +309,6 @@ pub(crate) fn layout(spec: &Layers, title: Option<&str>, animate: bool, m: &dyn 
         // Nothing in a stack of strata turns, so nothing crosses.
         crossings: 0,
         program: pen.finish(width, y + MARGIN),
-        errors: t.errors,
+        warnings: t.warnings,
     }
 }

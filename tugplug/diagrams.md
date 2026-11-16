@@ -16,7 +16,9 @@ Beside its charts, the Session card draws diagrams of how things work: what call
 
 A diagram is one JSON object in a fenced block whose language is `tugdiagram`. The fence must be closed before it renders (an open one stays code), so write the whole spec in one piece.
 
-Every spec carries `"tugdiagram": 1`, a `form`, and a `title` that states the finding. `motion` is `enter` (the default) or `none`. Everything else belongs to the form. Unknown keys are errors, coordinates included, so spell the fields exactly as written here. An invalid spec shows its errors in place, each with a path to the field at fault.
+Every spec carries `"tugdiagram": 1`, a `form`, and a `title` that states the finding. `motion` is `enter` (the default) or `none`. Everything else belongs to the form. A key the form does not have is ignored, coordinates included, so spell the fields exactly as written here: a misspelt field is a field left out.
+
+**A diagram that parses always draws.** Only a spec with nothing to draw is an error, shown in place with a path to the field at fault: not JSON, no known `form`, a required field missing or of the wrong type. Everything else wrong with a spec is repaired and the figure is drawn all the same, so the reader is never shown a withheld figure over a slip. The repairs are listed under *Limits and repairs* below. They are silent in the transcript, which is why you compile a spec before you write it.
 
 **Keys.** A mark you want to explain carries a `key`, a whole number from 1 to 99 given once in the figure, and with it `what` (one sentence on what this part does) and `where` (its path, relative to the project root). The key is drawn as a numbered disc on the mark, and the keyed table beneath the figure lists every key in order with its name, its `what` and its `where`. `what` and `where` belong only to a keyed mark. Key the four to eight parts the reader needs and leave the rest plain; a figure whose every box is keyed has keyed nothing.
 
@@ -118,18 +120,43 @@ You name no colour. The accent is spent on the key discs and nowhere else; boxes
 
 `accent` is not a tone. Leave most marks untoned so that the toned ones mean something, and say what the tones mean in the caption sentence.
 
-## Wrapping and refusals
+## Compile it before you write it
 
-A diagram refuses a figure a reader would have to work at, and the error says what to change. Write within these rules and the first spec renders.
+**Never put a `tugdiagram` fence in an answer you have not compiled.** Once a fence is in the transcript you cannot see how it drew, and what was wrong with it is shown to nobody. So pipe each spec through the compiler first and read what it prints:
 
-- **Names never wrap.** A box, row, cell, actor or layer name is one line, at most 320 px wide, roughly 45 characters. A sequence message label is one line too. One longer is an error carrying its measured width, so shorten it.
-- **Secondary text wraps to two lines and no more.** A sub-label, an edge label, a note and a `below` label wrap by words at a width the form sets; a third line is an error. Put the detail in `what`, which the table shows in full.
-- **Every string is at most 120 characters**, `what` included. A `what` is one short sentence; one over the limit is an error and the figure is not drawn, so count before you write a long one.
-- **A whole figure is at most 1,040 px wide.** One wider is an error that says to split it.
-- **Each form has a budget.** A `flow` holds at most 5 columns, 10 boxes, 6 rows in a box, 18 rows in all, and 10 edges. A `sequence` holds 6 actors and 16 messages. `layers` holds 7 layers of at most 5 cells. A `stack` holds 7 layers, 3 rows in a layer, 6 cells in a row, 24 cells in all, 4 blocks above or beneath, and 4 bars across, and an upright bar name may be no longer than its bar is tall.
+```bash
+tugtool chart render - --out "${TMPDIR:-/tmp}/diagram-check.svg" <<'SPEC'
+{"tugdiagram": 1, "form": "flow", "title": "…", "columns": [[{"id": "a", "name": "A"}]]}
+SPEC
+```
+
+It answers one of three ways:
+
+- **`wrote … (W×H px, …)` and nothing more.** The figure is inside every limit. Write the fence.
+- **`wrote …` followed by `warning:` lines.** The figure draws, and each warning names a part and what is wrong with it. A warning is a figure the reader has to work at, so answer it before you write the fence: split the figure in two, shorten the name, reorder the boxes, fix the id. Then compile again.
+- **`not a valid chart, diagram or drawing: …`.** Nothing would be drawn. Fix the field the path names and compile again.
+
+The SVG it writes is scratch. Never show it, link it or point at it: the figure is the fence.
+
+## Limits and repairs
+
+These are the limits a figure should stay inside. None of them withholds a figure: past one, the figure is still drawn in the way described, and the compiler prints a warning. Write within them and the compile prints no warning.
+
+- **Names never wrap.** A box, row, cell, actor or layer name is one line, at most 320 px wide, roughly 45 characters. A sequence message label is one line too. One longer is cut to fit and ends in an ellipsis; the keyed table still shows a keyed name whole.
+- **Secondary text wraps to two lines and no more.** A sub-label, an edge label, a note and a `below` label wrap by words at a width the form sets. What would run onto a third line is dropped and the second ends in an ellipsis. Put the detail in `what`, which the table shows in full.
+- **Every string is at most 120 characters**, `what` included. A `what` is one short sentence; a longer one is shown whole and warned of.
+- **A whole figure is at most 1,040 px wide.** One wider is drawn at its own width: the card scales it down to fit, to no less than three quarters of its size, and past that the reader has to scroll it sideways. Five columns of ordinary boxes are already over, so a flow that wide is usually two figures.
+- **Each form has a budget.** A `flow` holds at most 5 columns, 10 boxes, 6 rows in a box, 18 rows in all, and 10 edges. A `sequence` holds 6 actors and 16 messages. `layers` holds 7 layers of at most 5 cells. A `stack` holds 7 layers, 3 rows in a layer, 6 cells in a row, 24 cells in all, 4 blocks above or beneath, and 4 bars across. A figure over a budget is drawn crowded. An upright bar name longer than its bar is tall is cut to the bar.
 - **Edges may cross at most once.** Two crossings mean the boxes want reordering: put the boxes an edge joins in the order the edge reads.
 
-A figure over a budget is two figures, each with its own title and its own finding. Never squeeze one by abbreviating names into something the reader cannot follow.
+A figure past a limit is two figures, each with its own title and its own finding. Never squeeze one by abbreviating names into something the reader cannot follow.
+
+What the compiler repairs, each with a warning:
+
+- **An unknown key is ignored**, so a misspelt `sub` or `tone` is simply absent from the figure.
+- **An optional field of the wrong shape is left out**: a `tone` that is not one of the four, a `span` off the grid (the layer takes every column), a `mono` that is not `true` or `false`, an empty `sub`.
+- **An edge or message whose end names nothing is dropped**: a box id, a row number or an actor id that does not exist, or an edge from a box to itself. The boxes are drawn without it.
+- **A key number given twice keeps its first mark.** The later mark is drawn unkeyed and has no row in the table, as has a `key` that is not a whole number from 1 to 99. A `what` or `where` on a mark with no key is ignored.
 
 ## Explaining code
 

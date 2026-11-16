@@ -2,6 +2,15 @@
 //! the measure protocol's round count, the keyed table, the doors, and the
 //! validator.
 //!
+//! A diagram that parses always draws. The limits a figure should stay
+//! inside — its width, its budgets, a name's one line, two lines of
+//! secondary text, one edge crossing — are asserted here as warnings on a
+//! figure that still compiles, and so are the repairs validation makes:
+//! an unknown field ignored, a dangling edge dropped, a key number given
+//! twice kept by its first mark. They were refusals until a figure of
+//! five ordinary columns came out 56 px over the width cap and the reader
+//! was shown no figure at all.
+//!
 //! Every `tests/diagram-golden/<name>.json` spec compiles to exactly
 //! `tests/diagram-golden/<name>.svg`. After a deliberate change to the
 //! output, rewrite them with
@@ -94,12 +103,13 @@ fn prompt_doc_examples() -> Vec<String> {
 }
 
 /// Lays an example out and asserts it renders as the doc promises: no
-/// error, no crossing, inside the width cap.
+/// warning, no crossing, inside the width cap.
 fn assert_example_renders(n: usize, source: &str, m: &dyn Measure) -> String {
     let spec = diagram::validate(source)
         .unwrap_or_else(|e| panic!("example {n} does not validate: {e:?}"));
     let laid = run_rounds(m, |m| diagram::layout(&spec, true, true, m)).unwrap();
-    assert!(laid.errors.is_empty(), "example {n}: {:?}", laid.errors);
+    assert!(spec.warnings.is_empty(), "example {n}: {:?}", spec.warnings);
+    assert!(laid.warnings.is_empty(), "example {n}: {:?}", laid.warnings);
     assert_eq!(laid.crossings, 0, "example {n} crosses");
     assert!(
         laid.program.frame.0 <= diagram::MAX_W,
@@ -162,7 +172,7 @@ fn every_golden_lays_out_with_no_edge_crossing_inside_the_width_cap() {
     for name in golden_names() {
         let laid = laid(&name, &FixedMetrics);
         assert_eq!(laid.crossings, 0, "{name} crosses");
-        assert!(laid.errors.is_empty(), "{name}: {:?}", laid.errors);
+        assert!(laid.warnings.is_empty(), "{name}: {:?}", laid.warnings);
         assert!(laid.program.frame.0 <= diagram::MAX_W, "{name} is too wide");
     }
 }
@@ -174,7 +184,7 @@ fn every_golden_lays_out_with_no_edge_crossing_in_the_real_faces() {
     for name in golden_names() {
         let laid = laid(&name, &faces);
         assert_eq!(laid.crossings, 0, "{name} crosses");
-        assert!(laid.errors.is_empty(), "{name}: {:?}", laid.errors);
+        assert!(laid.warnings.is_empty(), "{name}: {:?}", laid.warnings);
         assert!(laid.program.frame.0 <= diagram::MAX_W, "{name} is too wide");
     }
 }
@@ -307,6 +317,25 @@ fn errors(source: &str) -> Vec<(String, String)> {
     }
 }
 
+/// A spec that draws, through the deck's rounds and natively: the two
+/// agree, and neither asks a third time.
+fn drawn(source: &str) -> Compiled {
+    let (_, out) = drive(source, &opts());
+    let out = out.unwrap_or_else(|e| panic!("does not draw: {e:?}"));
+    assert_eq!(out, compile_with(source, &opts(), &FixedMetrics).unwrap());
+    assert!(out.svg.starts_with("<svg"), "{}", out.svg);
+    out
+}
+
+/// The warnings of a spec that still draws, as `(path, message)` pairs.
+fn warnings(source: &str) -> Vec<(String, String)> {
+    drawn(source)
+        .warnings
+        .into_iter()
+        .map(|e| (e.path, e.message))
+        .collect()
+}
+
 /// A one-column flow with these boxes and edges.
 fn flow(columns: &str, edges: &str) -> String {
     format!(
@@ -336,10 +365,10 @@ fn the_head_is_checked() {
     has(&e, "/form", "form is required");
     let e = errors(r#"{"tugdiagram": 1, "form": "flow", "columns": [[{"id": "a", "name": "A"}]]}"#);
     has(&e, "/title", "title is required");
-    let e = errors(
+    let w = warnings(
         r#"{"tugdiagram": 1, "form": "flow", "title": "t", "motion": "fast", "columns": [[{"id": "a", "name": "A"}]]}"#,
     );
-    has(&e, "/motion", "enter, none");
+    has(&w, "/motion", "enter, none");
     let e = errors("[1]");
     has(&e, "", "a diagram spec is a JSON object");
 }
@@ -365,53 +394,83 @@ fn a_sequence_names_its_actors_and_messages() {
     ));
     has(&e, "/actors", "at least one");
     // A flow's fields are not a sequence's.
-    let e = errors(&format!(
+    let w = warnings(&format!(
         r#"{{"tugdiagram": 1, "form": "sequence", "title": "t", "columns": [], "actors": {PQ}, "messages": [{{"from": "p", "to": "q", "label": "x"}}]}}"#
     ));
-    has(&e, "/columns", "unknown field \"columns\"");
+    has(&w, "/columns", "unknown field \"columns\"");
     let e = errors(&sequence(
-        r#"[{"id": "p", "name": "P", "x": 3}, {"name": "Q"}, {"id": "p", "name": "R"}, {"id": "a b", "name": "S"}]"#,
+        r#"[{"id": "p", "name": "P"}, {"name": "Q"}]"#,
         r#"[{"from": "p", "to": "p", "label": "x"}]"#,
     ));
-    has(&e, "/actors/0/x", "unknown field \"x\"");
     has(&e, "/actors/1/id", "id is required");
-    has(&e, "/actors/2/id", "already used at /actors/0");
-    has(&e, "/actors/3/id", "no space");
+    // An id used twice names its first actor.
+    let w = warnings(&sequence(
+        r#"[{"id": "p", "name": "P", "x": 3}, {"id": "p", "name": "R"}]"#,
+        r#"[{"from": "p", "to": "p", "label": "x"}]"#,
+    ));
+    has(&w, "/actors/0/x", "unknown field \"x\"");
+    has(&w, "/actors/1/id", "already used at /actors/0");
 }
 
 #[test]
 fn messages_join_actors_that_exist_and_carry_their_keys() {
+    let e = errors(&sequence(PQ, r#"[{"from": "p", "to": "q"}]"#));
+    has(&e, "/messages/0/label", "label is required");
+    // A message naming an actor that does not exist is dropped, and the
+    // rest are drawn.
+    let source = sequence(
+        PQ,
+        r#"[{"from": "p", "to": "r", "label": "lost"}, {"from": "z", "to": "q", "label": "astray"}, {"from": "p", "to": "q", "label": "kept", "via": 1}]"#,
+    );
+    let w = warnings(&source);
+    has(&w, "/messages/0/to", "no actor has the id \"r\"");
+    has(&w, "/messages/1/from", "no actor has the id \"z\"");
+    has(&w, "/messages/2/via", "unknown field \"via\"");
+    let svg = drawn(&source).svg;
+    assert!(svg.contains("kept") && !svg.contains("lost") && !svg.contains("astray"));
+    // With every message dropped there is nothing left to draw.
     let e = errors(&sequence(
         PQ,
-        r#"[{"from": "p", "to": "r", "label": "x"}, {"from": "z", "to": "q"}, {"from": "p", "to": "q", "label": "y", "via": 1}]"#,
+        r#"[{"from": "p", "to": "r", "label": "lost"}]"#,
     ));
-    has(&e, "/messages/0/to", "no actor has the id \"r\"");
-    has(&e, "/messages/1/from", "no actor has the id \"z\"");
-    has(&e, "/messages/1/label", "label is required");
-    has(&e, "/messages/2/via", "unknown field \"via\"");
-    let e = errors(&sequence(
+    has(&e, "/messages", "nothing to draw");
+
+    let source = sequence(
         PQ,
-        r#"[{"from": "p", "to": "q", "label": "x", "tone": "accent", "reply": "yes", "what": "w"}, {"key": 1, "from": "q", "to": "p", "label": "y"}, {"key": 1, "from": "q", "to": "q", "label": "z"}]"#,
-    ));
-    has(&e, "/messages/0/tone", "the accent is the key discs' alone");
-    has(&e, "/messages/0/reply", "true or false");
-    has(&e, "/messages/0/what", "give it a key");
+        r#"[{"from": "p", "to": "q", "label": "x", "tone": "accent", "reply": "yes", "what": "w"}, {"key": 1, "from": "q", "to": "p", "label": "first"}, {"key": 1, "from": "q", "to": "q", "label": "second"}]"#,
+    );
+    let w = warnings(&source);
+    has(&w, "/messages/0/tone", "the accent is the key discs' alone");
+    has(&w, "/messages/0/reply", "true or false");
+    has(&w, "/messages/0/what", "belongs to a keyed mark");
     has(
-        &e,
+        &w,
         "/messages/2/key",
         "key 1 is already given at /messages/1/key",
     );
+    // The number's first mark keeps it.
+    let rows = drawn(&source).table.rows;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0][1], "first");
 }
 
 #[test]
 fn a_message_label_stays_on_one_line() {
     // 60 value graphemes at 6.6 px under FixedMetrics: 396 px.
     let label = "x".repeat(60);
-    let e = errors(&sequence(
+    let source = sequence(
         PQ,
         &format!(r#"[{{"from": "p", "to": "q", "label": "{label}"}}]"#),
-    ));
-    has(&e, "/messages/0/label", "396 px wide; it stays on one line");
+    );
+    has(
+        &warnings(&source),
+        "/messages/0/label",
+        "396 px wide; it stays on one line",
+    );
+    // 320 px holds 48 value graphemes: 47 of the label and the ellipsis.
+    let svg = drawn(&source).svg;
+    assert!(svg.contains(&format!("{}…", "x".repeat(47))), "{svg}");
+    assert!(!svg.contains(&label));
 }
 
 #[test]
@@ -487,7 +546,7 @@ fn a_reply_is_dashed_and_a_call_is_not() {
     );
     let spec = diagram::validate(&source).unwrap();
     let laid = run_rounds(&FixedMetrics, |m| diagram::layout(&spec, false, false, m)).unwrap();
-    assert!(laid.errors.is_empty(), "{:?}", laid.errors);
+    assert!(laid.warnings.is_empty(), "{:?}", laid.warnings);
     // The edges' strokes, in order: the call, the reply, the self-loop.
     let edges: Vec<(ColourRole, bool)> = laid
         .program
@@ -521,29 +580,36 @@ fn layers_hold_cells_and_say_what_crosses_only_where_something_is_beneath() {
     has(&e, "/layers", "layers is required");
     has(&errors(&layers("[]")), "/layers", "at least one");
     let e = errors(&layers(
-        r#"[{"name": "A", "cells": [], "x": 1}, {"sub": "s", "cells": [{"name": "c", "y": 2}]}, {"name": "C"}]"#,
+        r#"[{"name": "A", "cells": []}, {"sub": "s", "cells": [{"name": "c"}]}, {"name": "C"}]"#,
     ));
     has(&e, "/layers/0/cells", "at least one");
-    has(&e, "/layers/0/x", "unknown field \"x\"");
     has(&e, "/layers/1/name", "name is required");
-    has(&e, "/layers/1/cells/0/y", "unknown field \"y\"");
     has(&e, "/layers/2/cells", "cells is required");
-    let e = errors(&layers(
-        r#"[{"name": "A", "below": "calls", "cells": [{"name": "a", "key": 1, "mono": "yes"}]}, {"name": "B", "below": "nothing", "cells": [{"name": "b", "where": "src", "sub": ""}, {"name": "b2", "key": 1}]}]"#,
+    let w = warnings(&layers(
+        r#"[{"name": "A", "cells": [{"name": "c", "y": 2}], "x": 1}]"#,
     ));
-    has(&e, "/layers/0/cells/0/mono", "true or false");
+    has(&w, "/layers/0/x", "unknown field \"x\"");
+    has(&w, "/layers/0/cells/0/y", "unknown field \"y\"");
+    let source = layers(
+        r#"[{"name": "A", "below": "calls", "cells": [{"name": "a", "key": 1, "mono": "yes"}]}, {"name": "B", "below": "nothing beneath", "cells": [{"name": "b", "where": "src", "sub": ""}, {"name": "b2", "key": 1}]}]"#,
+    );
+    let w = warnings(&source);
+    has(&w, "/layers/0/cells/0/mono", "true or false");
     has(
-        &e,
+        &w,
         "/layers/1/below",
         "the last layer has nothing beneath it",
     );
-    has(&e, "/layers/1/cells/0/where", "give it a key");
-    has(&e, "/layers/1/cells/0/sub", "non-empty");
+    has(&w, "/layers/1/cells/0/where", "belongs to a keyed mark");
+    has(&w, "/layers/1/cells/0/sub", "non-empty");
     has(
-        &e,
+        &w,
         "/layers/1/cells/1/key",
         "key 1 is already given at /layers/0/cells/0/key",
     );
+    // What crosses from the last layer has nowhere to be drawn.
+    let svg = drawn(&source).svg;
+    assert!(svg.contains("calls") && !svg.contains("nothing beneath"));
 }
 
 #[test]
@@ -554,11 +620,19 @@ fn a_crossing_label_wraps_to_two_lines_and_no_more() {
         r#"[{{"name": "A", "below": "{two}", "cells": [{{"name": "a"}}]}}, {{"name": "B", "cells": [{{"name": "b"}}]}}]"#
     ));
     assert_eq!(errors(&source), Vec::new());
+    assert_eq!(warnings(&source), Vec::new());
     let four = "what crosses here is said in so many words that it would take four lines at the width a crossing wraps at";
-    let e = errors(&layers(&format!(
+    let source = layers(&format!(
         r#"[{{"name": "A", "below": "{four}", "cells": [{{"name": "a"}}]}}, {{"name": "B", "cells": [{{"name": "b"}}]}}]"#
-    )));
-    has(&e, "/layers/0/below", "it may take at most 2");
+    ));
+    has(
+        &warnings(&source),
+        "/layers/0/below",
+        "it may take at most 2",
+    );
+    // The second line ends where the third would have begun.
+    let svg = drawn(&source).svg;
+    assert!(svg.contains("…") && !svg.contains("crossing wraps at"), "{svg}");
 }
 
 #[test]
@@ -633,29 +707,37 @@ fn a_stack_is_ruled_on_a_grid_its_spans_stay_inside() {
     has(&errors(&stack(13, ONE_LAYER)), "/columns", "from 1 to 12");
     let e = errors(&stack(
         4,
-        r#""above": [{"name": "A", "span": [3, 5]}, {"name": "B", "span": [3, 2]}, {"name": "C", "span": 2}],
-           "layers": [{"name": "L", "span": [0, 1], "rows": [[{"name": "c", "x": 1}], []]}, {"name": "M"}],
+        r#""layers": [{"name": "L", "rows": [[{"name": "c"}], []]}, {"name": "M"}],
            "below": [{"sub": "s"}]"#,
     ));
-    has(&e, "/above/0/span", "from 1 to 4");
-    has(&e, "/above/1/span", "first no later than last");
-    has(&e, "/above/2/span", "span is [first, last]");
-    has(&e, "/layers/0/span", "from 1 to 4");
-    has(&e, "/layers/0/rows/0/0/x", "unknown field \"x\"");
     has(&e, "/layers/0/rows/1", "at least one");
     has(&e, "/layers/1/rows", "rows is required");
     has(&e, "/below/0/name", "name is required");
+    // A span off the grid takes every column.
+    let w = warnings(&stack(
+        4,
+        r#""above": [{"name": "A", "span": [3, 5]}, {"name": "B", "span": [3, 2]}, {"name": "C", "span": 2}],
+           "layers": [{"name": "L", "span": [0, 1], "rows": [[{"name": "c", "x": 1}]]}]"#,
+    ));
+    has(&w, "/above/0/span", "from 1 to 4");
+    has(&w, "/above/1/span", "first no later than last");
+    has(&w, "/above/2/span", "span is [first, last]");
+    has(&w, "/layers/0/span", "from 1 to 4");
+    has(&w, "/layers/0/rows/0/0/x", "unknown field \"x\"");
+    let w = warnings(&stack(
+        2,
+        r#""layers": [{"name": "L", "rows": [[{"name": "c", "key": 1}, {"name": "d", "key": 1, "what": "w"}]]}]"#,
+    ));
+    has(&w, "/layers/0/rows/0/1/key", "key 1 is already given");
     let e = errors(&stack(
         2,
-        r#""layers": [{"name": "L", "rows": [[{"name": "c", "key": 1}, {"name": "d", "key": 1, "what": "w"}]]}],
-           "across": {"title": "Shared", "names": []}"#,
+        &format!(r#"{ONE_LAYER}, "across": {{"title": "Shared", "names": []}}"#),
     ));
-    has(&e, "/layers/0/rows/0/1/key", "key 1 is already given");
     has(&e, "/across/names", "at least one");
 }
 
 #[test]
-fn a_stack_cell_key_sits_in_its_corner_and_upright_names_must_fit_their_bar() {
+fn a_stack_cell_key_sits_in_its_corner_and_an_upright_name_is_cut_to_its_bar() {
     use tuggraphics::draw::{Anchor, ColourRole, Item, PaintKind, Seg};
     let name = "stack-architecture";
     let laid = laid(name, &FixedMetrics);
@@ -709,17 +791,28 @@ fn a_stack_cell_key_sits_in_its_corner_and_upright_names_must_fit_their_bar() {
         .count();
     assert_eq!(turned, 3);
 
-    // A name longer than the stack is tall is refused.
-    let long = "a name far too long to stand upright in one short layer";
-    let e = errors(&stack(
+    // A name longer than the stack is tall is cut to its bar.
+    let long = "a name far too long to stand upright in three short layers";
+    let layer = r#"{"name": "L", "rows": [[{"name": "c"}]]}"#;
+    let source = stack(
         1,
-        &format!(r#"{ONE_LAYER}, "across": {{"title": "Shared", "names": ["{long}"]}}"#),
-    ));
-    has(&e, "/across/names/0", "runs upright in a bar");
+        &format!(
+            r#""layers": [{layer}, {layer}, {layer}], "across": {{"title": "Shared", "names": ["{long}"]}}"#
+        ),
+    );
+    has(
+        &warnings(&source),
+        "/across/names/0",
+        "runs upright in a bar",
+    );
+    let svg = drawn(&source).svg;
+    assert!(svg.contains(">a name far") && svg.contains("…<"), "{svg}");
+    assert!(!svg.contains(long), "{svg}");
 }
 
 #[test]
-fn each_form_refuses_a_figure_over_its_budget() {
+fn each_form_warns_of_a_figure_over_its_budget_and_draws_it() {
+    let errors = warnings;
     let boxes: Vec<String> = (0..11)
         .map(|i| format!(r#"{{"id": "b{i}", "name": "B{i}"}}"#))
         .collect();
@@ -727,7 +820,7 @@ fn each_form_refuses_a_figure_over_its_budget() {
     has(
         &e,
         "/columns",
-        "this flow has 11 boxes; it may hold at most 10, so split it into two figures",
+        "this flow has 11 boxes; it reads well with at most 10, so split it into two figures",
     );
     let rows: Vec<String> = (0..7).map(|i| format!(r#"{{"name": "r{i}"}}"#)).collect();
     let e = errors(&flow(
@@ -787,7 +880,7 @@ fn each_form_refuses_a_figure_over_its_budget() {
 }
 
 #[test]
-fn a_flow_whose_edges_cross_more_than_once_is_refused() {
+fn a_flow_whose_edges_cross_more_than_once_is_warned_of_and_drawn() {
     // Three boxes a column, each edge reaching the far row: the turning
     // edges run across each other in the gap.
     let source = flow(
@@ -802,11 +895,16 @@ fn a_flow_whose_edges_cross_more_than_once_is_refused() {
         "{}",
         laid.crossings
     );
-    has(&errors(&source), "/edges", "edges cross");
+    has(&warnings(&source), "/edges", "edges cross");
 }
 
 #[test]
-fn unknown_keys_and_coordinates_are_errors_wherever_they_are() {
+fn unknown_keys_and_coordinates_are_ignored_with_a_warning_wherever_they_are() {
+    let errors = warnings;
+    // A coordinate moves nothing: the form still gives every one.
+    let plain = drawn(&flow(r#"[[{"id": "a", "name": "A"}]]"#, "[]"));
+    let placed = drawn(&flow(r#"[[{"id": "a", "name": "A", "x": 10}]]"#, "[]"));
+    assert_eq!(placed.svg, plain.svg);
     let e = errors(&flow(r#"[[{"id": "a", "name": "A", "x": 10}]]"#, "[]"));
     has(&e, "/columns/0/0/x", "unknown field \"x\"");
     let e = errors(&flow(
@@ -841,31 +939,32 @@ fn columns_boxes_and_rows_are_checked() {
         "/columns/0/0/name",
         "non-empty",
     );
+    // What is optional and malformed is left out, and the box is drawn.
     has(
-        &errors(&flow(r#"[[{"id": "a.b", "name": "A"}]]"#, "[]")),
+        &warnings(&flow(r#"[[{"id": "a.b", "name": "A"}]]"#, "[]")),
         "/columns/0/0/id",
         "no dot",
     );
     has(
-        &errors(&flow(
+        &warnings(&flow(
             r#"[[{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]]"#,
             "[]",
         )),
         "/columns/0/1/id",
         "already used at /columns/0/0",
     );
-    has(
-        &errors(&flow(r#"[[{"id": "a", "name": "A", "rows": []}]]"#, "[]")),
-        "/columns/0/0/rows",
-        "at least one",
+    // A box given no rows is a box without rows.
+    assert_eq!(
+        drawn(&flow(r#"[[{"id": "a", "name": "A", "rows": []}]]"#, "[]")),
+        drawn(&flow(r#"[[{"id": "a", "name": "A"}]]"#, "[]"))
     );
     has(
-        &errors(&flow(r#"[[{"id": "a", "name": "A", "notes": "n"}]]"#, "[]")),
+        &warnings(&flow(r#"[[{"id": "a", "name": "A", "notes": "n"}]]"#, "[]")),
         "/columns/0/0/notes",
         "an array",
     );
     has(
-        &errors(&flow(
+        &warnings(&flow(
             r#"[[{"id": "a", "name": "A", "rows": [{"name": "r", "mono": "yes"}]}]]"#,
             "[]",
         )),
@@ -873,7 +972,7 @@ fn columns_boxes_and_rows_are_checked() {
         "true or false",
     );
     has(
-        &errors(&flow(
+        &warnings(&flow(
             r#"[[{"id": "a", "name": "A", "rows": [{"name": "r", "lit": "red"}]}]]"#,
             "[]",
         )),
@@ -883,13 +982,20 @@ fn columns_boxes_and_rows_are_checked() {
 }
 
 #[test]
-fn keys_are_numbered_once_and_carry_the_table_row() {
+fn a_key_is_numbered_once_and_its_first_mark_keeps_the_table_row() {
+    let errors = warnings;
     let rows = |rows: &str| {
         flow(
             &format!(r#"[[{{"id": "a", "name": "A", "rows": {rows}}}]]"#),
             "[]",
         )
     };
+    let twice = drawn(&rows(
+        r#"[{"name": "r", "key": 1}, {"name": "s", "key": 1}]"#,
+    ));
+    assert_eq!(twice.table.rows.len(), 1);
+    assert_eq!(twice.table.rows[0][1], "r");
+    assert_eq!(twice.svg.matches("data-row=").count(), 1, "{}", twice.svg);
     has(
         &errors(&rows(r#"[{"name": "r", "key": 0}]"#)),
         "/columns/0/0/rows/0/key",
@@ -925,89 +1031,210 @@ fn keys_are_numbered_once_and_carry_the_table_row() {
 }
 
 #[test]
-fn edges_name_boxes_and_rows_that_exist() {
-    has(
-        &errors(&flow(AB, r#"[{"from": "a", "to": "c"}]"#)),
+fn an_edge_naming_a_box_or_row_that_does_not_exist_is_dropped() {
+    /// How many edges a flow keeps.
+    fn kept(source: &str) -> usize {
+        match diagram::validate(source).unwrap().form {
+            diagram::spec::Form::Flow(f) => f.edges.len(),
+            _ => panic!("a flow"),
+        }
+    }
+    let dropped = |edges: &str, path: &str, says: &str| {
+        let source = flow(AB, edges);
+        has(&warnings(&source), path, says);
+        assert_eq!(kept(&source), 0, "{edges}");
+        // The boxes are drawn as they are with no edge at all.
+        assert_eq!(drawn(&source).svg, drawn(&flow(AB, "[]")).svg);
+    };
+    dropped(
+        r#"[{"from": "a", "to": "c"}]"#,
         "/edges/0/to",
         "no box has the id \"c\"",
     );
-    has(
-        &errors(&flow(AB, r#"[{"from": "a.1", "to": "b"}]"#)),
+    dropped(
+        r#"[{"from": "a.1", "to": "b"}]"#,
         "/edges/0/from",
         "box \"a\" has no rows",
     );
-    has(
-        &errors(&flow(AB, r#"[{"from": "a", "to": "b.2"}]"#)),
+    dropped(
+        r#"[{"from": "a", "to": "b.2"}]"#,
         "/edges/0/to",
         "rows 1 to 1",
     );
-    has(
-        &errors(&flow(AB, r#"[{"from": "b.1", "to": "b"}]"#)),
+    dropped(
+        r#"[{"from": "b.1", "to": "b"}]"#,
         "/edges/0",
         "two different boxes",
     );
+    dropped(r#"{"from": "a"}"#, "/edges", "an array");
+    // One edge astray does not take the others with it.
+    let source = flow(
+        AB,
+        r#"[{"from": "a", "to": "c"}, {"from": "a", "to": "b"}]"#,
+    );
+    assert_eq!(kept(&source), 1);
+    assert_eq!(warnings(&source).len(), 1);
     has(
         &errors(&flow(AB, r#"[{"to": "b"}]"#)),
         "/edges/0/from",
         "from is required",
     );
     has(
-        &errors(&flow(AB, r#"[{"from": "a", "to": "b", "tone": "accent"}]"#)),
+        &warnings(&flow(AB, r#"[{"from": "a", "to": "b", "tone": "accent"}]"#)),
         "/edges/0/tone",
         "key discs' alone",
     );
     has(
-        &errors(&flow(AB, r#"[{"from": "a", "to": "b", "dashed": 1}]"#)),
+        &warnings(&flow(AB, r#"[{"from": "a", "to": "b", "dashed": 1}]"#)),
         "/edges/0/dashed",
         "true or false",
     );
-    has(&errors(&flow(AB, r#"{"from": "a"}"#)), "/edges", "an array");
 }
 
 #[test]
-fn a_name_too_wide_for_one_line_is_refused_with_its_width() {
+fn a_name_too_wide_for_one_line_is_cut_and_warned_of_with_its_width() {
     // 50 title graphemes at 7.8 px under FixedMetrics.
     let name = "N".repeat(50);
-    let e = errors(&flow(
-        &format!(r#"[[{{"id": "a", "name": "{name}"}}]]"#),
+    let source = flow(&format!(r#"[[{{"id": "a", "name": "{name}"}}]]"#), "[]");
+    has(
+        &warnings(&source),
+        "/columns/0/0/name",
+        "390 px wide on its one line",
+    );
+    // 320 px holds 41: 40 of the name and the ellipsis.
+    let out = drawn(&source);
+    assert!(out.svg.contains(&format!("{}…", "N".repeat(40))));
+    assert!(!out.svg.contains(&name));
+    // The box is as wide as the cap and its padding, not as the name was.
+    assert!(out.width < 390.0, "{}", out.width);
+
+    // A keyed row's name is cut in the figure and whole in its table row.
+    // 50 label graphemes at 7.2 px are 360 px.
+    let row = "r".repeat(50);
+    let out = drawn(&flow(
+        &format!(r#"[[{{"id": "a", "name": "A", "rows": [{{"name": "{row}", "key": 1}}]}}]]"#),
         "[]",
     ));
-    has(&e, "/columns/0/0/name", "390 px wide on its one line");
+    assert!(!out.svg.contains(&row), "{}", out.svg);
+    assert_eq!(out.table.rows[0][1], row);
 }
 
 #[test]
-fn secondary_text_past_two_lines_is_refused() {
+fn secondary_text_past_two_lines_ends_its_second_in_an_ellipsis() {
     let label = "word ".repeat(24);
-    let e = errors(&flow(
+    let source = flow(
         AB,
         &format!(
             r#"[{{"from": "a", "to": "b", "label": "{}"}}]"#,
             label.trim()
         ),
-    ));
-    has(&e, "/edges/0/label", "it may take at most 2");
+    );
+    has(
+        &warnings(&source),
+        "/edges/0/label",
+        "it may take at most 2",
+    );
+    // 120 px holds 18 value graphemes: three words a line, and the
+    // ellipsis beside the second line's three.
+    let svg = drawn(&source).svg;
+    assert!(svg.contains(">word word word<"), "{svg}");
+    assert!(svg.contains(">word word word…<"), "{svg}");
+    assert_eq!(svg.matches("word").count(), 6, "{svg}");
     let note = "note ".repeat(24);
-    let e = errors(&flow(
+    let w = warnings(&flow(
         &format!(
             r#"[[{{"id": "a", "name": "A", "notes": ["{}"]}}]]"#,
             note.trim()
         ),
         "[]",
     ));
-    has(&e, "/columns/0/0/notes/0", "it may take at most 2");
+    has(&w, "/columns/0/0/notes/0", "it may take at most 2");
 }
 
 #[test]
-fn a_figure_wider_than_the_cap_says_to_split_it() {
-    // As many columns as a flow may hold, of boxes as wide as a name may be.
+fn a_string_past_the_character_limit_is_kept_and_warned_of() {
+    let what = "w".repeat(121);
+    let source = flow(
+        &format!(
+            r#"[[{{"id": "a", "name": "A", "rows": [{{"name": "r", "key": 1, "what": "{what}"}}]}}]]"#
+        ),
+        "[]",
+    );
+    has(
+        &warnings(&source),
+        "/columns/0/0/rows/0/what",
+        "over 120 characters",
+    );
+    assert_eq!(drawn(&source).table.rows[0][2], what);
+}
+
+#[test]
+fn a_figure_wider_than_the_cap_is_drawn_at_its_width_and_says_to_split_it() {
+    // As many columns as a flow should hold, of boxes as wide as a name may be.
     let name = "N".repeat(40);
     let columns: Vec<String> = (0..diagram::budget::FLOW_COLUMNS)
         .map(|i| format!(r#"[{{"id": "n{i}", "name": "{name}"}}]"#))
         .collect();
-    let e = errors(&flow(&format!("[{}]", columns.join(",")), "[]"));
+    let source = flow(&format!("[{}]", columns.join(",")), "[]");
+    let w = warnings(&source);
+    assert_eq!(w.len(), 1, "{w:?}");
     has(
-        &e,
+        &w,
         "",
-        "past the 1040 px a diagram may take; split it into two figures",
+        "past the 1040 px a diagram reads well at; split it into two figures",
+    );
+    assert!(drawn(&source).width > diagram::MAX_W);
+}
+
+/// The figure that was withheld: five ordinary columns that lay out 56 px
+/// past the width cap in the deck's faces.
+const FIVE_COLUMNS: &str = r#"{"tugdiagram": 1, "form": "flow",
+ "title": "Claude Code is made to work Tug's way by a plugin, and the plugin hands every decision to tugtool",
+ "columns": [
+  [{"id": "code", "name": "tugcode", "sub": "starts claude with --plugin-dir"}],
+  [{"id": "claude", "name": "claude", "sub": "about to run a tool",
+    "rows": [{"name": "Bash", "mono": true}, {"name": "Skill", "mono": true}]}],
+  [{"id": "hooks", "name": "tugplug hooks",
+    "rows": [{"key": 1, "name": "hooks.json", "mono": true, "what": "Registers a PreToolUse hook on Bash and Skill calls.", "where": "tugplug/hooks/hooks.json"},
+             {"key": 2, "name": "pre-tool-use.sh", "mono": true, "what": "Finds tugtool and passes it the hook payload on stdin.", "where": "tugplug/hooks/pre-tool-use.sh"}]}],
+  [{"id": "tool", "name": "tugtool hook pre-tool-use",
+    "rows": [{"key": 3, "name": "decide", "sub": "allow, rewrite or deny", "what": "Approves safe calls, wraps test runners to report, refuses unattributable edits.", "where": "tugrust/crates/tugtool/src/commands/hook.rs"}]}],
+  [{"id": "run", "name": "Runs", "sub": "maybe rewritten to report progress"},
+   {"id": "deny", "name": "Refused", "sub": "with the form to write instead"}]
+ ],
+ "edges": [
+  {"from": "code", "to": "claude"},
+  {"from": "claude", "to": "hooks.1"},
+  {"from": "hooks.2", "to": "tool"},
+  {"from": "tool.1", "to": "run", "tone": "good", "label": "allowed"},
+  {"from": "tool.1", "to": "deny", "tone": "bad", "dashed": true, "label": "denied"}
+ ]}"#;
+
+#[test]
+fn the_five_column_flow_that_was_withheld_draws_with_its_table() {
+    let out = drawn(FIVE_COLUMNS);
+    let keys: Vec<&str> = out.table.rows.iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(keys, ["1", "2", "3"]);
+    // Whatever it measures, the one thing it can be warned of is its width.
+    assert!(
+        out.warnings.iter().all(|w| w.path.is_empty()),
+        "{:?}",
+        out.warnings
+    );
+}
+
+#[cfg(feature = "font")]
+#[test]
+fn the_five_column_flow_has_exactly_one_warning_in_the_real_faces_its_width() {
+    let out = compile_with(FIVE_COLUMNS, &opts(), &real_faces()).unwrap();
+    assert!(out.width > diagram::MAX_W, "{}", out.width);
+    assert_eq!(out.warnings.len(), 1, "{:?}", out.warnings);
+    assert!(out.warnings[0].path.is_empty());
+    assert!(
+        out.warnings[0]
+            .message
+            .contains("px wide, past the 1040 px a diagram reads well at"),
+        "{}",
+        out.warnings[0].message
     );
 }

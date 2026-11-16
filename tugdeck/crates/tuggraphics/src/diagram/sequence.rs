@@ -16,7 +16,7 @@ use crate::measure::Measure;
 
 use super::pen::{BoxPaint, LineHeights, Pen, Rect, DISC, LINE_GAP, MARGIN};
 use super::spec::{Message, Sequence, Tone};
-use super::wrap::{Lines, Texts};
+use super::wrap::{Lines, Texts, NAME_MAX_W};
 use super::Laid;
 
 /// The padding inside an actor's box, above and below its text and either
@@ -98,7 +98,7 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
         .iter()
         .zip(&subs)
         .map(|(a, sub)| {
-            let name_w = t.width(TypeRole::Title, &a.name);
+            let name_w = t.width(TypeRole::Title, &a.name).min(NAME_MAX_W);
             ACTOR_MIN_W.max(name_w.max(sub.w) + 2.0 * ACTOR_PAD_X)
         })
         .collect();
@@ -177,7 +177,7 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
         pen.text(
             cx[i],
             top + ACTOR_PAD_Y,
-            &a.name,
+            t.shown(TypeRole::Title, &a.name),
             TypeRole::Title,
             ColourRole::Ink,
             Anchor::Middle,
@@ -253,7 +253,7 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
             pen.text(
                 x0 + LOOP_LABEL,
                 yy,
-                &msg.label,
+                t.shown(TypeRole::Value, &msg.label),
                 TypeRole::Value,
                 fill,
                 Anchor::Start,
@@ -283,7 +283,7 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
         pen.text(
             mx,
             label_y,
-            &msg.label,
+            t.shown(TypeRole::Value, &msg.label),
             TypeRole::Value,
             fill,
             Anchor::Middle,
@@ -298,6 +298,6 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
         // one can only meet the other, never cross another message.
         crossings: 0,
         program: pen.finish(width, end + MARGIN),
-        errors: t.errors,
+        warnings: t.warnings,
     }
 }

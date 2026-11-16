@@ -16,6 +16,7 @@ const DONE: ChartRound = {
   find_text: "",
   width: 10,
   height: 10,
+  warnings: [],
 };
 
 function recordingMeasure() {

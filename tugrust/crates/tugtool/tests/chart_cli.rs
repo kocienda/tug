@@ -431,17 +431,57 @@ fn chart_render_takes_a_diagram_at_its_natural_size() {
     assert!(svg.contains("class=\"tgf-accent\""), "{svg}");
     assert!(!svg.contains("data-row"), "{svg}");
 
-    let run = render(
-        r#"{"tugdiagram": 1, "form": "flow", "title": "t", "columns": [[{"id": "a", "name": "A", "x": 3}]]}"#,
-        &out,
-        &[],
+    // That figure is inside every limit, so nothing is warned of.
+    assert!(!stdout(&run).contains("warning:"), "{}", stdout(&run));
+}
+
+/// A diagram that parses always draws: what is wrong with it short of
+/// that is a `warning:` line after the file is written, and exit 0.
+#[test]
+fn chart_render_draws_a_diagram_it_warns_of() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("flow.svg");
+    // A coordinate the form ignores, and an edge to a box that is not there.
+    let diagram = r#"{"tugdiagram": 1, "form": "flow", "title": "t",
+      "columns": [[{"id": "a", "name": "A", "x": 3}]],
+      "edges": [{"from": "a", "to": "b"}]}"#;
+    let run = render(diagram, &out, &[]);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(run.status.code(), Some(1));
-    let text = format!("{}{}", stdout(&run), String::from_utf8_lossy(&run.stderr));
-    assert!(
-        text.contains("/columns/0/0/x: unknown field \"x\""),
+    let text = stdout(&run);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("wrote "), "{text}");
+    assert_eq!(
+        &lines[1..],
+        [
+            "warning: /columns/0/0/x: unknown field \"x\" is ignored",
+            "warning: /edges/0/to: no box has the id \"b\", so this edge is dropped",
+        ],
         "{text}"
     );
+    let svg = std::fs::read_to_string(&out).unwrap();
+    assert!(svg.contains(">A</text>"), "{svg}");
+
+    // The same under --json: the envelope carries the warnings.
+    let run = render(diagram, &out, &["--json"]);
+    assert_eq!(run.status.code(), Some(0));
+    let envelope: serde_json::Value = serde_json::from_str(&stdout(&run)).unwrap();
+    let warnings = envelope
+        .pointer("/data/warnings")
+        .and_then(|w| w.as_array())
+        .unwrap_or_else(|| panic!("no warnings in {envelope}"));
+    assert_eq!(warnings.len(), 2, "{envelope}");
+    assert_eq!(warnings[0]["path"], "/columns/0/0/x");
+    assert_eq!(warnings[1]["path"], "/edges/0/to");
+
+    // A chart has none to carry.
+    let run = render(BAR, &out, &["--json"]);
+    let envelope: serde_json::Value = serde_json::from_str(&stdout(&run)).unwrap();
+    assert_eq!(envelope.pointer("/data/warnings"), Some(&serde_json::json!([])));
 }
 
 #[test]

@@ -454,7 +454,7 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
             pen.text(
                 cx,
                 head_y,
-                &node.name,
+                t.shown(TypeRole::Title, &node.name),
                 TypeRole::Title,
                 ColourRole::Ink,
                 Anchor::Middle,
@@ -506,7 +506,7 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
                 pen.text(
                     tx,
                     line_y,
-                    &row.name,
+                    t.shown(row_role(row), &row.name),
                     row_role(row),
                     ColourRole::Ink,
                     Anchor::Start,
@@ -659,6 +659,6 @@ pub(crate) fn layout(flow: &Flow, title: Option<&str>, animate: bool, m: &dyn Me
     Laid {
         crossings: crossings(&paths),
         program: pen.finish(width, height),
-        errors: t.errors,
+        warnings: t.warnings,
     }
 }

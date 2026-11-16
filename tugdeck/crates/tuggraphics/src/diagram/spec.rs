@@ -1,9 +1,16 @@
 //! The diagram spec: its types, and the validator that reads one from JSON
-//! and reports every error, each addressed by a JSON pointer into the
-//! spec.
+//! and reports every error and every warning, each addressed by a JSON
+//! pointer into the spec.
 //!
 //! A spec names a form and gives names, relations and order. It has no x
 //! and no y anywhere: the form gives every coordinate.
+//!
+//! An error is what leaves nothing to draw: no known form, a required
+//! field missing or of the wrong type. Everything else wrong with a spec
+//! is repaired and reported as a warning, so the figure is still drawn:
+//! an unknown field is ignored, an optional field that is malformed is
+//! left out, an edge or a message naming something that does not exist is
+//! dropped, and a key number given twice keeps its first mark.
 
 use std::collections::BTreeMap;
 
@@ -13,8 +20,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::chart::ChartError;
 use crate::draw::ColourRole;
 
-/// The longest string a spec may carry, in graphemes. Names are capped
-/// tighter than this by their measured width.
+/// The longest string a spec should carry, in graphemes; one longer is
+/// kept and warned of. Names are capped tighter than this by their
+/// measured width.
 pub const MAX_TEXT: usize = 120;
 /// The largest key number: two digits fit a key disc.
 pub const MAX_KEY: u64 = 99;
@@ -231,6 +239,9 @@ pub struct Spec {
     pub title: String,
     pub motion: bool,
     pub form: Form,
+    /// What validation repaired or found over a budget. The figure is
+    /// drawn all the same; these are for whoever wrote the spec.
+    pub warnings: Vec<ChartError>,
 }
 
 /// One row of the keyed table: the key, the mark's name, what it does and
@@ -326,19 +337,17 @@ fn key_path(base: &str, key: &str) -> String {
 
 const COMMON: [&str; 4] = ["tugdiagram", "form", "title", "motion"];
 
-/// Validates a parsed diagram spec, returning every error.
+/// Validates a parsed diagram spec, returning every error. A spec with
+/// none is returned with its warnings, the budgets it is over among them.
 pub fn validate_object(obj: &Map<String, Value>) -> Result<Spec, Vec<ChartError>> {
     let mut v = Validator::default();
     let spec = v.spec(obj);
     match spec {
-        Some(spec) if v.errors.is_empty() => {
+        Some(mut spec) if v.errors.is_empty() => {
             // A well-formed figure may still be too full to read.
-            let over = super::budget::check(&spec);
-            if over.is_empty() {
-                Ok(spec)
-            } else {
-                Err(over)
-            }
+            v.warnings.extend(super::budget::check(&spec));
+            spec.warnings = v.warnings;
+            Ok(spec)
         }
         _ => Err(v.errors),
     }
@@ -347,6 +356,7 @@ pub fn validate_object(obj: &Map<String, Value>) -> Result<Spec, Vec<ChartError>
 #[derive(Default)]
 struct Validator {
     errors: Vec<ChartError>,
+    warnings: Vec<ChartError>,
     /// Every key number given, and where it was first given.
     keys: BTreeMap<u64, String>,
 }
@@ -356,26 +366,42 @@ impl Validator {
         self.errors.push(err(path, message));
     }
 
+    fn warn(&mut self, path: impl Into<String>, message: impl Into<String>) {
+        self.warnings.push(err(path, message));
+    }
+
     fn known_keys(&mut self, obj: &Map<String, Value>, base: &str, allowed: &[&str]) {
         for key in obj.keys() {
             if !allowed.contains(&key.as_str()) {
-                self.err(key_path(base, key), format!("unknown field \"{key}\""));
+                self.warn(
+                    key_path(base, key),
+                    format!("unknown field \"{key}\" is ignored"),
+                );
             }
         }
     }
 
-    /// A non-empty string of at most [`MAX_TEXT`] graphemes.
+    fn long(&mut self, s: &str, path: &str, what: &str) {
+        if s.graphemes(true).count() > MAX_TEXT {
+            self.warn(
+                path,
+                format!("{what} is over {MAX_TEXT} characters: shorten it"),
+            );
+        }
+    }
+
+    /// A required string: non-empty, and warned of past [`MAX_TEXT`]
+    /// graphemes.
     fn text(&mut self, value: &Value, path: &str, what: &str) -> Option<String> {
         match value {
             Value::String(s) if s.trim().is_empty() => {
                 self.err(path, format!("{what} is a non-empty string"));
                 None
             }
-            Value::String(s) if s.graphemes(true).count() > MAX_TEXT => {
-                self.err(path, format!("{what} is at most {MAX_TEXT} characters"));
-                None
+            Value::String(s) => {
+                self.long(s, path, what);
+                Some(s.clone())
             }
-            Value::String(s) => Some(s.clone()),
             _ => {
                 self.err(path, format!("{what} is a string"));
                 None
@@ -383,9 +409,19 @@ impl Validator {
         }
     }
 
+    /// An optional string: one that is empty or no string is left out.
     fn opt_text(&mut self, obj: &Map<String, Value>, base: &str, key: &str) -> Option<String> {
-        obj.get(key)
-            .and_then(|v| self.text(v, &key_path(base, key), key))
+        let path = key_path(base, key);
+        match obj.get(key)? {
+            Value::String(s) if !s.trim().is_empty() => {
+                self.long(s, &path, key);
+                Some(s.clone())
+            }
+            _ => {
+                self.warn(path, format!("{key} is a non-empty string, so it is left out"));
+                None
+            }
+        }
     }
 
     fn req_text(&mut self, obj: &Map<String, Value>, base: &str, key: &str) -> Option<String> {
@@ -403,7 +439,10 @@ impl Validator {
             None => false,
             Some(Value::Bool(b)) => *b,
             Some(_) => {
-                self.err(key_path(base, key), format!("{key} is true or false"));
+                self.warn(
+                    key_path(base, key),
+                    format!("{key} is true or false, so it is left out"),
+                );
                 false
             }
         }
@@ -418,9 +457,12 @@ impl Validator {
             } else {
                 ""
             };
-            self.err(
+            self.warn(
                 key_path(base, key),
-                format!("{key} is one of {}{accent}", TONE_NAMES.join(", ")),
+                format!(
+                    "{key} is one of {}{accent}, so it is left out",
+                    TONE_NAMES.join(", ")
+                ),
             );
         }
         tone
@@ -440,6 +482,27 @@ impl Validator {
         }
     }
 
+    /// An optional list: absent, empty, or no list at all is the list
+    /// left out, the last with a warning.
+    fn opt_array<'v>(
+        &mut self,
+        obj: &'v Map<String, Value>,
+        base: &str,
+        key: &str,
+    ) -> Option<&'v Vec<Value>> {
+        match obj.get(key)? {
+            Value::Array(items) if items.is_empty() => None,
+            Value::Array(items) => Some(items),
+            _ => {
+                self.warn(
+                    key_path(base, key),
+                    format!("{key} is an array, so it is ignored"),
+                );
+                None
+            }
+        }
+    }
+
     fn object<'v>(
         &mut self,
         value: &'v Value,
@@ -454,16 +517,18 @@ impl Validator {
     }
 
     /// A mark's key and its table row. `what` and `where` belong to a
-    /// keyed mark, so either one without a key is an error.
+    /// keyed mark, so either one without a key is ignored. A key that is
+    /// no number in range, or whose number is already given, leaves its
+    /// mark unkeyed: the number's first mark keeps it.
     fn key(&mut self, obj: &Map<String, Value>, base: &str) -> Option<Key> {
         let what = self.opt_text(obj, base, "what");
         let r#where = self.opt_text(obj, base, "where");
         let Some(value) = obj.get("key") else {
             for k in ["what", "where"] {
                 if obj.contains_key(k) {
-                    self.err(
+                    self.warn(
                         key_path(base, k),
-                        format!("{k} belongs to a keyed mark: give it a key"),
+                        format!("{k} belongs to a keyed mark, so it is ignored: give the mark a key"),
                     );
                 }
             }
@@ -471,12 +536,18 @@ impl Validator {
         };
         let path = key_path(base, "key");
         let Some(n) = value.as_u64().filter(|n| (1..=MAX_KEY).contains(n)) else {
-            self.err(&path, format!("key is a whole number from 1 to {MAX_KEY}"));
+            self.warn(
+                &path,
+                format!("key is a whole number from 1 to {MAX_KEY}, so this mark is drawn unkeyed"),
+            );
             return None;
         };
         if let Some(first) = self.keys.get(&n) {
             let first = first.clone();
-            self.err(&path, format!("key {n} is already given at {first}"));
+            self.warn(
+                &path,
+                format!("key {n} is already given at {first}, so this mark is drawn unkeyed"),
+            );
             return None;
         }
         self.keys.insert(n, path);
@@ -521,7 +592,7 @@ impl Validator {
             Some(Value::String(s)) if s == "enter" => true,
             Some(Value::String(s)) if s == "none" => false,
             Some(_) => {
-                self.err("/motion", "motion is one of enter, none");
+                self.warn("/motion", "motion is one of enter, none, so it is left out");
                 true
             }
         };
@@ -535,6 +606,7 @@ impl Validator {
             title: title?,
             motion,
             form: form?,
+            warnings: Vec::new(),
         })
     }
 
@@ -602,9 +674,9 @@ impl Validator {
         match pair {
             Some((a, b)) if 1 <= a && a <= b && b <= cols => (a, b),
             _ => {
-                self.err(
+                self.warn(
                     key_path(base, "span"),
-                    format!("span is [first, last], two columns from 1 to {cols}, first no later than last"),
+                    format!("span is [first, last], two columns from 1 to {cols}, first no later than last, so this one takes every column"),
                 );
                 (1, cols)
             }
@@ -612,13 +684,10 @@ impl Validator {
     }
 
     fn blocks(&mut self, obj: &Map<String, Value>, key: &str, cols: u64) -> Vec<StackBlock> {
-        let Some(value) = obj.get(key) else {
+        let Some(items) = self.opt_array(obj, "", key) else {
             return Vec::new();
         };
         let path = format!("/{key}");
-        let Some(items) = self.array(value, &path, key) else {
-            return Vec::new();
-        };
         items
             .iter()
             .enumerate()
@@ -740,12 +809,15 @@ impl Validator {
             let name = self.req_text(obj, &base, "name");
             let sub = self.opt_text(obj, &base, "sub");
             let below = self.opt_text(obj, &base, "below");
-            if below.is_some() && i == last {
-                self.err(
+            let below = if below.is_some() && i == last {
+                self.warn(
                     format!("{base}/below"),
-                    "the last layer has nothing beneath it for anything to cross to",
+                    "the last layer has nothing beneath it for anything to cross to, so this is left out",
                 );
-            }
+                None
+            } else {
+                below
+            };
             let cells = match obj.get("cells") {
                 None => {
                     self.err(
@@ -817,12 +889,10 @@ impl Validator {
             let (Some(id), Some(name)) = (id, name) else {
                 continue;
             };
-            if id.chars().any(char::is_whitespace) {
-                self.err(format!("{base}/id"), "an id has no space");
-            } else if let Some(&first) = ids.get(&id) {
-                self.err(
+            if let Some(&first) = ids.get(&id) {
+                self.warn(
                     format!("{base}/id"),
-                    format!("id \"{id}\" is already used at /actors/{first}"),
+                    format!("id \"{id}\" is already used at /actors/{first}, which is the actor a message naming it reaches"),
                 );
             } else {
                 ids.insert(id.clone(), out.len());
@@ -842,6 +912,12 @@ impl Validator {
             .enumerate()
             .filter_map(|(i, m)| self.message(m, &format!("/messages/{i}"), &ids))
             .collect();
+        if messages.is_empty() && self.errors.len() == before {
+            self.err(
+                "/messages",
+                "no message names two actors that exist, so there is nothing to draw",
+            );
+        }
         (self.errors.len() == before).then_some(Sequence {
             actors: out,
             messages,
@@ -866,7 +942,10 @@ impl Validator {
             let id = v.req_text(obj, base, key)?;
             let at = ids.get(&id).copied();
             if at.is_none() {
-                v.err(key_path(base, key), format!("no actor has the id \"{id}\""));
+                v.warn(
+                    key_path(base, key),
+                    format!("no actor has the id \"{id}\", so this message is dropped"),
+                );
             }
             at
         };
@@ -910,9 +989,12 @@ impl Validator {
                 let base = format!("{base}/{k}");
                 if let Some(node) = self.node(node, &base) {
                     if let Some(&(c0, k0)) = ids.get(&node.id) {
-                        self.err(
+                        self.warn(
                             format!("{base}/id"),
-                            format!("id \"{}\" is already used at /columns/{c0}/{k0}", node.id),
+                            format!(
+                                "id \"{}\" is already used at /columns/{c0}/{k0}, which is the box an edge naming it reaches",
+                                node.id
+                            ),
                         );
                     } else {
                         ids.insert(node.id.clone(), (c, col.len()));
@@ -922,17 +1004,13 @@ impl Validator {
             }
             out.push(col);
         }
-        let edges = match obj.get("edges") {
+        let edges = match self.opt_array(obj, "", "edges") {
             None => Vec::new(),
-            Some(Value::Array(items)) => items
+            Some(items) => items
                 .iter()
                 .enumerate()
                 .filter_map(|(i, e)| self.edge(e, &format!("/edges/{i}"), &ids, &out))
                 .collect(),
-            Some(_) => {
-                self.err("/edges", "edges is an array");
-                Vec::new()
-            }
         };
         (self.errors.len() == before).then_some(Flow {
             columns: out,
@@ -946,45 +1024,36 @@ impl Validator {
         let id = self.req_text(obj, base, "id");
         if let Some(id) = &id {
             if id.contains('.') || id.chars().any(char::is_whitespace) {
-                self.err(
+                self.warn(
                     format!("{base}/id"),
-                    "an id has no dot and no space: an edge names a row as id.n",
+                    "an id has no dot and no space: an edge names a row as id.n, so no edge can reach this box",
                 );
             }
         }
         let name = self.req_text(obj, base, "name");
         let sub = self.opt_text(obj, base, "sub");
-        let rows = match obj.get("rows") {
-            None => Some(Vec::new()),
-            Some(value) => {
-                let path = format!("{base}/rows");
-                self.array(value, &path, "rows").map(|rows| {
-                    rows.iter()
-                        .enumerate()
-                        .filter_map(|(i, r)| self.row(r, &format!("{path}/{i}")))
-                        .collect()
-                })
-            }
+        let rows: Vec<FlowRow> = match self.opt_array(obj, base, "rows") {
+            None => Vec::new(),
+            Some(rows) => rows
+                .iter()
+                .enumerate()
+                .filter_map(|(i, r)| self.row(r, &format!("{base}/rows/{i}")))
+                .collect(),
         };
-        let notes = match obj.get("notes") {
-            None => Some(Vec::new()),
-            Some(value) => {
-                let path = format!("{base}/notes");
-                self.array(value, &path, "notes").map(|notes| {
-                    notes
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, n)| self.text(n, &format!("{path}/{i}"), "a note"))
-                        .collect()
-                })
-            }
+        let notes: Vec<String> = match self.opt_array(obj, base, "notes") {
+            None => Vec::new(),
+            Some(notes) => notes
+                .iter()
+                .enumerate()
+                .filter_map(|(i, n)| self.text(n, &format!("{base}/notes/{i}"), "a note"))
+                .collect(),
         };
         Some(FlowNode {
             id: id?,
             name: name?,
             sub,
-            rows: rows?,
-            notes: notes?,
+            rows,
+            notes,
         })
     }
 
@@ -1026,7 +1095,10 @@ impl Validator {
                 None => (text.as_str(), None),
             };
             let Some(&(col, node)) = ids.get(id) else {
-                v.err(&path, format!("no box has the id \"{id}\""));
+                v.warn(
+                    &path,
+                    format!("no box has the id \"{id}\", so this edge is dropped"),
+                );
                 return None;
             };
             let row = match row {
@@ -1036,13 +1108,18 @@ impl Validator {
                     match n.parse::<usize>().ok().filter(|n| (1..=rows).contains(n)) {
                         Some(n) => Some(n - 1),
                         None if rows == 0 => {
-                            v.err(&path, format!("box \"{id}\" has no rows"));
+                            v.warn(
+                                &path,
+                                format!("box \"{id}\" has no rows, so this edge is dropped"),
+                            );
                             return None;
                         }
                         None => {
-                            v.err(
+                            v.warn(
                                 &path,
-                                format!("box \"{id}\" has rows 1 to {rows}; \"{n}\" is not one"),
+                                format!(
+                                    "box \"{id}\" has rows 1 to {rows}; \"{n}\" is not one, so this edge is dropped"
+                                ),
                             );
                             return None;
                         }
@@ -1058,7 +1135,10 @@ impl Validator {
         let dashed = self.opt_bool(obj, base, "dashed");
         let (from, to) = (from?, to?);
         if from.col == to.col && from.node == to.node {
-            self.err(base, "an edge joins two different boxes");
+            self.warn(
+                base,
+                "an edge joins two different boxes, so this one is dropped",
+            );
             return None;
         }
         Some(FlowEdge {

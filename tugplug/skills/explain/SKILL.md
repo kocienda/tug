@@ -36,6 +36,19 @@ Each section has the same five parts, in this order:
 
 A figure that will not fit a form's limits is two figures, and usually two questions. Split it rather than shortening names the reader needs.
 
+**Check every figure before you answer.** Once a spec is in the transcript you cannot see how it drew, and nothing wrong with it is shown to anyone. So compile each spec first, and read what it says:
+
+```bash
+tugtool chart render - --out "${TMPDIR:-/tmp}/explain-check.svg" <<'SPEC'
+{"tugdiagram": 1, "form": "flow", "title": "…", "columns": [[{"id": "a", "name": "A"}]]}
+SPEC
+```
+
+- **An error** (`not a valid chart, diagram or drawing: …`) means nothing would be drawn. Fix the field its path names and check again.
+- **A warning** (a `warning:` line after `wrote …`) means the figure draws, but past a limit or after a repair: too wide, a name cut short, a third line dropped, a budget passed, edges crossing, an edge dropped because its end names nothing. Each is a figure the reader has to work at, so answer it: split the figure in two, shorten the name, reorder the boxes, fix the id. Then check again.
+
+Only a spec that compiled with no error and no warning goes in the answer. The one warning you may leave is one you cannot answer without losing something the reader needs; that is rare, and splitting the figure almost always answers it. The SVG the check wrote is scratch; never show it or point at it.
+
 Open the answer with nothing but the first section's title: no preamble, no list of what is coming. End it with the last section's lead.
 
 ## 4. Keep it, only when asked
@@ -56,5 +69,6 @@ When the request asks to keep it:
 
 - No dialog.
 - No diagram of a part you did not read, and no `where` you did not open.
+- No figure in the answer that you did not check, and none whose check gave an error.
 - No file unless asked to keep, and no commit.
-- No Mermaid, no ASCII figure, no image, no `tugtool chart render`: the figure is the fence.
+- No Mermaid, no ASCII figure, no image. `tugtool chart render` is the check before the answer, never the answer: the figure is the fence.

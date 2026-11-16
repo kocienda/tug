@@ -118,6 +118,10 @@ pub struct Compiled {
     pub find_text: String,
     pub width: f64,
     pub height: f64,
+    /// What is wrong with the source that did not stop it drawing: a
+    /// diagram's repairs and the limits it is past. For whoever wrote the
+    /// source, never for the reader; a chart or a drawing has none.
+    pub warnings: Vec<ChartError>,
 }
 
 /// One round of the measure protocol.
@@ -168,6 +172,7 @@ fn finish(spec: &Spec, program: &Program, opts: &CompileOpts) -> Compiled {
         table,
         width: program.frame.0,
         height: program.frame.1,
+        warnings: Vec::new(),
     }
 }
 
@@ -201,6 +206,7 @@ fn drawing(mut program: Program, opts: &CompileOpts) -> Compiled {
         find_text: String::new(),
         width: program.frame.0,
         height: program.frame.1,
+        warnings: Vec::new(),
     }
 }
 
@@ -229,7 +235,7 @@ pub fn compile_with(
                     message,
                 }]
             })?;
-            diagram_finish(&spec, laid, opts)
+            Ok(diagram_finish(&spec, laid, opts))
         }
     }
 }
@@ -238,24 +244,20 @@ fn diagram_layout(spec: &diagram::Spec, opts: &CompileOpts, m: &dyn Measure) -> 
     diagram::layout(spec, opts.figure_title, opts.motion, m)
 }
 
-/// A laid-out diagram as a finished compile, or the errors its measured
-/// text raised.
-fn diagram_finish(
-    spec: &diagram::Spec,
-    laid: diagram::Laid,
-    opts: &CompileOpts,
-) -> Result<Compiled, Vec<ChartError>> {
-    if !laid.errors.is_empty() {
-        return Err(laid.errors);
-    }
+/// A laid-out diagram as a finished compile, carrying the warnings its
+/// validation and its layout raised. A diagram that parsed always draws.
+fn diagram_finish(spec: &diagram::Spec, laid: diagram::Laid, opts: &CompileOpts) -> Compiled {
     let table = diagram::table(spec);
-    Ok(Compiled {
+    let mut warnings = spec.warnings.clone();
+    warnings.extend(laid.warnings);
+    Compiled {
         svg: render(&laid.program, opts),
         find_text: table.find_text(),
         table,
         width: laid.program.frame.0,
         height: laid.program.frame.1,
-    })
+        warnings,
+    }
 }
 
 /// One round against a measured table: the pairs the table lacks, or the
@@ -270,10 +272,7 @@ pub fn compile_round(source: &str, opts: &CompileOpts, table: &MeasureTable) -> 
         },
         Ok(Source::Diagram(spec)) => {
             match measure_round(table, |m| diagram_layout(&spec, opts, m)) {
-                RoundOutcome::Done(laid) => match diagram_finish(&spec, laid, opts) {
-                    Ok(compiled) => Round::Done(compiled),
-                    Err(errors) => Round::Invalid { errors },
-                },
+                RoundOutcome::Done(laid) => Round::Done(diagram_finish(&spec, laid, opts)),
                 RoundOutcome::Measure(requests) => measure(requests),
             }
         }

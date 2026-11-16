@@ -14,7 +14,7 @@
 //! and block still fits its span.
 
 use crate::draw::{Anchor, Baseline, ColourRole, TypeRole};
-use crate::measure::Measure;
+use crate::measure::{fit_text, Measure};
 
 use super::pen::{BoxPaint, LineHeights, Pen, Rect, DISC, LINE_GAP, MARGIN};
 use super::spec::{Span, Stack, StackBlock};
@@ -258,7 +258,7 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         pen.text(
             mx,
             ty,
-            &b.name,
+            t.shown(TypeRole::Title, &b.name),
             TypeRole::Title,
             ColourRole::Ink,
             Anchor::Middle,
@@ -320,7 +320,7 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         pen.text(
             x0 - LABEL_GAP,
             ty,
-            &layer.name,
+            t.shown(TypeRole::Title, &layer.name),
             TypeRole::Title,
             ColourRole::Ink,
             Anchor::End,
@@ -378,7 +378,7 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
                 pen.text(
                     mx,
                     text_top,
-                    &cell.name,
+                    t.shown(TypeRole::Label, &cell.name),
                     TypeRole::Label,
                     ColourRole::Ink,
                     Anchor::Middle,
@@ -485,15 +485,22 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         let bx0 = ax + ((aw - bars_w) / 2.0).round();
         for (k, name) in across.names.iter().enumerate() {
             let path = format!("/across/names/{k}");
+            // A name longer than its bar is cut to it. The bar's height
+            // follows from the first request alone, so the cut's candidates
+            // are the second.
             let w = t.width(TypeRole::Label, name);
-            if w > bar_h - 2.0 * CELL_PAD_X {
-                t.errors.push(super::spec::err(
+            let room = bar_h - 2.0 * CELL_PAD_X;
+            let shown = if w > room {
+                t.warnings.push(super::spec::err(
                     &path,
                     format!(
-                        "this name is {w} px long and runs upright in a bar {bar_h} px tall; shorten it, or give the stack more layers"
+                        "this name is {w} px long and runs upright in a bar {bar_h} px tall, so it is cut short: shorten it, or give the stack more layers"
                     ),
                 ));
-            }
+                fit_text(name, TypeRole::Label, room, m).text
+            } else {
+                name.clone()
+            };
             let bx = bx0 + k as f64 * (bar + BAR_GAP);
             let paint = BoxPaint {
                 fill: Some((ColourRole::Surface, 1.0)),
@@ -513,7 +520,7 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
             pen.upright(
                 bx + (bar / 2.0).round(),
                 ((layer_top + layer_bottom) / 2.0).round(),
-                name,
+                &shown,
                 TypeRole::Label,
                 delay,
             );
@@ -526,6 +533,6 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         // Nothing in a stack turns, so nothing crosses.
         crossings: 0,
         program: pen.finish(width, y + MARGIN),
-        errors: t.errors,
+        warnings: t.warnings,
     }
 }
