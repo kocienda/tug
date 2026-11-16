@@ -133,7 +133,7 @@ fn face_measurer() -> Result<FaceMeasurer<'static>, AppError> {
         .map_err(|e| AppError::Exit1("failed", format!("cannot read the embedded faces: {e}")))
 }
 
-/// Render a chart spec or a drawing, read from `spec` (`-` for stdin), to
+/// Render a chart spec, a diagram spec or a drawing, read from `spec` (`-` for stdin), to
 /// a standalone SVG at `out`, coloured by `theme`, at most `width` px wide.
 /// Prints where it wrote and the figure's size, or the same as a `--json`
 /// envelope.
@@ -184,7 +184,10 @@ pub fn run_render(
             .collect();
         AppError::Exit1(
             "invalid",
-            format!("not a valid chart or drawing: {}", listed.join("; ")),
+            format!(
+                "not a valid chart, diagram or drawing: {}",
+                listed.join("; ")
+            ),
         )
     })?;
     std::fs::write(out, &compiled.svg)

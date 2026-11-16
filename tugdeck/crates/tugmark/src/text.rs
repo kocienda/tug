@@ -39,8 +39,9 @@ enum Mode {
     /// A `.tugx-katex` subtree: nothing under it is emitted.
     Katex,
     /// A `.tugx-chart` subtree: its text is the chart source, gathered and
-    /// replaced by the chart's find text when the subtree closes.
-    Chart,
+    /// replaced by the chart's find text when the subtree closes, read
+    /// through the door its placeholder names.
+    Chart(tuggraphics::Layers),
 }
 
 /// One block's text, per the module's rule.
@@ -57,7 +58,13 @@ fn block_text(html: &str) -> String {
             let mode = match stack.last().map(|(_, m)| *m) {
                 Some(inherited) if inherited != Mode::Prose => inherited,
                 _ if has_class(&attrs, "tugx-katex") => Mode::Katex,
-                _ if has_class(&attrs, "tugx-chart") => Mode::Chart,
+                _ if has_class(&attrs, "tugx-chart") => Mode::Chart(
+                    if attr(&attrs, "data-tugx-chart-layers") == Some("diagram") {
+                        tuggraphics::Layers::Diagram
+                    } else {
+                        tuggraphics::Layers::Chart
+                    },
+                ),
                 _ => Mode::Prose,
             };
             if !is_void(name) {
@@ -66,14 +73,14 @@ fn block_text(html: &str) -> String {
         }
         Token::End { name } => {
             if let Some(at) = stack.iter().rposition(|(open, _)| *open == name) {
-                let closes_chart =
-                    stack[at].1 == Mode::Chart && (at == 0 || stack[at - 1].1 != Mode::Chart);
+                let is_chart = |m: Mode| matches!(m, Mode::Chart(_));
+                let closes_chart = match stack[at].1 {
+                    Mode::Chart(layers) if at == 0 || !is_chart(stack[at - 1].1) => Some(layers),
+                    _ => None,
+                };
                 stack.truncate(at);
-                if closes_chart {
-                    out.push_str(&tuggraphics::find_text(
-                        &chart_source,
-                        tuggraphics::Layers::Chart,
-                    ));
+                if let Some(layers) = closes_chart {
+                    out.push_str(&tuggraphics::find_text(&chart_source, layers));
                     chart_source.clear();
                 }
             }
@@ -81,7 +88,7 @@ fn block_text(html: &str) -> String {
         Token::Text(text) => {
             match stack.last().map(|(_, m)| *m) {
                 Some(Mode::Katex) => return,
-                Some(Mode::Chart) => {
+                Some(Mode::Chart(_)) => {
                     chart_source.push_str(&text);
                     return;
                 }
@@ -285,6 +292,16 @@ mod tests {
     fn an_invalid_chart_yields_its_source() {
         let markdown = "```tugchart\n{\"tugchart\":1,\"form\":\"pie\"}\n```\n";
         assert_eq!(text_of(markdown), "{\"tugchart\":1,\"form\":\"pie\"}");
+    }
+
+    #[test]
+    fn a_diagram_yields_its_keyed_table_text() {
+        let spec = "{\"tugdiagram\":1,\"form\":\"flow\",\"title\":\"a < b\",\"columns\":[[{\"id\":\"a\",\"name\":\"A\",\"rows\":[{\"key\":1,\"name\":\"r\",\"what\":\"w\",\"where\":\"src/x.rs\"}]}]]}";
+        let expected = tuggraphics::find_text(spec, tuggraphics::Layers::Diagram);
+        assert_eq!(expected, "a < b#StepWhat it doesWhere it is1rwsrc/x.rs");
+        assert_eq!(text_of(&format!("```tugdiagram\n{spec}\n```\n")), expected);
+        // A diagram in a chart fence is the chart door's refusal: its source.
+        assert_eq!(text_of(&format!("```tugchart\n{spec}\n```\n")), spec);
     }
 
     #[test]

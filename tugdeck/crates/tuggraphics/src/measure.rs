@@ -6,7 +6,7 @@
 //! and tests use [`FixedMetrics`], which is deterministic.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
@@ -59,12 +59,44 @@ impl TypeRole {
 }
 
 /// A measured string: advance width, and the font bounding box's ascent
-/// and descent above and below the alphabetic baseline, all in px.
+/// and descent above and below the alphabetic baseline, all in px. `ink`
+/// is the drawn shape's box, present only when it was asked for through
+/// [`Measure::measure_ink`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Metrics {
     pub w: f64,
     pub a: f64,
     pub d: f64,
+    pub ink: Option<Ink>,
+}
+
+/// The box a string's glyphs actually cover, in px from the text origin
+/// (the start of the alphabetic baseline): `l` and `r` are the left and
+/// right edges along the baseline, `a` how far the ink rises above it, `d`
+/// how far it falls below. The font box says where a line sits; the ink
+/// box says where the shape is, which is what centring a numeral in a
+/// disc needs. An empty or blank string has the zero box.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ink {
+    pub l: f64,
+    pub r: f64,
+    pub a: f64,
+    pub d: f64,
+}
+
+impl Ink {
+    pub const ZERO: Ink = Ink {
+        l: 0.0,
+        r: 0.0,
+        a: 0.0,
+        d: 0.0,
+    };
+
+    /// The text origin that puts this box's centre at `(cx, cy)`: the
+    /// `x` a start-anchored string is set at, and its baseline `y`.
+    pub fn origin_centred_at(&self, cx: f64, cy: f64) -> (f64, f64) {
+        (cx - (self.l + self.r) / 2.0, cy + (self.a - self.d) / 2.0)
+    }
 }
 
 /// Measures a string set in a role. `None` means this measurer does not
@@ -72,10 +104,18 @@ pub struct Metrics {
 /// pair it has not been given, and the compile asks for it.
 pub trait Measure {
     fn measure(&self, role: TypeRole, text: &str) -> Option<Metrics>;
+
+    /// As [`Measure::measure`], with the ink box filled in. A form asks
+    /// for ink only for the strings it places by their shape, so every
+    /// other string costs the measurer nothing more than its advance.
+    fn measure_ink(&self, role: TypeRole, text: &str) -> Option<Metrics>;
 }
 
 /// The deterministic measurer: `width = 0.6 × size × graphemes`,
-/// `ascent = 0.8 × size`, `descent = 0.2 × size`.
+/// `ascent = 0.8 × size`, `descent = 0.2 × size`. Its ink box is inset
+/// `0.05 × size` from each end of the advance, rises `0.7 × size` — a
+/// numeral's height — and has no descender, so it differs from the font
+/// box in both axes the way a real face's does.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FixedMetrics;
 
@@ -87,6 +127,26 @@ impl Measure for FixedMetrics {
             w: 0.6 * size * graphemes,
             a: 0.8 * size,
             d: 0.2 * size,
+            ink: None,
+        })
+    }
+
+    fn measure_ink(&self, role: TypeRole, text: &str) -> Option<Metrics> {
+        let m = self.measure(role, text)?;
+        let size = role.fixed_size();
+        let ink = if text.trim().is_empty() {
+            Ink::ZERO
+        } else {
+            Ink {
+                l: 0.05 * size,
+                r: m.w - 0.05 * size,
+                a: 0.7 * size,
+                d: 0.0,
+            }
+        };
+        Some(Metrics {
+            ink: Some(ink),
+            ..m
         })
     }
 }
@@ -97,13 +157,23 @@ pub fn table_key(role: TypeRole, text: &str) -> String {
     format!("{}\u{0}{text}", role.name())
 }
 
+/// One string a layout still needs measured, and whether it needs the ink
+/// box as well as the advance.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MeasureRequest {
+    pub role: TypeRole,
+    pub text: String,
+    pub ink: bool,
+}
+
 /// A measurer backed by a table of measurements someone else took. A pair
 /// the table does not hold answers `None` and is recorded as a miss, so a
-/// layout run against it says exactly which pairs it still needs.
+/// layout run against it says exactly which pairs it still needs; a pair
+/// held without its ink box is a miss for [`Measure::measure_ink`].
 #[derive(Debug, Default)]
 pub struct MeasureTable {
     known: HashMap<(TypeRole, String), Metrics>,
-    misses: RefCell<BTreeSet<(TypeRole, String)>>,
+    misses: RefCell<BTreeMap<(TypeRole, String), bool>>,
 }
 
 impl MeasureTable {
@@ -112,7 +182,7 @@ impl MeasureTable {
     }
 
     /// Reads a table in the protocol's JSON shape:
-    /// `{"<role>\u0000<text>": {"w": …, "a": …, "d": …}}`.
+    /// `{"<role>\u0000<text>": {"w": …, "a": …, "d": …, "ink"?: {"l", "r", "a", "d"}}}`.
     pub fn from_json(source: &str) -> Result<MeasureTable, String> {
         let value: Value =
             serde_json::from_str(source).map_err(|e| format!("measure table is not JSON: {e}"))?;
@@ -124,8 +194,23 @@ impl MeasureTable {
                 .and_then(|(r, t)| Some((TypeRole::parse(r)?, t)))
                 .ok_or_else(|| "measure table keys are \"<role>\\u0000<text>\"".to_string())?;
             let field = |k: &str| m.get(k).and_then(Value::as_f64).filter(|n| n.is_finite());
+            let ink =
+                match m.get("ink") {
+                    None | Some(Value::Null) => None,
+                    Some(ink) => {
+                        let edge =
+                            |k: &str| ink.get(k).and_then(Value::as_f64).filter(|n| n.is_finite());
+                        match (edge("l"), edge("r"), edge("a"), edge("d")) {
+                            (Some(l), Some(r), Some(a), Some(d)) => Some(Ink { l, r, a, d }),
+                            _ => return Err(
+                                "measure table ink is {\"l\", \"r\", \"a\", \"d\"} finite numbers"
+                                    .into(),
+                            ),
+                        }
+                    }
+                };
             match (field("w"), field("a"), field("d")) {
-                (Some(w), Some(a), Some(d)) => table.insert(role, text, Metrics { w, a, d }),
+                (Some(w), Some(a), Some(d)) => table.insert(role, text, Metrics { w, a, d, ink }),
                 _ => {
                     return Err(
                         "measure table values are {\"w\", \"a\", \"d\"} finite numbers".into(),
@@ -141,11 +226,20 @@ impl MeasureTable {
     }
 
     /// The pairs asked for and not known, in a stable order, clearing the
-    /// record.
-    pub fn take_misses(&self) -> Vec<(TypeRole, String)> {
+    /// record. A pair asked for both ways is one request, for the ink.
+    pub fn take_misses(&self) -> Vec<MeasureRequest> {
         std::mem::take(&mut *self.misses.borrow_mut())
             .into_iter()
+            .map(|((role, text), ink)| MeasureRequest { role, text, ink })
             .collect()
+    }
+
+    fn miss(&self, role: TypeRole, text: &str, ink: bool) {
+        *self
+            .misses
+            .borrow_mut()
+            .entry((role, text.to_string()))
+            .or_insert(false) |= ink;
     }
 }
 
@@ -153,7 +247,19 @@ impl Measure for MeasureTable {
     fn measure(&self, role: TypeRole, text: &str) -> Option<Metrics> {
         let got = self.known.get(&(role, text.to_string())).copied();
         if got.is_none() {
-            self.misses.borrow_mut().insert((role, text.to_string()));
+            self.miss(role, text, false);
+        }
+        got
+    }
+
+    fn measure_ink(&self, role: TypeRole, text: &str) -> Option<Metrics> {
+        let got = self
+            .known
+            .get(&(role, text.to_string()))
+            .copied()
+            .filter(|m| m.ink.is_some());
+        if got.is_none() {
+            self.miss(role, text, true);
         }
         got
     }
@@ -183,6 +289,7 @@ pub fn fit_text(text: &str, role: TypeRole, max_w: f64, m: &dyn Measure) -> Fit 
         w: 0.0,
         a: 0.0,
         d: 0.0,
+        ink: None,
     };
     let Some(full) = m.measure(role, text) else {
         return Fit {
@@ -229,7 +336,7 @@ pub fn fit_text(text: &str, role: TypeRole, max_w: f64, m: &dyn Measure) -> Fit 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoundOutcome<T> {
     /// The pairs the layout still needs measured.
-    Measure(Vec<(TypeRole, String)>),
+    Measure(Vec<MeasureRequest>),
     Done(T),
 }
 
@@ -270,8 +377,13 @@ pub fn run_rounds<T>(
             RoundOutcome::Done(out) => return Ok(out),
             RoundOutcome::Measure(_) if request == MAX_MEASURE_REQUESTS => break,
             RoundOutcome::Measure(missing) => {
-                for (role, text) in missing {
-                    let m = measurer.measure(role, &text).ok_or_else(|| {
+                for MeasureRequest { role, text, ink } in missing {
+                    let got = if ink {
+                        measurer.measure_ink(role, &text)
+                    } else {
+                        measurer.measure(role, &text)
+                    };
+                    let m = got.ok_or_else(|| {
                         format!("no measurement for {} text {text:?}", role.name())
                     })?;
                     table.insert(role, &text, m);
@@ -364,25 +476,32 @@ mod tests {
         let RoundOutcome::Measure(first) = measure_round(&table, two_labels) else {
             panic!("round 1 should ask");
         };
-        assert_eq!(
-            first,
-            vec![
-                (TypeRole::Label, "Mon".to_string()),
-                (TypeRole::Label, "Wednesday".to_string())
-            ]
-        );
-        for (role, text) in &first {
-            table.insert(*role, text, FixedMetrics.measure(*role, text).unwrap());
+        let label = |text: &str| MeasureRequest {
+            role: TypeRole::Label,
+            text: text.to_string(),
+            ink: false,
+        };
+        assert_eq!(first, vec![label("Mon"), label("Wednesday")]);
+        for r in &first {
+            table.insert(
+                r.role,
+                &r.text,
+                FixedMetrics.measure(r.role, &r.text).unwrap(),
+            );
         }
         // Round 2: "Wednesday" overflows, so every candidate is asked for.
         let RoundOutcome::Measure(second) = measure_round(&table, two_labels) else {
             panic!("round 2 should ask for candidates");
         };
         assert_eq!(second.len(), 9);
-        assert!(second.contains(&(TypeRole::Label, "…".to_string())));
-        assert!(second.contains(&(TypeRole::Label, "Wednesda…".to_string())));
-        for (role, text) in &second {
-            table.insert(*role, text, FixedMetrics.measure(*role, text).unwrap());
+        assert!(second.contains(&label("…")));
+        assert!(second.contains(&label("Wednesda…")));
+        for r in &second {
+            table.insert(
+                r.role,
+                &r.text,
+                FixedMetrics.measure(r.role, &r.text).unwrap(),
+            );
         }
         match measure_round(&table, two_labels) {
             RoundOutcome::Done((a, b)) => {
@@ -415,11 +534,91 @@ mod tests {
             Some(Metrics {
                 w: 21.5,
                 a: 9.0,
-                d: 2.5
+                d: 2.5,
+                ink: None,
             })
         );
         assert_eq!(table_key(TypeRole::Label, "Mon"), "label\u{0}Mon");
         assert!(MeasureTable::from_json(r#"{"serif\u0000x": {"w": 1, "a": 1, "d": 1}}"#).is_err());
         assert!(MeasureTable::from_json(r#"{"label\u0000x": {"w": 1}}"#).is_err());
+    }
+
+    #[test]
+    fn table_holds_an_ink_box_and_asks_for_one_it_lacks() {
+        let table = MeasureTable::from_json(
+            r#"{"label\u00007": {"w": 7, "a": 9, "d": 2, "ink": {"l": 0.5, "r": 6.5, "a": 8.5, "d": 0}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            table.measure_ink(TypeRole::Label, "7").unwrap().ink,
+            Some(Ink {
+                l: 0.5,
+                r: 6.5,
+                a: 8.5,
+                d: 0.0
+            })
+        );
+        assert!(MeasureTable::from_json(
+            r#"{"label\u00007": {"w": 7, "a": 9, "d": 2, "ink": {"l": 1}}}"#
+        )
+        .is_err());
+
+        // Held without ink: a plain measure answers, an ink measure asks.
+        let mut table = MeasureTable::new();
+        table.insert(
+            TypeRole::Label,
+            "3",
+            FixedMetrics.measure(TypeRole::Label, "3").unwrap(),
+        );
+        assert!(table.measure(TypeRole::Label, "3").is_some());
+        assert!(table.measure_ink(TypeRole::Label, "3").is_none());
+        // A string asked for both ways, in either order, is one request for ink.
+        table.measure(TypeRole::Value, "12");
+        table.measure_ink(TypeRole::Value, "12");
+        table.measure_ink(TypeRole::Value, "4");
+        table.measure(TypeRole::Value, "4");
+        assert_eq!(
+            table.take_misses(),
+            ["3", "12", "4"]
+                .iter()
+                .zip([TypeRole::Label, TypeRole::Value, TypeRole::Value])
+                .map(|(t, role)| MeasureRequest {
+                    role,
+                    text: t.to_string(),
+                    ink: true
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_numeral_centred_by_its_ink_sits_at_the_disc_centre() {
+        // A key disc of radius 8 at (100, 50), numbered "7" in the label role.
+        let (cx, cy) = (100.0, 50.0);
+        let m = FixedMetrics.measure_ink(TypeRole::Label, "7").unwrap();
+        let ink = m.ink.unwrap();
+        let (x, y) = ink.origin_centred_at(cx, cy);
+        // The drawn shape, placed at that origin, is centred on the disc.
+        assert!(((x + ink.l + x + ink.r) / 2.0 - cx).abs() < 1e-9);
+        assert!(((y - ink.a + y + ink.d) / 2.0 - cy).abs() < 1e-9);
+        // Centring the font box instead sets the numeral off the disc's
+        // centre, because the font box is not the shape: the fault ink
+        // bounds fix.
+        let font_baseline = cy + (m.a - m.d) / 2.0;
+        let off = (font_baseline - (ink.a - ink.d) / 2.0) - cy;
+        assert!(off.abs() > 0.5, "font-box centring is off by {off}");
+    }
+
+    #[test]
+    fn run_rounds_answers_an_ink_request_with_ink() {
+        let got = run_rounds(&FixedMetrics, |m| {
+            (
+                m.measure(TypeRole::Label, "name"),
+                m.measure_ink(TypeRole::Label, "2"),
+            )
+        })
+        .unwrap();
+        assert_eq!(got.0.unwrap().ink, None);
+        assert!(got.1.unwrap().ink.is_some());
     }
 }

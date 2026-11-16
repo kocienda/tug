@@ -91,6 +91,13 @@ describe("buildChartPlaceholderHtml", () => {
       `<div class="tugx-chart" data-tugx-chart-pending="true">{"a": "x &lt; y &amp; z"}</div>`,
     );
   });
+
+  test("a diagram's placeholder names its door", () => {
+    expect(buildChartPlaceholderHtml(`{"a": "x < y"}`, "tugdiagram")).toBe(
+      `<div class="tugx-chart" data-tugx-chart-pending="true" data-tugx-chart-layers="diagram">{"a": "x &lt; y"}</div>`,
+    );
+    expect(buildChartPlaceholderHtml("{}", "tugchart")).toBe(buildChartPlaceholderHtml("{}"));
+  });
 });
 
 describe("tugchartTransformer.transform", () => {
@@ -135,5 +142,18 @@ describe("tugchartTransformer.transform", () => {
     expect(out[0].html).toBe(
       `<div class="tugx-chart" data-tugx-chart-pending="true">{"t": "a &lt; b &amp; c"}</div>`,
     );
+  });
+
+  test("promotes a closed ```tugdiagram fence through the diagram door", () => {
+    const block = codeBlock("tugdiagram", "{}\n");
+    const out = tugchartTransformer.transform(block, { isComplete: true, index: 0, source: "```tugdiagram\n{}\n```\n" });
+    expect(out[0].type).toBe("tug-chart");
+    expect(out[0].html).toBe(
+      `<div class="tugx-chart" data-tugx-chart-pending="true" data-tugx-chart-layers="diagram">{}</div>`,
+    );
+    const open = tugchartTransformer.transform(block, { isComplete: true, index: 0, source: "```tugdiagram\n{}\n" });
+    expect(open[0]).toBe(block);
+    expect(extractTugchartSource(`<pre><code class="language-TugDiagram">{}\n</code></pre>\n`)?.lang).toBe("tugdiagram");
+    expect(extractTugchartSource(`<pre><code class="language-tugdiagramx">{}\n</code></pre>\n`)).toBeNull();
   });
 });

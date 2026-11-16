@@ -49,6 +49,8 @@ export const CHART_COLOUR_ROLES: readonly string[] = [
   "accent",
   "good",
   "bad",
+  "caution",
+  "outside",
   "series-1",
   "series-2",
   "series-3",

@@ -1,0 +1,45 @@
+{
+  "tugdiagram": 1,
+  "form": "stack",
+  "title": "Tug is four layers between you and Claude Code",
+  "columns": 4,
+  "above": [{ "name": "You", "sub": "keyboard, pointer, voice", "span": [2, 3] }],
+  "layers": [
+    {
+      "name": "Tug.app",
+      "sub": "macOS host",
+      "rows": [[{ "name": "Windows and menus" }, { "name": "Web views" }, { "name": "Updates" }]]
+    },
+    {
+      "name": "tugdeck",
+      "sub": "web frontend",
+      "rows": [
+        [{ "key": 1, "name": "Session card", "sub": "shell commands and AI turns on one surface", "what": "The surface that replaces the terminal.", "where": "tugdeck/src/components/tugways/cards" }],
+        [{ "name": "Deck", "sub": "slots and panes" }, { "name": "Sidebar cards" }, { "name": "Themes", "sub": "ten token files" }]
+      ]
+    },
+    {
+      "name": "tugcast",
+      "sub": "WebSocket multiplexer",
+      "rows": [
+        [
+          { "key": 2, "name": "Feeds", "what": "Reads tool results as they pass and records what they say.", "where": "tugrust/crates/tugcast/src/feeds" },
+          { "name": "Session ledger" },
+          { "key": 3, "name": "Semantic index", "what": "Embeds transcripts, facts and documents on the device.", "where": "tugrust/crates/tugcast/src/semantic" },
+          { "name": "Operator" }
+        ]
+      ]
+    },
+    {
+      "name": "tugcode",
+      "sub": "bridge",
+      "span": [1, 2],
+      "rows": [[{ "key": 4, "name": "Spawn config", "what": "Builds the argument list Claude Code is started with.", "where": "tugcode/src/spawn-config.ts" }, { "name": "Event mapping" }]]
+    }
+  ],
+  "below": [
+    { "name": "Claude Code", "sub": "stream-json over stdio", "span": [1, 2] },
+    { "name": "Ledgers on disk", "sub": "Application Support/Tug", "span": [3, 4] }
+  ],
+  "across": { "title": "Shared", "names": ["tugtool — the CLI", "tugcore — shared library", "tugproto — protocol types"] }
+}

@@ -3,10 +3,12 @@
                                                           (series marks on the transcript block)
    - --tugx-chart-good / --tug7-surface-global-primary-normal-content-rest
    - --tugx-chart-bad / --tug7-surface-global-primary-normal-content-rest
+   - --tugx-chart-caution / --tug7-surface-global-primary-normal-content-rest
+   - --tugx-chart-outside / --tug7-surface-global-primary-normal-content-rest
    - --tugx-chart-grid / --tug7-surface-global-primary-normal-content-rest
                                                           (decorative plot rules)
    A chart's marks and text paint on the content surface the transcript
-   block sits on. Each series token and good/bad is registered against it
+   block sits on. Each series token, good, bad, caution and outside is registered against it
    in theme-pairings.ts at the informational role, the grid at decorative.
 */
 
@@ -46,6 +48,8 @@ body {
   --tugx-chart-accent:    var(--tug7-element-global-fill-normal-accent-rest);
   --tugx-chart-good:      var(--tug7-element-tone-fill-normal-success-rest);
   --tugx-chart-bad:       var(--tug7-element-tone-fill-normal-danger-rest);
+  --tugx-chart-caution:   var(--tug7-element-chart-fill-normal-caution-rest);
+  --tugx-chart-outside:   var(--tug7-element-chart-fill-normal-outside-rest);
   --tugx-chart-series-1:  var(--tug7-element-chart-fill-normal-series1-rest);
   --tugx-chart-series-2:  var(--tug7-element-chart-fill-normal-series2-rest);
   --tugx-chart-series-3:  var(--tug7-element-chart-fill-normal-series3-rest);
@@ -65,6 +69,10 @@ body {
 .tgf-accent    { fill: var(--tugx-chart-accent); }
 .tgf-good      { fill: var(--tugx-chart-good); }
 .tgf-bad       { fill: var(--tugx-chart-bad); }
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tgf-caution   { fill: var(--tugx-chart-caution); }
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tgf-outside   { fill: var(--tugx-chart-outside); }
 .tgf-series-1  { fill: var(--tugx-chart-series-1); }
 .tgf-series-2  { fill: var(--tugx-chart-series-2); }
 .tgf-series-3  { fill: var(--tugx-chart-series-3); }
@@ -83,6 +91,8 @@ body {
 .tgs-accent    { stroke: var(--tugx-chart-accent); }
 .tgs-good      { stroke: var(--tugx-chart-good); }
 .tgs-bad       { stroke: var(--tugx-chart-bad); }
+.tgs-caution   { stroke: var(--tugx-chart-caution); }
+.tgs-outside   { stroke: var(--tugx-chart-outside); }
 .tgs-series-1  { stroke: var(--tugx-chart-series-1); }
 .tgs-series-2  { stroke: var(--tugx-chart-series-2); }
 .tgs-series-3  { stroke: var(--tugx-chart-series-3); }
@@ -310,7 +320,7 @@ body {
   text-align: end;
 }
 
-.tugx-chart:not([data-tugx-chart-view="table"]) > .tugx-chart-table:not([data-tugx-find-unclamp]) {
+.tugx-chart:not([data-tugx-chart-view="table"]) > .tugx-chart-table:not(.tugx-diagram-table):not([data-tugx-find-unclamp]) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -323,6 +333,76 @@ body {
 
 .tugx-chart[data-tugx-chart-view="table"] > .tugx-chart-body {
   display: none;
+}
+
+/* ---- A diagram's keyed table ---------------------------------------------
+ *
+ * A diagram (`data-tugx-chart-kind="diagram"`) is a figure and a table: each
+ * numbered mark has a row beneath the figure saying what it does and where
+ * it is. The table is part of the figure, so it is shown, not clipped, and
+ * has no toggle. Its caption repeats the header's title, so it is clipped
+ * the way the chart's table is, and Find still reads it.
+ *
+ * The number sits in the same accent disc the figure draws it in: the
+ * accent is the key discs' and nothing else's.
+ *
+ * "Where it is" is an inline `<code>` the annotator resolves. A location it
+ * confirms becomes a file link and carries `data-tug-annotation`; one it has
+ * not confirmed — missing, or not yet answered — wears a muted, struck-through
+ * face and an "unresolved" tag, and is never a link [L06]. The mark is only
+ * worn where a resolver was asked (`data-tugx-where-checked`): a door with
+ * none shows the location as plain code, claimed neither way.
+ */
+
+.tugx-diagram-table {
+  margin-top: 0;
+}
+.tugx-diagram-table caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.tugx-chart-table.tugx-diagram-table th,
+.tugx-chart-table.tugx-diagram-table td {
+  text-align: start;
+  vertical-align: top;
+}
+.tugx-diagram-key {
+  width: 1%;
+}
+.tugx-diagram-disc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4em;
+  height: 1.4em;
+  border-radius: 999px;
+  background: var(--tugx-chart-accent);
+  color: var(--tugx-chart-surface);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.tugx-diagram-name {
+  white-space: nowrap;
+}
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-chart[data-tugx-where-checked] .tugx-diagram-where:has(code):not(:has([data-tug-annotation="file-path"], [data-tug-annotation="directory"])) code {
+  color: var(--tugx-chart-ink-muted);
+  text-decoration: line-through dashed;
+}
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-chart[data-tugx-where-checked] .tugx-diagram-where:has(code):not(:has([data-tug-annotation="file-path"], [data-tug-annotation="directory"]))::after {
+  content: "unresolved";
+  margin-inline-start: var(--tug-space-xs);
+  padding: 0 var(--tug-space-2xs);
+  border: 1px solid var(--tugx-chart-caution);
+  border-radius: 3px;
+  color: var(--tugx-chart-caution);
+  font-size: var(--tug-font-size-2xs);
 }
 
 /* ---- Entrances -----------------------------------------------------------

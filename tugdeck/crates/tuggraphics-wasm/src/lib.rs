@@ -8,7 +8,7 @@
 //! render_program(source, id_prefix)
 //!   → { status: "done", svg } | { status: "invalid", errors: { op: number | null, message }[] }
 //! compile_round(source, opts_json, table_json)
-//!   → { status: "measure", texts: [role, text][] }
+//!   → { status: "measure", texts: [role, text][], ink: [role, text][] }
 //!   | { status: "done", svg, table, find_text, width, height }
 //!   | { status: "invalid", errors: { path, message }[] }
 //! validate(source, layers) → { status: "valid" } | { status: "invalid", errors: { path, message }[] }
@@ -50,8 +50,8 @@ pub fn render_program_outcome(source: &str, id_prefix: &str) -> RenderOutcome {
     }
 }
 
-/// A door's layers by name; anything but `"any"` is the fence's `"chart"`,
-/// the stricter reading.
+/// A door's layers by name: `"chart"`, `"diagram"` or `"any"`. Anything
+/// else is the chart fence's `"chart"`, the stricter reading.
 fn layers(name: &str) -> Layers {
     Layers::parse(name).unwrap_or(Layers::Chart)
 }
@@ -106,8 +106,8 @@ pub fn compile_round(source: &str, opts_json: &str, table_json: &str) -> Result<
     to_js(&compile_round_outcome(source, opts_json, table_json))
 }
 
-/// Every error in a source, for a door taking `layers` (`"chart"` or
-/// `"any"`).
+/// Every error in a source, for a door taking `layers` (`"chart"`,
+/// `"diagram"` or `"any"`).
 #[wasm_bindgen]
 pub fn validate(source: &str, layers: &str) -> Result<JsValue, JsValue> {
     to_js(&validate_outcome(source, layers))
@@ -150,10 +150,11 @@ mod tests {
     #[test]
     fn compile_round_speaks_the_protocol() {
         let opts = r#"{"width": 400, "id_prefix": "c1", "motion": true, "layers": "chart"}"#;
-        let Round::Measure { texts } = compile_round_outcome(BAR, opts, "{}") else {
+        let Round::Measure { texts, ink } = compile_round_outcome(BAR, opts, "{}") else {
             panic!("round 1 should ask");
         };
         assert!(texts.contains(&("title".to_string(), "T".to_string())));
+        assert!(ink.is_empty());
         let table: Vec<String> = texts
             .iter()
             .map(|(role, text)| {
@@ -198,5 +199,20 @@ mod tests {
         assert_eq!(find_text_of(BAR, "chart"), "Tna3");
         assert_eq!(find_text_of(draw, "any"), "");
         assert_eq!(find_text_of(draw, "chart"), draw);
+        let flow = r#"{"tugdiagram": 1, "form": "flow", "title": "T", "columns": [[{"id": "a", "name": "A", "rows": [{"key": 1, "name": "r", "what": "w"}]}]]}"#;
+        assert_eq!(validate_outcome(flow, "diagram"), ValidateOutcome::Valid);
+        assert_eq!(validate_outcome(flow, "any"), ValidateOutcome::Valid);
+        assert!(matches!(
+            validate_outcome(flow, "chart"),
+            ValidateOutcome::Invalid { .. }
+        ));
+        assert!(matches!(
+            validate_outcome(BAR, "diagram"),
+            ValidateOutcome::Invalid { .. }
+        ));
+        assert_eq!(
+            find_text_of(flow, "diagram"),
+            "T#StepWhat it doesWhere it is1rw"
+        );
     }
 }

@@ -506,8 +506,8 @@ describe("the arc verbs on a project that declares nothing", () => {
   });
 });
 
-describe("brief and viz are the skills a model may reach for", () => {
-  test("only skills/brief and skills/viz carry no disable-model-invocation", () => {
+describe("brief, explain and viz are the skills a model may reach for", () => {
+  test("only skills/brief, skills/explain and skills/viz carry no disable-model-invocation", () => {
     const skills = join(pluginRoot, "skills");
     const invocable: string[] = [];
     for (const skill of readdirSync(skills).filter((s) => statSync(join(skills, s)).isDirectory())) {
@@ -519,8 +519,9 @@ describe("brief and viz are the skills a model may reach for", () => {
     // The exceptions are few and deliberate: a model reaching for a door would
     // start work nobody asked for, while a brief is a document written where
     // the user said to write one, and a chart is a figure in the transcript
-    // that starts nothing and writes no file.
-    expect(invocable.sort()).toEqual(["brief", "viz"]);
+    // that starts nothing and writes no file, as is an explanation, which
+    // writes a file only when the request asks to keep it.
+    expect(invocable.sort()).toEqual(["brief", "explain", "viz"]);
   });
 });
 

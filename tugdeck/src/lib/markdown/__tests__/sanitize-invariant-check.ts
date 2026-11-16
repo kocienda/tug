@@ -83,7 +83,9 @@ function postSanitize(tag: string, attrs: Attr[], attr?: string): boolean {
   if (tag === "span") return attr === undefined ? classHas(attrs, "tug-syn-") : attr === "class";
   if (tag === "code") return attr === "data-tug-highlighted";
   if (tag === "div" && (attr === "data-tugx-math" || attr === "data-tugx-math-pending")) return classHas(attrs, "tugx-katex");
-  if (tag === "div" && attr === "data-tugx-chart-pending") return classHas(attrs, "tugx-chart");
+  if (tag === "div" && (attr === "data-tugx-chart-pending" || attr === "data-tugx-chart-layers")) {
+    return classHas(attrs, "tugx-chart");
+  }
   return false;
 }
 

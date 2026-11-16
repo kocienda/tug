@@ -85,7 +85,7 @@ fn extract_fence_source(html: &str, langs: &[&str]) -> Option<(String, String)> 
 }
 
 const MATH_LANGS: &[&str] = &["math", "latex", "tex"];
-const TUGCHART_LANGS: &[&str] = &["tugchart"];
+const TUGCHART_LANGS: &[&str] = &["tugchart", "tugdiagram"];
 
 /// `extractMathSource`: a ```math / ```latex / ```tex fence's language and
 /// LaTeX source.
@@ -93,7 +93,8 @@ pub fn extract_math_source(html: &str) -> Option<(String, String)> {
     extract_fence_source(html, MATH_LANGS)
 }
 
-/// `extractTugchartSource`: a ```tugchart fence's language and spec source.
+/// `extractTugchartSource`: a ```tugchart or ```tugdiagram fence's language
+/// and spec source.
 pub fn extract_tugchart_source(html: &str) -> Option<(String, String)> {
     extract_fence_source(html, TUGCHART_LANGS)
 }
@@ -146,10 +147,15 @@ pub fn build_math_placeholder_html(source: &str) -> String {
     )
 }
 
-/// `buildChartPlaceholderHtml`.
-pub fn build_chart_placeholder_html(source: &str) -> String {
+/// `buildChartPlaceholderHtml`: a diagram's placeholder names its door.
+pub fn build_chart_placeholder_html(source: &str, lang: &str) -> String {
+    let door = if lang == "tugdiagram" {
+        " data-tugx-chart-layers=\"diagram\""
+    } else {
+        ""
+    };
     format!(
-        "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{}</div>",
+        "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\"{door}>{}</div>",
         escape_for_text_content(source)
     )
 }
@@ -166,10 +172,10 @@ pub fn apply_default_transformers(kind: &mut String, html: &mut String, source: 
     if let Some((_, source)) = extract_math_source(html) {
         *kind = "tug-math-display".to_string();
         *html = build_math_placeholder_html(&source);
-    } else if let Some((_, spec)) = extract_tugchart_source(html) {
+    } else if let Some((lang, spec)) = extract_tugchart_source(html) {
         if fence_is_closed(source) {
             *kind = "tug-chart".to_string();
-            *html = build_chart_placeholder_html(&spec);
+            *html = build_chart_placeholder_html(&spec, &lang);
         }
     }
 }
@@ -268,8 +274,16 @@ mod tests {
             None
         );
         assert_eq!(
-            build_chart_placeholder_html("{\"a\": \"x < y & z\"}"),
+            build_chart_placeholder_html("{\"a\": \"x < y & z\"}", "tugchart"),
             "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{\"a\": \"x &lt; y &amp; z\"}</div>"
+        );
+        assert_eq!(
+            build_chart_placeholder_html("{}", "tugdiagram"),
+            "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\" data-tugx-chart-layers=\"diagram\">{}</div>"
+        );
+        assert_eq!(
+            extract_tugchart_source("<pre><code class=\"language-tugdiagram\">{}\n</code></pre>\n"),
+            Some(("tugdiagram".to_string(), "{}".to_string()))
         );
     }
 

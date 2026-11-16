@@ -280,6 +280,12 @@ body {
   --tug7-element-chart-fill-normal-series6-rest: --tug-color(jade, l: 640, c: 280);
   --tug7-element-chart-fill-normal-series7-rest: --tug-color(pink, l: 820, c: 200);
   --tug7-element-chart-fill-normal-series8-rest: --tug-color(sky, l: 640, c: 280);
+  /* Two semantic roles beside good and bad. Caution is the outcome between
+     them — allowed but degraded, a fallback, a retry — painted as the
+     theme's caution text. Outside is a place, never an outcome: what lies
+     beyond the system a figure explains, painted as the data tone. */
+  --tug7-element-chart-fill-normal-caution-rest: --tug-color(yellow, l: 860, c: 260);
+  --tug7-element-chart-fill-normal-outside-rest: --tug-color(teal, l: 760, c: 300);
   /* Between the canvas grid line and the muted border: a rule a reader
      sees only when looking for it. */
   --tug7-element-chart-stroke-normal-grid-rest: --tug-color(honey, l: 450, c: 30);

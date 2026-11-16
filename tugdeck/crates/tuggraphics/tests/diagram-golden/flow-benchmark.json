@@ -1,0 +1,43 @@
+{
+  "tugdiagram": 1,
+  "form": "flow",
+  "title": "How nai-memory keeps users apart today",
+  "columns": [
+    [
+      { "id": "a", "name": "User A", "sub": "asks for own memory" },
+      { "id": "b", "name": "User B", "sub": "asks for A's memory" }
+    ],
+    [
+      {
+        "id": "api",
+        "name": "nai-memory API and MCP",
+        "sub": "every request passes three checks",
+        "rows": [
+          { "key": 1, "name": "Sign-in", "sub": "who is calling, and their tier" },
+          { "key": 2, "name": "Scope check", "sub": "does the caller own this scope?" },
+          { "key": 3, "name": "Label ceiling", "sub": "may this label leave the department?" }
+        ]
+      }
+    ],
+    [
+      {
+        "id": "db",
+        "name": "FalkorDB (one server)",
+        "sub": "one graph per scope",
+        "rows": [
+          { "name": "personal:user-a", "mono": true, "lit": "good" },
+          { "name": "personal:user-b", "mono": true },
+          { "name": "team:payments", "mono": true },
+          { "name": "_meta-governance", "mono": true }
+        ],
+        "notes": ["only memory pods may connect · one password", "TLS on AWS · KMS-encrypted disk"]
+      }
+    ]
+  ],
+  "edges": [
+    { "from": "a", "to": "api", "tone": "good" },
+    { "from": "b", "to": "api", "tone": "bad" },
+    { "from": "api.1", "to": "db.1", "tone": "good", "label": "allowed" },
+    { "from": "api.2", "to": "b", "tone": "bad", "dashed": true, "label": "refused with HTTP 403 before FalkorDB is touched" }
+  ]
+}

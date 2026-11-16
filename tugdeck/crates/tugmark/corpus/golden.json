@@ -92,9 +92,9 @@
         },
         {
           "depth": 0,
-          "endChar": 140,
-          "hash": "2ac37eaf6e2c0c89",
-          "html": "<p>A look-alike language is not:</p>\n",
+          "endChar": 182,
+          "hash": "1fe6e40417fb2614",
+          "html": "<p>A closed diagram fence is promoted, and its placeholder names its door:</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
@@ -102,53 +102,73 @@
         },
         {
           "depth": 0,
-          "endChar": 173,
+          "endChar": 293,
+          "hash": "3367b66ef40cee46",
+          "html": "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\" data-tugx-chart-layers=\"diagram\">{\"tugdiagram\": 1, \"form\": \"flow\", \"title\": \"a &lt; b\", \"columns\": [[{\"id\": \"a\", \"name\": \"A\"}]]}</div>",
+          "itemCount": 0,
+          "kind": "tug-chart",
+          "rowCount": 0,
+          "startChar": 183
+        },
+        {
+          "depth": 0,
+          "endChar": 325,
+          "hash": "2ac37eaf6e2c0c89",
+          "html": "<p>A look-alike language is not:</p>\n",
+          "itemCount": 0,
+          "kind": "paragraph",
+          "rowCount": 0,
+          "startChar": 295
+        },
+        {
+          "depth": 0,
+          "endChar": 358,
           "hash": "44b6431bf3e8ef40",
           "html": "<pre><code class=\"language-tugchartx\">{\"tugchart\": 1}\n</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
-          "startChar": 141
+          "startChar": 326
         },
         {
           "depth": 0,
-          "endChar": 242,
+          "endChar": 427,
           "hash": "35ab5116aaa76287",
           "html": "<p>A four-backtick fence holds a three-backtick line without closing:</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 175
+          "startChar": 360
         },
         {
           "depth": 0,
-          "endChar": 368,
+          "endChar": 553,
           "hash": "3aabe8db0bf3856b",
           "html": "<div class=\"tugx-chart\" data-tugx-chart-pending=\"true\">{\"tugchart\": 1, \"form\": \"bar\", \"title\": \"a &lt; b &amp; c\",\n```\n \"categories\": [\"x\"], \"series\": [{\"values\": [1]}]}</div>",
           "itemCount": 0,
           "kind": "tug-chart",
           "rowCount": 0,
-          "startChar": 243
+          "startChar": 428
         },
         {
           "depth": 0,
-          "endChar": 427,
+          "endChar": 612,
           "hash": "8762d87f8a9b4bdf",
           "html": "<p>An unclosed fence at the end of the document stays code:</p>\n",
           "itemCount": 0,
           "kind": "paragraph",
           "rowCount": 0,
-          "startChar": 370
+          "startChar": 555
         },
         {
           "depth": 0,
-          "endChar": 493,
+          "endChar": 678,
           "hash": "3aeee93fefd0e2ee",
           "html": "<pre><code class=\"language-tugchart\">{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [4, 5\n</code></pre>\n",
           "itemCount": 0,
           "kind": "code",
           "rowCount": 0,
-          "startChar": 428
+          "startChar": 613
         }
       ],
       "name": "constructs/charts.md",
@@ -162,12 +182,14 @@
             4,
             5,
             6,
-            7
+            7,
+            8,
+            9
           ],
-          "end": 493
+          "end": 678
         }
       ],
-      "text": "A closed chart fence is promoted:\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [1, 2, 3]}\n```\n\nA look-alike language is not:\n\n```tugchartx\n{\"tugchart\": 1}\n```\n\nA four-backtick fence holds a three-backtick line without closing:\n\n````tugchart\n{\"tugchart\": 1, \"form\": \"bar\", \"title\": \"a < b & c\",\n```\n \"categories\": [\"x\"], \"series\": [{\"values\": [1]}]}\n````\n\nAn unclosed fence at the end of the document stays code:\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [4, 5\n"
+      "text": "A closed chart fence is promoted:\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [1, 2, 3]}\n```\n\nA closed diagram fence is promoted, and its placeholder names its door:\n\n```tugdiagram\n{\"tugdiagram\": 1, \"form\": \"flow\", \"title\": \"a < b\", \"columns\": [[{\"id\": \"a\", \"name\": \"A\"}]]}\n```\n\nA look-alike language is not:\n\n```tugchartx\n{\"tugchart\": 1}\n```\n\nA four-backtick fence holds a three-backtick line without closing:\n\n````tugchart\n{\"tugchart\": 1, \"form\": \"bar\", \"title\": \"a < b & c\",\n```\n \"categories\": [\"x\"], \"series\": [{\"values\": [1]}]}\n````\n\nAn unclosed fence at the end of the document stays code:\n\n```tugchart\n{\"tugchart\": 1, \"form\": \"sparkline\", \"values\": [4, 5\n"
     },
     {
       "blocks": [

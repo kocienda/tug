@@ -128,7 +128,9 @@ fn post_sanitize(tag: &str, attrs: &[(String, String)], attr: Option<&str>) -> b
         ("div", Some("data-tugx-math" | "data-tugx-math-pending")) => {
             class_has(attrs, "tugx-katex")
         }
-        ("div", Some("data-tugx-chart-pending")) => class_has(attrs, "tugx-chart"),
+        ("div", Some("data-tugx-chart-pending" | "data-tugx-chart-layers")) => {
+            class_has(attrs, "tugx-chart")
+        }
         _ => false,
     }
 }
@@ -303,6 +305,10 @@ fn the_invariant_catches_what_it_names() {
         (
             "<p data-tugx-chart-pending=\"true\">a</p>",
             "attribute data-tugx-chart-pending on <p>",
+        ),
+        (
+            "<p data-tugx-chart-layers=\"diagram\">a</p>",
+            "attribute data-tugx-chart-layers on <p>",
         ),
         ("<h1 id=\"top\">a</h1>", "id \"top\" on <h1>"),
         (

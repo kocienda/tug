@@ -18,8 +18,8 @@ export function find_text(source: string, layers: string): string;
 export function render_program(source: string, id_prefix: string): any;
 
 /**
- * Every error in a source, for a door taking `layers` (`"chart"` or
- * `"any"`).
+ * Every error in a source, for a door taking `layers` (`"chart"`,
+ * `"diagram"` or `"any"`).
  */
 export function validate(source: string, layers: string): any;
 

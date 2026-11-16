@@ -1,7 +1,7 @@
 /**
- * `tugchartTransformer` — promotes ` ```tugchart ` fenced-code blocks to
- * the `tug-chart` body kind so the post-render `enhance-chart` walker
- * can compile them through the chart engine.
+ * `tugchartTransformer` — promotes ` ```tugchart ` and ` ```tugdiagram `
+ * fenced-code blocks to the `tug-chart` body kind so the post-render
+ * `enhance-chart` walker can compile them through the chart engine.
  *
  * It is the math transformer's shape with one difference in when it
  * promotes. A transformer gated on `isComplete`, the parent text's
@@ -35,8 +35,12 @@ function escapeForTextContent(raw: string): string {
   return raw.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }
 
-/** Languages this transformer promotes. Matched case-insensitively. */
-const TUGCHART_LANGS = new Set(["tugchart"]);
+/**
+ * Languages this transformer promotes, matched case-insensitively: a
+ * chart, and a diagram, which the same engine and body kind draw through
+ * their own door.
+ */
+const TUGCHART_LANGS = new Set(["tugchart", "tugdiagram"]);
 
 /**
  * Extract the spec source out of a sanitized
@@ -112,10 +116,13 @@ export function fenceIsClosed(source: string): boolean {
  * The placeholder the chart walker consumes: the spec source as
  * `textContent`, re-escaped for the `innerHTML` round-trip, so the
  * engine reads it back losslessly and until it runs the reader sees the
- * source.
+ * source. A diagram's placeholder names its door, which the walker hands
+ * the engine, so a `tugchart` fence never draws a diagram nor a
+ * `tugdiagram` fence a chart.
  */
-export function buildChartPlaceholderHtml(source: string): string {
-  return `<div class="tugx-chart" data-tugx-chart-pending="true">${escapeForTextContent(source)}</div>`;
+export function buildChartPlaceholderHtml(source: string, lang: string = "tugchart"): string {
+  const door = lang === "tugdiagram" ? ' data-tugx-chart-layers="diagram"' : "";
+  return `<div class="tugx-chart" data-tugx-chart-pending="true"${door}>${escapeForTextContent(source)}</div>`;
 }
 
 export const tugchartTransformer: BlockTransformer = {
@@ -129,7 +136,7 @@ export const tugchartTransformer: BlockTransformer = {
       {
         ...block,
         type: "tug-chart",
-        html: buildChartPlaceholderHtml(extracted.source),
+        html: buildChartPlaceholderHtml(extracted.source, extracted.lang),
       },
     ];
   },

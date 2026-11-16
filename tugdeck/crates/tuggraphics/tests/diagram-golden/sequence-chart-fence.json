@@ -1,0 +1,23 @@
+{
+  "tugdiagram": 1,
+  "form": "sequence",
+  "title": "A chart is laid out in a conversation between the page and the engine",
+  "actors": [
+    { "id": "md", "name": "Markdown", "sub": "block transformer" },
+    { "id": "render", "name": "renderChartInto", "sub": "the one renderer" },
+    { "id": "engine", "name": "Engine", "sub": "tuggraphics, WASM" },
+    { "id": "fonts", "name": "Page fonts", "sub": "role probes, canvas" }
+  ],
+  "messages": [
+    { "key": 1, "from": "md", "to": "render", "label": "fence closed: source", "what": "Promotes a closed tugchart fence to a figure; an open one stays code.", "where": "tugdeck/src/lib/markdown/block-transformers/tugchart.ts" },
+    { "key": 2, "from": "render", "to": "engine", "label": "validate(source)", "what": "Checks the spec; an invalid one shows its errors in place.", "where": "tugdeck/crates/tuggraphics/src/chart/spec.rs" },
+    { "from": "engine", "to": "render", "label": "valid", "reply": true },
+    { "key": 3, "from": "render", "to": "fonts", "label": "wait for each role's face", "what": "Waits for the faces the roles are set in, with a three-second horizon.", "where": "tugdeck/src/lib/chart/chart-measure.ts" },
+    { "key": 4, "from": "render", "to": "engine", "label": "compile_round(source, { })", "what": "Runs one round of layout against the table of measurements so far.", "where": "tugdeck/crates/tuggraphics-wasm/src/lib.rs" },
+    { "from": "engine", "to": "render", "label": "measure: these (role, text) pairs", "reply": true },
+    { "key": 5, "from": "render", "to": "fonts", "label": "measure each pair", "what": "Measures exactly the pairs asked for, in the role's own computed font.", "where": "tugdeck/src/lib/font-metrics.ts" },
+    { "from": "render", "to": "engine", "label": "compile_round(source, table)" },
+    { "from": "engine", "to": "render", "label": "done: svg, table, find text", "reply": true, "tone": "good" },
+    { "key": 6, "from": "render", "to": "render", "label": "replace the source with the figure", "what": "Builds the figure off-document and swaps it in with one write.", "where": "tugdeck/src/lib/chart/render-chart.ts" }
+  ]
+}

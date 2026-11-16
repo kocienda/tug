@@ -411,6 +411,40 @@ fn chart_render_takes_a_drawing_and_a_theme() {
 }
 
 #[test]
+fn chart_render_takes_a_diagram_at_its_natural_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("flow.svg");
+    let diagram = r#"{"tugdiagram": 1, "form": "flow", "title": "A request is checked once",
+      "columns": [[{"id": "a", "name": "Caller"}],
+                  [{"id": "b", "name": "Server", "rows": [{"key": 1, "name": "Check", "what": "Refuses a stranger.", "where": "src/check.rs"}]}]],
+      "edges": [{"from": "a", "to": "b.1", "tone": "good", "label": "asks"}]}"#;
+    let run = render(diagram, &out, &[]);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let svg = std::fs::read_to_string(&out).unwrap();
+    assert!(svg.contains(">A request is checked once</text>"), "{svg}");
+    assert!(svg.contains(">Check</text>"), "{svg}");
+    // The key disc is the accent's, and a file carries no hit target.
+    assert!(svg.contains("class=\"tgf-accent\""), "{svg}");
+    assert!(!svg.contains("data-row"), "{svg}");
+
+    let run = render(
+        r#"{"tugdiagram": 1, "form": "flow", "title": "t", "columns": [[{"id": "a", "name": "A", "x": 3}]]}"#,
+        &out,
+        &[],
+    );
+    assert_eq!(run.status.code(), Some(1));
+    let text = format!("{}{}", stdout(&run), String::from_utf8_lossy(&run.stderr));
+    assert!(
+        text.contains("/columns/0/0/x: unknown field \"x\""),
+        "{text}"
+    );
+}
+
+#[test]
 fn chart_render_refuses_an_unknown_theme_and_an_invalid_source() {
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("x.svg");
@@ -424,6 +458,9 @@ fn chart_render_refuses_an_unknown_theme_and_an_invalid_source() {
     let run = render(r#"{"tugchart": 1, "form": "pie"}"#, &out, &[]);
     assert_eq!(run.status.code(), Some(1));
     let text = format!("{}{}", stdout(&run), String::from_utf8_lossy(&run.stderr));
-    assert!(text.contains("not a valid chart or drawing"), "{text}");
+    assert!(
+        text.contains("not a valid chart, diagram or drawing"),
+        "{text}"
+    );
     assert!(!out.exists());
 }

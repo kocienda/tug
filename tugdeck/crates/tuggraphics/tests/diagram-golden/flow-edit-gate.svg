@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 1018 316" width="1018" height="316" aria-hidden="true">
+<g transform="translate(0.5 0.5)">
+<text x="16" y="16" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">A shell edit the gate cannot read never reaches the file</text>
+<path d="M24 107 L188 107 A8 8 0 0 1 196 115 L196 161 A8 8 0 0 1 188 169 L24 169 A8 8 0 0 1 16 161 L16 115 A8 8 0 0 1 24 107 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M24 107 L188 107 A8 8 0 0 1 196 115 L196 161 A8 8 0 0 1 188 169 L24 169 A8 8 0 0 1 16 161 L16 115 A8 8 0 0 1 24 107 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="106" y="118" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">Model</text>
+<text x="106" y="134" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">a Bash call that writes</text>
+<text x="106" y="147" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">a file</text>
+<path d="M256 41 L446 41 A8 8 0 0 1 454 49 L454 227 A8 8 0 0 1 446 235 L256 235 A8 8 0 0 1 248 227 L248 49 A8 8 0 0 1 256 41 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M256 41 L446 41 A8 8 0 0 1 454 49 L454 227 A8 8 0 0 1 446 235 L256 235 A8 8 0 0 1 248 227 L248 49 A8 8 0 0 1 256 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="351" y="53" class="tgt-title tgf-ink tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">PreToolUse gate</text>
+<text x="351" y="69" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">tugtool hook</text>
+<text x="351" y="82" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">pre-tool-use</text>
+<path d="M265 103 L437 103 A5 5 0 0 1 442 108 L442 154 A5 5 0 0 1 437 159 L265 159 A5 5 0 0 1 260 154 L260 108 A5 5 0 0 1 265 103 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M265 103 L437 103 A5 5 0 0 1 442 108 L442 154 A5 5 0 0 1 437 159 L265 159 A5 5 0 0 1 260 154 L260 108 A5 5 0 0 1 265 103 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
+<path d="M286 118 A8 8 0 0 1 270 118 A8 8 0 0 1 286 118 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
+<text x="274.7" y="121.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">1</text>
+<text x="293" y="118" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Read the command</text>
+<text x="293" y="128" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">can its file operands</text>
+<text x="293" y="141" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">be named?</text>
+<path d="M265 167 L437 167 A5 5 0 0 1 442 172 L442 218 A5 5 0 0 1 437 223 L265 223 A5 5 0 0 1 260 218 L260 172 A5 5 0 0 1 265 167 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M265 167 L437 167 A5 5 0 0 1 442 172 L442 218 A5 5 0 0 1 437 223 L265 223 A5 5 0 0 1 260 218 L260 172 A5 5 0 0 1 265 167 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
+<path d="M286 182 A8 8 0 0 1 270 182 A8 8 0 0 1 286 182 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
+<text x="274.7" y="185.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">2</text>
+<text x="293" y="182" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Deny the unreadable</text>
+<text x="293" y="192" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">heredoc bodies,</text>
+<text x="293" y="205" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">inline interpreters</text>
+<path d="M598 54 L781 54 A8 8 0 0 1 789 62 L789 214 A8 8 0 0 1 781 222 L598 222 A8 8 0 0 1 590 214 L590 62 A8 8 0 0 1 598 54 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M598 54 L781 54 A8 8 0 0 1 789 62 L789 214 A8 8 0 0 1 781 222 L598 222 A8 8 0 0 1 590 214 L590 62 A8 8 0 0 1 598 54 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="690" y="66" class="tgt-title tgf-ink tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="text-before-edge">tugcast</text>
+<text x="690" y="82" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="text-before-edge">reads the tool result</text>
+<path d="M607 103 L772 103 A5 5 0 0 1 777 108 L777 154 A5 5 0 0 1 772 159 L607 159 A5 5 0 0 1 602 154 L602 108 A5 5 0 0 1 607 103 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M607 103 L772 103 A5 5 0 0 1 777 108 L777 154 A5 5 0 0 1 772 159 L607 159 A5 5 0 0 1 602 154 L602 108 A5 5 0 0 1 607 103 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
+<path d="M628 118 A8 8 0 0 1 612 118 A8 8 0 0 1 628 118 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
+<text x="616.7" y="121.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">3</text>
+<text x="635" y="118" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Find the receipt</text>
+<text x="635" y="128" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">TUG-FILE-RECEIPT in</text>
+<text x="635" y="141" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">the output</text>
+<path d="M607 167 L772 167 A5 5 0 0 1 777 172 L777 205 A5 5 0 0 1 772 210 L607 210 A5 5 0 0 1 602 205 L602 172 A5 5 0 0 1 607 167 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M607 167 L772 167 A5 5 0 0 1 777 172 L777 205 A5 5 0 0 1 772 210 L607 210 A5 5 0 0 1 602 205 L602 172 A5 5 0 0 1 607 167 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
+<path d="M628 182 A8 8 0 0 1 612 182 A8 8 0 0 1 628 182 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
+<text x="616.7" y="185.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">4</text>
+<text x="635" y="182" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Record the change</text>
+<text x="635" y="192" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">against this session</text>
+<path d="M849 56 L993 56 A8 8 0 0 1 1001 64 L1001 213 A8 8 0 0 1 993 221 L849 221 A8 8 0 0 1 841 213 L841 64 A8 8 0 0 1 849 56 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M849 56 L993 56 A8 8 0 0 1 1001 64 L1001 213 A8 8 0 0 1 993 221 L849 221 A8 8 0 0 1 841 213 L841 64 A8 8 0 0 1 849 56 Z" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="921" y="68" class="tgt-title tgf-ink tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="text-before-edge">changes.db</text>
+<text x="921" y="84" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="text-before-edge">what tugtool changes</text>
+<text x="921" y="97" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="text-before-edge">reads</text>
+<path d="M858 118 L984 118 A5 5 0 0 1 989 123 L989 138 A5 5 0 0 1 984 143 L858 143 A5 5 0 0 1 853 138 L853 123 A5 5 0 0 1 858 118 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M858 118 L984 118 A5 5 0 0 1 989 123 L989 138 A5 5 0 0 1 984 143 L858 143 A5 5 0 0 1 853 138 L853 123 A5 5 0 0 1 858 118 Z" class="tgs-good tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
+<path d="M858 118 L984 118 A5 5 0 0 1 989 123 L989 138 A5 5 0 0 1 984 143 L858 143 A5 5 0 0 1 853 138 L853 123 A5 5 0 0 1 858 118 Z" class="tgf-good tge-fade" style="--tg-i:3" opacity="0.14"/>
+<text x="863" y="131" class="tgt-mono tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">attributed</text>
+<path d="M858 151 L984 151 A5 5 0 0 1 989 156 L989 171 A5 5 0 0 1 984 176 L858 176 A5 5 0 0 1 853 171 L853 156 A5 5 0 0 1 858 151 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M858 151 L984 151 A5 5 0 0 1 989 156 L989 171 A5 5 0 0 1 984 176 L858 176 A5 5 0 0 1 853 171 L853 156 A5 5 0 0 1 858 151 Z" class="tgs-caution tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
+<path d="M858 151 L984 151 A5 5 0 0 1 989 156 L989 171 A5 5 0 0 1 984 176 L858 176 A5 5 0 0 1 853 171 L853 156 A5 5 0 0 1 858 151 Z" class="tgf-caution tge-fade" style="--tg-i:3" opacity="0.14"/>
+<text x="863" y="164" class="tgt-mono tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">unattributed</text>
+<path d="M858 184 L984 184 A5 5 0 0 1 989 189 L989 204 A5 5 0 0 1 984 209 L858 209 A5 5 0 0 1 853 204 L853 189 A5 5 0 0 1 858 184 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M858 184 L984 184 A5 5 0 0 1 989 189 L989 204 A5 5 0 0 1 984 209 L858 209 A5 5 0 0 1 853 204 L853 189 A5 5 0 0 1 858 184 Z" class="tgs-grid tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
+<text x="863" y="197" class="tgt-mono tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">foreign</text>
+<path d="M196 138 L240 138" class="tgs-ink-muted tge-draw" style="--tg-i:4" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M248 138 L240 142 L240 134 Z" class="tgf-ink-muted tge-fade" style="--tg-i:4"/>
+<text x="518" y="113" class="tgt-value tgf-good tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="text-after-edge">runs, prints its</text>
+<text x="518" y="126" class="tgt-value tgf-good tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="text-after-edge">receipt</text>
+<path d="M442 131 L594 131" class="tgs-good tge-draw" style="--tg-i:5" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M602 131 L594 135 L594 127 Z" class="tgf-good tge-fade" style="--tg-i:5"/>
+<text x="289" y="275" class="tgt-value tgf-bad tge-fade" style="--tg-i:6" text-anchor="middle" dominant-baseline="text-before-edge">denied before it runs</text>
+<path d="M442 195 L464 195 C472 195 472 195 472 203 L472 247 C472 255 472 255 464 255 L114 255 C106 255 106 255 106 247 L106 177" class="tgs-bad tge-fade" style="--tg-i:6" fill="none" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="butt" stroke-linejoin="round"/>
+<path d="M106 169 L110 177 L102 177 Z" class="tgf-bad tge-fade" style="--tg-i:6"/>
+<path d="M777 189 L799 189 C807 189 807 189 807 181 L807 139 C807 131 807 131 815 131 L845 131" class="tgs-good tge-draw" style="--tg-i:7" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M853 131 L845 135 L845 127 Z" class="tgf-good tge-fade" style="--tg-i:7"/>
+<text x="703" y="275" class="tgt-value tgf-caution tge-fade" style="--tg-i:8" text-anchor="middle" dominant-baseline="text-before-edge">unprovable either way: runs, lands</text>
+<text x="703" y="288" class="tgt-value tgf-caution tge-fade" style="--tg-i:8" text-anchor="middle" dominant-baseline="text-before-edge">unattributed</text>
+<path d="M454 150 L476 150 C484 150 484 150 484 158 L484 261 C484 269 484 269 492 269 L913 269 C921 269 921 269 921 261 L921 229" class="tgs-caution tge-draw" style="--tg-i:8" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M921 221 L925 229 L917 229 Z" class="tgf-caution tge-fade" style="--tg-i:8"/>
+<path class="tgh" d="M260 103 L442 103 L442 159 L260 159 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M260 167 L442 167 L442 223 L260 223 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M602 103 L777 103 L777 159 L602 159 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M602 167 L777 167 L777 210 L602 210 Z" fill="none" pointer-events="all" data-row="3"/>
+</g>
+</svg>

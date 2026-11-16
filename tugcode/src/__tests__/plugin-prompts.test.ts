@@ -36,6 +36,7 @@ describe("readPluginPrompts", () => {
         "landings.md": "# Landings\n",
         "working-rules.md": "# Working rules\n",
         "graphics.md": "# Charts the Session card draws\n",
+        "diagrams.md": "# Diagrams the Session card draws\n",
         "run-offers.md": "# Commands the user can run\n",
       },
       (dir) => {
@@ -49,6 +50,7 @@ describe("readPluginPrompts", () => {
           "# Landings",
           "# Working rules",
           "# Charts the Session card draws",
+          "# Diagrams the Session card draws",
           "# Commands the user can run",
         ]);
       },

@@ -14,6 +14,9 @@ use crate::draw::{self, ColourRole, Program, SERIES_COUNT};
 /// At most this many series in one chart, one per categorical colour the
 /// themes carry.
 pub const MAX_SERIES: usize = SERIES_COUNT as usize;
+/// The roles a series `role` or a span `status` may name: the outcomes, the
+/// place beyond the system, and the accent.
+pub const SEMANTIC_ROLES: [&str; 5] = ["good", "bad", "caution", "outside", "accent"];
 /// At most this many values in one series.
 pub const MAX_VALUES: usize = 2000;
 /// At most this many annotations.
@@ -50,7 +53,10 @@ pub struct ChartError {
 pub enum Layers {
     /// Chart specs only: what a `tugchart` fence takes.
     Chart,
-    /// A chart spec or a layer 0 program: what a tool's stdout takes.
+    /// Diagram specs only: what a `tugdiagram` fence takes.
+    Diagram,
+    /// A chart spec, a diagram spec or a layer 0 program: what a tool's
+    /// stdout and a standalone render take.
     Any,
 }
 
@@ -58,6 +64,7 @@ impl Layers {
     pub fn parse(s: &str) -> Option<Layers> {
         match s {
             "chart" => Some(Layers::Chart),
+            "diagram" => Some(Layers::Diagram),
             "any" => Some(Layers::Any),
             _ => None,
         }
@@ -65,12 +72,17 @@ impl Layers {
 }
 
 pub const LAYER0_IN_FENCE: &str = "a tugchart fence takes a chart spec, not a tugdraw program";
+pub const DIAGRAM_IN_CHART_FENCE: &str =
+    "a tugchart fence takes a chart spec, not a tugdiagram spec; put it in a tugdiagram fence";
+pub const NOT_A_DIAGRAM: &str =
+    "a tugdiagram fence takes a diagram spec, which starts with \"tugdiagram\": 1";
 
-/// A validated source: a chart spec, or a layer 0 program where the door
-/// takes one.
+/// A validated source: a chart spec, a diagram spec, or a layer 0 program
+/// where the door takes one.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Source {
     Chart(Spec),
+    Diagram(crate::diagram::Spec),
     Draw(Program),
 }
 
@@ -144,7 +156,7 @@ pub struct DotRow {
 }
 
 /// One bar of a `spans` chart, from `start` to `end` on the shared axis.
-/// `status` is the word the spec gave (`good`, `bad` or `accent`), kept
+/// `status` is the word the spec gave (one of [`SEMANTIC_ROLES`]), kept
 /// for the table; the layout maps it to a role.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpanItem {
@@ -340,8 +352,22 @@ pub fn validate(source: &str, layers: Layers) -> Result<Source, Vec<ChartError>>
     let value: Value =
         serde_json::from_str(source).map_err(|e| vec![err("", format!("not JSON: {e}"))])?;
     let Value::Object(obj) = &value else {
-        return Err(vec![err("", "a chart spec is a JSON object")]);
+        let what = if layers == Layers::Diagram {
+            "a diagram spec is a JSON object"
+        } else {
+            "a chart spec is a JSON object"
+        };
+        return Err(vec![err("", what)]);
     };
+    if crate::diagram::is_diagram(obj) {
+        if layers == Layers::Chart {
+            return Err(vec![err("", DIAGRAM_IN_CHART_FENCE)]);
+        }
+        return crate::diagram::validate_object(obj).map(Source::Diagram);
+    }
+    if layers == Layers::Diagram {
+        return Err(vec![err("", NOT_A_DIAGRAM)]);
+    }
     if obj.contains_key("tugdraw") {
         if layers == Layers::Chart {
             return Err(vec![err("", LAYER0_IN_FENCE)]);
@@ -499,13 +525,13 @@ impl Validator {
     fn series_role(&mut self, s: &Map<String, Value>, base: &str, i: usize) -> ColourRole {
         match s.get("role") {
             None => ColourRole::Series(i as u8 + 1),
-            Some(Value::String(r)) if ["good", "bad", "accent"].contains(&r.as_str()) => {
+            Some(Value::String(r)) if SEMANTIC_ROLES.contains(&r.as_str()) => {
                 ColourRole::parse(r).unwrap_or(ColourRole::Accent)
             }
             Some(_) => {
                 self.err(
                     format!("{base}/role"),
-                    "a series role is good, bad or accent",
+                    "a series role is good, bad, caution, outside or accent",
                 );
                 ColourRole::Accent
             }
@@ -972,11 +998,14 @@ impl Validator {
                 let end = end_of("end");
                 let status = match row.get("status") {
                     None => None,
-                    Some(Value::String(s)) if ["good", "bad", "accent"].contains(&s.as_str()) => {
+                    Some(Value::String(s)) if SEMANTIC_ROLES.contains(&s.as_str()) => {
                         Some(s.clone())
                     }
                     Some(_) => {
-                        v.err(format!("{base}/status"), "a status is good, bad or accent");
+                        v.err(
+                            format!("{base}/status"),
+                            "a status is good, bad, caution, outside or accent",
+                        );
                         None
                     }
                 };

@@ -20,9 +20,10 @@ const DONE: ChartRound = {
 
 function recordingMeasure() {
   const asked: string[] = [];
-  const measure = (role: ChartTypeRole, text: string) => {
-    asked.push(`${role}:${text}`);
-    return { w: text.length, a: 8, d: 2 };
+  const measure = (role: ChartTypeRole, text: string, ink = false) => {
+    asked.push(`${role}:${text}${ink ? ":ink" : ""}`);
+    const box = { w: text.length, a: 8, d: 2 };
+    return ink ? { ...box, ink: { l: 0.5, r: text.length - 0.5, a: 7, d: 0 } } : box;
   };
   return { asked, measure };
 }
@@ -32,8 +33,8 @@ describe("runMeasureLoop", () => {
     const tables: MeasureTableJson[] = [];
     const engine = (table: MeasureTableJson): ChartRound => {
       tables.push({ ...table });
-      if (tables.length === 1) return { status: "measure", texts: [["title", "Commits"], ["label", "Mon"]] };
-      if (tables.length === 2) return { status: "measure", texts: [["label", "We…"]] };
+      if (tables.length === 1) return { status: "measure", texts: [["title", "Commits"], ["label", "Mon"]], ink: [] };
+      if (tables.length === 2) return { status: "measure", texts: [["label", "We…"]], ink: [] };
       return DONE;
     };
     const { asked, measure } = recordingMeasure();
@@ -45,6 +46,22 @@ describe("runMeasureLoop", () => {
       "label\u0000Mon": { w: 3, a: 8, d: 2 },
     });
     expect(Object.keys(tables[2]).length).toBe(3);
+  });
+
+  test("measures the ink box only for the pairs the round names", () => {
+    const tables: MeasureTableJson[] = [];
+    const engine = (table: MeasureTableJson): ChartRound => {
+      tables.push({ ...table });
+      if (tables.length === 1) {
+        return { status: "measure", texts: [["label", "Reader"], ["label", "7"]], ink: [["label", "7"]] };
+      }
+      return DONE;
+    };
+    const { asked, measure } = recordingMeasure();
+    expect(runMeasureLoop(engine, measure)).toEqual(DONE);
+    expect(asked).toEqual(["label:Reader", "label:7:ink"]);
+    expect(tables[1]["label\u0000Reader"].ink).toBeUndefined();
+    expect(tables[1]["label\u00007"].ink).toEqual({ l: 0.5, r: 0.5, a: 7, d: 0 });
   });
 
   test("a first-round done measures nothing", () => {
@@ -63,7 +80,7 @@ describe("runMeasureLoop", () => {
     let calls = 0;
     const greedy = (): ChartRound => {
       calls += 1;
-      return { status: "measure", texts: [["value", `ask ${calls}`]] };
+      return { status: "measure", texts: [["value", `ask ${calls}`]], ink: [] };
     };
     const { asked, measure } = recordingMeasure();
     expect(runMeasureLoop(greedy, measure)).toEqual({

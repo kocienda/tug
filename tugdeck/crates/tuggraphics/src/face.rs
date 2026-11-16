@@ -10,7 +10,10 @@
 //! is the sum of advances plus kerning, scaled from font units to px.
 //! Ascent and descent are the font's own: the OS/2 typographic metrics
 //! when the face asks for them (`USE_TYPO_METRICS`), `hhea` otherwise,
-//! rounded up to whole px as WebKit rounds a face's box. A character the
+//! rounded up to whole px as WebKit rounds a face's box. The ink box,
+//! asked for only by forms that place a string by its shape, is the union
+//! of each shaped glyph's outline box at its pen position, as a canvas's
+//! `actualBoundingBox*` reports it. A character the
 //! face lacks measures as its `.notdef` glyph, where the browser would fall
 //! back to another face; the deck's charts carry Latin text, digits and
 //! punctuation, which every face here has.
@@ -26,7 +29,7 @@ use allsorts::gsub::{FeatureMask, FeatureMaskExt};
 use allsorts::tables::os2::FsSelectionFlag;
 use allsorts::{tag, Font};
 
-use crate::measure::{Measure, Metrics, TypeRole};
+use crate::measure::{Ink, Measure, Metrics, TypeRole};
 
 /// One face at one size: the parsed font, the role's px size, and the
 /// box every string in it shares.
@@ -37,6 +40,7 @@ struct Face<'a> {
     ascent: f64,
     descent: f64,
     widths: RefCell<HashMap<String, f64>>,
+    inks: RefCell<HashMap<String, Ink>>,
 }
 
 impl<'a> Face<'a> {
@@ -80,13 +84,13 @@ impl<'a> Face<'a> {
             // Descenders are written below the baseline, so negative.
             descent: px(-descender),
             widths: RefCell::new(HashMap::new()),
+            inks: RefCell::new(HashMap::new()),
         })
     }
 
-    fn width(&self, text: &str) -> f64 {
-        if let Some(w) = self.widths.borrow().get(text) {
-            return *w;
-        }
+    /// Each shaped glyph with its pen position, and the run's whole
+    /// advance, all in font units.
+    fn shape(&self, text: &str) -> (Vec<(u16, f64)>, f64) {
         let mut font = self.font.borrow_mut();
         let glyphs = font.map_glyphs(text, tag::LATN, MatchingPresentation::NotRequired);
         // Shaping carries on past an error and returns what it placed, which
@@ -103,16 +107,56 @@ impl<'a> Face<'a> {
             Ok(infos) => infos,
             Err((_, infos)) => infos,
         };
-        let units: f64 = infos
-            .iter()
-            .map(|info| {
-                f64::from(font.horizontal_advance(info.glyph.glyph_index).unwrap_or(0))
-                    + f64::from(info.kerning)
-            })
-            .sum();
-        let w = units * self.size / self.upem;
+        let mut pen = 0.0;
+        let mut placed = Vec::with_capacity(infos.len());
+        for info in &infos {
+            let glyph = info.glyph.glyph_index;
+            placed.push((glyph, pen));
+            pen += f64::from(font.horizontal_advance(glyph).unwrap_or(0)) + f64::from(info.kerning);
+        }
+        (placed, pen)
+    }
+
+    fn width(&self, text: &str) -> f64 {
+        if let Some(w) = self.widths.borrow().get(text) {
+            return *w;
+        }
+        let w = self.shape(text).1 * self.size / self.upem;
         self.widths.borrow_mut().insert(text.to_string(), w);
         w
+    }
+
+    /// The union of the glyphs' outline boxes, in px; the zero box for a
+    /// run that draws nothing.
+    fn ink(&self, text: &str) -> Ink {
+        if let Some(ink) = self.inks.borrow().get(text) {
+            return *ink;
+        }
+        let (placed, _) = self.shape(text);
+        let mut font = self.font.borrow_mut();
+        let mut bounds: Option<(f64, f64, f64, f64)> = None;
+        for (glyph, pen) in placed {
+            // A glyph with no outline (a space) or one the face cannot
+            // read adds nothing to the shape.
+            let Ok(Some(b)) = font.bounding_box(glyph) else {
+                continue;
+            };
+            let (x0, x1) = (pen + f64::from(b.x_min), pen + f64::from(b.x_max));
+            let (y0, y1) = (f64::from(b.y_min), f64::from(b.y_max));
+            bounds = Some(match bounds {
+                None => (x0, x1, y0, y1),
+                Some((l, r, lo, hi)) => (l.min(x0), r.max(x1), lo.min(y0), hi.max(y1)),
+            });
+        }
+        let px = |units: f64| units * self.size / self.upem;
+        let ink = bounds.map_or(Ink::ZERO, |(l, r, lo, hi)| Ink {
+            l: px(l),
+            r: px(r),
+            a: px(hi),
+            d: px(-lo),
+        });
+        self.inks.borrow_mut().insert(text.to_string(), ink);
+        ink
     }
 }
 
@@ -161,6 +205,15 @@ impl Measure for FaceMeasurer<'_> {
             w: face.width(text),
             a: face.ascent,
             d: face.descent,
+            ink: None,
+        })
+    }
+
+    fn measure_ink(&self, role: TypeRole, text: &str) -> Option<Metrics> {
+        let face = self.faces.get(&role)?;
+        Some(Metrics {
+            ink: Some(face.ink(text)),
+            ..self.measure(role, text)?
         })
     }
 }
@@ -232,5 +285,28 @@ mod tests {
         assert!(err.starts_with("label face:"), "{err}");
         let err = FaceMeasurer::from_woff2(&[(TypeRole::Label, SANS_REGULAR, 0.0)]).unwrap_err();
         assert!(err.contains("positive"), "{err}");
+    }
+
+    #[test]
+    fn a_numeral_has_an_ink_box_inside_its_font_box() {
+        let m = measurer();
+        let seven = m.measure_ink(TypeRole::Label, "7").unwrap();
+        let ink = seven.ink.unwrap();
+        // The shape starts after the origin and ends before the advance,
+        // stands on the baseline, and is shorter than the font box.
+        assert!(
+            ink.l >= 0.0 && ink.r <= seven.w && ink.l < ink.r,
+            "{seven:?}"
+        );
+        assert!(ink.d.abs() < 0.5, "{seven:?}");
+        assert!(ink.a > 6.0 && ink.a < seven.a, "{seven:?}");
+        // A descender goes below the baseline; a blank draws nothing.
+        assert!(m.measure_ink(TypeRole::Label, "g").unwrap().ink.unwrap().d > 1.0);
+        assert_eq!(
+            m.measure_ink(TypeRole::Label, " ").unwrap().ink,
+            Some(Ink::ZERO)
+        );
+        // A plain measure asks for no ink.
+        assert_eq!(m.measure(TypeRole::Label, "7").unwrap().ink, None);
     }
 }

@@ -53,17 +53,6 @@
   background: var(--tugx-chart-surface);
 }
 
-/* The two proposed semantic roles. Layer 0 has no spelling for them yet, so
-   the spike's forms write them as two series classes, and those two classes
-   are repainted here, inside the spike's figures only, from the theme's own
-   tone tokens: `caution` from the caution tone, `outside` from the data
-   tone. Every theme already carries both, so a real role would cost a
-   class and an alias and no new theme ink. */
-.sp-ce-figure .tgf-series-7 { fill: var(--tug7-element-tone-fill-normal-caution-rest); }
-.sp-ce-figure .tgs-series-7 { stroke: var(--tug7-element-tone-fill-normal-caution-rest); }
-.sp-ce-figure .tgf-series-8 { fill: var(--tug7-element-tone-fill-normal-data-rest); }
-.sp-ce-figure .tgs-series-8 { stroke: var(--tug7-element-tone-fill-normal-data-rest); }
-
 /* The colour key: one row per semantic colour, on the figures' own surface
    so each swatch is judged where it would be drawn. */
 .sp-ce-colours {

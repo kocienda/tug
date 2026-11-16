@@ -64,32 +64,60 @@ export function textMeasurer(el: HTMLElement): ((s: string) => number) | null {
   return (s: string) => ctx.measureText(s).width + perChar * s.length;
 }
 
-/** A measured run: advance width, and the font box's ascent and descent. */
+/**
+ * A run's ink box: the edges of the glyphs it draws, in px from the text
+ * origin on the alphabetic baseline.
+ */
+export interface InkBoxMetrics {
+  l: number;
+  r: number;
+  a: number;
+  d: number;
+}
+
+/**
+ * A measured run: advance width, the font box's ascent and descent, and
+ * the ink box when it was asked for.
+ */
 export interface TextBoxMetrics {
   w: number;
   a: number;
   d: number;
+  ink?: InkBoxMetrics;
 }
 
 /**
  * Like {@link textMeasurer}, but also reports the font bounding box's
  * ascent and descent above and below the alphabetic baseline — what a
  * layout needs to stack lines and place text by its top or bottom edge.
- * Null with no canvas.
+ * With `ink`, it adds the glyphs' own box from the canvas's
+ * `actualBoundingBox*`, which is what centring a numeral in a disc needs:
+ * the font box is the same for every string and is not the shape. Null
+ * with no canvas.
  */
-export function textBoxMeasurer(el: HTMLElement): ((s: string) => TextBoxMetrics) | null {
+export function textBoxMeasurer(el: HTMLElement): ((s: string, ink?: boolean) => TextBoxMetrics) | null {
   const ctx = document.createElement("canvas").getContext("2d");
   if (ctx === null) return null;
   const style = window.getComputedStyle(el);
   ctx.font = fontShorthand(style);
   const tracking = parseFloat(style.letterSpacing);
   const perChar = Number.isFinite(tracking) ? tracking : 0;
-  return (s: string) => {
+  return (s: string, ink = false) => {
     const m = ctx.measureText(s);
-    return {
+    const box: TextBoxMetrics = {
       w: m.width + perChar * s.length,
       a: m.fontBoundingBoxAscent,
       d: m.fontBoundingBoxDescent,
     };
+    if (ink) {
+      // `actualBoundingBoxLeft` is measured leftward from the origin.
+      box.ink = {
+        l: -m.actualBoundingBoxLeft,
+        r: m.actualBoundingBoxRight,
+        a: m.actualBoundingBoxAscent,
+        d: m.actualBoundingBoxDescent,
+      };
+    }
+    return box;
   };
 }

@@ -59,6 +59,7 @@
 import { attachChartHover, endChartHoverIn } from "@/lib/chart/chart-hover";
 import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded, runMeasureLoop } from "@/lib/chart/chart-measure";
 import { recallChartView, rememberChartView, type ChartView } from "@/lib/chart/chart-view-memory";
+import { isDiagramSource, keyedRows } from "@/lib/chart/keyed-table";
 import { textHash } from "@/lib/ingest/text-hash";
 import {
   getTuggraphicsSync,
@@ -84,6 +85,17 @@ export const CHART_UNTITLED_ATTR = "data-tugx-chart-untitled";
 export const CHART_PENDING_ATTR = "data-tugx-chart-pending";
 /** Present on a figure drawn as a thumbnail. */
 export const CHART_THUMBNAIL_ATTR = "data-tugx-chart-thumbnail";
+/**
+ * `diagram` on a figure drawn from a diagram spec, whose keyed table stands
+ * beneath it rather than behind the Table toggle.
+ */
+export const CHART_KIND_ATTR = "data-tugx-chart-kind";
+/**
+ * Present on a diagram whose locations a resolver has been asked about. Only
+ * then does a location it did not confirm wear the unresolved mark; with no
+ * resolver to ask, a location is plain code, claimed neither way.
+ */
+export const DIAGRAM_CHECKED_ATTR = "data-tugx-where-checked";
 
 /** The width a thumbnail is laid out at, before CSS scales it to its host. */
 export const THUMBNAIL_LAYOUT_WIDTH = 480;
@@ -272,6 +284,57 @@ function buildTable(table: ChartTable): HTMLTableElement {
   return el;
 }
 
+/**
+ * A diagram's keyed table: number, name, what it does, where it is. It is
+ * the figure's own, shown beneath it by default, so it has no toggle. The
+ * text is in the order the engine's `find_text` reads, and the location is
+ * an inline `<code>` the annotator resolves once the figure has landed; a
+ * location it cannot confirm is marked unresolved by CSS and never links.
+ */
+function buildKeyedTable(table: ChartTable): HTMLTableElement {
+  const el = document.createElement("table");
+  el.className = "tugx-chart-table tugx-diagram-table";
+  const caption = document.createElement("caption");
+  caption.textContent = table.caption;
+  el.appendChild(caption);
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const cell of table.head) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = cell;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  el.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const row of keyedRows(table)) {
+    const tr = document.createElement("tr");
+    const key = document.createElement("td");
+    key.className = "tugx-diagram-key";
+    const disc = document.createElement("span");
+    disc.className = "tugx-diagram-disc";
+    disc.textContent = row.key;
+    key.appendChild(disc);
+    const name = document.createElement("td");
+    name.className = "tugx-diagram-name";
+    name.textContent = row.name;
+    const what = document.createElement("td");
+    what.textContent = row.what;
+    const where = document.createElement("td");
+    where.className = "tugx-diagram-where";
+    if (row.where !== "") {
+      const code = document.createElement("code");
+      code.textContent = row.where;
+      where.appendChild(code);
+    }
+    tr.append(key, name, what, where);
+    tbody.appendChild(tr);
+  }
+  el.appendChild(tbody);
+  return el;
+}
+
 /** A compile whose table is empty is a drawing: it has no alternative and no toggle. */
 function hasTable(table: ChartTable): boolean {
   return table.head.length > 0 || table.rows.length > 0;
@@ -306,6 +369,8 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   el.removeAttribute(CHART_ANIMATE_ATTR);
   el.removeAttribute(CHART_VIEW_ATTR);
   el.removeAttribute(CHART_UNTITLED_ATTR);
+  el.removeAttribute(CHART_KIND_ATTR);
+  el.removeAttribute(DIAGRAM_CHECKED_ATTR);
   el.toggleAttribute(CHART_THUMBNAIL_ATTR, thumbnail);
   el.setAttribute(CHART_STATE_ATTR, "pending");
   el.textContent = thumbnail ? "" : source;
@@ -369,13 +434,18 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   }
 
   // Build off-document, then land it in one write.
-  const view = recallChartView(hash);
+  // A diagram has no Table view: its table already stands beneath it.
+  const diagram = isDiagramSource(source, layers);
+  if (diagram) el.setAttribute(CHART_KIND_ATTR, "diagram");
+  const view = diagram ? "chart" : recallChartView(hash);
   if (view === "table") el.setAttribute(CHART_VIEW_ATTR, "table");
   else el.setAttribute(CHART_VIEW_ATTR, "chart");
 
-  const actions: HTMLElement[] = [buildCopyButton(() => source, "Copy chart source")];
+  const actions: HTMLElement[] = [
+    buildCopyButton(() => source, diagram ? "Copy diagram source" : "Copy chart source"),
+  ];
   const withTable = hasTable(round.table);
-  if (withTable) actions.push(buildViewToggle(el, hash));
+  if (withTable && !diagram) actions.push(buildViewToggle(el, hash));
   let identity: HTMLElement | null = null;
   if (round.table.caption !== "") {
     identity = document.createElement("span");
@@ -392,7 +462,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   if (withTable) attachChartHover(body, round.table);
 
   const children: Node[] = [header, body];
-  if (withTable) children.push(buildTable(round.table));
+  if (withTable) children.push(diagram ? buildKeyedTable(round.table) : buildTable(round.table));
 
   if (animate) el.setAttribute(CHART_ANIMATE_ATTR, "");
   el.replaceChildren(...children);

@@ -1,0 +1,53 @@
+{
+  "tugdiagram": 1,
+  "form": "layers",
+  "title": "Five processes stand between a keystroke and Claude",
+  "layers": [
+    {
+      "name": "Tug.app",
+      "sub": "Swift macOS host",
+      "below": "hosts the page in web views",
+      "cells": [
+        { "key": 1, "name": "Windows and menus", "sub": "AppKit", "what": "Owns the window, the menus and the native chords.", "where": "tugapp/Sources" },
+        { "name": "Updates", "sub": "Sparkle appcast" }
+      ]
+    },
+    {
+      "name": "tugdeck",
+      "sub": "web frontend",
+      "below": "WebSocket frames",
+      "cells": [
+        { "key": 2, "name": "Session card", "sub": "prompt and transcript", "what": "Where shell commands and AI turns share one surface.", "where": "tugdeck/src/components/tugways/cards" },
+        { "name": "Deck", "sub": "slots, panes, motion" },
+        { "name": "Themes", "sub": "ten token files" }
+      ]
+    },
+    {
+      "name": "tugcast",
+      "sub": "WebSocket multiplexer",
+      "below": "one bridge per session",
+      "cells": [
+        { "key": 3, "name": "Feeds", "sub": "attribution, reports", "what": "Reads tool results as they pass and records what they say.", "where": "tugrust/crates/tugcast/src/feeds" },
+        { "name": "Ledgers", "sub": "sessions, changes" },
+        { "name": "Semantic index", "sub": "on-device vectors" }
+      ]
+    },
+    {
+      "name": "tugcode",
+      "sub": "Claude Code bridge",
+      "below": "stream-json over stdio",
+      "cells": [
+        { "key": 4, "name": "Spawn config", "sub": "flags, plugin dir", "what": "Builds the argument list Claude Code is started with.", "where": "tugcode/src/spawn-config.ts" },
+        { "name": "Event mapping", "sub": "wire to protocol" }
+      ]
+    },
+    {
+      "name": "claude",
+      "sub": "Claude Code",
+      "cells": [
+        { "key": 5, "name": "tugplug", "sub": "skills and prompt docs", "what": "Teaches the model the Session card's fences, verbs and rules.", "where": "tugplug" },
+        { "name": "Hooks", "sub": "call back into tugtool" }
+      ]
+    }
+  ]
+}

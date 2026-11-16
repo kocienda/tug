@@ -12,11 +12,9 @@
  *
  * Colour, as of the second rev: the accent is spent on the key discs and
  * nowhere else. Boxes are neutral; an edge or a lit row takes a colour only
- * when it means an outcome. Two semantic roles are proposed beside `good`
- * and `bad` — `caution` and `outside` — and since layer 0 has no spelling
- * for them yet, they are written as `series-7` and `series-8` and the
- * spike's stylesheet repaints those two classes from the theme's own tone
- * tokens.
+ * when it means an outcome. Two semantic roles sit beside `good` and
+ * `bad` — `caution` and `outside` — and layer 0 carries both as colour
+ * roles, so a figure writes them by name.
  *
  * @module spikes/spike-code-explainer-layout
  */
@@ -232,9 +230,9 @@ function toneColour(tone: Tone | undefined): Colour {
   return tone === undefined || tone === "ink" ? "ink-muted" : tone;
 }
 
-/** The layer 0 spelling of a colour: the two proposed roles ride two series classes. */
+/** The layer 0 spelling of a colour, which is its name. */
 function role(c: Colour): string {
-  return c === "caution" ? "series-7" : c === "outside" ? "series-8" : c;
+  return c;
 }
 
 /** The neutral paint of a box that holds things. */

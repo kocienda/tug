@@ -87,26 +87,28 @@ export function awaitRoleFaces(
   return Promise.race([loaded, deadline]).finally(() => clearTimeout(timer));
 }
 
-export type RoleMeasure = (role: ChartTypeRole, text: string) => TextBoxMetrics;
+/** Measures a string in a role, with its ink box when `ink` is set. */
+export type RoleMeasure = (role: ChartTypeRole, text: string, ink?: boolean) => TextBoxMetrics;
 
 /** A measurer over the probes' computed fonts, or null with no canvas. */
 export function probeMeasurer(probes: RoleProbes): RoleMeasure | null {
-  const byRole = {} as Record<ChartTypeRole, (s: string) => TextBoxMetrics>;
+  const byRole = {} as Record<ChartTypeRole, (s: string, ink?: boolean) => TextBoxMetrics>;
   for (const role of CHART_TYPE_ROLES) {
     const m = textBoxMeasurer(probes[role]);
     if (m === null) return null;
     byRole[role] = m;
   }
-  return (role, text) => byRole[role](text);
+  return (role, text, ink) => byRole[role](text, ink);
 }
 
 export type FinishedRound = Exclude<ChartRound, { status: "measure" }>;
 
 /**
  * Drives the protocol to its end: calls `engineRound` with a growing
- * table, measuring exactly the pairs each round asks for, until the engine
- * answers `done` or `invalid`. A round still asking after the last allowed
- * call is reported as `invalid` with the convergence error.
+ * table, measuring exactly the pairs each round asks for — with the ink
+ * box for the ones it names under `ink`, and without for the rest — until
+ * the engine answers `done` or `invalid`. A round still asking after the
+ * last allowed call is reported as `invalid` with the convergence error.
  */
 export function runMeasureLoop(
   engineRound: (table: MeasureTableJson) => ChartRound,
@@ -117,8 +119,10 @@ export function runMeasureLoop(
     const round = engineRound(table);
     if (round.status !== "measure") return round;
     if (call === MAX_COMPILE_CALLS) break;
+    const wantsInk = new Set(round.ink.map(([role, text]) => `${role}\u0000${text}`));
     for (const [role, text] of round.texts) {
-      table[`${role}\u0000${text}`] = measure(role, text);
+      const key = `${role}\u0000${text}`;
+      table[key] = measure(role, text, wantsInk.has(key));
     }
   }
   return { status: "invalid", errors: [{ path: "", message: NOT_CONVERGED }] };

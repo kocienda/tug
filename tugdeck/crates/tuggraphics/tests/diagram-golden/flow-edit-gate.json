@@ -1,0 +1,49 @@
+{
+  "tugdiagram": 1,
+  "form": "flow",
+  "title": "A shell edit the gate cannot read never reaches the file",
+  "columns": [
+    [{ "id": "model", "name": "Model", "sub": "a Bash call that writes a file" }],
+    [
+      {
+        "id": "gate",
+        "name": "PreToolUse gate",
+        "sub": "tugtool hook pre-tool-use",
+        "rows": [
+          { "key": 1, "name": "Read the command", "sub": "can its file operands be named?", "what": "Parses the command line with the shell grammar and finds the files it writes.", "where": "tugrust/crates/tugchanges-core/src/shell_ops.rs" },
+          { "key": 2, "name": "Deny the unreadable", "sub": "heredoc bodies, inline interpreters", "what": "Refuses a shape it can prove unreadable, and prints the edit program to write instead.", "where": "tugrust/crates/tugtool/src/commands/hook.rs" }
+        ]
+      }
+    ],
+    [
+      {
+        "id": "cast",
+        "name": "tugcast",
+        "sub": "reads the tool result",
+        "rows": [
+          { "key": 3, "name": "Find the receipt", "sub": "TUG-FILE-RECEIPT in the output", "what": "Reads the receipt marker out of the tool result's output.", "where": "tugrust/crates/tugcast/src/feeds/attribution.rs" },
+          { "key": 4, "name": "Record the change", "sub": "against this session", "what": "Writes the change to the shared ledger through the one ledger open.", "where": "tugrust/crates/tugcore/src/ledger_db.rs" }
+        ]
+      }
+    ],
+    [
+      {
+        "id": "ledger",
+        "name": "changes.db",
+        "sub": "what tugtool changes reads",
+        "rows": [
+          { "name": "attributed", "mono": true, "lit": "good" },
+          { "name": "unattributed", "mono": true, "lit": "caution" },
+          { "name": "foreign", "mono": true }
+        ]
+      }
+    ]
+  ],
+  "edges": [
+    { "from": "model", "to": "gate" },
+    { "from": "gate.1", "to": "cast.1", "tone": "good", "label": "runs, prints its receipt" },
+    { "from": "gate.2", "to": "model", "tone": "bad", "dashed": true, "label": "denied before it runs" },
+    { "from": "cast.2", "to": "ledger.1", "tone": "good" },
+    { "from": "gate", "to": "ledger", "tone": "caution", "label": "unprovable either way: runs, lands unattributed" }
+  ]
+}

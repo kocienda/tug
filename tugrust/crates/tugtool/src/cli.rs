@@ -300,8 +300,8 @@ pub enum Commands {
     #[command(subcommand)]
     Test(TestCommands),
 
-    /// Draw a well-known chart of this project, or render a chart spec or a
-    /// drawing to a standalone SVG file.
+    /// Draw a well-known chart of this project, or render a chart spec, a
+    /// diagram spec or a drawing to a standalone SVG file.
     #[command(
         subcommand,
         after_help = "Any other name is a recipe, a well-known chart of this project: \
@@ -777,10 +777,11 @@ pub enum ReachCommands {
 
 #[derive(Subcommand)]
 pub enum ChartCommands {
-    /// Render one source — a `tugchart` spec or a `tugdraw` program — to an
-    /// SVG that stands on its own: text is measured with the faces the deck
-    /// serves, and one `<style>` resolves the chart's colour and type
-    /// classes to the named theme, so the file reads the same in any viewer.
+    /// Render one source — a `tugchart` spec, a `tugdiagram` spec or a
+    /// `tugdraw` program — to an SVG that stands on its own: text is
+    /// measured with the faces the deck serves, and one `<style>` resolves
+    /// the figure's colour and type classes to the named theme, so the file
+    /// reads the same in any viewer.
     Render {
         /// The source file, or `-` for stdin.
         spec: String,

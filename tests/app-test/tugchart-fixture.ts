@@ -44,12 +44,16 @@ export const BAR_SPEC = {
 /** A spec the validator refuses: `pie` is not a form. */
 export const INVALID_SPEC = { tugchart: 1, form: "pie", title: "Share of runs" };
 
-/** One message's markdown: a line of prose and a closed chart fence. */
-export function chartMessage(spec: unknown, index: number): string {
+/**
+ * One message's markdown: a line of prose and a closed fence, a
+ * `tugchart` one unless `lang` names another (a `tugdiagram` fence rides
+ * the same placeholder and renderer).
+ */
+export function chartMessage(spec: unknown, index: number, lang: string = "tugchart"): string {
   return [
     `Pass ${index + 1} measured the week and drew it.`,
     "",
-    "```tugchart",
+    "```" + lang,
     JSON.stringify(spec, null, 2),
     "```",
     "",
@@ -63,13 +67,14 @@ export function chartMessage(spec: unknown, index: number): string {
 export async function launchWithCharts(
   testName: string,
   specs: readonly unknown[],
+  lang: string = "tugchart",
 ): Promise<{ app: Launched["app"]; tugbankPath: string; page: ChartPage }> {
   const stubDir = stubDirectory();
   const { app, tugbankPath } = await launch(1, blobFor(1), testName, {
     resumeCards: [],
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
-  const stubs = await bindStreamingStubs(app, [CARD], stubDir, specs.length, 1, (i) => chartMessage(specs[i], i));
+  const stubs = await bindStreamingStubs(app, [CARD], stubDir, specs.length, 1, (i) => chartMessage(specs[i], i, lang));
   await startStreams(app, stubs);
   const page = app.body(CARD);
   await page.waitForCondition<boolean>(

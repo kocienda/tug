@@ -231,7 +231,7 @@ function appendBlockElement(
 ): void {
   const el = buildBlockElement(block, annotation, fence);
   container.appendChild(el);
-  void enhanceChart(el);
+  void enhanceChart(el, annotation);
 }
 
 function updateBlockElement(
@@ -248,7 +248,7 @@ function updateBlockElement(
   annotateContent(el, annotation);
   enhanceTable(el);
   void enhanceMath(el);
-  void enhanceChart(el);
+  void enhanceChart(el, annotation);
 }
 
 /**

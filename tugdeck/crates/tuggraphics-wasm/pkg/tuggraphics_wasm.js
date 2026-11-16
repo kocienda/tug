@@ -64,8 +64,8 @@ export function render_program(source, id_prefix) {
 }
 
 /**
- * Every error in a source, for a door taking `layers` (`"chart"` or
- * `"any"`).
+ * Every error in a source, for a door taking `layers` (`"chart"`,
+ * `"diagram"` or `"any"`).
  * @param {string} source
  * @param {string} layers
  * @returns {any}

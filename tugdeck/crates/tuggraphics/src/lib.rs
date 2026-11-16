@@ -3,6 +3,8 @@
 //! [`draw`] is layer 0: a JSON drawing language and its SVG renderer.
 //! [`chart`] is layer 1: chart specs, compiled through closed forms into
 //! layer 0 programs.
+//! [`diagram`] is layer 1 beside it: diagrams of code, compiled through
+//! closed forms into the same layer 0, each with a keyed table.
 //! [`measure`] is the contract text layout is measured against. Every
 //! number this crate writes goes through its own formatter, never through
 //! `f64`'s `Display` or `serde_json`'s number printing, so the page's WASM
@@ -10,6 +12,7 @@
 //! same bytes.
 
 pub mod chart;
+pub mod diagram;
 pub mod draw;
 #[cfg(feature = "font")]
 pub mod face;
@@ -26,5 +29,6 @@ pub use draw::{
 #[cfg(feature = "font")]
 pub use face::FaceMeasurer;
 pub use measure::{
-    fit_text, run_rounds, Fit, FixedMetrics, Measure, MeasureTable, Metrics, RoundOutcome, TypeRole,
+    fit_text, run_rounds, Fit, FixedMetrics, Ink, Measure, MeasureRequest, MeasureTable, Metrics,
+    RoundOutcome, TypeRole,
 };

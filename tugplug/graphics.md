@@ -33,7 +33,7 @@ Every spec carries `"tugchart": 1` and a `form`. The common fields:
 - `motion` — `enter` (default) or `none`.
 - `annotations` — optional, at most 8: `{"kind": "rule", "value": n, "label"?}` draws a reference line at a value; `{"kind": "mark", "at": i, "label"?}` points at the category or point at index `i`.
 
-Series forms (`bar`, `line`, `area`) take `series`, a list of `{"name", "values"}` with at most 8 entries. Values are numbers or `null` for a gap, at most 2000 per series. A series may carry a `role` of `good`, `bad` or `accent` to override its default colour, which is how you emphasize one series and let the others recede.
+Series forms (`bar`, `line`, `area`) take `series`, a list of `{"name", "values"}` with at most 8 entries. Values are numbers or `null` for a gap, at most 2000 per series. A series may carry a `role` of `good`, `bad`, `caution`, `outside` or `accent` to override its default colour, which is how you emphasize one series and let the others recede.
 
 The spec is validated before it renders, and an invalid one shows its errors in place with a path to each. Unknown keys are errors, so spell the fields exactly as written here.
 
@@ -113,7 +113,7 @@ One example per form. Each is a complete, valid spec.
  "values": [0.21, 0.24, 0.19, 0.3, 0.28, 0.22, 0.25, 0.27, 0.31, 0.26, 0.23, 0.9, 0.24, 0.29, 1.7, 0.2, 0.26, 0.33, 0.25, 2.4]}
 ```
 
-**`spans`** — `items`, each `{"label", "start", "end", "status"?}` with `status` of `good`, `bad` or `accent`, on one numeric axis.
+**`spans`** — `items`, each `{"label", "start", "end", "status"?}` with `status` of `good`, `bad`, `caution`, `outside` or `accent`, on one numeric axis.
 
 ```tugchart
 {"tugchart": 1, "form": "spans", "title": "The build waited on the bundle for most of its time",
@@ -154,7 +154,7 @@ One example per form. Each is a complete, valid spec.
 
 ## Colour is a role, never a value
 
-You name no colour anywhere. A chart's colours are roles — `ink`, `ink-muted`, `grid`, `surface`, `accent`, `good`, `bad` and `series-1` through `series-8` — and the user's theme decides what each one looks like, so a chart restyles itself when the theme changes. Series take `series-1` onward in order, fixed to the entity and never cycled. The only colour choice you make is a `role` on a series, a `status` on a span, or an item kind in `dots`, and each of those is a word about meaning: `good` and `bad` are reserved for outcomes and never used to tell two ordinary series apart.
+You name no colour anywhere. A chart's colours are roles — `ink`, `ink-muted`, `grid`, `surface`, `accent`, `good`, `bad`, `caution`, `outside` and `series-1` through `series-8` — and the user's theme decides what each one looks like, so a chart restyles itself when the theme changes. Series take `series-1` onward in order, fixed to the entity and never cycled. The only colour choice you make is a `role` on a series, a `status` on a span, or an item kind in `dots`, and each of those is a word about meaning: `good` and `bad` are reserved for outcomes and never used to tell two ordinary series apart; `caution` is the outcome between them — allowed but degraded, a fallback, a retry, a run past its budget — and `outside` is a place rather than an outcome, a context series from beyond the system the chart is about.
 
 ## Formats
 

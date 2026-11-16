@@ -83,6 +83,7 @@
 import { ensureParsed } from "@/lib/markdown/parse-cache";
 import { mathStrippedText } from "@/lib/markdown/block-transformers/inline-math-walker";
 import { chartFindText } from "@/lib/chart/chart-find-text";
+import { placeholderLayers } from "@/lib/markdown/enhance-chart";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import type { RowSegment } from "@/lib/transcript-search";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
@@ -144,13 +145,14 @@ function htmlToText(html: string): string {
   for (const el of htmlScratch.querySelectorAll(".tugx-katex")) el.remove();
   // A chart: the parse-time `.tugx-chart` placeholder carries the fence's
   // spec as text, which the page never shows. What it shows, once rendered,
-  // is the table alternative, and the engine's `find_text` is that table's
+  // is the table alternative — a diagram's keyed table, read through the
+  // door its placeholder names — and the engine's `find_text` is that table's
   // text in DOM order (or the source itself for a spec the validator
   // refuses, which is what its error surface shows). Before the engine has
   // loaded the projection is "" and the load is started; the painter heals
   // a mounted row from its DOM text ([P03]) once the chart is on screen.
   for (const el of htmlScratch.querySelectorAll(".tugx-chart")) {
-    el.replaceWith(document.createTextNode(chartFindText(el.textContent ?? "", "chart")));
+    el.replaceWith(document.createTextNode(chartFindText(el.textContent ?? "", placeholderLayers(el))));
   }
   // Drop UNFENCED `$…$` / `$$…$$` math, which cmark leaves as literal text —
   // but only where the renderer's own walk would promote it, which is a

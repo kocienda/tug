@@ -44,6 +44,10 @@ pub enum ColourRole {
     Accent,
     Good,
     Bad,
+    /// Between good and bad: allowed but degraded, a fallback, a retry.
+    Caution,
+    /// A place, never an outcome: what lies beyond the system a figure explains.
+    Outside,
     /// `series-1` … `series-N`, 1-based.
     Series(u8),
 }
@@ -58,6 +62,8 @@ impl ColourRole {
             "accent" => Some(ColourRole::Accent),
             "good" => Some(ColourRole::Good),
             "bad" => Some(ColourRole::Bad),
+            "caution" => Some(ColourRole::Caution),
+            "outside" => Some(ColourRole::Outside),
             _ => {
                 let k: u8 = s.strip_prefix("series-")?.parse().ok()?;
                 // `parse` accepts "+3" and "03"; only the canonical spelling is a role.
@@ -76,6 +82,8 @@ impl ColourRole {
             ColourRole::Accent => "accent".into(),
             ColourRole::Good => "good".into(),
             ColourRole::Bad => "bad".into(),
+            ColourRole::Caution => "caution".into(),
+            ColourRole::Outside => "outside".into(),
             ColourRole::Series(k) => format!("series-{k}"),
         }
     }
@@ -90,6 +98,8 @@ impl ColourRole {
             ColourRole::Accent,
             ColourRole::Good,
             ColourRole::Bad,
+            ColourRole::Caution,
+            ColourRole::Outside,
         ];
         v.extend((1..=SERIES_COUNT).map(ColourRole::Series));
         v

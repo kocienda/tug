@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 822 471" width="822" height="471" aria-hidden="true">
+<g transform="translate(0.5 0.5)">
+<text x="16" y="16" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">A chart is laid out in a conversation between the page and the engine</text>
+<path d="M113 86 L113 454" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1" stroke-dasharray="3 4"/>
+<path d="M285 86 L285 454" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1" stroke-dasharray="3 4"/>
+<path d="M562 86 L562 454" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1" stroke-dasharray="3 4"/>
+<path d="M730 86 L730 454" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1" stroke-dasharray="3 4"/>
+<path d="M52 41 L173 41 A8 8 0 0 1 181 49 L181 78 A8 8 0 0 1 173 86 L52 86 A8 8 0 0 1 44 78 L44 49 A8 8 0 0 1 52 41 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M52 41 L173 41 A8 8 0 0 1 181 49 L181 78 A8 8 0 0 1 173 86 L52 86 A8 8 0 0 1 44 78 L44 49 A8 8 0 0 1 52 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="113" y="50" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">Markdown</text>
+<text x="113" y="66" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">block transformer</text>
+<path d="M222 41 L347 41 A8 8 0 0 1 355 49 L355 78 A8 8 0 0 1 347 86 L222 86 A8 8 0 0 1 214 78 L214 49 A8 8 0 0 1 222 41 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M222 41 L347 41 A8 8 0 0 1 355 49 L355 78 A8 8 0 0 1 347 86 L222 86 A8 8 0 0 1 214 78 L214 49 A8 8 0 0 1 222 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="285" y="50" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">renderChartInto</text>
+<text x="285" y="66" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">the one renderer</text>
+<path d="M501 41 L622 41 A8 8 0 0 1 630 49 L630 78 A8 8 0 0 1 622 86 L501 86 A8 8 0 0 1 493 78 L493 49 A8 8 0 0 1 501 41 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M501 41 L622 41 A8 8 0 0 1 630 49 L630 78 A8 8 0 0 1 622 86 L501 86 A8 8 0 0 1 493 78 L493 49 A8 8 0 0 1 501 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="562" y="50" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">Engine</text>
+<text x="562" y="66" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">tuggraphics, WASM</text>
+<path d="M663 41 L797 41 A8 8 0 0 1 805 49 L805 78 A8 8 0 0 1 797 86 L663 86 A8 8 0 0 1 655 78 L655 49 A8 8 0 0 1 663 41 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M663 41 L797 41 A8 8 0 0 1 805 49 L805 78 A8 8 0 0 1 797 86 L663 86 A8 8 0 0 1 655 78 L655 49 A8 8 0 0 1 663 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="730" y="50" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">Page fonts</text>
+<text x="730" y="66" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">role probes, canvas</text>
+<path d="M32 110 A8 8 0 0 1 16 110 A8 8 0 0 1 32 110 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
+<text x="20.7" y="113.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">1</text>
+<path d="M130 104 L268 104 L268 117 L130 117 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<text x="199" y="110" class="tgt-value tgf-ink tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="central">fence closed: source</text>
+<path d="M113 121 L277 121" class="tgs-ink tge-draw" style="--tg-i:1" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M285 121 L277 125 L277 117 Z" class="tgf-ink tge-fade" style="--tg-i:1"/>
+<path d="M32 145 A8 8 0 0 1 16 145 A8 8 0 0 1 32 145 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
+<text x="20.7" y="148.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">2</text>
+<path d="M368 139 L480 139 L480 152 L368 152 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<text x="424" y="145" class="tgt-value tgf-ink tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="central">validate(source)</text>
+<path d="M285 156 L554 156" class="tgs-ink tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M562 156 L554 160 L554 152 Z" class="tgf-ink tge-fade" style="--tg-i:2"/>
+<path d="M404 174 L443 174 L443 187 L404 187 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<text x="424" y="180" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="central">valid</text>
+<path d="M562 191 L293 191" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="butt" stroke-linejoin="round"/>
+<path d="M285 191 L293 187 L293 195 Z" class="tgf-ink-muted tge-fade" style="--tg-i:3"/>
+<path d="M32 215 A8 8 0 0 1 16 215 A8 8 0 0 1 32 215 Z" class="tgf-accent tge-fade" style="--tg-i:4"/>
+<text x="20.7" y="218.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="alphabetic">3</text>
+<path d="M422 209 L593 209 L593 222 L422 222 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
+<text x="508" y="215" class="tgt-value tgf-ink tge-fade" style="--tg-i:4" text-anchor="middle" dominant-baseline="central">wait for each role's face</text>
+<path d="M285 226 L722 226" class="tgs-ink tge-draw" style="--tg-i:4" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M730 226 L722 230 L722 222 Z" class="tgf-ink tge-fade" style="--tg-i:4"/>
+<path d="M32 250 A8 8 0 0 1 16 250 A8 8 0 0 1 32 250 Z" class="tgf-accent tge-fade" style="--tg-i:5"/>
+<text x="20.7" y="253.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:5" text-anchor="start" dominant-baseline="alphabetic">4</text>
+<path d="M335 244 L513 244 L513 257 L335 257 Z" class="tgf-surface tge-fade" style="--tg-i:5"/>
+<text x="424" y="250" class="tgt-value tgf-ink tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="central">compile_round(source, { })</text>
+<path d="M285 261 L554 261" class="tgs-ink tge-draw" style="--tg-i:5" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M562 261 L554 265 L554 257 Z" class="tgf-ink tge-fade" style="--tg-i:5"/>
+<path d="M312 279 L536 279 L536 292 L312 292 Z" class="tgf-surface tge-fade" style="--tg-i:6"/>
+<text x="424" y="285" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:6" text-anchor="middle" dominant-baseline="central">measure: these (role, text) pairs</text>
+<path d="M562 296 L293 296" class="tgs-ink-muted tge-fade" style="--tg-i:6" fill="none" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="butt" stroke-linejoin="round"/>
+<path d="M285 296 L293 292 L293 300 Z" class="tgf-ink-muted tge-fade" style="--tg-i:6"/>
+<path d="M32 320 A8 8 0 0 1 16 320 A8 8 0 0 1 32 320 Z" class="tgf-accent tge-fade" style="--tg-i:7"/>
+<text x="20.7" y="323.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:7" text-anchor="start" dominant-baseline="alphabetic">5</text>
+<path d="M448 314 L567 314 L567 327 L448 327 Z" class="tgf-surface tge-fade" style="--tg-i:7"/>
+<text x="508" y="320" class="tgt-value tgf-ink tge-fade" style="--tg-i:7" text-anchor="middle" dominant-baseline="central">measure each pair</text>
+<path d="M285 331 L722 331" class="tgs-ink tge-draw" style="--tg-i:7" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M730 331 L722 335 L722 327 Z" class="tgf-ink tge-fade" style="--tg-i:7"/>
+<path d="M328 349 L519 349 L519 362 L328 362 Z" class="tgf-surface tge-fade" style="--tg-i:8"/>
+<text x="424" y="355" class="tgt-value tgf-ink tge-fade" style="--tg-i:8" text-anchor="middle" dominant-baseline="central">compile_round(source, table)</text>
+<path d="M285 366 L554 366" class="tgs-ink tge-draw" style="--tg-i:8" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M562 366 L554 370 L554 362 Z" class="tgf-ink tge-fade" style="--tg-i:8"/>
+<path d="M331 384 L516 384 L516 397 L331 397 Z" class="tgf-surface tge-fade" style="--tg-i:9"/>
+<text x="424" y="390" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:9" text-anchor="middle" dominant-baseline="central">done: svg, table, find text</text>
+<path d="M562 401 L293 401" class="tgs-good tge-fade" style="--tg-i:9" fill="none" stroke-width="1.5" stroke-dasharray="5 4" stroke-linecap="butt" stroke-linejoin="round"/>
+<path d="M285 401 L293 397 L293 405 Z" class="tgf-good tge-fade" style="--tg-i:9"/>
+<path d="M32 436 A8 8 0 0 1 16 436 A8 8 0 0 1 32 436 Z" class="tgf-accent tge-fade" style="--tg-i:10"/>
+<text x="20.7" y="439.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:10" text-anchor="start" dominant-baseline="alphabetic">6</text>
+<path d="M285 429 L298 429 C305 429 305 429 305 436 L305 437 C305 443 305 443 299 443 L293 443" class="tgs-ink tge-draw" style="--tg-i:10" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M285 443 L293 439 L293 447 Z" class="tgf-ink tge-fade" style="--tg-i:10"/>
+<text x="313" y="436" class="tgt-value tgf-ink tge-fade" style="--tg-i:10" text-anchor="start" dominant-baseline="central">replace the source with the figure</text>
+<path class="tgh" d="M16 100.5 L805 100.5 L805 132 L16 132 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M16 135.5 L805 135.5 L805 167 L16 167 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M16 205.5 L805 205.5 L805 237 L16 237 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M16 240.5 L805 240.5 L805 272 L16 272 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh" d="M16 310.5 L805 310.5 L805 342 L16 342 Z" fill="none" pointer-events="all" data-row="4"/>
+<path class="tgh" d="M16 425 L805 425 L805 447 L16 447 Z" fill="none" pointer-events="all" data-row="5"/>
+</g>
+</svg>

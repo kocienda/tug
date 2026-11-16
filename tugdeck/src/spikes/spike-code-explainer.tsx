@@ -209,8 +209,8 @@ const COLOURS: readonly { name: string; cls: string; status: string; use: string
   { name: "accent", cls: "tgf-accent", status: "today", use: "The key discs, and nothing else." },
   { name: "good", cls: "tgf-good", status: "today", use: "The outcome that succeeded: the allowed path, the row it reached." },
   { name: "bad", cls: "tgf-bad", status: "today", use: "The outcome that was refused or failed." },
-  { name: "caution", cls: "tgf-series-7", status: "proposed", use: "The outcome between the two: allowed but degraded, a fallback, a retry, a run past its budget." },
-  { name: "outside", cls: "tgf-series-8", status: "proposed", use: "Not an outcome but a place: what lies beyond the system the figure explains." },
+  { name: "caution", cls: "tgf-caution", status: "today", use: "The outcome between the two: allowed but degraded, a fallback, a retry, a run past its budget." },
+  { name: "outside", cls: "tgf-outside", status: "today", use: "Not an outcome but a place: what lies beyond the system the figure explains." },
 ];
 
 function SpikeCodeExplainer(): React.ReactElement {
@@ -263,7 +263,7 @@ function SpikeCodeExplainer(): React.ReactElement {
         </section>
 
         <section className="sp-section">
-          <h2 className="sp-section-title">Semantic colour — three today, two proposed</h2>
+          <h2 className="sp-section-title">Semantic colour — five roles</h2>
           <div className="sp-ce-colours sp-ce-figure">
             {COLOURS.map((c) => (
               <div className="sp-ce-colour" key={c.name}>

@@ -15,18 +15,37 @@ import { wasmInit } from "./wasm-init";
 /** A type role — text carries a role, never a font. */
 export type ChartTypeRole = "title" | "label" | "value" | "mono";
 
-/** A measured string: advance width, font-box ascent and descent, in px. */
+/**
+ * Where a string's glyphs actually are, in px from the text origin on the
+ * alphabetic baseline: left and right edges, and how far the ink rises
+ * above and falls below the baseline.
+ */
+export interface InkBox {
+  l: number;
+  r: number;
+  a: number;
+  d: number;
+}
+
+/**
+ * A measured string: advance width, font-box ascent and descent, in px,
+ * and the ink box when the engine asked for it.
+ */
 export interface TextBox {
   w: number;
   a: number;
   d: number;
+  ink?: InkBox;
 }
 
 /** The measure table the deck hands the compiler: `"<role>\u0000<text>"` keys. */
 export type MeasureTableJson = Record<string, TextBox>;
 
-/** Which layers a door accepts: a fence takes charts only, a tool's stdout either. */
-export type ChartLayers = "chart" | "any";
+/**
+ * Which layers a door accepts: a `tugchart` fence takes charts only, a
+ * `tugdiagram` fence diagrams only, and a tool's stdout any of them.
+ */
+export type ChartLayers = "chart" | "diagram" | "any";
 
 export interface ChartCompileOpts {
   /** The width the chart may take; absent, the spec's or the form's default. */
@@ -50,7 +69,8 @@ export interface ChartError {
 }
 
 export type ChartRound =
-  | { status: "measure"; texts: [ChartTypeRole, string][] }
+  /** `ink` names the pairs among `texts` whose ink box is wanted too. */
+  | { status: "measure"; texts: [ChartTypeRole, string][]; ink: [ChartTypeRole, string][] }
   | {
       status: "done";
       svg: string;

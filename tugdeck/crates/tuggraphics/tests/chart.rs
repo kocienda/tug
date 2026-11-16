@@ -112,12 +112,18 @@ fn drive(source: &str, opts: &CompileOpts) -> (usize, Result<Compiled, Vec<Chart
         match compile_round(source, opts, &table) {
             Round::Done(out) => return (requests, Ok(out)),
             Round::Invalid { errors } => return (requests, Err(errors)),
-            Round::Measure { texts } => {
+            Round::Measure { texts, ink } => {
                 requests += 1;
                 assert!(requests <= 2, "a third measure request");
                 for (role, text) in texts {
                     let role = TypeRole::parse(&role).unwrap();
-                    table.insert(role, &text, FixedMetrics.measure(role, &text).unwrap());
+                    let pair = (role.name().to_string(), text.clone());
+                    let m = if ink.contains(&pair) {
+                        FixedMetrics.measure_ink(role, &text)
+                    } else {
+                        FixedMetrics.measure(role, &text)
+                    };
+                    table.insert(role, &text, m.unwrap());
                 }
             }
         }
@@ -156,11 +162,13 @@ fn a_sparkline_needs_no_measurement() {
 
 #[test]
 fn round_one_asks_for_full_strings_only() {
-    let Round::Measure { texts } =
+    let Round::Measure { texts, ink } =
         compile_round(&golden("bar-single"), &opts(), &MeasureTable::new())
     else {
         panic!("round 1 should ask");
     };
+    // A chart places no string by its ink, so it asks for none.
+    assert!(ink.is_empty());
     assert!(texts.contains(&("title".into(), "Commits per day".into())));
     assert!(texts.contains(&("label".into(), "main, last week · commits".into())));
     assert!(texts.contains(&("label".into(), "10-24".into())));
@@ -402,7 +410,7 @@ fn each_form_names_its_required_fields() {
         (
             r#"{"tugchart": 1, "form": "spans", "title": "t", "items": [{"label": "a", "start": 0, "end": 1, "status": "late"}]}"#,
             "/items/0/status",
-            "a status is good, bad or accent",
+            "a status is good, bad, caution, outside or accent",
         ),
         (
             r#"{"tugchart": 1, "form": "scatter", "title": "t", "series": [{"name": "a"}]}"#,
@@ -840,4 +848,40 @@ fn a_sparkline_a_drawing_and_a_file_have_no_targets() {
     };
     let out = compile_with(&golden("line-gap"), &file, &FixedMetrics).unwrap();
     assert!(!out.svg.contains("tgh"), "{}", out.svg);
+}
+
+#[test]
+fn caution_and_outside_paint_a_series_and_a_span() {
+    let bar = compile_with(
+        r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a", "b"],
+            "series": [{"name": "x", "values": [1, 2], "role": "caution"},
+                       {"name": "y", "values": [2, 1], "role": "outside"}]}"#,
+        &opts(),
+        &FixedMetrics,
+    )
+    .unwrap();
+    assert!(bar.svg.contains("tgf-caution"), "{}", bar.svg);
+    assert!(bar.svg.contains("tgf-outside"), "{}", bar.svg);
+
+    let spans = compile_with(
+        r#"{"tugchart": 1, "form": "spans", "title": "t",
+            "items": [{"label": "a", "start": 0, "end": 1, "status": "caution"},
+                      {"label": "b", "start": 1, "end": 2, "status": "outside"}]}"#,
+        &opts(),
+        &FixedMetrics,
+    )
+    .unwrap();
+    assert!(spans.svg.contains("tgf-caution"), "{}", spans.svg);
+    assert!(spans.svg.contains("tgf-outside"), "{}", spans.svg);
+
+    let e = one_error(
+        r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a"], "series": [{"values": [1], "role": "series-3"}]}"#,
+    );
+    assert_eq!(
+        (e.path.as_str(), e.message.as_str()),
+        (
+            "/series/0/role",
+            "a series role is good, bad, caution, outside or accent"
+        )
+    );
 }

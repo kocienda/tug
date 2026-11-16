@@ -11,7 +11,7 @@
 //! program too ([`Layers::Any`]); it compiles in one round to its SVG
 //! with an empty table, since a drawing has no findable text.
 
-mod build;
+pub(crate) mod build;
 pub mod format;
 mod forms;
 pub mod spec;
@@ -21,11 +21,17 @@ pub mod ticks;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::diagram;
 use crate::draw::{render_svg, Item, Palette, Program, RenderOpts};
-use crate::measure::{measure_round, run_rounds, Measure, MeasureTable, RoundOutcome};
+use crate::measure::{
+    measure_round, run_rounds, Measure, MeasureRequest, MeasureTable, RoundOutcome,
+};
 
 pub use format::Format;
-pub use spec::{validate, ChartError, Layers, Source, Spec, LAYER0_IN_FENCE, MAX_SERIES};
+pub use spec::{
+    validate, ChartError, Layers, Source, Spec, DIAGRAM_IN_CHART_FENCE, LAYER0_IN_FENCE,
+    MAX_SERIES, NOT_A_DIAGRAM,
+};
 pub use table::ChartTable;
 
 /// How to compile: the width available, the prefix for the SVG's ids,
@@ -118,9 +124,11 @@ pub struct Compiled {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum Round {
-    /// The `(role, text)` pairs still to measure.
+    /// The `(role, text)` pairs still to measure, and among them the ones
+    /// whose ink box is wanted as well as their advance.
     Measure {
         texts: Vec<(String, String)>,
+        ink: Vec<(String, String)>,
     },
     Done(Compiled),
     Invalid {
@@ -214,7 +222,40 @@ pub fn compile_with(
             })?;
             Ok(finish(&spec, &program, opts))
         }
+        Source::Diagram(spec) => {
+            let laid = run_rounds(m, |m| diagram_layout(&spec, opts, m)).map_err(|message| {
+                vec![ChartError {
+                    path: String::new(),
+                    message,
+                }]
+            })?;
+            diagram_finish(&spec, laid, opts)
+        }
     }
+}
+
+fn diagram_layout(spec: &diagram::Spec, opts: &CompileOpts, m: &dyn Measure) -> diagram::Laid {
+    diagram::layout(spec, opts.figure_title, opts.motion, m)
+}
+
+/// A laid-out diagram as a finished compile, or the errors its measured
+/// text raised.
+fn diagram_finish(
+    spec: &diagram::Spec,
+    laid: diagram::Laid,
+    opts: &CompileOpts,
+) -> Result<Compiled, Vec<ChartError>> {
+    if !laid.errors.is_empty() {
+        return Err(laid.errors);
+    }
+    let table = diagram::table(spec);
+    Ok(Compiled {
+        svg: render(&laid.program, opts),
+        find_text: table.find_text(),
+        table,
+        width: laid.program.frame.0,
+        height: laid.program.frame.1,
+    })
 }
 
 /// One round against a measured table: the pairs the table lacks, or the
@@ -225,22 +266,41 @@ pub fn compile_round(source: &str, opts: &CompileOpts, table: &MeasureTable) -> 
         Ok(Source::Draw(program)) => Round::Done(drawing(program, opts)),
         Ok(Source::Chart(spec)) => match measure_round(table, |m| layout(&spec, opts, m)) {
             RoundOutcome::Done(program) => Round::Done(finish(&spec, &program, opts)),
-            RoundOutcome::Measure(texts) => Round::Measure {
-                texts: texts
-                    .into_iter()
-                    .map(|(r, t)| (r.name().to_string(), t))
-                    .collect(),
-            },
+            RoundOutcome::Measure(requests) => measure(requests),
         },
+        Ok(Source::Diagram(spec)) => {
+            match measure_round(table, |m| diagram_layout(&spec, opts, m)) {
+                RoundOutcome::Done(laid) => match diagram_finish(&spec, laid, opts) {
+                    Ok(compiled) => Round::Done(compiled),
+                    Err(errors) => Round::Invalid { errors },
+                },
+                RoundOutcome::Measure(requests) => measure(requests),
+            }
+        }
     }
 }
 
-/// The text transcript Find counts for a source: a chart's table text, a
-/// drawing's nothing, and an invalid source's own text, which is what
-/// its error surface shows.
+fn measure(requests: Vec<MeasureRequest>) -> Round {
+    Round::Measure {
+        ink: requests
+            .iter()
+            .filter(|r| r.ink)
+            .map(|r| (r.role.name().to_string(), r.text.clone()))
+            .collect(),
+        texts: requests
+            .into_iter()
+            .map(|r| (r.role.name().to_string(), r.text))
+            .collect(),
+    }
+}
+
+/// The text transcript Find counts for a source: a chart's or a diagram's
+/// table text, a drawing's nothing, and an invalid source's own text,
+/// which is what its error surface shows.
 pub fn find_text(source: &str, layers: Layers) -> String {
     match validate(source, layers) {
         Ok(Source::Chart(spec)) => table::table(&spec).find_text(),
+        Ok(Source::Diagram(spec)) => crate::diagram::table(&spec).find_text(),
         Ok(Source::Draw(_)) => String::new(),
         Err(_) => source.to_string(),
     }

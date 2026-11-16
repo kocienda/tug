@@ -162,6 +162,8 @@ export const TUG_TOKEN_NAMES: readonly string[] = [
   "--tug7-element-card-text-normal-title-active",
   "--tug7-element-card-text-normal-title-inactive",
   "--tug7-element-card-title-normal-plain-rest",
+  "--tug7-element-chart-fill-normal-caution-rest",
+  "--tug7-element-chart-fill-normal-outside-rest",
   "--tug7-element-chart-fill-normal-series1-rest",
   "--tug7-element-chart-fill-normal-series2-rest",
   "--tug7-element-chart-fill-normal-series3-rest",

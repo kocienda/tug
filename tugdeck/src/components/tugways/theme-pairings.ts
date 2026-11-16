@@ -2892,7 +2892,7 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   //
   // A chart's marks paint on the content surface its transcript block sits
   // on. Every series must read as a mark there, as must the good/bad roles a
-  // chart borrows from the status tones; the plot grid is a rule a reader
+  // chart borrows from the status tones and its own caution and outside roles; the plot grid is a rule a reader
   // finds only when looking for it.
   { element: "--tug7-element-chart-fill-normal-series1-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-chart-fill-normal-series2-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
@@ -2904,6 +2904,8 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-chart-fill-normal-series8-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-tone-fill-normal-success-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-tone-fill-normal-danger-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-element-chart-fill-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-element-chart-fill-normal-outside-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-chart-stroke-normal-grid-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "decorative" },
 
   // ---- entity-tips.css ----
