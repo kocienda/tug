@@ -1096,7 +1096,7 @@
         },
         {
           "event": "input",
-          "bounce": "repeat",
+          "bounce": "continued",
           "notification": true,
           "cardId": "card-2",
           "title": "Session needs your input",
