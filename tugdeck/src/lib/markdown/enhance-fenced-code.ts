@@ -51,6 +51,19 @@ import {
 import { highlightFragmentToHtml } from "@/lib/language-registry";
 import { trackEnhancement } from "./pending-enhancements";
 
+/**
+ * The fences whose body is a figure's spec, and the word each wears in its
+ * header. A closed one never reaches this enhancer: the `tugchart`
+ * transformer promotes it to a chart placeholder. What does reach it is the
+ * fence still streaming, whose body is drawing commands arriving a line at a
+ * time, so it is framed folded and stays out of the reader's way until the
+ * figure takes its place.
+ */
+const FIGURE_FENCE_LABELS: Readonly<Record<string, string>> = {
+  tugchart: "Drawing chart…",
+  tugdiagram: "Drawing diagram…",
+};
+
 /** Parses the language tag off a `<code class="language-X">` element.
  *  Returns `null` for unspecified-language fenced blocks. */
 function readLanguage(codeEl: HTMLElement): string | null {
@@ -99,7 +112,8 @@ export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlig
     // Language label is the fence's identity, styled like a tool name.
     const langEl = document.createElement("span");
     langEl.className = "tugx-md-fenced-code-lang";
-    langEl.textContent = lang ?? "code";
+    const figureLabel = lang !== null ? FIGURE_FENCE_LABELS[lang] : undefined;
+    langEl.textContent = figureLabel ?? lang ?? "code";
 
     // A shell fence can be run where it stands: the same Play an offer has,
     // beside Copy, hidden until a surface that can run it adopts the fence.
@@ -111,10 +125,11 @@ export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlig
       actions: [
         ...(runnable ? [buildPlayButton()] : []),
         buildCopyButton(() => codeEl?.textContent ?? "", "Copy code"),
-        buildFoldButton(wrapper, {
-          ariaExpand: "Expand code",
-          ariaCollapse: "Collapse code",
-        }),
+        buildFoldButton(
+          wrapper,
+          { ariaExpand: "Expand code", ariaCollapse: "Collapse code" },
+          figureLabel !== undefined,
+        ),
       ],
     });
 
@@ -132,7 +147,8 @@ export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlig
     // in the `tug-syn-*` classes tugcast's highlighter shares. Fire-and-
     // forget: the grammar chunk lazy-loads, so we patch the `<code>` on
     // resolve (see `highlightFencedCode` for the prune/re-render guard).
-    if (lang !== null && codeEl !== null) highlightFence(codeEl, lang, options);
+    // A figure's spec is folded and about to be replaced: colouring it is work nobody sees.
+    if (lang !== null && codeEl !== null && figureLabel === undefined) highlightFence(codeEl, lang, options);
   }
 }
 

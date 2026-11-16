@@ -130,12 +130,15 @@ body {
  * code block and a tool block.
  *
  * States, each a `data-tugx-chart-state` the renderer stamps [L06]:
- *  - `pending`     — the source as text, until the engine and faces arrive.
+ *  - `pending`     — one header line, until the engine and faces arrive.
  *  - `rendered`    — header, SVG body, table alternative.
- *  - `invalid`     — the source in a `<pre>`, the errors beneath it, on the
- *                    shared caution band.
- *  - `unavailable` — the source in a `<pre>` and one note: the engine did
- *                    not load within its horizon.
+ *  - `invalid`     — one header line on the shared caution band.
+ *  - `unavailable` — one header line: the engine did not load within its
+ *                    horizon.
+ *
+ * A state that has not drawn keeps its source, and its errors or note,
+ * behind the header's fold cue, folded from the start (`data-collapsed`):
+ * a spec is drawing commands, never something to read in the transcript.
  */
 
 /* @tug-renders-on: --tugx-block-chrome-bg */
@@ -152,12 +155,24 @@ body {
   overflow: clip;
 }
 
-.tugx-chart[data-tugx-chart-state="pending"] {
-  padding: var(--tugx-chart-body-padding);
-  font-family: var(--tugx-chart-source-font);
-  font-size: var(--tugx-chart-source-font-size);
+/* The fold, for a chart on any door: the markdown chrome's own rule needs a
+ * `.tugx-md-block` ancestor, which a tool block's chart does not have. */
+.tugx-chart[data-collapsed] > .tugx-md-chrome-body {
+  display: none;
+}
+.tugx-chart[data-collapsed] > .tugx-md-chrome-header {
+  border-bottom: none;
+}
+.tugx-chart[data-collapsed] .tugx-md-chrome-fold-icon--expanded {
+  display: none;
+}
+.tugx-chart[data-collapsed] .tugx-md-chrome-fold-icon--collapsed {
+  display: inline;
+}
+
+.tugx-chart[data-tugx-chart-state="pending"] .tugx-chart-title {
   color: var(--tugx-chart-note-color);
-  white-space: pre-wrap;
+  font-weight: inherit;
 }
 
 .tugx-chart-source {
@@ -175,7 +190,7 @@ body {
  * excludes them: they are not the author's text. */
 .tugx-chart-note {
   margin: 0;
-  padding: 0 var(--tug-space-md) var(--tug-space-sm);
+  padding: var(--tug-space-sm) var(--tug-space-md) 0;
   list-style: none;
   font-size: var(--tugx-chart-note-size);
   color: var(--tugx-chart-note-color);
@@ -187,6 +202,9 @@ body {
   color: var(--tugx-block-tone-caution-color);
 }
 .tugx-chart[data-tugx-chart-state="invalid"] .tugx-chart-note {
+  color: inherit;
+}
+.tugx-chart[data-tugx-chart-state="invalid"] .tugx-chart-title {
   color: inherit;
 }
 

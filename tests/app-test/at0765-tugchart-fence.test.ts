@@ -22,7 +22,7 @@
  *    measurement, so this is the layout contract with no test-only attribute
  *    in the product DOM.
  *  - The refused spec shows `invalid`, its source in a `<pre>` and its
- *    errors as `.tugx-chart-note` items.
+ *    errors as `.tugx-chart-note` items, both folded behind its header.
  *  - The title is drawn once: the header reads it and no `<text>` repeats it.
  *  - The sparkline, which has no title, wears quiet chrome: the figure carries
  *    `data-tugx-chart-untitled`, and its header has no title and no placeholder
@@ -69,6 +69,7 @@ interface ChartFacts {
   hasTable: boolean;
   hasHeader: boolean;
   invalidPre: boolean;
+  invalidSourceShown: boolean;
   notes: string[];
   title: string;
   untitledFigures: number;
@@ -82,7 +83,7 @@ const READ_FACTS = `(function(){
   var fig = charts.filter(function (c) { return c.getAttribute("data-tugx-chart-state") === "rendered"; })[0] || null;
   var invalid = charts.filter(function (c) { return c.getAttribute("data-tugx-chart-state") === "invalid"; })[0] || null;
   var out = { count: charts.length, states: states, styles: -1, barFill: "", tokenColor: "", texts: [],
-              hasTable: false, hasHeader: false, invalidPre: false, notes: [],
+              hasTable: false, hasHeader: false, invalidPre: false, invalidSourceShown: true, notes: [],
               title: "", untitledFigures: 0, quietTitles: -1, quietHeaderText: "" };
   if (fig !== null) {
     var svg = fig.querySelector("svg.tugx-chart-svg");
@@ -119,6 +120,8 @@ const READ_FACTS = `(function(){
   }
   if (invalid !== null) {
     out.invalidPre = invalid.querySelector("pre.tugx-chart-source") !== null;
+    var src = invalid.querySelector("pre.tugx-chart-source");
+    out.invalidSourceShown = src !== null && src.getClientRects().length > 0;
     out.notes = Array.from(invalid.querySelectorAll(".tugx-chart-note li")).map(function (li) { return li.textContent || ""; });
   }
   return out;
@@ -152,6 +155,7 @@ describe.skipIf(!SHOULD_RUN)("at0765 — a tugchart fence renders as a token-sty
         }
 
         expect(facts.invalidPre, "the invalid spec shows its source").toBe(true);
+        expect(facts.invalidSourceShown, "the invalid spec's source is folded away until asked for").toBe(false);
         expect(facts.notes.length, "the invalid spec lists its errors").toBeGreaterThan(0);
         expect(facts.notes.join("\n")).toContain("form");
 

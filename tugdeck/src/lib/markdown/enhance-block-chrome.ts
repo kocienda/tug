@@ -139,19 +139,23 @@ export function buildCopyButton(
 /**
  * Build the icon-only fold cue — the imperative-DOM counterpart of
  * `BlockFoldCue subtype="icon"`. Markdown blocks default EXPANDED (no
- * `data-collapsed` on the frame), so the first click collapses; the CSS
+ * `data-collapsed` on the frame), so the first click collapses; a block
+ * whose body is not for reading (a figure's spec) passes `startCollapsed`
+ * and the cue sets the attribute itself. The CSS
  * hides the `.tugx-md-chrome-body` and swaps the chevron. Both glyphs
  * are painted; the wrapper's `data-collapsed` selects which shows.
  */
 export function buildFoldButton(
   frame: HTMLElement,
   labels: { ariaExpand: string; ariaCollapse: string },
+  startCollapsed: boolean = false,
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "tugx-md-chrome-btn tugx-md-chrome-fold";
-  button.setAttribute("aria-expanded", "true");
-  button.setAttribute("aria-label", labels.ariaCollapse);
+  if (startCollapsed) frame.setAttribute("data-collapsed", "");
+  button.setAttribute("aria-expanded", startCollapsed ? "false" : "true");
+  button.setAttribute("aria-label", startCollapsed ? labels.ariaExpand : labels.ariaCollapse);
   button.appendChild(buildIcon(CHEVRONS_UP_ICON, "tugx-md-chrome-fold-icon", "expanded"));
   button.appendChild(buildIcon(CHEVRONS_DOWN_ICON, "tugx-md-chrome-fold-icon", "collapsed"));
 

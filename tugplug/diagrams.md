@@ -124,6 +124,7 @@ A diagram refuses a figure a reader would have to work at, and the error says wh
 
 - **Names never wrap.** A box, row, cell, actor or layer name is one line, at most 320 px wide, roughly 45 characters. A sequence message label is one line too. One longer is an error carrying its measured width, so shorten it.
 - **Secondary text wraps to two lines and no more.** A sub-label, an edge label, a note and a `below` label wrap by words at a width the form sets; a third line is an error. Put the detail in `what`, which the table shows in full.
+- **Every string is at most 120 characters**, `what` included. A `what` is one short sentence; one over the limit is an error and the figure is not drawn, so count before you write a long one.
 - **A whole figure is at most 1,040 px wide.** One wider is an error that says to split it.
 - **Each form has a budget.** A `flow` holds at most 5 columns, 10 boxes, 6 rows in a box, 18 rows in all, and 10 edges. A `sequence` holds 6 actors and 16 messages. `layers` holds 7 layers of at most 5 cells. A `stack` holds 7 layers, 3 rows in a layer, 6 cells in a row, 24 cells in all, 4 blocks above or beneath, and 4 bars across, and an upright bar name may be no longer than its bar is tall.
 - **Edges may cross at most once.** Two crossings mean the boxes want reordering: put the boxes an edge joins in the order the edge reads.

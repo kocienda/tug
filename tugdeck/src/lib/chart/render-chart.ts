@@ -7,12 +7,16 @@
  *
  * The pipeline, in order:
  *
- *  1. Stamp `data-tugx-chart-state="pending"` and leave the source as text,
- *     so the reader has the content before any beat runs ([L32]).
+ *  1. Stamp `data-tugx-chart-state="pending"` and put the source in a
+ *     folded frame: a header naming what is being drawn, and the spec
+ *     behind its fold cue. A spec is drawing commands, never prose, so no
+ *     state shows it open; it is one press away in every state that has not
+ *     drawn ([L32]).
  *  2. Load the engine, with a 10 s deadline. Past it the state is
  *     `unavailable`, the source stays, and a note says why ([L33]).
  *  3. Validate the source for the door's `layers`. An invalid source shows
- *     as `invalid`: the source in a `<pre>`, every error beneath it.
+ *     as `invalid`: the same folded frame on the caution band, every error
+ *     and the source behind the fold.
  *  4. Put one hidden, empty probe per type role in the host and wait for
  *     their faces, with a 3 s deadline, after which whatever face is present
  *     is measured.
@@ -50,7 +54,7 @@
  *
  * Laws: [L06] every state is a `data-` attribute styled by CSS; [L24] the
  * DOM is structure written once, the entrance set is module-local data;
- * [L32] the source is on screen until the figure replaces it; [L33] both
+ * [L32] the source is reachable until the figure replaces it; [L33] both
  * waits have horizons.
  *
  * @module lib/chart/render-chart
@@ -68,7 +72,7 @@ import {
   type ChartTable,
   type TuggraphicsEngine,
 } from "@/lib/lazy/load-tuggraphics";
-import { buildBlockHeader, buildCopyButton } from "@/lib/markdown/enhance-block-chrome";
+import { buildBlockHeader, buildCopyButton, buildFoldButton } from "@/lib/markdown/enhance-block-chrome";
 import { SPACE_LAYER_CLASS, SPACE_SHOWN_ATTRIBUTE } from "@/lib/pane-frame-selectors";
 
 /** The figure's class on every door. */
@@ -176,16 +180,48 @@ function sourceBlock(source: string): HTMLPreElement {
   return pre;
 }
 
-/** The source as code and one note beneath it. Tug's words, not the author's: the note is excluded from Find. */
-function showUnavailable(el: HTMLElement, source: string, message: string): void {
+/** The frame attribute the block chrome's fold reads. */
+const COLLAPSED_ATTR = "data-collapsed";
+
+/**
+ * A figure that has not drawn: one header line saying so, and behind its
+ * fold cue the notes and the spec. The spec is drawing commands the reader
+ * did not ask to see, so it starts folded in every such state and Copy
+ * still reaches it. The header and the notes are Tug's words, not the
+ * author's, and Find excludes both.
+ */
+function showUndrawn(el: HTMLElement, source: string, label: string, notes: HTMLElement | null, diagram: boolean): void {
+  const identity = document.createElement("span");
+  identity.className = "tugx-chart-title";
+  identity.textContent = label;
+  const header = buildBlockHeader({
+    identity,
+    actions: [
+      buildCopyButton(() => source, diagram ? "Copy diagram source" : "Copy chart source"),
+      buildFoldButton(el, { ariaExpand: "Show source", ariaCollapse: "Hide source" }, true),
+    ],
+  });
+  const body = document.createElement("div");
+  body.className = "tugx-md-chrome-body";
+  if (notes !== null) body.appendChild(notes);
+  body.appendChild(sourceBlock(source));
+  el.replaceChildren(header, body);
+}
+
+function showUnavailable(el: HTMLElement, source: string, message: string, diagram: boolean): void {
   const note = document.createElement("p");
   note.className = "tugx-chart-note";
   note.textContent = message;
-  el.replaceChildren(sourceBlock(source), note);
+  showUndrawn(el, source, diagram ? "Diagram not drawn" : "Chart not drawn", note, diagram);
   el.setAttribute(CHART_STATE_ATTR, "unavailable");
 }
 
-function showInvalid(el: HTMLElement, source: string, errors: ReadonlyArray<{ path: string; message: string }>): void {
+function showInvalid(
+  el: HTMLElement,
+  source: string,
+  errors: ReadonlyArray<{ path: string; message: string }>,
+  diagram: boolean,
+): void {
   const list = document.createElement("ul");
   list.className = "tugx-chart-note";
   for (const error of errors) {
@@ -193,7 +229,7 @@ function showInvalid(el: HTMLElement, source: string, errors: ReadonlyArray<{ pa
     item.textContent = error.path === "" ? error.message : `${error.path}: ${error.message}`;
     list.appendChild(item);
   }
-  el.replaceChildren(sourceBlock(source), list);
+  showUndrawn(el, source, diagram ? "Diagram not drawn" : "Chart not drawn", list, diagram);
   el.setAttribute(CHART_STATE_ATTR, "invalid");
 }
 
@@ -373,20 +409,23 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   el.removeAttribute(DIAGRAM_CHECKED_ATTR);
   el.toggleAttribute(CHART_THUMBNAIL_ATTR, thumbnail);
   el.setAttribute(CHART_STATE_ATTR, "pending");
-  el.textContent = thumbnail ? "" : source;
+  el.removeAttribute(COLLAPSED_ATTR);
+  const diagram = isDiagramSource(source, layers);
+  if (thumbnail) el.textContent = "";
+  else showUndrawn(el, source, diagram ? "Drawing diagram…" : "Drawing chart…", null, diagram);
 
   let engine: TuggraphicsEngine;
   try {
     engine = getTuggraphicsSync() ?? (await engineWithDeadline());
   } catch {
-    if (current()) showUnavailable(el, source, ENGINE_UNAVAILABLE_NOTE);
+    if (current()) showUnavailable(el, source, ENGINE_UNAVAILABLE_NOTE, diagram);
     return;
   }
   if (!current()) return;
 
   const verdict = engine.validate(source, layers);
   if (verdict.status === "invalid") {
-    showInvalid(el, source, verdict.errors);
+    showInvalid(el, source, verdict.errors, diagram);
     return;
   }
 
@@ -398,7 +437,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
 
   const measure = probeMeasurer(probes);
   if (measure === null) {
-    showUnavailable(el, source, MEASURE_UNAVAILABLE_NOTE);
+    showUnavailable(el, source, MEASURE_UNAVAILABLE_NOTE, diagram);
     return;
   }
 
@@ -419,7 +458,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   );
   if (!current()) return;
   if (round.status === "invalid") {
-    showInvalid(el, source, round.errors);
+    showInvalid(el, source, round.errors, diagram);
     return;
   }
 
@@ -428,6 +467,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
     body.className = "tugx-chart-body";
     body.innerHTML = round.svg;
     if (hasTable(round.table)) attachChartHover(body, round.table);
+    el.removeAttribute(COLLAPSED_ATTR);
     el.replaceChildren(body);
     el.setAttribute(CHART_STATE_ATTR, "rendered");
     return;
@@ -435,7 +475,6 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
 
   // Build off-document, then land it in one write.
   // A diagram has no Table view: its table already stands beneath it.
-  const diagram = isDiagramSource(source, layers);
   if (diagram) el.setAttribute(CHART_KIND_ATTR, "diagram");
   const view = diagram ? "chart" : recallChartView(hash);
   if (view === "table") el.setAttribute(CHART_VIEW_ATTR, "table");
@@ -465,6 +504,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   if (withTable) children.push(diagram ? buildKeyedTable(round.table) : buildTable(round.table));
 
   if (animate) el.setAttribute(CHART_ANIMATE_ATTR, "");
+  el.removeAttribute(COLLAPSED_ATTR);
   el.replaceChildren(...children);
   el.setAttribute(CHART_STATE_ATTR, "rendered");
 }
