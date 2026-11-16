@@ -112,7 +112,7 @@ body {
   --tugx-md-run-sigil-color: var(--tug7-element-tone-text-normal-accent-rest);
   --tugx-md-run-sigil-width: 2ch;
   --tugx-md-run-status-ok:   var(--tug7-element-tone-text-normal-success-rest);
-  --tugx-md-run-status-fail: var(--tug7-element-tone-text-normal-danger-rest);
+  --tugx-md-run-status-fail: var(--tug7-element-global-text-normal-danger-rest);
   /* How many lines of output a result shows before it scrolls inside itself. */
   --tugx-md-run-output-max-lines: 20;
 
@@ -717,7 +717,7 @@ body {
 /* @tug-renders-on: --tugx-block-strip-bg */
 .tugx-md-block .tugx-md-run-footer {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--tug-space-md);
   padding: var(--tug-space-xs) var(--tug-space-lg);
   background: var(--tugx-block-strip-bg);
