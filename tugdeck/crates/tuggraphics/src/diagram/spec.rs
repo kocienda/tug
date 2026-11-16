@@ -418,7 +418,10 @@ impl Validator {
                 Some(s.clone())
             }
             _ => {
-                self.warn(path, format!("{key} is a non-empty string, so it is left out"));
+                self.warn(
+                    path,
+                    format!("{key} is a non-empty string, so it is left out"),
+                );
                 None
             }
         }
@@ -528,7 +531,9 @@ impl Validator {
                 if obj.contains_key(k) {
                     self.warn(
                         key_path(base, k),
-                        format!("{k} belongs to a keyed mark, so it is ignored: give the mark a key"),
+                        format!(
+                            "{k} belongs to a keyed mark, so it is ignored: give the mark a key"
+                        ),
                     );
                 }
             }

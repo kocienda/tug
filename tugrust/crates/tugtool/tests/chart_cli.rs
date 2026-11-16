@@ -481,7 +481,10 @@ fn chart_render_draws_a_diagram_it_warns_of() {
     // A chart has none to carry.
     let run = render(BAR, &out, &["--json"]);
     let envelope: serde_json::Value = serde_json::from_str(&stdout(&run)).unwrap();
-    assert_eq!(envelope.pointer("/data/warnings"), Some(&serde_json::json!([])));
+    assert_eq!(
+        envelope.pointer("/data/warnings"),
+        Some(&serde_json::json!([]))
+    );
 }
 
 #[test]

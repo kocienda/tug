@@ -632,7 +632,10 @@ fn a_crossing_label_wraps_to_two_lines_and_no_more() {
     );
     // The second line ends where the third would have begun.
     let svg = drawn(&source).svg;
-    assert!(svg.contains("…") && !svg.contains("crossing wraps at"), "{svg}");
+    assert!(
+        svg.contains("…") && !svg.contains("crossing wraps at"),
+        "{svg}"
+    );
 }
 
 #[test]

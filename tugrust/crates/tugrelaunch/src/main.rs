@@ -335,15 +335,37 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn test_kqueue_wait_for_short_lived_process() {
-        let mut child = std::process::Command::new("sleep")
-            .arg("0.1")
+        use std::io::Read;
+        use std::os::fd::AsRawFd;
+
+        // The child writes a line and then exits, so once wait_for_exit
+        // returns the line is already in the pipe. (A try_wait() here raced:
+        // NOTE_EXIT can arrive a moment before the zombie is reapable by
+        // waitpid(WNOHANG).)
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 0.1; echo exited"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", std::env::temp_dir())
+            .stdout(std::process::Stdio::piped())
             .spawn()
             .unwrap();
 
         let pid = child.id();
         wait_for_exit(pid);
 
-        let result = child.try_wait().unwrap();
-        assert!(result.is_some());
+        // A non-blocking read: the line is there only if wait_for_exit waited.
+        let mut stdout = child.stdout.take().unwrap();
+        unsafe {
+            let fd = stdout.as_raw_fd();
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
+        let mut buf = [0u8; 16];
+        let n = stdout.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"exited\n");
+
+        // A clean exit: the timeout path's SIGKILL never ran.
+        assert!(child.wait().unwrap().success());
     }
 }
