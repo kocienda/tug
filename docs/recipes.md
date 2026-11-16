@@ -268,7 +268,87 @@ Type `/private`, and again to undo it. From then on nothing new from this sessio
 ### Save or copy a session's words
 <!-- source: tugdeck/src/lib/slash-commands.ts (/export, /copy); tugdeck/src/components/tugways/cards/session-card.tsx (export, copy surfaces); tugapp/Sources/MenuBarBuilder.swift (file.exportTranscript, edit.copyLastResponse) -->
 
-Type `/export`, or choose File > Export Session, to save the transcript as Markdown or JSON Lines. Type `/copy`, or choose Edit > Copy Last Response, to put the model's latest message on the clipboard.
+Type `/export`, or choose File > Export Session, to save the transcript as Markdown or JSON Lines. Type `/copy`, or choose Edit > Copy Last Response, to put the model's latest message on the clipboard. To send someone only some of the turns, as a PDF, an image or Markdown, see the recipe for sharing part of a conversation.
+
+## Sharing, charts and diagrams
+
+### Share part of a conversation
+<!-- source: tugdeck/src/lib/slash-commands.ts (/share); tugapp/Sources/MenuBarBuilder.swift (file.shareTurns); tugdeck/src/components/tugways/cards/session-share-view.tsx; tugdeck/src/components/tugways/cards/share-turn-mark.tsx (Share from Here…); tugdeck/src/lib/share-actions.ts; tugdeck/src/lib/share-turns.ts -->
+
+Type `/share`, or choose File > Share Turns. A shade titled **Share Turns** rises from the bottom of the card, and every prompt, answer and shell exchange in the transcript shows a checkbox at the right of its header. Check the ones you want, choose **PDF**, **Image** or **Markdown** under Format, choose **Preview**, **Copy**, **Save** or **Share** from the Action menu, and press the button beside it, which wears the action's name. Return presses it too. **Done** or Escape leaves.
+
+Each box selects its own row and nothing else, so a prompt and its answer are checked apart. The button stays dim until something is selected, and a turn that is still running has no box until it ends. Secrets are removed and your home folder is written as `~` before anything is made, and the model's thinking is never included. There is no chord for it.
+
+### Share everything from one turn on
+<!-- source: tugdeck/src/components/tugways/cards/share-turn-mark.tsx (Share from Here…); tugdeck/src/components/tugways/cards/session-card.tsx (shareFromTurn) -->
+
+Right-click the row where the part worth sharing starts and choose **Share from Here**. The Share Turns shade opens with that row and every later one already selected, and you can uncheck what you do not want.
+
+### Select a run of turns to share
+<!-- source: tugdeck/src/components/tugways/cards/share-turn-mark.tsx (shift-click extends from the anchor); tugdeck/src/components/tugways/cards/session-share-view.tsx (Select All, Clear All, the count) -->
+
+With the Share Turns shade up, click the checkbox on the first row, then hold Shift and click the box on the last: every row between them is selected. **Select All** takes the whole transcript and **Clear All** starts over, and the count beside them says how many turns are selected.
+
+### Choose how tool calls look in a share
+<!-- source: tugdeck/src/components/tugways/cards/session-share-view.tsx (TOOL_MODE_ITEMS); tugdeck/src/lib/share-turns.ts (ShareToolMode) -->
+
+In the Share Turns shade, choose under **Tools**: **Summaries** writes each tool call as one line, **Full** keeps its input and output, and **None** leaves tool calls out so only the words remain. Summaries is what a shade starts with.
+
+### Look at a share before sending it
+<!-- source: tugdeck/src/lib/share-actions.ts (previewShare); tugdeck/src/components/tugways/cards/session-share-view.tsx (SHARE_ACTIONS) -->
+
+Choose **Preview** from the Action menu and press the button. The result opens in a preview with **Done**, drawn exactly as it would be sent: a PDF is one continuous page, and an image is the whole selection as one picture in your current theme. Copy, Save and Share never show a preview first, so choose Preview when you want to look.
+
+### Share a private session
+<!-- source: tugdeck/src/components/tugways/cards/session-card.tsx (confirmPrivate); tugdeck/src/lib/share-actions.ts (makeArtifact) -->
+
+Share it as any other. A session you marked with `/private` asks once, "This session is private. Render its turns for sharing?", before it makes anything; click **Render** to go on. Sharing does not change the session's privacy.
+
+### Draw a chart
+<!-- source: tugplug/skills/viz/SKILL.md; tugplug/graphics.md; tugdeck/src/lib/chart/render-chart.ts; tugrust/crates/tugtool (chart list, chart forms) -->
+
+Ask for it in the composer, in words: "chart commits per day this month", "plot how long the tests take". Or type `/tugplug:viz` and what you want to see. The chart is drawn in the transcript, in your theme, with a title that states what it found and a sentence beside it. The numbers can come from the project's records, a file, a CSV, a command's output, or figures already in the conversation.
+
+A bare `/tugplug:viz` lists the charts Tug can already compute and every form a figure can take. There is no menu item or chord that draws a chart; Control-Command-V opens the list of recipes, in the recipe below.
+
+### Choose the kind of chart
+<!-- source: tugplug/skills/viz/SKILL.md (The form); tugrust/crates/tugtool (chart forms) -->
+
+End the request with the form: `/tugplug:viz how big commits are as a histogram`. The ten forms are bar, line, area, sparkline, dots, histogram, spans, heat, bullet and scatter, and everyday words work too: "timeline" draws spans, "heatmap" draws heat, "trend" draws a line, "distribution" draws a histogram. With no form named, the model picks one from the data. Ask for a pie and you get one stacked bar, because there is no pie. If the data cannot take the form you named, the model says why and draws the nearest one that can.
+
+### See which charts Tug can draw
+<!-- source: tugdeck/src/components/tugways/cards/data-visualization-sheet.tsx; tugdeck/src/lib/slash-commands.ts (/data-visualization); tugdeck/src/components/tugways/command-registry.ts (Control-Command-V); tugapp/Sources/MenuBarBuilder.swift (session.dataVisualization) -->
+
+Press Control-Command-V, type `/data-visualization`, or choose Session > Data Visualization. A sheet lists every chart recipe under Activity, Changes, Arcs, Tests, Telemetry and Models, each with a line on what its data tells and a small figure. The figure is drawn from this project's own data, or is marked **Sample** when the project has none for it yet. Click **Draw** and the recipe's command lands in the composer, unsent, so you can add a path, a number of days or a form before you send it. **Done**, Escape or the chord again closes the sheet.
+
+The sheet draws nothing in the transcript by itself: Draw only writes the command for you. From a shell, `tugtool chart list` prints the same recipes.
+
+### See the numbers behind a chart
+<!-- source: tugdeck/src/lib/chart/render-chart.ts (buildViewToggle, buildTable, Copy chart source); tugdeck/src/lib/chart/chart-hover.ts; tugdeck/src/lib/chart/chart-view-memory.ts -->
+
+Hover a bar, a point or a span to read its values. For all of them at once, click the table button in the chart's header: the figure becomes a table of its data, and the same button brings the figure back. The card remembers which you chose for that chart. **Copy** in the header copies the chart's source, the short description the figure was drawn from, which you can paste into a prompt to ask for a change. Command-F finds text in a chart as it does in the rest of the transcript.
+
+### Have the model explain how code works
+<!-- source: tugplug/skills/explain/SKILL.md; tugplug/diagrams.md; tugdeck/src/lib/chart/keyed-table.ts; tugdeck/src/lib/chart/render-chart.ts (buildKeyedTable) -->
+
+Type `/tugplug:explain` and the subject: a feature, a flow, a file or a directory, as in `/tugplug:explain how a save reaches the disk`. Asking in words works too: "explain how login works", "walk me through the parser". The model reads the code and answers with one to four sections, each with a heading that states a finding, a diagram, a sentence on how to read it, and a short lead.
+
+Under each diagram is its keyed table: a row for every numbered disc in the figure, with the part's name, what it does and where it is in the code. Click a location to open the file in a card. A location marked unresolved is one Tug could not find, usually because the file has moved since. A bare `/tugplug:explain` lists the four diagram forms. There is no menu item or chord for it.
+
+### Choose the kind of diagram
+<!-- source: tugplug/skills/explain/SKILL.md (a form the request names); tugplug/skills/viz/SKILL.md (A diagram); tugrust/crates/tugtool (chart forms --kind diagram) -->
+
+End the request with the form: `/tugplug:explain how login works as a sequence`. A **flow** follows work through its parts and branches, a **sequence** shows who says what to whom in order, **layers** shows what a request passes down through, and a **stack** shows the architecture. "Flowchart", "architecture" and "who calls whom" are understood as well. For one diagram with no written sections around it, ask `/tugplug:viz` for the structure instead.
+
+### Keep an explainer as a file
+<!-- source: tugplug/skills/explain/SKILL.md (Keep it, only when asked) -->
+
+Add "keep" to the request, as in `/tugplug:explain the edit gate keep`, or name a path to write to. The explainer is written to `explainers/` at the top of your project, named for its subject, with a first line recording the commit it was drawn at. It is never written over an earlier one and never committed for you. Without "keep" nothing is written: the answer in the transcript is the explainer.
+
+### Share a chart or a diagram
+<!-- source: tugdeck/src/share/share-root.tsx; tugdeck/src/lib/share-actions.ts (shareRender) -->
+
+Share the turn that holds it: type `/share`, check that answer, and choose **PDF** or **Image**. The figure is drawn in the share as it is in the card, in your current theme, and a diagram keeps its keyed table with each location written out. Markdown carries the figure's source rather than a picture, so choose it only for a reader who has Tug.
 
 ## The window and its cards
 

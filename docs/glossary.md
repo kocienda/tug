@@ -38,6 +38,10 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Changes (tab, shade).** The panel on each *session card* that sorts the checkout into this session's changes, unattributed changes, orphaned changes and the arcs in flight, with a status mark, a line count, a diff and a checkbox on every file and hunk. Commits happen here. On a card bound to a finished arc it is also where the *join* is offered. Control-Command-C shows it.
 
+**Chart.** A figure of numbers that the card draws in a session's transcript, in your *theme*: a trend, a distribution, a comparison, a run of outcomes. Ask for one in words or with `/tugplug:viz`. Its title states what it found, a button in its header swaps it for a table of its data, and hovering a mark reads that mark's values. A chart takes one of ten *forms*. See also *diagram*.
+
+**Chart recipe.** A *chart* Tug already knows how to compute from a project's own records: its commits, changes, arcs, test runs, command timings and model usage. *Data Visualization* shows every recipe, and `tugtool chart list` prints them in a shell.
+
 **Chord.** A keyboard shortcut, written as its keys joined by hyphens: Control-Command-K means hold down Control and Command and press K. Tug's chords follow one pattern: Command with a digit moves a card to that slot, Control-Command with the same digit moves you there; `[` is always back and `]` always forward; Option-Command with an arrow focuses the card in that direction. The Keyboard Shortcuts card (Control-Command-K) lists them all.
 
 **Claim.** A session's link to an edit in the *ledger*. Most claims are written for you as the work happens: a file edit claims its file, a shell command that names its files claims those. In the *Changes* tab, Claim brings a file or hunk into this session and *Disclaim* lets it go. See also *hint*.
@@ -54,9 +58,13 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Context.** The amount of the model's window a session has used. The *status row* reads it out.
 
+**Data Visualization.** The sheet that lists every *chart recipe*, each with a line on what its data tells and a small figure drawn from the project in front of you, or marked Sample when the project has no data for it. **Draw** places a recipe's command in the *composer*, unsent. Control-Command-V, `/data-visualization` or Session > Data Visualization opens it.
+
 **Deck.** The set of cards in one *workspace*, arranged on the *canvas* under *imposition*. The deck holds the arrangement, not you.
 
 **Devise.** The first stage of a *planned arc*: a fresh session writes the *plan* from the *brief*.
+
+**Diagram.** A figure of how code fits together, drawn in a transcript from the model's reading of the code. It takes one of four *forms*: flow, sequence, layers or stack. The parts worth explaining wear numbered discs, and the *keyed table* under the figure says what each one does and where it is. Ask for one with `/tugplug:explain`, or `/tugplug:viz` for a single figure. See also *chart*.
 
 **Dictation.** Speaking a prompt into a *composer* instead of typing it. Command-D starts dictation; Shift-Command-D stops it and sends the prompt.
 
@@ -70,6 +78,10 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Dot.** See *pulsing dot*.
 
+**Explainer.** The answer `/tugplug:explain` gives: one to four sections on how a piece of code works, each a heading that states a finding, a *diagram*, a sentence on how to read it, a short lead and the *keyed table*. It lives in the transcript, and is written to a file under `explainers/` only when the request says to keep it.
+
+**Figure.** A *chart* or a *diagram*: anything the card draws in a transcript from a short description the model writes. A figure follows the *theme*, can be searched with *Find*, and is drawn the same way in a share.
+
 **Find.** Search the document in front of you: a session's transcript, a *Text card*'s file, or a help card. Command-F opens the find bar at the bottom of the card, and the matches highlight as you type, with the count beside the field and Case, Word and Grep toggles that are one setting across the deck. Command-G and Shift-Command-G step to the next and previous match, Command-E searches for the selected text, and Escape closes the bar.
 
 **Fit.** One of the two ways *slots* resolve across the window. Fit spreads the slots so every card is inside the window at once; when cards are wider than the window, neighbors overlap and the front one wins. Fit is for monitoring. See *Flow*.
@@ -77,6 +89,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Flow.** The other way slots resolve. Flow stands the cards side by side at their full widths and lets the row run past the window's edge. Activating a card slides the row just far enough to bring it into view, with a strip along the bottom drawing the whole arrangement. Flow is for reading.
 
 **Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (Control-Command-Y). In a *split* slot, folding makes a *wall*.
+
+**Form.** The kind of *figure* a request asks for. A *chart* has ten: bar, line, area, sparkline, dots, histogram, spans, heat, bullet and scatter. A *diagram* has four: flow, sequence, layers and stack. End a request with "as a histogram" or "as a sequence" to name one, or leave it to the model. `tugtool chart forms` lists them all with a request that draws each.
 
 **Help.** Tug's help is five documents, the feature guide, the getting-started walk, the recipes, this glossary and the release notes, each opened as a read-only card from the Help menu: Tug Help, Getting Started, How Do I, Glossary and Release Notes. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help > Keyboard Shortcuts & Commands opens a session's `/help` sheet, and Control-Command-K opens the Keyboard Shortcuts card.
 
@@ -95,6 +109,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Join draft.** The squash message the join will land, written by the *audit* stage with `tugtool draft set`. The only durable prose the base carries about an arc, so it describes the change, never the arc's history.
 
 **Jot.** A saved prompt fragment, something you found yourself typing again, kept in the *Jots* sidebar and ready to drag into any *composer*. Command-J makes a new one.
+
+**Keyed table.** The table under a *diagram*, with one row for each numbered disc in the figure: the part's name, what it does, and where it is in the code. A location Tug can confirm is a link that opens the file in a card; one it cannot is marked unresolved.
 
 **Kind (of arc).** *Plain* or *planned*. The axis between them is settling time, whether the work earns a written, cold-reviewed plan before a step is walked. The *door* decides from the work. A plain arc runs implement then audit from a *task list*; a planned arc runs devise, review, implement, audit from a *plan*.
 
@@ -150,6 +166,10 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Settings.** The card for app-wide preferences (Command-Comma). Card Settings, from a card's menu, hold the per-kind preferences for text, image and PDF cards.
 
+**Shade.** A panel that rises from the bottom of a *session card* over its transcript, resting on the *status row*: *Changes*, the commit history and *Share Turns*.
+
+**Share Turns.** Handing chosen parts of a session's transcript to someone else as a PDF, an image or Markdown. `/share`, File > Share Turns, or Share from Here on a transcript row opens its *shade*; each prompt, answer and shell exchange then shows a checkbox, and the shade's Action menu previews, copies, saves or shares what you checked. Secrets are removed and your home folder is written as `~` before anything is made.
+
 **Sidebar card.** A card that pins to a *rail* instead of living in a slot: *Overview*, *Arcs*, *Jots*, *Workspaces* and *Layout*.
 
 **Sigil.** The caret, `^`, that an arc wears wherever it is named to a person, as in `juicy-roach^arc-steps`. It draws the departure and return the word names.
@@ -158,7 +178,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Slot.** One of the one to six numbered places on the *deck*. Every card lives in a slot at the width you set. A slot holding more than one card is either a *stack* or a *split*.
 
-**Sparkline.** The small live chart of activity in a session's *masthead*.
+**Sparkline.** The small live chart of activity in a session's *masthead*. Also one of the *forms* a *chart* in a transcript can take.
 
 **Split.** A slot arrangement in which the slot's height is divided among its cards, each a lettered *band* with a seam to drag between them. Control-Command-Slash toggles a slot between split and *stack*.
 
