@@ -830,19 +830,20 @@ const SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
 );
 
 /**
- * ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the arrangement.
+ * ⌃⌥⌘[ / ⌃⌥⌘] — move the layout selection one slot along the arrangement.
  *
- * **The tier, derived** (tuglaws/chord-tiers.md): ⇧⌘[/] moves attention
- * laterally across the cards and ⌥⌘[/] moves it through one slot's stack; ⌥ is
- * the variant operator, so ⌥⇧⌘[/] reads as the same lateral verb with the
- * object altered — it moves the card itself rather than the attention on it.
- * Same keys, same axis, altered object. Plain ⌘[/] is left alone: the pool
- * reserves it for back/forward.
+ * **A grant by exception, not a derivation** (tuglaws/chord-tiers.md, "⌃⌥⌘ is
+ * spoken for outside Tug"). The derived seat was ⌥⇧⌘[/], both twists of the
+ * lateral ring, and the nudge held it until the user gave it to Go ▸ Back /
+ * Forward ([D232]); the pair swapped seats, so the nudge took the one
+ * ⌘-bearing set the bracket row had left. The set is closed because Keyboard
+ * Maestro claims keys on it machine-wide; neither bracket is among them,
+ * which is what the grant rests on.
  *
- * The ⌥⌘[/] neighbours are menu-promoted, so whether AppKit would claim the
- * ⌥⇧⌘ press too was checked rather than assumed. It does not — the
+ * The ⌥⌘[/] neighbours and ⌥⇧⌘[/] are menu-promoted, and AppKit's
  * key-equivalent scan matches modifier masks exactly, so a promoted chord
- * shadows itself and not its composed neighbours.
+ * shadows itself and not its composed neighbours: the ⌃⌥⌘ press reaches the
+ * web view.
  *
  * Two entries rather than one signed command, for the same reason the width
  * row is three: each direction is separately rebindable and each is one row in
@@ -867,7 +868,7 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
   payload: delta,
   bindings: [
     chord(
-      { key, meta: true, alt: true, shift: true, label },
+      { key, ctrl: true, alt: true, meta: true, label },
       { preventDefault: true },
     ),
   ],
@@ -1184,20 +1185,20 @@ const FOCUS_CARD_COMMANDS: readonly CommandEntry[] = (
 }));
 
 /**
- * ⌃⌥⌘[ / ⌃⌥⌘] — Back and Forward along the cards the reader had focused.
+ * ⌥⇧⌘[ / ⌥⇧⌘] — Back and Forward along the cards the reader had focused.
  *
  * **Time, where every other Go verb is position.** The lateral ring, the
  * stack ring, the four directions and the slots all move through the
  * arrangement; this pair moves through the order the reader visited it in,
  * and crosses into a parked workspace when that is where the card is.
  *
- * **The seat is a granted exception** (tuglaws/chord-tiers.md, "⌃⌥⌘ is spoken
- * for outside Tug"). The bracket row reads `[` as back and `]` as forward in
- * every family on it, plain ⌘[/] belongs to CodeMirror's dedent and indent in
- * the composer and the text card, and ⌃⌥⌘ is the one ⌘-bearing set the row
- * had left. The set is closed because Keyboard Maestro claims keys on it
- * machine-wide; neither bracket is among them, which is what the grant rests
- * on.
+ * **The seat is the user's choice** ([D232]). The bracket row reads `[` as
+ * back and `]` as forward in every family on it, and plain ⌘[/] belongs to
+ * CodeMirror's dedent and indent in the composer and the text card. The pair
+ * first sat on ⌃⌥⌘[/], an exception to that set's closure; the user moved it
+ * to ⌥⇧⌘[/], the slot nudge's seat, and the nudge took ⌃⌥⌘[/] in exchange.
+ * Promoted, it renders as ⌥⌘{ / ⌥⌘}: a shifted-pair key spends its ⇧ on the
+ * character.
  *
  * Promoted to the Go menu with empty Swift key equivalents, gated on the
  * trail, and `disabledChord: "keep"` for the directional family's reason: a
@@ -1218,7 +1219,7 @@ const GO_TRAIL_COMMANDS: readonly CommandEntry[] = (
   mirrored: true,
   bindings: [
     chord(
-      { key, ctrl: true, alt: true, meta: true, label },
+      { key, alt: true, shift: true, meta: true, label },
       { preventDefault: true, menuEligible: true },
     ),
   ],
@@ -3437,7 +3438,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     // points at a place. A transcript is an ordered run of turns and nothing
     // about moving through it is spatial, so the family belongs on the bracket
     // row beside the lateral card ring (⇧⌘[/]), the stack ring (⌥⌘[/]) and the
-    // slot nudge (⌥⇧⌘[/]) — `[` back and `]` forward in all four. It sat on
+    // slot nudge (⌃⌥⌘[/]) — `[` back and `]` forward in all four. It sat on
     // ⌥⌘↑/↓ and ⌥⇧⌘↑/↓ until directional card focus took the whole ⌥⌘ arrow
     // band, which is the band that moves the READER through the deck's
     // geometry; the arrow shape here was carrying a resemblance rather than a

@@ -88,8 +88,8 @@ const EPSILON = 2;
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
 
-/** ⌥⇧⌘[ / ⌥⇧⌘] — the nudge modifiers (at0452 pins that they arrive). */
-const NUDGE = ["cmd", "alt", "shift"] as const;
+/** ⌃⌥⌘[ / ⌃⌥⌘] — the nudge modifiers (at0452 pins that they arrive). */
+const NUDGE = ["cmd", "ctrl", "alt"] as const;
 
 const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
@@ -330,7 +330,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — slot overflow", () => {
         await app.evalJS<null>(
           `(window.__tug.setLayoutSelection(["C"]), null)`,
         );
-        // ⌥⇧⌘[ — the nudge chord, as at0452 drives it. A dispatch straight at
+        // ⌃⌥⌘[ — the nudge chord, as at0452 drives it. A dispatch straight at
         // the action would have to guess which responder owns the verb; the
         // chord is the door the user has.
         await app.nativeKey("[", NUDGE);

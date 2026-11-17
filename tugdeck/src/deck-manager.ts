@@ -4792,13 +4792,27 @@ export class DeckManager implements IDeckManagerStore {
    * `from` seeds an empty trail: the card focused at boot was raised by no
    * activation this manager noted, and without it the first Back after
    * launch would have nowhere to go.
+   *
+   * A sidebar card is never a visit. The rail is the window's, not a
+   * workspace's: it stands beside every workspace, and the Workspaces card on
+   * it is the door a reader switches with. Counted, every switch made through
+   * it left that card between the two workspaces' cards, so Back from the
+   * arrival landed on the sidebar in the same workspace — a step that showed
+   * nothing and crossed nothing.
    */
   private _noteLanding(cardId: string, from: string | null): void {
     if (this._focusTrailStepping) return;
-    if (from !== null && this._focusTrail.current === null) {
+    if (this._isRailCard(cardId)) return;
+    if (from !== null && this._focusTrail.current === null && !this._isRailCard(from)) {
       this._focusTrail.land(from);
     }
     this._focusTrail.land(cardId);
+  }
+
+  /** Whether `cardId` is a sidebar card standing in the shown deck. */
+  private _isRailCard(cardId: string): boolean {
+    const card = this.deckState.cards.find((c) => c.id === cardId);
+    return card !== undefined && isSidebarCard(card.componentId);
   }
 
   /**
@@ -4832,7 +4846,7 @@ export class DeckManager implements IDeckManagerStore {
    * the arrival moves the trail's cursor and records no visit.
    */
   private _stepFocusTrail(direction: FocusTrailDirection): boolean {
-    const target = this._focusTrail.step(direction, this._focusTrailStands);
+    const target = this._offTrailReturn(direction) ?? this._focusTrail.step(direction, this._focusTrailStands);
     if (target === null) return false;
     if (!this.deckState.cards.some((card) => card.id === target)) {
       const parked = this._parkedSpaceHolding(target);
@@ -4863,7 +4877,22 @@ export class DeckManager implements IDeckManagerStore {
     return true;
   }
 
+  /**
+   * Where Back goes while the reader stands on a sidebar card: the trail's
+   * own current card, the last real card they were on, which a sidebar
+   * landing never displaced. Null for Forward, for a reader on the trail, and
+   * when that card no longer stands.
+   */
+  private _offTrailReturn(direction: FocusTrailDirection): string | null {
+    if (direction !== "back") return null;
+    const fr = this.getFirstResponderCardId();
+    const current = this._focusTrail.current;
+    if (fr === null || current === null || fr === current || !this._isRailCard(fr)) return null;
+    return this._focusTrailStands(current) ? current : null;
+  }
+
   public canGoBack = (): boolean =>
+    this._offTrailReturn("back") !== null ||
     this._focusTrail.canStep("back", this._focusTrailStands);
 
   public canGoForward = (): boolean =>

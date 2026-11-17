@@ -1520,7 +1520,7 @@ function wireActionDispatch(
   });
 
   // go-back / go-forward: the Go ▸ Back / Forward round-trip, and the
-  // ⌃⌥⌘[ / ⌃⌥⌘] chords with it, since both items are `menuEligible` and
+  // ⌥⇧⌘[ / ⌥⇧⌘] chords with it, since both items are `menuEligible` and
   // AppKit resolves the key equivalent before the web view sees a keydown.
   registerAction(TUG_ACTIONS.GO_BACK, () => {
     dispatchCommand(TUG_ACTIONS.GO_BACK);

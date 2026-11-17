@@ -59,7 +59,6 @@ const SPACE_TWO = "space-two";
 const ROW_TWO = "window.space.1";
 
 /** `NSEvent.ModifierFlags` raw values, so an expectation reads as a chord. */
-const CONTROL = 1 << 18;
 const OPTION = 1 << 19;
 const COMMAND = 1 << 20;
 
@@ -159,7 +158,7 @@ async function chordOn(
 
 /** One press of the real Back chord, resolved by the menu bar. */
 async function pressBack(app: App): Promise<void> {
-  await app.nativeKey("[", ["cmd", "ctrl", "alt"]);
+  await app.nativeKey("[", ["cmd", "alt", "shift"]);
 }
 
 describe.skipIf(!SHOULD_RUN)("at0841 — Go ▸ Back and Forward across workspaces", () => {
@@ -191,14 +190,16 @@ describe.skipIf(!SHOULD_RUN)("at0841 — Go ▸ Back and Forward across workspac
 
         // ── The rows carry the registry's chords, and a deck nobody has
         // moved in has nowhere to go either way.
-        const back = await chordOn(app, "go.back", "[");
-        const forward = await chordOn(app, "go.forward", "]");
+        // A shifted-pair key spends its ⇧ on the character, so ⌥⇧⌘[ is the
+        // row's `{` under ⌥⌘.
+        const back = await chordOn(app, "go.back", "{");
+        const forward = await chordOn(app, "go.forward", "}");
         note("go.back", JSON.stringify(back));
         note("go.forward", JSON.stringify(forward));
-        expect(back.keyEquivalent, "Back's row carries the bracket").toBe("[");
-        expect(back.modifierMask, "on ⌃⌥⌘").toBe(CONTROL | OPTION | COMMAND);
-        expect(forward.keyEquivalent, "Forward's row carries the bracket").toBe("]");
-        expect(forward.modifierMask, "on ⌃⌥⌘").toBe(CONTROL | OPTION | COMMAND);
+        expect(back.keyEquivalent, "Back's row carries the shifted bracket").toBe("{");
+        expect(back.modifierMask, "on ⌥⌘, the ⇧ spent on the character").toBe(OPTION | COMMAND);
+        expect(forward.keyEquivalent, "Forward's row carries the shifted bracket").toBe("}");
+        expect(forward.modifierMask, "on ⌥⌘, the ⇧ spent on the character").toBe(OPTION | COMMAND);
         expect(
           await waitEnabled(app, "go.back", false),
           "with no trail behind, Back is dark",

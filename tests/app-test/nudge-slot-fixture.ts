@@ -10,7 +10,7 @@
  *
  * A nudge moves the selection sideways, or refuses to move any of it.
  *
- * ⌘1..9 name a slot; ⌥⇧⌘[ / ⌥⇧⌘] name a direction. That is the whole difference,
+ * ⌘1..9 name a slot; ⌃⌥⌘[ / ⌃⌥⌘] name a direction. That is the whole difference,
  * and it is the difference that makes the nudge the one slot verb able to run
  * off the end of the arrangement — which is where its interesting behavior
  * lives. A group nudged against the edge must not be clamped: clamping arrives
@@ -53,21 +53,17 @@ export const PANE_WIDTH = 420;
 export const AFTER_LAND_MS = 900;
 
 /**
- * ⌥⇧⌘[ / ⌥⇧⌘] — the nudge modifiers.
+ * ⌃⌥⌘[ / ⌃⌥⌘] — the nudge modifiers.
  *
- * Spelled as the chord rather than as the character the shift makes:
- * `nativeKey("}", ["cmd", "alt"])` posts the identical event, but `"]"` plus an
- * explicit shift is what `command-registry.ts` declares.
- *
- * That these arrive at all is half of what these files pin. ⌥⌘[/] one modifier
- * away are Window-menu key equivalents, and the natural way to check whether
- * AppKit claims the ⌥⇧⌘ press too — a page-level `keydown` listener — CANNOT
+ * That these arrive at all is half of what these files pin. ⌥⌘[/] and
+ * ⌥⇧⌘[/] one modifier away are menu key equivalents, and the natural way to
+ * check whether AppKit claims the ⌃⌥⌘ press too — a page-level `keydown` listener — CANNOT
  * answer it: a chord the keymap matches is consumed with
  * `stopImmediatePropagation`, so "AppKit ate it" and "we handled it" read
  * identically. Pressing the chord and watching the slots move is the only
  * probe that separates them, which is what the assertions do.
  */
-export const NUDGE = ["cmd", "alt", "shift"] as const;
+export const NUDGE = ["cmd", "ctrl", "alt"] as const;
 
 export interface CutRecord {
   kind: "jump" | "appeared";

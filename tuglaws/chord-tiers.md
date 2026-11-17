@@ -42,9 +42,9 @@ Composed sets are never assigned fresh — each one *means* its composition, and
 
 | Set | Reading |
 |---|---|
-| ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). On the bracket row it is the slot nudge ⌥⇧⌘[/], both twists of the lateral ring; on the arrow row it is free in full, and recorded free rather than spent ([D184]). It also holds the chords the hand chose rather than the algebra: Resize Sidebars to Fit ⌥⇧⌘S and Equalize All Heights ⌥⇧⌘E, recorded under "A chord has to be typable" below. |
+| ⌥⇧⌘ | Both twists at once. "…as Plain Text" is always ⌥⇧⌘ (⌥⇧⌘C, ⌥⇧⌘V — the latter matching macOS "Paste and Match Style" exactly). On the bracket row it is Go ▸ Back / Forward ⌥⇧⌘[/], a seat the user chose over the slot nudge the algebra derived there ([D232]); on the arrow row it is free in full, and recorded free rather than spent ([D184]). It also holds the chords the hand chose rather than the algebra: Resize Sidebars to Fit ⌥⇧⌘S and Equalize All Heights ⌥⇧⌘E, recorded under "A chord has to be typable" below. |
 | ⌃⇧⌘ | The counterpart of a Tug-tier command. Disclaim All ⌃⇧⌘A, against Claim All ⌃⌘A — the same key, the opposite bulk verb of the Changes shade ([D175]). |
-| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. **Closed to derivation, and granted only by exception on a key checked against the outside claimant.** The set is spoken for outside Tug, recorded below. Cycle Permission Mode ⌃⌥⌘P is the tier's debut resident, since permission modes govern agent autonomy, the quintessential expert feature. Back / Forward ⌃⌥⌘[ / ⌃⌥⌘] are the two granted by exception ([D232]), on the bracket row's last seat and on keys the claimant was read to leave alone. Resize Sidebars to Fit sat here, on ⌃⌥⌘R and then ⌃⌥⌘S, and left when both were found to be keys the tier's outside claimant already holds. The tier briefly held the Changes shade's bulk verbs; [D175] returned those to the tiers [D126] derived for them. |
+| ⌃⌥⌘ | The variant or advanced form of a Tug-tier command — the "super-advanced" tier. **Closed to derivation, and granted only by exception on a key checked against the outside claimant.** The set is spoken for outside Tug, recorded below. Cycle Permission Mode ⌃⌥⌘P is the tier's debut resident, since permission modes govern agent autonomy, the quintessential expert feature. Nudge Card Left / Right ⌃⌥⌘[ / ⌃⌥⌘] are the two granted by exception ([D232]): Back / Forward held them first, the nudge took them when the user moved that pair to ⌥⇧⌘[/], and both keys were read to be free of the claimant. Resize Sidebars to Fit sat here, on ⌃⌥⌘R and then ⌃⌥⌘S, and left when both were found to be keys the tier's outside claimant already holds. The tier briefly held the Changes shade's bulk verbs; [D175] returned those to the tiers [D126] derived for them. |
 
 ## The digit row
 
@@ -69,7 +69,7 @@ The rule that keeps this from becoming a pool: a digit family must be an **order
 | ⌥⌘ arrows | Move the reader through the geometry. | Closed. All four Focus Card Left / Right / Above / Below ([D184]). |
 | ⌥⇧⌘ arrows | The ⇧-extreme of a reader move. | Free, all four, and recorded free rather than spent ([D184]). |
 
-**Brackets step a series, and the tier says which series.** ⇧⌘[/] the lateral card ring, ⌥⌘[/] the stack ring, ⌥⇧⌘[/] the slot nudge, ⌃⌘[/] the transcript's turns with ⌃⇧⌘[/] its extremes, and ⌃⌥⌘[/] the focus trail — the cards the reader had focused, in time order ([D232]). `[` is back and `]` is forward in every one of them, which is exactly what let the later families land on the row and be guessed rather than learned.
+**Brackets step a series, and the tier says which series.** ⇧⌘[/] the lateral card ring, ⌥⌘[/] the stack ring, ⌥⇧⌘[/] the focus trail — the cards the reader had focused, in time order ([D232]) — ⌃⌘[/] the transcript's turns with ⌃⇧⌘[/] its extremes, and ⌃⌥⌘[/] the slot nudge. `[` is back and `]` is forward in every one of them, which is exactly what let the later families land on the row and be guessed rather than learned.
 
 ### The turn family lives on the brackets
 
@@ -121,7 +121,7 @@ Plain ⌘, for future grants under R3.
 | ⌘P | Hold in reserve — the print reflex is strong. The only accepted repurposing is a command palette. Its ⌥ variant is granted: ⌥⌘P Show Markdown Preview, below. |
 | ~~⌘'~~ | **Spent** — `increase-quote-level`, Increase Quote Level, with ⇧⌘' Decrease Quote Level as its counterpart; see below. |
 | ⌘; ⌘\ | Free punctuation. |
-| ⌘[ ⌘] | Reserved for a back/forward navigation concept, and unable to carry one. The concept arrived as Go ▸ Back / Forward and landed on ⌃⌥⌘[ / ⌃⌥⌘] ([D232], "The back and forward chords" below) for the same reason turn navigation could not sit here. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in both the composer and the text card, so a promoted ⌘[ would kill dedent app-wide and a scoped one would be dead in the composer — the one surface turn stepping is used from ([D184]). |
+| ⌘[ ⌘] | Reserved for a back/forward navigation concept, and unable to carry one. The concept arrived as Go ▸ Back / Forward and landed on ⌥⇧⌘[ / ⌥⇧⌘] ([D232], "The back and forward chords" below) for the same reason turn navigation could not sit here. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in both the composer and the text card, so a promoted ⌘[ would kill dedent app-wide and a scoped one would be dead in the composer — the one surface turn stepping is used from ([D184]). |
 
 Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃⌘1–6 take the reader to those same slots; ⌃⌘7–9 and ⌃⌘0 are free, and free for an *ordered set* under the digit-row rule above — not as loose slots. (⌃⌘7–9 are really the tail of the Go to Slot set, held for an arrangement wider than six-up rather than open for anything else.)
 
@@ -145,7 +145,7 @@ This is recorded as a standing constraint rather than as a note on one feature, 
 
 **One resident is grandfathered** — ⌃⌥⌘P Cycle Permission Mode — and grandfathered is the whole of its standing rather than evidence the set works. It is reachable from its menu row and it is rebindable.
 
-**Two are granted by exception: ⌃⌥⌘[ Back and ⌃⌥⌘] Forward** ([D232]). This section used to say a second resident would not be granted; the user reversed that for this pair, and the reversal is recorded here rather than left to be inferred from the registry. The grant rests on a reading, not on a hope. On 2026-11-16 `~/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist`, read with `plutil -p`, carried 18 hot keys on `Modifiers 6400` — ⌃⌥⌘ — and no hot key in any modifier set on KeyCode 33 (`[`) or KeyCode 30 (`]`). So both chords reach Tug. It is a reading of one file on one day: a macro added later on either key would swallow the chord exactly as ⌃⌥⌘R and ⌃⌥⌘S were swallowed, and the verbs would fall back to their menu rows and to whatever the user rebinds them to.
+**Two are granted by exception: ⌃⌥⌘[ Nudge Card Left and ⌃⌥⌘] Nudge Card Right** ([D232]). This section used to say a second resident would not be granted; the user reversed that for Go ▸ Back / Forward, which held these keys first, and the reversal is recorded here rather than left to be inferred from the registry. When the user then moved Back / Forward to ⌥⇧⌘[/], the slot nudge's seat, the nudge took the two keys Back / Forward left, so the exception still covers exactly these two. The grant rests on a reading, not on a hope. On 2026-11-16 `~/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist`, read with `plutil -p`, carried 18 hot keys on `Modifiers 6400` — ⌃⌥⌘ — and no hot key in any modifier set on KeyCode 33 (`[`) or KeyCode 30 (`]`). So both chords reach Tug. It is a reading of one file on one day: a macro added later on either key would swallow the chord exactly as ⌃⌥⌘R and ⌃⌥⌘S were swallowed, and the verbs would fall back to their menu rows and to whatever the user rebinds them to.
 
 **The rule that survives is narrower and still true.** The algebra's derivations onto the set stay refused, because a derivation says nothing about which key the claimant holds. What may land here is a grant with its own reason for being on this set, on a key somebody opened the plist and checked, with the date of the reading written beside it.
 
@@ -286,7 +286,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 - [D126] — the adoption of this algebra and the nine moves it drove
 - [D130] — the digit row generalized, and the card-width chords it granted
 - [D184] — arrows are geometry and brackets are series: directional card focus on the ⌥⌘ arrows, the turn family's move to the bracket row, and the ⌃⌥⌘ reservation
-- [D232] — Go ▸ Back / Forward on ⌃⌥⌘[ / ⌃⌥⌘], the exception to that reservation, and the focus trail the pair steps
+- [D232] — Go ▸ Back / Forward on ⌥⇧⌘[ / ⌥⇧⌘], the slot nudge's move to ⌃⌥⌘[ / ⌃⌥⌘] as the exception to that reservation, and the focus trail the pair steps
 - [commands.md](commands.md) — the authoring contract: the entry shape, "Adding a command", the four-layer chord resolution order, the lints
 - [menus.md](menus.md) — the menuState wire contract and the generated chord table
 - `tugdeck/src/components/tugways/command-registry.ts` — the table and `lintChordCollisions`
@@ -376,21 +376,21 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 ## The lateral bracket family
 
-The bracket keys carry three commands, and they carry the same axis in all three: left and right along the deck.
+The bracket keys carry three commands here, and they carry the same axis in all three: left and right along the deck.
 
 | Command | Chord | Derivation |
 |---|---|---|
 | `previous-tab` / `next-tab` | **⇧⌘[ / ⇧⌘]** | The base pair. Moves *attention* laterally across the cards. |
 | `previous-stack-card` / `next-stack-card` | **⌥⌘[ / ⌥⌘]** | R1: the ⌥-variant of the base — the same lateral motion taken through the depth of one slot's stack instead of across the deck. |
-| `nudge-slot:left` / `nudge-slot:right` | **⌥⇧⌘[ / ⌥⇧⌘]** | R1 with both twists. ⇧ names the lateral axis and ⌥ alters the object: the same sideways verb, applied to the card rather than to the attention on it. |
+| `nudge-slot:left` / `nudge-slot:right` | **⌃⌥⌘[ / ⌃⌥⌘]** | A grant by exception, not a derivation. R1 with both twists put it on ⌥⇧⌘[/]; the user gave that seat to Go ▸ Back / Forward and the nudge took ⌃⌥⌘[/], the seat Back / Forward left ([D232]). |
 
-**Why the composed set is right here.** ⌥⇧⌘ is defined as both twists at once, and a nudge is exactly that reading: it moves what ⇧⌘[/] moves *over*. A reader who knows ⇧⌘] can guess ⌥⇧⌘] without being told, which is the whole return on having an algebra.
+**Why it left the composed set.** ⌥⇧⌘ is defined as both twists at once, and a nudge is exactly that reading: it moves what ⇧⌘[/] moves *over*. The derivation was right and the nudge held the seat until the user wanted it for Back / Forward, a verb pressed many times an hour, over a deliberate rearrangement. So the two pairs swapped, and the nudge's seat is recorded as a grant rather than dressed as the derivation it no longer follows.
 
 **Why not plain ⌘[/].** The free pool reserves it for a future back/forward concept, and R3 does not override a reservation — rearranging the deck is a deliberate act, not a many-times-an-hour verb.
 
-**⌃⌘[/] was the recorded fallback** if the R1 reading had been rejected: brackets are free on the Tug tier, and a slot is Tug's own layout vocabulary. The R1 reading held, so the nudge never took it — and the set is spent now regardless: ⌃⌘[/] carries Previous / Next Turn and ⌃⇧⌘[/] First / Last Turn ([D184]). The bracket row has six families on it and one axis reading, which the band doctrine above states; the sixth is the focus trail on ⌃⌥⌘[/] ("The back and forward chords", below).
+**⌃⌘[/] was the recorded fallback** if the R1 reading had been rejected: brackets are free on the Tug tier, and a slot is Tug's own layout vocabulary. The R1 reading held, so the nudge never took it — and the set is spent now regardless: ⌃⌘[/] carries Previous / Next Turn and ⌃⇧⌘[/] First / Last Turn ([D184]). The bracket row has six families on it and one axis reading, which the band doctrine above states; the focus trail stands on ⌥⇧⌘[/] and the nudge on ⌃⌥⌘[/] ("The back and forward chords", below).
 
-**The composed chord reaches the web view, and that was checked rather than assumed.** ⌥⌘[/] one modifier away are menu-promoted, which raised the question of whether AppKit's key-equivalent scan would claim the ⌥⇧⌘ press too. It does not: the scan matches modifier masks exactly, so a promoted chord shadows itself and not its composed neighbours. Worth stating because the opposite was briefly believed and written down — the misreading came from a page-level `keydown` probe, which cannot see a chord the keymap already matched and consumed (`responder-chain-provider.tsx` calls `stopImmediatePropagation` on a handled match). **A probe of that shape can never distinguish "AppKit ate it" from "we handled it"; only pressing the chord and watching the deck can.**
+**The nudge's chord reaches the web view, and that was checked rather than assumed.** When it sat on ⌥⇧⌘[/], ⌥⌘[/] one modifier away were menu-promoted, which raised the question of whether AppKit's key-equivalent scan would claim the ⌥⇧⌘ press too. It does not, and the same holds on ⌃⌥⌘[/] beside the promoted ⌥⌘[/] and ⌥⇧⌘[/]: the scan matches modifier masks exactly, so a promoted chord shadows itself and not its composed neighbours. Worth stating because the opposite was briefly believed and written down — the misreading came from a page-level `keydown` probe, which cannot see a chord the keymap already matched and consumed (`responder-chain-provider.tsx` calls `stopImmediatePropagation` on a handled match). **A probe of that shape can never distinguish "AppKit ate it" from "we handled it"; only pressing the chord and watching the deck can.**
 
 **Unpromoted, deliberately.** The nudge acts on the *layout selection* — a fact about the Cards card's list, not about the frontmost card — and a mirrored `validate` is computed when the menuState is pushed, which a selection change does not push. A menu item would therefore be permanently enabled and intermittently inert.
 
@@ -404,13 +404,13 @@ Go ▸ Back and Forward step the **focus trail**: the cards the reader had focus
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `go-back` / `go-forward` | **⌃⌥⌘[ / ⌃⌥⌘]** | A grant by exception, not a derivation. The key is the constant: a trail is a series, brackets step a series, and `[` is back on every family the row holds. The set is the one the row had left. |
+| `go-back` / `go-forward` | **⌥⇧⌘[ / ⌥⇧⌘]** | A grant the user chose, not a derivation. The key is the constant: a trail is a series, brackets step a series, and `[` is back on every family the row holds. The set was the slot nudge's, given to this pair; promoted, it renders ⌥⌘{ / ⌥⌘}, a shifted-pair key spending its ⇧ on the character. |
 
 **Why not plain ⌘[/].** The free pool held the pair for exactly this concept, and it cannot carry it. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in the composer and the text card. Back and Forward are menu rows, so the chord would be promoted, and a promoted ⌘[ kills dedent app-wide; a scoped one would be dead in the composer, where the reader most often is. The reservation named the right concept on a key the editor already owned.
 
-**Why this set.** Every other ⌘-bearing set on the bracket row is spent: ⇧⌘ the lateral ring, ⌥⌘ the stack ring, ⌥⇧⌘ the slot nudge, ⌃⌘ and ⌃⇧⌘ the turns. ⌃⌥ with no ⌘ is a set the algebra does not generate and the keymap pane cannot see ("Known anomalies"). That leaves ⌃⌥⌘, which "⌃⌥⌘ is spoken for outside Tug" closes to derivation, and which the claimant's plist showed free on both bracket keys. The hand forms it: three bottom-row modifiers under the left hand and a bracket under the right, which is the test "A chord has to be typable" asks.
+**Why this set.** The pair landed first on ⌃⌥⌘[/], the one ⌘-bearing set the bracket row had left: ⇧⌘ the lateral ring, ⌥⌘ the stack ring, ⌥⇧⌘ the slot nudge, ⌃⌘ and ⌃⇧⌘ the turns. ⌃⌥ with no ⌘ is a set the algebra does not generate and the keymap pane cannot see ("Known anomalies"). The user then moved it to ⌥⇧⌘[/], putting the verb pressed many times an hour on the shape the hand prefers and the rarer nudge on ⌃⌥⌘[/], which "⌃⌥⌘ is spoken for outside Tug" closes to derivation and the claimant's plist showed free on both bracket keys. The row still holds six families on six sets.
 
-**It does not read as the tier's composition, and is not claimed to.** ⌃⌥⌘ means the advanced form of a Tug-tier command, and stepping the trail is no variant of stepping turns on ⌃⌘[/]. The grant is recorded as one made for the key and the room, the way ⌥⇧⌘S is, so a later reader does not take it as precedent for deriving onto the set.
+**Neither seat reads as its tier's composition, and neither is claimed to.** ⌥⇧⌘ is both twists of the lateral ring, which stepping the trail is not, and ⌃⌥⌘ is the advanced form of a Tug-tier command, which a nudge is not. Both are recorded as grants made for the key and the hand, the way ⌥⇧⌘S is, so a later reader does not take either as precedent for deriving onto its set.
 
 **Promoted to the Go menu's first group**, where Finder puts the same pair, and under R6 the promotion is total: `menuEligible` at global scope, each row constructed with an empty key equivalent so `applyCommandChords` writes the chord and both stay rebindable. Each row is gated on whether the trail has a standing card behind or ahead of the cursor. A dark row keeps its chord, so a press at either end of the trail reaches the web view and is answered with the border flash on the focused pane, the refusal the directional-focus chords give.
 

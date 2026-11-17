@@ -184,10 +184,10 @@ describe.skipIf(!SHOULD_RUN)(
           // The nudge is RELATIVE where ⌘n is absolute, so it exercises the
           // resolver's other half: the group either moves whole or refuses
           // whole. Still typed with the keyboard in the Cards card.
-          await app.nativeKey("]", ["cmd", "alt", "shift"]);
+          await app.nativeKey("]", ["cmd", "ctrl", "alt"]);
           await wait(AFTER_LAND_MS);
           slots = await slotsByCard(app);
-          expect(slots.B, "⌥⇧⌘] carries the selection along the arrangement").toBe(2);
+          expect(slots.B, "⌃⌥⌘] carries the selection along the arrangement").toBe(2);
           expect(slots.C, "both of it").toBe(2);
           expect(slots.A, "and leaves the card outside it alone").toBe(2);
 

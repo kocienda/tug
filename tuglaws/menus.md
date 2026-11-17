@@ -215,8 +215,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-slot:down` | Move Card Down in Slot | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
-| ⌃⌥⌘[ | `go-back` | Back | menu bar (swept) |
-| ⌃⌥⌘] | `go-forward` | Forward | menu bar (swept) |
+| ⌃⌥⌘[ | `nudge-slot:left` | Nudge Card Left | JS, global |
+| ⌃⌥⌘] | `nudge-slot:right` | Nudge Card Right | JS, global |
 | ⌘" | `decrease-quote-level` | Decrease Quote Level | menu bar (swept) |
 | ⌘' | `increase-quote-level` | Increase Quote Level | menu bar (swept) |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
@@ -273,8 +273,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘W | `close-all` | Close All Tabs | JS, global |
 | ⌥⌘[ | `previous-stack-card` | Previous Card in Stack | JS, global |
 | ⌥⌘] | `next-stack-card` | Next Card in Stack | JS, global |
-| ⌥⌘{ | `nudge-slot:left` | Nudge Card Left | JS, global |
-| ⌥⌘} | `nudge-slot:right` | Nudge Card Right | JS, global |
+| ⌥⌘{ | `go-back` | Back | menu bar (swept) |
+| ⌥⌘} | `go-forward` | Forward | menu bar (swept) |
 | ⌥⌘← | `focus-card:left` | Focus Card Left | menu bar (swept) |
 | ⌥⌘↑ | `focus-card:above` | Focus Card Above | menu bar (swept) |
 | ⌥⌘→ | `focus-card:right` | Focus Card Right | menu bar (swept) |

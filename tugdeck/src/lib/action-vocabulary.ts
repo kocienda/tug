@@ -448,7 +448,7 @@ export const TUG_ACTIONS = {
   // NUDGE_SLOT:     payload — `value: number`, either -1 (left) or +1
   //                 (right). Deck-level: move every card in the layout
   //                 selection that many slots along the arrangement. Used
-  //                 by ⌥⇧⌘[ / ⌥⇧⌘], handled by the deck canvas beside
+  //                 by ⌃⌥⌘[ / ⌃⌥⌘], handled by the deck canvas beside
   //                 MOVE_TO_SLOT. Relative where MOVE_TO_SLOT is absolute,
   //                 and so the one slot verb that can run off the end: the
   //                 group either moves whole or refuses whole, and the
@@ -662,7 +662,7 @@ export const TUG_ACTIONS = {
   //                 before the current one, wherever it stands — a parked
   //                 workspace is switched to — and Forward retraces a Back.
   //                 A step is not a visit, so the pair is a browser's. Used
-  //                 by ⌃⌥⌘[ / ⌃⌥⌘] (Go ▸ Back / Forward), handled by the
+  //                 by ⌥⇧⌘[ / ⌥⇧⌘] (Go ▸ Back / Forward), handled by the
   //                 deck canvas; a refusal flashes the focused pane.
   GO_BACK:        "go-back",
   GO_FORWARD:     "go-forward",

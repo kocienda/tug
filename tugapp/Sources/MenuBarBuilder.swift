@@ -625,7 +625,7 @@ struct MenuBarBuilder {
         // workspace is reached by switching to it. First in the menu, where
         // Finder puts the pair, and named for time because Previous / Next
         // Card below already name position. Empty key equivalents:
-        // `applyCommandChords` writes ⌃⌥⌘[ / ⌃⌥⌘] from the frontend's keymap.
+        // `applyCommandChords` writes ⌥⇧⌘[ / ⌥⇧⌘] from the frontend's keymap.
         // Each row is gated by its registry entry on the menuState push and
         // keeps its chord while dark, so a press with nowhere to go reaches
         // the web view and is answered with a border flash.

@@ -633,17 +633,15 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // above: ⌃⌘ carries Tug's layout and card-posture vocabulary generally,
   // of which the sidebar toggles are one family.
   ["⌃⌘B", TUG_ACTIONS.TOGGLE_BULLSEYE],
-  // The nudge pair. ⇧⌘[/] moves attention across the cards and ⌥⌘[/] moves it
-  // through one slot's stack; ⌥⇧⌘[/] is both twists at once — the same lateral
-  // verb with the object altered, so it moves the card itself. It RENDERS as
-  // ⌥⌘{ / ⌥⌘} because a shifted-pair key spends its ⇧ on the character, the
-  // rule Zoom In (⌘+) and Previous Card (⌘{) already read by.
-  //
-  // Reaching the web view past the promoted ⌥⌘[/] neighbours is the part worth
-  // pinning: AppKit's key-equivalent scan matches modifier masks exactly, so a
-  // promoted chord shadows itself and not the chords one modifier away from it.
-  ["⌥⌘{", `${TUG_ACTIONS.NUDGE_SLOT}:left`],
-  ["⌥⌘}", `${TUG_ACTIONS.NUDGE_SLOT}:right`],
+  // The nudge pair, on ⌃⌥⌘[/]: a granted exception to that set's closure on
+  // two keys Keyboard Maestro does not hold. It sat on ⌥⇧⌘[/], both twists of
+  // the lateral ring, until the user gave that seat to Back and Forward and
+  // the two pairs swapped ([D232]). Reaching the web view past the promoted
+  // bracket neighbours is the part worth pinning: AppKit's key-equivalent scan
+  // matches modifier masks exactly, so a promoted chord shadows itself and not
+  // the chords one modifier away from it.
+  ["⌃⌥⌘[", `${TUG_ACTIONS.NUDGE_SLOT}:left`],
+  ["⌃⌥⌘]", `${TUG_ACTIONS.NUDGE_SLOT}:right`],
   // The case pair — an anomaly by the algebra (⌥ composes on no base) and
   // recorded as one in chord-tiers.md; a mnemonic pair, U for upper and L
   // for lower.
@@ -688,11 +686,11 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // key, Print Preview read as a chord, and Xcode's preview canvas.
   ["⌥⌘P", TUG_ACTIONS.TOGGLE_MARKDOWN_PREVIEW],
   // Back and Forward along the cards the reader had focused: the bracket
-  // row's reading of [ and ], on the one ⌘-bearing set the row had left. A
-  // granted exception to the ⌃⌥⌘ closure, made on two keys Keyboard Maestro
-  // does not hold.
-  ["⌃⌥⌘[", TUG_ACTIONS.GO_BACK],
-  ["⌃⌥⌘]", TUG_ACTIONS.GO_FORWARD],
+  // row's reading of [ and ], on ⌥⇧⌘[/], the seat the user chose ([D232]). It
+  // RENDERS as ⌥⌘{ / ⌥⌘} because a shifted-pair key spends its ⇧ on the
+  // character, the rule Zoom In (⌘+) and Previous Card (⌘{) already read by.
+  ["⌥⌘{", TUG_ACTIONS.GO_BACK],
+  ["⌥⌘}", TUG_ACTIONS.GO_FORWARD],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

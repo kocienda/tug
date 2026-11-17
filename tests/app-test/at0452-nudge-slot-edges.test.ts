@@ -61,14 +61,14 @@ describe.skipIf(!SHOULD_RUN)(
           await app.nativeKey("]", NUDGE);
           await wait(AFTER_LAND_MS);
           let slots = await slotsByCard(app);
-          expect(slots.A, "⌥⇧⌘] moved the front card one slot right").toBe(1);
+          expect(slots.A, "⌃⌥⌘] moved the front card one slot right").toBe(1);
           expect(slots.B, "and moved nothing else").toBe(1);
           expect(slots.C, "nor anything else").toBe(2);
 
           await app.nativeKey("[", NUDGE);
           await wait(AFTER_LAND_MS);
           slots = await slotsByCard(app);
-          expect(slots.A, "⌥⇧⌘[ took it back").toBe(0);
+          expect(slots.A, "⌃⌥⌘[ took it back").toBe(0);
 
           // ---- A group, moving as one arrangement ----
           //

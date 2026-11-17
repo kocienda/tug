@@ -2554,7 +2554,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         });
         flashCardPane(store, target.cardId);
       },
-      // ⌃⌥⌘[ / ⌃⌥⌘] — Back and Forward along the focus trail. The deck owns
+      // ⌥⇧⌘[ / ⌥⇧⌘] — Back and Forward along the focus trail. The deck owns
       // the trail and the arrival, a parked workspace's switch included, so
       // all the canvas adds is the refusal: with nowhere to go, the pane the
       // reader is standing in flashes, the directional family's receipt.
@@ -2572,7 +2572,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           flashCardPane(store, sourceCardId);
         }
       },
-      // ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the
+      // ⌃⌥⌘[ / ⌃⌥⌘] — move the layout selection one slot along the
       // arrangement. The canvas owns it for the same reason it owns ⌘1..9,
       // and it resolves the same selection, so the two verbs cannot disagree
       // about what they are acting on: one names a slot, the other names a
