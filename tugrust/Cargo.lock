@@ -3070,7 +3070,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tugarc-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "chrono",
  "libc",
@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "tugarclab"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "clap",
  "serde_json",
@@ -3103,7 +3103,7 @@ dependencies = [
 
 [[package]]
 name = "tugbank"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "assert_cmd",
  "base64",
@@ -3117,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "tugbank-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "parking_lot",
  "rusqlite",
@@ -3130,7 +3130,7 @@ dependencies = [
 
 [[package]]
 name = "tugcast"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "tugcast-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -3197,7 +3197,7 @@ dependencies = [
 
 [[package]]
 name = "tugchanges-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "chrono",
  "dirs",
@@ -3212,7 +3212,7 @@ dependencies = [
 
 [[package]]
 name = "tugchart-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "chrono",
  "clap",
@@ -3229,7 +3229,7 @@ dependencies = [
 
 [[package]]
 name = "tugcore"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "chrono",
  "dirs",
@@ -3245,7 +3245,7 @@ dependencies = [
 
 [[package]]
 name = "tugedit-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "regex",
  "similar",
@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "tugexec"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "clap",
  "libc",
@@ -3268,7 +3268,7 @@ dependencies = [
 
 [[package]]
 name = "tuggram"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "libc",
  "serde",
@@ -3288,7 +3288,7 @@ dependencies = [
 
 [[package]]
 name = "tuglog"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "tracing",
  "tracing-appender",
@@ -3325,7 +3325,7 @@ dependencies = [
 
 [[package]]
 name = "tugrelaunch"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "clap",
  "libc",
@@ -3335,11 +3335,11 @@ dependencies = [
 
 [[package]]
 name = "tugsem-core"
-version = "0.9.3"
+version = "0.9.4"
 
 [[package]]
 name = "tugtool"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "assert_cmd",
  "chrono",
@@ -3369,7 +3369,7 @@ dependencies = [
 
 [[package]]
 name = "tugtool-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "regex",
  "roxmltree",
