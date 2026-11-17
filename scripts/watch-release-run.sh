@@ -146,6 +146,12 @@ start_poll() {
     # reads as GitHub not answering rather than as a run that stopped having
     # steps.
     (
+        # `set -e` is inherited by this subshell, so a bare failing `gh` would
+        # end it here — before `rc` is written or `part` renamed — and the
+        # parent, waiting for `new`, would never poll again. That is what left
+        # a finished release's watcher ticking forever on a stale snapshot.
+        # The status is captured with `||` so a failure is recorded, not fatal.
+        RC=0
         # shellcheck disable=SC2016  # `$job` is jq's variable, not the shell's.
         gh run view "$RUN_ID" --json status,conclusion,jobs --jq '
             def secs: if . == null then 0 else (try fromdateiso8601 catch 0) end;
@@ -153,8 +159,8 @@ start_poll() {
             (["RUN", .status, (.conclusion | nz)] | @tsv),
             (.jobs[] | .name as $job | .steps[] | ["STEP", .status, (.conclusion | nz),
                (.startedAt | secs), (.completedAt | secs),
-               ($job | nz), .name] | @tsv)' > "$POLL_DIR/part" 2>/dev/null
-        echo "$?" > "$POLL_DIR/rc"
+               ($job | nz), .name] | @tsv)' > "$POLL_DIR/part" 2>/dev/null || RC=$?
+        echo "$RC" > "$POLL_DIR/rc"
         mv -f "$POLL_DIR/part" "$POLL_DIR/new"
     ) &
     POLL_BUSY=1
