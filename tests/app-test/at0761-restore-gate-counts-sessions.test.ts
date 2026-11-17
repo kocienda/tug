@@ -11,14 +11,17 @@
  * then ran backwards. It now counts sessions: "Restoring sessions" over
  * "n of N sessions", where N is fixed when the gate opens — the cards the
  * restore pass is resuming plus the cards holding then — and n only rises.
- * A single session shows a barber-pole bar and no count. This file pins what the
- * user sees:
+ * A single session shows a barber-pole bar and no count. And the bar always
+ * finishes: the gate's last frame before it closes reads every session done,
+ * on a full bar. This file pins what the user sees:
  *
  *   1. one session resumed: every open frame totals 1, says "Restoring
- *      session", shows a barber-pole bar and no "n of m";
+ *      session" and no "n of m"; it shows a barber-pole bar while it works
+ *      and ends on a full bar;
  *   2. three sessions resumed by the real restore pass a workspace switch
- *      runs: every open frame totals 3, the done count never falls, the
- *      title is "Restoring sessions" with no number and nothing about turns.
+ *      runs: every open frame totals 3, the done count never falls and ends
+ *      at 3, the title is "Restoring sessions" with no number and nothing
+ *      about turns.
  *
  * ## How
  *
@@ -303,9 +306,10 @@ describe.skipIf(!SHOULD_RUN)("at0761 — the restore gate counts sessions", () =
         for (const r of open1) {
           expect(r.total, "one session totals 1").toBe(1);
           expect(r.title).toBe("Restoring session");
-          expect(r.pole, "one session shows a barber-pole bar").toBe(true);
+          expect(r.pole, "one session shows a barber-pole bar until it finishes, then a full one").toBe(r.done !== 1);
           expect(r.text ?? "", "one session shows no count").not.toMatch(/\d+ of \d+/);
         }
+        expect(open1[open1.length - 1]!.done, "the gate's last frame reads the session finished").toBe(1);
 
         // ---- Leg 2: three sessions through the real restore pass.
         await overlay.evalJS<null>("(window.__at0761.clear(), null)");
@@ -400,7 +404,7 @@ describe.skipIf(!SHOULD_RUN)("at0761 — the restore gate counts sessions", () =
         for (let i = 1; i < dones.length; i++) {
           expect(dones[i]!, "the done count never falls").toBeGreaterThanOrEqual(dones[i - 1]!);
         }
-        expect(dones[dones.length - 1]!).toBeLessThanOrEqual(3);
+        expect(dones[dones.length - 1]!, "the gate's last frame reads every session finished").toBe(3);
         expect(leg2[leg2.length - 1]?.open, "the gate is gone at the end").toBe(false);
       } finally {
         await app.close().catch(() => undefined);

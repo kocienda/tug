@@ -23,7 +23,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cardFacts, cardRestoreHold, type CardFactsValue } from "../../bus/declarations/card";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { restoreGateStore } from "../restore-gate-store";
-import { GATE_FLOOR_MS, HOLD_HORIZON_MS } from "../restore-gate-store";
+import { GATE_FINISHED_MS, GATE_FLOOR_MS, HOLD_HORIZON_MS } from "../restore-gate-store";
 import { restoreGateRoster } from "../restore-gate-roster";
 import { bodyCardsStore } from "../body-cards-store";
 import { bodyFactsStore } from "../body-facts-store";
@@ -73,6 +73,22 @@ function at(ms: number): void {
  */
 function closedPastFloor(): boolean {
   at(clock + GATE_FLOOR_MS);
+  return !restoreGateStore.getSnapshot().open;
+}
+
+/**
+ * Whether the gate, its last hold just ended, reads every one of `total`
+ * sessions finished through its beat and is closed at the beat's end. A gate
+ * never closes on the update that ends its last hold: it stands
+ * {@link GATE_FINISHED_MS} on a full bar first.
+ */
+function finishesThenCloses(total: number): boolean {
+  const full = { open: true, sessionsDone: total, sessionsTotal: total };
+  const finished = clock;
+  expect(restoreGateStore.getSnapshot()).toEqual(full);
+  at(finished + GATE_FINISHED_MS - 1);
+  expect(restoreGateStore.getSnapshot()).toEqual(full);
+  at(finished + GATE_FINISHED_MS);
   return !restoreGateStore.getSnapshot().open;
 }
 
@@ -241,6 +257,9 @@ describe("who may hold the gate, and for how long", () => {
     // The registry is last-wins: the next fold reads the deck that stands now.
     const second = deckOf({ a: "parked" });
     restoreGateStore._watchForTest(GATE_FLOOR_MS);
+    // Nothing holds from here; the gate stands its finished beat and goes.
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 1, sessionsTotal: 1 });
+    restoreGateStore._watchForTest(GATE_FLOOR_MS + GATE_FINISHED_MS);
     expect(restoreGateStore.getSnapshot().open).toBe(false);
     expect(first.followers()).toBe(0);
     expect(second.followers()).toBe(1);
@@ -304,6 +323,7 @@ describe("who may hold the gate, and for how long", () => {
     expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 0, sessionsTotal: 1 });
 
     restoreGateStore._watchForTest(2 * HOLD_HORIZON_MS);
+    restoreGateStore._watchForTest(2 * HOLD_HORIZON_MS + GATE_FINISHED_MS);
     expect(restoreGateStore.getSnapshot().open).toBe(false);
 
     // Still saying it, `a` does not take the gate back; a new hold after a break does.
@@ -363,7 +383,7 @@ describe("one gate for each cold arrival", () => {
     at(3_000);
     cardRestoreHold.on(c.bus).set(null);
     await bus.flush();
-    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    expect(finishesThenCloses(3)).toBe(true);
     seen.release();
     expect(seen).toMatchObject({ opens: 1, closes: 1 });
   });
@@ -410,12 +430,14 @@ describe("one gate for each cold arrival", () => {
     expect(restoreGateStore.getSnapshot().open).toBe(true);
     cardRestoreHold.on(b.bus).set(null);
     await bus.flush();
-    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    expect(finishesThenCloses(1)).toBe(true);
     seen.release();
     expect(seen).toMatchObject({ opens: 1, closes: 1 });
   });
 
-  test("a card resuming on its own, named by no pass, closes the gate at its settle: the floor is the arrival's", async () => {
+  // Reversed 2026-11-16: this gate once closed on the update that settled its
+  // card. It still has no floor, and now stands the finished beat every gate does.
+  test("a card resuming on its own, named by no pass, closes the gate one finished beat after its settle: the floor is the arrival's", async () => {
     const { a } = await pages("a");
     bodyCardsStore.mark("a");
     const seen = edges();
@@ -429,7 +451,50 @@ describe("one gate for each cold arrival", () => {
     at(300);
     cardRestoreHold.on(a.bus).set(null);
     await bus.flush();
+    expect(finishesThenCloses(1)).toBe(true);
+    seen.release();
+    expect(seen).toMatchObject({ opens: 1, closes: 1 });
+  });
+
+  test("a restore that ends just inside the floor still stands its whole finished beat", async () => {
+    const { a } = await pages("a");
+    bodyCardsStore.mark("a");
+    at(0);
+    restoreGateRoster.expect(["a"]);
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    at(GATE_FLOOR_MS - 50);
+    cardRestoreHold.on(a.bus).set(null);
+    await bus.flush();
+    at(GATE_FLOOR_MS);
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 1, sessionsTotal: 1 });
+    at(GATE_FLOOR_MS - 50 + GATE_FINISHED_MS);
     expect(restoreGateStore.getSnapshot().open).toBe(false);
+  });
+
+  test("a hold arriving inside the finished beat keeps the gate open and takes the count back", async () => {
+    const { a, b } = await pages("a", "b");
+    bodyCardsStore.mark("a");
+    bodyCardsStore.mark("b");
+    const seen = edges();
+    at(0);
+    cardRestoreHold.on(a.bus).set("holding");
+    await bus.flush();
+    at(2_000);
+    cardRestoreHold.on(a.bus).set(null);
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 1, sessionsTotal: 1 });
+    at(2_100);
+    cardRestoreHold.on(b.bus).set("holding");
+    await bus.flush();
+    expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 0, sessionsTotal: 1 });
+    // The first beat's end passes with `b` still holding.
+    at(2_000 + GATE_FINISHED_MS);
+    expect(restoreGateStore.getSnapshot().open).toBe(true);
+    at(4_000);
+    cardRestoreHold.on(b.bus).set(null);
+    await bus.flush();
+    expect(finishesThenCloses(1)).toBe(true);
     seen.release();
     expect(seen).toMatchObject({ opens: 1, closes: 1 });
   });
@@ -489,7 +554,7 @@ describe("one gate for each cold arrival", () => {
     at(HOLD_HORIZON_MS - 1);
     expect(restoreGateStore.getSnapshot().open).toBe(true);
     at(HOLD_HORIZON_MS);
-    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    expect(finishesThenCloses(1)).toBe(true);
   });
 
   test("a card named over a page that has already painted holds until its page has reported and stopped", async () => {
@@ -518,7 +583,7 @@ describe("one gate for each cold arrival", () => {
     at(2_000);
     cardRestoreHold.on(b.bus).set(null);
     await bus.flush();
-    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    expect(finishesThenCloses(2)).toBe(true);
     seen.release();
     expect(seen).toMatchObject({ opens: 1, closes: 1 });
   });
@@ -558,7 +623,7 @@ describe("one gate for each cold arrival", () => {
     expect(restoreGateStore.getSnapshot()).toEqual({ open: true, sessionsDone: 2, sessionsTotal: 3 });
     cardRestoreHold.on(b.bus).set(null);
     await bus.flush();
-    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    expect(finishesThenCloses(3)).toBe(true);
   });
 
   test("a naming ends at the horizon: a card named over a painted page that never reports keeps no round pending", async () => {
@@ -576,8 +641,9 @@ describe("one gate for each cold arrival", () => {
     at(2_000);
     cardRestoreHold.on(c.bus).set(null);
     await bus.flush();
-    // Nothing holds: `a` sleeps on, a member that has said nothing.
-    expect(restoreGateStore.getSnapshot().open).toBe(false);
+    // Nothing holds: `a` sleeps on, a member that has said nothing. The bar
+    // still finishes before the gate goes.
+    expect(finishesThenCloses(2)).toBe(true);
 
     // Past the horizon the next arrival's round is its own.
     at(HOLD_HORIZON_MS);

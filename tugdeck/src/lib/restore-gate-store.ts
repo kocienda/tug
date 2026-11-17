@@ -87,9 +87,20 @@
  * (`nameRevivedArrivals`), which otherwise raised and dropped the gate once
  * per card inside a few hundred milliseconds. A gate
  * one card raises by resuming on its own — picked from the picker, moved
- * by `/cd`, brought back after its page was lost — closes when that card
- * settles, as it always has: its user is waiting on that one card and
- * types into it the moment it is there.
+ * by `/cd`, brought back after its page was lost — has no floor: its user
+ * is waiting on that one card, and it closes one finished beat after that
+ * card settles.
+ *
+ * ## The finished beat
+ *
+ * A gate never closes on a bar that has not finished. The fold reads closed
+ * on the same update that ends the last session's wait, so the last step
+ * was once never drawn: "1 of 2" went straight to nothing. Every gate now
+ * stays open for {@link GATE_FINISHED_MS} past the moment nothing holds it,
+ * reading every session finished — the bar's glide to full, then a held
+ * full bar long enough to register. It closes at the later of that beat and
+ * the floor. A hold arriving inside the beat keeps the gate open and takes
+ * the count back, as one arriving inside the floor does.
  *
  * Tuglaws: [L02] — external state with `subscribe`/`getSnapshot`, read
  * through `useSyncExternalStore`; the snapshot is reference-stable
@@ -157,6 +168,19 @@ export const HOLD_HORIZON_MS = 20_000;
  */
 export const GATE_FLOOR_MS = 1_250;
 
+/**
+ * How long the gate's bar takes to reach full, ms. The stylesheet's figure
+ * (`restore-gate.css`), stated here because the finished beat counts it.
+ */
+export const GATE_FILL_GLIDE_MS = 120;
+
+/**
+ * How long a gate stays on screen, reading every session finished, after
+ * nothing holds it any more: the fill's glide to full and then 200 ms of a
+ * full bar, so the user sees the work end before the sheet goes.
+ */
+export const GATE_FINISHED_MS = GATE_FILL_GLIDE_MS + 200;
+
 class RestoreGateStore {
   private readonly _listeners = createSubscribable();
   private _snapshot: RestoreGateSnapshot = CLOSED;
@@ -184,6 +208,12 @@ class RestoreGateStore {
   private _floorDue = false;
   /** The open gate covers an arrival: cards a restore pass named. Only such a gate has a floor. */
   private _arrival = false;
+  /** When nothing came to hold the open gate, or null while something holds it. */
+  private _finishedAt: number | null = null;
+  /** The wake-up at the end of the finished beat. */
+  private _finishTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The beat's timer has fired: the beat is over, whatever a coarse clock reads. */
+  private _finishDue = false;
   /** The open gate's watch, or null while it is closed. */
   private _watch: ReturnType<typeof setInterval> | null = null;
   /** The deck whose workspace changes are followed, once one is registered. */
@@ -365,14 +395,15 @@ class RestoreGateStore {
 
   /**
    * What the gate shows for `reading`: the reading itself while something
-   * holds, and for the rest of {@link GATE_FLOOR_MS} after it opened, an open
-   * gate reading every session of the round finished. A gate that opened and
-   * closed inside a few hundred milliseconds would be a flash of its own, so
-   * it closes at the later of its last hold ending and the floor; a long
-   * restore gains nothing. Only a gate covering an `arrival` has the floor,
-   * counted from when the gate opened whenever the arrival joined it. One
-   * timer, armed then and cleared at the close, wakes the store at the
-   * floor; the decision reads the clock.
+   * holds, and after that an open gate reading every session of the round
+   * finished, until both the finished beat ({@link GATE_FINISHED_MS} from the
+   * moment nothing held) and the floor ({@link GATE_FLOOR_MS} from the open)
+   * are over. A gate that opened and closed inside a few hundred
+   * milliseconds would be a flash of its own, and one that closed on its
+   * last hold ending would never draw its bar full. Only a gate covering an
+   * `arrival` has the floor, counted from when the gate opened whenever the
+   * arrival joined it; every gate has the beat. Each has one timer to wake
+   * the store, cleared at the close; the decision reads the clock.
    */
   private _floor(reading: RestoreGateReading, now: number, arrival: boolean): RestoreGateSnapshot {
     if (reading.open) {
@@ -386,16 +417,40 @@ class RestoreGateStore {
         }, Math.max(0, GATE_FLOOR_MS - (now - this._openedAt)));
       }
       this._lastTotal = reading.sessionsTotal;
+      this._clearFinish();
       return reading;
     }
-    if (this._arrival && this._openedAt !== null && !this._floorDue && now - this._openedAt < GATE_FLOOR_MS) {
-      return { open: true, sessionsDone: this._lastTotal, sessionsTotal: this._lastTotal };
+    if (this._openedAt !== null) {
+      if (this._finishedAt === null) {
+        this._finishedAt = now;
+        this._finishTimer = setTimeout(() => {
+          this._finishTimer = null;
+          this._finishDue = true;
+          this._recompute();
+        }, GATE_FINISHED_MS);
+      }
+      const floorOver = !this._arrival || this._floorDue || now - this._openedAt >= GATE_FLOOR_MS;
+      const beatOver = this._finishDue || now - this._finishedAt >= GATE_FINISHED_MS;
+      if (!floorOver || !beatOver) {
+        return { open: true, sessionsDone: this._lastTotal, sessionsTotal: this._lastTotal };
+      }
     }
     this._closeFloor();
     return CLOSED;
   }
 
+  /** Something holds the gate again: the finished beat is off. */
+  private _clearFinish(): void {
+    this._finishedAt = null;
+    this._finishDue = false;
+    if (this._finishTimer !== null) {
+      clearTimeout(this._finishTimer);
+      this._finishTimer = null;
+    }
+  }
+
   private _closeFloor(): void {
+    this._clearFinish();
     this._openedAt = null;
     this._lastTotal = 0;
     this._floorDue = false;

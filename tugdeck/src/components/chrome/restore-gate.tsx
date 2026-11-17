@@ -36,8 +36,11 @@
  *
  * Over an arrival — cards a restore pass named — it stays on screen at
  * least 1.25 s (`GATE_FLOOR_MS`): a gate up for a few hundred milliseconds
- * is a flash of its own. Through the held time it reads every session
- * finished. One card resuming on its own lets it go at its settle.
+ * is a flash of its own. And every gate, one card resuming on its own
+ * included, stays a finished beat past its last settle (`GATE_FINISHED_MS`):
+ * the bar glides to full and stands full for 200 ms before the sheet goes,
+ * so the user sees the work end. Through both it reads every session
+ * finished.
  *
  * Every window the gate holds has a horizon. The replay window ends on
  * the silence deadline (`REPLAY_SILENCE_DEADLINE_MS`,
@@ -61,8 +64,9 @@
  * truth about the work. Before the first session finishes the bar runs
  * indeterminate with no count, by the progress indicator's own rule that
  * a bar never sits at a literal 0. A round of one session shows that same
- * bar as a barber pole throughout and no count, since "0 of 1" says
- * nothing. The title carries no number.
+ * bar as a barber pole while it works and no count, since "0 of 1" says
+ * nothing, and a full bar through its finished beat. The title carries no
+ * number.
  *
  * @module components/chrome/restore-gate
  */
@@ -96,6 +100,9 @@ export function RestoreGate(): ReactElement {
   const total = shown.sessionsTotal;
   const done = Math.min(shown.sessionsDone, total);
   const single = total <= 1;
+  // Every session's wait has ended: the store's finished reading, held for
+  // the beat before the close (and the rest of an arrival's floor).
+  const finished = total > 0 && done >= total;
   const title = single ? "Restoring session" : "Restoring sessions";
 
   return (
@@ -139,6 +146,8 @@ export function RestoreGate(): ReactElement {
                       state="running"
                       className="tug-restore-gate-bar"
                       aria-label={title}
+                      value={finished ? 1 : undefined}
+                      max={1}
                     />
                   ) : (
                     <TugProgressIndicator

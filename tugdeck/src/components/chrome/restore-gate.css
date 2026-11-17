@@ -20,3 +20,10 @@
   display: block;
   width: 100%;
 }
+
+/* The fill reaches each step, the last above all, in `GATE_FILL_GLIDE_MS`
+   (restore-gate-store.ts): the gate's finished beat counts this glide and
+   then holds the full bar 200 ms, so the two figures move together. */
+.tug-restore-gate-bar .tug-progress-bar-fill {
+  transition-duration: calc(120ms * var(--tug-timing, 1));
+}
