@@ -770,17 +770,17 @@ fn forms_lists_every_form_with_how_to_ask_for_it() {
     let envelope: Value = serde_json::from_str(&stdout(&out)).unwrap();
     assert_eq!(envelope["command"], "chart forms");
     let forms = envelope["data"].as_array().unwrap();
-    assert_eq!(forms.len(), 14);
+    assert_eq!(forms.len(), 16);
     assert_eq!(forms[0]["name"], "bar");
     assert_eq!(forms[0]["kind"], "chart");
-    assert_eq!(forms[13]["name"], "stack");
-    assert_eq!(forms[13]["kind"], "diagram");
+    assert_eq!(forms[15]["name"], "tree");
+    assert_eq!(forms[15]["kind"], "diagram");
 
     let out = project.run(&["chart", "forms"]);
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
     // Two headings, a blank line between the sections, three lines a form.
-    assert_eq!(text.lines().count(), 2 + 1 + 14 * 3, "{text}");
+    assert_eq!(text.lines().count(), 2 + 1 + 16 * 3, "{text}");
     assert!(text.contains("spans  see when things started and ended on one timeline"));
     assert!(
         text.contains("    also said: timeline, gantt, waterfall"),
@@ -794,7 +794,7 @@ fn forms_lists_every_form_with_how_to_ask_for_it() {
     let out = project.run(&["chart", "forms", "--kind", "diagram"]);
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
-    assert_eq!(text.lines().count(), 1 + 4 * 3, "{text}");
+    assert_eq!(text.lines().count(), 1 + 6 * 3, "{text}");
     assert!(!text.contains("histogram"), "{text}");
 }
 

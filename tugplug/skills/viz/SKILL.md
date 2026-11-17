@@ -23,7 +23,7 @@ When the request names no form, choose it from what the reader has to do with th
 ## A chart or a diagram
 
 - **Numbers are a chart.** Counts, times, sizes, outcomes, anything measured. Work down the three rungs under *A chart*.
-- **Structure is a diagram.** How something is built, how its parts fit together, where a request goes, who calls whom. So is any request that names `flow`, `sequence`, `layers` or `stack`. Follow *A diagram*.
+- **Structure is a diagram.** How something is built, how its parts fit together, where a request goes, who calls whom, what states a thing moves between, what is inside what. So is any request that names a diagram form (`tugtool chart forms --kind diagram` lists them). Follow *A diagram*.
 
 ## A chart
 

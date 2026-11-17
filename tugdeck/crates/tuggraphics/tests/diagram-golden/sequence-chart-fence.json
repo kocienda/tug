@@ -19,5 +19,8 @@
     { "from": "render", "to": "engine", "label": "compile_round(source, table)" },
     { "from": "engine", "to": "render", "label": "done: svg, table, find text", "reply": true, "tone": "good" },
     { "key": 6, "from": "render", "to": "render", "label": "replace the source with the figure", "what": "Builds the figure off-document and swaps it in with one write.", "where": "tugdeck/src/lib/chart/render-chart.ts" }
+  ],
+  "phases": [
+    { "label": "Measure rounds", "note": "until every pair is measured", "from": 4, "to": 7 }
   ]
 }

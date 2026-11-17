@@ -3,16 +3,18 @@
   "form": "stack",
   "title": "Tug is four layers between you and Claude Code",
   "columns": 4,
-  "above": [{ "name": "You", "sub": "keyboard, pointer, voice", "span": [2, 3] }],
+  "above": [{ "name": "You", "sub": "at the Mac", "span": [2, 3], "link": "keyboard, pointer, voice" }],
   "layers": [
     {
       "name": "Tug.app",
       "sub": "macOS host",
+      "below": "WKWebView",
       "rows": [[{ "name": "Windows and menus" }, { "name": "Web views" }, { "name": "Updates" }]]
     },
     {
       "name": "tugdeck",
       "sub": "web frontend",
+      "below": "WebSocket frames",
       "rows": [
         [{ "key": 1, "name": "Session card", "sub": "shell commands and AI turns on one surface", "what": "The surface that replaces the terminal.", "where": "tugdeck/src/components/tugways/cards" }],
         [{ "name": "Deck", "sub": "slots and panes" }, { "name": "Sidebar cards" }, { "name": "Themes", "sub": "ten token files" }]
@@ -21,6 +23,7 @@
     {
       "name": "tugcast",
       "sub": "WebSocket multiplexer",
+      "below": "one bridge per session",
       "rows": [
         [
           { "key": 2, "name": "Feeds", "what": "Reads tool results as they pass and records what they say.", "where": "tugrust/crates/tugcast/src/feeds" },
@@ -38,8 +41,8 @@
     }
   ],
   "below": [
-    { "name": "Claude Code", "sub": "stream-json over stdio", "span": [1, 2] },
-    { "name": "Ledgers on disk", "sub": "Application Support/Tug", "span": [3, 4] }
+    { "name": "Claude Code", "sub": "the model's own CLI", "span": [1, 2], "link": "stream-json over stdio" },
+    { "name": "Ledgers on disk", "sub": "Application Support/Tug", "span": [3, 4], "link": "SQLite, one writer" }
   ],
   "across": { "title": "Shared", "names": ["tugtool — the CLI", "tugcore — shared library", "tugproto — protocol types"] }
 }

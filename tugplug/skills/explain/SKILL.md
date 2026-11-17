@@ -1,7 +1,7 @@
 ---
 name: explain
 description: Explain how a piece of code works, as diagrams drawn from reading it, each with a keyed table saying what every numbered part does and where it is. Use for "explain how X works", "how does X work", "walk me through X", "draw how X fits together". The request may name the figure's form, as in "as a sequence diagram" or "as layers". Answers in the transcript; writes a file only when asked to keep the explainer.
-argument-hint: "<subject> [as flow|sequence|layers|stack] [keep [path]]"
+argument-hint: "<subject> [as flow|sequence|layers|stack|states|tree] [keep [path]]"
 allowed-tools: Bash, Read, Glob, Grep, Write
 disallowed-tools: Task, Edit
 ---
@@ -12,7 +12,7 @@ Do not ask for confirmation, and do not ask which form to use: a form the reques
 
 ## No arguments
 
-Run `tugtool chart forms --kind diagram`, which prints the four forms a figure can take and a request that draws each. Then say in one sentence that `/explain` takes a subject, such as a feature, a flow, a file or a directory, and that ending the request with `as <form>` chooses the figure. Stop there.
+Run `tugtool chart forms --kind diagram`, which prints the forms a figure can take and a request that draws each. Then say in one sentence that `/explain` takes a subject, such as a feature, a flow, a file or a directory, and that ending the request with `as <form>` chooses the figure. Stop there.
 
 ## 1. Read the code
 
@@ -24,7 +24,9 @@ Write down, for each part you will draw, its path relative to the project root. 
 
 An explainer answers **one to four questions**, one section each, in the order a reader would ask them. "What happens when a user saves?" is a question; "the save module" is not. Most subjects need two. A question whose answer is one sentence is not a section: put the sentence in another section's lead.
 
-**A form the request names decides the figure.** `as a sequence`, `as layers`, or an everyday word for one such as *flowchart* or *architecture* (the session's diagram guidance lists them) means the reader asked to see the subject drawn that way. Answer in one section whose figure is that form, on the question that form answers about the subject: for a `flow`, where the work goes and where it branches; for a `sequence`, who says what to whom, in order; for `layers`, what it passes down through and what crosses each boundary; for a `stack`, what sits on what and what is outside. Add a second section only when the subject will not fit one figure's limits, and keep it in the named form. When the subject cannot take the form at all, draw the nearest form that can and say why in the first sentence of that section's lead.
+**When the request names no form, the question chooses it.** Most questions are about work moving or parties talking, which is a `flow` or a `sequence`, or about what sits on what, which is `layers` or a `stack`. Two kinds of question want the newer forms. A question about a lifecycle, about the conditions one thing moves between, or about anything that can return to an earlier state (a connection that retries, a request that is refreshed, a job that is re-queued) is a `states` figure: a flow of the same subject hides the return. A question about the parts of something and where they live (a module and its files, a component and the components it renders) is a `tree`: draw containment, not calls.
+
+**A form the request names decides the figure.** `as a sequence`, `as layers`, or an everyday word for one such as *flowchart* or *architecture* (the session's diagram guidance lists them) means the reader asked to see the subject drawn that way. Answer in one section whose figure is that form, on the question that form answers about the subject: for a `flow`, where the work goes and where it branches; for a `sequence`, who says what to whom, in order; for `layers`, what it passes down through and what crosses each boundary; for a `stack`, what sits on what and what is outside; for `states`, what the thing can be and what moves it from one state to another; for a `tree`, what its parts are and where each lives. Add a second section only when the subject will not fit one figure's limits, and keep it in the named form. When the subject cannot take the form at all, draw the nearest form that can and say why in the first sentence of that section's lead.
 
 ## 3. Write each section
 

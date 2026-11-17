@@ -28,7 +28,7 @@ pub const MAX_TEXT: usize = 120;
 pub const MAX_KEY: u64 = 99;
 
 /// The forms a diagram may take.
-pub const FORM_NAMES: [&str; 4] = ["flow", "sequence", "layers", "stack"];
+pub const FORM_NAMES: [&str; 6] = ["flow", "sequence", "layers", "stack", "states", "tree"];
 /// The most grid columns a stack may be ruled into.
 pub const MAX_STACK_COLUMNS: u64 = 12;
 
@@ -120,6 +120,15 @@ pub struct Flow {
     /// Columns left to right, each a stack of nodes top to bottom.
     pub columns: Vec<Vec<FlowNode>>,
     pub edges: Vec<FlowEdge>,
+    /// What each tone the figure uses means, drawn as one line under it.
+    pub legend: Vec<LegendItem>,
+}
+
+/// One entry of a flow's legend: a tone and what it means here.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegendItem {
+    pub tone: Tone,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -128,10 +137,151 @@ pub enum Form {
     Sequence(Sequence),
     Layers(Layers),
     Stack(Stack),
+    States(States),
+    Tree(Tree),
 }
 
 /// A span of a stack's grid columns, 1-based and inclusive.
 pub type Span = (u64, u64);
+
+/// One state a thing can be in: on the main line, or hanging beneath a
+/// state on it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct State {
+    pub id: String,
+    pub name: String,
+    pub sub: Option<String>,
+    pub key: Option<Key>,
+    /// An outcome: the state wears the tone's wash and outline.
+    pub tone: Option<Tone>,
+    /// A state the thing ends in: a second outline.
+    pub end: bool,
+    /// The main-line state this one hangs beneath, by index into the
+    /// states; `None` stands it on the main line.
+    pub under: Option<usize>,
+}
+
+/// What moves a thing from one state to another.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Transition {
+    /// The states it leaves and reaches, by index.
+    pub from: usize,
+    pub to: usize,
+    pub label: Option<String>,
+    pub tone: Option<Tone>,
+    pub dashed: bool,
+}
+
+/// A lifecycle: the states a thing can be in and what moves it between
+/// them, placed by rule rather than by a graph layout.
+#[derive(Clone, Debug, PartialEq)]
+pub struct States {
+    /// The state it begins in, by index.
+    pub start: usize,
+    /// In the order given: the main line's states left to right.
+    pub states: Vec<State>,
+    pub transitions: Vec<Transition>,
+}
+
+/// How a transition is placed, by where its two ends stand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Move {
+    /// To the next state on the main line: a straight arrow.
+    Step,
+    /// Between two other states on the main line: over the top, in a lane
+    /// of its own.
+    Over,
+    /// From a main-line state down to the state beneath it.
+    Drop,
+    /// From a side state up to the state it hangs beneath.
+    Rise,
+    /// From a side state to another main-line state: along the bottom and
+    /// up into the target's lower edge.
+    Back,
+}
+
+impl States {
+    /// The main line's states, left to right, by index.
+    pub fn main(&self) -> Vec<usize> {
+        (0..self.states.len())
+            .filter(|&i| self.states[i].under.is_none())
+            .collect()
+    }
+
+    /// How a transition between `from` and `to` is placed, or `None` where
+    /// no rule places it.
+    pub fn placed(&self, from: usize, to: usize) -> Option<Move> {
+        let (a, b) = (&self.states[from], &self.states[to]);
+        if from == to {
+            return None;
+        }
+        match (a.under, b.under) {
+            (None, None) => {
+                let main = self.main();
+                let at = |s| main.iter().position(|&m| m == s);
+                (at(to)? == at(from)? + 1)
+                    .then_some(Move::Step)
+                    .or(Some(Move::Over))
+            }
+            (None, Some(u)) => (u == from).then_some(Move::Drop),
+            (Some(u), None) => Some(if u == to { Move::Rise } else { Move::Back }),
+            (Some(_), Some(_)) => None,
+        }
+    }
+
+    /// How each transition is drawn. A step drawn already between the same
+    /// two states would lie on the first, so a second goes over the top.
+    pub fn moves(&self) -> Vec<Move> {
+        let mut stepped: Vec<(usize, usize)> = Vec::new();
+        self.transitions
+            .iter()
+            .map(|t| match self.placed(t.from, t.to) {
+                Some(Move::Step) if stepped.contains(&(t.from, t.to)) => Move::Over,
+                Some(Move::Step) => {
+                    stepped.push((t.from, t.to));
+                    Move::Step
+                }
+                Some(m) => m,
+                // The validator drops what no rule places.
+                None => Move::Over,
+            })
+            .collect()
+    }
+}
+
+/// One part of a tree, and the parts inside it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TreeNode {
+    pub name: String,
+    pub sub: Option<String>,
+    /// Set in the mono face: an identifier, a path, a key.
+    pub mono: bool,
+    pub key: Option<Key>,
+    pub tone: Option<Tone>,
+    pub children: Vec<TreeNode>,
+}
+
+impl TreeNode {
+    /// This node and every node beneath it, parents first.
+    pub fn walk(&self) -> Vec<&TreeNode> {
+        let mut out = vec![self];
+        for c in &self.children {
+            out.extend(c.walk());
+        }
+        out
+    }
+
+    /// How many levels this node and those beneath it stand on.
+    pub fn depth(&self) -> usize {
+        1 + self.children.iter().map(TreeNode::depth).max().unwrap_or(0)
+    }
+}
+
+/// What is inside what: one root and the parts it holds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tree {
+    pub root: TreeNode,
+}
 
 /// What lies outside the stack, above or beneath it.
 #[derive(Clone, Debug, PartialEq)]
@@ -139,6 +289,8 @@ pub struct StackBlock {
     pub name: String,
     pub sub: Option<String>,
     pub span: Span,
+    /// What the arrow between this block and the stack carries.
+    pub link: Option<String>,
 }
 
 /// One thing a stack layer holds, centred in its cell.
@@ -156,6 +308,8 @@ pub struct StackLayer {
     pub span: Span,
     /// Rows of cells; each row shares the layer's width equally.
     pub rows: Vec<Vec<StackCell>>,
+    /// What passes between this layer and the one beneath it.
+    pub below: Option<String>,
 }
 
 /// What every layer uses: bars down the stack's side.
@@ -191,9 +345,26 @@ pub struct LayerCell {
 pub struct Layer {
     pub name: String,
     pub sub: Option<String>,
+    /// A layer outside the system the figure explains, drawn as an outside
+    /// block is.
+    pub outside: bool,
     pub cells: Vec<LayerCell>,
     /// What crosses the boundary to the layer beneath.
-    pub below: Option<String>,
+    pub below: Option<Crossing>,
+}
+
+/// What crosses the boundary between two layers.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Crossing {
+    /// One label for what crosses both ways: a two-headed arrow.
+    Both(String),
+    /// The channel between, and what goes down and comes up over it. At
+    /// least one of the three is given.
+    Ways {
+        via: Option<String>,
+        down: Option<String>,
+        up: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -232,6 +403,20 @@ pub struct Sequence {
     pub actors: Vec<Actor>,
     /// Messages top to bottom, in the order they happen.
     pub messages: Vec<Message>,
+    /// Named runs of messages, in order and never overlapping.
+    pub phases: Vec<Phase>,
+}
+
+/// A run of a sequence's messages with a name: drawn as a faint band
+/// behind the run, its label and note in the left gutter.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Phase {
+    pub label: String,
+    pub note: Option<String>,
+    /// The first and last message of the run, by index into the messages
+    /// drawn.
+    pub from: usize,
+    pub to: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -261,6 +446,8 @@ impl Spec {
             Form::Sequence(_) => "sequence",
             Form::Layers(_) => "layers",
             Form::Stack(_) => "stack",
+            Form::States(_) => "states",
+            Form::Tree(_) => "tree",
         }
     }
 
@@ -311,6 +498,30 @@ impl Spec {
                         out.push(KeyedRow {
                             n: k.n,
                             name: cell.name.clone(),
+                            what: k.what.clone().unwrap_or_default(),
+                            r#where: k.r#where.clone().unwrap_or_default(),
+                        });
+                    }
+                }
+            }
+            Form::States(states) => {
+                for s in &states.states {
+                    if let Some(k) = &s.key {
+                        out.push(KeyedRow {
+                            n: k.n,
+                            name: s.name.clone(),
+                            what: k.what.clone().unwrap_or_default(),
+                            r#where: k.r#where.clone().unwrap_or_default(),
+                        });
+                    }
+                }
+            }
+            Form::Tree(tree) => {
+                for node in tree.root.walk() {
+                    if let Some(k) = &node.key {
+                        out.push(KeyedRow {
+                            n: k.n,
+                            name: node.name.clone(),
                             what: k.what.clone().unwrap_or_default(),
                             r#where: k.r#where.clone().unwrap_or_default(),
                         });
@@ -584,10 +795,13 @@ impl Validator {
         };
         // Each form's own fields.
         let data_keys: &[&str] = match form.as_str() {
-            "sequence" => &["actors", "messages"],
+            "sequence" => &["actors", "messages", "phases"],
             "layers" => &["layers"],
             "stack" => &["columns", "above", "layers", "below", "across"],
-            _ => &["columns", "edges"],
+            "flow" => &["columns", "edges", "legend"],
+            "states" => &["start", "states", "transitions"],
+            "tree" => &["root"],
+            _ => &[],
         };
         let allowed: Vec<&str> = COMMON.iter().chain(data_keys).copied().collect();
         self.known_keys(obj, "", &allowed);
@@ -605,7 +819,18 @@ impl Validator {
             "sequence" => self.sequence(obj).map(Form::Sequence),
             "layers" => self.layers(obj).map(Form::Layers),
             "stack" => self.stack(obj).map(Form::Stack),
-            _ => self.flow(obj).map(Form::Flow),
+            "flow" => self.flow(obj).map(Form::Flow),
+            "states" => self.states(obj).map(Form::States),
+            "tree" => self.tree(obj).map(Form::Tree),
+            // A form the list names and this match does not is a form
+            // half-added; refuse it by name rather than draw it as another.
+            other => {
+                self.err(
+                    "/form",
+                    format!("unknown form \"{other}\": expected {forms}"),
+                );
+                None
+            }
         };
         Some(Spec {
             title: title?,
@@ -650,11 +875,16 @@ impl Validator {
             }
             Some(value) => match self.array(value, "/layers", "layers") {
                 None => Vec::new(),
-                Some(items) => items
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, l)| self.stack_layer(l, &format!("/layers/{i}"), cols))
-                    .collect(),
+                Some(items) => {
+                    let last = items.len() - 1;
+                    items
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, l)| {
+                            self.stack_layer(l, &format!("/layers/{i}"), cols, i == last)
+                        })
+                        .collect()
+                }
             },
         };
         let across = obj.get("across").and_then(|v| self.across(v));
@@ -699,25 +929,43 @@ impl Validator {
             .filter_map(|(i, b)| {
                 let base = format!("{path}/{i}");
                 let obj = self.object(b, &base, "a block")?;
-                self.known_keys(obj, &base, &["name", "sub", "span"]);
+                self.known_keys(obj, &base, &["name", "sub", "span", "link"]);
                 let name = self.req_text(obj, &base, "name");
                 let sub = self.opt_text(obj, &base, "sub");
                 let span = self.span(obj, &base, cols);
+                let link = self.opt_text(obj, &base, "link");
                 Some(StackBlock {
                     name: name?,
                     sub,
                     span,
+                    link,
                 })
             })
             .collect()
     }
 
-    fn stack_layer(&mut self, value: &Value, base: &str, cols: u64) -> Option<StackLayer> {
+    fn stack_layer(
+        &mut self,
+        value: &Value,
+        base: &str,
+        cols: u64,
+        last: bool,
+    ) -> Option<StackLayer> {
         let obj = self.object(value, base, "a layer")?;
-        self.known_keys(obj, base, &["name", "sub", "span", "rows"]);
+        self.known_keys(obj, base, &["name", "sub", "span", "rows", "below"]);
         let name = self.req_text(obj, base, "name");
         let sub = self.opt_text(obj, base, "sub");
         let span = self.span(obj, base, cols);
+        let below = self.opt_text(obj, base, "below");
+        let below = if below.is_some() && last {
+            self.warn(
+                key_path(base, "below"),
+                "the last layer has no layer beneath it for anything to pass to, so this is left out",
+            );
+            None
+        } else {
+            below
+        };
         let rows = match obj.get("rows") {
             None => {
                 self.err(
@@ -754,6 +1002,7 @@ impl Validator {
             sub,
             span,
             rows: rows?,
+            below,
         })
     }
 
@@ -810,10 +1059,21 @@ impl Validator {
             let Some(obj) = self.object(layer, &base, "a layer") else {
                 continue;
             };
-            self.known_keys(obj, &base, &["name", "sub", "cells", "below"]);
+            self.known_keys(obj, &base, &["name", "sub", "tone", "cells", "below"]);
             let name = self.req_text(obj, &base, "name");
             let sub = self.opt_text(obj, &base, "sub");
-            let below = self.opt_text(obj, &base, "below");
+            let outside = match self.tone(obj, &base, "tone") {
+                None => false,
+                Some(Tone::Outside) => true,
+                Some(_) => {
+                    self.warn(
+                        format!("{base}/tone"),
+                        "a layer's tone is outside alone, so it is left out",
+                    );
+                    false
+                }
+            };
+            let below = self.crossing(obj, &base);
             let below = if below.is_some() && i == last {
                 self.warn(
                     format!("{base}/below"),
@@ -846,12 +1106,44 @@ impl Validator {
                 out.push(Layer {
                     name,
                     sub,
+                    outside,
                     cells,
                     below,
                 });
             }
         }
         (self.errors.len() == before).then_some(Layers { layers: out })
+    }
+
+    /// What crosses below a layer: a string for one two-headed arrow, or
+    /// an object naming the channel and what goes each way. An object
+    /// naming none of the three, or anything else, is left out.
+    fn crossing(&mut self, obj: &Map<String, Value>, base: &str) -> Option<Crossing> {
+        let path = key_path(base, "below");
+        match obj.get("below")? {
+            Value::String(_) => self.opt_text(obj, base, "below").map(Crossing::Both),
+            Value::Object(o) => {
+                self.known_keys(o, &path, &["via", "down", "up"]);
+                let via = self.opt_text(o, &path, "via");
+                let down = self.opt_text(o, &path, "down");
+                let up = self.opt_text(o, &path, "up");
+                if via.is_none() && down.is_none() && up.is_none() {
+                    self.warn(
+                        path,
+                        "below names at least one of via, down and up, so it is left out",
+                    );
+                    return None;
+                }
+                Some(Crossing::Ways { via, down, up })
+            }
+            _ => {
+                self.warn(
+                    path,
+                    "below is a string or {\"via\", \"down\", \"up\"}, so it is left out",
+                );
+                None
+            }
+        }
     }
 
     fn cell(&mut self, value: &Value, base: &str) -> Option<LayerCell> {
@@ -912,21 +1204,132 @@ impl Validator {
             return None;
         };
         let messages = self.array(messages, "/messages", "messages")?;
-        let messages: Vec<Message> = messages
-            .iter()
-            .enumerate()
-            .filter_map(|(i, m)| self.message(m, &format!("/messages/{i}"), &ids))
-            .collect();
+        // Each message as written, and where it is among those drawn: a
+        // phase counts the messages as written.
+        let mut drawn: Vec<Option<usize>> = Vec::new();
+        let mut kept: Vec<Message> = Vec::new();
+        for (i, m) in messages.iter().enumerate() {
+            match self.message(m, &format!("/messages/{i}"), &ids) {
+                Some(m) => {
+                    drawn.push(Some(kept.len()));
+                    kept.push(m);
+                }
+                None => drawn.push(None),
+            }
+        }
+        let messages = kept;
         if messages.is_empty() && self.errors.len() == before {
             self.err(
                 "/messages",
                 "no message names two actors that exist, so there is nothing to draw",
             );
         }
+        let phases = match obj.get("phases") {
+            Some(value) => self.phases(value, &drawn),
+            None => Vec::new(),
+        };
         (self.errors.len() == before).then_some(Sequence {
             actors: out,
             messages,
+            phases,
         })
+    }
+
+    /// A sequence's phases. A phase that cannot be drawn is left out with a
+    /// warning, and the figure is drawn without it: one whose range starts
+    /// past the last message or ends before it starts, one that overlaps
+    /// the phase before it, and one whose run holds no message drawn. A
+    /// range that runs off the end is cut to the last message.
+    fn phases(&mut self, value: &Value, drawn: &[Option<usize>]) -> Vec<Phase> {
+        let Some(list) = value.as_array() else {
+            self.warn(
+                "/phases",
+                "phases is an array of {\"label\", \"note\", \"from\", \"to\"}, so it is left out",
+            );
+            return Vec::new();
+        };
+        let mut out: Vec<Phase> = Vec::new();
+        for (i, value) in list.iter().enumerate() {
+            let base = format!("/phases/{i}");
+            let Some(obj) = value.as_object() else {
+                self.warn(&base, "a phase is an object, so it is left out");
+                continue;
+            };
+            self.known_keys(obj, &base, &["label", "note", "from", "to"]);
+            let Some(label) = self.opt_text(obj, &base, "label") else {
+                self.warn(
+                    key_path(&base, "label"),
+                    "a phase needs a label, so it is left out",
+                );
+                continue;
+            };
+            let note = self.opt_text(obj, &base, "note");
+            let index = |v: &mut Validator, key: &str| -> Option<usize> {
+                let n = obj
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .and_then(|n| usize::try_from(n).ok());
+                if n.is_none() {
+                    v.warn(
+                        key_path(&base, key),
+                        format!("{key} is a message's 0-based index, so this phase is left out"),
+                    );
+                }
+                n
+            };
+            let (Some(from), Some(to)) = (index(self, "from"), index(self, "to")) else {
+                continue;
+            };
+            let last = drawn.len().saturating_sub(1);
+            if from > last {
+                self.warn(
+                    key_path(&base, "from"),
+                    format!(
+                        "there is no message {from}, the last is {last}, so this phase is left out"
+                    ),
+                );
+                continue;
+            }
+            if to < from {
+                self.warn(
+                    key_path(&base, "to"),
+                    format!("to is before from ({to} < {from}), so this phase is left out"),
+                );
+                continue;
+            }
+            let to = if to > last {
+                self.warn(
+                    key_path(&base, "to"),
+                    format!("there is no message {to}, so this phase ends at the last, {last}"),
+                );
+                last
+            } else {
+                to
+            };
+            // The run among the messages drawn.
+            let run: Vec<usize> = drawn[from..=to].iter().flatten().copied().collect();
+            let (Some(&first), Some(&end)) = (run.first(), run.last()) else {
+                self.warn(
+                    &base,
+                    "no message in this phase is drawn, so it is left out",
+                );
+                continue;
+            };
+            if out.last().is_some_and(|p| p.to >= first) {
+                self.warn(
+                    &base,
+                    "this phase overlaps the one before it, so it is left out",
+                );
+                continue;
+            }
+            out.push(Phase {
+                label,
+                note,
+                from: first,
+                to: end,
+            });
+        }
+        out
     }
 
     fn message(
@@ -967,6 +1370,231 @@ impl Validator {
             tone,
             reply,
             key,
+        })
+    }
+
+    fn tree(&mut self, obj: &Map<String, Value>) -> Option<Tree> {
+        let before = self.errors.len();
+        let Some(root) = obj.get("root") else {
+            self.err(
+                "/root",
+                "root is required: the part that holds every other, its parts in children",
+            );
+            return None;
+        };
+        let root = self.tree_node(root, "/root");
+        (self.errors.len() == before).then_some(Tree { root: root? })
+    }
+
+    fn tree_node(&mut self, value: &Value, base: &str) -> Option<TreeNode> {
+        let obj = self.object(value, base, "a node")?;
+        self.known_keys(
+            obj,
+            base,
+            &[
+                "name", "sub", "mono", "key", "what", "where", "tone", "children",
+            ],
+        );
+        let name = self.req_text(obj, base, "name");
+        let sub = self.opt_text(obj, base, "sub");
+        let mono = self.opt_bool(obj, base, "mono");
+        let key = self.key(obj, base);
+        let tone = self.tone(obj, base, "tone");
+        let mut children = Vec::new();
+        for (i, child) in self
+            .opt_array(obj, base, "children")
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            if let Some(c) = self.tree_node(child, &format!("{base}/children/{i}")) {
+                children.push(c);
+            }
+        }
+        Some(TreeNode {
+            name: name?,
+            sub,
+            mono,
+            key,
+            tone,
+            children,
+        })
+    }
+
+    /// A lifecycle. A state whose `under` names no state on the main line
+    /// stands on the main line itself; a transition whose end names
+    /// nothing, or that no rule places, is dropped; a `start` that names
+    /// nothing starts at the first state on the main line.
+    fn states(&mut self, obj: &Map<String, Value>) -> Option<States> {
+        let before = self.errors.len();
+        let Some(list) = obj.get("states") else {
+            self.err(
+                "/states",
+                "states is required: an array of states, the main line left to right",
+            );
+            return None;
+        };
+        let list = self.array(list, "/states", "states")?;
+        let mut out: Vec<State> = Vec::new();
+        // Each state's `under` as written, and where it was written.
+        let mut written: Vec<Option<(String, String)>> = Vec::new();
+        // Each id, and the index of its state.
+        let mut ids: BTreeMap<String, usize> = BTreeMap::new();
+        for (i, value) in list.iter().enumerate() {
+            let base = format!("/states/{i}");
+            let Some(obj) = self.object(value, &base, "a state") else {
+                continue;
+            };
+            self.known_keys(
+                obj,
+                &base,
+                &[
+                    "id", "name", "sub", "key", "what", "where", "tone", "end", "under",
+                ],
+            );
+            let id = self.req_text(obj, &base, "id");
+            let name = self.req_text(obj, &base, "name");
+            let sub = self.opt_text(obj, &base, "sub");
+            let tone = self.tone(obj, &base, "tone");
+            let end = self.opt_bool(obj, &base, "end");
+            let under = self.opt_text(obj, &base, "under");
+            let key = self.key(obj, &base);
+            let (Some(id), Some(name)) = (id, name) else {
+                continue;
+            };
+            if let Some(&first) = ids.get(&id) {
+                self.warn(
+                    format!("{base}/id"),
+                    format!("id \"{id}\" is already used at /states/{first}, which is the state a transition naming it reaches"),
+                );
+            } else {
+                ids.insert(id.clone(), out.len());
+            }
+            written.push(under.map(|u| (u, key_path(&base, "under"))));
+            out.push(State {
+                id,
+                name,
+                sub,
+                key,
+                tone,
+                end,
+                under: None,
+            });
+        }
+        // A side state hangs one deep, beneath a state on the main line.
+        // A state whose own `under` names no other state stands there.
+        let hangs: Vec<bool> = (0..out.len())
+            .map(|i| {
+                written[i]
+                    .as_ref()
+                    .and_then(|(u, _)| ids.get(u))
+                    .is_some_and(|&t| t != i)
+            })
+            .collect();
+        for i in 0..out.len() {
+            let Some((u, path)) = &written[i] else {
+                continue;
+            };
+            let target = ids.get(u).copied();
+            match target {
+                None => self.warn(
+                    path,
+                    format!("no state has the id \"{u}\", so this state stands on the main line"),
+                ),
+                Some(t) if t == i => self.warn(
+                    path,
+                    "a state cannot hang beneath itself, so it stands on the main line",
+                ),
+                Some(t) if hangs[t] => self.warn(
+                    path,
+                    format!("\"{u}\" hangs beneath another state, and a side state hangs beneath one on the main line, so this state stands on the main line"),
+                ),
+                Some(t) => out[i].under = Some(t),
+            }
+        }
+        if self.errors.len() != before {
+            return None;
+        }
+        let first = (0..out.len()).find(|&i| out[i].under.is_none())?;
+        let start = match obj.get("start") {
+            None => first,
+            Some(Value::String(s)) => ids.get(s).copied().unwrap_or_else(|| {
+                self.warn(
+                    "/start",
+                    format!("no state has the id \"{s}\", so it starts at the first state on the main line"),
+                );
+                first
+            }),
+            Some(_) => {
+                self.warn(
+                    "/start",
+                    "start is a state's id, so it starts at the first state on the main line",
+                );
+                first
+            }
+        };
+        let mut states = States {
+            start,
+            states: out,
+            transitions: Vec::new(),
+        };
+        for (k, value) in self
+            .opt_array(obj, "", "transitions")
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let base = format!("/transitions/{k}");
+            if let Some(t) = self.transition(value, &base, &ids, &states) {
+                states.transitions.push(t);
+            }
+        }
+        (self.errors.len() == before).then_some(states)
+    }
+
+    fn transition(
+        &mut self,
+        value: &Value,
+        base: &str,
+        ids: &BTreeMap<String, usize>,
+        states: &States,
+    ) -> Option<Transition> {
+        let obj = self.object(value, base, "a transition")?;
+        self.known_keys(obj, base, &["from", "to", "label", "tone", "dashed"]);
+        let end = |v: &mut Validator, key: &str| -> Option<usize> {
+            let id = v.req_text(obj, base, key)?;
+            let at = ids.get(&id).copied();
+            if at.is_none() {
+                v.warn(
+                    key_path(base, key),
+                    format!("no state has the id \"{id}\", so this transition is dropped"),
+                );
+            }
+            at
+        };
+        let from = end(self, "from");
+        let to = end(self, "to");
+        let label = self.opt_text(obj, base, "label");
+        let tone = self.tone(obj, base, "tone");
+        let dashed = self.opt_bool(obj, base, "dashed");
+        let (from, to) = (from?, to?);
+        if states.placed(from, to).is_none() {
+            let why = if from == to {
+                "a transition from a state to itself is not drawn"
+            } else if states.states[from].under.is_some() {
+                "a side state's transitions go to the main line"
+            } else {
+                "a side state is reached only from the state it hangs beneath"
+            };
+            self.warn(base, format!("{why}, so this transition is dropped"));
+            return None;
+        }
+        Some(Transition {
+            from,
+            to,
+            label,
+            tone,
+            dashed,
         })
     }
 
@@ -1017,10 +1645,77 @@ impl Validator {
                 .filter_map(|(i, e)| self.edge(e, &format!("/edges/{i}"), &ids, &out))
                 .collect(),
         };
+        let legend = match self.opt_array(obj, "", "legend") {
+            None => Vec::new(),
+            Some(items) => self.legend(items, &out, &edges),
+        };
         (self.errors.len() == before).then_some(Flow {
             columns: out,
             edges,
+            legend,
         })
+    }
+
+    /// A flow's legend. An entry is left out with a warning when it has no
+    /// tone or no text, or names a tone no edge or row in the figure wears,
+    /// since it would explain a colour the reader cannot find.
+    fn legend(
+        &mut self,
+        items: &[Value],
+        columns: &[Vec<FlowNode>],
+        edges: &[FlowEdge],
+    ) -> Vec<LegendItem> {
+        let used: Vec<Tone> = edges
+            .iter()
+            .filter_map(|e| e.tone)
+            .chain(
+                columns
+                    .iter()
+                    .flatten()
+                    .flat_map(|n| &n.rows)
+                    .filter_map(|r| r.lit),
+            )
+            .collect();
+        let mut out: Vec<LegendItem> = Vec::new();
+        for (i, value) in items.iter().enumerate() {
+            let base = format!("/legend/{i}");
+            let Some(obj) = value.as_object() else {
+                self.warn(
+                    &base,
+                    "a legend entry is {\"tone\", \"text\"}, so it is left out",
+                );
+                continue;
+            };
+            self.known_keys(obj, &base, &["tone", "text"]);
+            let tone = self.tone(obj, &base, "tone");
+            let text = self.opt_text(obj, &base, "text");
+            let (Some(tone), Some(text)) = (tone, text) else {
+                if !obj.contains_key("tone") || !obj.contains_key("text") {
+                    self.warn(
+                        &base,
+                        "a legend entry needs a tone and a text, so it is left out",
+                    );
+                }
+                continue;
+            };
+            let name = TONE_NAMES[tone as usize];
+            if !used.contains(&tone) {
+                self.warn(
+                    key_path(&base, "tone"),
+                    format!("no edge or row in this figure is {name}, so this entry is left out"),
+                );
+                continue;
+            }
+            if out.iter().any(|l| l.tone == tone) {
+                self.warn(
+                    key_path(&base, "tone"),
+                    format!("{name} is already in the legend, so this entry is left out"),
+                );
+                continue;
+            }
+            out.push(LegendItem { tone, text });
+        }
+        out
     }
 
     fn node(&mut self, value: &Value, base: &str) -> Option<FlowNode> {

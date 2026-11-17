@@ -66,7 +66,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Devise.** The first stage of a *planned arc*: a fresh session writes the *plan* from the *brief*.
 
-**Diagram.** A figure of how code fits together, drawn in a transcript from the model's reading of the code. It takes one of four *forms*: flow, sequence, layers or stack. The parts worth explaining wear numbered discs, and the *keyed table* under the figure says what each one does and where it is. Ask for one with `/tugplug:explain`, or `/tugplug:viz` for a single figure. See also *chart*.
+**Diagram.** A figure of how code fits together, drawn in a transcript from the model's reading of the code. It takes one of six *forms*: flow, sequence, layers, stack, states or tree. Labels sit on the arrows they name, and a figure may carry a legend for its colors or, in a sequence, named phases. The parts worth explaining wear numbered discs, and the *keyed table* under the figure says what each one does and where it is. Ask for one with `/tugplug:explain`, or `/tugplug:viz` for a single figure. See also *chart*.
 
 **Dictation.** Speaking a prompt into a *composer* instead of typing it. Command-D starts dictation; Shift-Command-D stops it and sends the prompt.
 
@@ -92,7 +92,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Fold.** Collapse a card to its *masthead*. It keeps its slot, its address and its live readings and opens again on one press (Control-Command-Y). In a *split* slot, folding makes a *wall*.
 
-**Form.** The kind of *figure* a request asks for. A *chart* has ten: bar, line, area, sparkline, dots, histogram, spans, heat, bullet and scatter. A *diagram* has four: flow, sequence, layers and stack. End a request with "as a histogram" or "as a sequence" to name one, or leave it to the model. `tugtool chart forms` lists them all with a request that draws each.
+**Form.** The kind of *figure* a request asks for. A *chart* has ten: bar, line, area, sparkline, dots, histogram, spans, heat, bullet and scatter. A *diagram* has six: flow, sequence, layers, stack, states and tree. End a request with "as a histogram" or "as a sequence" to name one, or leave it to the model. `tugtool chart forms` lists them all with a request that draws each.
 
 **Help.** Tug's help is five documents, the feature guide, the getting-started walk, the recipes, this glossary and the release notes, each opened as a read-only card from the Help menu: Tug Help, Getting Started, How Do I, Glossary and Release Notes. A link from one opens another. To ask a question the documents answer, ask the *Operator* in the *Overview* composer, which reads them and links to the passage it answered from. Help > Keyboard Shortcuts & Commands opens a session's `/help` sheet, and Control-Command-K opens the Keyboard Shortcuts card.
 

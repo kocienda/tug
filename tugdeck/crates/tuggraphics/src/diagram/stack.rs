@@ -5,18 +5,20 @@
 //! it; a layer may span part of the grid. What lies outside the system
 //! stands in blocks above and beneath, painted in `outside`, and each
 //! block reaches the first layer in its way with a two-headed arrow, past
-//! any narrower layer to the one behind it. What every layer uses runs
-//! down the right side as bars with upright names.
+//! any narrower layer to the one behind it, carrying its `link` in a chip.
+//! A layer that says what passes `below` it to the next is joined to it by
+//! a labelled connector in a gap of its own, centred on the columns the two
+//! share. What every layer uses runs down the right side as bars with
+//! upright names.
 //!
-//! A cell's text is centred, so its key sits in the box's top-left
-//! corner, and the cell leaves the disc's room on both sides so the text
-//! stays centred. The grid column is the narrowest at which every layer
-//! and block still fits its span.
+//! A cell's text is centred, and a key and its name are centred together
+//! as one group, the disc just before the name. The grid column is the
+//! narrowest at which every layer and block still fits its span.
 
 use crate::draw::{Anchor, Baseline, ColourRole, TypeRole};
 use crate::measure::{fit_text, Measure};
 
-use super::pen::{BoxPaint, LineHeights, Pen, Rect, DISC, LINE_GAP, MARGIN};
+use super::pen::{BoxPaint, LineHeights, Pen, Rect, DISC, KEY_LEAD, LINE_GAP, MARGIN};
 use super::spec::{Span, Stack, StackBlock};
 use super::wrap::{Lines, Texts};
 use super::Laid;
@@ -28,13 +30,13 @@ const PAD: f64 = 10.0;
 const CELL_GAP: f64 = 8.0;
 /// The gap between two layers.
 const LAYER_GAP: f64 = 12.0;
-/// The gap an outside block's arrow crosses to the stack.
+/// The gap an outside block's arrow crosses to the stack, and the gap a
+/// labelled connector takes: room for both heads and the chip between.
 const ARROW: f64 = 34.0;
-const ARROW_INSET: f64 = 3.0;
-/// How far a key disc sits in from a cell's top-left corner.
-const KEY_INSET: f64 = 5.0;
-/// The least space between a corner disc and the centred text beside it.
-const KEY_CLEAR: f64 = 4.0;
+const LINK: f64 = 66.0;
+const ARROW_INSET: f64 = 4.0;
+/// The width a connector's label wraps at.
+const LINK_WRAP: f64 = 180.0;
 /// The padding inside a cell, either side of its text and above and below.
 const CELL_PAD_X: f64 = 12.0;
 const CELL_PAD_Y: f64 = 8.0;
@@ -93,7 +95,7 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         w: f64,
         sub: Lines,
     }
-    let block = |t: &mut Texts, b: &StackBlock, base: &str| -> Sized {
+    let block = |t: &mut Texts, b: &StackBlock, base: &str| -> (Sized, Lines) {
         let name_w = t.name(TypeRole::Title, &b.name, &format!("{base}/name"));
         let sub = t.wrap_opt(
             TypeRole::Value,
@@ -101,24 +103,34 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
             name_w.max(SUB_WRAP),
             &format!("{base}/sub"),
         );
-        Sized {
-            w: name_w.max(sub.w) + 2.0 * BLOCK_PAD_X,
-            sub,
-        }
+        let link = t.wrap_opt(
+            TypeRole::Value,
+            b.link.as_deref(),
+            LINK_WRAP,
+            &format!("{base}/link"),
+        );
+        (
+            Sized {
+                w: name_w.max(sub.w) + 2.0 * BLOCK_PAD_X,
+                sub,
+            },
+            link,
+        )
     };
-    let above: Vec<Sized> = spec
+    let (above, above_links): (Vec<Sized>, Vec<Lines>) = spec
         .above
         .iter()
         .enumerate()
         .map(|(i, b)| block(&mut t, b, &format!("/above/{i}")))
-        .collect();
-    let below: Vec<Sized> = spec
+        .unzip();
+    let (below, below_links): (Vec<Sized>, Vec<Lines>) = spec
         .below
         .iter()
         .enumerate()
         .map(|(i, b)| block(&mut t, b, &format!("/below/{i}")))
-        .collect();
+        .unzip();
     let mut heads: Vec<Sized> = Vec::new();
+    let mut passes: Vec<Lines> = Vec::new();
     let mut cells: Vec<Vec<Vec<Sized>>> = Vec::new();
     for (i, layer) in spec.layers.iter().enumerate() {
         let base = format!("/layers/{i}");
@@ -133,6 +145,12 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
             w: name_w.max(sub.w),
             sub,
         });
+        passes.push(t.wrap_opt(
+            TypeRole::Value,
+            layer.below.as_deref(),
+            LINK_WRAP,
+            &format!("{base}/below"),
+        ));
         cells.push(
             layer
                 .rows
@@ -150,16 +168,11 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
                                 cn.max(CELL_SUB_WRAP),
                                 &format!("{cb}/sub"),
                             );
-                            // A keyed cell keeps its text centred by leaving
-                            // the disc's room on both sides: what it takes
-                            // past the cell's own padding to clear it.
-                            let disc = if c.key.is_some() {
-                                2.0 * (KEY_INSET + DISC * 2.0 + KEY_CLEAR - CELL_PAD_X)
-                            } else {
-                                0.0
-                            };
+                            // A keyed cell's name carries its disc before
+                            // it, the two centred as one group.
+                            let lead = if c.key.is_some() { KEY_LEAD } else { 0.0 };
                             Sized {
-                                w: cn.max(sub.w) + 2.0 * CELL_PAD_X + disc,
+                                w: (lead + cn).max(sub.w) + 2.0 * CELL_PAD_X,
                                 sub,
                             }
                         })
@@ -280,11 +293,20 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
     };
 
     let above_y = y;
+    // A gap whose arrows carry a label is tall enough for the chip.
+    let gap_for = |links: &[Lines]| {
+        if links.iter().any(|l| l.count() > 0) {
+            LINK
+        } else {
+            ARROW
+        }
+    };
+    let (above_gap, below_gap) = (gap_for(&above_links), gap_for(&below_links));
     if !spec.above.is_empty() {
         for (b, s) in spec.above.iter().zip(&above) {
             draw_block(&mut pen, b, s, y, above_h, 0);
         }
-        y += above_h + ARROW;
+        y += above_h + above_gap;
     }
 
     let keyed: Vec<u64> = {
@@ -358,30 +380,29 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
                     stroke: Some((ColourRole::Grid, 1.0)),
                 };
                 pen.boxed(cr, 6.0, paint, delay);
-                // In a centred cell the key belongs to the box: its
-                // top-left corner.
+                let text_top =
+                    cr.y + ((rh - head_h(lh.label, &size.sub, &lh, LINE_GAP)) / 2.0).round();
+                let mx = cr.x + (cr.w / 2.0).round();
+                // The key and its name are one group, centred together: the
+                // disc stands just before the name, on its line.
+                let shown = t.shown(TypeRole::Label, &cell.name);
+                let lead = if cell.key.is_some() { KEY_LEAD } else { 0.0 };
+                let group = lead + t.width(TypeRole::Label, shown);
+                let left = (mx - group / 2.0).round();
                 if let Some(key) = &cell.key {
-                    pen.key(
-                        cr.x + KEY_INSET + DISC,
-                        cr.y + KEY_INSET + DISC,
-                        key.n,
-                        delay,
-                        m,
-                    );
+                    let line_y = text_top + (lh.label / 2.0).round();
+                    pen.key(left + DISC, line_y, key.n, delay, m);
                     if let Some(at) = keyed.iter().position(|n| *n == key.n) {
                         pen.hit(cr.x, cr.y, cr.w, cr.h, at);
                     }
                 }
-                let text_top =
-                    cr.y + ((rh - head_h(lh.label, &size.sub, &lh, LINE_GAP)) / 2.0).round();
-                let mx = cr.x + (cr.w / 2.0).round();
                 pen.text(
-                    mx,
+                    left + lead,
                     text_top,
-                    t.shown(TypeRole::Label, &cell.name),
+                    shown,
                     TypeRole::Label,
                     ColourRole::Ink,
-                    Anchor::Middle,
+                    Anchor::Start,
                     Baseline::Top,
                     delay,
                 );
@@ -402,24 +423,52 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         }
         y += lr.h;
         if i + 1 < spec.layers.len() {
-            y += LAYER_GAP;
+            y += if passes[i].count() > 0 {
+                LINK
+            } else {
+                LAYER_GAP
+            };
         }
     }
     let layer_bottom = y;
 
     let mut below_y = y;
     if !spec.below.is_empty() {
-        below_y = y + ARROW;
+        below_y = y + below_gap;
         for (b, s) in spec.below.iter().zip(&below) {
             draw_block(&mut pen, b, s, below_y, below_h, spec.layers.len() + 1);
         }
         y = below_y + below_h;
     }
 
+    // What passes between two layers: a labelled connector centred on the
+    // columns they share, or on the narrower one where they share none.
+    for i in 0..spec.layers.len().saturating_sub(1) {
+        let pass = &passes[i];
+        if pass.count() == 0 {
+            continue;
+        }
+        let (a, z) = (layer_rects[i], layer_rects[i + 1]);
+        let lo = a.x.max(z.x);
+        let hi = (a.x + a.w).min(z.x + z.w);
+        let cx = if lo < hi {
+            ((lo + hi) / 2.0).round()
+        } else if a.w <= z.w {
+            a.x + (a.w / 2.0).round()
+        } else {
+            z.x + (z.w / 2.0).round()
+        };
+        let (y0, y1) = (a.y + a.h, z.y);
+        let delay = i + 2;
+        pen.both_ways((cx, y0 + ARROW_INSET), (cx, y1 - ARROW_INSET), ColourRole::Ink, delay);
+        let cy = ((y0 + y1) / 2.0).round();
+        pen.chip(cx, cy, &pass.lines, pass.w, TypeRole::Value, None, &lh, delay);
+    }
+
     // Each outside block reaches the first layer in its way: past a
     // narrower layer, into the one behind it.
     let n_layers = spec.layers.len();
-    let reach = |pen: &mut Pen, b: &StackBlock, from_top: bool, delay: usize| {
+    let reach = |pen: &mut Pen, b: &StackBlock, link: &Lines, from_top: bool, delay: usize| {
         let order: Vec<usize> = if from_top {
             (0..n_layers).collect()
         } else {
@@ -438,15 +487,17 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
             } else {
                 (r.y + r.h + ARROW_INSET, below_y - ARROW_INSET)
             };
-            pen.both_ways((ax, a), (ax, z), ColourRole::InkMuted, delay);
+            pen.both_ways((ax, a), (ax, z), ColourRole::Ink, delay);
+            let cy = ((a + z) / 2.0).round();
+            pen.chip(ax, cy, &link.lines, link.w, TypeRole::Value, None, &lh, delay);
             return;
         }
     };
-    for b in &spec.above {
-        reach(&mut pen, b, true, 1);
+    for (b, link) in spec.above.iter().zip(&above_links) {
+        reach(&mut pen, b, link, true, 1);
     }
-    for b in &spec.below {
-        reach(&mut pen, b, false, n_layers + 1);
+    for (b, link) in spec.below.iter().zip(&below_links) {
+        reach(&mut pen, b, link, false, n_layers + 1);
     }
 
     // What cuts across: bars the height of the stack, read bottom to top.

@@ -350,12 +350,12 @@ Hover a bar, a point or a span to read its values. For all of them at once, clic
 
 Type `/tugplug:explain` and the subject: a feature, a flow, a file or a directory, as in `/tugplug:explain how a save reaches the disk`. Asking in words works too: "explain how login works", "walk me through the parser". The model reads the code and answers with one to four sections, each with a heading that states a finding, a diagram, a sentence on how to read it, and a short lead.
 
-Under each diagram is its keyed table: a row for every numbered disc in the figure, with the part's name, what it does and where it is in the code. Click a location to open the file in a card. A location marked unresolved is one Tug could not find, usually because the file has moved since. A bare `/tugplug:explain` lists the four diagram forms. There is no menu item or chord for it.
+Under each diagram is its keyed table: a row for every numbered disc in the figure, with the part's name, what it does and where it is in the code. Click a location to open the file in a card. A location marked unresolved is one Tug could not find, usually because the file has moved since. A bare `/tugplug:explain` lists the six diagram forms. There is no menu item or chord for it.
 
 ### Choose the kind of diagram
 <!-- source: tugplug/skills/explain/SKILL.md (a form the request names); tugplug/skills/viz/SKILL.md (A diagram); tugrust/crates/tugtool (chart forms --kind diagram) -->
 
-End the request with the form: `/tugplug:explain how login works as a sequence`. A **flow** follows work through its parts and branches, a **sequence** shows who says what to whom in order, **layers** shows what a request passes down through, and a **stack** shows the architecture. "Flowchart", "architecture" and "who calls whom" are understood as well. For one diagram with no written sections around it, ask `/tugplug:viz` for the structure instead.
+End the request with the form: `/tugplug:explain how login works as a sequence`. A **flow** follows work through its parts and branches, a **sequence** shows who says what to whom in order, **layers** shows what a request passes down through, a **stack** shows the architecture, **states** shows what one thing can be and what moves it between them, and a **tree** shows what is inside what. Ask `/tugplug:explain the connection's lifecycle as states` for the states a thing passes through and back, or `/tugplug:explain the parts of the settings page as a tree` for its parts and where they live. "Flowchart", "architecture", "who calls whom", "state machine" and "hierarchy" are understood as well. For one diagram with no written sections around it, ask `/tugplug:viz` for the structure instead.
 
 ### Keep an explainer as a file
 <!-- source: tugplug/skills/explain/SKILL.md (Keep it, only when asked) -->

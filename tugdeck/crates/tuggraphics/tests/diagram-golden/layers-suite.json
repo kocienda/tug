@@ -6,7 +6,7 @@
     {
       "name": "Tug.app",
       "sub": "Swift macOS host",
-      "below": "hosts the page in web views",
+      "below": { "via": "WKWebView", "down": "native chords, menu actions", "up": "window and focus requests" },
       "cells": [
         { "key": 1, "name": "Windows and menus", "sub": "AppKit", "what": "Owns the window, the menus and the native chords.", "where": "tugapp/Sources" },
         { "name": "Updates", "sub": "Sparkle appcast" }
@@ -15,7 +15,7 @@
     {
       "name": "tugdeck",
       "sub": "web frontend",
-      "below": "WebSocket frames",
+      "below": { "via": "WebSocket", "down": "prompts, commands", "up": "transcript and feed frames" },
       "cells": [
         { "key": 2, "name": "Session card", "sub": "prompt and transcript", "what": "Where shell commands and AI turns share one surface.", "where": "tugdeck/src/components/tugways/cards" },
         { "name": "Deck", "sub": "slots, panes, motion" },
@@ -25,7 +25,7 @@
     {
       "name": "tugcast",
       "sub": "WebSocket multiplexer",
-      "below": "one bridge per session",
+      "below": { "via": "one bridge per session", "down": "user messages", "up": "protocol events" },
       "cells": [
         { "key": 3, "name": "Feeds", "sub": "attribution, reports", "what": "Reads tool results as they pass and records what they say.", "where": "tugrust/crates/tugcast/src/feeds" },
         { "name": "Ledgers", "sub": "sessions, changes" },
@@ -35,7 +35,7 @@
     {
       "name": "tugcode",
       "sub": "Claude Code bridge",
-      "below": "stream-json over stdio",
+      "below": { "via": "stream-json over stdio", "down": "input lines", "up": "event lines" },
       "cells": [
         { "key": 4, "name": "Spawn config", "sub": "flags, plugin dir", "what": "Builds the argument list Claude Code is started with.", "where": "tugcode/src/spawn-config.ts" },
         { "name": "Event mapping", "sub": "wire to protocol" }
@@ -44,6 +44,7 @@
     {
       "name": "claude",
       "sub": "Claude Code",
+      "tone": "outside",
       "cells": [
         { "key": 5, "name": "tugplug", "sub": "skills and prompt docs", "what": "Teaches the model the Session card's fences, verbs and rules.", "where": "tugplug" },
         { "name": "Hooks", "sub": "call back into tugtool" }

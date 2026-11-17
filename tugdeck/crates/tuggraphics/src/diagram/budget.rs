@@ -13,7 +13,7 @@
 
 use crate::chart::ChartError;
 
-use super::spec::{err, Form, Spec};
+use super::spec::{err, Form, Move, Spec};
 
 /// The most columns, boxes, rows in one box, rows in all, and edges a
 /// `flow` should hold.
@@ -36,6 +36,15 @@ pub const STACK_ROW_CELLS: usize = 6;
 pub const STACK_CELLS: usize = 24;
 pub const STACK_BLOCKS: usize = 4;
 pub const STACK_ACROSS: usize = 4;
+/// The most states on a `states` figure's main line, side states beneath
+/// one state, transitions, and lanes over the top.
+pub const STATES_MAIN: usize = 6;
+pub const STATES_UNDER: usize = 1;
+pub const STATES_TRANSITIONS: usize = 12;
+pub const STATES_LANES: usize = 3;
+/// The most levels and nodes a `tree` should hold.
+pub const TREE_LEVELS: usize = 4;
+pub const TREE_NODES: usize = 20;
 /// The most times a figure's edges may cross. One is sometimes the price
 /// of an order that reads well; two means the boxes want reordering.
 pub const MAX_CROSSINGS: usize = 1;
@@ -128,6 +137,41 @@ pub(crate) fn check(spec: &Spec) -> Vec<ChartError> {
                     STACK_ACROSS,
                 );
             }
+        }
+        Form::States(s) => {
+            let main = s.main();
+            over(
+                "/states".into(),
+                "states on the main line",
+                main.len(),
+                STATES_MAIN,
+            );
+            for m in main {
+                let under = s.states.iter().filter(|st| st.under == Some(m)).count();
+                over(
+                    format!("/states/{m}"),
+                    "states beneath one state",
+                    under,
+                    STATES_UNDER,
+                );
+            }
+            over(
+                "/transitions".into(),
+                "transitions",
+                s.transitions.len(),
+                STATES_TRANSITIONS,
+            );
+            let lanes = s.moves().iter().filter(|m| **m == Move::Over).count();
+            over(
+                "/transitions".into(),
+                "transitions over the top",
+                lanes,
+                STATES_LANES,
+            );
+        }
+        Form::Tree(t) => {
+            over("/root".into(), "levels", t.root.depth(), TREE_LEVELS);
+            over("/root".into(), "nodes", t.root.walk().len(), TREE_NODES);
         }
     }
     errors

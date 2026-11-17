@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 610 585" width="610" height="585" aria-hidden="true">
+<g transform="translate(0.5 0.5)">
+<text x="16" y="16" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">Charts and diagrams share one drawing language</text>
+<path d="M146 308 L160 308 C168 308 168 308 168 300 L168 83 C168 75 168 75 176 75 L190 75" class="tgs-ink-muted tge-draw" style="--tg-i:1" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M146 308 L160 308 C168 308 168 308 168 300 L168 189 C168 181 168 181 176 181 L190 181" class="tgs-ink-muted tge-draw" style="--tg-i:1" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M146 308 L160 308 C168 308 168 308 168 316 L168 367 C168 375 168 375 176 375 L190 375" class="tgs-ink-muted tge-draw" style="--tg-i:1" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M146 308 L160 308 C168 308 168 308 168 316 L168 532 C168 540 168 540 176 540 L190 540" class="tgs-ink-muted tge-draw" style="--tg-i:1" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 75 L387 75 C395 75 395 75 395 67 L395 64 C395 56 395 56 403 56 L417 56" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 75 L387 75 C395 75 395 75 395 83 L395 86 C395 94 395 94 403 94 L417 94" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 181 L387 181 C395 181 395 181 395 173 L395 140 C395 132 395 132 403 132 L417 132" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 181 L393 181 C395 181 395 181 395 179 L395 179 C395 177 395 177 397 177 L417 177" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 181 L387 181 C395 181 395 181 395 189 L395 220 C395 228 395 228 403 228 L417 228" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 375 L387 375 C395 375 395 375 395 367 L395 280 C395 272 395 272 403 272 L417 272" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 375 L387 375 C395 375 395 375 395 367 L395 331 C395 323 395 323 403 323 L417 323" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 375 L392 375 C395 375 395 375 395 378 L395 378 C395 381 395 381 398 381 L417 381" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 375 L387 375 C395 375 395 375 395 383 L395 417 C395 425 395 425 403 425 L417 425" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M373 375 L387 375 C395 375 395 375 395 383 L395 468 C395 476 395 476 403 476 L417 476" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M22 286 L140 286 A6 6 0 0 1 146 292 L146 323 A6 6 0 0 1 140 329 L22 329 A6 6 0 0 1 16 323 L16 292 A6 6 0 0 1 22 286 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M22 286 L140 286 A6 6 0 0 1 146 292 L146 323 A6 6 0 0 1 140 329 L22 329 A6 6 0 0 1 16 323 L16 292 A6 6 0 0 1 22 286 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="28" y="301" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">tuggraphics</text>
+<text x="28" y="311" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">the chart engine</text>
+<path d="M196 47 L367 47 A6 6 0 0 1 373 53 L373 97 A6 6 0 0 1 367 103 L196 103 A6 6 0 0 1 190 97 L190 53 A6 6 0 0 1 196 47 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M196 47 L367 47 A6 6 0 0 1 373 53 L373 97 A6 6 0 0 1 367 103 L196 103 A6 6 0 0 1 190 97 L190 53 A6 6 0 0 1 196 47 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="202" y="62" class="tgt-mono tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">draw/</text>
+<text x="202" y="72" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">layer 0: the drawing</text>
+<text x="202" y="85" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">language</text>
+<path d="M423 41 L587 41 A6 6 0 0 1 593 47 L593 65 A6 6 0 0 1 587 71 L423 71 A6 6 0 0 1 417 65 L417 47 A6 6 0 0 1 423 41 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 41 L587 41 A6 6 0 0 1 593 47 L593 65 A6 6 0 0 1 587 71 L423 71 A6 6 0 0 1 417 65 L417 47 A6 6 0 0 1 423 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="56" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">parse.rs</text>
+<path d="M423 79 L587 79 A6 6 0 0 1 593 85 L593 103 A6 6 0 0 1 587 109 L423 109 A6 6 0 0 1 417 103 L417 85 A6 6 0 0 1 423 79 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 79 L587 79 A6 6 0 0 1 593 85 L593 103 A6 6 0 0 1 587 109 L423 109 A6 6 0 0 1 417 103 L417 85 A6 6 0 0 1 423 79 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="94" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">svg.rs</text>
+<path d="M196 159 L367 159 A6 6 0 0 1 373 165 L373 196 A6 6 0 0 1 367 202 L196 202 A6 6 0 0 1 190 196 L190 165 A6 6 0 0 1 196 159 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M196 159 L367 159 A6 6 0 0 1 373 165 L373 196 A6 6 0 0 1 367 202 L196 202 A6 6 0 0 1 190 196 L190 165 A6 6 0 0 1 196 159 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="202" y="174" class="tgt-mono tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">chart/</text>
+<text x="202" y="184" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">layer 1: charts</text>
+<path d="M423 117 L587 117 A6 6 0 0 1 593 123 L593 141 A6 6 0 0 1 587 147 L423 147 A6 6 0 0 1 417 141 L417 123 A6 6 0 0 1 423 117 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 117 L587 117 A6 6 0 0 1 593 123 L593 141 A6 6 0 0 1 587 147 L423 147 A6 6 0 0 1 417 141 L417 123 A6 6 0 0 1 423 117 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="132" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">spec.rs</text>
+<path d="M423 155 L587 155 A6 6 0 0 1 593 161 L593 192 A6 6 0 0 1 587 198 L423 198 A6 6 0 0 1 417 192 L417 161 A6 6 0 0 1 423 155 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 155 L587 155 A6 6 0 0 1 593 161 L593 192 A6 6 0 0 1 587 198 L423 198 A6 6 0 0 1 417 192 L417 161 A6 6 0 0 1 423 155 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="170" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">forms/</text>
+<text x="429" y="180" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">one file per chart form</text>
+<path d="M423 206 L587 206 A6 6 0 0 1 593 212 L593 243 A6 6 0 0 1 587 249 L423 249 A6 6 0 0 1 417 243 L417 212 A6 6 0 0 1 423 206 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 206 L587 206 A6 6 0 0 1 593 212 L593 243 A6 6 0 0 1 587 249 L423 249 A6 6 0 0 1 417 243 L417 212 A6 6 0 0 1 423 206 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="221" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">build.rs</text>
+<text x="429" y="231" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">shapes the forms share</text>
+<path d="M196 353 L367 353 A6 6 0 0 1 373 359 L373 390 A6 6 0 0 1 367 396 L196 396 A6 6 0 0 1 190 390 L190 359 A6 6 0 0 1 196 353 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M196 353 L367 353 A6 6 0 0 1 373 359 L373 390 A6 6 0 0 1 367 396 L196 396 A6 6 0 0 1 190 390 L190 359 A6 6 0 0 1 196 353 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M218 368 A8 8 0 0 1 202 368 A8 8 0 0 1 218 368 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
+<text x="206.7" y="371.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">1</text>
+<text x="225" y="368" class="tgt-mono tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">diagram/</text>
+<text x="225" y="378" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">layer 1: diagrams</text>
+<path d="M423 257 L587 257 A6 6 0 0 1 593 263 L593 281 A6 6 0 0 1 587 287 L423 287 A6 6 0 0 1 417 281 L417 263 A6 6 0 0 1 423 257 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 257 L587 257 A6 6 0 0 1 593 263 L593 281 A6 6 0 0 1 587 287 L423 287 A6 6 0 0 1 417 281 L417 263 A6 6 0 0 1 423 257 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="272" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">spec.rs</text>
+<path d="M423 295 L587 295 A6 6 0 0 1 593 301 L593 345 A6 6 0 0 1 587 351 L423 351 A6 6 0 0 1 417 345 L417 301 A6 6 0 0 1 423 295 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 295 L587 295 A6 6 0 0 1 593 301 L593 345 A6 6 0 0 1 587 351 L423 351 A6 6 0 0 1 417 345 L417 301 A6 6 0 0 1 423 295 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<path d="M445 310 A8 8 0 0 1 429 310 A8 8 0 0 1 445 310 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
+<text x="433.7" y="313.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">2</text>
+<text x="452" y="310" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">pen.rs</text>
+<text x="452" y="320" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">the look every form</text>
+<text x="452" y="333" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">draws with</text>
+<path d="M423 359 L587 359 A6 6 0 0 1 593 365 L593 396 A6 6 0 0 1 587 402 L423 402 A6 6 0 0 1 417 396 L417 365 A6 6 0 0 1 423 359 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 359 L587 359 A6 6 0 0 1 593 365 L593 396 A6 6 0 0 1 587 402 L423 402 A6 6 0 0 1 417 396 L417 365 A6 6 0 0 1 423 359 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="374" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">wrap.rs</text>
+<text x="429" y="384" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">names and wrapped text</text>
+<path d="M423 410 L587 410 A6 6 0 0 1 593 416 L593 434 A6 6 0 0 1 587 440 L423 440 A6 6 0 0 1 417 434 L417 416 A6 6 0 0 1 423 410 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 410 L587 410 A6 6 0 0 1 593 416 L593 434 A6 6 0 0 1 587 440 L423 440 A6 6 0 0 1 417 434 L417 416 A6 6 0 0 1 423 410 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="425" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">budget.rs</text>
+<path d="M423 448 L587 448 A6 6 0 0 1 593 454 L593 498 A6 6 0 0 1 587 504 L423 504 A6 6 0 0 1 417 498 L417 454 A6 6 0 0 1 423 448 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M423 448 L587 448 A6 6 0 0 1 593 454 L593 498 A6 6 0 0 1 587 504 L423 504 A6 6 0 0 1 417 498 L417 454 A6 6 0 0 1 423 448 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="429" y="463" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">the six form files</text>
+<text x="429" y="473" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">flow, sequence, layers,</text>
+<text x="429" y="486" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">stack, states, tree</text>
+<path d="M196 512 L367 512 A6 6 0 0 1 373 518 L373 562 A6 6 0 0 1 367 568 L196 568 A6 6 0 0 1 190 562 L190 518 A6 6 0 0 1 196 512 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M196 512 L367 512 A6 6 0 0 1 373 518 L373 562 A6 6 0 0 1 367 568 L196 568 A6 6 0 0 1 190 562 L190 518 A6 6 0 0 1 196 512 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.4"/>
+<text x="202" y="527" class="tgt-mono tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">measure.rs</text>
+<text x="202" y="537" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">how a form asks for text</text>
+<text x="202" y="550" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">sizes</text>
+<path class="tgh" d="M190 353 L373 353 L373 396 L190 396 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M417 295 L593 295 L593 351 L417 351 Z" fill="none" pointer-events="all" data-row="1"/>
+</g>
+</svg>

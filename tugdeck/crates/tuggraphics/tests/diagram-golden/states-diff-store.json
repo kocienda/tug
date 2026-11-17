@@ -1,0 +1,34 @@
+{
+  "tugdiagram": 1,
+  "form": "states",
+  "title": "The diff store only shows a reply to the request it last sent",
+  "start": "idle",
+  "states": [
+    { "id": "idle", "name": "idle", "sub": "nothing asked for yet" },
+    {
+      "id": "loading",
+      "name": "loading",
+      "sub": "one request in flight",
+      "key": 1,
+      "what": "Sends the query under a fresh request id and keeps the last payload up meanwhile.",
+      "where": "tugdeck/src/lib/git-diff-store.ts"
+    },
+    {
+      "id": "ready",
+      "name": "ready",
+      "sub": "a payload to show",
+      "tone": "good",
+      "key": 2,
+      "what": "Takes only the reply whose request id matches the one in flight.",
+      "where": "tugdeck/src/lib/git-diff-store.ts"
+    },
+    { "id": "error", "name": "error", "sub": "a message, no payload", "tone": "bad", "under": "idle" }
+  ],
+  "transitions": [
+    { "from": "idle", "to": "loading", "label": "requestDiff()" },
+    { "from": "loading", "to": "ready", "label": "the reply whose id matches", "tone": "good" },
+    { "from": "ready", "to": "loading", "label": "Refresh: the old payload stays up meanwhile" },
+    { "from": "idle", "to": "error", "label": "asked with no connection", "tone": "bad" },
+    { "from": "error", "to": "loading", "label": "asked again" }
+  ]
+}

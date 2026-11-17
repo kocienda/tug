@@ -28,6 +28,8 @@ mod pen;
 mod sequence;
 pub mod spec;
 mod stack;
+mod states;
+mod tree;
 mod wrap;
 
 use serde_json::{Map, Value};
@@ -80,6 +82,8 @@ pub fn layout(spec: &Spec, figure_title: bool, animate: bool, m: &dyn Measure) -
         spec::Form::Sequence(s) => sequence::layout(s, title, animate && spec.motion, m),
         spec::Form::Layers(l) => layers::layout(l, title, animate && spec.motion, m),
         spec::Form::Stack(s) => stack::layout(s, title, animate && spec.motion, m),
+        spec::Form::States(s) => states::layout(s, title, animate && spec.motion, m),
+        spec::Form::Tree(t) => tree::layout(t, title, animate && spec.motion, m),
     };
     let w = laid.program.frame.0;
     if laid.crossings > budget::MAX_CROSSINGS {

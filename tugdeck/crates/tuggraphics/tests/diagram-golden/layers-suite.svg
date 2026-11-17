@@ -1,106 +1,135 @@
-<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 784 584" width="784" height="584" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 800 680" width="800" height="680" aria-hidden="true">
 <g transform="translate(0.5 0.5)">
 <text x="16" y="16" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">Five processes stand between a keystroke and Claude</text>
-<path d="M24 41 L759 41 A8 8 0 0 1 767 49 L767 111 A8 8 0 0 1 759 119 L24 119 A8 8 0 0 1 16 111 L16 49 A8 8 0 0 1 24 41 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
-<path d="M24 41 L759 41 A8 8 0 0 1 767 49 L767 111 A8 8 0 0 1 759 119 L24 119 A8 8 0 0 1 16 111 L16 49 A8 8 0 0 1 24 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M24 41 L775 41 A8 8 0 0 1 783 49 L783 111 A8 8 0 0 1 775 119 L24 119 A8 8 0 0 1 16 111 L16 49 A8 8 0 0 1 24 41 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M24 41 L775 41 A8 8 0 0 1 783 49 L783 111 A8 8 0 0 1 775 119 L24 119 A8 8 0 0 1 16 111 L16 49 A8 8 0 0 1 24 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M184 51 L184 109" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.35"/>
 <text x="30" y="67" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">Tug.app</text>
 <text x="30" y="83" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">Swift macOS host</text>
-<path d="M188 51 L461 51 A5 5 0 0 1 466 56 L466 104 A5 5 0 0 1 461 109 L188 109 A5 5 0 0 1 183 104 L183 56 A5 5 0 0 1 188 51 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
-<path d="M188 51 L461 51 A5 5 0 0 1 466 56 L466 104 A5 5 0 0 1 461 109 L188 109 A5 5 0 0 1 183 104 L183 56 A5 5 0 0 1 188 51 Z" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1"/>
-<path d="M211 74 A8 8 0 0 1 195 74 A8 8 0 0 1 211 74 Z" class="tgf-accent tge-fade" style="--tg-i:0"/>
-<text x="199.7" y="77.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="alphabetic">1</text>
-<text x="218" y="74" class="tgt-label tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">Windows and menus</text>
-<text x="218" y="84" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">AppKit</text>
-<path d="M479 51 L752 51 A5 5 0 0 1 757 56 L757 104 A5 5 0 0 1 752 109 L479 109 A5 5 0 0 1 474 104 L474 56 A5 5 0 0 1 479 51 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
-<path d="M479 51 L752 51 A5 5 0 0 1 757 56 L757 104 A5 5 0 0 1 752 109 L479 109 A5 5 0 0 1 474 104 L474 56 A5 5 0 0 1 479 51 Z" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1"/>
-<text x="486" y="74" class="tgt-label tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">Updates</text>
-<text x="486" y="84" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">Sparkle appcast</text>
-<path d="M470 130 L470 142" class="tgs-ink-muted tge-draw" style="--tg-i:1" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
-<path d="M470 122 L474 130 L466 130 Z" class="tgf-ink-muted tge-fade" style="--tg-i:1"/>
-<path d="M470 150 L466 142 L474 142 Z" class="tgf-ink-muted tge-fade" style="--tg-i:1"/>
-<text x="480" y="131" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">hosts the page in web views</text>
-<path d="M24 153 L759 153 A8 8 0 0 1 767 161 L767 223 A8 8 0 0 1 759 231 L24 231 A8 8 0 0 1 16 223 L16 161 A8 8 0 0 1 24 153 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
-<path d="M24 153 L759 153 A8 8 0 0 1 767 161 L767 223 A8 8 0 0 1 759 231 L24 231 A8 8 0 0 1 16 223 L16 161 A8 8 0 0 1 24 153 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
-<text x="30" y="179" class="tgt-title tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">tugdeck</text>
-<text x="30" y="195" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">web frontend</text>
-<path d="M188 163 L364 163 A5 5 0 0 1 369 168 L369 216 A5 5 0 0 1 364 221 L188 221 A5 5 0 0 1 183 216 L183 168 A5 5 0 0 1 188 163 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
-<path d="M188 163 L364 163 A5 5 0 0 1 369 168 L369 216 A5 5 0 0 1 364 221 L188 221 A5 5 0 0 1 183 216 L183 168 A5 5 0 0 1 188 163 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
-<path d="M211 186 A8 8 0 0 1 195 186 A8 8 0 0 1 211 186 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
-<text x="199.7" y="189.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">2</text>
-<text x="218" y="186" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Session card</text>
-<text x="218" y="196" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">prompt and transcript</text>
-<path d="M382 163 L558 163 A5 5 0 0 1 563 168 L563 216 A5 5 0 0 1 558 221 L382 221 A5 5 0 0 1 377 216 L377 168 A5 5 0 0 1 382 163 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
-<path d="M382 163 L558 163 A5 5 0 0 1 563 168 L563 216 A5 5 0 0 1 558 221 L382 221 A5 5 0 0 1 377 216 L377 168 A5 5 0 0 1 382 163 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
-<text x="389" y="186" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Deck</text>
-<text x="389" y="196" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">slots, panes, motion</text>
-<path d="M576 163 L752 163 A5 5 0 0 1 757 168 L757 216 A5 5 0 0 1 752 221 L576 221 A5 5 0 0 1 571 216 L571 168 A5 5 0 0 1 576 163 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
-<path d="M576 163 L752 163 A5 5 0 0 1 757 168 L757 216 A5 5 0 0 1 752 221 L576 221 A5 5 0 0 1 571 216 L571 168 A5 5 0 0 1 576 163 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
-<text x="583" y="186" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Themes</text>
-<text x="583" y="196" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">ten token files</text>
-<path d="M470 242 L470 254" class="tgs-ink-muted tge-draw" style="--tg-i:2" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
-<path d="M470 234 L474 242 L466 242 Z" class="tgf-ink-muted tge-fade" style="--tg-i:2"/>
-<path d="M470 262 L466 254 L474 254 Z" class="tgf-ink-muted tge-fade" style="--tg-i:2"/>
-<text x="480" y="243" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">WebSocket frames</text>
-<path d="M24 265 L759 265 A8 8 0 0 1 767 273 L767 335 A8 8 0 0 1 759 343 L24 343 A8 8 0 0 1 16 335 L16 273 A8 8 0 0 1 24 265 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
-<path d="M24 265 L759 265 A8 8 0 0 1 767 273 L767 335 A8 8 0 0 1 759 343 L24 343 A8 8 0 0 1 16 335 L16 273 A8 8 0 0 1 24 265 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.9"/>
-<text x="30" y="291" class="tgt-title tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">tugcast</text>
-<text x="30" y="307" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">WebSocket multiplexer</text>
-<path d="M188 275 L364 275 A5 5 0 0 1 369 280 L369 328 A5 5 0 0 1 364 333 L188 333 A5 5 0 0 1 183 328 L183 280 A5 5 0 0 1 188 275 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
-<path d="M188 275 L364 275 A5 5 0 0 1 369 280 L369 328 A5 5 0 0 1 364 333 L188 333 A5 5 0 0 1 183 328 L183 280 A5 5 0 0 1 188 275 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
-<path d="M211 298 A8 8 0 0 1 195 298 A8 8 0 0 1 211 298 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
-<text x="199.7" y="301.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">3</text>
-<text x="218" y="298" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Feeds</text>
-<text x="218" y="308" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">attribution, reports</text>
-<path d="M382 275 L558 275 A5 5 0 0 1 563 280 L563 328 A5 5 0 0 1 558 333 L382 333 A5 5 0 0 1 377 328 L377 280 A5 5 0 0 1 382 275 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
-<path d="M382 275 L558 275 A5 5 0 0 1 563 280 L563 328 A5 5 0 0 1 558 333 L382 333 A5 5 0 0 1 377 328 L377 280 A5 5 0 0 1 382 275 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
-<text x="389" y="298" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Ledgers</text>
-<text x="389" y="308" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">sessions, changes</text>
-<path d="M576 275 L752 275 A5 5 0 0 1 757 280 L757 328 A5 5 0 0 1 752 333 L576 333 A5 5 0 0 1 571 328 L571 280 A5 5 0 0 1 576 275 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
-<path d="M576 275 L752 275 A5 5 0 0 1 757 280 L757 328 A5 5 0 0 1 752 333 L576 333 A5 5 0 0 1 571 328 L571 280 A5 5 0 0 1 576 275 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
-<text x="583" y="298" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Semantic index</text>
-<text x="583" y="308" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">on-device vectors</text>
-<path d="M470 354 L470 366" class="tgs-ink-muted tge-draw" style="--tg-i:3" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
-<path d="M470 346 L474 354 L466 354 Z" class="tgf-ink-muted tge-fade" style="--tg-i:3"/>
-<path d="M470 374 L466 366 L474 366 Z" class="tgf-ink-muted tge-fade" style="--tg-i:3"/>
-<text x="480" y="355" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">one bridge per session</text>
-<path d="M24 377 L759 377 A8 8 0 0 1 767 385 L767 447 A8 8 0 0 1 759 455 L24 455 A8 8 0 0 1 16 447 L16 385 A8 8 0 0 1 24 377 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
-<path d="M24 377 L759 377 A8 8 0 0 1 767 385 L767 447 A8 8 0 0 1 759 455 L24 455 A8 8 0 0 1 16 447 L16 385 A8 8 0 0 1 24 377 Z" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1" opacity="0.9"/>
-<text x="30" y="403" class="tgt-title tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">tugcode</text>
-<text x="30" y="419" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">Claude Code bridge</text>
-<path d="M188 387 L461 387 A5 5 0 0 1 466 392 L466 440 A5 5 0 0 1 461 445 L188 445 A5 5 0 0 1 183 440 L183 392 A5 5 0 0 1 188 387 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
-<path d="M188 387 L461 387 A5 5 0 0 1 466 392 L466 440 A5 5 0 0 1 461 445 L188 445 A5 5 0 0 1 183 440 L183 392 A5 5 0 0 1 188 387 Z" class="tgs-grid tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
-<path d="M211 410 A8 8 0 0 1 195 410 A8 8 0 0 1 211 410 Z" class="tgf-accent tge-fade" style="--tg-i:3"/>
-<text x="199.7" y="413.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="alphabetic">4</text>
-<text x="218" y="410" class="tgt-label tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">Spawn config</text>
-<text x="218" y="420" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">flags, plugin dir</text>
-<path d="M479 387 L752 387 A5 5 0 0 1 757 392 L757 440 A5 5 0 0 1 752 445 L479 445 A5 5 0 0 1 474 440 L474 392 A5 5 0 0 1 479 387 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
-<path d="M479 387 L752 387 A5 5 0 0 1 757 392 L757 440 A5 5 0 0 1 752 445 L479 445 A5 5 0 0 1 474 440 L474 392 A5 5 0 0 1 479 387 Z" class="tgs-grid tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
-<text x="486" y="410" class="tgt-label tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">Event mapping</text>
-<text x="486" y="420" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">wire to protocol</text>
-<path d="M470 466 L470 478" class="tgs-ink-muted tge-draw" style="--tg-i:4" fill="none" stroke-width="1.5" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
-<path d="M470 458 L474 466 L466 466 Z" class="tgf-ink-muted tge-fade" style="--tg-i:4"/>
-<path d="M470 486 L466 478 L474 478 Z" class="tgf-ink-muted tge-fade" style="--tg-i:4"/>
-<text x="480" y="467" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">stream-json over stdio</text>
-<path d="M24 489 L759 489 A8 8 0 0 1 767 497 L767 559 A8 8 0 0 1 759 567 L24 567 A8 8 0 0 1 16 559 L16 497 A8 8 0 0 1 24 489 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
-<path d="M24 489 L759 489 A8 8 0 0 1 767 497 L767 559 A8 8 0 0 1 759 567 L24 567 A8 8 0 0 1 16 559 L16 497 A8 8 0 0 1 24 489 Z" class="tgs-ink-muted tge-fade" style="--tg-i:4" fill="none" stroke-width="1" opacity="0.9"/>
-<text x="30" y="515" class="tgt-title tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">claude</text>
-<text x="30" y="531" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">Claude Code</text>
-<path d="M188 499 L461 499 A5 5 0 0 1 466 504 L466 552 A5 5 0 0 1 461 557 L188 557 A5 5 0 0 1 183 552 L183 504 A5 5 0 0 1 188 499 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
-<path d="M188 499 L461 499 A5 5 0 0 1 466 504 L466 552 A5 5 0 0 1 461 557 L188 557 A5 5 0 0 1 183 552 L183 504 A5 5 0 0 1 188 499 Z" class="tgs-grid tge-fade" style="--tg-i:4" fill="none" stroke-width="1"/>
-<path d="M211 515 A8 8 0 0 1 195 515 A8 8 0 0 1 211 515 Z" class="tgf-accent tge-fade" style="--tg-i:4"/>
-<text x="199.7" y="518.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="alphabetic">5</text>
-<text x="218" y="515" class="tgt-label tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="central">tugplug</text>
-<text x="218" y="525" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">skills and prompt</text>
-<text x="218" y="538" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">docs</text>
-<path d="M479 499 L752 499 A5 5 0 0 1 757 504 L757 552 A5 5 0 0 1 752 557 L479 557 A5 5 0 0 1 474 552 L474 504 A5 5 0 0 1 479 499 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
-<path d="M479 499 L752 499 A5 5 0 0 1 757 504 L757 552 A5 5 0 0 1 752 557 L479 557 A5 5 0 0 1 474 552 L474 504 A5 5 0 0 1 479 499 Z" class="tgs-grid tge-fade" style="--tg-i:4" fill="none" stroke-width="1"/>
-<text x="486" y="515" class="tgt-label tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="central">Hooks</text>
-<text x="486" y="525" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">call back into</text>
-<text x="486" y="538" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">tugtool</text>
-<path class="tgh" d="M183 51 L466 51 L466 109 L183 109 Z" fill="none" pointer-events="all" data-row="0"/>
-<path class="tgh" d="M183 163 L369 163 L369 221 L183 221 Z" fill="none" pointer-events="all" data-row="1"/>
-<path class="tgh" d="M183 275 L369 275 L369 333 L183 333 Z" fill="none" pointer-events="all" data-row="2"/>
-<path class="tgh" d="M183 387 L466 387 L466 445 L183 445 Z" fill="none" pointer-events="all" data-row="3"/>
-<path class="tgh" d="M183 499 L466 499 L466 557 L183 557 Z" fill="none" pointer-events="all" data-row="4"/>
+<path d="M204 51 L477 51 A5 5 0 0 1 482 56 L482 104 A5 5 0 0 1 477 109 L204 109 A5 5 0 0 1 199 104 L199 56 A5 5 0 0 1 204 51 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M204 51 L477 51 A5 5 0 0 1 482 56 L482 104 A5 5 0 0 1 477 109 L204 109 A5 5 0 0 1 199 104 L199 56 A5 5 0 0 1 204 51 Z" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1"/>
+<path d="M227 74 A8 8 0 0 1 211 74 A8 8 0 0 1 227 74 Z" class="tgf-accent tge-fade" style="--tg-i:0"/>
+<text x="215.7" y="77.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="alphabetic">1</text>
+<text x="234" y="74" class="tgt-label tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">Windows and menus</text>
+<text x="234" y="84" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">AppKit</text>
+<path d="M495 51 L768 51 A5 5 0 0 1 773 56 L773 104 A5 5 0 0 1 768 109 L495 109 A5 5 0 0 1 490 104 L490 56 A5 5 0 0 1 495 51 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M495 51 L768 51 A5 5 0 0 1 773 56 L773 104 A5 5 0 0 1 768 109 L495 109 A5 5 0 0 1 490 104 L490 56 A5 5 0 0 1 495 51 Z" class="tgs-grid tge-fade" style="--tg-i:0" fill="none" stroke-width="1"/>
+<text x="502" y="74" class="tgt-label tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">Updates</text>
+<text x="502" y="84" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">Sparkle appcast</text>
+<path d="M343 123 L343 163" class="tgs-ink tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M343 173 L337.5 162 L348.5 162 Z" class="tgf-ink tge-fade" style="--tg-i:1"/>
+<path d="M457 173 L457 133" class="tgs-ink tge-draw" style="--tg-i:1" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M457 123 L462.5 134 L451.5 134 Z" class="tgf-ink tge-fade" style="--tg-i:1"/>
+<text x="331" y="136" class="tgt-value tgf-ink tge-fade" style="--tg-i:1" text-anchor="end" dominant-baseline="text-before-edge">native chords, menu</text>
+<text x="331" y="149" class="tgt-value tgf-ink tge-fade" style="--tg-i:1" text-anchor="end" dominant-baseline="text-before-edge">actions</text>
+<text x="469" y="142" class="tgt-value tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">window and focus requests</text>
+<path d="M370.5 139 L429.5 139 A9.5 9.5 0 0 1 439 148.5 L439 148.5 A9.5 9.5 0 0 1 429.5 158 L370.5 158 A9.5 9.5 0 0 1 361 148.5 L361 148.5 A9.5 9.5 0 0 1 370.5 139 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M370.5 139 L429.5 139 A9.5 9.5 0 0 1 439 148.5 L439 148.5 A9.5 9.5 0 0 1 429.5 158 L370.5 158 A9.5 9.5 0 0 1 361 148.5 L361 148.5 A9.5 9.5 0 0 1 370.5 139 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="400" y="143" class="tgt-mono tgf-ink tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">WKWebView</text>
+<path d="M24 177 L775 177 A8 8 0 0 1 783 185 L783 247 A8 8 0 0 1 775 255 L24 255 A8 8 0 0 1 16 247 L16 185 A8 8 0 0 1 24 177 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M24 177 L775 177 A8 8 0 0 1 783 185 L783 247 A8 8 0 0 1 775 255 L24 255 A8 8 0 0 1 16 247 L16 185 A8 8 0 0 1 24 177 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M184 187 L184 245" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.35"/>
+<text x="30" y="203" class="tgt-title tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">tugdeck</text>
+<text x="30" y="219" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">web frontend</text>
+<path d="M204 187 L380 187 A5 5 0 0 1 385 192 L385 240 A5 5 0 0 1 380 245 L204 245 A5 5 0 0 1 199 240 L199 192 A5 5 0 0 1 204 187 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M204 187 L380 187 A5 5 0 0 1 385 192 L385 240 A5 5 0 0 1 380 245 L204 245 A5 5 0 0 1 199 240 L199 192 A5 5 0 0 1 204 187 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
+<path d="M227 210 A8 8 0 0 1 211 210 A8 8 0 0 1 227 210 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
+<text x="215.7" y="213.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">2</text>
+<text x="234" y="210" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Session card</text>
+<text x="234" y="220" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">prompt and transcript</text>
+<path d="M398 187 L574 187 A5 5 0 0 1 579 192 L579 240 A5 5 0 0 1 574 245 L398 245 A5 5 0 0 1 393 240 L393 192 A5 5 0 0 1 398 187 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M398 187 L574 187 A5 5 0 0 1 579 192 L579 240 A5 5 0 0 1 574 245 L398 245 A5 5 0 0 1 393 240 L393 192 A5 5 0 0 1 398 187 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
+<text x="405" y="210" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Deck</text>
+<text x="405" y="220" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">slots, panes, motion</text>
+<path d="M592 187 L768 187 A5 5 0 0 1 773 192 L773 240 A5 5 0 0 1 768 245 L592 245 A5 5 0 0 1 587 240 L587 192 A5 5 0 0 1 592 187 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M592 187 L768 187 A5 5 0 0 1 773 192 L773 240 A5 5 0 0 1 768 245 L592 245 A5 5 0 0 1 587 240 L587 192 A5 5 0 0 1 592 187 Z" class="tgs-grid tge-fade" style="--tg-i:1" fill="none" stroke-width="1"/>
+<text x="599" y="210" class="tgt-label tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">Themes</text>
+<text x="599" y="220" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="text-before-edge">ten token files</text>
+<path d="M343 259 L343 299" class="tgs-ink tge-draw" style="--tg-i:2" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M343 309 L337.5 298 L348.5 298 Z" class="tgf-ink tge-fade" style="--tg-i:2"/>
+<path d="M457 309 L457 269" class="tgs-ink tge-draw" style="--tg-i:2" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M457 259 L462.5 270 L451.5 270 Z" class="tgf-ink tge-fade" style="--tg-i:2"/>
+<text x="331" y="278" class="tgt-value tgf-ink tge-fade" style="--tg-i:2" text-anchor="end" dominant-baseline="text-before-edge">prompts, commands</text>
+<text x="469" y="272" class="tgt-value tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">transcript and feed</text>
+<text x="469" y="285" class="tgt-value tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">frames</text>
+<path d="M370.5 275 L429.5 275 A9.5 9.5 0 0 1 439 284.5 L439 284.5 A9.5 9.5 0 0 1 429.5 294 L370.5 294 A9.5 9.5 0 0 1 361 284.5 L361 284.5 A9.5 9.5 0 0 1 370.5 275 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M370.5 275 L429.5 275 A9.5 9.5 0 0 1 439 284.5 L439 284.5 A9.5 9.5 0 0 1 429.5 294 L370.5 294 A9.5 9.5 0 0 1 361 284.5 L361 284.5 A9.5 9.5 0 0 1 370.5 275 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="400" y="279" class="tgt-mono tgf-ink tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="text-before-edge">WebSocket</text>
+<path d="M24 313 L775 313 A8 8 0 0 1 783 321 L783 383 A8 8 0 0 1 775 391 L24 391 A8 8 0 0 1 16 383 L16 321 A8 8 0 0 1 24 313 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M24 313 L775 313 A8 8 0 0 1 783 321 L783 383 A8 8 0 0 1 775 391 L24 391 A8 8 0 0 1 16 383 L16 321 A8 8 0 0 1 24 313 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M184 323 L184 381" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.35"/>
+<text x="30" y="339" class="tgt-title tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">tugcast</text>
+<text x="30" y="355" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">WebSocket multiplexer</text>
+<path d="M204 323 L380 323 A5 5 0 0 1 385 328 L385 376 A5 5 0 0 1 380 381 L204 381 A5 5 0 0 1 199 376 L199 328 A5 5 0 0 1 204 323 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M204 323 L380 323 A5 5 0 0 1 385 328 L385 376 A5 5 0 0 1 380 381 L204 381 A5 5 0 0 1 199 376 L199 328 A5 5 0 0 1 204 323 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
+<path d="M227 346 A8 8 0 0 1 211 346 A8 8 0 0 1 227 346 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
+<text x="215.7" y="349.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">3</text>
+<text x="234" y="346" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Feeds</text>
+<text x="234" y="356" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">attribution, reports</text>
+<path d="M398 323 L574 323 A5 5 0 0 1 579 328 L579 376 A5 5 0 0 1 574 381 L398 381 A5 5 0 0 1 393 376 L393 328 A5 5 0 0 1 398 323 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M398 323 L574 323 A5 5 0 0 1 579 328 L579 376 A5 5 0 0 1 574 381 L398 381 A5 5 0 0 1 393 376 L393 328 A5 5 0 0 1 398 323 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
+<text x="405" y="346" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Ledgers</text>
+<text x="405" y="356" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">sessions, changes</text>
+<path d="M592 323 L768 323 A5 5 0 0 1 773 328 L773 376 A5 5 0 0 1 768 381 L592 381 A5 5 0 0 1 587 376 L587 328 A5 5 0 0 1 592 323 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M592 323 L768 323 A5 5 0 0 1 773 328 L773 376 A5 5 0 0 1 768 381 L592 381 A5 5 0 0 1 587 376 L587 328 A5 5 0 0 1 592 323 Z" class="tgs-grid tge-fade" style="--tg-i:2" fill="none" stroke-width="1"/>
+<text x="599" y="346" class="tgt-label tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">Semantic index</text>
+<text x="599" y="356" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="text-before-edge">on-device vectors</text>
+<path d="M300 395 L300 435" class="tgs-ink tge-draw" style="--tg-i:3" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M300 445 L294.5 434 L305.5 434 Z" class="tgf-ink tge-fade" style="--tg-i:3"/>
+<path d="M500 445 L500 405" class="tgs-ink tge-draw" style="--tg-i:3" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M500 395 L505.5 406 L494.5 406 Z" class="tgf-ink tge-fade" style="--tg-i:3"/>
+<text x="288" y="414" class="tgt-value tgf-ink tge-fade" style="--tg-i:3" text-anchor="end" dominant-baseline="text-before-edge">user messages</text>
+<text x="512" y="414" class="tgt-value tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">protocol events</text>
+<path d="M327.5 411 L472.5 411 A9.5 9.5 0 0 1 482 420.5 L482 420.5 A9.5 9.5 0 0 1 472.5 430 L327.5 430 A9.5 9.5 0 0 1 318 420.5 L318 420.5 A9.5 9.5 0 0 1 327.5 411 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M327.5 411 L472.5 411 A9.5 9.5 0 0 1 482 420.5 L482 420.5 A9.5 9.5 0 0 1 472.5 430 L327.5 430 A9.5 9.5 0 0 1 318 420.5 L318 420.5 A9.5 9.5 0 0 1 327.5 411 Z" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="400" y="415" class="tgt-mono tgf-ink tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="text-before-edge">one bridge per session</text>
+<path d="M24 449 L775 449 A8 8 0 0 1 783 457 L783 519 A8 8 0 0 1 775 527 L24 527 A8 8 0 0 1 16 519 L16 457 A8 8 0 0 1 24 449 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M24 449 L775 449 A8 8 0 0 1 783 457 L783 519 A8 8 0 0 1 775 527 L24 527 A8 8 0 0 1 16 519 L16 457 A8 8 0 0 1 24 449 Z" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M184 459 L184 517" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1" opacity="0.35"/>
+<text x="30" y="475" class="tgt-title tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">tugcode</text>
+<text x="30" y="491" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">Claude Code bridge</text>
+<path d="M204 459 L477 459 A5 5 0 0 1 482 464 L482 512 A5 5 0 0 1 477 517 L204 517 A5 5 0 0 1 199 512 L199 464 A5 5 0 0 1 204 459 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M204 459 L477 459 A5 5 0 0 1 482 464 L482 512 A5 5 0 0 1 477 517 L204 517 A5 5 0 0 1 199 512 L199 464 A5 5 0 0 1 204 459 Z" class="tgs-grid tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
+<path d="M227 482 A8 8 0 0 1 211 482 A8 8 0 0 1 227 482 Z" class="tgf-accent tge-fade" style="--tg-i:3"/>
+<text x="215.7" y="485.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="alphabetic">4</text>
+<text x="234" y="482" class="tgt-label tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">Spawn config</text>
+<text x="234" y="492" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">flags, plugin dir</text>
+<path d="M495 459 L768 459 A5 5 0 0 1 773 464 L773 512 A5 5 0 0 1 768 517 L495 517 A5 5 0 0 1 490 512 L490 464 A5 5 0 0 1 495 459 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M495 459 L768 459 A5 5 0 0 1 773 464 L773 512 A5 5 0 0 1 768 517 L495 517 A5 5 0 0 1 490 512 L490 464 A5 5 0 0 1 495 459 Z" class="tgs-grid tge-fade" style="--tg-i:3" fill="none" stroke-width="1"/>
+<text x="502" y="482" class="tgt-label tgf-ink tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="central">Event mapping</text>
+<text x="502" y="492" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:3" text-anchor="start" dominant-baseline="text-before-edge">wire to protocol</text>
+<path d="M300 531 L300 571" class="tgs-ink tge-draw" style="--tg-i:4" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M300 581 L294.5 570 L305.5 570 Z" class="tgf-ink tge-fade" style="--tg-i:4"/>
+<path d="M500 581 L500 541" class="tgs-ink tge-draw" style="--tg-i:4" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M500 531 L505.5 542 L494.5 542 Z" class="tgf-ink tge-fade" style="--tg-i:4"/>
+<text x="288" y="550" class="tgt-value tgf-ink tge-fade" style="--tg-i:4" text-anchor="end" dominant-baseline="text-before-edge">input lines</text>
+<text x="512" y="550" class="tgt-value tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">event lines</text>
+<path d="M327.5 547 L472.5 547 A9.5 9.5 0 0 1 482 556.5 L482 556.5 A9.5 9.5 0 0 1 472.5 566 L327.5 566 A9.5 9.5 0 0 1 318 556.5 L318 556.5 A9.5 9.5 0 0 1 327.5 547 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
+<path d="M327.5 547 L472.5 547 A9.5 9.5 0 0 1 482 556.5 L482 556.5 A9.5 9.5 0 0 1 472.5 566 L327.5 566 A9.5 9.5 0 0 1 318 556.5 L318 556.5 A9.5 9.5 0 0 1 327.5 547 Z" class="tgs-ink-muted tge-fade" style="--tg-i:4" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="400" y="551" class="tgt-mono tgf-ink tge-fade" style="--tg-i:4" text-anchor="middle" dominant-baseline="text-before-edge">stream-json over stdio</text>
+<path d="M24 585 L775 585 A8 8 0 0 1 783 593 L783 655 A8 8 0 0 1 775 663 L24 663 A8 8 0 0 1 16 655 L16 593 A8 8 0 0 1 24 585 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
+<path d="M24 585 L775 585 A8 8 0 0 1 783 593 L783 655 A8 8 0 0 1 775 663 L24 663 A8 8 0 0 1 16 655 L16 593 A8 8 0 0 1 24 585 Z" class="tgs-ink-muted tge-fade" style="--tg-i:4" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M24 585 L775 585 A8 8 0 0 1 783 593 L783 655 A8 8 0 0 1 775 663 L24 663 A8 8 0 0 1 16 655 L16 593 A8 8 0 0 1 24 585 Z" class="tgf-outside tge-fade" style="--tg-i:4" opacity="0.16"/>
+<path d="M24 585 L775 585 A8 8 0 0 1 783 593 L783 655 A8 8 0 0 1 775 663 L24 663 A8 8 0 0 1 16 655 L16 593 A8 8 0 0 1 24 585 Z" class="tgs-outside tge-fade" style="--tg-i:4" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M184 595 L184 653" class="tgs-ink-muted tge-fade" style="--tg-i:4" fill="none" stroke-width="1" opacity="0.35"/>
+<text x="30" y="611" class="tgt-title tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">claude</text>
+<text x="30" y="627" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">Claude Code</text>
+<path d="M204 595 L477 595 A5 5 0 0 1 482 600 L482 648 A5 5 0 0 1 477 653 L204 653 A5 5 0 0 1 199 648 L199 600 A5 5 0 0 1 204 595 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
+<path d="M204 595 L477 595 A5 5 0 0 1 482 600 L482 648 A5 5 0 0 1 477 653 L204 653 A5 5 0 0 1 199 648 L199 600 A5 5 0 0 1 204 595 Z" class="tgs-grid tge-fade" style="--tg-i:4" fill="none" stroke-width="1"/>
+<path d="M227 611 A8 8 0 0 1 211 611 A8 8 0 0 1 227 611 Z" class="tgf-accent tge-fade" style="--tg-i:4"/>
+<text x="215.7" y="614.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="alphabetic">5</text>
+<text x="234" y="611" class="tgt-label tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="central">tugplug</text>
+<text x="234" y="621" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">skills and prompt</text>
+<text x="234" y="634" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">docs</text>
+<path d="M495 595 L768 595 A5 5 0 0 1 773 600 L773 648 A5 5 0 0 1 768 653 L495 653 A5 5 0 0 1 490 648 L490 600 A5 5 0 0 1 495 595 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
+<path d="M495 595 L768 595 A5 5 0 0 1 773 600 L773 648 A5 5 0 0 1 768 653 L495 653 A5 5 0 0 1 490 648 L490 600 A5 5 0 0 1 495 595 Z" class="tgs-grid tge-fade" style="--tg-i:4" fill="none" stroke-width="1"/>
+<text x="502" y="611" class="tgt-label tgf-ink tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="central">Hooks</text>
+<text x="502" y="621" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">call back into</text>
+<text x="502" y="634" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:4" text-anchor="start" dominant-baseline="text-before-edge">tugtool</text>
+<path class="tgh" d="M199 51 L482 51 L482 109 L199 109 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M199 187 L385 187 L385 245 L199 245 Z" fill="none" pointer-events="all" data-row="1"/>
+<path class="tgh" d="M199 323 L385 323 L385 381 L199 381 Z" fill="none" pointer-events="all" data-row="2"/>
+<path class="tgh" d="M199 459 L482 459 L482 517 L199 517 Z" fill="none" pointer-events="all" data-row="3"/>
+<path class="tgh" d="M199 595 L482 595 L482 653 L199 653 Z" fill="none" pointer-events="all" data-row="4"/>
 </g>
 </svg>

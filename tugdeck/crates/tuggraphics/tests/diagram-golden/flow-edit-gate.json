@@ -44,6 +44,11 @@
     { "from": "gate.1", "to": "cast.1", "tone": "good", "label": "runs, prints its receipt" },
     { "from": "gate.2", "to": "model", "tone": "bad", "dashed": true, "label": "denied before it runs" },
     { "from": "cast.2", "to": "ledger.1", "tone": "good" },
-    { "from": "gate", "to": "ledger", "tone": "caution", "label": "unprovable either way: runs, lands unattributed" }
+    { "from": "gate", "to": "ledger.2", "tone": "caution", "label": "unprovable either way: runs, lands unattributed" }
+  ],
+  "legend": [
+    { "tone": "good", "text": "read and recorded" },
+    { "tone": "bad", "text": "refused" },
+    { "tone": "caution", "text": "ran, but nobody can say what it wrote" }
   ]
 }

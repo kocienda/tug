@@ -1,6 +1,12 @@
 //! The pen every diagram form draws with: boxes, key discs, text, and
-//! edges with rounded elbows and filled heads, written straight into
-//! layer 0 items. It owns the diagrams' look, so the forms say only where.
+//! connectors with rounded elbows, written straight into layer 0 items.
+//! It owns the diagrams' look, so the forms say only where.
+//!
+//! A connector is the figure's strongest line: 2 px in full ink, with a
+//! head long enough to read at a glance. A tone recolours the line, its
+//! head and its label together. A label sits on the line it names, in a
+//! chip of the figure's surface that the line runs into and out of, and
+//! the chips are drawn after the connectors so none is crossed by one.
 
 use crate::chart::build::{circle, rect};
 use crate::draw::{
@@ -21,12 +27,62 @@ pub(crate) const MARGIN: f64 = 16.0;
 /// height.
 pub(crate) const LINE_GAP: f64 = 2.0;
 /// An arrowhead's length and half its width.
-const HEAD: f64 = 8.0;
-const HALF: f64 = 4.0;
+const HEAD: f64 = 11.0;
+const HALF: f64 = 5.5;
 /// The largest radius an elbow turns on.
 const ELBOW: f64 = 8.0;
-const EDGE_WIDTH: f64 = 1.5;
-const EDGE_DASH: [f64; 2] = [5.0, 4.0];
+/// A connector's width, and the lighter width of a line that joins rather
+/// than points.
+pub(crate) const EDGE_WIDTH: f64 = 2.0;
+pub(crate) const BARE_WIDTH: f64 = 1.5;
+const EDGE_DASH: [f64; 2] = [6.0, 4.0];
+/// The dot an edge starts with where it leaves a box or a row.
+pub(crate) const ORIGIN_DOT: f64 = 3.5;
+/// A chip's padding either side of its text, and above and below it.
+pub(crate) const CHIP_PAD_X: f64 = 9.0;
+pub(crate) const CHIP_PAD_Y: f64 = 4.0;
+
+/// How a connector ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Head {
+    /// A filled head: a call, a flow, a crossing.
+    Filled,
+    /// A stroked V: a return rather than a call.
+    Open,
+    /// No head: a line that joins rather than points.
+    Bare,
+}
+
+/// How a connector is stroked.
+#[derive(Clone, Copy)]
+pub(crate) struct Stroke {
+    pub colour: ColourRole,
+    pub width: f64,
+    pub dashed: bool,
+    pub head: Head,
+}
+
+impl Stroke {
+    /// The connector every form draws unless it says otherwise.
+    pub fn arrow(colour: ColourRole, dashed: bool) -> Stroke {
+        Stroke {
+            colour,
+            width: EDGE_WIDTH,
+            dashed,
+            head: Head::Filled,
+        }
+    }
+
+    /// A line that joins rather than points: no head, lighter, muted.
+    pub fn bare() -> Stroke {
+        Stroke {
+            colour: ColourRole::InkMuted,
+            width: BARE_WIDTH,
+            dashed: false,
+            head: Head::Bare,
+        }
+    }
+}
 
 /// A box's place.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -101,10 +157,15 @@ impl LineHeights {
 
     /// The height of `n` lines of secondary text.
     pub fn block(&self, n: usize) -> f64 {
+        self.block_of(TypeRole::Value, n)
+    }
+
+    /// The height of `n` lines of `role` text.
+    pub fn block_of(&self, role: TypeRole, n: usize) -> f64 {
         if n == 0 {
             0.0
         } else {
-            n as f64 * self.value + (n - 1) as f64 * LINE_GAP
+            n as f64 * self.of(role) + (n - 1) as f64 * LINE_GAP
         }
     }
 }
@@ -295,29 +356,45 @@ impl Pen {
         );
     }
 
-    /// A straight dashed rule, for a lifeline.
-    pub fn rule(&mut self, a: Pt, b: Pt, colour: ColourRole, dash: &[f64], delay: usize) {
+    /// A straight 1 px rule, dashed or solid: a lifeline, a divider.
+    pub fn rule(
+        &mut self,
+        a: Pt,
+        b: Pt,
+        colour: ColourRole,
+        dash: &[f64],
+        opacity: f64,
+        delay: usize,
+    ) {
         let motion = self.enter(Enter::Fade, delay);
         let kind = PaintKind::Stroke {
             cap: None,
             join: None,
         };
         let path = vec![Seg::Move(a.0, a.1), Seg::Line(b.0, b.1)];
-        self.paint(kind, colour, path, 1.0, dash, 1.0, motion);
+        self.paint(kind, colour, path, 1.0, dash, opacity, motion);
     }
 
-    /// An edge along `pts`, ending in an arrowhead. Consecutive points
-    /// differ on one axis only; each turn is a small rounded elbow.
+    /// An edge along `pts`, ending in a filled head.
     pub fn edge(&mut self, pts: &[Pt], colour: ColourRole, dashed: bool, delay: usize) {
+        self.connector(pts, Stroke::arrow(colour, dashed), delay);
+    }
+
+    /// A connector along `pts`, ended as its stroke says. Consecutive
+    /// points differ on one axis only; each turn is a small rounded elbow.
+    pub fn connector(&mut self, pts: &[Pt], stroke: Stroke, delay: usize) {
         let n = pts.len();
         if n < 2 {
             return;
         }
         let tip = pts[n - 1];
         let d = unit(pts[n - 2], tip);
-        let base = (tip.0 - d.0 * HEAD, tip.1 - d.1 * HEAD);
-        let mut line: Vec<Pt> = pts[..n - 1].to_vec();
-        line.push(base);
+        let mut line: Vec<Pt> = pts.to_vec();
+        // A filled head covers the stroke's end, overlapping it by a pixel
+        // so no seam shows; an open head is the stroke's own end.
+        if stroke.head == Head::Filled {
+            line[n - 1] = (tip.0 - d.0 * (HEAD - 1.0), tip.1 - d.1 * (HEAD - 1.0));
+        }
 
         let mut path = vec![Seg::Move(line[0].0, line[0].1)];
         for i in 1..line.len() {
@@ -341,15 +418,23 @@ impl Pen {
             ]));
         }
         // A dashed stroke cannot draw itself along its length: the entrance owns the dash.
-        let enter = if dashed { Enter::Fade } else { Enter::Draw };
+        let enter = if stroke.dashed {
+            Enter::Fade
+        } else {
+            Enter::Draw
+        };
         let motion = self.enter(enter, delay);
-        let dash: &[f64] = if dashed { &EDGE_DASH } else { &[] };
+        let dash: &[f64] = if stroke.dashed { &EDGE_DASH } else { &[] };
         let kind = PaintKind::Stroke {
             cap: Some(Cap::Butt),
             join: Some(Join::Round),
         };
-        self.paint(kind, colour, path, EDGE_WIDTH, dash, 1.0, motion);
-        self.head(tip, d, colour, delay);
+        self.paint(kind, stroke.colour, path, stroke.width, dash, 1.0, motion);
+        match stroke.head {
+            Head::Filled => self.head(tip, d, stroke.colour, delay),
+            Head::Open => self.open_head(tip, d, stroke.colour, stroke.width, delay),
+            Head::Bare => {}
+        }
     }
 
     /// A straight arrow with a head at each end, for what crosses a
@@ -357,8 +442,8 @@ impl Pen {
     pub fn both_ways(&mut self, a: Pt, b: Pt, colour: ColourRole, delay: usize) {
         let d = unit(a, b);
         let (a0, b0) = (
-            (a.0 + d.0 * HEAD, a.1 + d.1 * HEAD),
-            (b.0 - d.0 * HEAD, b.1 - d.1 * HEAD),
+            (a.0 + d.0 * (HEAD - 1.0), a.1 + d.1 * (HEAD - 1.0)),
+            (b.0 - d.0 * (HEAD - 1.0), b.1 - d.1 * (HEAD - 1.0)),
         );
         let motion = self.enter(Enter::Draw, delay);
         let kind = PaintKind::Stroke {
@@ -381,6 +466,95 @@ impl Pen {
         ];
         let motion = self.enter(Enter::Fade, delay);
         self.paint(PaintKind::Fill, colour, path, 1.0, &[], 1.0, motion);
+    }
+
+    /// A stroked V at `tip`, the end of a return.
+    fn open_head(&mut self, tip: Pt, d: Pt, colour: ColourRole, width: f64, delay: usize) {
+        let (bx, by) = (tip.0 - d.0 * HEAD, tip.1 - d.1 * HEAD);
+        let path = vec![
+            Seg::Move(bx - d.1 * HALF, by + d.0 * HALF),
+            Seg::Line(tip.0, tip.1),
+            Seg::Line(bx + d.1 * HALF, by - d.0 * HALF),
+        ];
+        let kind = PaintKind::Stroke {
+            cap: Some(Cap::Round),
+            join: Some(Join::Round),
+        };
+        let motion = self.enter(Enter::Fade, delay);
+        self.paint(kind, colour, path, width, &[], 1.0, motion);
+    }
+
+    /// A filled dot centred on `(cx, cy)`: where an edge leaves a box or a
+    /// row, at `ORIGIN_DOT`.
+    pub fn dot(&mut self, cx: f64, cy: f64, r: f64, colour: ColourRole, delay: usize) {
+        let motion = self.enter(Enter::Fade, delay);
+        self.paint(
+            PaintKind::Fill,
+            colour,
+            circle(cx, cy, r),
+            1.0,
+            &[],
+            1.0,
+            motion,
+        );
+    }
+
+    /// The size of a chip around `lines` of `role` text, `w` wide at its
+    /// widest line.
+    pub fn chip_size(lines: usize, w: f64, role: TypeRole, lh: &LineHeights) -> (f64, f64) {
+        (
+            (w + 2.0 * CHIP_PAD_X).ceil(),
+            lh.block_of(role, lines) + 2.0 * CHIP_PAD_Y,
+        )
+    }
+
+    /// A label that sits on its connector, centred on `(cx, cy)`: the
+    /// figure's surface under it and a thin outline, so the line it names
+    /// runs into it and out the other side. Draw it after the connectors.
+    /// A toned label takes its tone for its text and its outline.
+    #[allow(clippy::too_many_arguments)]
+    pub fn chip(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        lines: &[String],
+        w: f64,
+        role: TypeRole,
+        tone: Option<ColourRole>,
+        lh: &LineHeights,
+        delay: usize,
+    ) {
+        if lines.is_empty() {
+            return;
+        }
+        let (cw, ch) = Pen::chip_size(lines.len(), w, role, lh);
+        let r = Rect {
+            x: (cx - cw / 2.0).round(),
+            y: (cy - ch / 2.0).round(),
+            w: cw,
+            h: ch,
+        };
+        let paint = BoxPaint {
+            fill: Some((ColourRole::Surface, 1.0)),
+            stroke: Some(match tone {
+                Some(c) => (c, 0.8),
+                None => (ColourRole::InkMuted, 0.55),
+            }),
+        };
+        self.boxed(r, (ch / 2.0).min(10.0), paint, delay);
+        let pitch = lh.of(role) + LINE_GAP;
+        for (j, line) in lines.iter().enumerate() {
+            self.text(
+                cx.round(),
+                r.y + CHIP_PAD_Y + j as f64 * pitch,
+                line,
+                role,
+                tone.unwrap_or(ColourRole::Ink),
+                Anchor::Middle,
+                Baseline::Top,
+                delay,
+            );
+        }
     }
 
     /// A hit target naming row `row` of the keyed table.

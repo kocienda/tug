@@ -38,6 +38,6 @@
     { "from": "a", "to": "api", "tone": "good" },
     { "from": "b", "to": "api", "tone": "bad" },
     { "from": "api.1", "to": "db.1", "tone": "good", "label": "allowed" },
-    { "from": "api.2", "to": "b", "tone": "bad", "dashed": true, "label": "refused with HTTP 403 before FalkorDB is touched" }
+    { "from": "api.2", "to": "b", "tone": "bad", "dashed": true, "label": "refused with HTTP 403" }
   ]
 }

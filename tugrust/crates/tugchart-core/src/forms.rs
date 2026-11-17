@@ -7,7 +7,7 @@
 //! [`reform`] is what `--form` on a recipe runs: the same categories and the
 //! same series, drawn as another of the forms that can hold them.
 
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 /// Which fence a form is drawn in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub struct Form {
     pub ask: &'static str,
 }
 
-pub static FORMS: [Form; 14] = [
+pub static FORMS: [Form; 16] = [
     Form {
         name: "bar",
         kind: FormKind::Chart,
@@ -140,6 +140,20 @@ pub static FORMS: [Form; 14] = [
         shows: "see the architecture: what sits on what, and what is outside",
         said: &["architecture", "block diagram", "big picture"],
         ask: "/explain the architecture of this project as a stack",
+    },
+    Form {
+        name: "states",
+        kind: FormKind::Diagram,
+        shows: "see what a thing can be, and what moves it between states",
+        said: &["lifecycle", "state machine", "what states it can be in"],
+        ask: "/explain the diff store's lifecycle as states",
+    },
+    Form {
+        name: "tree",
+        kind: FormKind::Diagram,
+        shows: "see what is inside what: parts and where they live",
+        said: &["hierarchy", "what contains what", "component tree"],
+        ask: "/explain the parts of the chart engine as a tree",
     },
 ];
 
@@ -281,7 +295,7 @@ mod tests {
 
     #[test]
     fn the_list_narrows_to_one_kind() {
-        assert_eq!(forms_json(None).as_array().unwrap().len(), 14);
+        assert_eq!(forms_json(None).as_array().unwrap().len(), 16);
         let diagrams = forms_json(Some(FormKind::Diagram));
         let names: Vec<&str> = diagrams
             .as_array()
@@ -289,7 +303,10 @@ mod tests {
             .iter()
             .map(|f| f["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["flow", "sequence", "layers", "stack"]);
+        assert_eq!(
+            names,
+            ["flow", "sequence", "layers", "stack", "states", "tree"]
+        );
     }
 
     /// The session's guidance tells the model which words mean which form, and

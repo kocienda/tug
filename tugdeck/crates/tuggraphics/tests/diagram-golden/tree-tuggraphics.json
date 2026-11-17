@@ -1,0 +1,53 @@
+{
+  "tugdiagram": 1,
+  "form": "tree",
+  "title": "Charts and diagrams share one drawing language",
+  "root": {
+    "name": "tuggraphics",
+    "sub": "the chart engine",
+    "children": [
+      {
+        "name": "draw/",
+        "sub": "layer 0: the drawing language",
+        "mono": true,
+        "children": [
+          { "name": "parse.rs", "mono": true },
+          { "name": "svg.rs", "mono": true }
+        ]
+      },
+      {
+        "name": "chart/",
+        "sub": "layer 1: charts",
+        "mono": true,
+        "children": [
+          { "name": "spec.rs", "mono": true },
+          { "name": "forms/", "sub": "one file per chart form", "mono": true },
+          { "name": "build.rs", "sub": "shapes the forms share", "mono": true }
+        ]
+      },
+      {
+        "name": "diagram/",
+        "sub": "layer 1: diagrams",
+        "mono": true,
+        "key": 1,
+        "what": "Validates a diagram spec and lays out its form.",
+        "where": "tugdeck/crates/tuggraphics/src/diagram/mod.rs",
+        "children": [
+          { "name": "spec.rs", "mono": true },
+          {
+            "name": "pen.rs",
+            "sub": "the look every form draws with",
+            "mono": true,
+            "key": 2,
+            "what": "Draws the boxes, keys, chips and connectors every form uses.",
+            "where": "tugdeck/crates/tuggraphics/src/diagram/pen.rs"
+          },
+          { "name": "wrap.rs", "sub": "names and wrapped text", "mono": true },
+          { "name": "budget.rs", "mono": true },
+          { "name": "the six form files", "sub": "flow, sequence, layers, stack, states, tree" }
+        ]
+      },
+      { "name": "measure.rs", "sub": "how a form asks for text sizes", "mono": true }
+    ]
+  }
+}

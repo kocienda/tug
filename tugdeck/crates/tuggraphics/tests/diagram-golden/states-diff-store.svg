@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="tugx-chart-svg" viewBox="0 0 854 302" width="854" height="302" aria-hidden="true">
+<g transform="translate(0.5 0.5)">
+<text x="16" y="16" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="text-before-edge">The diff store only shows a reply to the request it last sent</text>
+<path d="M69 87 L182 87 A18 18 0 0 1 200 105 L200 135 A18 18 0 0 1 182 153 L69 153 A18 18 0 0 1 51 135 L51 105 A18 18 0 0 1 69 87 Z" class="tgf-surface tge-fade" style="--tg-i:0"/>
+<path d="M69 87 L182 87 A18 18 0 0 1 200 105 L200 135 A18 18 0 0 1 182 153 L69 153 A18 18 0 0 1 51 135 L51 105 A18 18 0 0 1 69 87 Z" class="tgs-ink-muted tge-fade" style="--tg-i:0" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="110" y="107" class="tgt-title tgf-ink tge-fade" style="--tg-i:0" text-anchor="start" dominant-baseline="central">idle</text>
+<text x="126" y="117" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">nothing asked for</text>
+<text x="126" y="130" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:0" text-anchor="middle" dominant-baseline="text-before-edge">yet</text>
+<path d="M368 87 L484 87 A18 18 0 0 1 502 105 L502 135 A18 18 0 0 1 484 153 L368 153 A18 18 0 0 1 350 135 L350 105 A18 18 0 0 1 368 87 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M368 87 L484 87 A18 18 0 0 1 502 105 L502 135 A18 18 0 0 1 484 153 L368 153 A18 18 0 0 1 350 135 L350 105 A18 18 0 0 1 368 87 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M403 107 A8 8 0 0 1 387 107 A8 8 0 0 1 403 107 Z" class="tgf-accent tge-fade" style="--tg-i:1"/>
+<text x="391.7" y="110.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="alphabetic">1</text>
+<text x="410" y="107" class="tgt-title tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">loading</text>
+<text x="426" y="117" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">one request in</text>
+<text x="426" y="130" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">flight</text>
+<path d="M683 87 L819 87 A18 18 0 0 1 837 105 L837 135 A18 18 0 0 1 819 153 L683 153 A18 18 0 0 1 665 135 L665 105 A18 18 0 0 1 683 87 Z" class="tgf-surface tge-fade" style="--tg-i:2"/>
+<path d="M683 87 L819 87 A18 18 0 0 1 837 105 L837 135 A18 18 0 0 1 819 153 L683 153 A18 18 0 0 1 665 135 L665 105 A18 18 0 0 1 683 87 Z" class="tgs-ink-muted tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M683 87 L819 87 A18 18 0 0 1 837 105 L837 135 A18 18 0 0 1 819 153 L683 153 A18 18 0 0 1 665 135 L665 105 A18 18 0 0 1 683 87 Z" class="tgf-good tge-fade" style="--tg-i:2" opacity="0.14"/>
+<path d="M683 87 L819 87 A18 18 0 0 1 837 105 L837 135 A18 18 0 0 1 819 153 L683 153 A18 18 0 0 1 665 135 L665 105 A18 18 0 0 1 683 87 Z" class="tgs-good tge-fade" style="--tg-i:2" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M736 114 A8 8 0 0 1 720 114 A8 8 0 0 1 736 114 Z" class="tgf-accent tge-fade" style="--tg-i:2"/>
+<text x="724.7" y="117.85" class="tgt-value tgf-surface tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="alphabetic">2</text>
+<text x="743" y="114" class="tgt-title tgf-ink tge-fade" style="--tg-i:2" text-anchor="start" dominant-baseline="central">ready</text>
+<text x="751" y="124" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:2" text-anchor="middle" dominant-baseline="text-before-edge">a payload to show</text>
+<path d="M82 219 L168 219 A18 18 0 0 1 186 237 L186 267 A18 18 0 0 1 168 285 L82 285 A18 18 0 0 1 64 267 L64 237 A18 18 0 0 1 82 219 Z" class="tgf-surface tge-fade" style="--tg-i:1"/>
+<path d="M82 219 L168 219 A18 18 0 0 1 186 237 L186 267 A18 18 0 0 1 168 285 L82 285 A18 18 0 0 1 64 267 L64 237 A18 18 0 0 1 82 219 Z" class="tgs-ink-muted tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<path d="M82 219 L168 219 A18 18 0 0 1 186 237 L186 267 A18 18 0 0 1 168 285 L82 285 A18 18 0 0 1 64 267 L64 237 A18 18 0 0 1 82 219 Z" class="tgf-bad tge-fade" style="--tg-i:1" opacity="0.14"/>
+<path d="M82 219 L168 219 A18 18 0 0 1 186 237 L186 267 A18 18 0 0 1 168 285 L82 285 A18 18 0 0 1 64 267 L64 237 A18 18 0 0 1 82 219 Z" class="tgs-bad tge-fade" style="--tg-i:1" fill="none" stroke-width="1" opacity="0.9"/>
+<text x="106" y="239" class="tgt-title tgf-ink tge-fade" style="--tg-i:1" text-anchor="start" dominant-baseline="central">error</text>
+<text x="125" y="249" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">a message, no</text>
+<text x="125" y="262" class="tgt-value tgf-ink-muted tge-fade" style="--tg-i:1" text-anchor="middle" dominant-baseline="text-before-edge">payload</text>
+<path d="M28 120 A5 5 0 0 1 18 120 A5 5 0 0 1 28 120 Z" class="tgf-ink tge-fade" style="--tg-i:0"/>
+<path d="M28 120 L41 120" class="tgs-ink tge-draw" style="--tg-i:0" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M51 120 L40 125.5 L40 114.5 Z" class="tgf-ink tge-fade" style="--tg-i:0"/>
+<path d="M200 120 L340 120" class="tgs-ink tge-draw" style="--tg-i:3" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M350 120 L339 125.5 L339 114.5 Z" class="tgf-ink tge-fade" style="--tg-i:3"/>
+<path d="M203.5 120 A3.5 3.5 0 0 1 196.5 120 A3.5 3.5 0 0 1 203.5 120 Z" class="tgf-ink tge-fade" style="--tg-i:3"/>
+<path d="M502 120 L655 120" class="tgs-good tge-draw" style="--tg-i:4" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M665 120 L654 125.5 L654 114.5 Z" class="tgf-good tge-fade" style="--tg-i:4"/>
+<path d="M505.5 120 A3.5 3.5 0 0 1 498.5 120 A3.5 3.5 0 0 1 505.5 120 Z" class="tgf-good tge-fade" style="--tg-i:4"/>
+<path d="M751 87 L751 65 C751 57 751 57 743 57 L434 57 C426 57 426 57 426 65 L426 77" class="tgs-ink tge-draw" style="--tg-i:5" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M426 87 L420.5 76 L431.5 76 Z" class="tgf-ink tge-fade" style="--tg-i:5"/>
+<path d="M754.5 87 A3.5 3.5 0 0 1 747.5 87 A3.5 3.5 0 0 1 754.5 87 Z" class="tgf-ink tge-fade" style="--tg-i:5"/>
+<path d="M126 153 L126 209" class="tgs-bad tge-draw" style="--tg-i:6" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M126 219 L120.5 208 L131.5 208 Z" class="tgf-bad tge-fade" style="--tg-i:6"/>
+<path d="M129.5 153 A3.5 3.5 0 0 1 122.5 153 A3.5 3.5 0 0 1 129.5 153 Z" class="tgf-bad tge-fade" style="--tg-i:6"/>
+<path d="M186 252 L418 252 C426 252 426 252 426 244 L426 163" class="tgs-ink tge-draw" style="--tg-i:7" fill="none" stroke-width="2" stroke-linecap="butt" stroke-linejoin="round" pathLength="1"/>
+<path d="M426 153 L431.5 164 L420.5 164 Z" class="tgf-ink tge-fade" style="--tg-i:7"/>
+<path d="M189.5 252 A3.5 3.5 0 0 1 182.5 252 A3.5 3.5 0 0 1 189.5 252 Z" class="tgf-ink tge-fade" style="--tg-i:7"/>
+<path d="M232.5 111 L317.5 111 A9.5 9.5 0 0 1 327 120.5 L327 120.5 A9.5 9.5 0 0 1 317.5 130 L232.5 130 A9.5 9.5 0 0 1 223 120.5 L223 120.5 A9.5 9.5 0 0 1 232.5 111 Z" class="tgf-surface tge-fade" style="--tg-i:3"/>
+<path d="M232.5 111 L317.5 111 A9.5 9.5 0 0 1 327 120.5 L327 120.5 A9.5 9.5 0 0 1 317.5 130 L232.5 130 A9.5 9.5 0 0 1 223 120.5 L223 120.5 A9.5 9.5 0 0 1 232.5 111 Z" class="tgs-ink-muted tge-fade" style="--tg-i:3" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="275" y="115" class="tgt-value tgf-ink tge-fade" style="--tg-i:3" text-anchor="middle" dominant-baseline="text-before-edge">requestDiff()</text>
+<path d="M536 104 L633 104 A10 10 0 0 1 643 114 L643 126 A10 10 0 0 1 633 136 L536 136 A10 10 0 0 1 526 126 L526 114 A10 10 0 0 1 536 104 Z" class="tgf-surface tge-fade" style="--tg-i:4"/>
+<path d="M536 104 L633 104 A10 10 0 0 1 643 114 L643 126 A10 10 0 0 1 633 136 L536 136 A10 10 0 0 1 526 126 L526 114 A10 10 0 0 1 536 104 Z" class="tgs-good tge-fade" style="--tg-i:4" fill="none" stroke-width="1" opacity="0.8"/>
+<text x="584" y="108" class="tgt-value tgf-good tge-fade" style="--tg-i:4" text-anchor="middle" dominant-baseline="text-before-edge">the reply whose</text>
+<text x="584" y="121" class="tgt-value tgf-good tge-fade" style="--tg-i:4" text-anchor="middle" dominant-baseline="text-before-edge">id matches</text>
+<path d="M511 41 L668 41 A10 10 0 0 1 678 51 L678 63 A10 10 0 0 1 668 73 L511 73 A10 10 0 0 1 501 63 L501 51 A10 10 0 0 1 511 41 Z" class="tgf-surface tge-fade" style="--tg-i:5"/>
+<path d="M511 41 L668 41 A10 10 0 0 1 678 51 L678 63 A10 10 0 0 1 668 73 L511 73 A10 10 0 0 1 501 63 L501 51 A10 10 0 0 1 511 41 Z" class="tgs-ink-muted tge-fade" style="--tg-i:5" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="589" y="45" class="tgt-value tgf-ink tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="text-before-edge">Refresh: the old payload</text>
+<text x="589" y="58" class="tgt-value tgf-ink tge-fade" style="--tg-i:5" text-anchor="middle" dominant-baseline="text-before-edge">stays up meanwhile</text>
+<path d="M84 170 L168 170 A10 10 0 0 1 178 180 L178 192 A10 10 0 0 1 168 202 L84 202 A10 10 0 0 1 74 192 L74 180 A10 10 0 0 1 84 170 Z" class="tgf-surface tge-fade" style="--tg-i:6"/>
+<path d="M84 170 L168 170 A10 10 0 0 1 178 180 L178 192 A10 10 0 0 1 168 202 L84 202 A10 10 0 0 1 74 192 L74 180 A10 10 0 0 1 84 170 Z" class="tgs-bad tge-fade" style="--tg-i:6" fill="none" stroke-width="1" opacity="0.8"/>
+<text x="126" y="174" class="tgt-value tgf-bad tge-fade" style="--tg-i:6" text-anchor="middle" dominant-baseline="text-before-edge">asked with no</text>
+<text x="126" y="187" class="tgt-value tgf-bad tge-fade" style="--tg-i:6" text-anchor="middle" dominant-baseline="text-before-edge">connection</text>
+<path d="M270.5 243 L342.5 243 A9.5 9.5 0 0 1 352 252.5 L352 252.5 A9.5 9.5 0 0 1 342.5 262 L270.5 262 A9.5 9.5 0 0 1 261 252.5 L261 252.5 A9.5 9.5 0 0 1 270.5 243 Z" class="tgf-surface tge-fade" style="--tg-i:7"/>
+<path d="M270.5 243 L342.5 243 A9.5 9.5 0 0 1 352 252.5 L352 252.5 A9.5 9.5 0 0 1 342.5 262 L270.5 262 A9.5 9.5 0 0 1 261 252.5 L261 252.5 A9.5 9.5 0 0 1 270.5 243 Z" class="tgs-ink-muted tge-fade" style="--tg-i:7" fill="none" stroke-width="1" opacity="0.55"/>
+<text x="306" y="247" class="tgt-value tgf-ink tge-fade" style="--tg-i:7" text-anchor="middle" dominant-baseline="text-before-edge">asked again</text>
+<path class="tgh" d="M350 87 L502 87 L502 153 L350 153 Z" fill="none" pointer-events="all" data-row="0"/>
+<path class="tgh" d="M665 87 L837 87 L837 153 L665 153 Z" fill="none" pointer-events="all" data-row="1"/>
+</g>
+</svg>
