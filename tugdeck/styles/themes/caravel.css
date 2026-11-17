@@ -280,6 +280,13 @@ body {
   --tug7-element-chart-fill-normal-series6-rest: --tug-color(jade, l: 640, c: 280);
   --tug7-element-chart-fill-normal-series7-rest: --tug-color(pink, l: 820, c: 200);
   --tug7-element-chart-fill-normal-series8-rest: --tug-color(sky, l: 640, c: 280);
+  /* Good and bad are outcomes: a pass and a fail, lines added and lines
+     removed. They are the chart's own, not the tone fills, because a dark
+     theme keeps its danger fill pale for badges and text, and a pale red
+     beside a full green reads as the lesser of the two. Both are full
+     colour at matching weight. */
+  --tug7-element-chart-fill-normal-good-rest: --tug-color(green, l: 780, c: 440);
+  --tug7-element-chart-fill-normal-bad-rest: --tug-color(red, l: 700, c: 440);
   /* Two semantic roles beside good and bad. Caution is the outcome between
      them — allowed but degraded, a fallback, a retry — painted as the
      theme's caution text. Outside is a place, never an outcome: what lies

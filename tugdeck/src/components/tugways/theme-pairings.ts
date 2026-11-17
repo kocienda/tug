@@ -2904,6 +2904,8 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-chart-fill-normal-series8-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-tone-fill-normal-success-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-tone-fill-normal-danger-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-element-chart-fill-normal-good-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
+  { element: "--tug7-element-chart-fill-normal-bad-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-chart-fill-normal-caution-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-chart-fill-normal-outside-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "informational" },
   { element: "--tug7-element-chart-stroke-normal-grid-rest", surface: "--tug7-surface-global-primary-normal-content-rest", role: "decorative" },

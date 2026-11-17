@@ -46,8 +46,8 @@ body {
   --tugx-chart-grid:      var(--tug7-element-chart-stroke-normal-grid-rest);
   --tugx-chart-surface:   var(--tug7-surface-global-primary-normal-content-rest);
   --tugx-chart-accent:    var(--tug7-element-global-fill-normal-accent-rest);
-  --tugx-chart-good:      var(--tug7-element-tone-fill-normal-success-rest);
-  --tugx-chart-bad:       var(--tug7-element-tone-fill-normal-danger-rest);
+  --tugx-chart-good:      var(--tug7-element-chart-fill-normal-good-rest);
+  --tugx-chart-bad:       var(--tug7-element-chart-fill-normal-bad-rest);
   --tugx-chart-caution:   var(--tug7-element-chart-fill-normal-caution-rest);
   --tugx-chart-outside:   var(--tug7-element-chart-fill-normal-outside-rest);
   --tugx-chart-series-1:  var(--tug7-element-chart-fill-normal-series1-rest);
