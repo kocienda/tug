@@ -33,6 +33,8 @@ export interface ChartFigureData {
   source: ChartSource | undefined;
   /** Whether that recipe can be asked for a mark's members from here. */
   canReport: boolean;
+  /** The hash of the source the figure was drawn from: what a reader's choices about this chart are kept by. */
+  hash: string;
 }
 
 const figureData = new WeakMap<HTMLElement, ChartFigureData>();

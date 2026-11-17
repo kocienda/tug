@@ -444,6 +444,38 @@ body {
 .tgl[data-tugx-ref-lit] {
   visibility: visible;
 }
+
+/* ---- The open mark --------------------------------------------------------
+ *
+ * The mark whose report stands in the figure's panel, for as long as it
+ * stands (`data-tugx-ref-open`, written by `chart-ref-set`; [L06]). The hit
+ * path has the mark's own shape on a bar, a dot, a heat cell and a scatter
+ * point, and its row's on a span and a bullet, so it is ringed where it is.
+ * A line's or an area's hit is the whole column, which a ring would box, so
+ * there the column's crosshair stands instead, in the ring's colour and
+ * weight so it is not taken for the hover's. The row's label rule shows
+ * too, and the row's Table atom is set heavier.
+ */
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tgh[data-tugx-ref-open]:not(:has(+ .tgh-cross)) {
+  stroke: var(--tugx-chart-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tgh[data-tugx-ref-open] + .tgh-cross {
+  visibility: visible;
+  stroke: var(--tugx-chart-accent);
+  stroke-width: 2;
+}
+.tgl[data-tugx-ref-open] {
+  visibility: visible;
+}
+.tugx-chart-set[data-tugx-ref-open] {
+  font-weight: var(--tug-font-weight-semibold);
+  text-decoration: underline;
+}
 .tugx-chart:not([data-tugx-chart-linked]) .tugx-chart-links {
   display: none;
 }
@@ -458,8 +490,15 @@ body {
 }
 /* @tug-renders-on: --tugx-block-chrome-bg */
 .tugx-chart-set-list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
   font-weight: var(--tug-font-weight-semibold);
   padding-bottom: var(--tug-space-xs);
+}
+.tugx-chart-set-list-title {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .tugx-chart-set-list-rows {
   display: flex;

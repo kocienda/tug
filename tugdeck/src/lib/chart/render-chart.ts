@@ -93,7 +93,7 @@ import { CHART_ANNOTATED_EVENT, setChartFigureData } from "@/lib/chart/chart-fig
 import { attachChartHover, endChartHoverIn } from "@/lib/chart/chart-hover";
 import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded, runMeasureLoop } from "@/lib/chart/chart-measure";
 import { attachRefLight } from "@/lib/chart/chart-ref-light";
-import { attachRefSets, closeRefSetIn } from "@/lib/chart/chart-ref-set";
+import { attachRefSets, detachRefSetIn, restoreRefSet } from "@/lib/chart/chart-ref-set";
 import { recallChartView, rememberChartView, type ChartView } from "@/lib/chart/chart-view-memory";
 import {
   canReport,
@@ -726,7 +726,7 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   renders.set(el, token);
   const current = (): boolean => renders.get(el) === token;
   endChartHoverIn(el);
-  closeRefSetIn(el);
+  detachRefSetIn(el);
 
   el.classList.add(CHART_CLASS);
   el.removeAttribute(CHART_PENDING_ATTR);
@@ -888,10 +888,13 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
     context: options.annotation,
     source: round.table.source,
     canReport: reports,
+    hash,
   });
   if (refs !== undefined) {
     attachRefSets(el);
     attachRefLight(el);
+    // The panel the reader had open on this chart, before the figure was rebuilt.
+    restoreRefSet(el);
   }
   annotateFigure(el, options.annotation, diagram);
 }

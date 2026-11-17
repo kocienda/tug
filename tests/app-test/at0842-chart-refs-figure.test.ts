@@ -19,7 +19,11 @@
  *  - Clicking the set's mark opens a report inside the figure: the panel
  *    holds two History commit rows, one per member, in the set's order. The
  *    fence names no source, so the rows are the members described. Clicking
- *    a row's commit pill raises a Commit card; Escape closes the panel.
+ *    a row's commit pill raises a Commit card.
+ *  - While the panel stands the set's mark is marked open: it is ringed, its
+ *    row's label rule shows, and its Table atom is marked with it. A press
+ *    elsewhere on the page and an Escape both leave the panel standing; its
+ *    Close button takes it down and clears the mark.
  *
  * @covers tugdeck/src/lib/chart/render-chart.ts
  * @covers tugdeck/src/lib/chart/chart-ref-set.ts
@@ -298,9 +302,42 @@ describe.skipIf(!SHOULD_RUN)("at0842 — a chart's marks open what they name", (
           { timeoutMs: 15_000 },
         );
 
-        // Escape closes the list.
-        await page.evalJS(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+        // The mark whose panel stands is marked open, in the chart and in the table.
+        const open = await page.evalJS<{ ring: string; rule: string; atom: boolean; others: number }>(`(function(){
+          var fig = document.querySelector(${JSON.stringify(CHART)});
+          var hit = fig.querySelector('.tgh[data-row="2"]');
+          var rule = fig.querySelector('.tgl[data-row="2"]');
+          var atom = fig.querySelector('.tugx-chart-set[data-tugx-ref-at="row:2"]');
+          return {
+            ring: hit.hasAttribute("data-tugx-ref-open") ? getComputedStyle(hit).stroke : "(not marked)",
+            rule: getComputedStyle(rule).visibility,
+            atom: atom !== null && atom.hasAttribute("data-tugx-ref-open"),
+            others: fig.querySelectorAll('.tgh[data-tugx-ref-open]:not([data-row="2"])').length
+          };
+        })()`);
+        note(`at0842 open mark: ${JSON.stringify(open)}`);
+        expect(open.ring, "the open mark is ringed").not.toBe("(not marked)");
+        expect(open.ring, "and the ring is drawn").not.toBe("none");
+        expect(open.rule, "its row's label rule shows").toBe("visible");
+        expect(open.atom, "the row's Table atom is marked with it").toBe(true);
+        expect(open.others, "no other mark is").toBe(0);
+
+        // A press elsewhere and an Escape both leave the panel standing.
+        await page.evalJS(`(function(){
+          document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        })()`);
+        const held = await page.evalJS<ListFacts>(LIST_JS);
+        expect(held.count, "a press outside and an Escape close nothing").toBe(1);
+        expect(held.shas, "and the rows are as they were").toEqual([HEAD_SHA, PARENT_SHA]);
+
+        // The panel's own Close takes it down and clears the mark.
+        await page.evalJS(click(`${LIST} .tugx-chart-report-close`));
         await page.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(LIST)}) === null`, { timeoutMs: 4_000 });
+        const marked = await page.evalJS<number>(
+          `document.querySelectorAll(${JSON.stringify(CHART)} + " [data-tugx-ref-open]").length`,
+        );
+        expect(marked, "closing clears the open mark").toBe(0);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

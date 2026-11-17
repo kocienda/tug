@@ -31,7 +31,9 @@
  * labels; nothing is formatted here.
  *
  * The panel around it is the figure's DOM, and closing is the figure's act:
- * Close calls `closeRefSet`, which removes the panel and drops the report.
+ * Close calls `closeReport`, which removes the panel and drops the report.
+ * A figure rebuilt under its reader mounts this again on the same report,
+ * so nothing here may assume a mount is an opening.
  *
  * Composes the registered commit row, `SessionCitation`, `TugArcAtom`,
  * `TugCommitAtom`, `TugTooltip`, `BlockFoldCue`, `BlockCopyButton`,
@@ -44,7 +46,7 @@
  *       row's key is its place and its ref, so a page appended beneath
  *       leaves every fold above as it is, and a path's nested list mounts
  *       when its row unfolds and unmounts when it folds, [L27] a nested
- *       report is dropped by the fold and by the row's unmount, [L31] a
+ *       report is dropped by the fold and with its parent, [L31] a
  *       read that failed says so in the panel, [L33] with a Retry beside it.
  */
 
@@ -65,16 +67,17 @@ import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { ANNOTATION_CLASS } from "@/lib/annotator/types";
-import { closeRefSet } from "@/lib/chart/chart-ref-set";
+import { closeReport } from "@/lib/chart/chart-ref-set";
 import {
   driftNote,
-  dropReport,
   footText,
   groupBreaks,
   loadReportPage,
+  nestedReport,
   newReportId,
   registerReport,
   reportTitle,
+  setNestedReport,
   useChartReport,
   type ReportArc,
   type ReportCommand,
@@ -157,21 +160,17 @@ function PathRow({
   record: ReportPath;
   descriptor: ReportDescriptor;
 }): React.ReactElement {
-  const [nested, setNested] = React.useState<string | null>(null);
-  // The nested report's id, for the unmount that drops it ([L27]).
-  const nestedRef = React.useRef<string | null>(null);
-  React.useEffect(
-    () => () => {
-      if (nestedRef.current !== null) dropReport(nestedRef.current);
-      nestedRef.current = null;
-    },
-    [],
+  // The fold is the store's: a panel mounted again on the same report finds
+  // its rows unfolded as the reader left them.
+  const ref = row.ref;
+  const [nested, setNested] = React.useState<string | null>(() =>
+    ref === null ? null : nestedReport(descriptor.id, ref),
   );
   const onToggle = (nextCollapsed: boolean): void => {
-    if (nestedRef.current !== null) dropReport(nestedRef.current);
-    nestedRef.current = null;
-    if (!nextCollapsed && row.ref !== null) {
-      const id = newReportId();
+    if (ref === null) return;
+    let id: string | null = null;
+    if (!nextCollapsed) {
+      id = newReportId();
       registerReport({
         id,
         projectDir: descriptor.projectDir,
@@ -179,12 +178,12 @@ function PathRow({
         rowLabel: null,
         seriesName: null,
         slotCount: record.commits ?? 0,
-        of: row.ref,
+        of: ref,
         ...(descriptor.source !== undefined ? { source: descriptor.source } : {}),
       });
-      nestedRef.current = id;
     }
-    setNested(nestedRef.current);
+    setNestedReport(descriptor.id, ref, id);
+    setNested(id);
   };
 
   const absolute = (
@@ -427,8 +426,11 @@ export function ChartRefReport({ id }: ChartRefReportProps): React.ReactElement 
   // panel, keyed on the rows arriving, with no state of its own).
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const hasRows = state.rows.length > 0;
+  // A panel put back under a rebuilt figure mounts with its rows in hand,
+  // and the reader is scrolling: that is no arrival, and nothing moves.
+  const mountedWithRows = React.useRef(hasRows);
   React.useLayoutEffect(() => {
-    if (!hasRows) return;
+    if (!hasRows || mountedWithRows.current) return;
     rootRef.current?.closest(".tugx-chart-set-list")?.scrollIntoView({ block: "nearest" });
   }, [hasRows]);
   // The panel was closed under this mount; the portal goes on the next pass.
@@ -468,7 +470,7 @@ export function ChartRefReport({ id }: ChartRefReportProps): React.ReactElement 
         <TugIconButton
           className="tugx-chart-report-close"
           size="2xs"
-          onClick={() => closeRefSet()}
+          onClick={() => closeReport(id)}
           aria-label="Close"
           icon={<X size={12} aria-hidden="true" />}
         />

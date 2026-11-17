@@ -247,6 +247,12 @@ const states = new Map<string, ReportState>();
 const inFlight = new Map<string, () => void>();
 const listeners = new Set<() => void>();
 let nextId = 0;
+/**
+ * The reports unfolded under a report's rows: parent id, then the row's ref,
+ * then the nested report's id. Kept here and not in the row's component, so
+ * a fold stays as the reader left it when the panel is mounted again.
+ */
+const nestedIds = new Map<string, Map<string, string>>();
 
 function publish(id: string, state: ReportState): void {
   states.set(id, state);
@@ -266,10 +272,38 @@ export function registerReport(descriptor: ReportDescriptor): void {
 
 /** Forget a report: its pages go, and a read still out for it is aborted. */
 export function dropReport(id: string): void {
+  const under = nestedIds.get(id);
+  if (under !== undefined) {
+    nestedIds.delete(id);
+    for (const child of under.values()) dropReport(child);
+  }
   inFlight.get(id)?.();
   inFlight.delete(id);
   if (!states.delete(id)) return;
   for (const cb of [...listeners]) cb();
+}
+
+/** The report unfolded under the row naming `ref` in report `parentId`, or null. */
+export function nestedReport(parentId: string, ref: string): string | null {
+  return nestedIds.get(parentId)?.get(ref) ?? null;
+}
+
+/**
+ * Set, or with `null` clear, the report unfolded under the row naming `ref`
+ * in report `parentId`. The one it replaces is dropped, and every one goes
+ * with its parent ([L27]).
+ */
+export function setNestedReport(parentId: string, ref: string, id: string | null): void {
+  const under = nestedIds.get(parentId);
+  const was = under?.get(ref);
+  if (was !== undefined && was !== id) dropReport(was);
+  if (id === null) {
+    under?.delete(ref);
+    if (under !== undefined && under.size === 0) nestedIds.delete(parentId);
+    return;
+  }
+  if (under === undefined) nestedIds.set(parentId, new Map([[ref, id]]));
+  else under.set(ref, id);
 }
 
 /** What is known of report `id`, with no read taken. */
