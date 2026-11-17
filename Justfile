@@ -13,6 +13,27 @@ RUST_SLOW_FILTER := "package(tugarc-core) | (package(tugcast) & kind(test)) | (p
 default:
     @just --list
 
+# One script, two modes: `dev-setup` checks this Mac against everything
+# DEVELOPING.md asks for, installs what is missing and checks again;
+# `dev-doctor` is the same checks changing nothing. `scripts/dev-setup.sh` is
+# the door on a fresh Mac, where `just` is one of the things missing.
+# Check this Mac can build Tug and install what it lacks (--yes skips the two questions).
+[group('setup')]
+dev-setup *ARGS:
+    @bash scripts/dev-setup.sh {{ARGS}}
+
+# Check this Mac can build Tug and report what is wrong, changing nothing.
+[group('setup')]
+dev-doctor:
+    @bash scripts/dev-setup.sh --check
+
+# The doctor's run tier, silent when green: under a third of a second in
+# front of `app-debug`, so a missing tool is a first-second failure with its
+# fix instead of a launch-time dialog after the whole build.
+[private]
+_dev-preflight:
+    @bash scripts/dev-setup.sh --check --tier run --quiet
+
 # Build all Rust binaries + tugcode (Claude Code bridge), symlink to ~/.local/bin
 [group('build')]
 build:
@@ -700,7 +721,7 @@ wasm-check: wasm
 # during what should be a smooth handoff. Quitting first avoids that.
 # Build a Debug bundle and (re)launch the cwd-derived debug instance.
 [group('app')]
-app-debug: build wasm
+app-debug: _dev-preflight build wasm
     #!/usr/bin/env bash
     set -euo pipefail
     # TUG_FORCE_BUNDLE_ID belongs ONLY to the app-test / unattended build
