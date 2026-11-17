@@ -40,7 +40,7 @@ All readings were taken on 2026-11-17 on `main` at `cd59e2c01`, with `./tugrust/
 
 **[F12] Resources with no recipe** — unit-suite results (`test-history` reads the app-test ledger only), sessions themselves (how many per day, how long, turn duration), per-session change attribution, and prompt history. This is read from the catalog's data sources against the ledgers `CLAUDE.md` describes, not from a search for demand. **(verified for the absence; the value of each is a judgment)**
 
-**[F13] The engine draws below zero for one series** — `velocity --net` is a single-series area whose test (`net_velocity_goes_below_zero_when_a_week_removes_more_than_it_adds`) asserts negative values. Whether a two-series `bar` or `area` draws one series above the axis and one below was not checked. **(inference for the two-series case; a spec compiled with `tugtool chart render` would confirm it)**
+**[F13] A stacked bar draws either side of zero; a stacked area does not** — a two-series spec with `added` positive and `removed` negative was compiled with `tugtool chart render` in both forms and looked at. As a `bar` with `"layout": "stacked"` the added bars stand above the zero line and the removed bars hang below it, each with its own value label. As an `area` with `"layout": "stacked"` the two are summed into one band, which is the present chart's fault again. **(verified)**
 
 ---
 
@@ -52,7 +52,7 @@ All readings were taken on 2026-11-17 on `main` at `cd59e2c01`, with `./tugrust/
 
 **[B03] Line recipes count source and tests by default and say what they left out.** `data` and `docs` are excluded unless asked for, and the subtitle names the lines left out, as `commit-size` already names the commits it did not draw. This removes `.ai`, `.plist` and fixture JSON from `hotspots` without hiding that they changed. [F04] [F08]
 
-**[B04] `churn` is redrawn as added above zero, removed below, with net.** The stacked sum goes. Added and removed are each read against the axis, and net is drawn or stated, because net growth is the number the chart is consulted for. [F05] [F13]
+**[B04] `churn` is redrawn as a stacked bar, added above zero and removed below, with net.** The stacked sum goes. `removed` is carried as negative values, which the engine already draws below the axis in a stacked bar, so no engine change is needed for the default. Net is stated, because net growth is the number the chart is consulted for. `churn` also offers `--form line` and `--form area`, and neither may fall back to the summed band: each needs a drawing that keeps added and removed apart, or the form is withdrawn from the recipe. [F05] [F13]
 
 **[B05] `churn` and `velocity` can split by kind of file.** An option draws the same window as series of source and tests, so the share of a week that was tests is visible. [F04]
 
@@ -71,8 +71,8 @@ All readings were taken on 2026-11-17 on `main` at `cd59e2c01`, with `./tugrust/
 ## Open Questions {#open-questions}
 
 - **What did "some charts don't seem to have any visualization" refer to?** Every recipe drew here [F02]. The two candidates are marks that open nothing [F10], which [B08] answers, and rows of the Data Visualization sheet that drew their sample, marked "Sample", because a read had no data or failed. The second would be a defect this brief does not cover; the user naming the rows would settle it.
-- **Does the engine draw two series either side of zero?** [F13]. If a `bar` or `area` cannot, [B04] needs either an engine change in `tugdeck/crates/tuggraphics` or a spec that carries removed as negative values in a form that already accepts them. Compiling a candidate spec settles which.
-- **Is net a line over the bars or a figure in the subtitle?** One chart has one axis, and a net line shares the lines axis, so it is permitted; whether it reads well over diverging marks is a matter of looking at it.
+- **Where is net stated?** A bar chart has no line overlay today, so net is either a figure in the subtitle and the summary, or a new mark in the engine. The subtitle is the default unless the plan finds the mark is cheap.
+- **What do `churn --form line` and `--form area` draw?** [B04] rules out the summed band; whether they draw two overlapping series, a net series, or are withdrawn is not settled.
 
 ---
 
