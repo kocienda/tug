@@ -114,6 +114,7 @@ import { useMemorySheet } from "./memory-sheet";
 import { useHooksSheet } from "./hooks-sheet";
 import { useUsageSheet } from "./usage-sheet";
 import { useDataVisualizationSheet, VIZ_SKILL_COMMAND } from "./data-visualization-sheet";
+import { EXPLAIN_SKILL_COMMAND, explainRequestTail, explainRequestTails, useExplainCodeSheet } from "./explain-code-sheet";
 import { useHelpSheet } from "./help-sheet";
 import { commitSessionRename } from "@/lib/session-rename-commit";
 import { sessionRenameModeStore } from "@/lib/session-rename-mode-store";
@@ -3591,6 +3592,21 @@ export function SessionCardBody({
     showSheet: cardPickerSheet.showSheet,
   });
 
+  // The Explain Code sheet, card-scoped per [D15]. Explain… leaves the explain
+  // command in the composer with the caret where the subject goes, ahead of
+  // the form the row named; a form an earlier press left there is swapped.
+  const explainCodeSheet = useExplainCodeSheet({
+    placeForm: useCallback((form: string | null) => {
+      entryDelegateRef.current?.insertCommandChip(
+        EXPLAIN_SKILL_COMMAND,
+        undefined,
+        explainRequestTail(form),
+        explainRequestTails(),
+      );
+    }, [entryDelegateRef]),
+    showSheet: cardPickerSheet.showSheet,
+  });
+
   // `/help` tabbed sheet ([#step-13b2]) per [D16], card-scoped per [D15]. A
   // General tab (Dev + shortcuts + the unsupported-commands doc link) over a
   // Commands / Custom-commands browse of the session catalog, projected through
@@ -4350,6 +4366,7 @@ export function SessionCardBody({
     hooks: () => hooksSheet.openHooksSheet(),
     usage: () => usageSheet.openUsageSheet(),
     "visualize-data": () => dataVisualizationSheet.openDataVisualizationSheet(),
+    "explain-code": () => explainCodeSheet.openExplainCodeSheet(),
     // Copy the most recent assistant message (committed transcript only, read
     // live at click time per [L07]) to the clipboard, with a pane-scoped
     // confirmation bulletin. No message yet → caution; clipboard failure →

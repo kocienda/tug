@@ -29,12 +29,17 @@ impl FormKind {
 
 /// One form. `shows` completes "the reader can…", `said` holds the everyday
 /// words that ask for it, and `ask` is a whole request that draws one.
+/// `sample` is a small figure in the form, for a surface that lists the forms
+/// before anything has been asked. A diagram form carries one, since a diagram
+/// of a project exists only after its code is read; a chart form carries none,
+/// since each recipe draws its own.
 pub struct Form {
     pub name: &'static str,
     pub kind: FormKind,
     pub shows: &'static str,
     pub said: &'static [&'static str],
     pub ask: &'static str,
+    pub sample: Option<fn() -> Value>,
 }
 
 pub static FORMS: [Form; 16] = [
@@ -49,6 +54,7 @@ pub static FORMS: [Form; 16] = [
             "pie (drawn as one stacked bar)",
         ],
         ask: "/viz lines changed by directory this month as a bar",
+        sample: None,
     },
     Form {
         name: "line",
@@ -56,6 +62,7 @@ pub static FORMS: [Form; 16] = [
         shows: "follow one or a few values over time",
         said: &["trend", "over time", "time series"],
         ask: "/viz commits per day this quarter as a line",
+        sample: None,
     },
     Form {
         name: "area",
@@ -63,6 +70,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see one value's volume, or parts of a whole, over time",
         said: &["filled trend", "stacked over time", "share over time"],
         ask: "/viz lines added and removed per day as an area",
+        sample: None,
     },
     Form {
         name: "sparkline",
@@ -70,6 +78,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see a trend at a glance in a small figure",
         said: &["mini chart", "tiny trend"],
         ask: "/viz build times of the last 20 runs as a sparkline",
+        sample: None,
     },
     Form {
         name: "dots",
@@ -77,6 +86,7 @@ pub static FORMS: [Form; 16] = [
         shows: "read a run of outcomes per item, oldest to newest",
         said: &["pass/fail grid", "run history", "streaks"],
         ask: "/viz which tests have been red lately as dots",
+        sample: None,
     },
     Form {
         name: "histogram",
@@ -84,6 +94,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see how samples are distributed",
         said: &["distribution", "spread", "buckets"],
         ask: "/viz how big commits are as a histogram",
+        sample: None,
     },
     Form {
         name: "spans",
@@ -91,6 +102,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see when things started and ended on one timeline",
         said: &["timeline", "gantt", "waterfall"],
         ask: "/viz where the last build's time went as a timeline",
+        sample: None,
     },
     Form {
         name: "heat",
@@ -98,6 +110,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see intensity along one ordered row",
         said: &["heatmap", "busiest", "hot spots in time"],
         ask: "/viz commits by hour of day as a heatmap",
+        sample: None,
     },
     Form {
         name: "bullet",
@@ -105,6 +118,7 @@ pub static FORMS: [Form; 16] = [
         shows: "judge a value against its range and target",
         said: &["gauge", "against target", "budget"],
         ask: "/viz each suite's time against its budget as bullets",
+        sample: None,
     },
     Form {
         name: "scatter",
@@ -112,6 +126,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see whether one measure moves with another",
         said: &["correlation", "x versus y", "plotted against"],
         ask: "/viz test time against lines changed as a scatter",
+        sample: None,
     },
     Form {
         name: "flow",
@@ -119,6 +134,7 @@ pub static FORMS: [Form; 16] = [
         shows: "follow work moving through parts, with branches",
         said: &["flowchart", "pipeline", "data flow"],
         ask: "/explain how a save reaches the disk as a flow",
+        sample: Some(flow_sample),
     },
     Form {
         name: "sequence",
@@ -126,6 +142,7 @@ pub static FORMS: [Form; 16] = [
         shows: "follow messages between a few parties, in time order",
         said: &["message diagram", "who calls whom", "handshake"],
         ask: "/explain how login works as a sequence",
+        sample: Some(sequence_sample),
     },
     Form {
         name: "layers",
@@ -133,6 +150,7 @@ pub static FORMS: [Form; 16] = [
         shows: "follow something down through strata, and what crosses each boundary",
         said: &["levels", "what it passes through", "top to bottom"],
         ask: "/explain what a keystroke passes through as layers",
+        sample: Some(layers_sample),
     },
     Form {
         name: "stack",
@@ -140,6 +158,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see the architecture: what sits on what, and what is outside",
         said: &["architecture", "block diagram", "big picture"],
         ask: "/explain the architecture of this project as a stack",
+        sample: Some(stack_sample),
     },
     Form {
         name: "states",
@@ -147,6 +166,7 @@ pub static FORMS: [Form; 16] = [
         shows: "see what a thing can be, and what moves it between states",
         said: &["lifecycle", "state machine", "what states it can be in"],
         ask: "/explain the diff store's lifecycle as states",
+        sample: Some(states_sample),
     },
     Form {
         name: "tree",
@@ -154,23 +174,128 @@ pub static FORMS: [Form; 16] = [
         shows: "see what is inside what: parts and where they live",
         said: &["hierarchy", "what contains what", "component tree"],
         ask: "/explain the parts of the chart engine as a tree",
+        sample: Some(tree_sample),
     },
 ];
 
-/// The forms as `chart forms --json` prints them, all or one kind.
+// The samples are about no project in particular, are small enough to read at
+// thumbnail size, and key nothing: a key is a claim about a place in code.
+
+fn flow_sample() -> Value {
+    json!({
+        "tugdiagram": 1, "form": "flow",
+        "title": "An order is checked before it is saved",
+        "columns": [
+            [{ "id": "form", "name": "Order form" }],
+            [{ "id": "check", "name": "Validator" }],
+            [{ "id": "store", "name": "Store" }, { "id": "error", "name": "Error" }],
+        ],
+        "edges": [
+            { "from": "form", "to": "check" },
+            { "from": "check", "to": "store", "tone": "good", "label": "valid" },
+            { "from": "check", "to": "error", "tone": "bad", "dashed": true, "label": "invalid" },
+        ],
+    })
+}
+
+fn sequence_sample() -> Value {
+    json!({
+        "tugdiagram": 1, "form": "sequence",
+        "title": "A page load is one query",
+        "actors": [
+            { "id": "browser", "name": "Browser" },
+            { "id": "server", "name": "Server" },
+            { "id": "db", "name": "Database" },
+        ],
+        "messages": [
+            { "from": "browser", "to": "server", "label": "GET /orders" },
+            { "from": "server", "to": "db", "label": "SELECT orders" },
+            { "from": "db", "to": "server", "label": "rows", "reply": true },
+            { "from": "server", "to": "browser", "label": "the page", "reply": true },
+        ],
+    })
+}
+
+fn layers_sample() -> Value {
+    json!({
+        "tugdiagram": 1, "form": "layers",
+        "title": "A click passes through three layers",
+        "layers": [
+            { "name": "Interface", "below": "a request",
+              "cells": [{ "name": "Button" }, { "name": "Form" }] },
+            { "name": "Service", "below": "a query",
+              "cells": [{ "name": "Handler" }, { "name": "Auth" }] },
+            { "name": "Storage",
+              "cells": [{ "name": "Tables" }, { "name": "Index" }] },
+        ],
+    })
+}
+
+fn stack_sample() -> Value {
+    json!({
+        "tugdiagram": 1, "form": "stack",
+        "title": "The service sits between the browser and the database",
+        "columns": 2,
+        "above": [{ "name": "Browser", "span": [1, 2] }],
+        "layers": [
+            { "name": "Web", "rows": [[{ "name": "Pages" }, { "name": "Forms" }]] },
+            { "name": "API", "rows": [[{ "name": "Router" }, { "name": "Jobs" }]] },
+        ],
+        "below": [{ "name": "Database", "span": [1, 2] }],
+    })
+}
+
+fn states_sample() -> Value {
+    json!({
+        "tugdiagram": 1, "form": "states",
+        "title": "A failed load can be retried",
+        "start": "idle",
+        "states": [
+            { "id": "idle", "name": "idle" },
+            { "id": "loading", "name": "loading" },
+            { "id": "ready", "name": "ready", "tone": "good", "end": true },
+            { "id": "failed", "name": "failed", "tone": "bad", "under": "loading" },
+        ],
+        "transitions": [
+            { "from": "idle", "to": "loading", "label": "load" },
+            { "from": "loading", "to": "ready", "label": "done", "tone": "good" },
+            { "from": "loading", "to": "failed", "label": "error", "tone": "bad" },
+            { "from": "failed", "to": "loading", "label": "retry" },
+        ],
+    })
+}
+
+fn tree_sample() -> Value {
+    json!({
+        "tugdiagram": 1, "form": "tree",
+        "title": "The editor holds the toolbar and the canvas",
+        "root": { "name": "App", "children": [
+            { "name": "Header" },
+            { "name": "Editor", "children": [{ "name": "Toolbar" }, { "name": "Canvas" }] },
+            { "name": "Footer" },
+        ] },
+    })
+}
+
+/// The forms as `chart forms --json` prints them, all or one kind. A form
+/// with a sample carries it as `sample`; a form without has no such key.
 pub fn forms_json(kind: Option<FormKind>) -> Value {
     Value::Array(
         FORMS
             .iter()
             .filter(|form| kind.is_none_or(|k| k == form.kind))
             .map(|form| {
-                json!({
+                let mut entry = json!({
                     "name": form.name,
                     "kind": form.kind.name(),
                     "shows": form.shows,
                     "said": form.said,
                     "ask": form.ask,
-                })
+                });
+                if let Some(sample) = form.sample {
+                    entry["sample"] = sample();
+                }
+                entry
             })
             .collect(),
     )
@@ -290,6 +415,40 @@ mod tests {
             };
             assert!(form.ask.starts_with(door), "{}", form.name);
             assert!(form.ask.contains(" as "), "{}", form.name);
+        }
+    }
+
+    /// Every diagram form carries a sample in its own form that the engine
+    /// draws with nothing to repair and no limit passed, and that keys
+    /// nothing; a chart form carries none. The listing carries the same
+    /// spec under `sample`.
+    #[test]
+    fn every_diagram_form_has_a_sample_that_compiles_without_a_warning() {
+        use tuggraphics::{CompileOpts, FixedMetrics, Layers, compile_with};
+        let opts = CompileOpts {
+            layers: Layers::Diagram,
+            ..CompileOpts::default()
+        };
+        let listed = forms_json(None);
+        for (form, entry) in FORMS.iter().zip(listed.as_array().unwrap()) {
+            let Some(sample) = form.sample else {
+                assert_eq!(form.kind, FormKind::Chart, "{} has no sample", form.name);
+                assert!(entry.get("sample").is_none(), "{}", form.name);
+                continue;
+            };
+            assert_eq!(form.kind, FormKind::Diagram, "{}", form.name);
+            let spec = sample();
+            assert_eq!(spec["form"], form.name);
+            assert_eq!(entry["sample"], spec, "{}", form.name);
+            let compiled = compile_with(&spec.to_string(), &opts, &FixedMetrics)
+                .unwrap_or_else(|e| panic!("{}: {e:?}", form.name));
+            assert!(
+                compiled.warnings.is_empty(),
+                "{}: {:?}",
+                form.name,
+                compiled.warnings
+            );
+            assert!(compiled.table.rows.is_empty(), "{} keys a mark", form.name);
         }
     }
 

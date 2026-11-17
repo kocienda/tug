@@ -1681,6 +1681,29 @@ async fn chart_list_returns_every_recipe() {
     assert!(recipes.iter().any(|recipe| recipe["name"] == "commits"));
 }
 
+/// The static route wins over `/api/chart/{recipe}`, so `forms` is the list
+/// and never a recipe that does not exist.
+#[tokio::test]
+async fn chart_forms_returns_the_forms_and_narrows_to_a_kind() {
+    let (status, body) = chart_get("/api/chart/forms", Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["forms"], tugchart_core::forms_json(None));
+
+    let (status, body) = chart_get("/api/chart/forms?kind=diagram", Ipv4Addr::LOCALHOST).await;
+    assert_eq!(status, StatusCode::OK);
+    let forms = body["forms"].as_array().unwrap();
+    assert_eq!(
+        body["forms"],
+        tugchart_core::forms_json(Some(tugchart_core::FormKind::Diagram))
+    );
+    assert!(!forms.is_empty());
+    for form in forms {
+        assert_eq!(form["kind"], "diagram");
+        assert_eq!(form["sample"]["form"], form["name"]);
+    }
+}
+
 #[tokio::test]
 async fn chart_recipe_unknown_is_not_found() {
     let (status, body) = chart_get("/api/chart/nosuch", Ipv4Addr::LOCALHOST).await;
@@ -1701,6 +1724,8 @@ async fn chart_routes_refuse_off_loopback() {
     let elsewhere = Ipv4Addr::new(10, 0, 0, 1);
     let (list, _) = chart_get("/api/chart/list", elsewhere).await;
     assert_eq!(list, StatusCode::FORBIDDEN);
+    let (forms, _) = chart_get("/api/chart/forms", elsewhere).await;
+    assert_eq!(forms, StatusCode::FORBIDDEN);
     let (recipe, _) = chart_get("/api/chart/commits?project=/tmp", elsewhere).await;
     assert_eq!(recipe, StatusCode::FORBIDDEN);
 }

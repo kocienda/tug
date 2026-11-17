@@ -580,14 +580,48 @@ export function buildEditingStateFromDraftRestore(
  * whole existing draft becomes the args. The seed shape matches a typed /
  * completed command byte-for-byte (`TUG_ATOM_CHAR` + a space), so submit-time
  * recognition is identical. With `arg`, it stands first among the args, the
- * draft after it, and the caret lands just after it. Pure; exported for unit
- * tests.
+ * draft after it, and the caret lands just after it.
+ *
+ * With `after`, that text closes the request and the caret lands just before
+ * it, so what is typed next goes between the args and it: an empty draft
+ * becomes the chip, the caret, then `after`, and a draft already written
+ * keeps its words as the args with the caret at their end. `after` is placed
+ * verbatim, so it brings its own leading space; trailing whitespace in the
+ * draft is dropped before it, and a draft that already ends with it, or with
+ * any of the `replaces` closings it takes the place of, has that closing
+ * swapped for it rather than given a second. An empty `after` with
+ * `replaces` takes a closing away. Pure; exported for unit tests.
  */
 export function computeCommandChipInsert(
   current: TugTextEditingState,
   name: string,
   arg?: string,
+  after?: string,
+  replaces?: readonly string[],
 ): TugTextEditingState {
+  if (after !== undefined) {
+    const seeded = computeCommandChipInsert(current, name, arg);
+    // A head chip with nothing after it has no space of its own yet.
+    const body = seeded.text.length === 1 ? `${seeded.text} ` : seeded.text;
+    const trimmedEnd = (text: string): number => {
+      let end = text.length;
+      while (end > 2 && /\s/.test(text.charAt(end - 1))) end -= 1;
+      return end;
+    };
+    const written = body.slice(0, trimmedEnd(body));
+    // The longest closing first, so one that ends another is not cut short.
+    const closing = [after, ...(replaces ?? [])]
+      .filter((tail) => tail.trim().length > 0)
+      .sort((a, b) => b.length - a.length)
+      .find((tail) => written.length - tail.length >= 2 && written.endsWith(tail));
+    const held = closing === undefined ? written : written.slice(0, written.length - closing.length);
+    const end = trimmedEnd(held);
+    return {
+      text: `${held.slice(0, end)}${after}`,
+      atoms: seeded.atoms,
+      selection: { start: end, end },
+    };
+  }
   if (arg !== undefined) {
     const seeded = computeCommandChipInsert(current, name);
     const inserted = `${arg} `;
@@ -1294,9 +1328,12 @@ export interface PromptEntryDelegate {
    * Insert (or replace) the leading `/<name>` command chip. A head command
    * atom is swapped in place, preserving typed args; otherwise a command atom +
    * trailing space is inserted at document position 0. `arg`, when given,
-   * stands first among the args with the caret after it. Focuses the editor.
+   * stands first among the args with the caret after it. `after`, when given,
+   * closes the request with the caret just before it, where the rest is typed.
+   * A draft that ends with `after` or one of the `replaces` closings has that
+   * closing swapped rather than doubled. Focuses the editor.
    */
-  insertCommandChip(name: string, arg?: string): void;
+  insertCommandChip(name: string, arg?: string, after?: string, replaces?: readonly string[]): void;
   /**
    * Open the command picker ([P06]): focus the editor and, unless the draft
    * already leads with a `/` or a command atom, seed a leading `/` at
@@ -4183,14 +4220,14 @@ export const PromptEntry = React.forwardRef<
   // the entry does not own text state.
   // Seed (or replace) the leading command chip ([P07]) — the shared sink for
   // the ⌃⌘ chords, the picker menu, and the delegate method.
-  const seedCommandChip = useCallback((name: string, arg?: string) => {
+  const seedCommandChip = useCallback((name: string, arg?: string, after?: string, replaces?: readonly string[]) => {
     const editor = textEditorRef.current;
     if (editor === null) return;
     // The chip is seeded into the prompt draft, wherever it lives: during a
     // landing it is computed over and written to the stash, and the landing
     // message on screen is left alone.
     const current = readPromptDraft() ?? EMPTY_EDIT_STATE;
-    const placed = writePromptDraft(computeCommandChipInsert(current, name, arg));
+    const placed = writePromptDraft(computeCommandChipInsert(current, name, arg, after, replaces));
     if (placed === "shown") editor.focus();
   }, [readPromptDraft, writePromptDraft]);
 
@@ -4237,8 +4274,8 @@ export const PromptEntry = React.forwardRef<
       isEmpty() {
         return isEffectivelyEmpty(textEditorRef.current?.view() ?? null);
       },
-      insertCommandChip(name: string, arg?: string) {
-        seedCommandChip(name, arg);
+      insertCommandChip(name: string, arg?: string, after?: string, replaces?: readonly string[]) {
+        seedCommandChip(name, arg, after, replaces);
       },
       insertFilePaths(paths: readonly string[]) {
         insertFilePaths(paths);

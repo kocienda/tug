@@ -129,6 +129,120 @@ describe("computeCommandChipInsert", () => {
     expect(result.selection).toEqual({ start: 10, end: 10 });
   });
 
+  it("closing text on an empty draft → chip, caret, then the text", () => {
+    const result = computeCommandChipInsert(
+      { text: "", atoms: [], selection: null },
+      "tugplug:explain",
+      undefined,
+      " as flow",
+    );
+    expect(result.text).toBe(`${A}  as flow`);
+    expect(result.atoms).toEqual([
+      { position: 0, type: "command", label: "tugplug:explain", value: "tugplug:explain" },
+    ]);
+    expect(result.selection).toEqual({ start: 2, end: 2 });
+  });
+
+  it("closing text over a head command and its args → the args stay, caret at their end", () => {
+    const file = { position: 6, type: "file", label: "a", value: "/a" };
+    const result = computeCommandChipInsert(
+      {
+        text: `${A} how ${A} saves  `,
+        atoms: [{ position: 0, type: "command", label: "shell", value: "shell" }, { ...file }],
+        selection: { start: 3, end: 3 },
+      },
+      "tugplug:explain",
+      undefined,
+      " as sequence",
+    );
+    expect(result.text).toBe(`${A} how ${A} saves as sequence`);
+    expect(result.atoms).toEqual([
+      { position: 0, type: "command", label: "tugplug:explain", value: "tugplug:explain" },
+      { ...file },
+    ]);
+    expect(result.selection).toEqual({ start: 13, end: 13 });
+  });
+
+  it("closing text over a plain draft → chip leads, the draft is the args, caret at their end", () => {
+    const result = computeCommandChipInsert(
+      { text: "how login works", atoms: [], selection: { start: 0, end: 0 } },
+      "tugplug:explain",
+      undefined,
+      " as layers",
+    );
+    expect(result.text).toBe(`${A} how login works as layers`);
+    expect(result.atoms).toEqual([
+      { position: 0, type: "command", label: "tugplug:explain", value: "tugplug:explain" },
+    ]);
+    expect(result.selection).toEqual({ start: 17, end: 17 });
+  });
+
+  it("closing text is not given twice, and a bare head chip gains its space", () => {
+    const head = { position: 0, type: "command", label: "tugplug:explain", value: "tugplug:explain" };
+    const again = computeCommandChipInsert(
+      { text: `${A} how login works as tree`, atoms: [{ ...head }], selection: null },
+      "tugplug:explain",
+      undefined,
+      " as tree",
+    );
+    expect(again.text).toBe(`${A} how login works as tree`);
+    expect(again.selection).toEqual({ start: 17, end: 17 });
+
+    const bare = computeCommandChipInsert(
+      { text: A, atoms: [{ ...head }], selection: null },
+      "tugplug:explain",
+      undefined,
+      " as tree",
+    );
+    expect(bare.text).toBe(`${A}  as tree`);
+    expect(bare.selection).toEqual({ start: 2, end: 2 });
+  });
+
+  it("closing text takes the place of a closing it replaces, and an empty one takes it away", () => {
+    const head = { position: 0, type: "command", label: "tugplug:explain", value: "tugplug:explain" };
+    const closings = [" as flow", " as sequence", " as tree"];
+
+    const swapped = computeCommandChipInsert(
+      { text: `${A} how login works as flow `, atoms: [{ ...head }], selection: null },
+      "tugplug:explain",
+      undefined,
+      " as sequence",
+      closings,
+    );
+    expect(swapped.text).toBe(`${A} how login works as sequence`);
+    expect(swapped.selection).toEqual({ start: 17, end: 17 });
+
+    const unsubjected = computeCommandChipInsert(
+      { text: `${A}  as flow`, atoms: [{ ...head }], selection: { start: 2, end: 2 } },
+      "tugplug:explain",
+      undefined,
+      " as tree",
+      closings,
+    );
+    expect(unsubjected.text).toBe(`${A}  as tree`);
+    expect(unsubjected.selection).toEqual({ start: 2, end: 2 });
+
+    const taken = computeCommandChipInsert(
+      { text: `${A} how login works as flow`, atoms: [{ ...head }], selection: null },
+      "tugplug:explain",
+      undefined,
+      "",
+      closings,
+    );
+    expect(taken.text).toBe(`${A} how login works`);
+    expect(taken.selection).toEqual({ start: 17, end: 17 });
+
+    const empty = computeCommandChipInsert(
+      { text: "", atoms: [], selection: null },
+      "tugplug:explain",
+      undefined,
+      "",
+      closings,
+    );
+    expect(empty.text).toBe(`${A} `);
+    expect(empty.selection).toEqual({ start: 2, end: 2 });
+  });
+
   it("empty draft → a lone command atom + trailing space, caret after it", () => {
     const result = computeCommandChipInsert(
       { text: "", atoms: [], selection: null },

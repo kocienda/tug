@@ -205,6 +205,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
 | ⌃⌘V | `run-slash-command:visualize-data` | Visualize Data… | menu bar (swept) |
 | ⌃⌘W | `toggle-cards` | Show Workspaces | menu bar (swept) |
+| ⌃⌘X | `run-slash-command:explain-code` | Explain Code… | menu bar (swept) |
 | ⌃⌘Y | `toggle-card-fold` | Fold Card | menu bar (swept) |
 | ⌃⌘[ | `previous-turn` | Previous Turn | menu bar (swept) |
 | ⌃⌘] | `next-turn` | Next Turn | menu bar (swept) |
@@ -400,6 +401,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.dictate` | `toggle-dictation` | first responder | registry gate |
 | `session.dictateAndSend` | `stop-dictation-and-send` | first responder | registry gate |
 | `session.diff` | `run-slash-command:diff` | key card | registry gate |
+| `session.explainCode` | `run-slash-command:explain-code` | key card | registry gate |
 | `session.focusPrompt` | `focus-prompt` | key card | registry gate |
 | `session.hooks` | `run-slash-command:hooks` | key card | registry gate |
 | `session.insertFile` | `insert-file` | first responder | registry gate |

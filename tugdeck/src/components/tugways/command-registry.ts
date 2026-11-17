@@ -683,6 +683,14 @@ const SLASH_BRIDGE_BINDINGS: Readonly<Record<string, readonly CommandBinding[]>>
       { preventDefault: true, menuEligible: true },
     ),
   ],
+  // ⌃⌘X for the Explain Code sheet — X for eXplain. E is Equalize Heights,
+  // and ⌃⌘D is the system's Look Up in a text view.
+  "explain-code": [
+    chord(
+      { key: "KeyX", ctrl: true, meta: true, label: "x" },
+      { preventDefault: true, menuEligible: true },
+    ),
+  ],
   // ⌃⌘U for the usage panel — U for Usage.
   usage: [
     chord(
@@ -769,6 +777,7 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
   ["hooks", "Hooks…", "session.hooks"],
   ["memory", "Memory…", "session.memory"],
   ["visualize-data", "Visualize Data…", "session.visualizeData"],
+  ["explain-code", "Explain Code…", "session.explainCode"],
   // The shortcuts sheet is card documentation, not session work.
   [
     "help",

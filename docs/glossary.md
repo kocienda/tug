@@ -64,7 +64,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Devise.** The first stage of a *planned arc*: a fresh session writes the *plan* from the *brief*.
 
-**Diagram.** A figure of how code fits together, drawn in a transcript from the model's reading of the code. It takes one of six *forms*: flow, sequence, layers, stack, states or tree. Labels sit on the arrows they name, and a figure may carry a legend for its colors or, in a sequence, named phases. The parts worth explaining wear numbered discs, and the *keyed table* under the figure says what each one does and where it is. Ask for one with `/tugplug:explain`, or `/tugplug:viz` for a single figure. See also *chart*.
+**Diagram.** A figure of how code fits together, drawn in a transcript from the model's reading of the code. It takes one of six *forms*: flow, sequence, layers, stack, states or tree. Labels sit on the arrows they name, and a figure may carry a legend for its colors or, in a sequence, named phases. The parts worth explaining wear numbered discs, and the *keyed table* under the figure says what each one does and where it is. Ask for one with `/tugplug:explain`, or `/tugplug:viz` for a single figure; *Explain Code* shows the six forms. See also *chart*.
 
 **Dictation.** Speaking a prompt into a *composer* instead of typing it. Command-D starts dictation; Shift-Command-D stops it and sends the prompt.
 
@@ -77,6 +77,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Door.** The one skill that opens the arc lane, `/arc`. It sharpens the conversation into a *brief* (or takes one you hand it), decides the arc's *kind* from the work, says which shape it chose and why, hands the brief to the *wheel*, and ends the turn. The door creates no worktree, commits nothing and joins nothing.
 
 **Dot.** See *pulsing dot*.
+
+**Explain Code.** The sheet that lists the six *diagram* *forms*, each with what it shows, the words that ask for it and a small sample figure. **Explain…** places `/tugplug:explain` in the *composer*, unsent, with the form written and the caret where the subject goes. Control-Command-X, `/explain-code` or Session > Explain Code opens it.
 
 **Explainer.** The answer `/tugplug:explain` gives: one to four sections on how a piece of code works, each a heading that states a finding, a *diagram*, a sentence on how to read it, a short lead and the *keyed table*. It lives in the transcript, and is written to a file under `explainers/` only when the request says to keep it.
 

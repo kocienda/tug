@@ -269,6 +269,33 @@ async fn chart_list_handler(ConnectInfo(addr): ConnectInfo<SocketAddr>) -> Respo
     .into_response()
 }
 
+/// `GET /api/chart/forms[?kind=chart|diagram]`: the forms a figure can take, as
+/// `{status, forms: [{name, kind, shows, said, ask, sample?}]}`, the list
+/// `tugtool chart forms --json` prints, narrowed to one kind when `kind` names
+/// one. A diagram form carries its `sample`. Loopback only and read-only.
+async fn chart_forms_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    let kind = match params.get("kind").map(String::as_str) {
+        Some("chart") => Some(tugchart_core::FormKind::Chart),
+        Some("diagram") => Some(tugchart_core::FormKind::Diagram),
+        _ => None,
+    };
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "forms": tugchart_core::forms_json(kind),
+    }))
+    .into_response()
+}
+
 /// `GET /api/chart/{recipe}?project=<dir>`: one recipe run live over `project`
 /// with its defaults, as `{status, recipe, summary, spec}`, `spec` null when
 /// there is nothing to draw. Loopback only and read-only. The run reads git
@@ -2545,6 +2572,7 @@ pub(crate) fn build_app(
         .route("/api/ink-census", get(ink_census_handler))
         .route("/api/report-gaps", get(report_gaps_handler))
         .route("/api/chart/list", get(chart_list_handler))
+        .route("/api/chart/forms", get(chart_forms_handler))
         .route("/api/chart/report", post(chart_report_handler))
         .route("/api/chart/{recipe}", get(chart_recipe_handler))
         .route("/api/draft", post(draft_handler))

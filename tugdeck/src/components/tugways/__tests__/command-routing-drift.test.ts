@@ -264,7 +264,7 @@ describe("routing matches the pre-migration mechanism", () => {
     const perValue = COMMANDS.filter((e) => e.id.includes(":"));
     const slash = perValue.filter((e) => commandWire(e) === TUG_ACTIONS.RUN_SLASH_COMMAND);
 
-    expect(slash.length).toBe(22);
+    expect(slash.length).toBe(23);
     for (const entry of slash) {
       expect(entry.routing).toBe("key-card");
       expect(entry.menuItemId).toBeDefined();
@@ -601,14 +601,16 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // the commit message.
   ["⌃⌘Y", TUG_ACTIONS.TOGGLE_CARD_FOLD],
   // The slash bridges that earned a chord. The family is reachable by typing
-  // its names, which is why the rest carry none; these two are reached often
+  // its names, which is why the rest carry none; these are reached often
   // enough that typing the name is the slow path. ⌃⌘V is the Visualize Data
-  // sheet's, under a name of its own because `/viz` stays the skill's.
+  // sheet's, under a name of its own because `/viz` stays the skill's, and
+  // ⌃⌘X is the Explain Code sheet's, beside `/explain`, in the same way.
   // ⌃⌘I opened the model picker until the three AI settings became one sheet;
   // the chord kept its letter and moved to the sheet that now owns the model.
   ["⌃⌘I", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:ai`],
   ["⌃⌘U", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:usage`],
   ["⌃⌘V", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:visualize-data`],
+  ["⌃⌘X", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:explain-code`],
   // The Go to Slot row. ⌘ digits send the CARD to a place, ⌃⌘ digits send
   // the READER to one — one tier apart, both indexing the same ordered set,
   // which is a tighter fit for the pair than the card widths that held ⌃⌘1/2/3

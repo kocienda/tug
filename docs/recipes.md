@@ -350,12 +350,17 @@ Hover a bar, a point or a span to read its values. For all of them at once, clic
 
 Type `/tugplug:explain` and the subject: a feature, a flow, a file or a directory, as in `/tugplug:explain how a save reaches the disk`. Asking in words works too: "explain how login works", "walk me through the parser". The model reads the code and answers with one to four sections, each with a heading that states a finding, a diagram, a sentence on how to read it, and a short lead.
 
-Under each diagram is its keyed table: a row for every numbered disc in the figure, with the part's name, what it does and where it is in the code. Click a location to open the file in a card. A location marked unresolved is one Tug could not find, usually because the file has moved since. A bare `/tugplug:explain` lists the six diagram forms. There is no menu item or chord for it.
+Under each diagram is its keyed table: a row for every numbered disc in the figure, with the part's name, what it does and where it is in the code. Click a location to open the file in a card. A location marked unresolved is one Tug could not find, usually because the file has moved since. A bare `/tugplug:explain` lists the six diagram forms, and Session > Explain Code shows them with a sample of each.
 
 ### Choose the kind of diagram
 <!-- source: tugplug/skills/explain/SKILL.md (a form the request names); tugplug/skills/viz/SKILL.md (A diagram); tugrust/crates/tugtool (chart forms --kind diagram) -->
 
 End the request with the form: `/tugplug:explain how login works as a sequence`. A **flow** follows work through its parts and branches, a **sequence** shows who says what to whom in order, **layers** shows what a request passes down through, a **stack** shows the architecture, **states** shows what one thing can be and what moves it between them, and a **tree** shows what is inside what. Ask `/tugplug:explain the connection's lifecycle as states` for the states a thing passes through and back, or `/tugplug:explain the parts of the settings page as a tree` for its parts and where they live. "Flowchart", "architecture", "who calls whom", "state machine" and "hierarchy" are understood as well. For one diagram with no written sections around it, ask `/tugplug:viz` for the structure instead.
+
+### See which diagrams Tug can draw
+<!-- source: tugdeck/src/components/tugways/cards/explain-code-sheet.tsx; tugdeck/src/lib/slash-commands.ts (/explain-code); tugdeck/src/components/tugways/command-registry.ts (Control-Command-X); tugapp/Sources/MenuBarBuilder.swift (session.explainCode) -->
+
+Press Control-Command-X, type `/explain-code`, or choose Session > Explain Code. A sheet lists the six diagram forms, each with a line on what it shows, the everyday words that ask for it, an example request and a small figure marked **Sample**. The figure is always a sample, because a diagram of your project exists only after the model has read the code. Click **Explain…** on a form and `/tugplug:explain` lands in the composer, unsent, with the form already written and the caret where the subject goes: type what you want explained and send. Words already in the composer are kept as the subject. The first row, **Let the question choose**, places the command with no form, and the model picks one for each part of its answer. **Done**, Escape or the chord again closes the sheet.
 
 ### Keep an explainer as a file
 <!-- source: tugplug/skills/explain/SKILL.md (Keep it, only when asked) -->
