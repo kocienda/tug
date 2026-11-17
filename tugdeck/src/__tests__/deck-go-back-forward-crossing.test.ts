@@ -112,6 +112,32 @@ describe("Back and Forward across workspaces", () => {
     expect(here()).toEqual({ space: "two", card: "card-3" });
   });
 
+  test("the card a switch arrives on gives way to the card the reader then picks", async () => {
+    // Setup left the reader in One on card-1, arrived there by a switch from
+    // card-4. Switch to Two, which remembers card-4, and pick card-3 instead.
+    manager.activateSpace(two);
+    await settle();
+    expect(here()).toEqual({ space: "two", card: "card-4" });
+    manager.activateCard("card-3");
+    await settle();
+    // Back goes to the card the reader left, across the boundary, and not to
+    // card-4, which the switch chose and the reader did not.
+    expect(manager.goBack()).toBe(true);
+    await settle();
+    expect(here()).toEqual({ space: "one", card: "card-1" });
+  });
+
+  test("the card a switch arrives on is kept when the reader stays on it", async () => {
+    manager.activateSpace(two);
+    await settle();
+    expect(here()).toEqual({ space: "two", card: "card-4" });
+    manager.activateSpace(one);
+    await settle();
+    expect(manager.goBack()).toBe(true);
+    await settle();
+    expect(here()).toEqual({ space: "two", card: "card-4" });
+  });
+
   test("a card closed in the other workspace is passed over", async () => {
     // Close card-4 where it stands, then come back to One.
     manager.activateSpace(two);

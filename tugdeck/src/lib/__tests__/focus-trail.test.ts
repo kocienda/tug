@@ -152,3 +152,63 @@ describe("FocusTrail steps", () => {
     expect(trail.visits).toEqual(["b"]);
   });
 });
+
+describe("FocusTrail arrivals", () => {
+  test("the next chosen landing takes an arrival's place", () => {
+    const trail = trailOf("a");
+    trail.land("b1", { arrival: true });
+    expect(trail.visits).toEqual(["a", "b1"]);
+    trail.land("b2");
+    expect(trail.visits).toEqual(["a", "b2"]);
+    expect(trail.step("back", all)).toBe("a");
+  });
+
+  test("choosing the card one arrived on keeps it", () => {
+    const trail = trailOf("a");
+    trail.land("b1", { arrival: true });
+    trail.land("b1");
+    trail.land("b2");
+    expect(trail.visits).toEqual(["a", "b1", "b2"]);
+  });
+
+  test("an arrival the reader stayed on is kept by a step", () => {
+    const trail = trailOf("a");
+    trail.land("b1", { arrival: true });
+    expect(trail.step("back", all)).toBe("a");
+    expect(trail.step("forward", all)).toBe("b1");
+    trail.land("b2");
+    expect(trail.visits).toEqual(["a", "b1", "b2"]);
+  });
+
+  test("an arrival the reader stayed on is kept by the next arrival", () => {
+    const trail = trailOf("a");
+    trail.land("b1", { arrival: true });
+    trail.land("c1", { arrival: true });
+    expect(trail.visits).toEqual(["a", "b1", "c1"]);
+    trail.land("c2");
+    expect(trail.visits).toEqual(["a", "b1", "c2"]);
+  });
+
+  test("an arrival on the cursor's own card records nothing and marks nothing", () => {
+    const trail = trailOf("a", "b");
+    trail.land("b", { arrival: true });
+    trail.land("c");
+    expect(trail.visits).toEqual(["a", "b", "c"]);
+  });
+
+  test("a chosen landing on the card behind a dropped arrival adds no visit", () => {
+    const trail = trailOf("a");
+    trail.land("b1", { arrival: true });
+    trail.land("a");
+    expect(trail.visits).toEqual(["a"]);
+    expect(trail.cursor).toBe(0);
+  });
+
+  test("an arrival that is the trail's only visit can be replaced", () => {
+    const trail = new FocusTrail();
+    trail.land("b1", { arrival: true });
+    trail.land("b2");
+    expect(trail.visits).toEqual(["b2"]);
+    expect(trail.cursor).toBe(0);
+  });
+});

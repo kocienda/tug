@@ -10,6 +10,10 @@
  *   behind the end first drops everything ahead of the cursor;
  * - a **step** moves the cursor and records no visit;
  * - a landing on the card the cursor is already on records nothing;
+ * - an **arrival** — a landing the reader did not choose, the card a
+ *   workspace switch put them on — is a provisional visit: the reader's next
+ *   chosen landing replaces it, and staying on it until a step or another
+ *   arrival keeps it;
  * - the trail holds at most {@link FOCUS_TRAIL_LIMIT} visits and drops the
  *   oldest past that.
  *
@@ -45,6 +49,11 @@ export class FocusTrail {
   private _visits: string[] = [];
   /** Index of the visit the reader is on, or -1 for an empty trail. */
   private _cursor = -1;
+  /**
+   * Whether the cursor's visit is an arrival the reader has not yet chosen
+   * past. Only ever true of the last visit, with the cursor on it.
+   */
+  private _provisional = false;
 
   /** The card the cursor is on, or `null` for an empty trail. */
   get current(): string | null {
@@ -67,14 +76,33 @@ export class FocusTrail {
    * Everything ahead of the cursor is dropped first: a landing made after
    * going back starts a new future. A landing on the cursor's own card
    * records nothing and drops nothing.
+   *
+   * `arrival` marks a landing the reader did not choose: the card a workspace
+   * switch put them on. It is recorded, because a reader who stays and works
+   * there was there; but it is provisional, and the next landing they do
+   * choose takes its place instead of following it. Left standing, an
+   * arrival put a card the reader never picked between the card they left
+   * and the card they went to, and Back stopped on it without crossing.
    */
-  land(cardId: string): void {
-    if (this.current === cardId) return;
+  land(cardId: string, opts?: { arrival?: boolean }): void {
+    const arrival = opts?.arrival === true;
+    if (this.current === cardId) {
+      // Choosing the card one arrived on makes the visit the reader's own.
+      if (!arrival) this._provisional = false;
+      return;
+    }
+    if (this._provisional && !arrival) {
+      this._visits.pop();
+      this._cursor -= 1;
+      this._provisional = false;
+      if (this.current === cardId) return;
+    }
     this._visits.length = this._cursor + 1;
     this._visits.push(cardId);
     const over = this._visits.length - FOCUS_TRAIL_LIMIT;
     if (over > 0) this._visits.splice(0, over);
     this._cursor = this._visits.length - 1;
+    this._provisional = arrival;
   }
 
   /**
@@ -87,6 +115,8 @@ export class FocusTrail {
    */
   step(direction: FocusTrailDirection, stands: FocusTrailStands): string | null {
     if (this._cursor < 0) return null;
+    // Stepping away from an arrival keeps it: the reader stayed on it.
+    this._provisional = false;
     const here = this._visits[this._cursor];
     if (direction === "back") {
       while (this._cursor > 0) {

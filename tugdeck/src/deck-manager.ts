@@ -1608,7 +1608,9 @@ export class DeckManager implements IDeckManagerStore {
     // focus the swap could not carry is activated now, showing its rail first.
     if (focusInSwap && focus !== null) {
       this._noteActivation(focus);
-      this._noteLanding(focus, outgoing.focusedCardId ?? null);
+      // An arrival: the workspace's remembered card, which the reader did
+      // not pick just now. Provisional on the trail until they stay or choose.
+      this._noteLanding(focus, outgoing.focusedCardId ?? null, true);
       this.cardLifecycle.setResponderChainKey(focus);
     } else if (focus !== null) {
       this.activateCard(focus);
@@ -4800,13 +4802,13 @@ export class DeckManager implements IDeckManagerStore {
    * arrival landed on the sidebar in the same workspace — a step that showed
    * nothing and crossed nothing.
    */
-  private _noteLanding(cardId: string, from: string | null): void {
+  private _noteLanding(cardId: string, from: string | null, arrival = false): void {
     if (this._focusTrailStepping) return;
     if (this._isRailCard(cardId)) return;
     if (from !== null && this._focusTrail.current === null && !this._isRailCard(from)) {
       this._focusTrail.land(from);
     }
-    this._focusTrail.land(cardId);
+    this._focusTrail.land(cardId, { arrival });
   }
 
   /** Whether `cardId` is a sidebar card standing in the shown deck. */
