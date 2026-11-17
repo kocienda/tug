@@ -397,7 +397,6 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.commit` | `run-slash-command:commit` | key card | registry gate |
 | `session.compact` | `run-slash-command:compact` | key card | registry gate |
 | `session.context` | `run-slash-command:context` | key card | registry gate |
-| `session.dataVisualization` | `run-slash-command:data-visualization` | key card | registry gate |
 | `session.dictate` | `toggle-dictation` | first responder | registry gate |
 | `session.dictateAndSend` | `stop-dictation-and-send` | first responder | registry gate |
 | `session.diff` | `run-slash-command:diff` | key card | registry gate |
@@ -417,6 +416,7 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `session.toggleHistory` | `toggle-history-view` | key card | registry gate |
 | `session.unname` | `run-slash-command:unname` | key card | registry gate |
 | `session.usage` | `run-slash-command:usage` | key card | registry gate |
+| `session.visualizeData` | `run-slash-command:visualize-data` | key card | registry gate |
 | `text.addLineBreaks` | `add-line-breaks` | first responder | registry gate |
 | `text.decreaseQuoteLevel` | `decrease-quote-level` | first responder | registry gate |
 | `text.educateQuotes` | `educate-quotes` | first responder | registry gate |

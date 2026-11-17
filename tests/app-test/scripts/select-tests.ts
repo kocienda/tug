@@ -255,7 +255,13 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // its covers, its still crossings, its arrivals and its reveal — name the
     // engine now, and what they still need of the canvas (the arrangement it
     // renders) is pinned by the arrangement tests that stay here.
-    "tugdeck/src/components/chrome/deck-canvas.tsx": 22,
+    //
+    // Raised to 23 for at0841 (go back and forward flash the card a step
+    // arrives on). The flash is this file's: the go-back/go-forward handlers
+    // here take the arrival card id the manager returns and light that card's
+    // pane, across a workspace boundary as within one. A test that named only
+    // `deck-manager.ts` would leave the ring it waits for covered by nothing.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 23,
 
     // The body hand-off, both halves. Every card is a body, so every
     // body-grounding row — arrival, departure, focus, menus, workspaces,
