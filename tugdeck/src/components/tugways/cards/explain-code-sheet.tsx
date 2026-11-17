@@ -247,7 +247,7 @@ function FormRowView({
       <div className="explain-code-sheet-text">
         <div className="explain-code-sheet-shows">{form.shows}</div>
         {form.said.length > 0 ? (
-          <div className="explain-code-sheet-said">Also said: {form.said.join(", ")}</div>
+          <div className="explain-code-sheet-said">{form.said.length === 1 ? "Synonym" : "Synonyms"} for {form.name}: {form.said.join(", ")}</div>
         ) : null}
         <div className="explain-code-sheet-example">
           For example: <span className="explain-code-sheet-ask">{form.ask}</span>
