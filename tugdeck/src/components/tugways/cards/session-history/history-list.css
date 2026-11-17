@@ -12,9 +12,9 @@
 }
 
 /* Top-anchor the row (the primitive is `align-items: center`) so a wrapped
-   subject keeps its first line — and the trailing cluster pinned beside it — on
-   row 1, the extra lines flowing below. Scoped to the history list so
-   single-line list rows elsewhere keep their centered layout. */
+   subject keeps its first line on row 1, the extra lines flowing below. Scoped
+   to the history list so single-line list rows elsewhere keep their centered
+   layout. */
 .tug-history-list .tug-list-row {
   align-items: flex-start;
 }
@@ -29,22 +29,39 @@
   cursor: pointer;
 }
 
-/* Trailing cluster: the metadata cell, the Copy control, then the fold cue.
-   Mirrors the row primitive's trailing gap so a bare span composes cleanly. */
-.tug-history-list-row-trailing {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tugx-list-row-trailing-gap);
+/* The row's one flow: the trailing cluster floated on line 1, then the
+   identity, whose text runs beside the float on its first line and under it
+   on every line after. The font size is the subject's, stated here so the
+   float's `em` below is the same `em` the identity centres its first line by.
+   The identity is a block in this flow (it is a span, and no longer a flex
+   item), which its hanging indent needs. */
+.tug-history-list-row-flow {
+  min-width: 0;
+  font-size: var(--tugx-commit-subject-size);
 }
 
-/* The trailing slot (the flex child that HOLDS the cluster) rides the same
-   one-line box as the subject's first line and centers its contents in it. With
-   the row top-anchored above, its centre lands on row 1's centre — matching the
-   subject's first line whether the subject wraps or not. `min-height` (not
-   `height`) lets a taller portaled control grow rather than clip, exactly as the
-   block-header trailing does. */
-.tug-history-list .tug-list-row-trailing {
+.tug-history-list-row-flow > .tugx-commit-identity {
+  display: block;
+}
+
+/* Trailing cluster: the metadata cell, the Copy control, then the fold cue,
+   floated at the row's trailing edge. It stands one line box tall and centers
+   its contents in it, so its centre is the subject's first line's centre. The
+   subject's first line is centred in that same box by a top padding, so its
+   second line starts that padding short of the box's foot; the negative
+   bottom margin ends the float's reach there (a pixel early, against
+   rounding), which is what lets line 2 run the full width. A taller portaled
+   control grows the box rather than clipping. */
+.tug-history-list-row-trailing {
+  float: right;
+  display: flex;
+  align-items: center;
+  gap: var(--tugx-list-row-trailing-gap);
   min-height: var(--tugx-commit-line);
+  margin-inline-start: var(--tugx-list-row-gap);
+  margin-bottom: calc(
+    -1 * (var(--tugx-commit-line) - 1em * var(--tugx-commit-wrap-leading)) / 2 - 1px
+  );
 }
 
 /* The filter's receipt: the message lines and paths a query matched, under an

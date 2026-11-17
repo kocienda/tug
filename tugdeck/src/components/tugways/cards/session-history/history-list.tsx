@@ -302,7 +302,12 @@ export function HistoryCommitRow({
           variant="flush"
           density="compact"
           mono
-          trailing={
+        >
+          {/* The stamp and the controls float on the subject's first line, so
+              a wrapped subject's later lines run the row's full width under
+              them instead of being held to a column beside them. The float
+              comes first in the flow so it lands on line 1. */}
+          <div className="tug-history-list-row-flow">
             <span
               className="tug-history-list-row-trailing"
               onClick={(event) => event.stopPropagation()}
@@ -338,8 +343,6 @@ export function HistoryCommitRow({
                 data-slot="tug-history-list-fold"
               />
             </span>
-          }
-        >
           <CommitIdentityLine
             sha={commit.sha}
             shaMenu={false}
@@ -412,6 +415,7 @@ export function HistoryCommitRow({
               </>
             }
           />
+          </div>
         </TugListRow>
       </div>
       {/* The filter's receipt for this row: the message lines and paths the
