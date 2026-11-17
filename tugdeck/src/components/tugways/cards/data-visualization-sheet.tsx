@@ -7,7 +7,7 @@
  * data over the card's project draws live; one with none, or whose read failed,
  * draws its sample, marked as one so it is not read as the project's numbers.
  * A row is its title over its description and a thumbnail, which never animates.
- * Draw hands the recipe's name to the card, which places the command in the
+ * Visualize… hands the recipe's name to the card, which places the command in the
  * composer and leaves the send to the user.
  *
  * Compositional — composes `TugSheet` (via the card's shared `showSheet`),
@@ -58,7 +58,7 @@ import { MODAL_REST_LINE } from "./modal-rest-line";
 /** The card command behind the menu row and the chord. `/viz` stays the skill's. */
 export const DATA_VISUALIZATION_COMMAND = "data-visualization";
 
-/** The command Draw places: the name the popup composes for the `/viz` skill. */
+/** The command Visualize… places: the name the popup composes for the `/viz` skill. */
 export const VIZ_SKILL_COMMAND = "tugplug:viz";
 
 export interface UseDataVisualizationSheetArgs {
@@ -81,7 +81,7 @@ export function useDataVisualizationSheet({
   showSheet,
 }: UseDataVisualizationSheetArgs): DataVisualizationSheetController {
   // The sheet host is single-slot, so its promise resolving is the authoritative
-  // "no longer showing" signal, and what it resolves with is the recipe Draw chose.
+  // "no longer showing" signal, and what it resolves with is the recipe Visualize… chose.
   const shownRef = useRef(false);
   const closeRef = useRef<(() => void) | null>(null);
 
@@ -230,7 +230,7 @@ function RecipeRowView({
         {face.line !== null ? <div className="data-visualization-sheet-line">{face.line}</div> : null}
         <div className="data-visualization-sheet-actions">
           <TugPushButton size="sm" emphasis="outlined" onClick={() => onDraw(row.name)} data-testid={`data-visualization-draw-${row.name}`}>
-            Draw
+            Visualize…
           </TugPushButton>
         </div>
       </div>

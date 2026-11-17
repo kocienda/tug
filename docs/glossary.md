@@ -60,7 +60,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Context.** The amount of the model's window a session has used. The *status row* reads it out.
 
-**Data Visualization.** The sheet that lists every *chart recipe*, each with a line on what its data tells and a small figure drawn from the project in front of you, or marked Sample when the project has no data for it. **Draw** places a recipe's command in the *composer*, unsent. Control-Command-V, `/data-visualization` or Session > Data Visualization opens it.
+**Data Visualization.** The sheet that lists every *chart recipe*, each with a line on what its data tells and a small figure drawn from the project in front of you, or marked Sample when the project has no data for it. **Visualize…** places a recipe's command in the *composer*, unsent. Control-Command-V, `/data-visualization` or Session > Data Visualization opens it.
 
 **Deck.** The set of cards in one *workspace*, arranged on the *canvas* under *imposition*. The deck holds the arrangement, not you.
 

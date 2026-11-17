@@ -336,9 +336,9 @@ End the request with the form: `/tugplug:viz how big commits are as a histogram`
 ### See which charts Tug can draw
 <!-- source: tugdeck/src/components/tugways/cards/data-visualization-sheet.tsx; tugdeck/src/lib/slash-commands.ts (/data-visualization); tugdeck/src/components/tugways/command-registry.ts (Control-Command-V); tugapp/Sources/MenuBarBuilder.swift (session.dataVisualization) -->
 
-Press Control-Command-V, type `/data-visualization`, or choose Session > Data Visualization. A sheet lists every chart recipe under Activity, Changes, Arcs, Tests, Telemetry and Models, each with a line on what its data tells and a small figure. The figure is drawn from this project's own data, or is marked **Sample** when the project has none for it yet. Click **Draw** and the recipe's command lands in the composer, unsent, so you can add a path, a number of days or a form before you send it. **Done**, Escape or the chord again closes the sheet.
+Press Control-Command-V, type `/data-visualization`, or choose Session > Data Visualization. A sheet lists every chart recipe under Activity, Changes, Arcs, Tests, Telemetry and Models, each with a line on what its data tells and a small figure. The figure is drawn from this project's own data, or is marked **Sample** when the project has none for it yet. Click **Visualize…** and the recipe's command lands in the composer, unsent, so you can add a path, a number of days or a form before you send it. **Done**, Escape or the chord again closes the sheet.
 
-The sheet draws nothing in the transcript by itself: Draw only writes the command for you. From a shell, `tugtool chart list` prints the same recipes.
+The sheet draws nothing in the transcript by itself: Visualize… only writes the command for you. From a shell, `tugtool chart list` prints the same recipes.
 
 ### See the numbers behind a chart
 <!-- source: tugdeck/src/lib/chart/render-chart.ts (buildViewToggle, buildTable, Copy chart source); tugdeck/src/lib/chart/chart-hover.ts; tugdeck/src/lib/chart/chart-view-memory.ts -->

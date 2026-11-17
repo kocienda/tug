@@ -13,7 +13,7 @@
  *    route is the one thing faked: the page's `fetch` answers one recipe with a
  *    body that does not parse, since no project makes one recipe fail on demand.
  *  - ⌃⌘V closes the sheet, and re-opening it keeps the results it held.
- *  - Draw closes the sheet and leaves `/tugplug:viz <recipe>` in the composer, with
+ *  - Visualize… closes the sheet and leaves `/tugplug:viz <recipe>` in the composer, with
  *    the caret there, unsent.
  *  - Every figure is a still thumbnail: it fills its box, plays no entrance and
  *    runs no animation, and keeps its description beside it even in a slim card.
@@ -107,7 +107,7 @@ const ROWS_SETTLED = `(function(){
 
 describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
   test(
-    "opens from the menu, draws live, sample and failed rows, closes on the chord, and Draw fills the composer",
+    "opens from the menu, draws live, sample and failed rows, closes on the chord, and Visualize… fills the composer",
     async () => {
       const repo = scratchRepository();
       const app = await launchTugApp({ testName: "at0771-data-visualization-sheet" });
@@ -164,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
         const held = await body.evalJS<RowFacts[]>(READ_ROWS);
         expect(held.find((r) => r.name === LIVE_RECIPE)?.state).toBe("live");
 
-        // Draw leaves the command in the composer, with the caret there, unsent.
+        // Visualize… leaves the command in the composer, with the caret there, unsent.
         const draw = `${SHEET} [data-testid="data-visualization-draw-${LIVE_RECIPE}"]`;
         await body.evalJS<null>(`(document.querySelector(${JSON.stringify(draw)}).scrollIntoView({ block: "center" }), null)`);
         await body.nativeClickAtElement(draw);
