@@ -16,13 +16,35 @@ Tug is made of several pieces that build with different toolchains and come toge
 
 At runtime the pieces stack like this. `Tug.app`, the Swift host, owns the windows and shows the `tugdeck` frontend in web views. The frontend talks over a WebSocket to `tugcast`, which runs beside the app and multiplexes everything the cards show: sessions, shell output, file changes, git state. Each Claude Code session runs through `tugcode`, which speaks Claude Code's stream-json protocol on one side and `tugcast`'s on the other. `tugtool` is the command-line door to the same machinery, used by the recipes, by the plugin, and by you.
 
-Every build, test, and lint command is a `just` recipe in the top-level [`Justfile`](Justfile). Run `just` with no arguments to list them all, grouped by purpose: `app` builds and runs the app, `build` covers the pieces, `test` and `lint` check your work, `app-test` drives the real app, `inspect` reads a running instance, `clean` removes build products, and the rest (`release`, `lab`, `eval`, `generate`, `signing`) are for particular jobs.
+Every build, test, and lint command is a `just` recipe in the top-level [`Justfile`](Justfile). Run `just` with no arguments to list them all, grouped by purpose: `setup` readies your Mac, `app` builds and runs the app, `build` covers the pieces, `test` and `lint` check your work, `app-test` drives the real app, `inspect` reads a running instance, `clean` removes build products, and the rest (`release`, `lab`, `eval`, `generate`, `signing`) are for particular jobs.
 
-If you only want a running build, the short path is the `bun install` lines in [section 2](#2-get-the-source-and-build-the-command-line-tools) followed by `just app-debug` from [section 4](#4-build-and-run-the-developer-bundle). The sections between explain what each step does.
+## The short path
+
+If you only want a running build, install Xcode as [section 1](#xcode) describes, then:
+
+```sh
+git clone https://github.com/kocienda/tug.git
+cd tug
+scripts/dev-setup.sh
+just app-debug
+```
+
+`scripts/dev-setup.sh` checks your Mac against everything this document asks for, installs what is missing, and checks again. It asks once before running each of the two installers that edit your shell profile, rustup and Homebrew, and `--yes` answers both in advance. It never installs Xcode and never runs `sudo`; where one of those is needed it prints the commands for you to run. If it ends by telling you to open a new terminal, do that before `just app-debug`, because the terminal you ran it in does not yet see what it installed.
+
+The same script with `--check` is a doctor: it reports and changes nothing. Once `just` is installed the two have shorter names:
+
+```sh
+just dev-doctor   # what is set up, what is not, and the command that fixes each
+just dev-setup    # fix what can be fixed, then report
+```
+
+The report is in tiers. `run` is what `just app-debug` needs, `test` is what `just test` and `just lint` add, and `ship` is what `just dmg` adds, so a red line says what it stops you doing. `just app-debug` runs the `run` tier before it builds, and stops in its first second with the fix if a tool is missing.
+
+The sections below explain what each step does and how to do it by hand.
 
 ## 1. Install the tools
 
-You need a Mac with Apple silicon running macOS 15 or later. Then install the following.
+You need a Mac with Apple silicon running macOS 15 or later. Install Xcode by hand. Everything after it in this section is what `scripts/dev-setup.sh` installs for you once you have the checkout, as [the short path](#the-short-path) describes; read on to do it by hand, or to see what the script does.
 
 ### Xcode
 
@@ -140,7 +162,7 @@ bun install --cwd tests/app-test --frozen-lockfile
 just build
 ```
 
-The three `bun install` lines fetch the dependencies of the Claude Code bridge, the frontend, and the app-test harness. The third is what `just lint` and `just test` type-check the harness against, so `just ci` fails without it. `just build` compiles the bridge from `tugcode/` and expects its packages to be present, and the debug bundle in [section 4](#4-build-and-run-the-developer-bundle) runs the frontend from `tugdeck/` the same way. The disk-image build in the next section installs both on its own.
+`scripts/dev-setup.sh` runs the three `bun install` lines for you; `just build` is the step it leaves. The three lines fetch the dependencies of the Claude Code bridge, the frontend, and the app-test harness. The third is what `just lint` and `just test` type-check the harness against, so `just ci` fails without it. `just build` compiles the bridge from `tugcode/` and expects its packages to be present, and the debug bundle in [section 4](#4-build-and-run-the-developer-bundle) runs the frontend from `tugdeck/` the same way. The disk-image build in the next section installs both on its own.
 
 `just build` compiles the Rust binaries and the Claude Code bridge in debug mode into `tugrust/target/debug/`, then symlinks them into `~/.local/bin`. Those symlinks are what the recipes and the app's development mode use, so add `~/.local/bin` to your `PATH` if it is not already there. The first build downloads and compiles every crate and takes several minutes; later builds are incremental.
 
@@ -305,10 +327,11 @@ Notarization submits the bundle to Apple and waits for the ticket, which typical
 
 ## When something goes wrong
 
+- **Anything about the tools on your Mac.** Run `just dev-doctor`, or `scripts/dev-setup.sh --check` if `just` is the thing missing. It checks every tool and version this document asks for and prints the command that fixes each one; `just dev-setup` runs those commands for you.
 - **`just` reports a missing tool.** `just build` needs the Rust toolchain and Bun; `just app-debug` also needs `wasm-pack` and Xcode. [Section 1](#1-install-the-tools) lists them all.
 - **`just dmg` stops with "dmgbuild needs Python 3.10 or later".** The `python3` on your `PATH` is Xcode's. Run `brew install python`, open a new terminal, and run `just dmg` again.
 - **`just app-debug` launches, and the window stays empty.** The debug bundle could not start its Vite dev server. `just logs-debug` shows the reason; `env: node: No such file or directory` means Node is not installed. Run `brew install node`, then `just launch-debug`.
-- **`git status` shows modified `.wasm` files after a build you did not touch them in.** Your `wasm-pack` is not version 0.15.0. Install that version as [section 1](#rust) describes, run `just wasm`, and the files return to their committed bytes.
+- **`git status` shows modified `.wasm` files after a build you did not touch them in.** Your `wasm-pack` is not version 0.15.0, which is what `cargo install wasm-pack` gets you. Run `just dev-setup` to install the pinned version, or install it as [section 1](#rust) describes, then run `just wasm`, and the files return to their committed bytes.
 - **A recipe cannot find `tugtool` or `tugcast`.** `just build` symlinks the binaries into `~/.local/bin`. Add that directory to your `PATH`.
 - **The bridge build fails on a missing package.** Run the `bun install` lines from [section 2](#2-get-the-source-and-build-the-command-line-tools); `just build` does not install dependencies.
 - **macOS asks for microphone or Accessibility access after every rebuild.** The bundle is ad-hoc signed, and an ad-hoc signature changes with each build. A Developer ID certificate makes grants persist; see [Signing](#signing-ad-hoc-by-default-developer-id-if-you-have-one).

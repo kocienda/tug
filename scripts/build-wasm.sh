@@ -37,7 +37,7 @@ CRATES_DIR="$REPO_ROOT/tugdeck/crates"
 WASM_PACK="$(command -v wasm-pack 2>/dev/null || echo "$HOME/.cargo/bin/wasm-pack")"
 if [[ ! -x "$WASM_PACK" ]]; then
     echo "build-wasm.sh: wasm-pack not found." >&2
-    echo "  install with: cargo install wasm-pack" >&2
+    echo "  run: scripts/dev-setup.sh   (it installs the pinned version; \`cargo install\` would not)" >&2
     exit 1
 fi
 

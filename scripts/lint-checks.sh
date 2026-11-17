@@ -35,6 +35,7 @@ audit() {
     check recipe-lint "bun scripts/recipe-lint.ts && bun test $guard scripts/__tests__/recipe-lint.test.ts"
     check test-shape-lint "bun scripts/test-shape-lint.ts && bun test $guard scripts/__tests__/test-shape-lint.test.ts"
     check workflow-lint "bun scripts/workflow-lint.ts && bun test $guard scripts/__tests__/workflow-lint.test.ts"
+    check dev-setup "bun test $guard scripts/__tests__/dev-setup.test.ts"
     check shellcheck "just shellcheck"
     check app-test-foreground-check "just app-test-foreground-check"
     check audit-visibility "cd tugdeck && bun run audit:visibility"
