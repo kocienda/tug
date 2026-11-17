@@ -29,6 +29,10 @@ pub struct TugConfig {
     #[serde(default)]
     pub semantic: SemanticConfig,
 
+    /// How the chart recipes that count lines classify a file by its path.
+    #[serde(default)]
+    pub lines: LinesConfig,
+
     /// The retired `[tugtool.dash]` table, bound only so the loader can see it
     /// and refuse. Nothing reads its value: a project whose declarations are
     /// still under the old key would look configured while declaring nothing
@@ -54,6 +58,20 @@ pub struct SemanticConfig {
     /// surface named `prose`.
     #[serde(default)]
     pub documents: Option<Vec<String>>,
+}
+
+/// The `[tugtool.lines]` table: the glob patterns that make a path a test, a
+/// data file or a document when a chart counts lines. Each key that is present
+/// replaces that kind's built-in patterns whole; an absent key keeps them. A
+/// path no kind claims is source.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LinesConfig {
+    #[serde(default)]
+    pub tests: Option<Vec<String>>,
+    #[serde(default)]
+    pub data: Option<Vec<String>>,
+    #[serde(default)]
+    pub docs: Option<Vec<String>>,
 }
 
 /// Arc configuration.
@@ -597,6 +615,16 @@ post_create = []
 # paths of the surface named `prose`.
 # [tugtool.semantic]
 # documents = ["briefs/", "doc/", "README.md"]
+
+# How the chart recipes that count lines tell a test, a data file and a
+# document from source, as globs over the repository-relative path. Each key
+# replaces that kind's built-in patterns whole; a kind left undeclared keeps
+# them. A path no kind claims is source, and data is tried first, then docs,
+# then tests.
+# [tugtool.lines]
+# tests = ["spec/**", "**/*_spec.rb"]
+# data  = ["**/*.json", "fixtures/**"]
+# docs  = ["**/*.md", "doc/**"]
 "#;
 
 /// Why a config file was refused. Every variant carries the offending value,
@@ -1344,6 +1372,24 @@ mod tests {
         );
         let silent: Config = toml::from_str("[tugtool.arc]\n").unwrap();
         assert_eq!(silent.tugtool.semantic.documents, None);
+    }
+
+    #[test]
+    fn a_project_declares_line_kinds_one_key_at_a_time() {
+        let declared: Config = toml::from_str("[tugtool.lines]\ntests = [\"spec/**\"]\n").unwrap();
+        assert_eq!(
+            declared.tugtool.lines,
+            LinesConfig {
+                tests: Some(vec!["spec/**".to_string()]),
+                data: None,
+                docs: None,
+            }
+        );
+        let silent: Config = toml::from_str("[tugtool.arc]\npost_create = []\n").unwrap();
+        assert_eq!(silent.tugtool.lines, LinesConfig::default());
+        let template: Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        assert_eq!(template.tugtool.lines, LinesConfig::default());
+        assert!(DEFAULT_CONFIG.contains("# [tugtool.lines]"));
     }
 
     /// The refusals fire on what a config declares, so a project with no

@@ -4,11 +4,13 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
-use tugchanges_core::{git_output, repo_root_for};
+use tugchanges_core::{LineKinds, git_output, repo_root_for};
 use tugcore::host_tools;
 use tugcore::instance::Paths;
 use tugcore::report_gaps::ReportGaps;
-use tugtool_core::apptest_ledger;
+use tuggraphics::chart::{Layers, Source, histogram_bins, validate};
+use tugtool_core::{apptest_ledger, test_ledger};
+use tugtool_core::config::Config;
 
 use crate::members::MemberTable;
 
@@ -18,7 +20,14 @@ pub struct RecipeContext {
     pub repo_root: PathBuf,
     pub paths: Paths,
     pub apptest_ledger: PathBuf,
+    /// The unit-test ledger: every suite run `tugtool test run` recorded.
+    pub test_ledger: PathBuf,
     pub report_gaps: PathBuf,
+    /// How the line recipes classify a path: the project's `[tugtool.lines]`
+    /// over the built-in patterns. A config that fails to load, or a pattern
+    /// that does not compile, is the error, and only the recipes that count
+    /// lines answer it.
+    pub line_kinds: Result<LineKinds, String>,
 }
 
 impl RecipeContext {
@@ -32,12 +41,26 @@ impl RecipeContext {
             project_dir.to_path_buf()
         };
         RecipeContext {
+            line_kinds: line_kinds_for(&repo_root),
             repo_root,
             paths: Paths::from_env(),
             apptest_ledger: apptest_ledger::default_path(),
+            test_ledger: test_ledger::default_path(),
             report_gaps: ReportGaps::default_path(),
         }
     }
+}
+
+/// The classifier `repo_root` declares in its `.tugtool/config.toml`, or the
+/// built-in one when it declares none.
+fn line_kinds_for(repo_root: &Path) -> Result<LineKinds, String> {
+    let config = Config::load_from_project(repo_root).map_err(|e| e.to_string())?;
+    let lines = config.tugtool.lines;
+    LineKinds::from_patterns(
+        lines.tests.as_deref(),
+        lines.data.as_deref(),
+        lines.docs.as_deref(),
+    )
 }
 
 /// Every argument any recipe takes. A recipe's `args` list says which of these
@@ -56,11 +79,15 @@ pub struct RecipeArgs {
     pub title: Option<String>,
     pub by: Option<String>,
     pub net: bool,
+    /// One series per kind of file, for a line recipe that splits.
+    pub split: bool,
     pub depth: Option<u32>,
     pub limit: Option<usize>,
     pub kind: Option<String>,
     pub form: Option<String>,
     pub subjects: Vec<String>,
+    /// Which kinds of file a line recipe counts (`code` when absent).
+    pub lines: Option<String>,
 }
 
 /// A recipe's answer: a chart with the line that sums it up, or the line that
@@ -86,6 +113,8 @@ pub enum RecipeError {
     Ledger(String),
     /// A `--form` the recipe's chart cannot be redrawn in.
     Form(String),
+    /// A project config the line classifier cannot be built from.
+    Config(String),
 }
 
 impl fmt::Display for RecipeError {
@@ -93,7 +122,8 @@ impl fmt::Display for RecipeError {
         match self {
             RecipeError::Git(message)
             | RecipeError::Ledger(message)
-            | RecipeError::Form(message) => f.write_str(message),
+            | RecipeError::Form(message)
+            | RecipeError::Config(message) => f.write_str(message),
         }
     }
 }
@@ -119,6 +149,28 @@ pub(crate) fn clip_back(text: &str, max: usize) -> String {
     }
     let kept: String = text.chars().take(max.saturating_sub(1)).collect();
     format!("{kept}…")
+}
+
+/// `values` binned as the engine bins a histogram of them written in
+/// `format`: each bin's label and the indices of the values in it. A recipe
+/// that draws its own bars over these bins draws the histogram's figure and
+/// can add a bar no range describes. `None` for an empty sample, or one the
+/// engine would not draw.
+pub(crate) fn binned(values: &[f64], format: &str) -> Option<(Vec<String>, Vec<Vec<usize>>)> {
+    if values.is_empty() {
+        return None;
+    }
+    let spec = json!({
+        "tugchart": 1,
+        "form": "histogram",
+        "title": "t",
+        "format": format,
+        "values": values,
+    });
+    let Source::Chart(spec) = validate(&spec.to_string(), Layers::Chart).ok()? else {
+        return None;
+    };
+    histogram_bins(&spec)
 }
 
 /// A file's row label: its last path component without `.test.ts`.
@@ -164,7 +216,9 @@ pub(crate) mod test_support {
             repo_root: dir.to_path_buf(),
             paths,
             apptest_ledger: dir.join("apptest_results.db"),
+            test_ledger: dir.join("test_results.db"),
             report_gaps: dir.join("report_gaps.db"),
+            line_kinds: Ok(LineKinds::defaults()),
         }
     }
 
@@ -210,6 +264,23 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binned_agrees_with_the_engines_own_histogram_bins() {
+        let values = [4.0, 12.0, 30.0, 95.0];
+        let (labels, bins) = binned(&values, "secs").unwrap();
+        let spec = json!({
+            "tugchart": 1, "form": "histogram", "title": "t", "format": "secs",
+            "values": values,
+        });
+        let Source::Chart(spec) = validate(&spec.to_string(), Layers::Chart).unwrap() else {
+            panic!("not a chart");
+        };
+        assert_eq!(Some((labels.clone(), bins.clone())), histogram_bins(&spec));
+        assert_eq!(labels.len(), bins.len());
+        assert_eq!(bins.iter().map(Vec::len).sum::<usize>(), values.len());
+        assert_eq!(binned(&[], "count"), None);
+    }
 
     #[test]
     fn a_directory_that_is_no_repository_has_no_data() {

@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use crate::changes::{Change, ChangesError, ChangesOptions, ForeignChange, resolve_changes};
 use crate::git::{self, FileStat};
+use crate::line_kinds::{KindSet, LineKind, LineKinds};
 
 // ---------------------------------------------------------------------------
 // preflight
@@ -343,103 +344,6 @@ impl CommitLines {
     }
 }
 
-/// The commits of the last `days` calendar days on HEAD, summed per committer day,
-/// oldest first; `path` narrows the read to it. A day with no commits has no
-/// row: filling the gaps takes a calendar, which belongs to the caller.
-pub fn numstat_by_day(
-    repo_root: &Path,
-    days: u32,
-    path: Option<&str>,
-) -> Result<Vec<DayStat>, String> {
-    numstat_by_day_in(repo_root, &Window::last_days(days), path)
-}
-
-/// [`numstat_by_day`] over an absolute window.
-pub fn numstat_by_day_in(
-    repo_root: &Path,
-    window: &Window,
-    path: Option<&str>,
-) -> Result<Vec<DayStat>, String> {
-    Ok(day_stats(&numstat_commits_in(repo_root, window, path)?))
-}
-
-/// The same read summed by the first `depth` components of each path, largest
-/// `added + deleted` first.
-pub fn numstat_by_path(
-    repo_root: &Path,
-    days: u32,
-    path: Option<&str>,
-    depth: usize,
-) -> Result<Vec<PathStat>, String> {
-    numstat_by_path_in(repo_root, &Window::last_days(days), path, depth)
-}
-
-/// [`numstat_by_path`] over an absolute window.
-pub fn numstat_by_path_in(
-    repo_root: &Path,
-    window: &Window,
-    path: Option<&str>,
-    depth: usize,
-) -> Result<Vec<PathStat>, String> {
-    Ok(group_by_depth(
-        &read_numstat_log(repo_root, window, path)?,
-        depth,
-    ))
-}
-
-/// The same read as each commit's short sha and the lines it changed, newest
-/// first. A commit that changed no lines, such as a merge, says nothing about
-/// size and has no entry.
-pub fn numstat_by_commit(
-    repo_root: &Path,
-    days: u32,
-    path: Option<&str>,
-) -> Result<Vec<(String, u64)>, String> {
-    numstat_by_commit_in(repo_root, &Window::last_days(days), path)
-}
-
-/// [`numstat_by_commit`] over an absolute window.
-pub fn numstat_by_commit_in(
-    repo_root: &Path,
-    window: &Window,
-    path: Option<&str>,
-) -> Result<Vec<(String, u64)>, String> {
-    Ok(numstat_commits_in(repo_root, window, path)?
-        .into_iter()
-        .map(|commit| (commit.sha.clone(), commit.lines()))
-        .filter(|(_, lines)| *lines > 0)
-        .collect())
-}
-
-/// Every commit of the window on HEAD as its own lines, newest first; `path`
-/// narrows the read to it. The day and commit forms above are sums of this
-/// read, so a chart drawn from one of them and a list of the commits behind
-/// a mark come from the same records.
-pub fn numstat_commits_in(
-    repo_root: &Path,
-    window: &Window,
-    path: Option<&str>,
-) -> Result<Vec<CommitLines>, String> {
-    Ok(commit_lines(read_numstat_log(repo_root, window, path)?))
-}
-
-/// Each commit's files summed into its own lines, in the order read.
-fn commit_lines(commits: Vec<NumstatCommit>) -> Vec<CommitLines> {
-    commits
-        .into_iter()
-        .map(|commit| {
-            let added = commit.files.iter().map(|file| file.added).sum();
-            let deleted = commit.files.iter().map(|file| file.deleted).sum();
-            CommitLines {
-                sha: commit.sha,
-                day: commit.day,
-                added,
-                deleted,
-            }
-        })
-        .collect()
-}
-
 fn read_numstat_log(
     repo_root: &Path,
     window: &Window,
@@ -493,6 +397,134 @@ fn parse_numstat_log(records: &[String]) -> Vec<NumstatCommit> {
         .collect()
 }
 
+/// One file of a classified numstat read: its path, the kind its path makes
+/// it, and the lines it added and deleted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileLines {
+    pub path: String,
+    pub kind: LineKind,
+    pub added: u64,
+    pub deleted: u64,
+}
+
+/// One commit of a classified numstat read: its short sha, its committer day
+/// and each file it changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitFiles {
+    pub sha: String,
+    pub day: String,
+    pub files: Vec<FileLines>,
+}
+
+/// Every commit of the window on HEAD with each file it changed classified by
+/// `kinds`, newest first; `path` narrows the read to it. Every line recipe
+/// sums this read, so what it counts has always passed through the
+/// classifier.
+pub fn numstat_files_in(
+    repo_root: &Path,
+    window: &Window,
+    path: Option<&str>,
+    kinds: &LineKinds,
+) -> Result<Vec<CommitFiles>, String> {
+    Ok(classify_commits(
+        read_numstat_log(repo_root, window, path)?,
+        kinds,
+    ))
+}
+
+fn classify_commits(commits: Vec<NumstatCommit>, kinds: &LineKinds) -> Vec<CommitFiles> {
+    commits
+        .into_iter()
+        .map(|commit| CommitFiles {
+            sha: commit.sha,
+            day: commit.day,
+            files: commit
+                .files
+                .into_iter()
+                .map(|file| FileLines {
+                    kind: kinds.classify(&file.path),
+                    path: file.path,
+                    added: file.added,
+                    deleted: file.deleted,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// Each commit's lines of the kinds in `set`, newest first as given. A commit
+/// with no counted line has no entry: it says nothing about the work the
+/// chart counts.
+pub fn commit_lines(commits: &[CommitFiles], set: KindSet) -> Vec<CommitLines> {
+    commits
+        .iter()
+        .filter_map(|commit| {
+            let (added, deleted) = commit
+                .files
+                .iter()
+                .filter(|file| set.holds(file.kind))
+                .fold((0, 0), |(a, d), file| (a + file.added, d + file.deleted));
+            (added + deleted > 0).then(|| CommitLines {
+                sha: commit.sha.clone(),
+                day: commit.day.clone(),
+                added,
+                deleted,
+            })
+        })
+        .collect()
+}
+
+/// The lines of each kind outside `set`, summed over the read, in
+/// [`LineKind::ALL`] order; a kind with no line is absent.
+pub fn left_out(commits: &[CommitFiles], set: KindSet) -> Vec<(LineKind, u64)> {
+    LineKind::ALL
+        .into_iter()
+        .filter(|kind| !set.holds(*kind))
+        .filter_map(|kind| {
+            let lines: u64 = commits
+                .iter()
+                .flat_map(|commit| &commit.files)
+                .filter(|file| file.kind == kind)
+                .map(|file| file.added + file.deleted)
+                .sum();
+            (lines > 0).then_some((kind, lines))
+        })
+        .collect()
+}
+
+/// The counted lines summed per [`path_prefix`] at `depth`. A commit counts
+/// once per prefix however many of its counted files fall under it, a group
+/// is a file when a file's path is its own prefix, and a prefix with no
+/// counted line has no row. Largest first, ties by path.
+pub fn group_paths(commits: &[CommitFiles], set: KindSet, depth: usize) -> Vec<PathStat> {
+    let mut groups: BTreeMap<String, PathStat> = BTreeMap::new();
+    for commit in commits {
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        for file in commit.files.iter().filter(|file| set.holds(file.kind)) {
+            if file.added + file.deleted == 0 {
+                continue;
+            }
+            let prefix = path_prefix(&file.path, depth);
+            let stat = groups.entry(prefix.clone()).or_insert_with(|| PathStat {
+                path: prefix.clone(),
+                added: 0,
+                deleted: 0,
+                commits: 0,
+                is_file: false,
+            });
+            stat.is_file |= prefix == file.path;
+            stat.added += file.added;
+            stat.deleted += file.deleted;
+            if seen.insert(prefix) {
+                stat.commits += 1;
+            }
+        }
+    }
+    let mut out: Vec<PathStat> = groups.into_values().collect();
+    out.sort_by_key(|s| std::cmp::Reverse(s.added + s.deleted));
+    out
+}
+
 /// `commits` summed per committer day, oldest day first, each day's shas in
 /// the order given.
 pub fn day_stats(commits: &[CommitLines]) -> Vec<DayStat> {
@@ -517,34 +549,6 @@ pub fn day_stats(commits: &[CommitLines]) -> Vec<DayStat> {
 /// keeps its name.
 pub fn path_prefix(path: &str, depth: usize) -> String {
     path.split('/').take(depth).collect::<Vec<_>>().join("/")
-}
-
-/// Sum per [`path_prefix`]. A commit counts once per prefix however many of its
-/// files fall under it. Largest first, ties by path.
-fn group_by_depth(commits: &[NumstatCommit], depth: usize) -> Vec<PathStat> {
-    let mut groups: BTreeMap<String, PathStat> = BTreeMap::new();
-    for commit in commits {
-        let mut seen: BTreeSet<String> = BTreeSet::new();
-        for file in &commit.files {
-            let prefix = path_prefix(&file.path, depth);
-            let stat = groups.entry(prefix.clone()).or_insert_with(|| PathStat {
-                path: prefix.clone(),
-                added: 0,
-                deleted: 0,
-                commits: 0,
-                is_file: false,
-            });
-            stat.is_file |= prefix == file.path;
-            stat.added += file.added;
-            stat.deleted += file.deleted;
-            if seen.insert(prefix) {
-                stat.commits += 1;
-            }
-        }
-    }
-    let mut out: Vec<PathStat> = groups.into_values().collect();
-    out.sort_by_key(|s| std::cmp::Reverse(s.added + s.deleted));
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -679,7 +683,10 @@ mod tests {
 
     #[test]
     fn numstat_log_sums_commits_per_day_and_keeps_days_apart() {
-        let commits = commit_lines(parse_numstat_log(&numstat_fixture()));
+        let commits = commit_lines(
+            &classified(&numstat_fixture()),
+            KindSet::parse("all").unwrap(),
+        );
         assert_eq!(
             commits,
             vec![
@@ -750,6 +757,11 @@ mod tests {
         ));
         assert_eq!(commits.len(), 2);
         assert!(commits[0].files.is_empty());
+        // The classified read keeps the empty commit too, with no files.
+        let read = classify_commits(commits.clone(), &LineKinds::defaults());
+        assert_eq!(read.len(), 2);
+        assert!(read[0].files.is_empty());
+        assert_eq!(read[1].files[0].path, "new/f.rs");
         assert_eq!(commits[0].sha, "d4d4d4d");
         assert_eq!(commits[1].sha, "e5e5e5e");
         assert_eq!(
@@ -770,8 +782,9 @@ mod tests {
     }
 
     #[test]
-    fn group_by_depth_counts_a_commit_once_per_prefix() {
-        let commits = parse_numstat_log(&numstat_fixture());
+    fn group_paths_counts_a_commit_once_per_prefix() {
+        let commits = classified(&numstat_fixture());
+        let all = KindSet::parse("all").unwrap();
         let summed = |stats: Vec<PathStat>| -> Vec<(String, u64, u32)> {
             stats
                 .into_iter()
@@ -779,20 +792,15 @@ mod tests {
                 .collect()
         };
         assert_eq!(
-            summed(group_by_depth(&commits, 1)),
-            vec![
-                ("a".to_string(), 21, 2),
-                ("README.md".to_string(), 7, 1),
-                ("b".to_string(), 0, 1),
-            ]
+            summed(group_paths(&commits, all, 1)),
+            vec![("a".to_string(), 21, 2), ("README.md".to_string(), 7, 1),]
         );
         assert_eq!(
-            summed(group_by_depth(&commits, 2)),
+            summed(group_paths(&commits, all, 2)),
             vec![
                 ("a/b".to_string(), 14, 2),
                 ("README.md".to_string(), 7, 1),
                 ("a/c".to_string(), 7, 1),
-                ("b/logo.png".to_string(), 0, 1),
             ]
         );
         // A group is a file exactly when a file's path is its own prefix.
@@ -800,15 +808,154 @@ mod tests {
             stats.into_iter().map(|s| (s.path, s.is_file)).collect()
         };
         assert_eq!(
-            files(group_by_depth(&commits, 1)),
+            files(group_paths(&commits, all, 1)),
+            vec![("a".to_string(), false), ("README.md".to_string(), true),]
+        );
+        assert!(files(group_paths(&commits, all, 2)).contains(&("a/b".to_string(), false)));
+        // A binary file's lines count nothing, so its prefix has no row.
+        assert!(
+            !files(group_paths(&commits, all, 2))
+                .iter()
+                .any(|(p, _)| p == "b/logo.png")
+        );
+    }
+
+    /// `records` parsed and classified by the built-in patterns.
+    fn classified(records: &[String]) -> Vec<CommitFiles> {
+        classify_commits(parse_numstat_log(records), &LineKinds::defaults())
+    }
+
+    fn file(path: &str, kind: LineKind, added: u64, deleted: u64) -> FileLines {
+        FileLines {
+            path: path.to_string(),
+            kind,
+            added,
+            deleted,
+        }
+    }
+
+    fn classified_fixture() -> Vec<CommitFiles> {
+        use LineKind::*;
+        vec![
+            CommitFiles {
+                sha: "aaa1111".into(),
+                day: "2026-10-29".into(),
+                files: vec![
+                    file("src/a/x.rs", Source, 10, 2),
+                    file("src/a/x_test.rs", Tests, 4, 0),
+                    file("data/big.json", Data, 500, 100),
+                ],
+            },
+            CommitFiles {
+                sha: "bbb2222".into(),
+                day: "2026-10-29".into(),
+                files: vec![file("README.md", Docs, 7, 1)],
+            },
+            CommitFiles {
+                sha: "ccc3333".into(),
+                day: "2026-10-28".into(),
+                files: vec![
+                    file("src/b.rs", Source, 3, 3),
+                    file("tests/t.rs", Tests, 1, 1),
+                    file("src/logo.png", Source, 0, 0),
+                ],
+            },
+        ]
+    }
+
+    #[test]
+    fn commit_lines_counts_only_the_kinds_held_and_drops_a_commit_with_none() {
+        let code = KindSet::parse("code").unwrap();
+        let lines = commit_lines(&classified_fixture(), code);
+        assert_eq!(
+            lines
+                .iter()
+                .map(|c| (c.sha.as_str(), c.added, c.deleted))
+                .collect::<Vec<_>>(),
+            vec![("aaa1111", 14, 2), ("ccc3333", 4, 4)],
+        );
+        let docs = commit_lines(&classified_fixture(), KindSet::parse("docs").unwrap());
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].sha, "bbb2222");
+    }
+
+    #[test]
+    fn left_out_sums_the_kinds_outside_the_set() {
+        let code = KindSet::parse("code").unwrap();
+        assert_eq!(
+            left_out(&classified_fixture(), code),
+            vec![(LineKind::Data, 600), (LineKind::Docs, 8)],
+        );
+        assert!(left_out(&classified_fixture(), KindSet::parse("all").unwrap()).is_empty());
+    }
+
+    #[test]
+    fn group_paths_sums_counted_lines_per_prefix() {
+        let code = KindSet::parse("code").unwrap();
+        let summed = |stats: Vec<PathStat>| -> Vec<(String, u64, u32, bool)> {
+            stats
+                .into_iter()
+                .map(|s| (s.path, s.added + s.deleted, s.commits, s.is_file))
+                .collect()
+        };
+        assert_eq!(
+            summed(group_paths(&classified_fixture(), code, 1)),
             vec![
-                ("a".to_string(), false),
-                ("README.md".to_string(), true),
-                ("b".to_string(), false),
+                ("src".to_string(), 22, 2, false),
+                ("tests".to_string(), 2, 1, false),
             ]
         );
-        assert!(files(group_by_depth(&commits, 2)).contains(&("b/logo.png".to_string(), true)));
-        assert!(files(group_by_depth(&commits, 2)).contains(&("a/b".to_string(), false)));
+        assert_eq!(
+            summed(group_paths(&classified_fixture(), code, 2)),
+            vec![
+                ("src/a".to_string(), 16, 1, false),
+                ("src/b.rs".to_string(), 6, 1, true),
+                ("tests/t.rs".to_string(), 2, 1, true),
+            ]
+        );
+        assert_eq!(
+            summed(group_paths(
+                &classified_fixture(),
+                KindSet::parse("all").unwrap(),
+                1
+            )),
+            vec![
+                ("data".to_string(), 600, 1, false),
+                ("src".to_string(), 22, 2, false),
+                ("README.md".to_string(), 8, 1, true),
+                ("tests".to_string(), 2, 1, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_classified_read_classifies_a_real_history() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        GitFixture::init(root);
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        std::fs::write(root.join("main.rs"), "a\nb\n").unwrap();
+        std::fs::write(root.join("tests/t.rs"), "c\n").unwrap();
+        std::fs::write(root.join("notes.md"), "d\n").unwrap();
+        git(root, &["add", "-A"]);
+        git(root, &["commit", "-q", "-m", "first"]);
+        let commits = numstat_files_in(root, &Window::last_days(1), None, &LineKinds::defaults())
+            .expect("classified read");
+        assert_eq!(commits.len(), 1);
+        let mut kinds: Vec<(String, LineKind, u64)> = commits[0]
+            .files
+            .iter()
+            .map(|f| (f.path.clone(), f.kind, f.added))
+            .collect();
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            vec![
+                ("main.rs".to_string(), LineKind::Source, 2),
+                ("notes.md".to_string(), LineKind::Docs, 1),
+                ("tests/t.rs".to_string(), LineKind::Tests, 1),
+            ]
+        );
     }
 
     #[test]
@@ -826,29 +973,43 @@ mod tests {
         git(root, &["add", "-A"]);
         git(root, &["commit", "-q", "-m", "awkward"]);
 
-        let paths = numstat_by_path(root, 1, Some("dir"), 2).expect("by path");
-        let moved = paths.iter().find(|p| p.path == "dir/new").expect("dir/new");
-        assert_eq!((moved.added, moved.deleted, moved.commits), (0, 0, 1));
+        let all = KindSet::parse("all").unwrap();
+        let window = Window::last_days(1);
+        let kinds = LineKinds::defaults();
+        let under_dir = numstat_files_in(root, &window, Some("dir"), &kinds).expect("under dir");
+        // The move is read under where the file ended up, and changed no line.
+        let moved: Vec<&FileLines> = under_dir
+            .iter()
+            .flat_map(|commit| &commit.files)
+            .filter(|file| file.path == "dir/new/f.txt")
+            .collect();
+        assert_eq!(moved.len(), 1);
+        assert_eq!((moved[0].added, moved[0].deleted), (0, 0));
+        let paths = group_paths(&under_dir, all, 2);
+        assert!(paths.iter().any(|p| p.path == "dir/old"), "{paths:?}");
         assert!(
             paths.iter().any(|p| p.path == "dir/qu\"ote é.txt"),
             "{paths:?}"
         );
 
-        let days = numstat_by_day(root, 1, None).expect("by day");
+        let every = numstat_files_in(root, &window, None, &kinds).expect("every commit");
+        // Every commit of the window is read, the one that changed no line too.
+        assert_eq!(every.len(), 4);
+        let lines = commit_lines(&every, all);
+        let days = day_stats(&lines);
         assert_eq!(days.len(), 1);
-        assert_eq!(days[0].commits, 4);
+        assert_eq!(days[0].commits, 3);
         assert_eq!(days[0].added, 6);
         // The day carries its commits, newest first, as `git log` spells them.
         let head = git::listing(root, &["log", "-1", "--format=%h"]).expect("head sha");
-        assert_eq!(days[0].shas.len(), 4);
+        assert_eq!(days[0].shas.len(), 3);
         assert_eq!(days[0].shas[0], head[0].trim());
-        let sized = numstat_by_commit(root, 1, None).expect("by commit");
         // `move` changed no lines and has no entry; the rest read newest first.
-        assert_eq!(sized.len(), 3);
-        assert_eq!(sized[0].0, head[0].trim());
-        assert_eq!(sized[0].1, 1);
-        assert_eq!(sized[1].1, 4);
-        assert_eq!(sized[2].1, 1);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].sha, head[0].trim());
+        assert_eq!(lines[0].lines(), 1);
+        assert_eq!(lines[1].lines(), 4);
+        assert_eq!(lines[2].lines(), 1);
     }
 
     #[test]
@@ -887,21 +1048,18 @@ mod tests {
     }
 
     #[test]
-    fn the_day_forms_read_what_their_windowed_forms_read() {
+    fn a_days_window_reads_what_its_absolute_window_reads() {
         let repo = init_repo_with_commits(&["one", "two"]);
         let root = repo.path();
         let window = Window::last_days(1);
+        let open = Window {
+            since: window.since.clone(),
+            until: None,
+        };
+        let kinds = LineKinds::defaults();
         assert_eq!(
-            numstat_by_day(root, 1, None).unwrap(),
-            numstat_by_day_in(root, &window, None).unwrap()
-        );
-        assert_eq!(
-            numstat_by_commit(root, 1, None).unwrap(),
-            numstat_by_commit_in(root, &window, None).unwrap()
-        );
-        assert_eq!(
-            numstat_by_path(root, 1, None, 1).unwrap(),
-            numstat_by_path_in(root, &window, None, 1).unwrap()
+            numstat_files_in(root, &window, None, &kinds).unwrap(),
+            numstat_files_in(root, &open, None, &kinds).unwrap()
         );
         let windowed = log(LogOptions {
             project: Some(root.to_path_buf()),

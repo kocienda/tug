@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 chrono.workspace = true
+glob.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 dirs.workspace = true

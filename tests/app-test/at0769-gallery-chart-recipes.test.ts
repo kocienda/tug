@@ -6,7 +6,7 @@
  * A session card is bound to it beside a `gallery-chart-recipes` card, so the
  * card's project is the repository, and this holds:
  *
- *  - Eighteen sections appear and none is left pending.
+ *  - Twenty sections appear and none is left pending.
  *  - The nine recipes that read git, all of which have data in the repository,
  *    are `rendered`.
  *  - Every other section is `rendered` or `no-data`, since `gaps` reads the
@@ -35,7 +35,7 @@ import { STUB_TRANSCRIPT_DIR_ENV, bindStreamingStubs, stubDirectory } from "./st
 
 const TEST_NAME = "at0769-gallery-chart-recipes";
 const CARD = "at0622-c1";
-const SECTIONS = 18;
+const SECTIONS = 20;
 const COMMIT_RECIPES = [
   "commits",
   "churn",

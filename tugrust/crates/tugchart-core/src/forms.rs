@@ -318,7 +318,10 @@ fn label(value: &Value) -> Value {
 /// form does not own: title, unit, format, annotations. `bar`, `line`, `area`
 /// and `heat` hold the same data, so any of them becomes any other, except
 /// that `heat` draws one row and so refuses a chart of several series.
-/// Stacking survives between `bar` and `area`.
+/// Stacking survives between `bar` and `area`, except that an area of signed
+/// series is never stacked: a stacked bar draws negative parts below zero,
+/// but a stacked area would sum them into one band, so such an area fills
+/// each series from the zero line instead.
 pub fn reform(spec: &mut Value, form: &str) -> Result<(), String> {
     let Some(obj) = spec.as_object_mut() else {
         return Err("the chart is not an object".to_string());
@@ -360,6 +363,11 @@ pub fn reform(spec: &mut Value, form: &str) -> Result<(), String> {
         ));
     }
     let stacked = obj.get("layout").and_then(Value::as_str) == Some("stacked");
+    let signed = series.iter().any(|s| {
+        s.get("values")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|v| v.as_f64().is_some_and(|n| n < 0.0)))
+    });
     for key in ["categories", "x", "series", "values", "orient", "layout"] {
         obj.remove(key);
     }
@@ -387,7 +395,7 @@ pub fn reform(spec: &mut Value, form: &str) -> Result<(), String> {
         _ => {
             put("x", Value::Array(labels));
             put("series", Value::Array(series));
-            if form == "area" && stacked {
+            if form == "area" && stacked && !signed {
                 put("layout", json!("stacked"));
             }
         }
@@ -538,6 +546,29 @@ mod tests {
         reform(&mut line, "line").unwrap();
         assert!(line.get("layout").is_none());
         assert_eq!(line["series"], bar["series"]);
+        assert_valid(&line);
+    }
+
+    #[test]
+    fn a_stacked_bar_of_signed_series_never_becomes_a_stacked_area() {
+        let bar = json!({
+            "tugchart": 1, "form": "bar", "layout": "stacked", "title": "t",
+            "categories": ["a", "b"],
+            "series": [
+                { "name": "added", "values": [420, 910] },
+                { "name": "removed", "values": [-150, -380] },
+            ],
+        });
+        let mut area = bar.clone();
+        reform(&mut area, "area").unwrap();
+        assert!(area.get("layout").is_none(), "{area}");
+        assert_eq!(area["series"], bar["series"]);
+        assert_valid(&area);
+
+        let mut line = bar.clone();
+        reform(&mut line, "line").unwrap();
+        assert_eq!(line["form"], "line");
+        assert!(line.get("layout").is_none());
         assert_valid(&line);
     }
 

@@ -18,7 +18,7 @@ use crate::context::{
 use crate::members::{
     FactKind, Member, MemberKey, MemberTable, SourceArgs, stamp_source, until_for,
 };
-use crate::refs::{RefBudget, commit_ref, is_sha, set_slots};
+use crate::refs::{RefBudget, command_ref, commit_ref, is_sha, one_line, set_slots};
 
 /// How many newest runs per suite `test last --chart` reads.
 pub const RUNS_PER_SUITE: usize = 30;
@@ -37,6 +37,12 @@ fn base_root(ctx: &RecipeContext) -> String {
 fn no_apptest_runs(base_root: &str) -> RecipeOutcome {
     RecipeOutcome::NoData {
         summary: format!("no recorded app-test runs for {base_root}"),
+    }
+}
+
+fn no_suite_runs(base_root: &str) -> RecipeOutcome {
+    RecipeOutcome::NoData {
+        summary: format!("no recorded unit-suite runs for {base_root}"),
     }
 }
 
@@ -192,6 +198,87 @@ pub fn file_outcomes(
     ))
 }
 
+/// Each suite's recent runs as a `dots` chart: a row per suite in order of
+/// its newest run, at most the chart's row limit, each row its newest
+/// [`RUNS_PER_FILE`] runs oldest left, `PASS` good, `FAIL` bad, anything
+/// else neutral. `runs` are newest first, as the ledger answers. Each row
+/// links the command its newest run ran, and each dot the commit its run
+/// stood on when the recorded sha is one. The members mirror
+/// [`file_outcomes`]: a row is its runs newest first and a dot its one run,
+/// each a run fact. `None` with no run.
+pub fn suite_outcomes(runs: &[SuiteRun]) -> Option<(Value, MemberTable)> {
+    let mut budget = RefBudget::new();
+    let mut members = MemberTable::default();
+    let suites = suite_names(runs);
+    let rows: Vec<Value> = suites
+        .iter()
+        .take(MAX_ROWS)
+        .enumerate()
+        .map(|(row, suite)| {
+            let mine: Vec<&SuiteRun> = runs
+                .iter()
+                .filter(|r| r.suite == *suite)
+                .take(RUNS_PER_FILE)
+                .collect();
+            let run_member = |r: &SuiteRun| {
+                Member::fact(
+                    FactKind::Run,
+                    is_sha(&r.head_sha).then(|| commit_ref(&r.head_sha)),
+                    json!({
+                        "status": r.verdict,
+                        "ended_at": r.ended_at,
+                        "secs": r.wall_secs.round() as i64,
+                        "passed": (r.tests - r.failed - r.skipped).max(0),
+                        "total": r.tests,
+                        "head_sha": r.head_sha,
+                    }),
+                )
+            };
+            members.set(MemberKey::Row(row), mine.iter().map(|r| run_member(r)).collect());
+            for (item, r) in mine.iter().rev().enumerate() {
+                members.set(MemberKey::Item { row, item }, vec![run_member(r)]);
+            }
+            let items: Vec<&str> = mine
+                .iter()
+                .rev()
+                .map(|r| match r.verdict.as_str() {
+                    "PASS" => "good",
+                    "FAIL" => "bad",
+                    _ => "neutral",
+                })
+                .collect();
+            let command = command_ref(&one_line(&mine[0].command));
+            let row_ref = set_slots("command", vec![vec![command]], &mut budget).remove(0);
+            let dots: Vec<Vec<String>> = mine
+                .iter()
+                .rev()
+                .map(|r| {
+                    if is_sha(&r.head_sha) {
+                        vec![commit_ref(&r.head_sha)]
+                    } else {
+                        Vec::new()
+                    }
+                })
+                .collect();
+            let refs = set_slots("commit", dots, &mut budget);
+            json!({ "label": suite, "items": items, "ref": row_ref, "refs": refs })
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    Some((
+        json!({
+            "tugchart": 1,
+            "form": "dots",
+            "title": "Unit-suite history",
+            "subtitle": format!("newest {RUNS_PER_FILE} runs per suite, oldest left"),
+            "rows": rows,
+        }),
+        members,
+    ))
+}
+
 /// The clause of a summary line naming every file `file_outcomes` leaves off
 /// the chart: those with no runs, and those past the row limit. Empty when the
 /// chart carries every file.
@@ -261,6 +348,45 @@ pub(crate) fn test_history(
         "{plotted} of {} file(s) with recorded runs for {base}, newest {RUNS_PER_FILE} each{}",
         files.len(),
         dropped_files(&rows)
+    );
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members,
+    })
+}
+
+pub(crate) fn suite_history(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+) -> Result<RecipeOutcome, RecipeError> {
+    let base = base_root(ctx);
+    if !ctx.test_ledger.exists() {
+        return Ok(no_suite_runs(&base));
+    }
+    let conn = test_ledger::open_ledger(&ctx.test_ledger).map_err(ledger_error)?;
+    // A source's `until` re-reads the runs the chart drew.
+    let until_secs = args.until.as_deref().and_then(|until| {
+        chrono::DateTime::parse_from_rfc3339(until)
+            .ok()
+            .map(|at| at.timestamp())
+    });
+    let runs = test_ledger::recent_runs_until(&conn, &base, None, RUNS_PER_FILE, until_secs)
+        .map_err(ledger_error)?;
+    let Some((mut spec, members)) = suite_outcomes(&runs) else {
+        return Ok(no_suite_runs(&base));
+    };
+    apply_title(&mut spec, args);
+    stamp_source(&mut spec, "suite-history", SourceArgs::until(&until_for(args)));
+    let plotted = spec["rows"].as_array().map_or(0, Vec::len);
+    let suites = suite_names(&runs).len();
+    let cut = if suites > plotted {
+        format!("; past the {MAX_ROWS}-row limit: {} suite(s)", suites - plotted)
+    } else {
+        String::new()
+    };
+    let summary = format!(
+        "{plotted} suite(s) with recorded runs for {base}, newest {RUNS_PER_FILE} each{cut}"
     );
     Ok(RecipeOutcome::Chart {
         summary,
@@ -374,6 +500,105 @@ mod unit {
             RecipeOutcome::NoData { .. }
         ));
         assert!(!ctx.apptest_ledger.exists());
+    }
+
+    #[test]
+    fn suite_history_over_a_missing_ledger_has_no_data_and_stays_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = context_at(dir.path());
+        let RecipeOutcome::NoData { summary } =
+            run_recipe("suite-history", &ctx, &RecipeArgs::default())
+        else {
+            panic!("a missing ledger drew a chart");
+        };
+        assert!(summary.starts_with("no recorded unit-suite runs for"), "{summary}");
+        assert!(!ctx.test_ledger.exists());
+    }
+
+    #[test]
+    fn suite_history_reads_the_recorded_runs_and_stamps_its_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = context_at(dir.path());
+        let root = test_ledger::run_root_for(&ctx.repo_root);
+        let mut conn = test_ledger::open_ledger(&ctx.test_ledger).unwrap();
+        for (at, suite) in [(100, "rust"), (200, "tugdeck")] {
+            let run = test_ledger::TestRun {
+                started_at: at - 10,
+                ended_at: at,
+                run_root: root.to_string_lossy().into_owned(),
+                branch: "main".into(),
+                head_sha: "abc1234".into(),
+                dirty: false,
+                suite: suite.into(),
+                session_id: None,
+                tool_use_id: None,
+                command: format!("just test-{suite}"),
+                exit_code: 0,
+                wall_secs: 10.0,
+            };
+            test_ledger::record_run(&mut conn, &run, None).unwrap();
+        }
+        drop(conn);
+        let RecipeOutcome::Chart { spec, summary, .. } =
+            run_recipe("suite-history", &ctx, &RecipeArgs::default())
+        else {
+            panic!("suite-history drew nothing");
+        };
+        assert_source(&spec, "suite-history");
+        assert_eq!(spec["rows"].as_array().unwrap().len(), 2);
+        assert!(summary.starts_with("2 suite(s)"), "{summary}");
+    }
+
+    /// A run of `suite` with a real sha, failing when `red`.
+    fn suite_run(suite: &str, id: i64, red: bool, sha: &str) -> SuiteRun {
+        SuiteRun {
+            head_sha: sha.to_string(),
+            command: format!("just  test-{suite}\n --fast"),
+            verdict: if red { "FAIL" } else { "PASS" }.to_string(),
+            tests: 10,
+            failed: if red { 2 } else { 0 },
+            skipped: 1,
+            wall_secs: 12.6,
+            ..run(suite, id, 0.0)
+        }
+    }
+
+    #[test]
+    fn suite_outcomes_read_each_suite_oldest_left_with_runs_as_facts() {
+        // Newest first, as the ledger answers.
+        let runs = [
+            suite_run("rust", 4, false, "abc1234"),
+            suite_run("tugdeck", 3, true, "def5678"),
+            suite_run("rust", 2, true, "placeholder"),
+            suite_run("tugdeck", 1, false, "def5678"),
+        ];
+        let (spec, members) = suite_outcomes(&runs).unwrap();
+        assert_valid(&spec);
+        assert_eq!(spec["title"], "Unit-suite history");
+        let rows = spec["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["label"], "rust");
+        assert_eq!(rows[0]["items"], json!(["bad", "good"]));
+        assert_eq!(rows[1]["items"], json!(["good", "bad"]));
+        // The row links its newest command, on one line; a dot links its
+        // commit only where the sha is one.
+        assert_eq!(rows[0]["ref"], "command:just test-rust --fast");
+        assert_eq!(rows[0]["refs"], json!([null, "commit:abc1234"]));
+        // A row is its runs newest first; a dot is its one run.
+        let row = members.get(MemberKey::Row(0));
+        assert_eq!(row.len(), 2);
+        assert!(row.iter().all(|m| m.fact_kind == Some(FactKind::Run)));
+        assert_eq!(row[0].r#ref.as_deref(), Some("commit:abc1234"));
+        let oldest = &members.get(MemberKey::Item { row: 0, item: 0 })[0];
+        assert_eq!(oldest.r#ref, None);
+        assert_eq!(
+            oldest.facts,
+            Some(json!({
+                "status": "FAIL", "ended_at": 2, "secs": 13, "passed": 7,
+                "total": 10, "head_sha": "placeholder",
+            }))
+        );
+        assert!(suite_outcomes(&[]).is_none());
     }
 
     fn run(suite: &str, id: i64, secs: f64) -> SuiteRun {

@@ -47,6 +47,21 @@ pub fn command_ref(command: &str) -> String {
     format!("command:{command}")
 }
 
+/// The most of a command a `command:` ref carries.
+const ONE_LINE_KEPT: usize = 512;
+
+/// `command` as one line for a ref: every run of whitespace, newlines
+/// included, is one space, and at most the first 512 characters are kept.
+pub fn one_line(command: &str) -> String {
+    command
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(ONE_LINE_KEPT)
+        .collect()
+}
+
 /// An arc ref, `arc:` + the arc's name.
 pub fn arc_ref(name: &str) -> String {
     format!("arc:{name}")
@@ -122,34 +137,32 @@ impl RefBudget {
 /// a bucket. The budget is spent from the last bucket backwards, so the
 /// newest buckets keep their members.
 pub fn set_slots(kind: &str, buckets: Vec<Vec<String>>, budget: &mut RefBudget) -> Vec<Value> {
+    report_slots(kind, buckets, budget, false)
+}
+
+/// [`set_slots`] for a row that should open a report rather than be a link.
+/// The deck opens a report only for a set or, when the spec names its
+/// `source`, a count form; one ref string is a link. So when `sourced`, a
+/// bucket of exactly one member is written `{kind, count: 1}`, and a press
+/// asks the recipe for that one member as it would for many.
+pub fn report_slots(
+    kind: &str,
+    buckets: Vec<Vec<String>>,
+    budget: &mut RefBudget,
+    sourced: bool,
+) -> Vec<Value> {
     let mut slots = vec![Value::Null; buckets.len()];
     for (i, members) in buckets.into_iter().enumerate().rev() {
         let members = dedup(members);
         slots[i] = match members.len() {
             0 => Value::Null,
+            1 if sourced => json!({ "kind": kind, "count": 1 }),
             n if n > MAX_SET || !budget.take(n) => json!({ "kind": kind, "count": n }),
             1 => Value::String(members.into_iter().next().unwrap_or_default()),
             _ => Value::Array(members.into_iter().map(Value::String).collect()),
         };
     }
     slots
-}
-
-/// One slot per sample, parallel to a histogram's `values`: each sample's
-/// own ref while the budget lasts, and `null` after it. The samples come
-/// newest first, so it is the oldest that lose their refs, and their bins
-/// become counts.
-pub fn sample_refs(samples: Vec<String>, budget: &mut RefBudget) -> Vec<Value> {
-    samples
-        .into_iter()
-        .map(|sample| {
-            if budget.take(1) {
-                Value::String(sample)
-            } else {
-                Value::Null
-            }
-        })
-        .collect()
 }
 
 fn dedup(members: Vec<String>) -> Vec<String> {
@@ -246,15 +259,22 @@ mod tests {
     }
 
     #[test]
-    fn samples_keep_their_refs_until_the_budget_runs_out() {
+    fn a_sourced_report_slot_writes_one_member_as_a_count_of_one() {
+        let buckets = || {
+            vec![
+                vec!["file:a.rs".to_string()],
+                vec!["file:b.rs".into(), "file:c.rs".into()],
+                vec![],
+            ]
+        };
         let mut budget = RefBudget::new();
-        let slots = sample_refs(shas(MAX_REFS + 2, "s"), &mut budget);
-        assert_eq!(slots.len(), MAX_REFS + 2);
-        assert_eq!(slots[0], json!("commit:s0000"));
-        assert!(slots[MAX_REFS - 1].is_string());
-        assert_eq!(slots[MAX_REFS], Value::Null);
-        assert_eq!(slots[MAX_REFS + 1], Value::Null);
-        assert_eq!(budget.left(), 0);
+        let slots = report_slots("file", buckets(), &mut budget, true);
+        assert_eq!(slots[0], json!({ "kind": "file", "count": 1 }));
+        assert_eq!(slots[1], json!(["file:b.rs", "file:c.rs"]));
+        assert_eq!(slots[2], Value::Null);
+        assert_eq!(budget.left(), MAX_REFS - 2);
+        let unsourced = report_slots("file", buckets(), &mut RefBudget::new(), false);
+        assert_eq!(unsourced[0], json!("file:a.rs"));
     }
 
     #[test]
@@ -272,6 +292,8 @@ mod tests {
         assert_eq!(path_ref("src/app.ts", true), "file:src/app.ts");
         assert_eq!(path_ref("src", false), "dir:src");
         assert_eq!(command_ref("cargo build"), "command:cargo build");
+        assert_eq!(one_line("cd web &&\n  bun test\tsrc"), "cd web && bun test src");
+        assert_eq!(one_line(&"x".repeat(600)).len(), 512);
         assert!(is_sha("abc1234"));
         assert!(!is_sha("abc"));
         assert!(!is_sha("unknown"));

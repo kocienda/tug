@@ -13,6 +13,7 @@ pub mod contention;
 pub mod git;
 pub mod hunks;
 mod ledger;
+pub mod line_kinds;
 pub mod place;
 pub mod preflight;
 pub mod shell_ops;
@@ -37,12 +38,12 @@ pub use hunks::{
     HUNK_DIFF_FLAGS, Hunk, HunkDrift, content_hash, file_diff_hunks, file_header, file_hunks,
     filtered_patch, hunk_id, parse_hunks,
 };
+pub use line_kinds::{KindSet, LineKind, LineKinds};
 pub use place::{OwnerPlace, owner_place};
 pub use preflight::{
-    CommitLines, DayStat, DiffOptions, DiffReport, LogEntry, LogOptions, LogReport, PathStat,
-    PreflightOptions, PreflightReport, Window, day_stats, diff, log, numstat_by_commit,
-    numstat_by_commit_in, numstat_by_day, numstat_by_day_in, numstat_by_path, numstat_by_path_in,
-    numstat_commits_in, path_prefix, preflight,
+    CommitFiles, CommitLines, DayStat, DiffOptions, DiffReport, FileLines, LogEntry, LogOptions,
+    LogReport, PathStat, PreflightOptions, PreflightReport, Window, commit_lines, day_stats, diff,
+    group_paths, left_out, log, numstat_files_in, path_prefix, preflight,
 };
 pub use shell_ops::{DeclaredKind, DeclaredOp, ParseOutcome, parse_shell_ops};
 pub use survival::{

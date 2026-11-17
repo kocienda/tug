@@ -77,6 +77,16 @@
         "takes": "text"
       },
       {
+        "flag": "lines",
+        "help": "Which kinds of file to count (default code: source and tests)",
+        "takes": "code or all or source or tests or data or docs"
+      },
+      {
+        "flag": "split",
+        "help": "One series per kind of file: source, tests, data, docs",
+        "takes": "nothing"
+      },
+      {
         "flag": "form",
         "help": "Draw the same data in this form, in place of the recipe's own",
         "takes": "bar or line or area"
@@ -88,12 +98,21 @@
       }
     ],
     "data": "git log --numstat, per day",
-    "form": "stacked area",
+    "form": "stacked bar",
     "group": "Activity",
     "name": "churn",
     "question": "How much changed here, over time?",
     "sample": {
-      "form": "area",
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "bar",
       "format": "count",
       "layout": "stacked",
       "series": [
@@ -114,30 +133,21 @@
           "name": "removed",
           "role": "bad",
           "values": [
-            150,
-            380,
-            90,
-            720,
-            310,
-            10,
+            -150,
+            -380,
+            -90,
+            -720,
+            -310,
+            -10,
             0
           ]
         }
       ],
       "title": "Lines added and removed per day",
       "tugchart": 1,
-      "unit": "lines",
-      "x": [
-        "Mon",
-        "Tue",
-        "Wed",
-        "Thu",
-        "Fri",
-        "Sat",
-        "Sun"
-      ]
+      "unit": "lines"
     },
-    "tells": "Lines added and removed per day."
+    "tells": "Lines added and removed per day, either side of zero, and the net."
   },
   {
     "args": [
@@ -326,46 +336,50 @@
         "takes": "text"
       },
       {
+        "flag": "lines",
+        "help": "Which kinds of file to count (default code: source and tests)",
+        "takes": "code or all or source or tests or data or docs"
+      },
+      {
         "flag": "title",
         "help": "The chart's title, in place of the recipe's own",
         "takes": "text"
       }
     ],
     "data": "git log --numstat, per commit",
-    "form": "histogram",
+    "form": "binned bar (histogram)",
     "group": "Activity",
     "name": "commit-size",
     "question": "Does work land small or big?",
     "sample": {
-      "form": "histogram",
-      "format": "count",
+      "categories": [
+        "0–150",
+        "150–300",
+        "300–450",
+        "450–600",
+        "600–750",
+        "over 640"
+      ],
+      "form": "bar",
+      "format": "int",
+      "series": [
+        {
+          "name": "commits",
+          "values": [
+            9,
+            5,
+            2,
+            1,
+            1,
+            2
+          ]
+        }
+      ],
       "title": "Lines changed per commit",
       "tugchart": 1,
-      "unit": "lines changed",
-      "values": [
-        4,
-        8,
-        12,
-        12,
-        18,
-        20,
-        25,
-        30,
-        34,
-        40,
-        46,
-        55,
-        60,
-        75,
-        90,
-        120,
-        160,
-        240,
-        380,
-        640
-      ]
+      "unit": "commits"
     },
-    "tells": "How many lines each commit changed, leaving out the largest tenth."
+    "tells": "How many lines each commit changed, with the largest tenth in one last bin."
   },
   {
     "args": [
@@ -430,19 +444,79 @@
         "takes": "number"
       },
       {
+        "flag": "form",
+        "help": "Draw the same data in this form, in place of the recipe's own",
+        "takes": "bar or line or area"
+      },
+      {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the session ledger's turns",
+    "form": "bar",
+    "group": "Activity",
+    "name": "sessions",
+    "question": "How many sessions are at work each day?",
+    "sample": {
+      "categories": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "form": "bar",
+      "format": "int",
+      "series": [
+        {
+          "name": "sessions",
+          "values": [
+            3,
+            5,
+            4,
+            6,
+            4,
+            1,
+            0
+          ]
+        }
+      ],
+      "title": "Sessions per day",
+      "tugchart": 1,
+      "unit": "sessions"
+    },
+    "tells": "Distinct sessions that took a turn each day, across every model."
+  },
+  {
+    "args": [
+      {
+        "flag": "days",
+        "help": "Days of history to read, ending now (default 30)",
+        "takes": "number"
+      },
+      {
         "flag": "path",
         "help": "Only commits touching this path, relative to the repository root",
         "takes": "text"
       },
       {
         "flag": "depth",
-        "help": "Path components to group by (default 2)",
+        "help": "Path components to group by (default: deep enough that no directory holds over a third)",
         "takes": "number"
       },
       {
         "flag": "limit",
         "help": "Most rows to draw (default 10)",
         "takes": "number"
+      },
+      {
+        "flag": "lines",
+        "help": "Which kinds of file to count (default code: source and tests)",
+        "takes": "code or all or source or tests or data or docs"
       },
       {
         "flag": "title",
@@ -482,7 +556,7 @@
       "tugchart": 1,
       "unit": "lines changed"
     },
-    "tells": "The paths with the most lines changed."
+    "tells": "The paths with the most lines of code changed."
   },
   {
     "args": [
@@ -505,6 +579,11 @@
         "flag": "depth",
         "help": "Path components to group by (default 1)",
         "takes": "number"
+      },
+      {
+        "flag": "lines",
+        "help": "Which kinds of file to count (default code: source and tests)",
+        "takes": "code or all or source or tests or data or docs"
       },
       {
         "flag": "title",
@@ -568,6 +647,16 @@
       {
         "flag": "net",
         "help": "Lines added minus removed, in place of added plus removed",
+        "takes": "nothing"
+      },
+      {
+        "flag": "lines",
+        "help": "Which kinds of file to count (default code: source and tests)",
+        "takes": "code or all or source or tests or data or docs"
+      },
+      {
+        "flag": "split",
+        "help": "One series per kind of file: source, tests, data, docs",
         "takes": "nothing"
       },
       {
@@ -894,6 +983,65 @@
   {
     "args": [
       {
+        "flag": "title",
+        "help": "The chart's title, in place of the recipe's own",
+        "takes": "text"
+      }
+    ],
+    "data": "the unit-test ledger",
+    "form": "dots",
+    "group": "Tests",
+    "name": "suite-history",
+    "question": "Which unit suites have been red, and when?",
+    "sample": {
+      "form": "dots",
+      "rows": [
+        {
+          "items": [
+            "good",
+            "good",
+            "bad",
+            "good",
+            "good",
+            "good",
+            "good"
+          ],
+          "label": "rust"
+        },
+        {
+          "items": [
+            "good",
+            "good",
+            "good",
+            "good",
+            "bad",
+            "bad",
+            "good"
+          ],
+          "label": "tugdeck"
+        },
+        {
+          "items": [
+            "good",
+            "neutral",
+            "good",
+            "good",
+            "good",
+            "good",
+            "good"
+          ],
+          "label": "rust-slow"
+        }
+      ],
+      "subtitle": "newest 7 runs per suite, oldest left",
+      "title": "Unit-suite history",
+      "tugchart": 1
+    },
+    "tells": "Each unit-test suite's verdict, run by run."
+  },
+  {
+    "args": [
+      {
         "flag": "limit",
         "help": "Most rows to draw (default 12)",
         "takes": "number"
@@ -943,38 +1091,39 @@
       }
     ],
     "data": "the report-gaps record's call times",
-    "form": "histogram",
+    "form": "binned bar (histogram)",
     "group": "Telemetry",
     "name": "calls",
     "question": "How long do commands take?",
     "sample": {
-      "form": "histogram",
-      "format": "secs",
+      "categories": [
+        "0s–2s",
+        "2s–4s",
+        "4s–6s",
+        "6s–8s",
+        "8s–10s",
+        "10s–12s",
+        "12s–14s"
+      ],
+      "form": "bar",
+      "format": "int",
+      "series": [
+        {
+          "name": "calls",
+          "values": [
+            11,
+            3,
+            2,
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      ],
       "title": "Wall time of Bash calls",
       "tugchart": 1,
-      "unit": "wall time",
-      "values": [
-        0.1,
-        0.2,
-        0.2,
-        0.3,
-        0.4,
-        0.5,
-        0.6,
-        0.8,
-        1.1,
-        1.4,
-        1.8,
-        2.3,
-        2.9,
-        3.6,
-        4.5,
-        5.8,
-        7.2,
-        9.1,
-        11.5,
-        13.0
-      ]
+      "unit": "calls"
     },
     "tells": "How long Bash calls run, leaving out the longest tenth."
   },

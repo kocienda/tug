@@ -1,10 +1,11 @@
 //! The recipes over the session ledger: what each model family did per day,
 //! for the project they run in.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Days, Local, NaiveDate};
 use serde_json::{Value, json};
+use tugchanges_core::Window;
 use tugcore::session_usage::{DayUsage, SessionShare, usage_by_day};
 use tuggraphics::chart::format::Format;
 use tuggraphics::chart::spec::{MAX_LABEL, MAX_SERIES};
@@ -187,10 +188,7 @@ fn model_chart(
     measure: &Measure,
     subtitle: &str,
 ) -> Option<ModelChart> {
-    let back = u64::from(days.max(1)) - 1;
-    let first = today
-        .checked_sub_days(Days::new(back))
-        .unwrap_or(NaiveDate::MIN);
+    let first = first_day(today, days);
     let kept: Vec<&DayUsage> = usage
         .iter()
         .filter(|u| u.day >= first && (measure.read)(*u) > 0.0)
@@ -275,17 +273,11 @@ fn model_chart(
     })
 }
 
-fn answer(
-    ctx: &RecipeContext,
-    args: &RecipeArgs,
-    measure: &Measure,
-    note: &str,
-    recipe: &str,
-    kind: Option<&str>,
-) -> Result<RecipeOutcome, RecipeError> {
-    // The window is read as a day ending on `until`'s local date and the days
-    // back to `since`, so a re-run from a source covers the days the first
-    // run drew.
+/// The recipe's window, its label, and the days it covers as `days` ending
+/// on `today`. The window is read as a day ending on `until`'s local date
+/// and the days back to `since`, so a re-run from a source covers the days
+/// the first run drew.
+fn window_days(args: &RecipeArgs) -> (Window, String, NaiveDate, u32) {
     let window = window_for(args, DEFAULT_DAYS);
     let range = window_label(args, &window, DEFAULT_DAYS);
     let today = window
@@ -300,6 +292,26 @@ fn answer(
     let days = u32::try_from((today - since).num_days() + 1)
         .unwrap_or(1)
         .max(1);
+    (window, range, today, days)
+}
+
+/// The first day of the `days` ending on `today`.
+fn first_day(today: NaiveDate, days: u32) -> NaiveDate {
+    let back = u64::from(days.max(1)) - 1;
+    today
+        .checked_sub_days(Days::new(back))
+        .unwrap_or(NaiveDate::MIN)
+}
+
+fn answer(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+    measure: &Measure,
+    note: &str,
+    recipe: &str,
+    kind: Option<&str>,
+) -> Result<RecipeOutcome, RecipeError> {
+    let (window, range, today, days) = window_days(args);
     let usage = usage_by_day(&ctx.paths.sessions_db, &ctx.repo_root);
     let subtitle = format!("{range}{note}");
     let Some(mut chart) = model_chart(&usage, today, days, measure, &subtitle) else {
@@ -321,6 +333,120 @@ fn answer(
         (measure.total)(chart.total),
         chart.days,
         chart.families,
+        left_out_older(chart.left_out, "day"),
+    );
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec: chart.spec,
+        members: chart.members,
+    })
+}
+
+/// A drawn sessions chart, and what its summary line reports.
+struct SessionsChart {
+    spec: Value,
+    members: MemberTable,
+    days: usize,
+    left_out: usize,
+    /// Distinct sessions across the window.
+    sessions: usize,
+}
+
+/// The distinct sessions that took a turn each day of the `days` ending on
+/// `today`, across every model family, as a bar per day. A session that
+/// worked under two families on one day is one session that day. Each
+/// bar's members are its sessions, measured by the turns they took that
+/// day; an id the spec cannot name is counted and has no ref or member.
+/// `None` when no day of the window has a session.
+fn sessions_chart(
+    usage: &[DayUsage],
+    today: NaiveDate,
+    days: u32,
+    subtitle: &str,
+) -> Option<SessionsChart> {
+    let first = first_day(today, days);
+    let mut by_day: BTreeMap<NaiveDate, BTreeMap<String, i64>> = BTreeMap::new();
+    for u in usage.iter().filter(|u| u.day >= first && u.day <= today) {
+        let day = by_day.entry(u.day).or_default();
+        for id in &u.sessions {
+            day.entry(id.clone()).or_default();
+        }
+        for share in &u.by_session {
+            *day.entry(share.session.clone()).or_default() += share.turns;
+        }
+    }
+    by_day.retain(|_, sessions| !sessions.is_empty());
+    let (axis, left_out) = day_axis(by_day.keys().copied());
+    if axis.is_empty() {
+        return None;
+    }
+    let mut members = MemberTable::measured("turns", "int");
+    let mut buckets: Vec<Vec<String>> = Vec::with_capacity(axis.len());
+    let mut values: Vec<usize> = Vec::with_capacity(axis.len());
+    let mut distinct: BTreeSet<&str> = BTreeSet::new();
+    for (row, day) in axis.iter().enumerate() {
+        let Some(sessions) = by_day.get(day) else {
+            values.push(0);
+            buckets.push(Vec::new());
+            members.set(MemberKey::Row(row), Vec::new());
+            continue;
+        };
+        distinct.extend(sessions.keys().map(String::as_str));
+        values.push(sessions.len());
+        let mut named: Vec<(String, i64)> = sessions
+            .iter()
+            .filter_map(|(id, turns)| session_slot(id).map(|r| (r, *turns)))
+            .collect();
+        named.sort_by_key(|(_, turns)| std::cmp::Reverse(*turns));
+        buckets.push(named.iter().map(|(r, _)| r.clone()).collect());
+        members.set(
+            MemberKey::Row(row),
+            named
+                .into_iter()
+                .map(|(r, turns)| Member::of(r).measured(turns as f64))
+                .collect(),
+        );
+    }
+    let refs = set_slots("session", buckets, &mut RefBudget::new());
+    Some(SessionsChart {
+        days: axis.len(),
+        left_out,
+        sessions: distinct.len(),
+        members,
+        spec: json!({
+            "tugchart": 1,
+            "form": "bar",
+            "title": "Sessions per day",
+            "subtitle": clip_front(subtitle, MAX_LABEL),
+            "unit": "sessions",
+            "format": "int",
+            "categories": labels(&axis),
+            "series": [{ "name": "sessions", "values": values }],
+            "refs": refs,
+        }),
+    })
+}
+
+pub(crate) fn sessions(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+) -> Result<RecipeOutcome, RecipeError> {
+    let (window, range, today, days) = window_days(args);
+    let usage = usage_by_day(&ctx.paths.sessions_db, &ctx.repo_root);
+    let Some(mut chart) = sessions_chart(&usage, today, days, &range) else {
+        return Ok(RecipeOutcome::NoData {
+            summary: format!(
+                "no sessions in the {range} for {}",
+                ctx.repo_root.display()
+            ),
+        });
+    };
+    apply_title(&mut chart.spec, args);
+    stamp_source(&mut chart.spec, "sessions", SourceArgs::window(&window));
+    let summary = format!(
+        "{} session(s) over {} day(s), {range}{}",
+        chart.sessions,
+        chart.days,
         left_out_older(chart.left_out, "day"),
     );
     Ok(RecipeOutcome::Chart {
@@ -355,7 +481,7 @@ pub(crate) fn turns(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutc
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::test_support::{assert_valid, context_at};
+    use crate::context::test_support::{assert_source, assert_valid, context_at};
 
     fn date(day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 10, day).unwrap()
@@ -405,6 +531,74 @@ mod tests {
             })
             .collect();
         row
+    }
+
+    #[test]
+    fn sessions_count_each_session_once_a_day_and_measure_it_in_turns() {
+        let a = "048e4155-f644-46f7-a839-d22ac02a564f";
+        let b = "63bcd0c2-5d98-4e84-b88f-cdac1ed0f66f";
+        let rows = [
+            // `a` worked under two families on the 20th: one session.
+            shared(usage(20, "fable", 4), &[a]),
+            shared(usage(20, "opus", 6), &[a, b]),
+            // Nothing on the 21st; a scratch id on the 22nd is counted
+            // and named nowhere.
+            shared(usage(22, "opus", 2), &[b, "s1"]),
+        ];
+        let chart = sessions_chart(&rows, date(22), 30, "last 30 days").unwrap();
+        assert_valid(&chart.spec);
+        assert_eq!(chart.spec["categories"], json!(["2026-10-20", "2026-10-21", "2026-10-22"]));
+        assert_eq!(chart.spec["series"][0]["values"], json!([2, 0, 2]));
+        assert_eq!(chart.sessions, 3);
+        let turns = |row: usize| -> Vec<(Option<String>, f64)> {
+            chart
+                .members
+                .get(MemberKey::Row(row))
+                .iter()
+                .map(|m| (m.r#ref.clone(), m.measure.unwrap()))
+                .collect()
+        };
+        // 4 + 3 turns for `a`, 3 for `b`: the day's 10 turns.
+        assert_eq!(
+            turns(0),
+            [
+                (Some("session:048e4155".to_string()), 7.0),
+                (Some("session:63bcd0c2".to_string()), 3.0),
+            ]
+        );
+        assert!(turns(1).is_empty());
+        assert_eq!(turns(2), [(Some("session:63bcd0c2".to_string()), 1.0)]);
+        assert_eq!(
+            chart.spec["refs"],
+            json!([["session:048e4155", "session:63bcd0c2"], null, "session:63bcd0c2"])
+        );
+        assert!(sessions_chart(&rows, date(10), 5, "").is_none());
+    }
+
+    #[test]
+    fn sessions_over_an_empty_ledger_has_no_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = context_at(dir.path());
+        let outcome = crate::find("sessions")
+            .unwrap()
+            .run(&ctx, &RecipeArgs::default())
+            .unwrap();
+        let RecipeOutcome::NoData { summary } = outcome else {
+            panic!("an empty ledger drew a chart");
+        };
+        assert!(summary.starts_with("no sessions in the"), "{summary}");
+    }
+
+    #[test]
+    fn a_sessions_chart_stamps_its_window() {
+        let rows = [shared(usage(20, "opus", 2), &["048e4155-f644-46f7-a839-d22ac02a564f"])];
+        let mut chart = sessions_chart(&rows, date(20), 30, "r").unwrap();
+        stamp_source(
+            &mut chart.spec,
+            "sessions",
+            SourceArgs::new().with("since", "2026-09-21").with("until", "2026-10-20T23:00:00Z"),
+        );
+        assert_source(&chart.spec, "sessions");
     }
 
     #[test]

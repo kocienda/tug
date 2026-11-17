@@ -78,6 +78,18 @@ const TITLE: Arg = Arg {
     kind: ArgKind::Str,
     help: "The chart's title, in place of the recipe's own",
 };
+/// `--lines` for a recipe that counts lines.
+const LINES: Arg = Arg {
+    flag: "lines",
+    kind: ArgKind::Choice(&["code", "all", "source", "tests", "data", "docs"]),
+    help: "Which kinds of file to count (default code: source and tests)",
+};
+/// `--split` for a line recipe that can draw each kind of file apart.
+const SPLIT: Arg = Arg {
+    flag: "split",
+    kind: ArgKind::Flag,
+    help: "One series per kind of file: source, tests, data, docs",
+};
 /// `--form` for a recipe whose chart is categories and series.
 const FORM_SERIES: Arg = Arg {
     flag: "form",
@@ -94,7 +106,7 @@ const FORM_ROW: Arg = Arg {
 /// The categories of a sample that covers days.
 const WEEK: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-pub static RECIPES: [Recipe; 18] = [
+pub static RECIPES: [Recipe; 20] = [
     Recipe {
         name: "commits",
         question: "How active has this been?",
@@ -126,19 +138,19 @@ pub static RECIPES: [Recipe; 18] = [
     Recipe {
         name: "churn",
         question: "How much changed here, over time?",
-        tells: "Lines added and removed per day.",
+        tells: "Lines added and removed per day, either side of zero, and the net.",
         group: "Activity",
-        form: "stacked area",
+        form: "stacked bar",
         data: "git log --numstat, per day",
-        args: &[DAYS, PATH, FORM_SERIES, TITLE],
+        args: &[DAYS, PATH, LINES, SPLIT, FORM_SERIES, TITLE],
         sample: || {
             json!({
-                "tugchart": 1, "form": "area", "layout": "stacked",
+                "tugchart": 1, "form": "bar", "layout": "stacked",
                 "title": "Lines added and removed per day", "unit": "lines", "format": "count",
-                "x": WEEK,
+                "categories": WEEK,
                 "series": [
                     { "name": "added", "values": [420, 910, 260, 1340, 700, 40, 0], "role": "good" },
-                    { "name": "removed", "values": [150, 380, 90, 720, 310, 10, 0], "role": "bad" },
+                    { "name": "removed", "values": [-150, -380, -90, -720, -310, -10, 0], "role": "bad" },
                 ],
             })
         },
@@ -193,19 +205,17 @@ pub static RECIPES: [Recipe; 18] = [
     Recipe {
         name: "commit-size",
         question: "Does work land small or big?",
-        tells: "How many lines each commit changed, leaving out the largest tenth.",
+        tells: "How many lines each commit changed, with the largest tenth in one last bin.",
         group: "Activity",
-        form: "histogram",
+        form: "binned bar (histogram)",
         data: "git log --numstat, per commit",
-        args: &[DAYS, PATH, TITLE],
+        args: &[DAYS, PATH, LINES, TITLE],
         sample: || {
             json!({
-                "tugchart": 1, "form": "histogram",
-                "title": "Lines changed per commit", "unit": "lines changed", "format": "count",
-                "values": [
-                    4, 8, 12, 12, 18, 20, 25, 30, 34, 40,
-                    46, 55, 60, 75, 90, 120, 160, 240, 380, 640,
-                ],
+                "tugchart": 1, "form": "bar",
+                "title": "Lines changed per commit", "unit": "commits", "format": "int",
+                "categories": ["0–150", "150–300", "300–450", "450–600", "600–750", "over 640"],
+                "series": [{ "name": "commits", "values": [9, 5, 2, 1, 1, 2] }],
             })
         },
         run: commits::commit_size,
@@ -229,9 +239,27 @@ pub static RECIPES: [Recipe; 18] = [
         run: commits::commit_days,
     },
     Recipe {
+        name: "sessions",
+        question: "How many sessions are at work each day?",
+        tells: "Distinct sessions that took a turn each day, across every model.",
+        group: "Activity",
+        form: "bar",
+        data: "the session ledger's turns",
+        args: &[DAYS, FORM_SERIES, TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "bar",
+                "title": "Sessions per day", "unit": "sessions", "format": "int",
+                "categories": WEEK,
+                "series": [{ "name": "sessions", "values": [3, 5, 4, 6, 4, 1, 0] }],
+            })
+        },
+        run: models::sessions,
+    },
+    Recipe {
         name: "hotspots",
         question: "Which files or directories change most?",
-        tells: "The paths with the most lines changed.",
+        tells: "The paths with the most lines of code changed.",
         group: "Changes",
         form: "horizontal bar",
         data: "git log --numstat, per path",
@@ -241,13 +269,14 @@ pub static RECIPES: [Recipe; 18] = [
             Arg {
                 flag: "depth",
                 kind: ArgKind::U32,
-                help: "Path components to group by (default 2)",
+                help: "Path components to group by (default: deep enough that no directory holds over a third)",
             },
             Arg {
                 flag: "limit",
                 kind: ArgKind::Usize,
                 help: "Most rows to draw (default 10)",
             },
+            LINES,
             TITLE,
         ],
         sample: || {
@@ -288,6 +317,7 @@ pub static RECIPES: [Recipe; 18] = [
                 kind: ArgKind::U32,
                 help: "Path components to group by (default 1)",
             },
+            LINES,
             TITLE,
         ],
         sample: || {
@@ -322,6 +352,8 @@ pub static RECIPES: [Recipe; 18] = [
                 kind: ArgKind::Flag,
                 help: "Lines added minus removed, in place of added plus removed",
             },
+            LINES,
+            SPLIT,
             FORM_SERIES,
             TITLE,
         ],
@@ -455,6 +487,27 @@ pub static RECIPES: [Recipe; 18] = [
         run: test_recipes::test_history,
     },
     Recipe {
+        name: "suite-history",
+        question: "Which unit suites have been red, and when?",
+        tells: "Each unit-test suite's verdict, run by run.",
+        group: "Tests",
+        form: "dots",
+        data: "the unit-test ledger",
+        args: &[TITLE],
+        sample: || {
+            json!({
+                "tugchart": 1, "form": "dots",
+                "title": "Unit-suite history", "subtitle": "newest 7 runs per suite, oldest left",
+                "rows": [
+                    { "label": "rust", "items": ["good", "good", "bad", "good", "good", "good", "good"] },
+                    { "label": "tugdeck", "items": ["good", "good", "good", "good", "bad", "bad", "good"] },
+                    { "label": "rust-slow", "items": ["good", "neutral", "good", "good", "good", "good", "good"] },
+                ],
+            })
+        },
+        run: test_recipes::suite_history,
+    },
+    Recipe {
         name: "gaps",
         question: "Which long commands report nothing?",
         tells: "Long commands that reported no progress.",
@@ -484,17 +537,15 @@ pub static RECIPES: [Recipe; 18] = [
         question: "How long do commands take?",
         tells: "How long Bash calls run, leaving out the longest tenth.",
         group: "Telemetry",
-        form: "histogram",
+        form: "binned bar (histogram)",
         data: "the report-gaps record's call times",
         args: &[TITLE],
         sample: || {
             json!({
-                "tugchart": 1, "form": "histogram",
-                "title": "Wall time of Bash calls", "unit": "wall time", "format": "secs",
-                "values": [
-                    0.1, 0.2, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.1, 1.4,
-                    1.8, 2.3, 2.9, 3.6, 4.5, 5.8, 7.2, 9.1, 11.5, 13.0,
-                ],
+                "tugchart": 1, "form": "bar",
+                "title": "Wall time of Bash calls", "unit": "calls", "format": "int",
+                "categories": ["0s–2s", "2s–4s", "4s–6s", "6s–8s", "8s–10s", "10s–12s", "12s–14s"],
+                "series": [{ "name": "calls", "values": [11, 3, 2, 1, 1, 1, 1] }],
             })
         },
         run: gaps::calls,
@@ -626,9 +677,11 @@ pub fn args_from_matches(recipe: &Recipe, m: &ArgMatches) -> RecipeArgs {
             "title" => out.title = m.get_one::<String>(arg.flag).cloned(),
             "by" => out.by = m.get_one::<String>(arg.flag).cloned(),
             "net" => out.net = m.get_flag(arg.flag),
+            "split" => out.split = m.get_flag(arg.flag),
             "depth" => out.depth = m.get_one::<u32>(arg.flag).copied(),
             "limit" => out.limit = m.get_one::<usize>(arg.flag).copied(),
             "kind" => out.kind = m.get_one::<String>(arg.flag).cloned(),
+            "lines" => out.lines = m.get_one::<String>(arg.flag).cloned(),
             "form" => out.form = m.get_one::<String>(arg.flag).cloned(),
             "name" | "files" => out.subjects = strings(arg, m),
             other => unreachable!("no RecipeArgs field reads --{other}"),
@@ -711,9 +764,11 @@ mod tests {
             "title" => args.title.as_deref() == Some("v"),
             "by" => args.by.as_deref() == Some("day"),
             "net" => args.net,
+            "split" => args.split,
             "depth" => args.depth == Some(7),
             "limit" => args.limit == Some(7),
             "kind" => args.kind.as_deref() == Some("output"),
+            "lines" => args.lines.as_deref() == Some("code"),
             "form" => matches!(args.form.as_deref(), Some("bar" | "heat")),
             "name" | "files" => &args.subjects == strings,
             _ => false,
@@ -815,15 +870,17 @@ mod tests {
     fn the_catalog_lists_every_recipe_with_its_arguments() {
         let catalog = catalog_json();
         let recipes = catalog.as_array().unwrap();
-        assert_eq!(recipes.len(), 18);
+        assert_eq!(recipes.len(), 20);
         assert_eq!(recipes[0]["name"], "commits");
         assert_eq!(recipes[0]["args"][0]["flag"], "days");
         assert_eq!(recipes[0]["args"][0]["takes"], "number");
         assert_eq!(recipes[0]["group"], "Activity");
         assert_eq!(recipes[0]["tells"], RECIPES[0].tells);
         assert_eq!(recipes[0]["sample"]["form"], "bar");
-        assert_eq!(recipes[14]["name"], "calls");
-        assert_eq!(recipes[17]["name"], "turns");
+        assert_eq!(recipes[16]["name"], "calls");
+        assert_eq!(recipes[19]["name"], "turns");
+        assert_eq!(recipes[6]["name"], "sessions");
+        assert_eq!(recipes[14]["name"], "suite-history");
         assert!(find("commits").is_some());
         assert!(find("nothing").is_none());
     }

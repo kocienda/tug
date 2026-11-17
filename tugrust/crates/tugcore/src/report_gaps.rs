@@ -387,19 +387,58 @@ pub fn summarize(path: &Path) -> Vec<GapSummary> {
     summaries
 }
 
-/// Every recorded call's wall time, newest first. Read-only; a missing file
-/// or table answers with nothing.
-pub fn call_wall_times(path: &Path) -> Vec<i64> {
+/// The record at `path` opened read-only, or `None` when there is no file
+/// to open: a read never creates one.
+fn open_read_only(path: &Path) -> Option<Connection> {
     if !path.exists() {
-        return Vec::new();
+        return None;
     }
-    let Ok(conn) = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+}
+
+/// Every recorded call's head and wall time, newest first, of the calls
+/// that ended before `before_ms` when it is given, so a chart drawn earlier
+/// re-reads the calls it drew. Read-only; a missing file or table answers
+/// with nothing.
+pub fn call_rows(path: &Path, before_ms: Option<i64>) -> Vec<(String, i64)> {
+    let Some(conn) = open_read_only(path) else {
         return Vec::new();
     };
-    let Ok(mut stmt) = conn.prepare("SELECT wall_ms FROM call_times ORDER BY id DESC") else {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT head, wall_ms FROM call_times
+          WHERE ?1 IS NULL OR ended_at_ms < ?1
+          ORDER BY id DESC",
+    ) else {
         return Vec::new();
     };
-    let Ok(rows) = stmt.query_map([], |r| r.get(0)) else {
+    let Ok(rows) = stmt.query_map([before_ms], |r| Ok((r.get(0)?, r.get(1)?))) else {
+        return Vec::new();
+    };
+    rows.flatten().collect()
+}
+
+/// Every recorded gap, newest first. Read-only; a missing file or table
+/// answers with nothing.
+pub fn gap_rows(path: &Path) -> Vec<GapRow> {
+    let Some(conn) = open_read_only(path) else {
+        return Vec::new();
+    };
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT head, command, project_dir, session_id, wall_ms, ended_at_ms
+         FROM report_gaps ORDER BY id DESC",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |r| {
+        Ok(GapRow {
+            head: r.get(0)?,
+            command: r.get(1)?,
+            project_dir: r.get(2)?,
+            session_id: r.get(3)?,
+            wall_ms: r.get(4)?,
+            ended_at_ms: r.get(5)?,
+        })
+    }) else {
         return Vec::new();
     };
     rows.flatten().collect()
@@ -589,24 +628,45 @@ mod tests {
     }
 
     #[test]
-    fn call_times_read_newest_first_and_a_missing_record_or_table_has_none() {
+    fn call_and_gap_rows_read_newest_first_and_a_missing_record_or_table_has_none() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("report_gaps.db");
-        assert!(call_wall_times(&path).is_empty());
+        assert!(call_rows(&path, None).is_empty());
+        assert!(gap_rows(&path).is_empty());
         assert!(!path.exists(), "a read creates nothing");
 
         let gaps = ReportGaps::open(&path).unwrap();
         gaps.time("cargo build", 30_000, 1).unwrap();
         gaps.time("git status", 40, 2).unwrap();
+        gaps.record(&row("cargo build", 30_000, 1)).unwrap();
+        gaps.record(&row("just app-test", 90_000, 2)).unwrap();
         drop(gaps);
-        assert_eq!(call_wall_times(&path), vec![40, 30_000]);
+        assert_eq!(
+            call_rows(&path, None),
+            vec![("git status".to_string(), 40), ("cargo build".to_string(), 30_000)]
+        );
+        // A read as of a moment leaves out the calls that ended at or after it.
+        assert_eq!(
+            call_rows(&path, Some(2)),
+            vec![("cargo build".to_string(), 30_000)]
+        );
+        assert_eq!(
+            gap_rows(&path),
+            vec![row("just app-test", 90_000, 2), row("cargo build", 30_000, 1)]
+        );
 
         let old = dir.path().join("old.db");
         Connection::open(&old)
             .unwrap()
             .execute_batch(CREATE_REPORT_GAPS_SQL)
             .unwrap();
-        assert!(call_wall_times(&old).is_empty());
+        assert!(call_rows(&old, None).is_empty());
+        let other = dir.path().join("other.db");
+        Connection::open(&other)
+            .unwrap()
+            .execute_batch("CREATE TABLE x (a)")
+            .unwrap();
+        assert!(gap_rows(&other).is_empty());
     }
 
     #[test]

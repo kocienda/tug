@@ -19,6 +19,12 @@
 //! nothing answers for is `found: false`, which the reader draws as plain
 //! text.
 //!
+//! `measure_text` is the measure in the table's format, except for a member
+//! of a line recipe, which carries its added and removed lines apart: its
+//! text is the pair, `+<added> −<removed>`, while `measure` stays the one
+//! number its mark drew. A set whose every member carries the pair writes
+//! its `sum_text` the same way, over the summed parts.
+//!
 //! Two kinds are not refs at all. A member a recipe sent with facts of its
 //! own is a `run` (one recorded test run) or a `span` (one stage or step of
 //! an arc): its record is those facts, with the record of the ref it stands
@@ -190,9 +196,9 @@ pub(crate) struct PathRecord {
     /// The path as the ref wrote it.
     pub path: String,
     pub exists: bool,
-    /// How many commits touch it, within the source's window when the read
-    /// came with one. `None` when git could not count, as for a path outside
-    /// the repository.
+    /// How many commits touch it, within the source's window or range when
+    /// the read came with one. `None` when git could not count, as for a
+    /// path outside the repository.
     pub commits: Option<u64>,
 }
 
@@ -306,14 +312,11 @@ pub(crate) async fn report(req: ReportRequest) -> Result<ReportResponse, ReportE
         }
         (None, None, Some(refs), None) => describe_refs(dir, refs).await,
         (source, None, None, Some(of)) => {
-            path_page(
-                dir,
-                source.as_ref().and_then(source_window),
-                of,
-                req.offset,
-                limit,
-            )
-            .await
+            let selection = match &source {
+                Some(source) => Selection::of_source(&source.args)?,
+                None => Selection::Head,
+            };
+            path_page(dir, selection, of, req.offset, limit).await
         }
         _ => Err(ReportError::BadRequest(
             "send exactly one of source with address, refs, or of".to_string(),
@@ -334,10 +337,11 @@ async fn members_page(
         return Err(ReportError::NotFound("unknown recipe".to_string()));
     };
     let args = members::args_from_source(recipe, &source.args).map_err(ReportError::BadRequest)?;
-    let window = args.since.clone().map(|since| Window {
-        since,
-        until: args.until.clone(),
-    });
+    let selection = Selection::of(
+        args.since.as_deref(),
+        args.until.as_deref(),
+        args.range.as_deref(),
+    )?;
     // The run reads git and the ledgers, so it goes on the blocking pool.
     let (sources, read) = tokio::task::spawn_blocking(move || {
         let ctx = RecipeContext::for_project(&dir);
@@ -361,19 +365,52 @@ async fn members_page(
     let measure = measure.map(|(unit, format)| Measure { unit, format });
     let format = measure.as_ref().map(|m| m.format.as_str());
     let sum = format.map(|_| all.iter().filter_map(|m| m.measure).sum::<f64>());
+    let parts: Option<Vec<(f64, f64)>> = if all.is_empty() {
+        None
+    } else {
+        all.iter().map(|m| m.parts).collect()
+    };
+    let sum_text = format.and_then(|format| match &parts {
+        Some(parts) => {
+            let (added, removed) = parts
+                .iter()
+                .fold((0.0, 0.0), |(a, r), (pa, pr)| (a + pa, r + pr));
+            Some(pair_text(format, added, removed))
+        }
+        None => sum.map(|sum| members::format_measure(format, sum)),
+    });
     let page: Vec<Member> = all.iter().skip(offset).take(limit).cloned().collect();
-    let rows = describe(&sources, &page, format, window.as_ref()).await;
+    let rows = describe(&sources, &page, format, &selection).await;
     Ok(ReportResponse {
         status: "ok",
         total: all.len(),
         moved: false,
         sum,
-        sum_text: sum
-            .zip(format)
-            .map(|(sum, format)| members::format_measure(format, sum)),
+        sum_text,
         measure,
         rows,
     })
+}
+
+/// A line recipe's pair, `+<added> −<removed>`, each in `format`.
+fn pair_text(format: &str, added: f64, removed: f64) -> String {
+    format!(
+        "+{} −{}",
+        members::format_measure(format, added),
+        members::format_measure(format, removed)
+    )
+}
+
+/// A row's text in the table's format: the pair for a member with parts,
+/// else its measure, and nothing where no format is in force.
+fn measure_text(member: &Member, format: Option<&str>) -> Option<String> {
+    let format = format?;
+    match member.parts {
+        Some((added, removed)) => Some(pair_text(format, added, removed)),
+        None => member
+            .measure
+            .map(|value| members::format_measure(format, value)),
+    }
 }
 
 /// Describe mode: the refs sent are the page.
@@ -387,7 +424,7 @@ async fn describe_refs(dir: PathBuf, refs: Vec<String>) -> Result<ReportResponse
         tokio::task::spawn_blocking(move || Sources::of(&RecipeContext::for_project(&dir)))
             .await
             .map_err(|e| ReportError::Internal(e.to_string()))?;
-    let rows = describe(&sources, &page, None, None).await;
+    let rows = describe(&sources, &page, None, &Selection::Head).await;
     Ok(ReportResponse {
         status: "ok",
         total: rows.len(),
@@ -399,20 +436,69 @@ async fn describe_refs(dir: PathBuf, refs: Vec<String>) -> Result<ReportResponse
     })
 }
 
-/// The window a source's own arguments name, when it carries a `since`.
-fn source_window(source: &SourceRef) -> Option<Window> {
-    let text = |key: &str| source.args.get(key).and_then(Value::as_str);
-    Some(Window {
-        since: text("since")?.to_string(),
-        until: text("until").map(str::to_string),
-    })
+/// Which of the history a path's commits are read from: a source's range,
+/// its window, or, with neither, everything HEAD reaches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Selection {
+    Head,
+    Window(Window),
+    /// `a..b`, each end a sha [`is_sha`] passed.
+    Range(String),
+}
+
+impl Selection {
+    /// The selection a source's arguments name. A `range` names the commits
+    /// of a `landed` read; a `since` the window of any other.
+    fn of_source(args: &Map<String, Value>) -> Result<Selection, ReportError> {
+        let text = |key: &str| args.get(key).and_then(Value::as_str);
+        Selection::of(text("since"), text("until"), text("range"))
+    }
+
+    /// The selection of `range`, else of `since` and `until`. A range whose
+    /// ends are not both shas is refused, so nothing else reaches git.
+    fn of(
+        since: Option<&str>,
+        until: Option<&str>,
+        range: Option<&str>,
+    ) -> Result<Selection, ReportError> {
+        if let Some(range) = range {
+            return match range.split_once("..") {
+                Some((from, to)) if is_sha(from) && is_sha(to) => {
+                    Ok(Selection::Range(format!("{from}..{to}")))
+                }
+                _ => Err(ReportError::BadRequest(
+                    "a range is two shas joined by ..".to_string(),
+                )),
+            };
+        }
+        Ok(since.map_or(Selection::Head, |since| {
+            Selection::Window(Window {
+                since: since.to_string(),
+                until: until.map(str::to_string),
+            })
+        }))
+    }
+
+    /// The arguments that select these commits, the revision last, where
+    /// `HEAD` stands when there is no range.
+    fn git_args(&self) -> Vec<String> {
+        match self {
+            Selection::Head => vec!["HEAD".to_string()],
+            Selection::Window(window) => {
+                let mut args = window.git_args();
+                args.push("HEAD".to_string());
+                args
+            }
+            Selection::Range(range) => vec![range.clone()],
+        }
+    }
 }
 
 /// Path mode: one page of the commits touching the path `of` names, newest
-/// first, within `window` when there is one.
+/// first, within `selection`.
 async fn path_page(
     dir: PathBuf,
-    window: Option<Window>,
+    selection: Selection,
     of: String,
     offset: usize,
     limit: usize,
@@ -426,13 +512,13 @@ async fn path_page(
         tokio::task::spawn_blocking(move || Sources::of(&RecipeContext::for_project(&dir)))
             .await
             .map_err(|e| ReportError::Internal(e.to_string()))?;
-    let total = count_commits(&sources.repo_root, window.as_ref(), path)
+    let total = count_commits(&sources.repo_root, &selection, path)
         .await
         .unwrap_or(0);
-    let mut selection = vec![format!("--skip={offset}"), format!("-n{limit}")];
-    selection.extend(window.iter().flat_map(Window::git_args));
-    let selection: Vec<&str> = selection.iter().map(String::as_str).collect();
-    let commits = read_git_log(&sources.repo_root, &selection, &[path]).await;
+    let mut args = vec![format!("--skip={offset}"), format!("-n{limit}")];
+    args.extend(selection.git_args());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let commits = read_git_log(&sources.repo_root, &args, &[path]).await;
     let rows = commits
         .into_iter()
         .map(|commit| Row {
@@ -467,8 +553,13 @@ fn ref_kind(r#ref: &str) -> &'static str {
 /// argument list.
 fn commit_sha(r#ref: &str) -> Option<String> {
     let sha = r#ref.strip_prefix("commit:")?;
-    ((4..=40).contains(&sha.len()) && sha.chars().all(|c| c.is_ascii_hexdigit()))
-        .then(|| sha.to_ascii_lowercase())
+    is_sha(sha).then(|| sha.to_ascii_lowercase())
+}
+
+/// Whether `text` is 4 to 40 hex characters, the one shape of revision a
+/// report hands git.
+fn is_sha(text: &str) -> bool {
+    (4..=40).contains(&text.len()) && text.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// The path a `file:` or `dir:` ref names, when it is one git may be handed:
@@ -480,12 +571,12 @@ fn ref_path(r#ref: &str) -> Option<&str> {
     (!path.is_empty() && !path.contains(['\n', '\0'])).then_some(path)
 }
 
-/// How many of HEAD's commits touch `path`, within `window` when given. The
-/// path goes after `--`, so it is never read as an option.
-async fn count_commits(repo_root: &Path, window: Option<&Window>, path: &str) -> Option<u64> {
+/// How many of `selection`'s commits touch `path`. The path goes after
+/// `--`, so it is never read as an option.
+async fn count_commits(repo_root: &Path, selection: &Selection, path: &str) -> Option<u64> {
     let mut args = vec!["rev-list".to_string(), "--count".to_string()];
-    args.extend(window.into_iter().flat_map(Window::git_args));
-    args.extend(["HEAD".to_string(), "--".to_string(), path.to_string()]);
+    args.extend(selection.git_args());
+    args.extend(["--".to_string(), path.to_string()]);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     run_git_line(repo_root, &args).await?.parse().ok()
 }
@@ -496,7 +587,7 @@ async fn count_commits(repo_root: &Path, window: Option<&Window>, path: &str) ->
 async fn read_paths(
     repo_root: &Path,
     members: &[Member],
-    window: Option<&Window>,
+    selection: &Selection,
 ) -> Vec<Option<PathRecord>> {
     futures::future::join_all(members.iter().map(|member| async move {
         let path = ref_path(member.r#ref.as_deref()?)?;
@@ -505,7 +596,7 @@ async fn read_paths(
             exists: tokio::fs::try_exists(repo_root.join(path))
                 .await
                 .unwrap_or(false),
-            commits: count_commits(repo_root, window, path).await,
+            commits: count_commits(repo_root, selection, path).await,
         })
     }))
     .await
@@ -561,13 +652,13 @@ fn url_record(r#ref: &str) -> Option<UrlRecord> {
 /// The row record of each member, in the members' order. Members are read a
 /// kind at a time, one read per kind for the whole page, and each row then
 /// takes its record from its kind's answer. `format` is the measure's format
-/// name when the set measures, and `window` the source's window when the
-/// read came with one, which a path's commit count is taken within.
+/// name when the set measures, and `selection` the source's window or range,
+/// which a path's commit count is taken within.
 async fn describe(
     sources: &Sources,
     members: &[Member],
     format: Option<&str>,
-    window: Option<&Window>,
+    selection: &Selection,
 ) -> Vec<Row> {
     let shas: Vec<String> = members
         .iter()
@@ -575,7 +666,7 @@ async fn describe(
         .collect();
     let commits = read_commits(&sources.repo_root, &shas).await;
     let (sessions, arcs) = read_ledgers(sources, members).await;
-    let paths = read_paths(&sources.repo_root, members, window).await;
+    let paths = read_paths(&sources.repo_root, members, selection).await;
     let commands = read_commands(&sources.report_gaps, members).await;
     members
         .iter()
@@ -628,10 +719,7 @@ async fn describe(
                     || run.is_some()
                     || span.is_some(),
                 measure: member.measure,
-                measure_text: member
-                    .measure
-                    .zip(format)
-                    .map(|(value, format)| members::format_measure(format, value)),
+                measure_text: measure_text(member, format),
                 group: member.group.clone(),
                 commit,
                 session,
@@ -1102,7 +1190,11 @@ mod tests {
             Some(1203.0),
             "the sum is the set's, not the page's"
         );
-        assert_eq!(page.sum_text.as_deref(), Some("1.2k"));
+        assert_eq!(
+            page.sum_text.as_deref(),
+            Some("+1.2k −0"),
+            "the pair of the set's summed parts"
+        );
         assert_eq!(page.rows.len(), 1);
 
         let all = report(request(temp.path(), members_body(&spec, row, &label)))
@@ -1116,8 +1208,21 @@ mod tests {
         texts.sort_by(|a, b| a.0.total_cmp(&b.0));
         assert_eq!(
             texts,
-            [(3.0, "3".to_string()), (1200.0, "1.2k".to_string())]
+            [(3.0, "+3 −0".to_string()), (1200.0, "+1.2k −0".to_string())]
         );
+    }
+
+    #[test]
+    fn a_member_without_parts_keeps_its_measure_text() {
+        let plain = Member::of("commit:abc").measured(1500.0);
+        assert_eq!(measure_text(&plain, Some("count")).as_deref(), Some("1.5k"));
+        assert_eq!(measure_text(&plain, None), None);
+        let parted = plain.parted(1200.0, 300.0);
+        assert_eq!(
+            measure_text(&parted, Some("count")).as_deref(),
+            Some("+1.2k −300")
+        );
+        assert_eq!(pair_text("count", 0.0, 7.0), "+0 −7");
     }
 
     fn log_line(at: &str, arc: &str, marker: &str, note: &str) -> String {
@@ -1313,7 +1418,7 @@ mod tests {
             .into_iter()
             .map(Member::of)
             .collect();
-        let rows = describe(&sources, &page, None, None).await;
+        let rows = describe(&sources, &page, None, &Selection::Head).await;
         let kinds: Vec<&str> = rows.iter().map(|r| r.kind).collect();
         assert_eq!(kinds, ["arc", "arc", "session"]);
         let found: Vec<bool> = rows.iter().map(|r| r.found).collect();
@@ -1364,7 +1469,7 @@ mod tests {
             span("1/3 First", Some(format!("commit:{}", &sha[..8]))),
             span("Audit", None),
         ];
-        let rows = describe(&sources, &page, None, None).await;
+        let rows = describe(&sources, &page, None, &Selection::Head).await;
         let kinds: Vec<&str> = rows.iter().map(|r| r.kind).collect();
         assert_eq!(kinds, ["run", "run", "span", "span", "span"]);
         assert!(rows.iter().all(|r| r.found));
@@ -1460,6 +1565,125 @@ mod tests {
         assert_eq!((never.total, never.rows.len()), (0, 0));
     }
 
+    /// Commit `files`, each written with `lines` lines, under `message`, and
+    /// answer the new sha.
+    fn commit_files(repo: &Path, message: &str, files: &[(&str, usize)]) -> String {
+        for (path, lines) in files {
+            let path = repo.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "x\n".repeat(*lines)).unwrap();
+        }
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", message]);
+        git(repo, &["rev-parse", "HEAD"]).trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn a_hotspots_row_opens_its_files_with_their_pairs_and_commit_counts() {
+        let temp = repo();
+        commit_files(temp.path(), "one", &[("src/a.rs", 4), ("src/b.rs", 1)]);
+        commit_files(temp.path(), "two", &[("src/a.rs", 6)]);
+        let ctx = RecipeContext::for_project(temp.path());
+        let args = RecipeArgs {
+            depth: Some(1),
+            ..Default::default()
+        };
+        let RecipeOutcome::Chart { spec, .. } = tugchart_core::catalog::find("hotspots")
+            .unwrap()
+            .run(&ctx, &args)
+            .unwrap()
+        else {
+            panic!("hotspots drew nothing");
+        };
+        let labels: Vec<&str> = spec["categories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        let row = labels.iter().position(|l| *l == "src").unwrap();
+        let page = report(request(temp.path(), members_body(&spec, row, "src")))
+            .await
+            .unwrap();
+        let read: Vec<(&str, bool, Option<&str>, Option<u64>)> = page
+            .rows
+            .iter()
+            .map(|r| {
+                (
+                    r.kind,
+                    r.found,
+                    r.measure_text.as_deref(),
+                    r.path.as_ref().and_then(|p| p.commits),
+                )
+            })
+            .collect();
+        // Each file's commits are counted within the chart's window.
+        assert_eq!(
+            read,
+            [
+                ("file", true, Some("+6 −0"), Some(2)),
+                ("file", true, Some("+1 −0"), Some(1)),
+            ]
+        );
+        assert_eq!(page.sum_text.as_deref(), Some("+7 −0"));
+    }
+
+    #[tokio::test]
+    async fn a_landed_range_reads_its_own_commits_and_refuses_a_range_not_of_shas() {
+        let temp = repo();
+        let base = commit_files(temp.path(), "base", &[("src/a.rs", 1)]);
+        commit_files(temp.path(), "one", &[("src/a.rs", 2), ("src/b.rs", 1)]);
+        let tip = commit_files(temp.path(), "two", &[("src/a.rs", 3)]);
+        let ctx = RecipeContext::for_project(temp.path());
+        let args = RecipeArgs {
+            range: Some(format!("{base}..{tip}")),
+            ..Default::default()
+        };
+        let RecipeOutcome::Chart { spec, .. } = tugchart_core::catalog::find("landed")
+            .unwrap()
+            .run(&ctx, &args)
+            .unwrap()
+        else {
+            panic!("landed drew nothing");
+        };
+        let page = report(request(temp.path(), members_body(&spec, 0, "src")))
+            .await
+            .unwrap();
+        // `src/a.rs` has three commits in all and two in the range.
+        let counts: Vec<(Option<&str>, Option<u64>)> = page
+            .rows
+            .iter()
+            .map(|r| (r.r#ref.as_deref(), r.path.as_ref().and_then(|p| p.commits)))
+            .collect();
+        assert_eq!(
+            counts,
+            [(Some("file:src/a.rs"), Some(2)), (Some("file:src/b.rs"), Some(1))]
+        );
+
+        // A path read under the range's source pages only its commits.
+        let source = spec["source"].clone();
+        let path = report(request(
+            temp.path(),
+            json!({"of": "file:src/a.rs", "source": source}),
+        ))
+        .await
+        .unwrap();
+        let subjects: Vec<&str> = path
+            .rows
+            .iter()
+            .map(|r| r.commit.as_ref().unwrap().subject.as_str())
+            .collect();
+        assert_eq!((path.total, subjects), (2, vec!["two", "one"]));
+
+        // A range whose end is not hex never reaches git.
+        let refused = report(request(
+            temp.path(),
+            json!({"of": "file:src/a.rs", "source": {"recipe": "landed", "args": {"range": "HEAD~1..--output=x"}}}),
+        ))
+        .await;
+        assert!(matches!(refused, Err(ReportError::BadRequest(_))));
+    }
+
     #[tokio::test]
     async fn a_describe_read_answers_paths_urls_and_commands() {
         let temp = repo();
@@ -1503,7 +1727,7 @@ mod tests {
         .into_iter()
         .map(Member::of)
         .collect();
-        let rows = describe(&sources, &page, None, None).await;
+        let rows = describe(&sources, &page, None, &Selection::Head).await;
         let found: Vec<bool> = rows.iter().map(|r| r.found).collect();
         assert_eq!(found, [true, true, true, false, true, true, true, true]);
         let kinds: Vec<&str> = rows.iter().map(|r| r.kind).collect();
@@ -1531,7 +1755,7 @@ mod tests {
             &sources,
             &[Member::of(format!("file:{}", absolute.display()))],
             None,
-            None,
+            &Selection::Head,
         )
         .await;
         assert!(given[0].path.as_ref().unwrap().exists);
@@ -1540,7 +1764,7 @@ mod tests {
             since: "2000-01-01".to_string(),
             until: Some("2000-01-02T00:00:00Z".to_string()),
         };
-        let windowed = describe(&sources, &page[..1], None, Some(&earlier)).await;
+        let windowed = describe(&sources, &page[..1], None, &Selection::Window(earlier)).await;
         let record = windowed[0].path.as_ref().unwrap();
         assert_eq!((record.exists, record.commits), (true, Some(0)));
 

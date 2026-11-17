@@ -5,11 +5,13 @@
  * The chart is the real one: this worktree's built `tugtool chart churn` is
  * run in this checkout and its `TUG-CHART:` line is driven, verbatim, as a
  * Bash tool result on a card bound to this checkout (the `at0843` footing).
- * `churn` draws lines changed per day and measures each commit by the lines
- * it changed, so pressing a day opens a report in which:
+ * `churn` draws each day as a stacked bar, lines added above zero and lines
+ * removed below, and measures each commit by the lines it changed, carrying
+ * its added and removed lines apart. A day's hit carries the day's set
+ * whichever segment is pressed, so pressing a day opens a report in which:
  *
- *  - every row ends in a non-empty measure cell, the engine's own text;
- *  - the head carries the set's sum with its unit;
+ *  - every row ends in the commit's `+n −m`, the engine's own text;
+ *  - the head carries the set's `+n −m` with its unit;
  *  - the measure rides the commit row's first line: its centre is the centre
  *    of the row's own trailing stamp.
  *
@@ -175,7 +177,11 @@ describe.skipIf(!SHOULD_RUN)("AT0848: a measuring recipe's report shows each mem
           facts.measures.every((m) => m !== ""),
           "every commit of a churn day carries the lines it changed",
         ).toBe(true);
-        expect(facts.sum, "the head carries the day's sum with its unit").toMatch(/^\S+ lines$/);
+        expect(
+          facts.measures.every((m) => /^\+\S+ −\S+$/.test(m)),
+          "every commit of a churn day carries its lines added and removed",
+        ).toBe(true);
+        expect(facts.sum, "the head carries the day's pair with its unit").toMatch(/^\+\S+ −\S+ lines$/);
 
         expect(facts.offsets, "every row has a stamp to sit beside").toHaveLength(picked.count);
         for (const offset of facts.offsets) {

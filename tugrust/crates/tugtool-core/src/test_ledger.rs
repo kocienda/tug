@@ -520,18 +520,32 @@ pub fn recent_runs(
     suite: Option<&str>,
     per_suite: usize,
 ) -> Result<Vec<SuiteRun>, TestLedgerError> {
+    recent_runs_until(conn, base_root, suite, per_suite, None)
+}
+
+/// [`recent_runs`] as the ledger stood at `until` (epoch seconds): only runs
+/// that had ended by then are read, so a chart drawn earlier re-reads the
+/// runs it drew. `None` reads every run.
+pub fn recent_runs_until(
+    conn: &Connection,
+    base_root: &str,
+    suite: Option<&str>,
+    per_suite: usize,
+    until: Option<i64>,
+) -> Result<Vec<SuiteRun>, TestLedgerError> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {RUN_COLUMNS}
            FROM (SELECT runs.*,
                         ROW_NUMBER() OVER (PARTITION BY suite ORDER BY id DESC) AS nth
                    FROM runs
                   WHERE base_root = ?1
-                    AND (?2 IS NULL OR suite = ?2)) r
+                    AND (?2 IS NULL OR suite = ?2)
+                    AND (?4 IS NULL OR ended_at <= ?4)) r
           WHERE r.nth <= ?3
           ORDER BY r.id DESC"
     ))?;
     let runs: Vec<SuiteRun> = stmt
-        .query_map(params![base_root, suite, per_suite as i64], suite_run_of)?
+        .query_map(params![base_root, suite, per_suite as i64, until], suite_run_of)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(runs)
 }
@@ -889,6 +903,30 @@ assertion `left == right` failed
         ))
         .unwrap();
         assert_eq!(doc.failures[0].detail.chars().count(), DETAIL_MAX_CHARS);
+    }
+
+    #[test]
+    fn recent_runs_until_reads_only_the_runs_ended_by_then() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        record_run(&mut conn, &run(&root, "rust", 1_000, 0), None).unwrap();
+        record_run(&mut conn, &run(&root, "rust", 3_000, 0), None).unwrap();
+        let base = resolve_base_root(Path::new(&root));
+        let ended = |until| {
+            recent_runs_until(&conn, &base, None, 10, until)
+                .unwrap()
+                .iter()
+                .map(|r| r.ended_at)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ended(Some(2_000)), vec![1_000]);
+        assert_eq!(ended(None), vec![3_000, 1_000]);
+        assert_eq!(
+            recent_runs(&conn, &base, None, 10).unwrap().len(),
+            2,
+            "recent_runs reads every run"
+        );
     }
 
     #[test]

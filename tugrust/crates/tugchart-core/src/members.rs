@@ -16,7 +16,6 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tugchanges_core::Window;
 use tuggraphics::chart::format::Format;
-use tuggraphics::chart::{Layers, Source, histogram_bins, validate};
 
 use crate::catalog::Recipe;
 use crate::context::{RecipeArgs, RecipeContext, RecipeError, RecipeOutcome};
@@ -24,20 +23,28 @@ use crate::context::{RecipeArgs, RecipeContext, RecipeError, RecipeOutcome};
 /// The keys each recipe's `source.args` carries, and the only ones a
 /// re-run accepts. `since`/`until` are the window; the rest are the
 /// arguments that change membership, with their defaults resolved.
-pub const SOURCE_KEYS: [(&str, &[&str]); 18] = [
+pub const SOURCE_KEYS: [(&str, &[&str]); 20] = [
     ("commits", &["since", "until", "by", "path"]),
-    ("churn", &["since", "until", "path"]),
-    ("velocity", &["since", "until", "net", "path"]),
-    ("hotspots", &["since", "until", "depth", "limit", "path"]),
-    ("landed", &["range", "depth"]),
+    ("churn", &["since", "until", "lines", "split", "path"]),
+    (
+        "velocity",
+        &["since", "until", "net", "lines", "split", "path"],
+    ),
+    (
+        "hotspots",
+        &["since", "until", "depth", "limit", "lines", "path"],
+    ),
+    ("landed", &["range", "depth", "lines"]),
     ("commit-kinds", &["since", "until", "path"]),
     ("commit-hours", &["since", "until", "path"]),
     ("commit-days", &["since", "until", "path"]),
-    ("commit-size", &["since", "until", "path"]),
+    ("sessions", &["since", "until"]),
+    ("commit-size", &["since", "until", "lines", "path"]),
     ("arcs", &["since", "until"]),
     ("arc-timeline", &["name", "until"]),
     ("arc-stages", &["limit", "until"]),
     ("test-history", &["until", "files"]),
+    ("suite-history", &["until"]),
     ("gaps", &["limit", "until"]),
     ("calls", &["until"]),
     ("tokens", &["since", "until", "kind"]),
@@ -146,6 +153,9 @@ pub struct Member {
     pub facts: Option<Value>,
     /// What `facts` describes, set with it: a test run or an arc span.
     pub fact_kind: Option<FactKind>,
+    /// The lines a member of a line recipe added and removed, beside the one
+    /// `measure` its mark drew, so a report can write both.
+    pub parts: Option<(f64, f64)>,
 }
 
 impl Member {
@@ -159,6 +169,12 @@ impl Member {
 
     pub fn measured(mut self, measure: f64) -> Member {
         self.measure = Some(measure);
+        self
+    }
+
+    /// The lines this member added and removed. `measure` is left alone.
+    pub fn parted(mut self, added: f64, removed: f64) -> Member {
+        self.parts = Some((added, removed));
         self
     }
 
@@ -187,8 +203,7 @@ pub enum FactKind {
 }
 
 /// An addressable place in a chart, as the recipe that drew it counts
-/// places: a row of the axis, a cell of a series, a dot in a row, or one
-/// sample of a histogram.
+/// places: a row of the axis, a cell of a series, or a dot in a row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MemberKey {
     /// Parallel to `categories`, `x`, `rows` or `items`.
@@ -197,8 +212,6 @@ pub enum MemberKey {
     Cell { row: usize, col: usize },
     /// A dot.
     Item { row: usize, item: usize },
-    /// Parallel to a histogram's `values`.
-    Sample(usize),
 }
 
 /// Every mark's members: full, uncapped, deduplicated, in the order the
@@ -338,42 +351,15 @@ fn series_names(spec: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The bins of a histogram spec: each bin's label and the sample indices it
-/// holds, binned as the engine bins them. `None` when the spec does not
-/// validate as a histogram.
-fn bins_of(spec: &Value) -> Option<(Vec<String>, Vec<Vec<usize>>)> {
-    let Source::Chart(spec) = validate(&spec.to_string(), Layers::Chart).ok()? else {
-        return None;
-    };
-    histogram_bins(&spec)
-}
-
 /// The members `address` names in `spec`'s `table`. The row is found by
 /// its label ([P05]); then a dot is `Item`, a whole row is every `Cell`
 /// of it in series order with each member's `group` set to its series
 /// name (or `Row` when the table has no cells there), a column is its
-/// `Cell` falling back to `Row`, and anything else is `Row`. A histogram's
-/// row is a bin, whose members are its samples' in ascending measure. A key
-/// the table does not hold is an empty list, not a move.
+/// `Cell` falling back to `Row`, and anything else is `Row`. A binned bar's
+/// row is a bin, so its members are the bin's own, held at `Row` in the
+/// order the recipe put them. A key the table does not hold is an empty
+/// list, not a move.
 pub fn resolve(spec: &Value, table: &MemberTable, address: &Address) -> Resolved {
-    if spec["form"] == "histogram" {
-        let Some((labels, bins)) = bins_of(spec) else {
-            return Resolved::Moved;
-        };
-        let Some(row) = find(&labels, address.row, &address.label) else {
-            return Resolved::Moved;
-        };
-        let mut members: Vec<Member> = bins[row]
-            .iter()
-            .flat_map(|&i| table.get(MemberKey::Sample(i)).iter().cloned())
-            .collect();
-        members.sort_by(|a, b| {
-            a.measure
-                .unwrap_or(f64::INFINITY)
-                .total_cmp(&b.measure.unwrap_or(f64::INFINITY))
-        });
-        return Resolved::Members(members);
-    }
     let Some(labels) = row_labels(spec) else {
         return Resolved::Moved;
     };
@@ -460,11 +446,17 @@ pub fn args_from_source(recipe: &Recipe, args: &Map<String, Value>) -> Result<Re
             "by" => out.by = Some(string(key, value)?),
             "kind" => out.kind = Some(string(key, value)?),
             "range" => out.range = Some(string(key, value)?),
+            "lines" => out.lines = Some(string(key, value)?),
             "name" => out.subjects = vec![string(key, value)?],
             "net" => {
                 out.net = value
                     .as_bool()
                     .ok_or_else(|| format!("{}: net is a boolean", recipe.name))?;
+            }
+            "split" => {
+                out.split = value
+                    .as_bool()
+                    .ok_or_else(|| format!("{}: split is a boolean", recipe.name))?;
             }
             "depth" => {
                 let depth = value
@@ -499,6 +491,14 @@ pub fn args_from_source(recipe: &Recipe, args: &Map<String, Value>) -> Result<Re
 mod tests {
     use super::*;
     use crate::RECIPES;
+
+    #[test]
+    fn parted_sets_the_parts_and_leaves_the_measure() {
+        let member = Member::of("commit:abc").measured(9.0).parted(7.0, 2.0);
+        assert_eq!(member.measure, Some(9.0));
+        assert_eq!(member.parts, Some((7.0, 2.0)));
+        assert_eq!(Member::of("commit:abc").parts, None);
+    }
 
     #[test]
     fn every_recipe_has_a_row_of_source_keys_and_no_row_names_a_stranger() {

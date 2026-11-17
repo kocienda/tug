@@ -3201,6 +3201,7 @@ version = "0.9.3"
 dependencies = [
  "chrono",
  "dirs",
+ "glob",
  "rusqlite",
  "serde",
  "serde_json",
