@@ -24,10 +24,90 @@ enum ShareRenderOutput {
     /// `backing` (the display's, 2 on a Retina screen) while the bitmap stays
     /// inside `imagePixelBudget`, and 1 past it — a very tall share is drawn
     /// at one pixel per point rather than refused. At 720 wide and 2× that is
-    /// every image up to about 86,800 pixels tall.
+    /// every image up to about 86,800 pixels tall; a figure, wider or
+    /// narrower, is budgeted by the width it drew at.
     static func imageScale(height: Double, width: Double, backing: Double) -> Double {
         let scale = max(1, backing)
         return width * scale * height * scale <= imagePixelBudget ? scale : 1
+    }
+
+    /// The width a figure's view starts at, in CSS pixels, before the page
+    /// has said how wide the figure drew: past the widest chart a spec may
+    /// ask for (1,600) and any diagram inside its forms' budgets, with the
+    /// page's margin, so no figure is laid out against the view's edge.
+    static let figureStartWidth: Double = 2048
+
+    /// The widest a figure renders, in CSS pixels. A report past it is a
+    /// page gone wrong, not a figure.
+    static let figureMaxWidth: Double = 8192
+
+    /// Whether `document`, a share document as JSON, is a figure document:
+    /// an object whose `kind` is `figure`. A turns document has no `kind`.
+    /// Anything that does not read is not a figure; the page refuses it.
+    static func isFigureDocument(_ document: String) -> Bool {
+        guard let data = document.data(using: .utf8),
+              let read = try? JSONDecoder().decode(DocumentKind.self, from: data) else { return false }
+        return read.kind == "figure"
+    }
+
+    /// The one field of a share document the host reads.
+    private struct DocumentKind: Decodable {
+        var kind: String?
+    }
+
+    /// The width a document renders at, in CSS pixels. Turns are `column`
+    /// wide whatever the page reported. A figure is as wide as the page
+    /// reported, to the whole pixel and inside `figureMaxWidth`; a report
+    /// that is no width at all leaves it at `column`.
+    static func renderWidth(reported: Double, figure: Bool, column: Double) -> Double {
+        guard figure, reported.isFinite, reported >= 1 else { return column }
+        return min(figureMaxWidth, reported.rounded(.up))
+    }
+
+    /// How the preview sheet shows an artifact: the sheet's size, and the
+    /// scale the artifact is drawn at.
+    struct PreviewLayout: Equatable {
+        var sheet: CGSize
+        var scale: CGFloat
+    }
+
+    /// Room beside a previewed artifact for the scroller and the view's own
+    /// margins.
+    static let previewChromeWidth: CGFloat = 48
+    /// Room above and below a previewed artifact: the view's margins and the
+    /// sheet's button row.
+    static let previewChromeHeight: CGFloat = 96
+    /// The narrowest and shortest the preview sheet opens.
+    static let previewMinSize = CGSize(width: 480, height: 300)
+    /// The tallest the preview sheet opens, whatever its parent's height.
+    static let previewMaxHeight: CGFloat = 760
+    /// The smallest scale a previewed artifact is drawn at. Past it the
+    /// sheet scrolls sideways instead: three quarters holds 11-point type
+    /// above 8.
+    static let previewMinScale: CGFloat = 0.75
+
+    /// The preview sheet's layout for an artifact `artifact` points in size
+    /// on a parent window `parent` in size. The sheet is the artifact's
+    /// width plus its chrome, between `previewMinSize.width` and what the
+    /// parent leaves, so a narrow chart gets a narrow sheet and a wide
+    /// diagram a wide one. An artifact wider than the sheet can show is
+    /// scaled down to fit, to no less than `previewMinScale`. The sheet is
+    /// as tall as the scaled artifact needs, inside what the parent leaves
+    /// and `previewMaxHeight`. Text has no size of its own (`nil`): it takes
+    /// `column` wide and the full height.
+    static func previewLayout(artifact: CGSize?, parent: CGSize, column: CGFloat) -> PreviewLayout {
+        let widest = max(previewMinSize.width, parent.width - 80)
+        let tallest = min(previewMaxHeight, max(previewMinSize.height, parent.height - 160))
+        guard let artifact, artifact.width >= 1, artifact.height >= 1 else {
+            return PreviewLayout(
+                sheet: CGSize(width: min(column + previewChromeWidth, widest), height: tallest), scale: 1
+            )
+        }
+        let width = min(max(artifact.width + previewChromeWidth, previewMinSize.width), widest)
+        let scale = min(1, max(previewMinScale, (width - previewChromeWidth) / artifact.width))
+        let needed = (artifact.height * scale).rounded(.up) + previewChromeHeight
+        let height = min(tallest, max(previewMinSize.height, needed))
+        return PreviewLayout(sheet: CGSize(width: width, height: height), scale: scale)
     }
 
     /// `pdf` as one page: its pages drawn end to end, top to bottom, on a

@@ -36,6 +36,7 @@ import { BULLETIN_ICONS } from "./bulletin-icons";
 import {
   getBulletinRelay,
   setBulletinRelay,
+  setDeckBulletin,
   type BulletinTone,
   type RelayedBulletin,
 } from "../../lib/bulletin-relay";
@@ -312,6 +313,10 @@ function raise(tone: BulletinTone, message: string, options?: BulletinOptions): 
   }
   bulletinRelay(relayedBulletinOf(tone, message, options));
 }
+
+// Lib code with an outcome to say and no component in reach says it here
+// (`raiseDeckBulletin`): filled once, when this module loads.
+setDeckBulletin((tone, message) => raise(tone, message));
 
 /** Show a relayed bulletin in this page's stack — the overlay's answer to
  *  `overlay.bulletin`. Never relays again. */

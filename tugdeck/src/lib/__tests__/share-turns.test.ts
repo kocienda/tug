@@ -19,10 +19,12 @@ import {
   applyOfferRunStrings,
   applyShareStrings,
   buildShareRenderDocument,
+  buildShareFigureDocument,
   buildShareSlice,
   collectOfferRunStrings,
   collectShareStrings,
   compressTurnNumbers,
+  decodeShareDocument,
   decodeShareRenderDocument,
   extendTo,
   selectableEntryKeys,
@@ -648,6 +650,60 @@ describe("decodeShareRenderDocument", () => {
 // ---------------------------------------------------------------------------
 // The store's gate
 // ---------------------------------------------------------------------------
+
+describe("decodeShareDocument", () => {
+  const turns = {
+    version: 1,
+    theme: "ironclad",
+    width: 720,
+    header: { title: "t", project: "p", dates: "d", turns: "#1" },
+    toolMode: "summaries",
+    modelName: null,
+    turns: [{ turnKey: "t1", origin: "user", messages: [] }],
+    turnNumbers: [1],
+    offerRuns: [],
+  };
+  const spec = '{"tugchart": 1, "form": "sparkline", "values": [1, 2, 3]}';
+
+  test("a figure document round-trips, for every layers a door takes", () => {
+    for (const layers of ["chart", "diagram", "any"] as const) {
+      const figure = buildShareFigureDocument({ theme: "sloop", source: spec, layers });
+      expect(decodeShareDocument(JSON.stringify(figure))).toEqual({ kind: "figure", document: figure });
+    }
+  });
+
+  test("a turns document still decodes, as turns", () => {
+    const decoded = decodeShareDocument(JSON.stringify(turns));
+    expect(decoded?.kind).toBe("turns");
+    const direct = decodeShareRenderDocument(JSON.stringify(turns));
+    expect(direct).not.toBeNull();
+    expect(decoded?.document).toEqual(direct!);
+  });
+
+  test("a malformed figure document is null, and is never read as turns", () => {
+    const figure = buildShareFigureDocument({ theme: "sloop", source: spec, layers: "chart" });
+    expect(decodeShareDocument(JSON.stringify({ ...figure, version: 2 }))).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...figure, source: "" }))).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...figure, source: 7 }))).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...figure, layers: "drawing" }))).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...figure, theme: null }))).toBeNull();
+    // A whole turns document under a figure's kind is still a bad figure.
+    expect(decodeShareDocument(JSON.stringify({ ...turns, kind: "figure" }))).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...figure, kind: "turns" }))).toBeNull();
+  });
+
+  test("a malformed turns document is null", () => {
+    expect(decodeShareDocument("not json")).toBeNull();
+    expect(decodeShareDocument("[]")).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...turns, width: 480 }))).toBeNull();
+    expect(decodeShareDocument(JSON.stringify({ ...turns, turnNumbers: [] }))).toBeNull();
+  });
+
+  test("the turns decode refuses a figure document", () => {
+    const figure = buildShareFigureDocument({ theme: "sloop", source: spec, layers: "chart" });
+    expect(decodeShareRenderDocument(JSON.stringify(figure))).toBeNull();
+  });
+});
 
 describe("the render document", () => {
   const transcript = [

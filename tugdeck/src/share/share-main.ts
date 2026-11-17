@@ -1,6 +1,6 @@
 /**
  * The share page: a page the host loads in a hidden view to render shared
- * turns to a file, and nothing else.
+ * turns, or one figure, to a file, and nothing else.
  *
  * It loads as `/?share=<id>`. It has no connection, joins no bus, and reads
  * nothing from tugcast: everything it draws arrives in one host message, so
@@ -14,10 +14,19 @@
  *     `SessionMetadataStore` over an inert frame channel, seed the store with
  *     the turns, and mount once ([L01]);
  *  4. wait for what a reader would see to have landed, then post
- *     `shareRenderReady { id, height }` with the document's full height;
+ *     `shareRenderReady { id, width, height }` with the document's full size;
  *  5. for a PDF, answer the host's `onShareHtmlRequest` with
  *     `shareRenderHtml { id, html }`: the page as inline-styled HTML
  *     (`share-html.ts`), the rich flavour a PDF's Copy writes.
+ *
+ * **A figure document is one figure and no transcript.** It mounts no store
+ * and no React root: `renderChartInto` draws the spec as a picture, which is
+ * the card's own renderer, so the image has the card's faces, theme and
+ * layout by construction. The column's 720 pixels are not the figure's: the
+ * page takes the width the figure drew at, with a margin on the block's
+ * ground, and reports it. A figure that does not draw posts nothing, as a
+ * document that does not decode does. The host's HTML request is answered
+ * empty, since a picture has no rich-text flavour.
  *
  * **What the cells defer past their first commit.** A `TugMarkdownBlock`
  * renders its seeded text synchronously in its layout effect — the G1 pass,
@@ -27,8 +36,8 @@
  * loads lazily, and math, whose KaTeX engine does. Both register their
  * promise with `lib/markdown/pending-enhancements`, and readiness awaits
  * `enhancementsSettled()` — their own completion — then each font face the
- * laid-out page asked for, by its own `loaded` promise, within one bounded
- * horizon (`facesLoaded`).
+ * laid-out page asked for, loaded by name, under one horizon that bounds
+ * the wait and is not expected to be met (`facesLoaded`).
  * Nothing here waits on `requestAnimationFrame`, which WebKit suspends while
  * the window is covered: the host's one render deadline bounds everything,
  * and a readiness gated on a frame could stall until it fired. The
@@ -65,6 +74,7 @@ import {
   shareRenderReadyToHost,
 } from "../host/declarations/services";
 import { ToolBlockExpansionState } from "../components/tugways/blocks/expansion-state";
+import { CHART_STATE_ATTR, renderChartInto } from "../lib/chart/render-chart";
 import { CodeSessionStore } from "../lib/code-session-store";
 import { TestFrameChannel } from "../lib/code-session-store/testing/mock-feed-store";
 import { ConnectionLifecycle } from "../lib/connection-lifecycle";
@@ -73,8 +83,9 @@ import { flushSync, installGestureScope } from "../lib/gesture-scope";
 import { enhancementsSettled } from "../lib/markdown/pending-enhancements";
 import { SessionMetadataStore } from "../lib/session-metadata-store";
 import {
-  decodeShareRenderDocument,
+  decodeShareDocument,
   shareExpansionOverrides,
+  type ShareFigureDocument,
   type ShareRenderDocument,
 } from "../lib/share-turns";
 import { FeedId } from "../protocol";
@@ -145,30 +156,51 @@ function mount(doc: ShareRenderDocument): void {
 }
 
 /**
- * How long, from the page's layout, a font face that reads `loading` is
- * waited for. A face WebKit is fetching loads in milliseconds — the
- * transcript's Latin faces read loaded 10 ms after layout. But a layout that
- * reaches a character in a CJK subset's `unicode-range` marks those subsets
- * `loading` without fetching them: no request is open, the face's `loaded`
- * never settles, and the set's `ready` with it — on a card's own page as on
- * this one, where the same faces sit `loading` for the page's life. Such a
- * face draws nothing in the card either, so the picture is the card's
- * without it. One bounded wait, under the render's own deadline; never a
- * frame.
+ * Draw one figure as a picture, in the deck root. Resolves `false` when the
+ * figure did not draw: the spec was refused, or the engine or its text
+ * measurement was not to be had.
+ */
+async function mountFigure(doc: ShareFigureDocument): Promise<boolean> {
+  // The page's ground and margin are the figure's, not the column's; CSS
+  // reads this attribute ([L06]).
+  document.documentElement.setAttribute("data-share-figure", "");
+  const container = document.getElementById("deck-container") ?? document.body;
+  const figure = document.createElement("div");
+  container.appendChild(figure);
+  await renderChartInto(figure, doc.source, { layers: doc.layers, picture: true });
+  return figure.getAttribute(CHART_STATE_ATTR) === "rendered";
+}
+
+/**
+ * The bound on the wait for font faces, from the page's layout. It is not
+ * the wait: every face is asked for by name and answers in tens of
+ * milliseconds. Under the render's own deadline; never a frame.
  */
 const FACE_HORIZON_MS = 2000;
 
 /**
  * Resolve once every font face the laid-out page asked for has loaded, or
- * failed (which draws the fallback a live card draws too), or the horizon
- * has passed. Each face is waited on by its own `loaded` promise. Reading the
- * height lays the page out, which is what starts a face's load.
+ * failed (which draws the fallback a live card draws too). Reading the
+ * height lays the page out, which is what marks a face `loading`.
+ *
+ * **Each face is loaded by name, never only awaited.** The page's first
+ * layout runs before its Latin faces have arrived, so every character falls
+ * through the family stack to the CJK subsets whose `unicode-range` covers
+ * ASCII, and WebKit marks those subsets `loading`. It opens no request for
+ * them: the Latin faces land a few milliseconds later and draw the text, the
+ * subsets are never fetched, and their `loaded` promises never settle, nor
+ * the set's `ready`. A wait on `loaded` alone therefore ran to the horizon
+ * on every render. `load()` on a face in that state opens the request, and
+ * the same promise then settles. Read 2026-11-17 on a page of Latin text:
+ * 31 faces `loading` at layout, the 5 Latin ones loaded within 50 ms, the 26
+ * JP and KR subsets unchanged 300 ms on with no request open, and all 26
+ * loaded 30–46 ms after `load()`.
  */
 async function facesLoaded(): Promise<void> {
   void document.documentElement.scrollHeight;
   const loading: Promise<unknown>[] = [];
   document.fonts.forEach((face) => {
-    if (face.status === "loading") loading.push(face.loaded.catch(() => undefined));
+    if (face.status === "loading") loading.push(face.load().catch(() => undefined));
   });
   if (loading.length === 0) return;
   let horizon: ReturnType<typeof setTimeout> | undefined;
@@ -182,20 +214,32 @@ async function facesLoaded(): Promise<void> {
 }
 
 async function render(json: string): Promise<void> {
-  const doc = decodeShareRenderDocument(json);
-  if (doc === null) {
+  const decoded = decodeShareDocument(json);
+  if (decoded === null) {
     // Said where the host's log hears it; the deadline answers the render.
     console.error("share page: the document does not decode");
     return;
   }
+  const doc = decoded.document;
   if (doc.theme !== "" && doc.theme !== getOnScreenTheme()) await applyTheme(doc.theme);
-  mount(doc);
-  await enhancementsSettled();
+  if (decoded.kind === "figure") {
+    if (!(await mountFigure(decoded.document))) {
+      console.error("share page: the figure did not draw");
+      return;
+    }
+  } else {
+    mount(decoded.document);
+    await enhancementsSettled();
+  }
   await facesLoaded();
-  // The content's own height: `scrollHeight` never reads less than the
-  // view's viewport, which the host sized before it knew the content.
+  // The content's own size: `scrollHeight` never reads less than the view's
+  // viewport, which the host sized before it knew the content. The deck root
+  // is the column for turns and the figure with its margin for a figure, so
+  // its width is the document's; the root element's would be the viewport's.
   const height = Math.ceil(document.documentElement.getBoundingClientRect().height);
-  postToHost(shareRenderReadyToHost, { id: shareId, height });
+  const root = document.getElementById("deck-container") ?? document.body;
+  const width = Math.ceil(root.getBoundingClientRect().width);
+  postToHost(shareRenderReadyToHost, { id: shareId, width, height });
 }
 
 (async () => {

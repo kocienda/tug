@@ -74,6 +74,88 @@ final class ShareRenderOutputTests: XCTestCase {
         return data as Data
     }
 
+    func testAFigureDocumentIsToldFromTurnsByItsKind() {
+        XCTAssertTrue(ShareRenderOutput.isFigureDocument(
+            #"{"version":1,"kind":"figure","theme":"sloop","source":"{}","layers":"chart"}"#
+        ))
+        // A turns document has no kind.
+        XCTAssertFalse(ShareRenderOutput.isFigureDocument(#"{"version":1,"theme":"sloop","width":720}"#))
+        XCTAssertFalse(ShareRenderOutput.isFigureDocument(#"{"kind":"turns"}"#))
+        XCTAssertFalse(ShareRenderOutput.isFigureDocument(#"{"kind":7}"#))
+        XCTAssertFalse(ShareRenderOutput.isFigureDocument(#"["figure"]"#))
+        XCTAssertFalse(ShareRenderOutput.isFigureDocument("not json"))
+    }
+
+    func testTurnsKeepTheirColumnAndAFigureTakesTheWidthItDrew() {
+        // Turns are the column whatever the page reported.
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: 720, figure: false, column: 720), 720)
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: 1088, figure: false, column: 720), 720)
+        // A figure is as wide as it drew: a narrow chart and a wide diagram.
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: 528, figure: true, column: 720), 528)
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: 1087.2, figure: true, column: 720), 1088)
+        // A report that is no width leaves the column; one past the bound is held to it.
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: 0, figure: true, column: 720), 720)
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: .nan, figure: true, column: 720), 720)
+        XCTAssertEqual(ShareRenderOutput.renderWidth(reported: .infinity, figure: true, column: 720), 720)
+        XCTAssertEqual(
+            ShareRenderOutput.renderWidth(reported: 50_000, figure: true, column: 720),
+            ShareRenderOutput.figureMaxWidth
+        )
+        // The view starts wider than the widest chart a spec may ask for.
+        XCTAssertGreaterThan(ShareRenderOutput.figureStartWidth, 1600)
+    }
+
+    func testAFiguresImageIsBudgetedByItsOwnWidth() {
+        // A 1,088-wide diagram at 2× is inside the budget far past where a
+        // 720-wide share would be, per point of height.
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 900, width: 1088, backing: 2), 2)
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 60_000, width: 1088, backing: 2), 1)
+        XCTAssertEqual(ShareRenderOutput.imageScale(height: 60_000, width: 720, backing: 2), 2)
+    }
+
+    func testThePreviewSheetIsSizedFromItsArtifact() {
+        let parent = CGSize(width: 1400, height: 1000)
+        let chrome = ShareRenderOutput.previewChromeWidth
+        let bar = ShareRenderOutput.previewChromeHeight
+
+        // Shared turns: the column plus the chrome, as tall as the cap, at scale 1.
+        let turns = ShareRenderOutput.previewLayout(artifact: CGSize(width: 720, height: 5000), parent: parent, column: 720)
+        XCTAssertEqual(turns, .init(sheet: CGSize(width: 720 + chrome, height: 760), scale: 1))
+
+        // A narrow chart: a narrow sheet, held at the minimum, as tall as the chart needs.
+        let chart = ShareRenderOutput.previewLayout(artifact: CGSize(width: 400, height: 280), parent: parent, column: 720)
+        XCTAssertEqual(chart, .init(sheet: CGSize(width: 480, height: 280 + bar), scale: 1))
+
+        // A wide diagram the parent has room for: its own width, unscaled.
+        let diagram = ShareRenderOutput.previewLayout(artifact: CGSize(width: 1088, height: 600), parent: parent, column: 720)
+        XCTAssertEqual(diagram, .init(sheet: CGSize(width: 1088 + chrome, height: 600 + bar), scale: 1))
+
+        // The same diagram over a narrower parent is scaled to fit, and its height with it.
+        let fitted = ShareRenderOutput.previewLayout(
+            artifact: CGSize(width: 1088, height: 600), parent: CGSize(width: 1080, height: 1000), column: 720
+        )
+        XCTAssertEqual(fitted.sheet.width, 1000)
+        XCTAssertEqual(fitted.scale, (1000 - chrome) / 1088, accuracy: 0.0001)
+        XCTAssertEqual(fitted.sheet.height, (600 * fitted.scale).rounded(.up) + bar)
+
+        // Past the floor it is not scaled further; the sheet scrolls.
+        let floored = ShareRenderOutput.previewLayout(
+            artifact: CGSize(width: 1600, height: 600), parent: CGSize(width: 700, height: 1000), column: 720
+        )
+        XCTAssertEqual(floored.scale, ShareRenderOutput.previewMinScale)
+        XCTAssertEqual(floored.sheet.width, 620)
+
+        // Text has no size of its own: the column, the full height.
+        let text = ShareRenderOutput.previewLayout(artifact: nil, parent: parent, column: 720)
+        XCTAssertEqual(text, .init(sheet: CGSize(width: 720 + chrome, height: 760), scale: 1))
+
+        // A short parent bounds the height.
+        let short = ShareRenderOutput.previewLayout(
+            artifact: CGSize(width: 720, height: 5000), parent: CGSize(width: 1400, height: 600), column: 720
+        )
+        XCTAssertEqual(short.sheet.height, 440)
+    }
+
     func testALongSharesPagesAreJoinedIntoOne() throws {
         let joined = try XCTUnwrap(ShareRenderOutput.joinedIntoOnePage(pdf(width: 720, heights: [14_400, 590])))
         let document = try XCTUnwrap(PDFDocument(data: joined))

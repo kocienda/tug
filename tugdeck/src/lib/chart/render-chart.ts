@@ -63,6 +63,13 @@
  * alternative, shows nothing while it waits, plays no entrance, and spends no
  * hash, so the same chart in the transcript still enters.
  *
+ * **A picture is the figure as it leaves the card.** The share page draws
+ * one to render a figure to an image: at the figure's own width, never the
+ * host's, with its title drawn in the figure since no header travels with
+ * it, still, and with no header, hover or Table view. A diagram keeps its
+ * keyed table beneath it, because its numbered discs refer to that table.
+ * The host is given the width the picture came to ({@link pictureWidth}).
+ *
  * Laws: [L06] every state is a `data-` attribute styled by CSS; [L24] the
  * DOM is structure written once, the entrance set is module-local data;
  * [L32] the source is reachable until the figure replaces it; [L33] both
@@ -111,7 +118,23 @@ import {
   type ChartTableRefs,
   type TuggraphicsEngine,
 } from "@/lib/lazy/load-tuggraphics";
-import { buildBlockHeader, buildCopyButton, buildFoldButton } from "@/lib/markdown/enhance-block-chrome";
+import {
+  copyFigurePicture,
+  figureBaseName,
+  figureCopyLabel,
+  figureHeaderActions,
+  figureShareLabel,
+  shareFigure,
+} from "@/lib/chart/figure-export";
+import {
+  buildAsyncButton,
+  buildAsyncCopyButton,
+  buildBlockHeader,
+  buildCopyButton,
+  buildFoldButton,
+  SHARE_ICON,
+} from "@/lib/markdown/enhance-block-chrome";
+import { isShareAvailable } from "@/lib/os-share";
 import { SPACE_LAYER_CLASS, SPACE_SHOWN_ATTRIBUTE } from "@/lib/pane-frame-selectors";
 
 /** The figure's class on every door. */
@@ -128,6 +151,8 @@ export const CHART_UNTITLED_ATTR = "data-tugx-chart-untitled";
 export const CHART_PENDING_ATTR = "data-tugx-chart-pending";
 /** Present on a figure drawn as a thumbnail. */
 export const CHART_THUMBNAIL_ATTR = "data-tugx-chart-thumbnail";
+/** Present on a figure drawn as a picture. */
+export const CHART_PICTURE_ATTR = "data-tugx-chart-picture";
 /**
  * `diagram` on a figure drawn from a diagram spec, whose keyed table stands
  * beneath it rather than behind the Table toggle.
@@ -142,6 +167,21 @@ export const DIAGRAM_CHECKED_ATTR = "data-tugx-where-checked";
 
 /** The width a thumbnail is laid out at, before CSS scales it to its host. */
 export const THUMBNAIL_LAYOUT_WIDTH = 480;
+
+/**
+ * The narrowest a picture with a keyed table is drawn, in px. A small
+ * diagram is narrower than four columns of prose can be read at.
+ */
+export const PICTURE_KEYED_FLOOR = 560;
+
+/**
+ * The width a picture's host takes: the figure's own, or the keyed table's
+ * floor when a table stands beneath a figure narrower than it.
+ */
+export function pictureWidth(figureWidth: number, keyed: boolean): number {
+  const width = Math.ceil(figureWidth);
+  return keyed ? Math.max(width, PICTURE_KEYED_FLOOR) : width;
+}
 
 /** The figure's record and its annotated event, which the set list shares. */
 export { CHART_ANNOTATED_EVENT, chartFigureData, type ChartFigureData } from "@/lib/chart/chart-figure-data";
@@ -163,6 +203,11 @@ export interface RenderChartOptions {
   layers?: ChartLayers;
   /** Draw the figure alone, scaled to its host and still. */
   thumbnail?: boolean;
+  /**
+   * Draw the figure as a picture that leaves the card: at its own width,
+   * titled, still, with no header; a diagram with its keyed table.
+   */
+  picture?: boolean;
   /**
    * The surface's annotation context. Given, a rendered figure is annotated
    * with it — a chart's refs resolved and stamped, a diagram's locations
@@ -253,7 +298,7 @@ function showUndrawn(el: HTMLElement, source: string, label: string, notes: HTML
   const header = buildBlockHeader({
     identity,
     actions: [
-      buildCopyButton(() => source, diagram ? "Copy diagram source" : "Copy chart source"),
+      buildCopyButton(() => source, figureCopyLabel("source", diagram)),
       buildFoldButton(el, { ariaExpand: "Show source", ariaCollapse: "Hide source" }, true),
     ],
   });
@@ -676,6 +721,7 @@ function hasTable(table: ChartTable): boolean {
 export async function renderChartInto(el: HTMLElement, source: string, options: RenderChartOptions = {}): Promise<void> {
   const layers: ChartLayers = options.layers ?? "chart";
   const thumbnail = options.thumbnail ?? false;
+  const picture = !thumbnail && (options.picture ?? false);
   const token = {};
   renders.set(el, token);
   const current = (): boolean => renders.get(el) === token;
@@ -690,10 +736,11 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   el.removeAttribute(CHART_KIND_ATTR);
   el.removeAttribute(DIAGRAM_CHECKED_ATTR);
   el.toggleAttribute(CHART_THUMBNAIL_ATTR, thumbnail);
+  el.toggleAttribute(CHART_PICTURE_ATTR, picture);
   el.setAttribute(CHART_STATE_ATTR, "pending");
   el.removeAttribute(COLLAPSED_ATTR);
   const diagram = isDiagramSource(source, layers);
-  if (thumbnail) el.textContent = "";
+  if (thumbnail || picture) el.textContent = "";
   else showUndrawn(el, source, diagram ? "Drawing diagram…" : "Drawing chart…", null, diagram);
 
   let engine: TuggraphicsEngine;
@@ -724,16 +771,17 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   }
 
   const hash = textHash(source);
-  const animate = !thumbnail && takeEntrance(entered, hash, isShown(el));
+  const animate = !thumbnail && !picture && takeEntrance(entered, hash, isShown(el));
   nextId += 1;
   const idPrefix = `tgc${nextId}`;
   const avail = el.clientWidth;
-  const width = thumbnail ? THUMBNAIL_LAYOUT_WIDTH : avail > 0 ? avail : undefined;
+  // A picture names no width: a chart takes its spec's or its form's default.
+  const width = thumbnail ? THUMBNAIL_LAYOUT_WIDTH : !picture && avail > 0 ? avail : undefined;
   const round = runMeasureLoop(
     (table) =>
       engine.compile_round(
         source,
-        { width, id_prefix: idPrefix, motion: animate, layers, figure_title: false },
+        { width, id_prefix: idPrefix, motion: animate, layers, figure_title: picture },
         table,
       ),
     measure,
@@ -755,6 +803,19 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
     return;
   }
 
+  if (picture) {
+    const body = document.createElement("div");
+    body.className = "tugx-chart-body";
+    body.innerHTML = round.svg;
+    const keyed = diagram && hasTable(round.table);
+    if (diagram) el.setAttribute(CHART_KIND_ATTR, "diagram");
+    el.style.width = `${pictureWidth(round.width, keyed)}px`;
+    el.removeAttribute(COLLAPSED_ATTR);
+    el.replaceChildren(body, ...(keyed ? [buildKeyedTable(round.table)] : []));
+    el.setAttribute(CHART_STATE_ATTR, "rendered");
+    return;
+  }
+
   // Build off-document, then land it in one write.
   // A diagram has no Table view: its table already stands beneath it.
   if (diagram) el.setAttribute(CHART_KIND_ATTR, "diagram");
@@ -762,9 +823,29 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   if (view === "table") el.setAttribute(CHART_VIEW_ATTR, "table");
   else el.setAttribute(CHART_VIEW_ATTR, "chart");
 
+  // The share page is recognised by its annotation context, which answers
+  // nothing, and by the mark its root wears.
+  const offered = figureHeaderActions({
+    drawn: true,
+    hostShares: isShareAvailable(),
+    sharePage: options.annotation?.unanswerable === true || document.documentElement.hasAttribute("data-share-page"),
+  });
+  const figure = { source, layers };
   const actions: HTMLElement[] = [
-    buildCopyButton(() => source, diagram ? "Copy diagram source" : "Copy chart source"),
+    offered.copy === "picture"
+      ? buildAsyncCopyButton(() => copyFigurePicture(figure), figureCopyLabel("picture", diagram))
+      : buildCopyButton(() => source, figureCopyLabel("source", diagram)),
   ];
+  if (offered.share) {
+    actions.push(
+      buildAsyncButton({
+        icon: SHARE_ICON,
+        name: "tugx-chart-share",
+        ariaLabel: figureShareLabel(diagram),
+        action: () => shareFigure(figure, figureBaseName(round.table.caption, diagram)),
+      }),
+    );
+  }
   const withTable = hasTable(round.table);
   const refs = round.table.refs;
   if (withTable && !diagram) {

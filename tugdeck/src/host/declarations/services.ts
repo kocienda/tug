@@ -514,6 +514,28 @@ export const sharePickToHost = defineToHost({
   ],
 });
 
+/**
+ * Show one figure's two renders in the preview sheet with its exits: the PNG
+ * at `png` and the PDF at `pdf`, a choice between them, and Copy, Save… and
+ * Share… over the one chosen. `text` is the figure's spec, the plain-text
+ * flavour of a Copy; `baseName` is the save panel's default filename, without
+ * an extension. Answered with `onShareDone` under `id` when the sheet is
+ * dismissed, or `failed` at once when a file cannot be read.
+ */
+export const shareFigureToHost = defineToHost({
+  name: "shareFigure",
+  from: "any",
+  codec: obj({ id: str, baseName: str, png: str, pdf: str, text: str }),
+  samples: [
+    { id: "share-10", baseName: "build-time", png: "/tmp/tug-share/r-1.png", pdf: "/tmp/tug-share/r-2.pdf", text: "{\"tugchart\":1}" },
+  ],
+  refused: [
+    "share-10",
+    { id: "share-10", baseName: "b", png: "/tmp/tug-share/r-1.png", text: "" },
+    { id: "share-10", baseName: "b", png: "/tmp/tug-share/r-1.png", pdf: 7, text: "" },
+  ],
+});
+
 /** The two formats the host renders from the share page. */
 const shareRenderFormat = literal("pdf", "png");
 
@@ -551,15 +573,24 @@ export const shareHelloToHost = defineToHost({
 
 /**
  * The share page has mounted its document and every enhancement a reader
- * would see has landed: `height` is the document's full height in CSS pixels.
- * Taken only from a view the host's renderer made.
+ * would see has landed: `width` and `height` are the document's full size in
+ * CSS pixels. A turns document is as wide as its column; a figure is as wide
+ * as it drew. Taken only from a view the host's renderer made.
  */
 export const shareRenderReadyToHost = defineToHost({
   name: "shareRenderReady",
   from: "any",
-  codec: obj({ id: str, height: num }),
-  samples: [{ id: "share-render-1", height: 1840 }],
-  refused: ["share-render-1", { id: "share-render-1" }, { id: "share-render-1", height: "1840" }],
+  codec: obj({ id: str, width: num, height: num }),
+  samples: [
+    { id: "share-render-1", width: 720, height: 1840 },
+    { id: "share-render-2", width: 488, height: 356 },
+  ],
+  refused: [
+    "share-render-1",
+    { id: "share-render-1" },
+    { id: "share-render-1", height: 1840 },
+    { id: "share-render-1", width: 720, height: "1840" },
+  ],
 });
 
 /**

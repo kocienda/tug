@@ -1707,7 +1707,13 @@
       "samples": [
         {
           "id": "share-render-1",
+          "width": 720,
           "height": 1840
+        },
+        {
+          "id": "share-render-2",
+          "width": 488,
+          "height": 356
         }
       ],
       "refused": [
@@ -1717,6 +1723,11 @@
         },
         {
           "id": "share-render-1",
+          "height": 1840
+        },
+        {
+          "id": "share-render-1",
+          "width": 720,
           "height": "1840"
         }
       ]
@@ -1808,6 +1819,35 @@
           "y": 0,
           "w": 1,
           "h": 1
+        }
+      ]
+    },
+    {
+      "name": "shareFigure",
+      "from": "any",
+      "samples": [
+        {
+          "id": "share-10",
+          "baseName": "build-time",
+          "png": "/tmp/tug-share/r-1.png",
+          "pdf": "/tmp/tug-share/r-2.pdf",
+          "text": "{\"tugchart\":1}"
+        }
+      ],
+      "refused": [
+        "share-10",
+        {
+          "id": "share-10",
+          "baseName": "b",
+          "png": "/tmp/tug-share/r-1.png",
+          "text": ""
+        },
+        {
+          "id": "share-10",
+          "baseName": "b",
+          "png": "/tmp/tug-share/r-1.png",
+          "pdf": 7,
+          "text": ""
         }
       ]
     },

@@ -283,6 +283,33 @@ body {
   max-width: none;
 }
 
+/* ---- Picture -------------------------------------------------------------
+ *
+ * The figure as it leaves the card, on a page that is photographed: the
+ * host is exactly as wide as `renderChartInto` made it, so the figure has no
+ * frame, no margin and no padding of its own, and never scales or scrolls.
+ * A keyed table wider than its diagram centres the diagram over it.
+ */
+
+.tugx-chart[data-tugx-chart-picture] {
+  margin: 0;
+  border-width: 0;
+  border-radius: 0;
+  box-sizing: content-box;
+}
+.tugx-chart[data-tugx-chart-picture] > .tugx-chart-body {
+  padding: 0;
+  overflow: visible;
+}
+.tugx-chart[data-tugx-chart-picture] > .tugx-chart-body > .tugx-chart-svg {
+  min-width: 0;
+  margin-inline: auto;
+}
+.tugx-chart[data-tugx-chart-picture] > .tugx-chart-table {
+  width: 100%;
+  margin: var(--tug-space-md) 0 0;
+}
+
 /* ---- Hover ---------------------------------------------------------------
  *
  * The compiler's hit targets are invisible and the renderer marks the one being

@@ -31,6 +31,19 @@ html[data-share-page] #deck-container {
   background: var(--tugx-pane-bg);
 }
 
+/* A figure document is one figure on the ground a figure's block sits on in
+   the card, `--tugx-block-chrome-bg`, with a margin of that ground around
+   it. The root is as wide as the figure drew, which is the width the page
+   reports, so the 720-pixel column is not this document's. */
+html[data-share-page][data-share-figure] body {
+  background-color: var(--tugx-block-chrome-bg);
+}
+html[data-share-page][data-share-figure] #deck-container {
+  width: max-content;
+  padding: 24px;
+  background: var(--tugx-block-chrome-bg);
+}
+
 /* The header: the share's title, then one quiet line of facts. Sized as the
    transcript's own text is, in `em` against its 14px root. */
 html[data-share-page] .share-page__header {

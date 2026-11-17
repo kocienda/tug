@@ -4,25 +4,34 @@ import PDFKit
 import UniformTypeIdentifiers
 import WebKit
 
-/// Renders shared turns to a file: one hidden web view per render, loading
-/// the share page (`/?share=<id>`, `tugdeck/src/share/share-main.ts`), which
-/// draws the turns through the Session card's own transcript cells.
+/// Renders shared turns, or one figure, to a file: one hidden web view per
+/// render, loading the share page (`/?share=<id>`,
+/// `tugdeck/src/share/share-main.ts`), which draws the turns through the
+/// Session card's own transcript cells and a figure through the card's own
+/// chart renderer.
 ///
 /// The flow, one job per `shareRender`:
 ///
 ///  1. a page posts `shareRender { id, format, document }`;
-///  2. the renderer makes a 720-point web view, puts it in the window's
-///     container beneath every page (`MainWindow.placeShareView`), and loads
-///     the share page from the shell's origin;
+///  2. the renderer makes a web view — 720 points wide for turns, and for a
+///     figure wide enough that no figure is laid out against its edge —
+///     puts it in the window's container beneath every page
+///     (`MainWindow.placeShareView`), and loads the share page from the
+///     shell's origin;
 ///  3. the share page posts `shareHello { id }` and is sent
 ///     `onShareDocument { id, document }`;
 ///  4. the share page mounts the document, waits for what a reader would see
-///     to land, and posts `shareRenderReady { id, height }`;
-///  5. the renderer sizes the view to that height and writes the file under
+///     to land, and posts `shareRenderReady { id, width, height }`;
+///  5. the renderer sizes the view to that size and writes the file under
 ///     `ShareRenderOutput` — for a PDF it first asks the page
 ///     `onShareHtmlRequest { id }` and takes `shareRenderHtml { id, html }`,
 ///     the rich flavour the PDF's Copy writes — and answers the requesting
 ///     page `onShareRendered { id, result, path, height, pages, html }`.
+///
+/// **The width is the document's.** Turns are a 720-point column whatever the
+/// page reports. A figure is as wide as it drew, which the page reports
+/// beside the height, and that width is the view's frame, the PDF's rect,
+/// the bitmap and every tile (`ShareRenderOutput.renderWidth`).
 ///
 /// The view is held by opacity, never `isHidden`: a hidden view is a hidden
 /// page to WebKit, which stops painting it (the rule `BodyHostView` states),
@@ -55,17 +64,21 @@ import WebKit
 /// **Readings**, 2026-11-13, an app-test instance at 2× in the default dark
 /// theme, turns of a prompt and a reply carrying a code fence, a list and a
 /// paragraph: 10 turns laid out at 5,009 px, 50 at 24,565 px and 200 at
-/// 97,897 px, each rendered in 2.4–4.4 s. About 2 s of every render is the
-/// share page's bounded wait on fonts that never load (`share-main.ts`,
-/// `FACE_HORIZON_MS`), so the cost of a large selection is small. The hidden
-/// view paints for the snapshot and for the PDF alike. The page's HTML runs
-/// about 37 KB a turn (7.5 MB at 200), the size of every element's look
-/// written inline.
+/// 97,897 px, each rendered in 2.4–4.4 s. About 2 s of every one of those
+/// renders was the share page waiting out its font horizon on faces WebKit
+/// had marked loading and never fetched (`share-main.ts`, `facesLoaded`).
+/// The page now loads those faces by name, and the wait is gone: read
+/// 2026-11-17 on the same kind of instance, a short share 742 px tall
+/// rendered as a PNG in 2,263 ms before and 363 ms after, and as a PDF in
+/// 2,256 ms before and 308 ms after. The hidden view paints for the snapshot
+/// and for the PDF alike. The page's HTML runs about 37 KB a turn (7.5 MB at
+/// 200), the size of every element's look written inline.
 final class ShareRenderer: NSObject, WKNavigationDelegate {
     /// How long one render may take, end to end.
     static let deadline: DispatchTimeInterval = .seconds(60)
 
-    /// The column the share page lays out, in points (CSS pixels at 1×).
+    /// The column the share page lays turns out in, in points (CSS pixels at
+    /// 1×). A figure's width is its own: `Job.width`.
     static let width: CGFloat = 720
 
     private final class Job {
@@ -78,6 +91,11 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         weak var requester: WKWebView?
         var answer: AnswerOrDeadline<ShareRendered>?
         var ready = false
+        /// Whether the document is one figure, not turns.
+        let figure: Bool
+        /// The width the document renders at, in CSS pixels: where the view
+        /// starts, then for a figure what the page reported.
+        var width: CGFloat
         /// The laid-out height, in CSS pixels, once the page reported it.
         var height: CGFloat = 0
         /// Whether the page's HTML has arrived, for a PDF.
@@ -92,6 +110,10 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
             self.view = view
             self.holder = holder
             self.requester = requester
+            self.figure = ShareRenderOutput.isFigureDocument(document)
+            self.width = CGFloat(
+                figure ? ShareRenderOutput.figureStartWidth : Double(ShareRenderer.width)
+            )
         }
     }
 
@@ -123,10 +145,7 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
 
         let config = window.makeWebViewConfiguration(forShell: false)
         config.preferences.shouldPrintBackgrounds = true
-        let view = WKWebView(
-            frame: NSRect(x: 0, y: 0, width: Self.width, height: max(window.frame.height, 200)),
-            configuration: config
-        )
+        let view = WKWebView(frame: .zero, configuration: config)
         view.allowsBackForwardNavigationGestures = false
         // A page that is not rendered lays nothing out, finishes no font
         // load and snapshots nothing, so under the harness — whose window
@@ -138,11 +157,14 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         // is the view's layer as composited, and a web view at opacity 0
         // photographs as its background with nothing drawn on it. A holder
         // at 0 hides it from the user as `BodyHostView` hides a body.
-        let holder = NSView(frame: view.frame)
+        let holder = NSView(frame: .zero)
         holder.wantsLayer = true
         holder.layer?.opacity = 0
         holder.addSubview(view)
         let job = Job(id: id, format: format, document: document, view: view, holder: holder, requester: requester)
+        let start = NSSize(width: job.width, height: max(window.frame.height, 200))
+        holder.setFrameSize(start)
+        view.setFrameSize(start)
         job.answer = AnswerOrDeadline(deadline: Self.deadline) { [weak self] value, timedOut in
             if timedOut {
                 TugLog.warn("share", "render timed out", [TugLog.field("id", id)])
@@ -162,12 +184,17 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         window.hostChannel.send(.shareDocument(ShareDocument(id: id, document: job.document)), to: view)
     }
 
-    /// The share page in `view` laid its document out at `height` CSS
-    /// pixels: size the view to it and write the file.
-    func ready(id: String, height: Double, from view: WKWebView) {
+    /// The share page in `view` laid its document out at `width` by `height`
+    /// CSS pixels: size the view to it and write the file.
+    func ready(id: String, width: Double, height: Double, from view: WKWebView) {
         guard let job = jobs[id], job.view === view, !job.ready else { return }
         job.ready = true
-        TugLog.info("share", "page laid out", [TugLog.field("id", id), TugLog.field("height", String(height))])
+        TugLog.info("share", "page laid out", [
+            TugLog.field("id", id), TugLog.field("width", String(width)), TugLog.field("height", String(height)),
+        ])
+        job.width = CGFloat(ShareRenderOutput.renderWidth(
+            reported: width, figure: job.figure, column: Double(Self.width)
+        ))
         let contentHeight = max(1, ceil(height))
         job.height = contentHeight
         switch job.format {
@@ -190,17 +217,17 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
 
     /// Size the view, and the holder it stands in, to the laid-out document.
     private func size(_ job: Job) {
-        job.holder.setFrameSize(NSSize(width: Self.width, height: job.height))
-        job.view.setFrameSize(NSSize(width: Self.width, height: job.height))
+        job.holder.setFrameSize(NSSize(width: job.width, height: job.height))
+        job.view.setFrameSize(NSSize(width: job.width, height: job.height))
     }
 
-    /// One continuous page of the whole document: the column's width, the
-    /// document's height, no page breaks.
+    /// One continuous page of the whole document: the document's width and
+    /// height, no page breaks.
     private func writePDF(_ job: Job, html: String) {
         let id = job.id
         let url = ShareRenderOutput.outputURL(id: id, format: .pdf)
         let config = WKPDFConfiguration()
-        config.rect = CGRect(x: 0, y: 0, width: Self.width, height: job.height)
+        config.rect = CGRect(x: 0, y: 0, width: job.width, height: job.height)
         job.view.createPDF(configuration: config) { [weak self] result in
             guard let self, let job = self.jobs[id] else { return }
             do {
@@ -232,8 +259,8 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
     private func snapshotPNG(_ job: Job, height: CGFloat) {
         let id = job.id
         let backing = Double(job.view.window?.backingScaleFactor ?? 2)
-        let scale = CGFloat(ShareRenderOutput.imageScale(height: Double(height), width: Double(Self.width), backing: backing))
-        let pixelsWide = Int((Self.width * scale).rounded())
+        let scale = CGFloat(ShareRenderOutput.imageScale(height: Double(height), width: Double(job.width), backing: backing))
+        let pixelsWide = Int((job.width * scale).rounded())
         let pixelsHigh = Int((height * scale).rounded())
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
@@ -259,7 +286,7 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
         }
         let tile = min(Self.tileHeight, height - y)
         let config = WKSnapshotConfiguration()
-        config.rect = CGRect(x: 0, y: y, width: Self.width, height: tile)
+        config.rect = CGRect(x: 0, y: y, width: job.width, height: tile)
         config.afterScreenUpdates = true
         job.view.takeSnapshot(with: config) { [weak self] image, error in
             guard let self, let job = self.jobs[id] else { return }
@@ -274,14 +301,14 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
             }
             // The bitmap's origin is its bottom-left; the document's is its top.
             context.draw(cgImage, in: CGRect(
-                x: 0, y: (height - y - tile) * scale, width: Self.width * scale, height: tile * scale
+                x: 0, y: (height - y - tile) * scale, width: job.width * scale, height: tile * scale
             ))
             self.snapshotTile(id: id, into: context, from: y + tile, height: height, scale: scale)
         }
     }
 
     /// Write the stitched bitmap as one PNG, tagged with its pixel density so
-    /// a viewer shows it at the column's own size.
+    /// a viewer shows it at the document's own size.
     private func writePNG(id: String, from context: CGContext, height: CGFloat, scale: CGFloat) {
         guard let job = jobs[id] else { return }
         let url = ShareRenderOutput.outputURL(id: id, format: .png)
@@ -365,6 +392,7 @@ final class ShareRenderer: NSObject, WKNavigationDelegate {
             TugLog.field("id", id),
             TugLog.field("result", outcome.result.rawValue),
             TugLog.field("pages", String(outcome.pages)),
+            TugLog.field("width", String(Int(job.width))),
             TugLog.field("height", String(Int(outcome.height))),
             TugLog.field("ms", String(Int(Date().timeIntervalSince(job.started) * 1000))),
         ])

@@ -519,6 +519,32 @@ body {
 
 /* Focus indication is the app-owned focus-ring primitive (focus-ring.css). */
 
+/* A button whose action is out — a figure's render, on its way to the
+   pasteboard or the preview sheet — wears `aria-busy`: its glyph breathes
+   and the pointer says wait. The attribute is the state ([L06]). Only a
+   figure's header has such a button, and the button takes a motion hold for
+   as long as it wears the attribute, so the breath is a registered loop the
+   motion breaker can still. */
+:is(.tugx-md-block, .tugx-chart) .tugx-md-chrome-btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* @tug-motion-hold ../src/lib/markdown/enhance-block-chrome.ts */
+@media (prefers-reduced-motion: no-preference) {
+  .tugx-chart .tugx-md-chrome-btn[aria-busy="true"] > svg {
+    animation: tugx-md-chrome-busy 0.9s ease-in-out var(--tug-loop-iterations, infinite) alternate;
+  }
+}
+
+@keyframes tugx-md-chrome-busy {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.3;
+  }
+}
+
 /* Icon-only Copy: the button toggles `is-copied` for ~1.2s after a
    successful clipboard write; CSS swaps the Copy glyph for a Check —
    matching the tool-block header's `BlockCopyButton subtype="icon"`. */

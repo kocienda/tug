@@ -39,3 +39,28 @@ export function setBulletinRelay(relay: ((relayed: RelayedBulletin) => void) | n
 export function getBulletinRelay(): ((relayed: RelayedBulletin) => void) | null {
   return bulletinRelay;
 }
+
+let deckBulletin: ((tone: BulletinTone, message: string) => void) | null = null;
+
+/**
+ * Install the page's deck bulletin, for lib code that has an outcome to say
+ * and no component in reach. `tug-bulletin.tsx` fills it when it loads, which
+ * is on every page that can show one.
+ */
+export function setDeckBulletin(raise: ((tone: BulletinTone, message: string) => void) | null): void {
+  deckBulletin = raise;
+}
+
+/**
+ * Say `message` in a deck bulletin, through the relay where one is
+ * installed. Lib code's door to it: a figure's header is plain DOM with no
+ * card's bulletin in reach. On a page with no bulletin (the share page, a
+ * test) it is logged instead.
+ */
+export function raiseDeckBulletin(tone: BulletinTone, message: string): void {
+  if (deckBulletin === null) {
+    console.warn(`bulletin (${tone}): ${message}`);
+    return;
+  }
+  deckBulletin(tone, message);
+}

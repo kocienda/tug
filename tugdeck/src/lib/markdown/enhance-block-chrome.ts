@@ -33,6 +33,8 @@
  * @module lib/markdown/enhance-block-chrome
  */
 
+import { acquireMotionHold } from "@/lib/motion-guard/registry";
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** One element of an inlined lucide icon — a tag plus its attributes. */
@@ -92,6 +94,16 @@ export function buildIcon(
   return svg;
 }
 
+/** Lucide `Share` icon (24×24 viewBox). */
+export const SHARE_ICON: ReadonlyArray<IconChild> = [
+  { tag: "path", attrs: { d: "M12 2v13" } },
+  { tag: "path", attrs: { d: "m16 6-4-4-4 4" } },
+  { tag: "path", attrs: { d: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" } },
+];
+
+/** The attribute a chrome button wears while its action is out ([L06]). */
+export const CHROME_BUSY_ATTR = "aria-busy";
+
 const COPIED_CLASS = "is-copied";
 const COPIED_DURATION_MS = 1200;
 
@@ -133,6 +145,75 @@ export function buildCopyButton(
         // the button at rest.
       });
   });
+  return button;
+}
+
+/**
+ * Run `action` for one press of `button`, which wears {@link CHROME_BUSY_ATTR}
+ * until it settles. A press while one is out does nothing: the attribute is
+ * the state, read here and by the CSS, and no other record of it is kept.
+ */
+function onPress(button: HTMLButtonElement, action: () => Promise<void>): void {
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (button.getAttribute(CHROME_BUSY_ATTR) === "true") return;
+    button.setAttribute(CHROME_BUSY_ATTR, "true");
+    // The busy glyph breathes in a loop (`tugx-md.css`); the hold registers
+    // it for exactly as long as the attribute stands.
+    const release = acquireMotionHold();
+    void action()
+      .catch(() => undefined)
+      .then(() => {
+        button.removeAttribute(CHROME_BUSY_ATTR);
+        release();
+      });
+  });
+}
+
+/**
+ * Build an icon-only Copy control whose copy takes time: `copy` runs on a
+ * press and resolves whether something reached the pasteboard. The button is
+ * busy while it is out, and swaps to the Check for a moment when it
+ * resolves `true`, as {@link buildCopyButton} does.
+ */
+export function buildAsyncCopyButton(copy: () => Promise<boolean>, ariaLabel: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tugx-md-chrome-btn tugx-md-chrome-copy";
+  button.setAttribute("aria-label", ariaLabel);
+  button.appendChild(buildIcon(COPY_ICON, "tugx-md-chrome-copy-icon", "default"));
+  button.appendChild(buildIcon(CHECK_ICON, "tugx-md-chrome-copy-icon", "copied"));
+
+  let resetTimer: ReturnType<typeof setTimeout> | null = null;
+  onPress(button, async () => {
+    if (!(await copy())) return;
+    button.classList.add(COPIED_CLASS);
+    if (resetTimer !== null) clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => {
+      button.classList.remove(COPIED_CLASS);
+      resetTimer = null;
+    }, COPIED_DURATION_MS);
+  });
+  return button;
+}
+
+/**
+ * Build an icon-only control for an action that takes time: `action` runs on
+ * a press and the button is busy until it settles.
+ */
+export function buildAsyncButton(opts: {
+  icon: ReadonlyArray<IconChild>;
+  /** The button's own class beside the chrome button's, and its icon's base. */
+  name: string;
+  ariaLabel: string;
+  action: () => Promise<void>;
+}): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `tugx-md-chrome-btn ${opts.name}`;
+  button.setAttribute("aria-label", opts.ariaLabel);
+  button.appendChild(buildIcon(opts.icon, `${opts.name}-icon`, "default"));
+  onPress(button, opts.action);
   return button;
 }
 

@@ -45,6 +45,7 @@ import { turnNumberAt, walkTurnGroups } from "@/lib/session-transcript-data-sour
 import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import type { ToolCallMode } from "@/lib/turn-entry-markdown";
 import { parseRunOfferKey, runOfferKey, type RunOfferRun } from "@/lib/run-offer-store";
+import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
 
 export { toolCallSummaryLine } from "@/lib/turn-entry-markdown";
 
@@ -598,13 +599,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * answers the render as failed.
  */
 export function decodeShareRenderDocument(json: string): ShareRenderDocument | null {
+  const value = parseRecord(json);
+  return value === null ? null : readTurnsDocument(value);
+}
+
+function parseRecord(json: string): Record<string, unknown> | null {
   let value: unknown;
   try {
     value = JSON.parse(json);
   } catch {
     return null;
   }
-  if (!isRecord(value)) return null;
+  return isRecord(value) ? value : null;
+}
+
+function readTurnsDocument(value: Record<string, unknown>): ShareRenderDocument | null {
   if (value.version !== 1) return null;
   if (typeof value.theme !== "string") return null;
   if (value.width !== SHARE_RENDER_WIDTH) return null;
@@ -648,6 +657,76 @@ export function decodeShareRenderDocument(json: string): ShareRenderDocument | n
     }
   }
   return value as unknown as ShareRenderDocument;
+}
+
+// ---------------------------------------------------------------------------
+// The figure document
+// ---------------------------------------------------------------------------
+
+/** The layers a figure's door may have taken its source through. */
+const FIGURE_LAYERS: ReadonlySet<string> = new Set<ChartLayers>(["chart", "diagram", "any"]);
+
+/**
+ * What the render page receives for one figure: a chart or a diagram drawn
+ * alone, as a picture that leaves the card. It names no width, since the
+ * figure is drawn at its own and the page reports what that came to.
+ */
+export interface ShareFigureDocument {
+  version: 1;
+  /** What tells this document from a turns document, which has no `kind`. */
+  kind: "figure";
+  /** The theme the requesting page was showing. */
+  theme: string;
+  /** The figure's spec, as its door received it. */
+  source: string;
+  /** The layers that door takes, which decide how the spec is read. */
+  layers: ChartLayers;
+}
+
+/** The figure document for one spec. */
+export function buildShareFigureDocument(input: {
+  theme: string;
+  source: string;
+  layers: ChartLayers;
+}): ShareFigureDocument {
+  return { version: 1, kind: "figure", theme: input.theme, source: input.source, layers: input.layers };
+}
+
+function readFigureDocument(value: Record<string, unknown>): ShareFigureDocument | null {
+  if (value.version !== 1) return null;
+  if (typeof value.theme !== "string") return null;
+  if (typeof value.source !== "string" || value.source === "") return null;
+  if (typeof value.layers !== "string" || !FIGURE_LAYERS.has(value.layers)) return null;
+  return {
+    version: 1,
+    kind: "figure",
+    theme: value.theme,
+    source: value.source,
+    layers: value.layers as ChartLayers,
+  };
+}
+
+/** Either document the render page draws, told apart. */
+export type ShareDocument =
+  | { kind: "turns"; document: ShareRenderDocument }
+  | { kind: "figure"; document: ShareFigureDocument };
+
+/**
+ * Decode whichever document the render page was handed. One carrying a
+ * `kind` is read as that kind and as nothing else, so a malformed figure
+ * document is never retried as turns; one carrying none is a turns document.
+ * `null` for a kind nobody draws or a shape mismatch of either.
+ */
+export function decodeShareDocument(json: string): ShareDocument | null {
+  const value = parseRecord(json);
+  if (value === null) return null;
+  if (value.kind === undefined) {
+    const document = readTurnsDocument(value);
+    return document === null ? null : { kind: "turns", document };
+  }
+  if (value.kind !== "figure") return null;
+  const document = readFigureDocument(value);
+  return document === null ? null : { kind: "figure", document };
 }
 
 /**

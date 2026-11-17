@@ -108,7 +108,9 @@ import { sessionNameStore } from "./lib/session-name-store";
 import { readClipboardViaNative } from "./lib/tug-native-clipboard";
 import { getOnScreenTheme } from "./contexts/theme-provider";
 import { sharePick, shareRender, type ShareDoneResult, type ShareRenderOutcome } from "./lib/os-share";
+import type { ChartLayers } from "./lib/lazy/load-tuggraphics";
 import {
+  buildShareFigureDocument,
   buildShareRenderDocument,
   buildShareSlice,
   selectableEntryKeys,
@@ -692,8 +694,14 @@ import {
  * the whole document back, and {@link TugTestSurface.sharePick}, which asks
  * the host's share picker for a card's previewed artifact as the bar's Share…
  * does and answers the host's reply. Additive; major stays `2`.
+ *
+ * `2.70.0`: adds {@link TugTestSurface.shareRenderFigure}, one figure's spec
+ * rendered through the host's share page as a picture — the document a
+ * figure's Copy and Share buttons send — answering the host's outcome, so a
+ * test reads the artifact the buttons make without a sheet in the way.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.69.0" as const;
+export const SURFACE_VERSION = "2.70.0" as const;
 
 /** What {@link TugTestSurface.readClipboardFacts} reports of the pasteboard. */
 export interface ClipboardFacts {
@@ -1570,6 +1578,13 @@ export interface TugTestSurface {
    */
   shareState(cardId: string): ShareStateFacts | null;
 
+  /**
+   * Render the figure `source` draws — a `tugchart` or `tugdiagram` spec —
+   * through the host's share page as a picture, in `format`, under this
+   * page's theme (SURFACE_VERSION 2.70.0): the document a figure's Copy and
+   * Share buttons send. Resolves the host's `onShareRendered` outcome.
+   */
+  shareRenderFigure(format: "pdf" | "png", source: string, layers?: ChartLayers): Promise<ShareRenderOutcome>;
   /**
    * Select `cardId`'s entries at `indexes` (0-based, in transcript
    * order) in its share mode, as a click on each mark would (SURFACE_VERSION
@@ -4506,6 +4521,11 @@ function pageStoreSurfaceMethods() {
         turnNumbers: shareTurnNumbers(slice, snapshot.transcript, snapshot),
         offerRuns: shareOfferRuns(slice, services.shellSessionStore.offers.runs()),
       });
+      return shareRender(format, JSON.stringify(doc));
+    },
+
+    shareRenderFigure(format: "pdf" | "png", source: string, layers: ChartLayers = "any"): Promise<ShareRenderOutcome> {
+      const doc = buildShareFigureDocument({ theme: getOnScreenTheme(), source, layers });
       return shareRender(format, JSON.stringify(doc));
     },
 

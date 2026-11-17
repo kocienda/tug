@@ -2141,6 +2141,29 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         sheet.present(on: self)
     }
 
+    /// Show a figure's two renders in the preview sheet with its format
+    /// choice and its exits, answering `onShareDone` with `done` when it is
+    /// dismissed, or `failed` at once when a path is not a render's or a
+    /// file cannot be read.
+    private func presentShareFigure(_ request: ShareFigure, replyTo target: WKWebView) {
+        let reply = { [weak self] (result: ShareDone.Result) in
+            self?.hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
+        }
+        guard activeSharePreview == nil,
+              ShareRenderOutput.isRenderedArtifact(path: request.png),
+              ShareRenderOutput.isRenderedArtifact(path: request.pdf),
+              let sheet = SharePreviewSheet(figure: request, parent: self, completion: { [weak self] in
+                  self?.activeSharePreview = nil
+                  reply(.done)
+              }) else {
+            TugLog.warn("share", "shareFigure could not show its renders", [TugLog.field("id", request.id)])
+            reply(.failed)
+            return
+        }
+        activeSharePreview = sheet
+        sheet.present(on: self)
+    }
+
     /// Save a previewed share artifact through the export panel, offering its
     /// one format, and answer `onShareDone` with `done`, `canceled` or
     /// `failed`.
@@ -2175,13 +2198,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// through `clipboardWrite`.
     private func copyShareFile(_ request: ShareCopy, replyTo target: WKWebView) {
         let result: ShareDone.Result
-        let type: NSPasteboard.PasteboardType = request.path.hasSuffix(".pdf") ? .pdf : .png
-        if ShareRenderOutput.isRenderedArtifact(path: request.path),
-           let data = try? Data(contentsOf: URL(fileURLWithPath: request.path)), !data.isEmpty {
-            let pasteboard = NSPasteboard.general
-            pasteboard.declareTypes([type, .string], owner: nil)
-            pasteboard.setData(data, forType: type)
-            pasteboard.setString(request.text, forType: .string)
+        if SharePasteboard.write(path: request.path, text: request.text) {
             result = .done
         } else {
             TugLog.warn("share", "shareCopy could not read the file", [TugLog.field("id", request.id)])
@@ -2922,6 +2939,8 @@ extension MainWindow {
             copyShareFile(request, replyTo: replyView)
         case .sharePick(let request):
             presentSharePicker(request, replyTo: replyView)
+        case .shareFigure(let request):
+            presentShareFigure(request, replyTo: replyView)
         case .shareRender(let request):
             // A share page renders; it never asks for a render of its own.
             guard sender.shareView == nil else { return }
@@ -2937,7 +2956,7 @@ extension MainWindow {
                 TugLog.warn("share", "shareRenderReady from a page that is not a share page", [TugLog.field("page", sender.pageName)])
                 return
             }
-            shareRenderer.ready(id: ready.id, height: ready.height, from: view)
+            shareRenderer.ready(id: ready.id, width: ready.width, height: ready.height, from: view)
         case .shareRenderHtml(let reply):
             guard let view = sender.shareView else {
                 TugLog.warn("share", "shareRenderHtml from a page that is not a share page", [TugLog.field("page", sender.pageName)])

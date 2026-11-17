@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { ENTRANCE_LIMIT, takeEntrance } from "../render-chart";
+import { ENTRANCE_LIMIT, PICTURE_KEYED_FLOOR, pictureWidth, takeEntrance } from "../render-chart";
 
 describe("takeEntrance", () => {
   test("true exactly once per hash", () => {
@@ -47,5 +47,19 @@ describe("takeEntrance", () => {
     expect(takeEntrance(set, "b", true, 2)).toBe(true);
     expect(takeEntrance(set, "c", true, 2)).toBe(true);
     expect([...set]).toEqual(["b", "c"]);
+  });
+});
+
+describe("pictureWidth", () => {
+  test("a picture is as wide as its figure, to the whole pixel", () => {
+    expect(pictureWidth(480, false)).toBe(480);
+    expect(pictureWidth(612.3, false)).toBe(613);
+    // A chart narrower than the keyed floor is not widened: it has no table.
+    expect(pictureWidth(120, false)).toBe(120);
+  });
+
+  test("a keyed table holds a narrow diagram's picture at its floor", () => {
+    expect(pictureWidth(240, true)).toBe(PICTURE_KEYED_FLOOR);
+    expect(pictureWidth(PICTURE_KEYED_FLOOR + 80.5, true)).toBe(PICTURE_KEYED_FLOOR + 81);
   });
 });
