@@ -604,7 +604,7 @@ struct MenuBarBuilder {
         configureMenu.addItem(sessionCommandItem("Memory…", "memory", "session.memory"))
         sessionMenu.addItem(configureItem)
         sessionMenu.addItem(NSMenuItem.separator())
-        sessionMenu.addItem(sessionCommandItem("Data Visualization…", "data-visualization", "session.dataVisualization"))
+        sessionMenu.addItem(sessionCommandItem("Visualize Data…", "visualize-data", "session.visualizeData"))
 
         // Go Menu - position 5. Every verb that takes the reader somewhere,
         // in one place and on four axes: which card, which direction, which

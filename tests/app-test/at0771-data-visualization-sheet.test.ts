@@ -1,5 +1,5 @@
 /**
- * at0771-data-visualization-sheet.test.ts — the Data Visualization sheet, from
+ * at0771-data-visualization-sheet.test.ts — the Visualize Data sheet, from
  * its door to the composer.
  *
  * A scratch repository holds three commits made now and one uncommitted edit, and
@@ -76,7 +76,7 @@ const FAIL_ONE_RECIPE = `(function(){
   return null;
 })()`;
 
-const SHEET_IS_UP = `(function(){ var e = document.querySelector(${JSON.stringify(SHEET_TITLE)}); return e !== null && e.textContent === "Data Visualization"; })()`;
+const SHEET_IS_UP = `(function(){ var e = document.querySelector(${JSON.stringify(SHEET_TITLE)}); return e !== null && e.textContent === "Visualize Data"; })()`;
 const SHEET_IS_GONE = `document.querySelector(${JSON.stringify(SHEET)}) === null`;
 
 const READ_ROWS = `Array.from(document.querySelectorAll(${JSON.stringify(ROW)})).map(function (row) {
@@ -105,7 +105,7 @@ const ROWS_SETTLED = `(function(){
   return rows.length > 0 && rows.every(function (r) { return r.state !== "pending" && r.figure === "rendered"; });
 })()`;
 
-describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
+describe.skipIf(!SHOULD_RUN)("at0771 — the Visualize Data sheet", () => {
   test(
     "opens from the menu, draws live, sample and failed rows, closes on the chord, and Visualize… fills the composer",
     async () => {
@@ -121,7 +121,7 @@ describe.skipIf(!SHOULD_RUN)("at0771 — the Data Visualization sheet", () => {
         const body = await waitForBodyReady(app, "A");
         await body.evalJS<null>(FAIL_ONE_RECIPE);
 
-        const performed = await app.performMenuItem("session.dataVisualization");
+        const performed = await app.performMenuItem("session.visualizeData");
         expect(performed.found && performed.performed, "the Session menu row performs").toBe(true);
         await body.waitForCondition<boolean>(SHEET_IS_UP, { timeoutMs: 6000 });
         await body.waitForCondition<boolean>(ROWS_SETTLED, { timeoutMs: 12_000 });

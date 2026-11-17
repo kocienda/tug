@@ -1,5 +1,5 @@
 /**
- * data-visualization-sheet.tsx — the Data Visualization sheet: every chart
+ * data-visualization-sheet.tsx — the Visualize Data sheet: every chart
  * recipe with a figure of what it produces and a line on what its data tells.
  *
  * Everything shown comes from the recipe catalog through `chart-recipes-store`,
@@ -56,7 +56,7 @@ import {
 import { MODAL_REST_LINE } from "./modal-rest-line";
 
 /** The card command behind the menu row and the chord. `/viz` stays the skill's. */
-export const DATA_VISUALIZATION_COMMAND = "data-visualization";
+export const VISUALIZE_DATA_COMMAND = "visualize-data";
 
 /** The command Visualize… places: the name the popup composes for the `/viz` skill. */
 export const VIZ_SKILL_COMMAND = "tugplug:viz";
@@ -93,7 +93,7 @@ export function useDataVisualizationSheet({
     shownRef.current = true;
     const dir = projectDir();
     void showSheet({
-      title: "Data Visualization",
+      title: "Visualize Data",
       icon: <ChartColumn />,
       displayWidth: "xl",
       presentation: "rise",
@@ -140,7 +140,7 @@ function DataVisualizationSheetBody({
     return manager.observeDispatch((event) => {
       if (event.action !== TUG_ACTIONS.RUN_SLASH_COMMAND) return;
       const value = event.value as { name?: string } | undefined;
-      if (value?.name === DATA_VISUALIZATION_COMMAND) onClose();
+      if (value?.name === VISUALIZE_DATA_COMMAND) onClose();
     });
   }, [manager, onClose]);
 

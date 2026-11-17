@@ -3578,7 +3578,7 @@ export function SessionCardBody({
     showSheet: cardPickerSheet.showSheet,
   });
 
-  // The Data Visualization sheet, card-scoped per [D15]. It reads the card's own
+  // The Visualize Data sheet, card-scoped per [D15]. It reads the card's own
   // project when it opens, and Draw leaves the recipe's command in the composer.
   const dataVisualizationSheet = useDataVisualizationSheet({
     projectDir: useCallback(
@@ -4349,7 +4349,7 @@ export function SessionCardBody({
     memory: () => memorySheet.openMemorySheet(),
     hooks: () => hooksSheet.openHooksSheet(),
     usage: () => usageSheet.openUsageSheet(),
-    "data-visualization": () => dataVisualizationSheet.openDataVisualizationSheet(),
+    "visualize-data": () => dataVisualizationSheet.openDataVisualizationSheet(),
     // Copy the most recent assistant message (committed transcript only, read
     // live at click time per [L07]) to the clipboard, with a pane-scoped
     // confirmation bulletin. No message yet → caution; clipboard failure →

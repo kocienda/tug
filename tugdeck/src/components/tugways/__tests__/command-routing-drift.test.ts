@@ -602,13 +602,13 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   ["⌃⌘Y", TUG_ACTIONS.TOGGLE_CARD_FOLD],
   // The slash bridges that earned a chord. The family is reachable by typing
   // its names, which is why the rest carry none; these two are reached often
-  // enough that typing the name is the slow path. ⌃⌘V is the Data Visualization
+  // enough that typing the name is the slow path. ⌃⌘V is the Visualize Data
   // sheet's, under a name of its own because `/viz` stays the skill's.
   // ⌃⌘I opened the model picker until the three AI settings became one sheet;
   // the chord kept its letter and moved to the sheet that now owns the model.
   ["⌃⌘I", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:ai`],
   ["⌃⌘U", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:usage`],
-  ["⌃⌘V", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:data-visualization`],
+  ["⌃⌘V", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:visualize-data`],
   // The Go to Slot row. ⌘ digits send the CARD to a place, ⌃⌘ digits send
   // the READER to one — one tier apart, both indexing the same ordered set,
   // which is a tighter fit for the pair than the card widths that held ⌃⌘1/2/3

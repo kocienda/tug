@@ -161,11 +161,7 @@ pub(crate) fn layout(spec: &Layers, title: Option<&str>, animate: bool, m: &dyn 
         .fold(0.0, f64::max);
     // A crossing is laid out about the band's centre, so the band is at
     // least as wide as its widest crossing.
-    let need = crosses
-        .iter()
-        .flatten()
-        .map(|c| c.need)
-        .fold(0.0, f64::max);
+    let need = crosses.iter().flatten().map(|c| c.need).fold(0.0, f64::max);
     inner = inner.max((need - label_w - BAND_PAD).ceil());
     let band1 = lh.label.max(DISC * 2.0);
     let sub_lines = cells
@@ -377,7 +373,12 @@ impl Cross {
                     (v.clone(), chip(1, w, TypeRole::Mono).0)
                 });
                 let way = |t: &mut Texts, s: &Option<String>, key: &str| {
-                    t.wrap_opt(TypeRole::Value, s.as_deref(), WAY_WRAP, &format!("{path}/{key}"))
+                    t.wrap_opt(
+                        TypeRole::Value,
+                        s.as_deref(),
+                        WAY_WRAP,
+                        &format!("{path}/{key}"),
+                    )
                 };
                 let down = way(t, down, "down");
                 let up = way(t, up, "up");
@@ -468,7 +469,11 @@ impl Cross {
             beside(pen, l - ARROW_LABEL, &self.down, Anchor::End);
             beside(pen, r + ARROW_LABEL, &self.up, Anchor::Start);
         } else if down || up {
-            let pts = if up { [(mid, b), (mid, a)] } else { [(mid, a), (mid, b)] };
+            let pts = if up {
+                [(mid, b), (mid, a)]
+            } else {
+                [(mid, a), (mid, b)]
+            };
             pen.connector(&pts, arrow, delay);
             let lines = if up { &self.up } else { &self.down };
             beside(pen, mid + self.beside, lines, Anchor::Start);

@@ -216,7 +216,9 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
     let gutter = phase_text
         .iter()
         .map(|(w, note)| w.max(note.w))
-        .fold(None, |acc: Option<f64>, w| Some(acc.map_or(w, |a| a.max(w))))
+        .fold(None, |acc: Option<f64>, w| {
+            Some(acc.map_or(w, |a| a.max(w)))
+        })
         .map_or(0.0, |w| (w + GUTTER_SPARE).ceil());
 
     // The gaps between neighbouring lifelines, wide enough for every label
@@ -277,7 +279,12 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
     let mut bands: Vec<(f64, f64)> = Vec::with_capacity(seq.phases.len());
     for (p, (_, note)) in seq.phases.iter().zip(&phase_text) {
         let y0 = ys[p.from] - lh.value - LABEL_LIFT - BAND_ABOVE;
-        let mut y1 = ys[p.to] + if is_loop(p.to) { LOOP_H + BAND_BELOW } else { BAND_BELOW };
+        let mut y1 = ys[p.to]
+            + if is_loop(p.to) {
+                LOOP_H + BAND_BELOW
+            } else {
+                BAND_BELOW
+            };
         let text = BAND_TEXT_TOP
             + lh.label
             + if note.count() > 0 {
@@ -403,8 +410,7 @@ pub(crate) fn layout(seq: &Sequence, title: Option<&str>, animate: bool, m: &dyn
         pen.boxed(r, 3.0, BoxPaint::PLAIN, 1 + b.from);
     }
     let bar_at = |actor: usize, k: usize| {
-        busy
-            .iter()
+        busy.iter()
             .any(|b| b.actor == actor && b.from <= k && b.to >= k)
     };
 

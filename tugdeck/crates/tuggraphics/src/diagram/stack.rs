@@ -460,9 +460,23 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
         };
         let (y0, y1) = (a.y + a.h, z.y);
         let delay = i + 2;
-        pen.both_ways((cx, y0 + ARROW_INSET), (cx, y1 - ARROW_INSET), ColourRole::Ink, delay);
+        pen.both_ways(
+            (cx, y0 + ARROW_INSET),
+            (cx, y1 - ARROW_INSET),
+            ColourRole::Ink,
+            delay,
+        );
         let cy = ((y0 + y1) / 2.0).round();
-        pen.chip(cx, cy, &pass.lines, pass.w, TypeRole::Value, None, &lh, delay);
+        pen.chip(
+            cx,
+            cy,
+            &pass.lines,
+            pass.w,
+            TypeRole::Value,
+            None,
+            &lh,
+            delay,
+        );
     }
 
     // Each outside block reaches the first layer in its way: past a
@@ -489,7 +503,16 @@ pub(crate) fn layout(spec: &Stack, title: Option<&str>, animate: bool, m: &dyn M
             };
             pen.both_ways((ax, a), (ax, z), ColourRole::Ink, delay);
             let cy = ((a + z) / 2.0).round();
-            pen.chip(ax, cy, &link.lines, link.w, TypeRole::Value, None, &lh, delay);
+            pen.chip(
+                ax,
+                cy,
+                &link.lines,
+                link.w,
+                TypeRole::Value,
+                None,
+                &lh,
+                delay,
+            );
             return;
         }
     };

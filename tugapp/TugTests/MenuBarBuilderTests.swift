@@ -211,7 +211,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "Session ▸ Inspect | Hooks… | - | runCardCommand: | session.hooks",
         "Session ▸ Inspect | Memory… | - | runCardCommand: | session.memory",
         "Session | ---",
-        "Session | Data Visualization… | - | runCardCommand: | session.dataVisualization",
+        "Session | Visualize Data… | - | runCardCommand: | session.visualizeData",
         "Bar | Go ▸ | - | - | -",
         "Go | Back | - | goFocusTrailBack: | go.back",
         "Go | Forward | - | goFocusTrailForward: | go.forward",

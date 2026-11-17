@@ -1,6 +1,6 @@
 /**
  * sc-charts.test.ts — the site's data-visualization stills: charts in a Session
- * transcript, one mark under the pointer, and the Data Visualization sheet.
+ * transcript, one mark under the pointer, and the Visualize Data sheet.
  *
  * A site tool, not a test of the app: it stages a scene and records it, and its
  * one assertion is that the stills were written. Run by path, once per mode
@@ -88,7 +88,7 @@ async function sizeWindow(app: App, size: { width: number; height: number }): Pr
 
 describe.skipIf(!RUNS)("site still: data visualizations", () => {
   test(
-    "captures charts in the transcript and the Data Visualization sheet",
+    "captures charts in the transcript and the Visualize Data sheet",
     async () => {
       const stubDir = stubDirectory();
       const tugSessionId = randomUUID();

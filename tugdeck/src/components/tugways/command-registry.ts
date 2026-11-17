@@ -676,8 +676,8 @@ const SLASH_BRIDGE_BINDINGS: Readonly<Record<string, readonly CommandBinding[]>>
       { preventDefault: true, menuEligible: true },
     ),
   ],
-  // ⌃⌘V for the Data Visualization sheet — V for Visualization.
-  "data-visualization": [
+  // ⌃⌘V for the Visualize Data sheet — V for Visualize.
+  "visualize-data": [
     chord(
       { key: "KeyV", ctrl: true, meta: true, label: "v" },
       { preventDefault: true, menuEligible: true },
@@ -768,7 +768,7 @@ const SLASH_BRIDGES: readonly SlashBridge[] = [
   ["agents", "Agents…", "session.agents"],
   ["hooks", "Hooks…", "session.hooks"],
   ["memory", "Memory…", "session.memory"],
-  ["data-visualization", "Data Visualization…", "session.dataVisualization"],
+  ["visualize-data", "Visualize Data…", "session.visualizeData"],
   // The shortcuts sheet is card documentation, not session work.
   [
     "help",

@@ -66,8 +66,8 @@ async fn post(port: u16, body: String) -> (u16, serde_json::Value) {
         .expect("the route answers");
     let status = response.status().as_u16();
     let text = response.text().await.expect("a body");
-    let json = serde_json::from_str(&text)
-        .unwrap_or_else(|e| panic!("a JSON body, got {text:?}: {e}"));
+    let json =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("a JSON body, got {text:?}: {e}"));
     (status, json)
 }
 
@@ -102,11 +102,8 @@ async fn the_report_route_describes_commits_over_http() {
     assert!(rows[1]["measure"].is_null() && rows[1]["group"].is_null());
 
     // The statuses a caller branches on, each with the error body's shape.
-    let (status, refused) = post(
-        tc.port,
-        serde_json::json!({"project": project}).to_string(),
-    )
-    .await;
+    let (status, refused) =
+        post(tc.port, serde_json::json!({"project": project}).to_string()).await;
     assert_eq!(status, 400, "{refused:#}");
     assert_eq!(refused["status"], "error");
     assert!(refused["message"].is_string());

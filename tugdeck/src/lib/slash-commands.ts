@@ -137,7 +137,7 @@ export const LOCAL_SLASH_COMMANDS = [
     description: "Show subscription usage limits and this session's cost",
   },
   {
-    name: "data-visualization",
+    name: "visualize-data",
     description: "Show every chart recipe, with a figure and what its data tells",
   },
   {

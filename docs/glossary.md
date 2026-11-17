@@ -42,7 +42,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Chart.** A figure of numbers that the card draws in a session's transcript, in your *theme*: a trend, a distribution, a comparison, a run of outcomes. Ask for one in words or with `/tugplug:viz`. Its title states what it found, a button in its header swaps it for a table of its data, and hovering a mark reads that mark's values. A chart takes one of ten *forms*. See also *diagram*.
 
-**Chart recipe.** A *chart* Tug already knows how to compute from a project's own records: its commits, changes, arcs, test runs, command timings and model usage. *Data Visualization* shows every recipe, and `tugtool chart list` prints them in a shell.
+**Chart recipe.** A *chart* Tug already knows how to compute from a project's own records: its commits, changes, arcs, test runs, command timings and model usage. *Visualize Data* shows every recipe, and `tugtool chart list` prints them in a shell.
 
 **Chord.** A keyboard shortcut, written as its keys joined by hyphens: Control-Command-K means hold down Control and Command and press K. Tug's chords follow one pattern: Command with a digit moves a card to that slot, Control-Command with the same digit moves you there; `[` is always back and `]` always forward; Option-Command with an arrow focuses the card in that direction. The Keyboard Shortcuts card (Control-Command-K) lists them all.
 
@@ -59,8 +59,6 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Composer.** The prompt entry at the bottom of a session card, and the matching entry in the *Overview*. It styles Markdown as you type, accepts dropped and pasted *atoms*, and takes *jots*.
 
 **Context.** The amount of the model's window a session has used. The *status row* reads it out.
-
-**Data Visualization.** The sheet that lists every *chart recipe*, each with a line on what its data tells and a small figure drawn from the project in front of you, or marked Sample when the project has no data for it. **Visualize…** places a recipe's command in the *composer*, unsent. Control-Command-V, `/data-visualization` or Session > Data Visualization opens it.
 
 **Deck.** The set of cards in one *workspace*, arranged on the *canvas* under *imposition*. The deck holds the arrangement, not you.
 
@@ -221,6 +219,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 **Turn.** One exchange: a prompt in, the model's work, and the reply. The *wheel* acts only between turns. Control-Command-Left Bracket and Control-Command-Right Bracket move through a transcript's turns; Control-Shift-Command-Left Bracket and Control-Shift-Command-Right Bracket go to the first and last.
 
 **Unattributed.** Changes no session has *claimed*: your own hand edits, in your editor or in the card's shell. They stay in plain view and start unchecked at commit time.
+
+**Visualize Data.** The sheet that lists every *chart recipe*, each with a line on what its data tells and a small figure drawn from the project in front of you, or marked Sample when the project has no data for it. **Visualize…** places a recipe's command in the *composer*, unsent. Control-Command-V, `/visualize-data` or Session > Visualize Data opens it.
 
 **Wall.** What a *split* slot becomes when its cards *fold*. Open any card in the wall and its neighbors fold, so you read one card at a time while the rest stay a glance away.
 

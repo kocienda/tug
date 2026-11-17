@@ -992,7 +992,10 @@ fn a_short_state_many_transitions_reach_keeps_their_ends_apart() {
         .collect();
     ends.sort_by(f64::total_cmp);
     for pair in ends.windows(2) {
-        assert!(pair[1] - pair[0] >= 20.0, "ends crowd one another: {ends:?}");
+        assert!(
+            pair[1] - pair[0] >= 20.0,
+            "ends crowd one another: {ends:?}"
+        );
     }
 }
 
