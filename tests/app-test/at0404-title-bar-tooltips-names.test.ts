@@ -3,7 +3,7 @@
  * title bar says what it does before you press it.
  *
  * The cluster is a row of icons and a count: a stack badge, a bullseye target,
- * the active card's own verbs (a Text card contributes Reveal in Finder and
+ * the active card's own verbs (a Text card contributes Show in Finder and
  * Card Settings…), a width control, and the close box. All but the count are
  * glyphs with no text anywhere near them, and the count is a bare number. Read
  * cold, none of them is self-evident — so each carries a tooltip, and two of
@@ -147,7 +147,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             await hoverPhrase(chrome, REVEAL_BUTTON),
             "the folder glyph names the act, from the registry",
-          ).toBe("Reveal in Finder");
+          ).toBe("Show in Finder");
           expect(
             await hoverPhrase(chrome, OPTIONS_BUTTON),
             "the gear opens the card's own view settings",
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await chipText(chrome, CLOSE_BUTTON), "with ⌘W beside it").toBe("⌘W");
 
           // --- The row's spine, right to left. ----------------------------
-          // Bullseye, card width, Move to Workspace, Fold, Reveal in Finder —
+          // Bullseye, card width, Move to Workspace, Fold, Show in Finder —
           // the verbs more than one kind of card offers, at the end that holds
           // still. Only the leftmost positions belong to what a particular
           // card adds, which here is Card Settings.
@@ -227,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the card's own verb leads, then the shared spine",
           ).toEqual([
             "Card Settings…",
-            "Reveal in Finder",
+            "Show in Finder",
             "Fold",
             "Move to workspace",
             "Card width",

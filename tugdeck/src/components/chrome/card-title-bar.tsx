@@ -597,7 +597,7 @@ const PLACE_VERB_STACK = "place:stack";
  * rollup, and pinned to its trailing end.
  *
  * The row reads right to left as a fixed spine — bullseye, then card width,
- * then Reveal in Finder — and only the LEFTMOST positions belong to whatever a
+ * then Show in Finder — and only the LEFTMOST positions belong to whatever a
  * particular card happens to add. A Text card contributes Card Settings and a
  * Session card contributes its summary; those are different glyphs meaning
  * different things, so they are the ones that should move between card kinds.
@@ -1695,9 +1695,9 @@ function CardTitleBarBody({
                   below is that ordering.
 
                   Trailing end first, because it is the end that holds still:
-                  bullseye, card width, then Reveal in Finder — the three verbs
+                  bullseye, card width, then Show in Finder — the three verbs
                   more than one kind of card offers. A reader who learns where
-                  Reveal is on a Text card finds it at the same offset on a
+                  Show in Finder is on a Text card finds it at the same offset on a
                   Session card. Ahead of them, filling leftward, whatever this
                   particular card adds: Card Settings on a Text card, the session
                   summary on a Session card. Those are different glyphs meaning
@@ -1709,7 +1709,7 @@ function CardTitleBarBody({
                   through the items store; the masthead orders its own portal by
                   hand, with the argument written at the site. */}
               {/* The masthead's own chrome affordances — on a Session card, the
-                  summary popover's trigger and then Reveal in Finder — mount
+                  summary popover's trigger and then Show in Finder — mount
                   HERE, portaled in by the masthead that owns them. They are
                   verbs the card publishes about itself, so they belong in the
                   rollup with every other verb.

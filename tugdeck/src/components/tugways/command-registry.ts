@@ -1596,7 +1596,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   // responder, which is where a card's own verbs belong.
   {
     id: TUG_ACTIONS.REVEAL_CARD_FILE,
-    title: "Reveal in Finder",
+    title: "Show in Finder",
     routing: "key-card",
     paneChrome: true,
   },

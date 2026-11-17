@@ -1101,11 +1101,11 @@ export const SessionMasthead = React.memo(function SessionMasthead({
           />
         </TugActionTooltip>
       )}
-      {/* The SUMMARY follows Share Turns and Reveal comes last, which is the cluster's rule and
+      {/* The SUMMARY follows Share Turns and Show in Finder comes last, which is the cluster's rule and
           not this card's preference: the rollup reads right to left as a fixed
-          spine — bullseye, card width, Reveal in Finder — and only the
-          leftmost positions belong to whatever a particular card adds. Reveal
-          is the same act on a Text card, so it lands at the same offset on
+          spine — bullseye, card width, Show in Finder — and only the
+          leftmost positions belong to whatever a particular card adds. Show in
+          Finder is the same act on a Text card, so it lands at the same offset on
           both; the summary is this card's own and is what moves. See
           `SHARED_VERB_RANK` in `chrome/tug-pane.tsx`, which enforces the same
           order for the verbs a card publishes through the items store. */}
@@ -1248,14 +1248,14 @@ export const SessionMasthead = React.memo(function SessionMasthead({
         control on this card exactly as it does on a Text card.
       */}
       {projectDir.length > 0 && (
-        <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
+        <TugTooltip content={`Show in Finder: ${projectDir}`}>
           <TugIconButton
             size="sm"
             icon={<FolderOpenDot />}
             data-slot="session-masthead-reveal"
             tabIndex={-1}
             data-no-activate=""
-            aria-label="Reveal project folder in Finder"
+            aria-label="Show project folder in Finder"
             onClick={() => openPathInOS(projectDir, "folder")}
           />
         </TugTooltip>

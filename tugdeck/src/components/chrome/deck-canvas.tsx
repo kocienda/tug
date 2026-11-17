@@ -2974,7 +2974,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
       // Look Up in Dictionary — the selection a text surface's context menu
       // sampled, handed to the host's `showDefinition`. It lives at the root
-      // for the same reason Reveal in Finder does: the verb carries
+      // for the same reason Show in Finder does: the verb carries
       // everything it needs on the event, so the surface that offers it has
       // nothing left to contribute, and every text surface in the deck gets
       // one handler instead of five. A card's body page has no deck root, so

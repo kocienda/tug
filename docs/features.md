@@ -164,7 +164,7 @@ What a session works with opens beside it, on the same deck, rather than in anot
 - **Commit card.** One commit's full record: message, trailers, and files with their diffs.
 - **Settings** (Command-Comma), **Keyboard Shortcuts** (Control-Command-K), **About** and the four **help** cards (this guide, the recipes, the glossary and the release notes, from the Help menu) round out the set. Settings has four tabs: General, Sessions, Text Files and Viewer Cards. General holds, among others, **Tooltip Delay**, how long a tooltip waits before it shows, from 0s to 0.7s or Never. Keyboard Shortcuts shows every command, its chord and any chord that shadows it, and rebinds the ones that are yours to change. Card Settings in a card's menu holds the same preferences for that one text, image or PDF card.
 
-Reveal in Finder is in the card's menu for any card backed by a file.
+Show in Finder is in the card's menu for any card backed by a file.
 
 ## Sidebar cards
 

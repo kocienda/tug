@@ -5394,7 +5394,7 @@ export function SessionCardBody({
           `openPathInOS`, not a registry command, so there is no chord to read
           and nothing for an action tooltip to add. The chip face is
           ellipsized, so the hover is where the full path lives. */}
-        <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
+        <TugTooltip content={`Show in Finder: ${projectDir}`}>
           <TugPushButton
             ref={projectCopy.ref as React.Ref<HTMLButtonElement>}
             onContextMenu={projectCopy.onContextMenu}
@@ -5406,7 +5406,7 @@ export function SessionCardBody({
             data-slot="project-chip"
             focusGroup={SESSION_CYCLE_GROUP}
             focusOrder={SESSION_CYCLE_ORDER_PROJECT}
-            aria-label="Reveal project folder in Finder"
+            aria-label="Show project folder in Finder"
             onClick={() => openPathInOS(projectDir, "folder")}
           >
             {projectChipText}

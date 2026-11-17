@@ -60,7 +60,7 @@ export interface PaneTitleBarItem {
   icon?: string;
   /**
    * What to say while the command validates disabled — "No file", not
-   * "Reveal in Finder" greyed out with no explanation.
+   * "Show in Finder" greyed out with no explanation.
    *
    * This is NOT the second opinion `disabled` would be. Whether the command
    * is applicable stays the registry's answer, asked of the chain; this is

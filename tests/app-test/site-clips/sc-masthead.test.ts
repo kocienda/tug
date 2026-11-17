@@ -19,7 +19,7 @@
  * close box, and every other verb the pane offers is behind the `⋯` at rest.
  *
  * Four gestures, in order, while the turn streams: the pointer arrives in
- * the title bar and the rollup unfurls — the summary, Reveal in Finder, the
+ * the title bar and the rollup unfurls — the summary, Show in Finder, the
  * bullseye, the card width, every verb the `⋯` was hiding; a real
  * right-click on the session atom — the dot and the name in the title line
  * — raises the identity menu with the session's copies, which stands for a

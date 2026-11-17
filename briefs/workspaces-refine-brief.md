@@ -38,7 +38,7 @@ Every one of these is against the landed code, not against the model. The v5 blo
 
 **[F07] The product already keeps hidden cards mounted rather than re-mounting them.** `CardHost` (`tugdeck/src/components/chrome/card-host.tsx`) keeps every background tab of a pane mounted and hides it with `display: none`, so identity, editor state and scroll survive a tab switch. This is the precedent the switch should follow, and it is also why the close-guard walk in [F05] works for background tabs: their guards are live because they are mounted. **(verified)**
 
-**[F08] The pane title bar is a fixed spine of verb buttons, and one of them is already a popup menu.** `tug-pane.tsx` lays the trailing end out right to left — close box, card width, bullseye — as ghost icon buttons every card kind shares, with the card's own verbs (the Session card's summary `···`, Reveal in Finder) portaled in ahead of them by the masthead. Card width is a `TugPopupMenu` over a ghost `TugButton`, the sanctioned composition for a title-bar control that opens a list. A verb offered by every card kind belongs in the shared spine, at one offset on every pane. **(verified)**
+**[F08] The pane title bar is a fixed spine of verb buttons, and one of them is already a popup menu.** `tug-pane.tsx` lays the trailing end out right to left — close box, card width, bullseye — as ghost icon buttons every card kind shares, with the card's own verbs (the Session card's summary `···`, Show in Finder) portaled in ahead of them by the masthead. Card width is a `TugPopupMenu` over a ghost `TugButton`, the sanctioned composition for a title-bar control that opens a list. A verb offered by every card kind belongs in the shared spine, at one offset on every pane. **(verified)**
 
 ---
 
