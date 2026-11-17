@@ -49,7 +49,11 @@ pub fn open(path: impl AsRef<Path>) -> rusqlite::Result<Connection> {
 /// half of [`open`], exposed for callers that construct connections in
 /// special ways (in-memory ledgers, injected test connections).
 pub fn apply_pragmas(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+    // Scoped to `main`: an unscoped `journal_mode` reaches every attached
+    // database too, and a follower's read-only `changes` attach that is not
+    // yet in WAL (the owner created it and has not switched it) answers
+    // `SQLITE_READONLY`. A writable attach gets its mode from [`attach`].
+    conn.execute_batch("PRAGMA main.journal_mode = WAL;")?;
     conn.pragma_update(None, "busy_timeout", 5000i64)?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "cell_size_check", true)?;
@@ -357,6 +361,28 @@ fn tracing_warn(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A follower attaches the shared database read-only, and may do so in the
+    /// window between the owner's `ATTACH` creating the file and its
+    /// `journal_mode = WAL` landing. Re-applying the pragmas afterwards must
+    /// leave that attach alone: an unscoped `journal_mode` reaches every
+    /// attached database, and switching a read-only one is `SQLITE_READONLY`.
+    #[test]
+    fn apply_pragmas_leaves_a_read_only_attach_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared.db");
+        {
+            let owner = Connection::open(&shared).unwrap();
+            owner.execute_batch("CREATE TABLE t (x INTEGER);").unwrap();
+        }
+        let conn = open(dir.path().join("main.db")).unwrap();
+        attach_read_only(&conn, "changes", &shared).unwrap();
+        apply_pragmas(&conn).expect("a read-only attach in rollback mode is left as it is");
+        let main: String = conn
+            .query_row("PRAGMA main.journal_mode", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(main, "wal");
+    }
 
     #[test]
     fn open_applies_unified_pragmas() {
