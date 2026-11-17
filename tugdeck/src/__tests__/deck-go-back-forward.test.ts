@@ -56,8 +56,8 @@ describe("Back and Forward inside one workspace", () => {
     const deck = await deckOf("card-1", "card-2");
     expect(deck.canGoBack()).toBe(false);
     expect(deck.canGoForward()).toBe(false);
-    expect(deck.goBack()).toBe(false);
-    expect(deck.goForward()).toBe(false);
+    expect(deck.goBack()).toBeNull();
+    expect(deck.goForward()).toBeNull();
     expect(deck.getFirstResponderCardId()).toBe("card-1");
   });
 
@@ -65,7 +65,7 @@ describe("Back and Forward inside one workspace", () => {
     const deck = await deckOf("card-1", "card-2");
     await visit(deck, "card-2");
     expect(deck.canGoBack()).toBe(true);
-    expect(deck.goBack()).toBe(true);
+    expect(deck.goBack()).not.toBeNull();
     await settle();
     expect(deck.getFirstResponderCardId()).toBe("card-1");
     expect(deck.canGoBack()).toBe(false);
@@ -76,13 +76,13 @@ describe("Back and Forward inside one workspace", () => {
     await visit(deck, "card-2", "card-3", "card-2");
     const walked: (string | null)[] = [];
     for (const go of [deck.goBack, deck.goBack, deck.goBack, deck.goForward, deck.goForward, deck.goForward]) {
-      expect(go()).toBe(true);
+      expect(go()).not.toBeNull();
       await settle();
       walked.push(deck.getFirstResponderCardId());
     }
     expect(walked).toEqual(["card-3", "card-2", "card-1", "card-2", "card-3", "card-2"]);
     expect(deck.canGoForward()).toBe(false);
-    expect(deck.goForward()).toBe(false);
+    expect(deck.goForward()).toBeNull();
   });
 
   test("a step's arrival is not a visit", async () => {
@@ -106,7 +106,7 @@ describe("Back and Forward inside one workspace", () => {
     await settle();
     await visit(deck, "card-3");
     expect(deck.canGoForward()).toBe(false);
-    expect(deck.goBack()).toBe(true);
+    expect(deck.goBack()).not.toBeNull();
     await settle();
     expect(deck.getFirstResponderCardId()).toBe("card-1");
   });
@@ -126,7 +126,7 @@ describe("Back and Forward inside one workspace", () => {
     deck.removeCard("pane-1", "card-2");
     await settle();
     expect(deck.getFirstResponderCardId(), "closing an unfocused card moves no focus").toBe("card-3");
-    expect(deck.goBack()).toBe(true);
+    expect(deck.goBack()).not.toBeNull();
     await settle();
     expect(deck.getFirstResponderCardId()).toBe("card-1");
     expect(deck.canGoBack()).toBe(false);

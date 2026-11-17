@@ -84,7 +84,7 @@ describe("Back and Forward past a sidebar card", () => {
     await settle();
     expect(here()).toEqual({ space: "two", card: "card-3" });
 
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-1" });
   });
@@ -96,10 +96,10 @@ describe("Back and Forward past a sidebar card", () => {
     await settle();
     expect(manager.canGoBack()).toBe(true);
 
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-2" });
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-1" });
   });
@@ -113,7 +113,7 @@ describe("Back and Forward past a sidebar card", () => {
     manager.activateCard("rail-1");
     await settle();
 
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-2" });
   });

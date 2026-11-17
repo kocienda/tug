@@ -23,7 +23,10 @@
  *      card Back names stands in the workspace that is no longer shown; the
  *      press shows that workspace with that card holding the keyboard.
  *   4. **Forward retraces it, from the menu row as from the chord.**
- *   5. **The row goes dark at the trail's start**, after walking all the way
+ *   5. **Every step rings the card it arrives on**, across the boundary as
+ *      within one workspace, the receipt every verb that moves the keyboard
+ *      to a card gives.
+ *   6. **The row goes dark at the trail's start**, after walking all the way
  *      back.
  *
  * Both workspaces come from a seeded `version: 5` blob, as at0581's do, and
@@ -37,6 +40,7 @@
  * @covers tugdeck/src/lib/focus-trail.ts
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugapp/Sources/MenuBarBuilder.swift
+ * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -48,6 +52,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { waitForRing } from "./card-chrome-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -161,6 +166,19 @@ async function pressBack(app: App): Promise<void> {
   await app.nativeKey("[", ["cmd", "alt", "shift"]);
 }
 
+/**
+ * Put out every lit ring, shown or parked, so the ring read after a step is
+ * that step's own and not one an earlier arrival left burning.
+ */
+async function clearRings(app: App): Promise<void> {
+  for (const view of await app.bodies()) {
+    if (view.cardId === null) continue;
+    await app.body(view.cardId).evalJS<null>(
+      `(document.querySelectorAll(".tug-pane.tug-pane-flash").forEach((el) => el.classList.remove("tug-pane-flash")), null)`,
+    );
+  }
+}
+
 describe.skipIf(!SHOULD_RUN)("at0841 — Go ▸ Back and Forward across workspaces", () => {
   test(
     "Back crosses into the parked workspace onto its card, Forward returns, and the row is dark at the start",
@@ -223,9 +241,11 @@ describe.skipIf(!SHOULD_RUN)("at0841 — Go ▸ Back and Forward across workspac
         await expectHere(app, SPACE_TWO, "C");
 
         // ── Back: the card before this one is B, and B stands in the
-        // workspace that is no longer shown.
+        // workspace that is no longer shown. The arrival rings B.
+        await clearRings(app);
         await pressBack(app);
         await expectHere(app, SPACE_ONE, "B");
+        await waitForRing(app, "B");
 
         // ── Forward, from the row this time: the crossing was a step, not a
         // visit, so the way ahead is still there.
@@ -233,9 +253,11 @@ describe.skipIf(!SHOULD_RUN)("at0841 — Go ▸ Back and Forward across workspac
           await waitEnabled(app, "go.forward", true),
           "after a Back there is somewhere ahead",
         ).toBe(true);
+        await clearRings(app);
         const performed = await app.performMenuItem("go.forward");
         note("performed go.forward", JSON.stringify(performed));
         await expectHere(app, SPACE_TWO, "C");
+        await waitForRing(app, "C");
         expect(
           await waitEnabled(app, "go.forward", false),
           "and at the trail's end Forward is dark again",
@@ -245,8 +267,10 @@ describe.skipIf(!SHOULD_RUN)("at0841 — Go ▸ Back and Forward across workspac
         // the trail starts.
         await pressBack(app);
         await expectHere(app, SPACE_ONE, "B");
+        await clearRings(app);
         await pressBack(app);
         await expectHere(app, SPACE_ONE, "A");
+        await waitForRing(app, "A");
         expect(
           await waitEnabled(app, "go.back", false),
           "at the trail's start Back is dark",

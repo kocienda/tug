@@ -63,7 +63,7 @@ It is written from `_flipFirstResponder`, beside `_noteActivation`, since every 
 
 **[B08] The trail lives in memory.** It starts empty at launch and is not persisted. A trail of card ids from a previous launch would point at cards whose state has moved under it, and nothing in the request asks for it.
 
-**[B09] The wiring follows the turn and directional-focus families.** Registry entries are `menuEligible` at global scope. The Swift rows carry empty key equivalents so `applyCommandChords` writes the chords and they stay rebindable. Each row is gated on whether the trail has anything behind or ahead of the cursor. A dark row keeps its chord, and a press on it is answered with the border flash on the focused pane.
+**[B09] The wiring follows the turn and directional-focus families.** Registry entries are `menuEligible` at global scope. The Swift rows carry empty key equivalents so `applyCommandChords` writes the chords and they stay rebindable. Each row is gated on whether the trail has anything behind or ahead of the cursor. A step flashes the border of the card it arrives on, across a workspace boundary as within one, the receipt every verb that moves the keyboard to a card gives. A dark row keeps its chord, and a press on it is answered with the border flash on the focused pane.
 
 **[B10] Verification is a unit suite over the trail and one app-test for the crossing.** The trail's rules in [B04] and [B05] are pure and are tested as such: truncation on a new landing, skip and prune of a closed card, the cap, the no-op on a repeat landing. One app-test covers a Back step that crosses into a parked workspace and lands on the right card, and it carries `@covers` for the files it exercises.
 

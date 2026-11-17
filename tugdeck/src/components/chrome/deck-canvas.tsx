@@ -2556,21 +2556,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       },
       // ⌥⇧⌘[ / ⌥⇧⌘] — Back and Forward along the focus trail. The deck owns
       // the trail and the arrival, a parked workspace's switch included, so
-      // all the canvas adds is the refusal: with nowhere to go, the pane the
-      // reader is standing in flashes, the directional family's receipt.
+      // all the canvas adds is the receipt, the directional family's: the
+      // pane the step arrived in flashes, and with nowhere to go, the pane
+      // the reader is standing in.
       [TUG_ACTIONS.GO_BACK]: () => {
         if (reactivateWhenDeselected()) return;
         const sourceCardId = store.getFirstResponderCardId();
-        if (!store.goBack() && sourceCardId !== null) {
-          flashCardPane(store, sourceCardId);
-        }
+        const arrived = store.goBack() ?? sourceCardId;
+        if (arrived !== null) flashCardPane(store, arrived);
       },
       [TUG_ACTIONS.GO_FORWARD]: () => {
         if (reactivateWhenDeselected()) return;
         const sourceCardId = store.getFirstResponderCardId();
-        if (!store.goForward() && sourceCardId !== null) {
-          flashCardPane(store, sourceCardId);
-        }
+        const arrived = store.goForward() ?? sourceCardId;
+        if (arrived !== null) flashCardPane(store, arrived);
       },
       // ⌃⌥⌘[ / ⌃⌥⌘] — move the layout selection one slot along the
       // arrangement. The canvas owns it for the same reason it owns ⌘1..9,

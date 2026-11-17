@@ -419,13 +419,16 @@ export interface IDeckManagerStore extends DeckView {
   /**
    * Move focus to the card the reader was on before the current one. The
    * arrival is a step along the trail and not a new visit, so Forward
-   * retraces it. Returns `false`, having changed nothing, when there is no
-   * such card.
+   * retraces it. Returns the card it arrives on, so the caller can flash its
+   * pane, or `null`, having changed nothing, when there is no such card.
    */
-  goBack: () => boolean;
+  goBack: () => string | null;
 
-  /** Retrace a Back. Returns `false` when there is nothing ahead. */
-  goForward: () => boolean;
+  /**
+   * Retrace a Back. Returns the card it arrives on, or `null` when there is
+   * nothing ahead.
+   */
+  goForward: () => string | null;
 
   /**
    * Add a workspace at the end of the list, activate it, and stand its

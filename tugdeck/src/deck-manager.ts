@@ -4839,20 +4839,20 @@ export class DeckManager implements IDeckManagerStore {
 
   /**
    * Step the focus trail one standing card in `direction` and activate it,
-   * as a keyboard arrival. Returns whether there was anywhere to go; a
-   * refusal changes nothing the reader can see.
+   * as a keyboard arrival. Returns the card it arrives on, or `null` when
+   * there was nowhere to go; a refusal changes nothing the reader can see.
    *
    * A target in a parked workspace is reached by the switch itself: the
    * workspace's remembered focus is set to the target first, so the swap's
    * one commit arrives on it and no second focus move follows. Either way
    * the arrival moves the trail's cursor and records no visit.
    */
-  private _stepFocusTrail(direction: FocusTrailDirection): boolean {
+  private _stepFocusTrail(direction: FocusTrailDirection): string | null {
     const target = this._offTrailReturn(direction) ?? this._focusTrail.step(direction, this._focusTrailStands);
-    if (target === null) return false;
+    if (target === null) return null;
     if (!this.deckState.cards.some((card) => card.id === target)) {
       const parked = this._parkedSpaceHolding(target);
-      if (parked === undefined) return false;
+      if (parked === undefined) return null;
       parked.focusedCardId = target;
       this._focusTrailStepping = true;
       try {
@@ -4860,7 +4860,7 @@ export class DeckManager implements IDeckManagerStore {
       } finally {
         this._focusTrailStepping = false;
       }
-      return true;
+      return target;
     }
     transferFocusForActivation({
       outgoingCardId: this.getFirstResponderCardId(),
@@ -4876,7 +4876,7 @@ export class DeckManager implements IDeckManagerStore {
       },
       deferCommit: mayDeferCommit(this, target),
     });
-    return true;
+    return target;
   }
 
   /**
@@ -4900,9 +4900,9 @@ export class DeckManager implements IDeckManagerStore {
   public canGoForward = (): boolean =>
     this._focusTrail.canStep("forward", this._focusTrailStands);
 
-  public goBack = (): boolean => this._stepFocusTrail("back");
+  public goBack = (): string | null => this._stepFocusTrail("back");
 
-  public goForward = (): boolean => this._stepFocusTrail("forward");
+  public goForward = (): string | null => this._stepFocusTrail("forward");
 
   /**
    * Close a stack by id.

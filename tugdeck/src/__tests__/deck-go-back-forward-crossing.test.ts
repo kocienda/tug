@@ -69,7 +69,7 @@ afterEach(async () => {
 describe("Back and Forward across workspaces", () => {
   test("Back crosses into the parked workspace and lands on its card", async () => {
     expect(manager.canGoBack()).toBe(true);
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack(), "the step names the card it arrives on, which the canvas flashes").toBe("card-4");
     await settle();
     expect(here()).toEqual({ space: "two", card: "card-4" });
   });
@@ -90,14 +90,14 @@ describe("Back and Forward across workspaces", () => {
     await settle();
     // Had the arrival on card-4 been recorded, nothing would lie ahead.
     expect(manager.canGoForward()).toBe(true);
-    expect(manager.goForward()).toBe(true);
+    expect(manager.goForward()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-1" });
     // And had the return been recorded, Forward would now have somewhere to
     // go and Back would lead to card-4 through a visit that was never made.
     expect(manager.canGoForward()).toBe(false);
     const walked: (string | null)[] = [];
-    while (manager.goBack()) {
+    while (manager.goBack() !== null) {
       await settle();
       walked.push(here().card);
     }
@@ -122,7 +122,7 @@ describe("Back and Forward across workspaces", () => {
     await settle();
     // Back goes to the card the reader left, across the boundary, and not to
     // card-4, which the switch chose and the reader did not.
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-1" });
   });
@@ -133,7 +133,7 @@ describe("Back and Forward across workspaces", () => {
     expect(here()).toEqual({ space: "two", card: "card-4" });
     manager.activateSpace(one);
     await settle();
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "two", card: "card-4" });
   });
@@ -150,10 +150,10 @@ describe("Back and Forward across workspaces", () => {
     expect(here()).toEqual({ space: "one", card: "card-1" });
     // The trail behind card-1 is now card-3, then the closed card-4, then
     // card-3 and card-1 again: Back lands on card-3 across the boundary.
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "two", card: "card-3" });
-    expect(manager.goBack()).toBe(true);
+    expect(manager.goBack()).not.toBeNull();
     await settle();
     expect(here()).toEqual({ space: "one", card: "card-1" });
   });
