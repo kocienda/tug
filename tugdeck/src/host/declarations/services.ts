@@ -514,28 +514,6 @@ export const sharePickToHost = defineToHost({
   ],
 });
 
-/**
- * Show one figure's two renders in the preview sheet with its exits: the PNG
- * at `png` and the PDF at `pdf`, a choice between them, and Copy, Save… and
- * Share… over the one chosen. `text` is the figure's spec, the plain-text
- * flavour of a Copy; `baseName` is the save panel's default filename, without
- * an extension. Answered with `onShareDone` under `id` when the sheet is
- * dismissed, or `failed` at once when a file cannot be read.
- */
-export const shareFigureToHost = defineToHost({
-  name: "shareFigure",
-  from: "any",
-  codec: obj({ id: str, baseName: str, png: str, pdf: str, text: str }),
-  samples: [
-    { id: "share-10", baseName: "build-time", png: "/tmp/tug-share/r-1.png", pdf: "/tmp/tug-share/r-2.pdf", text: "{\"tugchart\":1}" },
-  ],
-  refused: [
-    "share-10",
-    { id: "share-10", baseName: "b", png: "/tmp/tug-share/r-1.png", text: "" },
-    { id: "share-10", baseName: "b", png: "/tmp/tug-share/r-1.png", pdf: 7, text: "" },
-  ],
-});
-
 /** The two formats the host renders from the share page. */
 const shareRenderFormat = literal("pdf", "png");
 

@@ -1657,7 +1657,10 @@ mod tests {
             .collect();
         assert_eq!(
             counts,
-            [(Some("file:src/a.rs"), Some(2)), (Some("file:src/b.rs"), Some(1))]
+            [
+                (Some("file:src/a.rs"), Some(2)),
+                (Some("file:src/b.rs"), Some(1))
+            ]
         );
 
         // A path read under the range's source pages only its commits.

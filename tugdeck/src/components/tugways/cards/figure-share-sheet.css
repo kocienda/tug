@@ -1,0 +1,55 @@
+/* @tug-pairings: none — layout, and the block's own ground and border behind
+   the picture; no foreground is coloured here. The figure paints itself
+   (`chart-block.css`), and the labels and buttons are the share family's and
+   the composed `Tug*` controls' ([L20]). */
+
+/**
+ * figure-share-sheet.css — layout for a figure's share sheet
+ * (figure-share-sheet.tsx).
+ *
+ * The sheet is one of the share family: its header is the sheet's own, its
+ * Format label, its control and its bottom row are `share-parts.css`. What
+ * this file adds is the picture between them, on the ground a figure's block
+ * sits on in the card, and the spacing of the rows ([L20]: the figure keeps
+ * its own paint).
+ */
+
+/* The picture scrolls when it is taller than the canvas leaves room for; the
+   form and the bottom row stay put under it. */
+.figure-share-sheet .tug-sheet-scaffold-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xl);
+  padding-block-start: var(--tug-space-2xl);
+}
+
+/* The picture as it will leave: the figure on its block's ground, with the
+   margin the rendered file has (`share-page.css`). */
+.figure-share-sheet__picture {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+  background: var(--tugx-block-chrome-bg);
+  border: 1px solid var(--tugx-block-border);
+  border-radius: var(--tugx-block-radius);
+}
+
+/* A picture is drawn at its own width. One wider than the sheet scales down
+   to fit, as a figure does in a narrow card. */
+.figure-share-sheet__picture > .tugx-chart[data-tugx-chart-picture] {
+  max-width: 100%;
+  min-width: 0;
+}
+.figure-share-sheet__picture > .tugx-chart[data-tugx-chart-picture] > .tugx-chart-body > .tugx-chart-svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Format: its label, then its choices. */
+.figure-share-sheet__form {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}

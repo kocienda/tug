@@ -9,8 +9,8 @@ use tugcore::host_tools;
 use tugcore::instance::Paths;
 use tugcore::report_gaps::ReportGaps;
 use tuggraphics::chart::{Layers, Source, histogram_bins, validate};
-use tugtool_core::{apptest_ledger, test_ledger};
 use tugtool_core::config::Config;
+use tugtool_core::{apptest_ledger, test_ledger};
 
 use crate::members::MemberTable;
 

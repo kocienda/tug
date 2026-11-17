@@ -31,7 +31,9 @@
  *    shade can do with the selected turns: Preview…, Copy, Save…, Share… —
  *    and, right beside it, the action button, which wears the chosen
  *    action's name and performs it. Both are as wide as the widest action's
- *    name ({@link StableLabel}), so nothing moves as the action changes.
+ *    name (`StableLabel`), so nothing moves as the action changes. The row
+ *    is the share family's own ({@link ShareActionRow}, `share-parts.tsx`),
+ *    which a figure's share sheet wears too.
  *
  * The action button is enabled whenever a turn is selected and no artifact
  * is being made. Each action does what its name says, at once: Copy copies,
@@ -63,9 +65,8 @@ import { Share } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
-import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
-import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
+import { SHARE_ACTION_LABELS, ShareActionRow } from "./share-parts";
 import { useResponder } from "@/components/tugways/use-responder";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
@@ -97,19 +98,8 @@ const ORDER = {
   go: 6,
 } as const;
 
-/** The shade's actions, in menu order, each with the name its button wears. */
-export const SHARE_ACTIONS: ReadonlyArray<{ value: ShareAction; label: string }> = [
-  { value: "preview", label: "Preview…" },
-  { value: "copy", label: "Copy" },
-  { value: "save", label: "Save…" },
-  { value: "share", label: "Share…" },
-];
-
-const ACTION_ITEMS: TugPopupButtonItem<string>[] = SHARE_ACTIONS.map((action) => ({
-  action: TUG_ACTIONS.SELECT_VALUE,
-  value: action.value,
-  label: action.label,
-}));
+/** The shade's actions, in menu order. */
+export const SHARE_ACTIONS: ReadonlyArray<ShareAction> = ["preview", "copy", "save", "share"];
 
 function isToolMode(value: string): value is ShareToolMode {
   return value === "summaries" || value === "full" || value === "none";
@@ -120,12 +110,12 @@ function isFormat(value: string): value is ShareFormat {
 }
 
 function isAction(value: string): value is ShareAction {
-  return SHARE_ACTIONS.some((action) => action.value === value);
+  return (SHARE_ACTIONS as ReadonlyArray<string>).includes(value);
 }
 
 /** The name the action button and the menu's trigger wear for `action`. */
 export function shareActionLabel(action: ShareAction): string {
-  return SHARE_ACTIONS.find((entry) => entry.value === action)?.label ?? "";
+  return SHARE_ACTION_LABELS[action];
 }
 
 /**
@@ -165,29 +155,6 @@ export function useShareFormFit(formRef: React.RefObject<HTMLElement | null>): v
 export function shareCountLabel(count: number): string {
   if (count === 0) return "No turns selected";
   return count === 1 ? "1 turn selected" : `${count} turns selected`;
-}
-
-/**
- * An action's name, in a box as wide as the widest action's: the name
- * itself, over one hidden sizer per action in the same grid cell. A sizer
- * draws its name from `data-label` through CSS, so the element's text is the
- * one name it shows. The action button and the Action menu's trigger both
- * wear it, so neither changes width as the action does.
- */
-export function StableLabel({ action }: { action: ShareAction }): React.ReactElement {
-  return (
-    <span className="session-share-view__stable-label">
-      <span>{shareActionLabel(action)}</span>
-      {SHARE_ACTIONS.map((entry) => (
-        <span
-          key={entry.value}
-          className="session-share-view__stable-sizer"
-          data-label={entry.label}
-          aria-hidden="true"
-        />
-      ))}
-    </span>
-  );
 }
 
 export interface SessionShareViewProps {
@@ -335,8 +302,8 @@ export function SessionShareView({
         {/* Tools and Format on one line when they fit, stacked when not;
             Tools' label in the icon column either way. */}
         <div className="session-share-view__form" ref={formRef} data-testid="session-share-form">
-          <span className="session-share-view__label session-share-view__label--lead">Tools</span>
-          <span className="session-share-view__control">
+          <span className="share-parts__label session-share-view__label--lead">Tools</span>
+          <span className="share-parts__control">
             <TugChoiceGroup
               items={TOOL_MODE_ITEMS}
               value={snapshot.toolMode}
@@ -349,8 +316,8 @@ export function SessionShareView({
               data-testid="session-share-tool-mode"
             />
           </span>
-          <span className="session-share-view__label session-share-view__label--format">Format</span>
-          <span className="session-share-view__control session-share-view__control--format">
+          <span className="share-parts__label session-share-view__label--format">Format</span>
+          <span className="share-parts__control session-share-view__control--format">
             <TugChoiceGroup
               items={FORMAT_ITEMS}
               value={snapshot.format}
@@ -366,57 +333,19 @@ export function SessionShareView({
         </div>
         {/* The bottom row: Done at the left; Action and its button together
             at the right. */}
-        <div className="session-share-view__actions tug-sheet-actions">
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            onClick={onDone}
-            focusGroup={focusGroup}
-            focusOrder={ORDER.done}
-            data-testid="session-share-done"
-          >
-            Done
-          </TugPushButton>
-          {snapshot.rendering ? (
-            <span className="session-share-view__rendering" data-testid="session-share-rendering" role="status">
-              <TugProgressIndicator variant="spinner" state="running" tone="inherit" size={12} />
-              Rendering…
-            </span>
-          ) : null}
-          <span className="session-share-view__spacer" />
-          <span className="session-share-view__label">Action</span>
-          <span className="session-share-view__control" data-testid="session-share-action">
-            <TugPopupButton
-              label={<StableLabel action={snapshot.action} />}
-              items={ACTION_ITEMS}
-              senderId={actionSenderId}
-              size="sm"
-              focusGroup={focusGroup}
-              focusOrder={ORDER.action}
-              aria-label="Action"
-              data-testid="session-share-action-menu"
-            />
-          </span>
-          <TugPushButton
-            ref={goButtonRef}
-            size="sm"
-            emphasis="primary"
-            role="action"
-            disabled={!canAct}
-            onClick={go}
-            focusGroup={focusGroup}
-            focusOrder={ORDER.go}
-            data-testid="session-share-go"
-            data-share-action={snapshot.action}
-            // The shade's default action: it wears the double ring the whole
-            // time it can act, wherever the keyboard rests, as a sheet's
-            // default button does.
-            persistentDefaultRing
-          >
-            <StableLabel action={snapshot.action} />
-          </TugPushButton>
-        </div>
+        <ShareActionRow
+          actions={SHARE_ACTIONS}
+          action={snapshot.action}
+          actionSenderId={actionSenderId}
+          canAct={canAct}
+          rendering={snapshot.rendering}
+          onDone={onDone}
+          onGo={go}
+          goRef={goButtonRef}
+          focusGroup={focusGroup}
+          focusOrder={ORDER}
+          testId="session-share"
+        />
       </div>
     </ResponderScope>
   );

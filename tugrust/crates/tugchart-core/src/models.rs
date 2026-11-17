@@ -435,10 +435,7 @@ pub(crate) fn sessions(
     let usage = usage_by_day(&ctx.paths.sessions_db, &ctx.repo_root);
     let Some(mut chart) = sessions_chart(&usage, today, days, &range) else {
         return Ok(RecipeOutcome::NoData {
-            summary: format!(
-                "no sessions in the {range} for {}",
-                ctx.repo_root.display()
-            ),
+            summary: format!("no sessions in the {range} for {}", ctx.repo_root.display()),
         });
     };
     apply_title(&mut chart.spec, args);
@@ -547,7 +544,10 @@ mod tests {
         ];
         let chart = sessions_chart(&rows, date(22), 30, "last 30 days").unwrap();
         assert_valid(&chart.spec);
-        assert_eq!(chart.spec["categories"], json!(["2026-10-20", "2026-10-21", "2026-10-22"]));
+        assert_eq!(
+            chart.spec["categories"],
+            json!(["2026-10-20", "2026-10-21", "2026-10-22"])
+        );
         assert_eq!(chart.spec["series"][0]["values"], json!([2, 0, 2]));
         assert_eq!(chart.sessions, 3);
         let turns = |row: usize| -> Vec<(Option<String>, f64)> {
@@ -570,7 +570,11 @@ mod tests {
         assert_eq!(turns(2), [(Some("session:63bcd0c2".to_string()), 1.0)]);
         assert_eq!(
             chart.spec["refs"],
-            json!([["session:048e4155", "session:63bcd0c2"], null, "session:63bcd0c2"])
+            json!([
+                ["session:048e4155", "session:63bcd0c2"],
+                null,
+                "session:63bcd0c2"
+            ])
         );
         assert!(sessions_chart(&rows, date(10), 5, "").is_none());
     }
@@ -591,12 +595,17 @@ mod tests {
 
     #[test]
     fn a_sessions_chart_stamps_its_window() {
-        let rows = [shared(usage(20, "opus", 2), &["048e4155-f644-46f7-a839-d22ac02a564f"])];
+        let rows = [shared(
+            usage(20, "opus", 2),
+            &["048e4155-f644-46f7-a839-d22ac02a564f"],
+        )];
         let mut chart = sessions_chart(&rows, date(20), 30, "r").unwrap();
         stamp_source(
             &mut chart.spec,
             "sessions",
-            SourceArgs::new().with("since", "2026-09-21").with("until", "2026-10-20T23:00:00Z"),
+            SourceArgs::new()
+                .with("since", "2026-09-21")
+                .with("until", "2026-10-20T23:00:00Z"),
         );
         assert_source(&chart.spec, "sessions");
     }

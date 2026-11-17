@@ -2141,29 +2141,6 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         sheet.present(on: self)
     }
 
-    /// Show a figure's two renders in the preview sheet with its format
-    /// choice and its exits, answering `onShareDone` with `done` when it is
-    /// dismissed, or `failed` at once when a path is not a render's or a
-    /// file cannot be read.
-    private func presentShareFigure(_ request: ShareFigure, replyTo target: WKWebView) {
-        let reply = { [weak self] (result: ShareDone.Result) in
-            self?.hostChannel.send(.shareDone(ShareDone(id: request.id, result: result)), to: target)
-        }
-        guard activeSharePreview == nil,
-              ShareRenderOutput.isRenderedArtifact(path: request.png),
-              ShareRenderOutput.isRenderedArtifact(path: request.pdf),
-              let sheet = SharePreviewSheet(figure: request, parent: self, completion: { [weak self] in
-                  self?.activeSharePreview = nil
-                  reply(.done)
-              }) else {
-            TugLog.warn("share", "shareFigure could not show its renders", [TugLog.field("id", request.id)])
-            reply(.failed)
-            return
-        }
-        activeSharePreview = sheet
-        sheet.present(on: self)
-    }
-
     /// Save a previewed share artifact through the export panel, offering its
     /// one format, and answer `onShareDone` with `done`, `canceled` or
     /// `failed`.
@@ -2939,8 +2916,6 @@ extension MainWindow {
             copyShareFile(request, replyTo: replyView)
         case .sharePick(let request):
             presentSharePicker(request, replyTo: replyView)
-        case .shareFigure(let request):
-            presentShareFigure(request, replyTo: replyView)
         case .shareRender(let request):
             // A share page renders; it never asks for a render of its own.
             guard sender.shareView == nil else { return }

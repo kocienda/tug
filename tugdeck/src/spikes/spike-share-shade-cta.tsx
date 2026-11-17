@@ -55,7 +55,8 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TugChoiceGroup, type TugChoiceItem } from "@/components/tugways/tug-choice-group";
-import { StableLabel, useShareFormFit } from "@/components/tugways/cards/session-share-view";
+import { useShareFormFit } from "@/components/tugways/cards/session-share-view";
+import { SHARE_ACTION_LABELS, StableLabel as FamilyStableLabel } from "@/components/tugways/cards/share-parts";
 import type { ShareAction } from "@/lib/share-turns-store";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPopupButton, type TugPopupButtonItem } from "@/components/tugways/tug-popup-button";
@@ -63,6 +64,11 @@ import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useResponder } from "@/components/tugways/use-responder";
 
 import type { SpikeDef } from "./spike-registry";
+
+/** An action's name at the width of the widest, as the real shade wears it. */
+function StableLabel({ action }: { action: ShareAction }): React.ReactElement {
+  return <FamilyStableLabel label={SHARE_ACTION_LABELS[action]} labels={Object.values(SHARE_ACTION_LABELS)} />;
+}
 
 const LEAD = "Check the box at the right of each turn you want to share.";
 const MORE =

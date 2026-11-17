@@ -126,6 +126,7 @@ import { CardPortal } from "./card-portal";
 import { bodyCardsStore } from "@/lib/body-cards-store";
 import { hostCapabilitiesStore, reloadBody } from "@/lib/body-handoff";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { FigureShareHost } from "@/components/tugways/cards/figure-share-sheet";
 import { TugPaneBanner } from "@/components/tugways/tug-pane-banner";
 import { BodyStandIn } from "./body-stand-in";
 import { CLOSE_REFUSAL_LABEL, CLOSE_REFUSAL_MESSAGES, closeRefusalStore } from "@/lib/close-refusal-store";
@@ -1999,6 +2000,10 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
                           Loading...
                         </div>
                       )}
+                      {/* A figure's header is plain DOM, wherever in the
+                          card it stands; this is the card's sheet for its
+                          Share button (`figure-share-open.ts`). */}
+                      <FigureShareHost />
                     </CardDirtyContext>
                   </CardComponentStatePreservationContext.Provider>
                 </CardStatePreservationContext>

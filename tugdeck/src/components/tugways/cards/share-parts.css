@@ -1,0 +1,73 @@
+/**
+ * @tug-pairings
+ * | Element                                     | Surface                                           | Role    | Context                                      |
+ * |---------------------------------------------|---------------------------------------------------|---------|----------------------------------------------|
+ * | --tug7-element-field-text-normal-label-rest | --tug7-surface-global-primary-normal-content-rest | content | .share-parts__label, .share-parts__rendering |
+ */
+
+/* The parts every share surface is made of: a form label, the control beside
+   it, and the bottom row. The Share Turns shade and a figure's share sheet
+   both lay these out, so the two read as one family. */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.share-parts__label {
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: var(--tugx-header-desc-size);
+  white-space: nowrap;
+}
+
+/* The control keeps its own width, at its column's start. */
+.share-parts__control {
+  display: flex;
+  justify-self: start;
+  min-width: 0;
+}
+
+/* The bottom row — `.tug-sheet-actions`, sheet spacing: Done and the
+   "Rendering…" status at its leading edge; Action, its menu and the action
+   button together at its right. */
+.share-parts__actions {
+  align-items: center;
+  margin-top: 0;
+}
+
+.share-parts__spacer {
+  flex: 1 1 0;
+}
+
+/* An action's name in a box as wide as the widest action's: the name and
+   one hidden sizer per action share a grid cell, so the cell is as wide as
+   the widest of them. A sizer's text is generated, never in the DOM. */
+.share-parts__stable-label {
+  display: inline-grid;
+  justify-items: start;
+}
+
+.share-parts__stable-label > * {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.share-parts__stable-sizer {
+  visibility: hidden;
+}
+
+.share-parts__stable-sizer::before {
+  content: attr(data-label);
+}
+
+/* On the action button the name is centred in its box. */
+.share-parts__actions > button .share-parts__stable-label {
+  justify-items: center;
+}
+
+/* "Rendering…" with its running indicator, while an artifact is made. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.share-parts__rendering {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  color: var(--tug7-element-field-text-normal-label-rest);
+  font-size: var(--tugx-header-desc-size);
+  white-space: nowrap;
+}

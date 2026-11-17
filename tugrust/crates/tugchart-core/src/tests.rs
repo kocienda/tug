@@ -234,7 +234,10 @@ pub fn suite_outcomes(runs: &[SuiteRun]) -> Option<(Value, MemberTable)> {
                     }),
                 )
             };
-            members.set(MemberKey::Row(row), mine.iter().map(|r| run_member(r)).collect());
+            members.set(
+                MemberKey::Row(row),
+                mine.iter().map(|r| run_member(r)).collect(),
+            );
             for (item, r) in mine.iter().rev().enumerate() {
                 members.set(MemberKey::Item { row, item }, vec![run_member(r)]);
             }
@@ -377,11 +380,18 @@ pub(crate) fn suite_history(
         return Ok(no_suite_runs(&base));
     };
     apply_title(&mut spec, args);
-    stamp_source(&mut spec, "suite-history", SourceArgs::until(&until_for(args)));
+    stamp_source(
+        &mut spec,
+        "suite-history",
+        SourceArgs::until(&until_for(args)),
+    );
     let plotted = spec["rows"].as_array().map_or(0, Vec::len);
     let suites = suite_names(&runs).len();
     let cut = if suites > plotted {
-        format!("; past the {MAX_ROWS}-row limit: {} suite(s)", suites - plotted)
+        format!(
+            "; past the {MAX_ROWS}-row limit: {} suite(s)",
+            suites - plotted
+        )
     } else {
         String::new()
     };
@@ -511,7 +521,10 @@ mod unit {
         else {
             panic!("a missing ledger drew a chart");
         };
-        assert!(summary.starts_with("no recorded unit-suite runs for"), "{summary}");
+        assert!(
+            summary.starts_with("no recorded unit-suite runs for"),
+            "{summary}"
+        );
         assert!(!ctx.test_ledger.exists());
     }
 

@@ -19,7 +19,6 @@ import { hostAvailable, onHostMessage, postToHost } from "../host/channel";
 import {
   shareCopyToHost,
   shareDoneToPage,
-  shareFigureToHost,
   sharePickToHost,
   sharePreviewToHost,
   shareRenderedToPage,
@@ -123,23 +122,6 @@ export interface ShareAnchor {
 export function sharePick(artifact: ShareArtifactRef, anchor: ShareAnchor): Promise<ShareDoneResult> {
   if (!hostAvailable(sharePickToHost)) return Promise.resolve("unavailable");
   return request((id) => postToHost(sharePickToHost, { id, ...artifact, ...anchor }));
-}
-
-/**
- * Show one figure's renders in the host's preview sheet with its exits: a
- * choice between the PNG at `png` and the PDF at `pdf`, and Copy, Save… and
- * Share… over the one chosen. `text` is the figure's spec, the plain-text
- * flavour of the sheet's Copy. Resolves `"done"` when the sheet is dismissed,
- * or `"failed"` when a file could not be read.
- */
-export function shareFigurePreview(figure: {
-  baseName: string;
-  png: string;
-  pdf: string;
-  text: string;
-}): Promise<ShareDoneResult> {
-  if (!hostAvailable(shareFigureToHost)) return Promise.resolve("unavailable");
-  return request((id) => postToHost(shareFigureToHost, { id, ...figure }));
 }
 
 /** How a render ended, as the host answers it ([P09]). */

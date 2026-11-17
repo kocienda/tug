@@ -842,7 +842,12 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
         icon: SHARE_ICON,
         name: "tugx-chart-share",
         ariaLabel: figureShareLabel(diagram),
-        action: () => shareFigure(figure, figureBaseName(round.table.caption, diagram)),
+        action: async () =>
+          shareFigure(el, figure, {
+            diagram,
+            baseName: figureBaseName(round.table.caption, diagram),
+            naturalWidth: round.width,
+          }),
       }),
     );
   }

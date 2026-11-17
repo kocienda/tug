@@ -292,7 +292,10 @@ mod tests {
         assert_eq!(path_ref("src/app.ts", true), "file:src/app.ts");
         assert_eq!(path_ref("src", false), "dir:src");
         assert_eq!(command_ref("cargo build"), "command:cargo build");
-        assert_eq!(one_line("cd web &&\n  bun test\tsrc"), "cd web && bun test src");
+        assert_eq!(
+            one_line("cd web &&\n  bun test\tsrc"),
+            "cd web && bun test src"
+        );
         assert_eq!(one_line(&"x".repeat(600)).len(), 512);
         assert!(is_sha("abc1234"));
         assert!(!is_sha("abc"));

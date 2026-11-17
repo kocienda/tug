@@ -1,7 +1,7 @@
 /**
  * at0852-figure-share-pdf.test.ts — a chart rendered as a PDF through the
  * share path is one page at the figure's own width, and the header's Share
- * button opens the preview sheet over it.
+ * button opens the figure's share sheet on its card.
  *
  * ## What this gates
  *
@@ -15,9 +15,11 @@
  *     the figure's width plus the picture's margin — never the share
  *     column's 720 points — and the same width as its PNG, so the two
  *     formats are one picture.
- *   - A native click on the header's Share button renders and opens the
- *     preview sheet, which takes the keyboard from the card's window; Escape
- *     dismisses it and the window has the keyboard again.
+ *   - A native click on the header's Share button opens the share sheet on
+ *     the card, in the deck and not in a window of its own: the figure
+ *     drawn as a picture, a Format choice that opens on Image, and the
+ *     share family's bottom row with Copy, Save… and Share… behind an
+ *     action button that opens on Save…. Done dismisses it.
  *
  * @covers tugdeck/src/lib/chart/render-chart.ts
  * @covers tugdeck/src/lib/chart/figure-export.ts
@@ -26,8 +28,12 @@
  * @covers tugdeck/src/share/share-page.css
  * @covers tugapp/Sources/ShareRenderer.swift
  * @covers tugapp/Sources/ShareRenderOutput.swift
- * @covers tugapp/Sources/SharePreviewSheet.swift
  * @covers tugapp/Sources/MainWindow.swift
+ * @covers tugdeck/src/lib/chart/figure-share-open.ts
+ * @covers tugdeck/src/components/tugways/cards/figure-share-sheet.tsx
+ * @covers tugdeck/src/components/tugways/cards/figure-share-sheet.css
+ * @covers tugdeck/src/components/tugways/cards/share-parts.tsx
+ * @covers tugdeck/src/components/tugways/cards/share-parts.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -58,6 +64,19 @@ const SPEC = {
 };
 
 const SHARE = `${CHART} .tugx-chart-share`;
+const SHEET = '[data-testid="figure-share-sheet"]';
+
+interface SheetReading {
+  title: string;
+  pictureState: string | null;
+  pictureIsPicture: boolean;
+  formats: string[];
+  format: string | null;
+  action: string | null;
+  goLabel: string;
+  hasDone: boolean;
+  familyRow: boolean;
+}
 
 interface Rendered {
   result: "ok" | "failed";
@@ -117,30 +136,57 @@ describe.skipIf(!SHOULD_RUN)("at0852 — a chart shared as a PDF is one page at 
         expect(decoded.width, "the PNG is the same width, at the backing scale").toBe(Math.round(width * scale));
 
         // ── Share opens the sheet ───────────────────────────────────────────
-        const before = await app.windowState();
-        expect(before.isKeyWindow, "the card's window holds the keyboard before Share").toBe(true);
         const pressed = Date.now();
         await page.nativeClickAtElement(SHARE);
-        const deadline = Date.now() + 15_000;
-        let state = await app.windowState();
-        while ((state.isKeyWindow || !state.appKeyWindow) && Date.now() < deadline) {
-          await Bun.sleep(100);
-          state = await app.windowState();
-        }
-        note(`at0852 sheet after ${Date.now() - pressed} ms: ${JSON.stringify(state)}`);
-        expect(state.isKeyWindow, "the preview sheet took the keyboard").toBe(false);
         await page.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHARE)}).getAttribute("aria-busy") !== "true"`,
-          { timeoutMs: 4_000 },
+          `(function () {
+            var p = document.querySelector('${SHEET} [data-testid="figure-share-picture"] .tugx-chart');
+            return p !== null && p.getAttribute("data-tugx-chart-state") === "rendered";
+          })()`,
+          { timeoutMs: 10_000 },
         );
-        await app.nativeKey("Escape");
-        const gone = Date.now() + 4_000;
-        let after = await app.windowState();
-        while (!after.isKeyWindow && Date.now() < gone) {
-          await Bun.sleep(100);
-          after = await app.windowState();
-        }
-        expect(after.isKeyWindow, "Escape dismissed the sheet").toBe(true);
+        note(`at0852 sheet with its picture after ${Date.now() - pressed} ms`);
+        const state = await app.windowState();
+        expect(state.isKeyWindow, "the sheet is the deck's own: the card's window keeps the keyboard").toBe(true);
+        const sheet = JSON.parse(
+          await page.evalJS<string>(
+            `(function () {
+              var sheet = document.querySelector('${SHEET}');
+              var q = function (sel) { return sheet.querySelector(sel); };
+              var dialog = sheet.closest('[role="dialog"]') || document;
+              var title = dialog.querySelector(".tug-sheet-title");
+              var picture = q('[data-testid="figure-share-picture"] .tugx-chart');
+              var format = q('[data-testid="figure-share-format"]');
+              var options = Array.prototype.slice.call(format.querySelectorAll('[role="radio"], button'));
+              var chosen = options.filter(function (o) {
+                return o.getAttribute("aria-checked") === "true" || o.getAttribute("aria-pressed") === "true" || o.getAttribute("data-state") === "on";
+              })[0];
+              var go = q('[data-testid="figure-share-go"]');
+              return JSON.stringify({
+                title: title === null ? "" : title.textContent,
+                pictureState: picture.getAttribute("data-tugx-chart-state"),
+                pictureIsPicture: picture.hasAttribute("data-tugx-chart-picture"),
+                formats: options.map(function (o) { return o.textContent.trim(); }),
+                format: chosen === undefined ? null : chosen.textContent.trim(),
+                action: go.getAttribute("data-share-action"),
+                goLabel: go.querySelector(".share-parts__stable-label > span").textContent,
+                hasDone: q('[data-testid="figure-share-done"]') !== null,
+                familyRow: q(".share-parts__actions") !== null,
+              });
+            })()`,
+          ),
+        ) as SheetReading;
+        note(`at0852 sheet: ${JSON.stringify(sheet)}`);
+        expect(sheet.title, "the sheet is titled for a chart").toBe("Share Chart");
+        expect(sheet.pictureIsPicture, "the figure is drawn as the picture that leaves").toBe(true);
+        expect(sheet.formats, "the family's format names").toEqual(["PDF", "Image"]);
+        expect(sheet.format, "the sheet opens on Image").toBe("Image");
+        expect(sheet.action, "the sheet opens on Save…").toBe("save");
+        expect(sheet.goLabel).toBe("Save…");
+        expect(sheet.familyRow && sheet.hasDone, "the share family's bottom row, with Done").toBe(true);
+
+        await page.nativeClickAtElement(`${SHEET} [data-testid="figure-share-done"]`);
+        await page.waitForCondition<boolean>(`document.querySelector('${SHEET}') === null`, { timeoutMs: 4_000 });
       } catch (err) {
         const lines = app
           .tugappLog()

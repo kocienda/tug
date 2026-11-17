@@ -643,7 +643,10 @@ mod tests {
         drop(gaps);
         assert_eq!(
             call_rows(&path, None),
-            vec![("git status".to_string(), 40), ("cargo build".to_string(), 30_000)]
+            vec![
+                ("git status".to_string(), 40),
+                ("cargo build".to_string(), 30_000)
+            ]
         );
         // A read as of a moment leaves out the calls that ended at or after it.
         assert_eq!(
@@ -652,7 +655,10 @@ mod tests {
         );
         assert_eq!(
             gap_rows(&path),
-            vec![row("just app-test", 90_000, 2), row("cargo build", 30_000, 1)]
+            vec![
+                row("just app-test", 90_000, 2),
+                row("cargo build", 30_000, 1)
+            ]
         );
 
         let old = dir.path().join("old.db");

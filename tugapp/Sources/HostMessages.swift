@@ -822,19 +822,6 @@ struct ShareCopy: Decodable, Equatable {
     var text: String
 }
 
-/// `shareFigure`: show one figure's two renders — the PNG at `png`, the PDF
-/// at `pdf` — in the preview sheet, with a choice between them and Copy,
-/// Save… and Share… over the one chosen. `text` is the figure's spec, a
-/// Copy's plain-text flavour. Answered with `onShareDone` under `id`.
-struct ShareFigure: Decodable, Equatable {
-    var id: String
-    /// The save panel's default filename, without an extension.
-    var baseName: String
-    var png: String
-    var pdf: String
-    var text: String
-}
-
 /// `sharePick`: show the share picker over a previewed artifact — the file at
 /// `path`, or the Markdown `text` — anchored at the Share… button's rect
 /// (`x`, `y`, `w`, `h`) in the posting page's viewport. Answered with
@@ -1182,7 +1169,7 @@ enum ToHostName: String, CaseIterable {
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
     case openPath, lookUpInDictionary, spellingGuesses, rememberSpelling, trashPath, restorePath, thumbnailPath
     case exportSession, sharePreview, shareSave, shareRender, shareHello, shareRenderReady, shareRenderHtml
-    case shareCopy, sharePick, shareFigure
+    case shareCopy, sharePick
     case updateAction, dictation, pageZoom, hostFrames
 
     /// Whether only the shell may post it: the deck's own chrome, the
@@ -1285,7 +1272,6 @@ enum ToHost {
     case shareSave(ShareSave)
     case shareCopy(ShareCopy)
     case sharePick(SharePick)
-    case shareFigure(ShareFigure)
     case updateAction(UpdateAction)
     case dictation(DictationRequest)
     case pageZoom(PageZoom)
@@ -1356,7 +1342,6 @@ enum ToHost {
         case .shareSave: return .shareSave(try read(ShareSave.self))
         case .shareCopy: return .shareCopy(try read(ShareCopy.self))
         case .sharePick: return .sharePick(try read(SharePick.self))
-        case .shareFigure: return .shareFigure(try read(ShareFigure.self))
         case .pageZoom: return .pageZoom(try read(PageZoom.self))
         case .hostFrames: return .hostFrames(try read(HostFramesRequest.self))
         case .updateAction: return .updateAction(try read(UpdateAction.self))

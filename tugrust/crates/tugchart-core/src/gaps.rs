@@ -51,9 +51,7 @@ fn gaps_chart(gaps: &[GapSummary], rows: &[GapRow]) -> (Value, MemberTable) {
         let set: Vec<Member> = rows
             .iter()
             .filter(|row| row.head == gap.head)
-            .map(|row| {
-                Member::of(command_ref(&one_line(&row.command))).measured(secs(row.wall_ms))
-            })
+            .map(|row| Member::of(command_ref(&one_line(&row.command))).measured(secs(row.wall_ms)))
             .collect();
         refs.push(command_count(set.len()));
         members.set(MemberKey::Row(i), set);
@@ -183,8 +181,7 @@ pub(crate) fn calls(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutc
             .ok()
             .map(|at| (at.timestamp() + 1) * 1000)
     });
-    let Some((summary, mut spec, members)) =
-        calls_chart(&call_rows(&ctx.report_gaps, before_ms))
+    let Some((summary, mut spec, members)) = calls_chart(&call_rows(&ctx.report_gaps, before_ms))
     else {
         return Ok(RecipeOutcome::NoData {
             summary: "no call times recorded".to_string(),
@@ -288,7 +285,10 @@ mod tests {
         assert_valid(&spec);
         assert_eq!(summary, "10 call(s), median 5.5s; 1 over 9s not drawn");
         assert_eq!(spec["form"], "bar");
-        assert_eq!((spec["unit"].as_str(), spec["format"].as_str()), (Some("calls"), Some("int")));
+        assert_eq!(
+            (spec["unit"].as_str(), spec["format"].as_str()),
+            (Some("calls"), Some("int"))
+        );
         let counts: Vec<u64> = spec["series"][0]["values"]
             .as_array()
             .unwrap()
@@ -318,14 +318,20 @@ mod tests {
         let all: Vec<&Member> = (0..counts.len())
             .flat_map(|bin| members.get(MemberKey::Row(bin)))
             .collect();
-        assert!(all.iter().all(|m| m.r#ref.as_deref() != Some("command:sleep 9999")));
+        assert!(
+            all.iter()
+                .all(|m| m.r#ref.as_deref() != Some("command:sleep 9999"))
+        );
     }
 
     #[test]
     fn only_the_newest_calls_a_chart_can_hold_are_read() {
         // Newest first, so what passes the limit is the oldest.
         let mut times = vec![("ls".to_string(), 1000_i64); MAX_VALUES];
-        times.extend([("old".to_string(), 9_000_000), ("old".to_string(), 9_000_000)]);
+        times.extend([
+            ("old".to_string(), 9_000_000),
+            ("old".to_string(), 9_000_000),
+        ]);
         let (summary, spec, _) = calls_chart(&times).unwrap();
         assert_valid(&spec);
         assert_eq!(

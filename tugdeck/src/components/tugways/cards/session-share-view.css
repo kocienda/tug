@@ -2,7 +2,7 @@
  * @tug-pairings
  * | Element                                     | Surface                                           | Role    | Context                                                                 |
  * |---------------------------------------------|---------------------------------------------------|---------|-------------------------------------------------------------------------|
- * | --tug7-element-field-text-normal-label-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__label, __count, .session-share-view__rendering      |
+ * | --tug7-element-field-text-normal-label-rest | --tug7-surface-global-primary-normal-content-rest | content | .session-share-view__count                                              |
  */
 
 /* The Share shade's content ([P01]). The shade itself — its surface, its
@@ -98,65 +98,6 @@
   margin-inline: 0;
 }
 
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-share-view__label {
-  color: var(--tug7-element-field-text-normal-label-rest);
-  font-size: var(--tugx-header-desc-size);
-  white-space: nowrap;
-}
-
-/* The control keeps its own width, at its column's start. */
-.session-share-view__control {
-  display: flex;
-  justify-self: start;
-  min-width: 0;
-}
-
-/* The bottom row — `.tug-sheet-actions`, sheet spacing: Done and the
-   "Rendering…" status at its leading edge; Action, its menu and the action
-   button together at its right. */
-.session-share-view__actions {
-  align-items: center;
-  margin-top: 0;
-}
-
-.session-share-view__spacer {
-  flex: 1 1 0;
-}
-
-/* An action's name in a box as wide as the widest action's: the name and
-   one hidden sizer per action share a grid cell, so the cell is as wide as
-   the widest of them. A sizer's text is generated, never in the DOM. */
-.session-share-view__stable-label {
-  display: inline-grid;
-  justify-items: start;
-}
-
-.session-share-view__stable-label > * {
-  grid-area: 1 / 1;
-  white-space: nowrap;
-}
-
-.session-share-view__stable-sizer {
-  visibility: hidden;
-}
-
-.session-share-view__stable-sizer::before {
-  content: attr(data-label);
-}
-
-/* On the action button the name is centred in its box. */
-.session-share-view__actions > button .session-share-view__stable-label {
-  justify-items: center;
-}
-
-/* "Rendering…" with its running indicator, while a preview is prepared. */
-/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
-.session-share-view__rendering {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tug-space-xs);
-  color: var(--tug7-element-field-text-normal-label-rest);
-  font-size: var(--tugx-header-desc-size);
-  white-space: nowrap;
-}
+/* The form labels, their controls and the bottom row are the share family's
+   own parts (`share-parts.css`); the modifiers above place them in this
+   form's grid. */

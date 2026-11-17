@@ -1823,35 +1823,6 @@
       ]
     },
     {
-      "name": "shareFigure",
-      "from": "any",
-      "samples": [
-        {
-          "id": "share-10",
-          "baseName": "build-time",
-          "png": "/tmp/tug-share/r-1.png",
-          "pdf": "/tmp/tug-share/r-2.pdf",
-          "text": "{\"tugchart\":1}"
-        }
-      ],
-      "refused": [
-        "share-10",
-        {
-          "id": "share-10",
-          "baseName": "b",
-          "png": "/tmp/tug-share/r-1.png",
-          "text": ""
-        },
-        {
-          "id": "share-10",
-          "baseName": "b",
-          "png": "/tmp/tug-share/r-1.png",
-          "pdf": 7,
-          "text": ""
-        }
-      ]
-    },
-    {
       "name": "updateAction",
       "from": "shell",
       "samples": [

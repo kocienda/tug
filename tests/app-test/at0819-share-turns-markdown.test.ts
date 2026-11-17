@@ -190,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("AT0819: share turns as Markdown", () => {
             actionLeft: Math.round(action.left),
             actionRight: Math.round(action.right),
             actionWidth: Math.round(action.width),
-            actionLabelRight: Math.round(r('[data-card-id="A"] .session-share-view__actions .session-share-view__label').right),
+            actionLabelRight: Math.round(r('[data-card-id="A"] .share-parts__actions .share-parts__label').right),
             doneLeft: Math.round(done.left),
             doneMid: Math.round(done.top + done.height / 2),
             cancels: document.querySelectorAll('[data-card-id="A"] [data-testid="session-share-cancel"]').length,

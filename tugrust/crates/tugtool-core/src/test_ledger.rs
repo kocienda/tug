@@ -545,7 +545,10 @@ pub fn recent_runs_until(
           ORDER BY r.id DESC"
     ))?;
     let runs: Vec<SuiteRun> = stmt
-        .query_map(params![base_root, suite, per_suite as i64, until], suite_run_of)?
+        .query_map(
+            params![base_root, suite, per_suite as i64, until],
+            suite_run_of,
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(runs)
 }

@@ -978,14 +978,7 @@ pub(crate) fn landed(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOut
         "Lines changed by directory",
         &format!("{scope}{dropped}"),
     );
-    Ok(charted(
-        summary,
-        spec,
-        args,
-        "landed",
-        source,
-        members,
-    ))
+    Ok(charted(summary, spec, args, "landed", source, members))
 }
 
 /// The lines of `files` summed per kind, in [`LineKind::ALL`] order; a kind
@@ -2380,17 +2373,10 @@ mod tests {
         assert_eq!(spec["layout"], "stacked");
         assert_eq!(
             spec["refs"],
-            json!([
-                "file:README.md",
-                ["file:a/b/two.rs", "file:a/one.rs"],
-                null
-            ])
+            json!(["file:README.md", ["file:a/b/two.rs", "file:a/one.rs"], null])
         );
         assert_eq!(row_sum(&members, 1), 6.0);
-        assert_eq!(
-            members.get(MemberKey::Row(1))[0].parts,
-            Some((3.0, 0.0))
-        );
+        assert_eq!(members.get(MemberKey::Row(1))[0].parts, Some((3.0, 0.0)));
         assert_valid(&spec);
 
         // With one, a lone file is a count of one.
@@ -2693,7 +2679,8 @@ mod tests {
             if name == "hotspots" {
                 let refs = spec["refs"].as_array().unwrap();
                 assert!(
-                    refs.iter().all(|r| *r == json!({ "kind": "file", "count": 1 })),
+                    refs.iter()
+                        .all(|r| *r == json!({ "kind": "file", "count": 1 })),
                     "{refs:?}"
                 );
                 let rows: Vec<&str> = spec["categories"]

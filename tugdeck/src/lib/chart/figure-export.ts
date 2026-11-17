@@ -4,11 +4,12 @@
  * A figure's header has two ways out. **Copy** renders a PNG of the figure
  * and puts it on the pasteboard with the spec as its plain-text flavour, so
  * a paste into a mail or a slide gives the picture and a paste into an
- * editor still gives the source. **Share** renders the PNG and the PDF and
- * opens the host's preview sheet over the pair, with the sheet's own Copy,
- * Save… and Share….
+ * editor still gives the source. **Share** opens the figure's share sheet
+ * on the card it stands in (`figure-share-sheet.tsx`, one of the family the
+ * Share Turns shade belongs to), which shows the picture, offers PDF or
+ * Image, and copies, saves or shares the one chosen.
  *
- * Both renders go through the share renderer with a figure document
+ * Every render goes through the share renderer with a figure document
  * (`buildShareFigureDocument`): the host's hidden share page draws the spec
  * with `renderChartInto` in picture mode, so the image has the card's faces,
  * theme and layout by construction.
@@ -25,7 +26,8 @@
 import { getOnScreenTheme } from "@/contexts/theme-provider";
 import { raiseDeckBulletin } from "@/lib/bulletin-relay";
 import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
-import { shareCopyFile, shareFigurePreview, shareRender } from "@/lib/os-share";
+import { openFigureShare } from "@/lib/chart/figure-share-open";
+import { shareCopyFile, sharePick, shareRender, shareSave, type ShareAnchor } from "@/lib/os-share";
 import { buildShareFigureDocument } from "@/lib/share-turns";
 
 /** What a figure's header knows when it chooses its actions. */
@@ -89,8 +91,15 @@ export function figureBaseName(caption: string, diagram: boolean): string {
 export const FIGURE_RENDER_FAILED_TEXT = "Couldn't render the figure";
 /** The bulletin a rendered figure that did not reach the pasteboard reads. */
 export const FIGURE_COPY_FAILED_TEXT = "Couldn't copy the figure";
-/** The bulletin a rendered figure the preview sheet could not show reads. */
-export const FIGURE_PREVIEW_FAILED_TEXT = "Couldn't show the preview";
+/** The bulletin a figure no card could show the share sheet for reads. */
+export const FIGURE_SHEET_FAILED_TEXT = "Couldn't show the share sheet";
+/** The bulletin a rendered figure that could not be saved reads. */
+export const FIGURE_SAVE_FAILED_TEXT = "Couldn't save the figure";
+/** The bulletin a rendered figure the share picker could not show reads. */
+export const FIGURE_PICK_FAILED_TEXT = "Couldn't show the share picker";
+
+/** The formats a figure leaves in. */
+export type FigureFormat = "png" | "pdf";
 
 /** Say `text` in a deck bulletin. */
 function caution(text: string): void {
@@ -103,15 +112,51 @@ export interface FigureSource {
   layers: ChartLayers;
 }
 
-/** Render the figure in `format`; the file's path, or `null` when it failed. */
-async function renderFigure(figure: FigureSource, format: "png" | "pdf"): Promise<string | null> {
+/**
+ * Render the figure in `format`; the file's path, or `null` when it failed,
+ * which is said.
+ */
+export async function renderFigure(figure: FigureSource, format: FigureFormat): Promise<string | null> {
   const document = buildShareFigureDocument({
     theme: getOnScreenTheme(),
     source: figure.source,
     layers: figure.layers,
   });
   const outcome = await shareRender(format, JSON.stringify(document));
-  return outcome.result === "ok" ? outcome.path : null;
+  if (outcome.result !== "ok") {
+    caution(FIGURE_RENDER_FAILED_TEXT);
+    return null;
+  }
+  return outcome.path;
+}
+
+/**
+ * Put the render at `path` on the pasteboard, with `source` as its
+ * plain-text flavour. Resolves whether it got there; a failure is said.
+ */
+export async function copyFigureFile(path: string, source: string): Promise<boolean> {
+  if ((await shareCopyFile(path, source)) !== "done") {
+    caution(FIGURE_COPY_FAILED_TEXT);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Save the render at `path` through the host's save panel, under
+ * `baseName`. Resolves `true` once written; a dismissed panel says nothing.
+ */
+export async function saveFigureFile(path: string, format: FigureFormat, baseName: string): Promise<boolean> {
+  const result = await shareSave({ format, text: "", path, baseName });
+  if (result === "done") return true;
+  if (result !== "canceled") caution(FIGURE_SAVE_FAILED_TEXT);
+  return false;
+}
+
+/** Show the system share picker over the render at `path`, anchored at `anchor`. */
+export async function pickFigureFile(path: string, format: FigureFormat, anchor: ShareAnchor): Promise<void> {
+  const result = await sharePick({ format, text: "", path }, anchor);
+  if (result !== "shown" && result !== "done") caution(FIGURE_PICK_FAILED_TEXT);
 }
 
 /**
@@ -120,32 +165,18 @@ async function renderFigure(figure: FigureSource, format: "png" | "pdf"): Promis
  */
 export async function copyFigurePicture(figure: FigureSource): Promise<boolean> {
   const path = await renderFigure(figure, "png");
-  if (path === null) {
-    caution(FIGURE_RENDER_FAILED_TEXT);
-    return false;
-  }
-  if ((await shareCopyFile(path, figure.source)) !== "done") {
-    caution(FIGURE_COPY_FAILED_TEXT);
-    return false;
-  }
-  return true;
+  return path === null ? false : copyFigureFile(path, figure.source);
 }
 
 /**
- * Open the preview sheet over the figure's PNG and PDF. Resolves when both
- * renders are in and the sheet has been asked for — not when it is
- * dismissed, so the button that called this is busy for the renders alone.
- * The two renders run one after the other: the host draws each in its own
- * hidden page, and a PDF is a third of a second.
+ * Open the share sheet for the figure standing at `el`, on the card that
+ * holds it. Nothing is rendered until the sheet's action is pressed, so the
+ * sheet is up at once. A figure no card answers for says so.
  */
-export async function shareFigure(figure: FigureSource, baseName: string): Promise<void> {
-  const png = await renderFigure(figure, "png");
-  const pdf = png === null ? null : await renderFigure(figure, "pdf");
-  if (png === null || pdf === null) {
-    caution(FIGURE_RENDER_FAILED_TEXT);
-    return;
-  }
-  void shareFigurePreview({ baseName, png, pdf, text: figure.source }).then((result) => {
-    if (result !== "done") caution(FIGURE_PREVIEW_FAILED_TEXT);
-  });
+export function shareFigure(
+  el: Element,
+  figure: FigureSource,
+  about: { diagram: boolean; baseName: string; naturalWidth: number },
+): void {
+  if (!openFigureShare(el, { ...figure, ...about })) caution(FIGURE_SHEET_FAILED_TEXT);
 }
