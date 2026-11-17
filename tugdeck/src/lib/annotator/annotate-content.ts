@@ -124,7 +124,7 @@ import {
 } from "./annotate-counters";
 import { scanCommitShas } from "./detect-commit-sha";
 import { scanArcRefs } from "./detect-arc-ref";
-import { annotateChartRefs } from "./chart-refs";
+import { annotateChartRefs, insideReport } from "./chart-refs";
 import { isSessionShortId, scanSessionRefs } from "./detect-session-ref";
 import {
   classifyInlineCode,
@@ -195,6 +195,8 @@ function annotateInlineCode(
 ): void {
   const codes = container.querySelectorAll<HTMLElement>("code");
   for (const code of codes) {
+    // A report's rows are their own surface's to mark.
+    if (insideReport(container, code)) continue;
     // Fenced code (`pre > code`) is content, not a command hint.
     if (code.parentElement?.tagName === "PRE") continue;
     const payload = classifyInlineCode(
@@ -379,6 +381,9 @@ function dropStaleWraps(
     `[${WRAPPED_ATTRIBUTE}]`,
   );
   for (const element of wrapped) {
+    // A wrap inside a report belongs to the surface the report's row
+    // mounted, whose own pass re-checks it.
+    if (insideReport(container, element)) continue;
     const annotation = readAnnotation(element);
     // A session wrap is re-checked for the same reason a path wrap is: the
     // ledger is allowed to forget, and a reconnect drops every cached answer.
@@ -577,6 +582,9 @@ export function annotateElement(
   // consult everything those blocks did, so a surviving child ledger could
   // only ever answer the same question twice.
   for (const marked of container.querySelectorAll(`[${LEDGER_ATTRIBUTE}]`)) {
+    // A ledger inside a report is a surface this pass does not re-read, so
+    // it is still the only record of what that surface asked.
+    if (insideReport(container, marked)) continue;
     marked.removeAttribute(LEDGER_ATTRIBUTE);
     ledgers.delete(marked);
   }

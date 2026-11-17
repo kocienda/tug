@@ -129,5 +129,6 @@ pub fn table(spec: &Spec) -> ChartTable {
         head,
         rows,
         refs: Default::default(),
+        source: None,
     }
 }

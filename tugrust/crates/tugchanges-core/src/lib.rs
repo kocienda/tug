@@ -39,9 +39,10 @@ pub use hunks::{
 };
 pub use place::{OwnerPlace, owner_place};
 pub use preflight::{
-    DayStat, DiffOptions, DiffReport, LogEntry, LogOptions, LogReport, PathStat, PreflightOptions,
-    PreflightReport, diff, log, numstat_by_commit, numstat_by_day, numstat_by_path, path_prefix,
-    preflight,
+    CommitLines, DayStat, DiffOptions, DiffReport, LogEntry, LogOptions, LogReport, PathStat,
+    PreflightOptions, PreflightReport, Window, day_stats, diff, log, numstat_by_commit,
+    numstat_by_commit_in, numstat_by_day, numstat_by_day_in, numstat_by_path, numstat_by_path_in,
+    numstat_commits_in, path_prefix, preflight,
 };
 pub use shell_ops::{DeclaredKind, DeclaredOp, ParseOutcome, parse_shell_ops};
 pub use survival::{

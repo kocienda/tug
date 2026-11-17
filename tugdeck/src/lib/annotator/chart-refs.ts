@@ -41,6 +41,13 @@ export const REF_ROW_ATTR = "data-tugx-ref-row";
 export const REF_SET_ATTR = "data-tugx-ref-set";
 /** On a set host: the prefix its members share. */
 export const REF_KIND_ATTR = "data-tugx-ref-kind";
+/**
+ * On a set host whose press asks the recipe for something other than the
+ * set's own members: `one` for a dot's run or a span's stage, a report of
+ * one row; `row` for a row across all its series; `runs` for a file's whole
+ * run history.
+ */
+export const REF_REPORT_ATTR = "data-tugx-ref-report";
 /** On a ref host: the words the atom reads as, kept so an emptied host can be refilled. */
 export const REF_LABEL_ATTR = "data-tugx-ref-label";
 /** On a `.tgl` label rule: its row's ref is confirmed or is a set with members. */
@@ -49,6 +56,25 @@ export const REF_LIVE_ATTR = "data-tugx-ref-live";
 export const CHART_LINKED_ATTR = "data-tugx-chart-linked";
 /** On a subtree the prose text scan must not read ([P05]); the scan's own constant. */
 export const NO_SCAN_ATTR = NO_SCAN_ATTRIBUTE;
+/**
+ * On the host a set's report is portaled into, holding the report's id.
+ * Everything under it is the report's own React tree.
+ */
+export const REPORT_HOST_ATTR = "data-tugx-chart-report";
+
+/**
+ * Whether `el` stands in a report that lies inside `container`: the report
+ * is an island its own component owns, and a pass handed `container` must
+ * leave it alone. A row of the report mounts markdown with its own
+ * annotation pass and its own portals, so the figure's pass re-reading those
+ * marks would unwrap ink React owns and mount a second pill into a host that
+ * is already filled. A surface whose own container is inside the report is
+ * unaffected: its report host is not inside its container.
+ */
+export function insideReport(container: Element, el: Element): boolean {
+  const host = el.closest(`[${REPORT_HOST_ATTR}]`);
+  return host !== null && host !== container && container.contains(host);
+}
 
 /**
  * The words a portal saves before it empties a host. A commit pill and a
@@ -283,7 +309,9 @@ function unmark(host: HTMLElement | SVGElement): void {
  * unmarking on pending would blink every atom on every reconnect.
  */
 export function annotateChartRefs(container: HTMLElement, context: AnnotationContext): void {
-  const hosts = selfAndBelow<HTMLElement | SVGElement>(container, `[${REF_ATTR}]`);
+  const hosts = selfAndBelow<HTMLElement | SVGElement>(container, `[${REF_ATTR}]`).filter(
+    (host) => !insideReport(container, host),
+  );
   if (hosts.length === 0 && container.querySelector(`[${REF_SET_ATTR}]`) === null) return;
   for (const host of hosts) {
     const payload = payloadForRef(host.getAttribute(REF_ATTR) ?? "", context);

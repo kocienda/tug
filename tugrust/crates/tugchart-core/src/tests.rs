@@ -15,6 +15,9 @@ use tugtool_core::test_ledger::{self, SuiteRun};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, row_label,
 };
+use crate::members::{
+    FactKind, Member, MemberKey, MemberTable, SourceArgs, stamp_source, until_for,
+};
 use crate::refs::{RefBudget, commit_ref, is_sha, set_slots};
 
 /// How many newest runs per suite `test last --chart` reads.
@@ -109,17 +112,42 @@ fn suite_names(runs: &[SuiteRun]) -> Vec<String> {
 /// (`refs`, in the dots' order), all through one budget; a run whose
 /// recorded sha is not one carries no ref. `None` when no file has an
 /// outcome.
+///
+/// Beside the spec comes its member table: each dot (`Item`) is its one
+/// run, and each row (`Row`) is the file's runs newest first. A run's member
+/// carries what the ledger holds of it, and the commit it stood on as its
+/// ref when the recorded sha is one.
 pub fn file_outcomes(
     files: &[(String, Vec<FileRun>)],
     title: &str,
     subtitle: &str,
-) -> Option<Value> {
+) -> Option<(Value, MemberTable)> {
     let mut budget = RefBudget::new();
+    let mut members = MemberTable::default();
     let rows: Vec<Value> = files
         .iter()
         .filter(|(_, runs)| !runs.is_empty())
         .take(MAX_ROWS)
-        .map(|(file, runs)| {
+        .enumerate()
+        .map(|(row, (file, runs))| {
+            let run_member = |r: &FileRun| {
+                Member::fact(
+                    FactKind::Run,
+                    is_sha(&r.head_sha).then(|| commit_ref(&r.head_sha)),
+                    json!({
+                        "status": r.status,
+                        "ended_at": r.ended_at,
+                        "secs": r.secs,
+                        "passed": r.passed,
+                        "total": r.total,
+                        "head_sha": r.head_sha,
+                    }),
+                )
+            };
+            members.set(MemberKey::Row(row), runs.iter().map(run_member).collect());
+            for (item, r) in runs.iter().rev().enumerate() {
+                members.set(MemberKey::Item { row, item }, vec![run_member(r)]);
+            }
             let items: Vec<&str> = runs
                 .iter()
                 .rev()
@@ -152,13 +180,16 @@ pub fn file_outcomes(
     if rows.is_empty() {
         return None;
     }
-    Some(json!({
-        "tugchart": 1,
-        "form": "dots",
-        "title": title,
-        "subtitle": subtitle,
-        "rows": rows,
-    }))
+    Some((
+        json!({
+            "tugchart": 1,
+            "form": "dots",
+            "title": title,
+            "subtitle": subtitle,
+            "rows": rows,
+        }),
+        members,
+    ))
 }
 
 /// The clause of a summary line naming every file `file_outcomes` leaves off
@@ -194,35 +225,54 @@ pub(crate) fn test_history(
         return Ok(no_apptest_runs(&base));
     }
     let conn = open_apptest_ledger(&ctx.apptest_ledger)?;
+    // A source's `until` re-chooses the files and the runs the chart drew.
+    let until_secs = args.until.as_deref().and_then(|until| {
+        chrono::DateTime::parse_from_rfc3339(until)
+            .ok()
+            .map(|at| at.timestamp())
+    });
     let files = if args.subjects.is_empty() {
-        apptest_ledger::recent_red_files(&conn, &base, DEFAULT_RED_FILES).map_err(ledger_error)?
+        apptest_ledger::recent_red_files_until(&conn, &base, DEFAULT_RED_FILES, until_secs)
+            .map_err(ledger_error)?
     } else {
         args.subjects.clone()
     };
     let mut rows = Vec::with_capacity(files.len());
     for file in &files {
-        let runs = apptest_ledger::recent_file_runs(&conn, &base, file, RUNS_PER_FILE)
-            .map_err(ledger_error)?;
+        let runs =
+            apptest_ledger::recent_file_runs_until(&conn, &base, file, RUNS_PER_FILE, until_secs)
+                .map_err(ledger_error)?;
         rows.push((file.clone(), runs));
     }
     let subtitle = format!("newest {RUNS_PER_FILE} runs per file, oldest left");
-    let Some(mut spec) = file_outcomes(&rows, "App-test history", &subtitle) else {
+    let Some((mut spec, members)) = file_outcomes(&rows, "App-test history", &subtitle) else {
         return Ok(no_apptest_runs(&base));
     };
     apply_title(&mut spec, args);
+    // The default files are re-chosen by recency at `until`; only a list the
+    // user typed rides along.
+    let mut source = SourceArgs::until(&until_for(args));
+    if !args.subjects.is_empty() {
+        source = source.with("files", &args.subjects);
+    }
+    stamp_source(&mut spec, "test-history", source);
     let plotted = spec["rows"].as_array().map_or(0, Vec::len);
     let summary = format!(
         "{plotted} of {} file(s) with recorded runs for {base}, newest {RUNS_PER_FILE} each{}",
         files.len(),
         dropped_files(&rows)
     );
-    Ok(RecipeOutcome::Chart { summary, spec })
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members,
+    })
 }
 
 #[cfg(test)]
 mod unit {
     use super::*;
-    use crate::context::test_support::{assert_valid, context_at};
+    use crate::context::test_support::{assert_source, assert_valid, context_at};
     use tugtool_core::apptest_ledger::{FileResult, RunRecord};
 
     fn seed_apptest(ctx: &RecipeContext, at: i64, files: &[(&str, &str, i64)]) {
@@ -268,12 +318,14 @@ mod unit {
         );
         seed_apptest(&ctx, 101, &[("new.test.ts", "OVERTIME", 1)]);
 
-        let RecipeOutcome::Chart { spec, summary } =
+        let RecipeOutcome::Chart { spec, summary, .. } =
             run_recipe("test-history", &ctx, &RecipeArgs::default())
         else {
             panic!("expected a chart");
         };
         assert_valid(&spec);
+        assert_source(&spec, "test-history");
+        assert!(spec["source"]["args"].get("files").is_none(), "{spec}");
         let labels: Vec<&str> = spec["rows"]
             .as_array()
             .unwrap()
@@ -299,11 +351,18 @@ mod unit {
             subjects: vec!["a.test.ts".to_string(), "b.test.ts".to_string()],
             ..Default::default()
         };
-        let RecipeOutcome::Chart { summary, .. } = run_recipe("test-history", &ctx, &args) else {
+        let RecipeOutcome::Chart { summary, spec, .. } = run_recipe("test-history", &ctx, &args)
+        else {
             panic!("expected a chart");
         };
         assert!(summary.starts_with("1 of 2 file(s)"), "{summary}");
         assert!(summary.ends_with("; no runs: b"), "{summary}");
+        // A list the user typed rides along.
+        assert_source(&spec, "test-history");
+        assert_eq!(
+            spec["source"]["args"]["files"],
+            json!(["a.test.ts", "b.test.ts"])
+        );
     }
 
     #[test]
@@ -389,7 +448,7 @@ mod unit {
             ("b.test.ts".to_string(), Vec::new()),
             ("c.test.ts".to_string(), vec![outcome("PENDING", 1)]),
         ];
-        let spec = file_outcomes(&files, "t", "s").unwrap();
+        let (spec, members) = file_outcomes(&files, "t", "s").unwrap();
         assert_eq!(spec["form"], "dots");
         assert_eq!(spec["rows"].as_array().unwrap().len(), 2);
         assert_eq!(spec["rows"][0]["label"], "a");
@@ -403,6 +462,42 @@ mod unit {
         assert_eq!(spec["rows"][1]["items"], json!(["neutral"]));
         assert_valid(&spec);
         assert!(file_outcomes(&[("x".to_string(), Vec::new())], "t", "s").is_none());
+
+        // A dot is its one run, counted from the oldest as the dots are.
+        let dot = members.get(MemberKey::Item { row: 0, item: 0 });
+        assert_eq!(dot.len(), 1);
+        assert_eq!(dot[0].r#ref.as_deref(), Some("commit:00010000"));
+        assert_eq!(dot[0].fact_kind, Some(FactKind::Run));
+        assert_eq!(
+            dot[0].facts,
+            Some(json!({
+                "status": "ERR", "ended_at": 1, "secs": 7, "passed": 2, "total": 3,
+                "head_sha": "00010000",
+            }))
+        );
+        // A row is the file's runs, newest first.
+        let row: Vec<i64> = members
+            .get(MemberKey::Row(0))
+            .iter()
+            .map(|m| m.facts.as_ref().unwrap()["ended_at"].as_i64().unwrap())
+            .collect();
+        assert_eq!(row, [3, 2, 1]);
+        // The second row drawn is the third file given: the table counts
+        // rows as the chart does.
+        assert_eq!(members.get(MemberKey::Row(1)).len(), 1);
+        assert!(members.get(MemberKey::Row(2)).is_empty());
+    }
+
+    #[test]
+    fn a_run_on_a_placeholder_sha_has_its_facts_and_no_ref() {
+        let mut run = outcome("FAIL", 5);
+        run.head_sha = "unknown".to_string();
+        let (_, members) =
+            file_outcomes(&[("a.test.ts".to_string(), vec![run])], "t", "s").unwrap();
+        let dot = &members.get(MemberKey::Item { row: 0, item: 0 })[0];
+        assert_eq!(dot.r#ref, None);
+        assert_eq!(dot.facts.as_ref().unwrap()["status"], "FAIL");
+        assert_eq!(dot.facts.as_ref().unwrap()["head_sha"], "unknown");
     }
 
     #[test]
@@ -422,7 +517,7 @@ mod unit {
             format!("; no runs: gone; past the {MAX_ROWS}-row limit: f{MAX_ROWS}, f{last}")
         );
         // The clause and the chart agree on which rows were cut.
-        let spec = file_outcomes(&files, "t", "s").unwrap();
+        let (spec, _) = file_outcomes(&files, "t", "s").unwrap();
         let rows = spec["rows"].as_array().unwrap();
         assert_eq!(rows.len(), MAX_ROWS);
         assert_eq!(rows[MAX_ROWS - 1]["label"], format!("f{}", MAX_ROWS - 1));
@@ -433,6 +528,9 @@ mod unit {
             status: status.to_string(),
             ended_at,
             head_sha: format!("{ended_at:04x}0000"),
+            secs: 7,
+            passed: 2,
+            total: 3,
         }
     }
 
@@ -446,7 +544,7 @@ mod unit {
                 )
             })
             .collect();
-        let spec = file_outcomes(&files, "t", "s").unwrap();
+        let (spec, _) = file_outcomes(&files, "t", "s").unwrap();
         assert_eq!(spec["rows"].as_array().unwrap().len(), MAX_ROWS);
         assert_eq!(spec["rows"][0]["items"], json!(["bad", "good"]));
         assert_eq!(

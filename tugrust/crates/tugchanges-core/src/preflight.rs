@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use chrono::{Days, Local, NaiveDate};
+use chrono::{Days, Local, NaiveDate, SecondsFormat};
 use serde::Serialize;
 
 use crate::changes::{Change, ChangesError, ChangesOptions, ForeignChange, resolve_changes};
@@ -149,17 +149,57 @@ fn parse_log(output: &str) -> Vec<LogEntry> {
 /// touches N+1 calendar days, so a chart of it draws one more day than it says.
 /// A commit whose own offset differs from the local one can still bucket a day
 /// outside the window, since `%cs` reads the committer's offset.
-fn since_arg(days: u32) -> String {
-    since_on(Local::now().date_naive(), days)
-}
-
-fn since_on(today: NaiveDate, days: u32) -> String {
+fn oldest_day(today: NaiveDate, days: u32) -> NaiveDate {
     // Git reads no date before its epoch, and every offset has reached this one.
     let floor = NaiveDate::from_ymd_opt(1970, 1, 2).unwrap_or_default();
-    let oldest = today
+    today
         .checked_sub_days(Days::new(u64::from(days.max(1) - 1)))
-        .map_or(floor, |day| day.max(floor));
-    format!("--since={} 00:00:00", oldest.format("%Y-%m-%d"))
+        .map_or(floor, |day| day.max(floor))
+}
+
+/// An absolute window over history: `since` is a local calendar day
+/// (`YYYY-MM-DD`), read from its midnight, and `until`, when set, an RFC 3339
+/// instant. A read that was made by one can be made again by the same one,
+/// which a count of days ending now cannot promise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Window {
+    pub since: String,
+    pub until: Option<String>,
+}
+
+impl Window {
+    /// The last `days` calendar days, today among them, ending at this instant.
+    pub fn last_days(days: u32) -> Window {
+        let now = Local::now();
+        let mut window = Window::on(now.date_naive(), days);
+        window.until = Some(now.to_rfc3339_opts(SecondsFormat::Secs, false));
+        window
+    }
+
+    /// The last `days` calendar days ending on `today`, with no upper bound.
+    fn on(today: NaiveDate, days: u32) -> Window {
+        Window {
+            since: oldest_day(today, days).format("%Y-%m-%d").to_string(),
+            until: None,
+        }
+    }
+
+    /// The arguments that give `git log` this window.
+    pub fn git_args(&self) -> Vec<String> {
+        let mut args = vec![format!("--since={} 00:00:00", self.since)];
+        if let Some(until) = &self.until {
+            args.push(format!("--until={until}"));
+        }
+        args
+    }
+
+    /// The window as a range reads: `<since> to <until's day>`.
+    pub fn label(&self) -> String {
+        match &self.until {
+            Some(until) => format!("{} to {}", self.since, &until[..until.len().min(10)]),
+            None => format!("from {}", self.since),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +209,8 @@ fn since_on(today: NaiveDate, days: u32) -> String {
 /// Options for [`log`] (Spec S04). `range` (two-dot `a..b`) overrides the plain
 /// `--limit N` most-recent read; `days` (with neither) reads the commits
 /// whose committer date falls within the last `N` calendar days, through git's
-/// own `--since`, which is the window `log --chart` buckets. `project` is the
+/// own `--since`, which is the window `log --chart` buckets; `window`, when
+/// set, is that read by an absolute [`Window`] in place of `days`. `project` is the
 /// directory whose repository is read, the cwd when `None`; `path`, relative
 /// to that repository's root, narrows every form to the commits touching it.
 #[derive(Debug, Clone, Default)]
@@ -178,6 +219,7 @@ pub struct LogOptions {
     pub limit: Option<u32>,
     pub range: Option<String>,
     pub days: Option<u32>,
+    pub window: Option<Window>,
     pub path: Option<String>,
 }
 
@@ -198,20 +240,25 @@ pub fn log(opts: LogOptions) -> Result<LogReport, String> {
     };
     let repo_root = git::repo_root_for(&project_dir);
 
-    let (mut range, mut args): (String, Vec<String>) = match (&opts.range, opts.limit, opts.days) {
+    let window = opts
+        .window
+        .clone()
+        .or_else(|| opts.days.map(Window::last_days));
+    let (mut range, mut args): (String, Vec<String>) = match (&opts.range, opts.limit, window) {
         (Some(range), _, _) => (
             range.clone(),
             vec!["log".to_string(), LOG_FORMAT.to_string(), range.clone()],
         ),
-        (None, None, Some(days)) => (
-            format!("last {days} days"),
-            vec![
-                "log".to_string(),
-                LOG_FORMAT.to_string(),
-                since_arg(days),
-                "HEAD".to_string(),
-            ],
-        ),
+        (None, None, Some(window)) => {
+            let label = match (opts.window.is_some(), opts.days) {
+                (false, Some(days)) => format!("last {days} days"),
+                _ => window.label(),
+            };
+            let mut args = vec!["log".to_string(), LOG_FORMAT.to_string()];
+            args.extend(window.git_args());
+            args.push("HEAD".to_string());
+            (label, args)
+        }
         (None, limit, _) => {
             let limit = limit.unwrap_or(DEFAULT_LOG_LIMIT);
             (
@@ -279,6 +326,23 @@ struct NumstatFile {
     deleted: u64,
 }
 
+/// One commit's lines: its short sha, its committer day, and the lines it
+/// added and deleted over every file it changed. A merge that changed no
+/// lines is a row of zeros, so a day's commit count still counts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitLines {
+    pub sha: String,
+    pub day: String,
+    pub added: u64,
+    pub deleted: u64,
+}
+
+impl CommitLines {
+    pub fn lines(&self) -> u64 {
+        self.added + self.deleted
+    }
+}
+
 /// The commits of the last `days` calendar days on HEAD, summed per committer day,
 /// oldest first; `path` narrows the read to it. A day with no commits has no
 /// row: filling the gaps takes a calendar, which belongs to the caller.
@@ -287,7 +351,16 @@ pub fn numstat_by_day(
     days: u32,
     path: Option<&str>,
 ) -> Result<Vec<DayStat>, String> {
-    Ok(sum_by_day(&read_numstat_log(repo_root, days, path)?))
+    numstat_by_day_in(repo_root, &Window::last_days(days), path)
+}
+
+/// [`numstat_by_day`] over an absolute window.
+pub fn numstat_by_day_in(
+    repo_root: &Path,
+    window: &Window,
+    path: Option<&str>,
+) -> Result<Vec<DayStat>, String> {
+    Ok(day_stats(&numstat_commits_in(repo_root, window, path)?))
 }
 
 /// The same read summed by the first `depth` components of each path, largest
@@ -298,8 +371,18 @@ pub fn numstat_by_path(
     path: Option<&str>,
     depth: usize,
 ) -> Result<Vec<PathStat>, String> {
+    numstat_by_path_in(repo_root, &Window::last_days(days), path, depth)
+}
+
+/// [`numstat_by_path`] over an absolute window.
+pub fn numstat_by_path_in(
+    repo_root: &Path,
+    window: &Window,
+    path: Option<&str>,
+    depth: usize,
+) -> Result<Vec<PathStat>, String> {
     Ok(group_by_depth(
-        &read_numstat_log(repo_root, days, path)?,
+        &read_numstat_log(repo_root, window, path)?,
         depth,
     ))
 }
@@ -312,33 +395,60 @@ pub fn numstat_by_commit(
     days: u32,
     path: Option<&str>,
 ) -> Result<Vec<(String, u64)>, String> {
-    Ok(read_numstat_log(repo_root, days, path)?
+    numstat_by_commit_in(repo_root, &Window::last_days(days), path)
+}
+
+/// [`numstat_by_commit`] over an absolute window.
+pub fn numstat_by_commit_in(
+    repo_root: &Path,
+    window: &Window,
+    path: Option<&str>,
+) -> Result<Vec<(String, u64)>, String> {
+    Ok(numstat_commits_in(repo_root, window, path)?
         .into_iter()
-        .map(|commit| {
-            let lines: u64 = commit
-                .files
-                .iter()
-                .map(|file| file.added + file.deleted)
-                .sum();
-            (commit.sha, lines)
-        })
+        .map(|commit| (commit.sha.clone(), commit.lines()))
         .filter(|(_, lines)| *lines > 0)
         .collect())
 }
 
+/// Every commit of the window on HEAD as its own lines, newest first; `path`
+/// narrows the read to it. The day and commit forms above are sums of this
+/// read, so a chart drawn from one of them and a list of the commits behind
+/// a mark come from the same records.
+pub fn numstat_commits_in(
+    repo_root: &Path,
+    window: &Window,
+    path: Option<&str>,
+) -> Result<Vec<CommitLines>, String> {
+    Ok(commit_lines(read_numstat_log(repo_root, window, path)?))
+}
+
+/// Each commit's files summed into its own lines, in the order read.
+fn commit_lines(commits: Vec<NumstatCommit>) -> Vec<CommitLines> {
+    commits
+        .into_iter()
+        .map(|commit| {
+            let added = commit.files.iter().map(|file| file.added).sum();
+            let deleted = commit.files.iter().map(|file| file.deleted).sum();
+            CommitLines {
+                sha: commit.sha,
+                day: commit.day,
+                added,
+                deleted,
+            }
+        })
+        .collect()
+}
+
 fn read_numstat_log(
     repo_root: &Path,
-    days: u32,
+    window: &Window,
     path: Option<&str>,
 ) -> Result<Vec<NumstatCommit>, String> {
-    let since = since_arg(days);
-    let mut args = vec![
-        "log",
-        since.as_str(),
-        "--format=%x01%h %cs",
-        "--numstat",
-        "HEAD",
-    ];
+    let window_args = window.git_args();
+    let mut args = vec!["log"];
+    args.extend(window_args.iter().map(String::as_str));
+    args.extend(["--format=%x01%h %cs", "--numstat", "HEAD"]);
     if let Some(path) = path {
         args.extend(["--", path]);
     }
@@ -383,7 +493,9 @@ fn parse_numstat_log(records: &[String]) -> Vec<NumstatCommit> {
         .collect()
 }
 
-fn sum_by_day(commits: &[NumstatCommit]) -> Vec<DayStat> {
+/// `commits` summed per committer day, oldest day first, each day's shas in
+/// the order given.
+pub fn day_stats(commits: &[CommitLines]) -> Vec<DayStat> {
     let mut days: BTreeMap<&str, DayStat> = BTreeMap::new();
     for commit in commits {
         let stat = days.entry(&commit.day).or_insert_with(|| DayStat {
@@ -395,10 +507,8 @@ fn sum_by_day(commits: &[NumstatCommit]) -> Vec<DayStat> {
         });
         stat.commits += 1;
         stat.shas.push(commit.sha.clone());
-        for file in &commit.files {
-            stat.added += file.added;
-            stat.deleted += file.deleted;
-        }
+        stat.added += commit.added;
+        stat.deleted += commit.deleted;
     }
     days.into_values().collect()
 }
@@ -569,7 +679,31 @@ mod tests {
 
     #[test]
     fn numstat_log_sums_commits_per_day_and_keeps_days_apart() {
-        let days = sum_by_day(&parse_numstat_log(&numstat_fixture()));
+        let commits = commit_lines(parse_numstat_log(&numstat_fixture()));
+        assert_eq!(
+            commits,
+            vec![
+                CommitLines {
+                    sha: "aaa1111".to_string(),
+                    day: "2026-10-29".to_string(),
+                    added: 4,
+                    deleted: 6,
+                },
+                CommitLines {
+                    sha: "bbb2222".to_string(),
+                    day: "2026-10-29".to_string(),
+                    added: 5,
+                    deleted: 6,
+                },
+                CommitLines {
+                    sha: "ccc3333".to_string(),
+                    day: "2026-10-28".to_string(),
+                    added: 7,
+                    deleted: 0,
+                },
+            ]
+        );
+        let days = day_stats(&commits);
         assert_eq!(
             days,
             vec![
@@ -719,11 +853,64 @@ mod tests {
 
     #[test]
     fn a_window_of_n_days_starts_at_midnight_on_the_nth_day_back() {
+        let since_on = |today, days| Window::on(today, days).git_args().remove(0);
         let today = NaiveDate::from_ymd_opt(2026, 10, 30).unwrap();
         assert_eq!(since_on(today, 1), "--since=2026-10-30 00:00:00");
         assert_eq!(since_on(today, 30), "--since=2026-10-01 00:00:00");
         assert_eq!(since_on(today, 0), "--since=2026-10-30 00:00:00");
         assert_eq!(since_on(today, u32::MAX), "--since=1970-01-02 00:00:00");
+    }
+
+    #[test]
+    fn a_window_spells_its_git_arguments_and_its_label() {
+        let open = Window {
+            since: "2026-10-01".to_string(),
+            until: None,
+        };
+        assert_eq!(open.git_args(), ["--since=2026-10-01 00:00:00"]);
+        assert_eq!(open.label(), "from 2026-10-01");
+        let closed = Window {
+            since: "2026-10-01".to_string(),
+            until: Some("2026-10-30T09:14:02-08:00".to_string()),
+        };
+        assert_eq!(
+            closed.git_args(),
+            [
+                "--since=2026-10-01 00:00:00",
+                "--until=2026-10-30T09:14:02-08:00"
+            ]
+        );
+        assert_eq!(closed.label(), "2026-10-01 to 2026-10-30");
+        let last = Window::last_days(30);
+        assert_eq!(Window::on(Local::now().date_naive(), 30).since, last.since);
+        assert!(last.until.is_some_and(|u| u.contains('T')));
+    }
+
+    #[test]
+    fn the_day_forms_read_what_their_windowed_forms_read() {
+        let repo = init_repo_with_commits(&["one", "two"]);
+        let root = repo.path();
+        let window = Window::last_days(1);
+        assert_eq!(
+            numstat_by_day(root, 1, None).unwrap(),
+            numstat_by_day_in(root, &window, None).unwrap()
+        );
+        assert_eq!(
+            numstat_by_commit(root, 1, None).unwrap(),
+            numstat_by_commit_in(root, &window, None).unwrap()
+        );
+        assert_eq!(
+            numstat_by_path(root, 1, None, 1).unwrap(),
+            numstat_by_path_in(root, &window, None, 1).unwrap()
+        );
+        let windowed = log(LogOptions {
+            project: Some(root.to_path_buf()),
+            window: Some(window.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(windowed.range, window.label());
+        assert_eq!(windowed.commits.len(), 2);
     }
 
     #[test]

@@ -20,6 +20,10 @@ pub struct ChartTable {
     /// chart without refs serializes as it always has.
     #[serde(skip_serializing_if = "TableRefs::is_empty")]
     pub refs: TableRefs,
+    /// The spec's `source`, verbatim: the recipe a reader asks again for a
+    /// mark's members. Absent from the wire when the spec has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<serde_json::Value>,
 }
 
 /// A table's refs, addressed as its text is: by row, by head column, by
@@ -214,6 +218,18 @@ impl ChartTable {
     }
 }
 
+/// A histogram's bins as the table lays them out: each bin's label, and
+/// the indices into `values` of the samples it holds. `None` for any other
+/// form. It is what a reader who presses a bin needs to name the samples
+/// behind it, binned exactly as the figure binned them.
+pub fn histogram_bins(spec: &Spec) -> Option<(Vec<String>, Vec<Vec<usize>>)> {
+    let Data::Histogram { values, bins, .. } = &spec.data else {
+        return None;
+    };
+    let bins = histogram::bins(values, *bins, spec.format);
+    Some((bins.labels, bins.members))
+}
+
 /// The table for a validated spec, each form in its natural columns. A
 /// gap is an empty cell.
 pub fn table(spec: &Spec) -> ChartTable {
@@ -339,5 +355,6 @@ pub fn table(spec: &Spec) -> ChartTable {
         head,
         rows,
         refs: refs(spec),
+        source: spec.source.clone(),
     }
 }

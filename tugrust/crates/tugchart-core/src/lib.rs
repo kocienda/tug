@@ -17,6 +17,7 @@ pub mod commits;
 pub mod context;
 pub mod forms;
 mod gaps;
+pub mod members;
 mod models;
 pub mod refs;
 pub mod tests;

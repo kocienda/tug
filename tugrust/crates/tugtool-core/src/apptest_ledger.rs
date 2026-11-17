@@ -441,6 +441,11 @@ pub struct FileRun {
     pub ended_at: i64,
     /// The tree the run stood on, as the run recorded it.
     pub head_sha: String,
+    /// How long the file ran, in seconds.
+    pub secs: i64,
+    /// How many of the file's tests passed, and how many it has.
+    pub passed: i64,
+    pub total: i64,
 }
 
 /// The newest `n` outcomes of `file` under `base_root`, newest first by
@@ -453,22 +458,39 @@ pub fn recent_file_runs(
     file: &str,
     n: usize,
 ) -> Result<Vec<FileRun>, ApptestLedgerError> {
+    recent_file_runs_until(conn, base_root, file, n, None)
+}
+
+/// [`recent_file_runs`] as of `until_secs`, a Unix time in seconds as a
+/// run's `ended_at` is: runs that ended after it are left out, so a reading
+/// taken at one moment can be taken again later. `None` is now.
+pub fn recent_file_runs_until(
+    conn: &Connection,
+    base_root: &str,
+    file: &str,
+    n: usize,
+    until_secs: Option<i64>,
+) -> Result<Vec<FileRun>, ApptestLedgerError> {
     let mut stmt = conn.prepare(
-        "SELECT r.status, u.ended_at, u.head_sha
+        "SELECT r.status, u.ended_at, u.head_sha, r.secs, r.passed, r.total
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1 AND r.file = ?2
             AND r.status NOT IN ('SKIP', 'WEDGED', 'STALLED')
+            AND (?4 IS NULL OR u.ended_at <= ?4)
           ORDER BY u.ended_at DESC, u.id DESC
           LIMIT ?3",
     )?;
     let runs = stmt
         .query_map(
-            params![base_root, ledger_file_name(file), n as i64],
+            params![base_root, ledger_file_name(file), n as i64, until_secs],
             |row| {
                 Ok(FileRun {
                     status: row.get(0)?,
                     ended_at: row.get(1)?,
                     head_sha: row.get(2)?,
+                    secs: row.get(3)?,
+                    passed: row.get(4)?,
+                    total: row.get(5)?,
                 })
             },
         )?
@@ -484,17 +506,29 @@ pub fn recent_red_files(
     base_root: &str,
     n: usize,
 ) -> Result<Vec<String>, ApptestLedgerError> {
+    recent_red_files_until(conn, base_root, n, None)
+}
+
+/// [`recent_red_files`] as of `until_secs`: a red that ended after it is not
+/// counted, so the files chosen at one moment are chosen again later.
+pub fn recent_red_files_until(
+    conn: &Connection,
+    base_root: &str,
+    n: usize,
+    until_secs: Option<i64>,
+) -> Result<Vec<String>, ApptestLedgerError> {
     let mut stmt = conn.prepare(
         "SELECT r.file, MAX(u.ended_at)
            FROM results r JOIN runs u ON u.id = r.run_id
           WHERE u.base_root = ?1
             AND r.status NOT IN ('PASS', 'SKIP', 'WEDGED', 'STALLED')
+            AND (?3 IS NULL OR u.ended_at <= ?3)
           GROUP BY r.file
           ORDER BY 2 DESC, r.file
           LIMIT ?2",
     )?;
     let files = stmt
-        .query_map(params![base_root, n as i64], |row| row.get(0))?
+        .query_map(params![base_root, n as i64, until_secs], |row| row.get(0))?
         .collect::<rusqlite::Result<Vec<String>>>()?;
     Ok(files)
 }
@@ -714,6 +748,42 @@ mod tests {
             recent_red_files(&conn, &base, 1).unwrap(),
             vec!["new.test.ts".to_string()]
         );
+        // As of the first run, the later red had not happened.
+        assert_eq!(
+            recent_red_files_until(&conn, &base, 5, Some(1_700_000_000)).unwrap(),
+            vec!["old.test.ts".to_string()]
+        );
+    }
+
+    #[test]
+    fn recent_file_runs_carry_their_counts_and_stop_at_until() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        for (k, status) in ["PASS", "FAIL", "PASS"].into_iter().enumerate() {
+            record_run(
+                &mut conn,
+                &run(
+                    &root,
+                    &format!("sha{k}"),
+                    1_700_000_000 + k as i64,
+                    vec![file("a.test.ts", status)],
+                ),
+            )
+            .unwrap();
+        }
+        let base = resolve_base_root(Path::new(&root));
+
+        let all = recent_file_runs(&conn, &base, "a.test.ts", 5).unwrap();
+        let shas: Vec<&str> = all.iter().map(|r| r.head_sha.as_str()).collect();
+        assert_eq!(shas, ["sha2", "sha1", "sha0"]);
+        assert_eq!((all[1].secs, all[1].passed, all[1].total), (20, 1, 3));
+        assert_eq!((all[0].passed, all[0].total), (3, 3));
+
+        let earlier =
+            recent_file_runs_until(&conn, &base, "a.test.ts", 5, Some(1_700_000_001)).unwrap();
+        let shas: Vec<&str> = earlier.iter().map(|r| r.head_sha.as_str()).collect();
+        assert_eq!(shas, ["sha1", "sha0"], "a run that ended later is left out");
     }
 
     /// **The batch-pressure fact.** Three files pass in isolation and fail in

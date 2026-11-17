@@ -332,7 +332,14 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // the rails in the same commit, and both halves are this manager's; a test
     // that named only the imposer's clamp would leave the landing covered by
     // nothing.
-    "tugdeck/src/deck-manager.ts": 23,
+    //
+    // Raised to 24 for at0846 (a workspace switch's arrival card is held
+    // provisionally). `activateSpace` marks its landing as an arrival through
+    // `_noteLanding(..., true)`, and that mark is what lets the reader's next
+    // chosen card replace it on the trail; both are this manager's, and a test
+    // that named only `focus-trail.ts` would leave the marking covered by
+    // nothing.
+    "tugdeck/src/deck-manager.ts": 24,
 
     // The Session card. Every session surface the app has — picker, transcript
     // host, composer wiring, the card's own close policy — hangs off this one
@@ -546,7 +553,13 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // same annotation contract. Each is observable only as an annotation on
     // ink: whether a run or an atom is a live link. Raised in place, which
     // trips the refinance rule until it is committed.
-    "tugdeck/src/lib/annotator/": 24,
+    //
+    // Raised to 25 for `entity-key.ts`, which arrived with `chart-refs.ts` and
+    // was not counted then: it is the one key under which a prose mark and a
+    // chart mark name the same file, commit or session, read only from the
+    // payload the resolvers stamp, and what it decides is observable only as
+    // two annotations lighting together.
+    "tugdeck/src/lib/annotator/": 25,
 
     // Raised from 30 for `hooks/use-session-fields.ts`, which is not new
     // reach: it is the store's own field selector, the one door every session

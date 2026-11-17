@@ -546,7 +546,7 @@ pub async fn build_git_log_snapshot(
     let mut commits = if query.is_empty() {
         let limit_arg = format!("-n{}", limit.saturating_add(1));
         let skip_arg = format!("--skip={offset}");
-        read_git_log(repo_dir, &[&skip_arg, &limit_arg]).await
+        read_git_log(repo_dir, &[&skip_arg, &limit_arg], &[]).await
     } else {
         let shas = matching_commit_shas(repo_dir, query, offset, limit.saturating_add(1)).await;
         if shas.is_empty() {
@@ -557,7 +557,7 @@ pub async fn build_git_log_snapshot(
             // walking back from each.
             let mut selection: Vec<&str> = vec!["--no-walk=unsorted"];
             selection.extend(shas.iter().map(String::as_str));
-            read_git_log(repo_dir, &selection).await
+            read_git_log(repo_dir, &selection, &[]).await
         }
     };
     // The probe commit answered "is there more"; it is not part of this page.
@@ -626,7 +626,7 @@ async fn matching_commit_shas(repo_dir: &Path, query: &str, offset: u32, take: u
 /// with a blob or a tree still resolves. The answer must also *begin* with the
 /// query: `rev-parse` reads a ref of that name before it reads a prefix, and a
 /// branch called `cafe` is not the commit `cafe…` the user typed.
-async fn resolve_commit_prefix(repo_dir: &Path, query: &str) -> Option<String> {
+pub(crate) async fn resolve_commit_prefix(repo_dir: &Path, query: &str) -> Option<String> {
     if !(4..=40).contains(&query.len()) || !query.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
@@ -639,8 +639,17 @@ async fn resolve_commit_prefix(repo_dir: &Path, query: &str) -> Option<String> {
 
 /// Run the one `git log` whose records [`parse_git_log`] reads, over the
 /// commits `selection` names — a `--skip`/`-n` window for a page of the log, or
-/// `--no-walk` and a list of shas for the commits a search found.
-async fn read_git_log(repo_dir: &Path, selection: &[&str]) -> Vec<GitLogCommit> {
+/// `--no-walk` and a list of shas for the commits a search found — narrowed to
+/// the commits touching `paths` when any are given.
+///
+/// `paths` is its own parameter because the format arguments follow the
+/// selection: a `--` inside `selection` would turn them into paths. They go
+/// last, after a `--` of their own.
+pub(crate) async fn read_git_log(
+    repo_dir: &Path,
+    selection: &[&str],
+    paths: &[&str],
+) -> Vec<GitLogCommit> {
     let mut args: Vec<&str> = vec![
         "log",
         // `-z` NUL-terminates each commit record so the final `%b` body
@@ -679,6 +688,10 @@ async fn read_git_log(repo_dir: &Path, selection: &[&str]) -> Vec<GitLogCommit> 
         "--name-only",
         "--date=short",
     ]);
+    if !paths.is_empty() {
+        args.push("--");
+        args.extend_from_slice(paths);
+    }
     match git_records(repo_dir, &args).await {
         Ok(records) => parse_git_log(&records),
         Err(e) => {

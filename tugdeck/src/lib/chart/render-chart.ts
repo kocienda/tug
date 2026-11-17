@@ -29,7 +29,10 @@
  *     no placeholder word. A chart's marks read their row of that table on
  *     hover (`chart-hover`), and each mark carries its effective ref on its
  *     hit path, so a mark links as its Table atom does and a set mark opens
- *     its list (`chart-ref-set`).
+ *     its report (`chart-ref-set`): a panel under the figure whose head and
+ *     host this module's DOM owns and whose rows are React's, mounted by
+ *     `chart-report-portals` into the host the panel stamps. A dot, a span
+ *     and a stacked row's Table atom are report marks of their own.
  *  7. Replace the host's children in one write and set `rendered`.
  *  8. With the surface's annotation context, annotate the figure: a chart's
  *     refs, drawn as atoms in its Table view, are resolved through the one
@@ -73,6 +76,7 @@ import {
   NO_SCAN_ATTR,
   REF_ATTR,
   REF_KIND_ATTR,
+  REF_REPORT_ATTR,
   REF_LABEL_ATTR,
   REF_ROW_ATTR,
   REF_SET_ATTR,
@@ -84,7 +88,17 @@ import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded, runMe
 import { attachRefLight } from "@/lib/chart/chart-ref-light";
 import { attachRefSets, closeRefSetIn } from "@/lib/chart/chart-ref-set";
 import { recallChartView, rememberChartView, type ChartView } from "@/lib/chart/chart-view-memory";
-import { effectiveRef, foldItemSlots, isActionableSet, slotKind, slotLabel, type RefTarget } from "@/lib/chart/chart-table-refs";
+import {
+  canReport,
+  counted,
+  effectiveRef,
+  foldItemSlots,
+  isReportable,
+  slotKind,
+  slotLabel,
+  wholeRowSlot,
+  type RefTarget,
+} from "@/lib/chart/chart-table-refs";
 import { isDiagramSource, keyedRows } from "@/lib/chart/keyed-table";
 import { textHash } from "@/lib/ingest/text-hash";
 import {
@@ -350,10 +364,17 @@ function buildLinksButton(figure: HTMLElement, toggle: HTMLButtonElement): HTMLB
 /**
  * Write each mark's effective ref (Spec S03) on its hit path, so the
  * annotation pass stamps a mark exactly as it stamps a Table atom, and a set
- * mark opens its list ([P07]). A mark whose ref is its row's says so, which
- * is what lights the row's label rule.
+ * mark opens its list ([P07]). A count form is a set a press can open only
+ * where `reports` holds; elsewhere its mark stays unstamped ([L31]). A mark
+ * whose ref is its row's says so, which is what lights the row's label rule.
+ *
+ * In a `dots` or a `spans` chart the recipe can be asked about, a mark with
+ * a ref is a report mark instead: a press reads the dot's run or the span's
+ * stage from the recipe, a report of one row, where the single ref could
+ * only have opened what it names. A `dots` hit with no dot of its own
+ * stands for the file's whole run history.
  */
-function markHits(body: HTMLElement, refs: ChartTableRefs): void {
+function markHits(body: HTMLElement, refs: ChartTableRefs, reports: boolean, form: string): void {
   for (const hit of body.querySelectorAll<SVGElement>(".tgh[data-row]")) {
     const col = hit.getAttribute("data-col");
     const item = hit.getAttribute("data-item");
@@ -367,12 +388,32 @@ function markHits(body: HTMLElement, refs: ChartTableRefs): void {
     };
     const slot = effectiveRef(refs, target);
     if (slot === null) continue;
-    if (typeof slot === "string") hit.setAttribute(REF_ATTR, slot);
-    else if (isActionableSet(slot)) {
+    if (typeof slot === "string") {
+      if (reports && mark === null && (form === "dots" || form === "spans")) {
+        hit.setAttribute(REF_SET_ATTR, "");
+        hit.setAttribute(REF_REPORT_ATTR, form === "dots" && item === null ? "runs" : "one");
+        hit.setAttribute(REF_KIND_ATTR, form === "dots" ? "run" : "span");
+        hit.setAttribute(REF_ROW_ATTR, String(row));
+        continue;
+      }
+      hit.setAttribute(REF_ATTR, slot);
+    }
+    // A mark annotation has no row for the recipe to be asked about.
+    else if (isReportable(slot, reports && mark === null)) {
       hit.setAttribute(REF_SET_ATTR, "");
       hit.setAttribute(REF_KIND_ATTR, slotKind(slot));
     } else continue;
     if (Object.is(slot, refs.rows[row] ?? null)) hit.setAttribute(REF_ROW_ATTR, String(row));
+  }
+}
+
+/** The `form` a validated source names, or `""` when it does not read. */
+function chartForm(source: string): string {
+  try {
+    const form = (JSON.parse(source) as { form?: unknown }).form;
+    return typeof form === "string" ? form : "";
+  } catch {
+    return "";
   }
 }
 
@@ -411,13 +452,15 @@ function buildViewToggle(figure: HTMLElement, hash: string): HTMLButtonElement {
  *    text when it does not.
  *  - A set with members is a `.tugx-chart-set` button reading `57 commits`;
  *    its members are read from the figure's table when it is pressed.
- *  - A count form reads the same and offers nothing: no role, no focus, no
- *    act, so it makes no promise it cannot keep ([L31]).
+ *  - A count form reads the same. Where the recipe that drew the chart can
+ *    be asked (`reports`), it is a button like any set and a press reads
+ *    the list from the recipe; elsewhere it offers nothing: no role, no
+ *    focus, no act, so it makes no promise it cannot keep ([L31]).
  *
  * `address` says where in the table the slot lives (`row:3`, `cell:3:2`,
  * `col:2`, `items:3`, `mark:0`), which is how a press finds the members.
  */
-function buildRefAtom(slot: ChartRefSlot, address: string, row: number | null): HTMLSpanElement {
+function buildRefAtom(slot: ChartRefSlot, address: string, row: number | null, reports: boolean): HTMLSpanElement {
   const span = document.createElement("span");
   const label = slotLabel(slot);
   span.textContent = label;
@@ -431,7 +474,7 @@ function buildRefAtom(slot: ChartRefSlot, address: string, row: number | null): 
   }
   span.className = "tugx-chart-set";
   span.setAttribute(REF_KIND_ATTR, slotKind(slot));
-  if (isActionableSet(slot)) {
+  if (isReportable(slot, reports)) {
     span.setAttribute(REF_SET_ATTR, "");
     span.setAttribute("role", "button");
     span.tabIndex = 0;
@@ -439,10 +482,36 @@ function buildRefAtom(slot: ChartRefSlot, address: string, row: number | null): 
   return span;
 }
 
+/**
+ * A set atom whose press asks the recipe for more than a slot holds: a row
+ * across all its series (`row`), or a file's run history (`runs`). Built
+ * only where the recipe can be asked.
+ */
+function buildReportAtom(label: string, address: string, row: number, kind: string, mode: "row" | "runs"): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = "tugx-chart-set";
+  span.textContent = label;
+  span.setAttribute(REF_LABEL_ATTR, label);
+  span.setAttribute("data-tugx-ref-at", address);
+  span.setAttribute(REF_ROW_ATTR, String(row));
+  span.setAttribute(REF_KIND_ATTR, kind);
+  span.setAttribute(REF_REPORT_ATTR, mode);
+  span.setAttribute(REF_SET_ATTR, "");
+  span.setAttribute("role", "button");
+  span.tabIndex = 0;
+  return span;
+}
+
 /** Append `slot`'s atom to `cell` when there is one. */
-function appendAtom(cell: HTMLElement, slot: ChartRefSlot | null | undefined, address: string, row: number | null): void {
+function appendAtom(
+  cell: HTMLElement,
+  slot: ChartRefSlot | null | undefined,
+  address: string,
+  row: number | null,
+  reports: boolean,
+): void {
   if (slot === null || slot === undefined) return;
-  cell.appendChild(buildRefAtom(slot, address, row));
+  cell.appendChild(buildRefAtom(slot, address, row, reports));
 }
 
 /**
@@ -451,8 +520,13 @@ function appendAtom(cell: HTMLElement, slot: ChartRefSlot | null | undefined, ad
  * beside. The table is read only through those refs: it carries
  * `data-tugx-no-scan`, so the prose scan never reads a clipped label as a
  * path ([P05]).
+ *
+ * Where the recipe can be asked, two rows gain an atom no slot holds: a row
+ * of a stacked chart whose refs are per cell gets one for the whole row,
+ * reading its cells' summed count, and a `dots` row gets one for the file's
+ * run history in place of its dots' folded commits.
  */
-function buildTable(table: ChartTable): HTMLTableElement {
+function buildTable(table: ChartTable, reports: boolean, form: string): HTMLTableElement {
   const refs = table.refs;
   const el = document.createElement("table");
   el.className = "tugx-chart-table";
@@ -466,7 +540,9 @@ function buildTable(table: ChartTable): HTMLTableElement {
     const th = document.createElement("th");
     th.scope = "col";
     th.textContent = cell;
-    if (j > 0) appendAtom(th, refs?.cols[j], `col:${j}`, null);
+    // A column has no row for the recipe to be asked about, so its count
+    // form opens nothing whatever the figure can report.
+    if (j > 0) appendAtom(th, refs?.cols[j], `col:${j}`, null, false);
     headRow.appendChild(th);
   });
   thead.appendChild(headRow);
@@ -478,10 +554,19 @@ function buildTable(table: ChartTable): HTMLTableElement {
       const td = document.createElement("td");
       td.textContent = cell;
       if (j === 0) {
-        appendAtom(td, refs?.rows[i], `row:${i}`, i);
-        for (const folded of foldItemSlots(refs?.items[i])) appendAtom(td, folded, `items:${i}`, null);
+        appendAtom(td, refs?.rows[i], `row:${i}`, i, reports);
+        const whole = reports ? wholeRowSlot(refs, i) : null;
+        if (whole !== null) {
+          td.appendChild(buildReportAtom(counted(whole.count, whole.kind), `row:${i}`, i, whole.kind, "row"));
+        }
+        const dots = refs?.items[i]?.length ?? 0;
+        if (reports && form === "dots" && dots > 0) {
+          td.appendChild(buildReportAtom(counted(dots, "run"), `items:${i}`, i, "run", "runs"));
+        } else {
+          for (const folded of foldItemSlots(refs?.items[i])) appendAtom(td, folded, `items:${i}`, null, reports);
+        }
       } else {
-        appendAtom(td, refs?.cells[i]?.[j], `cell:${i}:${j}`, null);
+        appendAtom(td, refs?.cells[i]?.[j], `cell:${i}:${j}`, null, reports);
       }
       tr.appendChild(td);
     });
@@ -509,7 +594,7 @@ function buildRefsFoot(marks: readonly ChartMarkRef[], columns: number): HTMLTab
     label.textContent = mark.label;
     const atom = document.createElement("td");
     atom.colSpan = columns - 1;
-    appendAtom(atom, mark.slot, `mark:${mark.index}`, null);
+    appendAtom(atom, mark.slot, `mark:${mark.index}`, null, false);
     tr.append(label, atom);
     foot.appendChild(tr);
   }
@@ -704,16 +789,25 @@ export async function renderChartInto(el: HTMLElement, source: string, options: 
   // that width to hold the figure at a size its text can be read at ([L06]).
   if (diagram) body.style.setProperty(DIAGRAM_NATURAL_WIDTH_PROPERTY, `${round.width}px`);
   if (withTable) attachChartHover(body, round.table);
-  if (refs !== undefined) markHits(body, refs);
+  // One answer for the whole figure: whether the recipe that drew it can be
+  // asked for a mark's members from this surface.
+  const reports = canReport(round.table.source, options.annotation);
+  const form = chartForm(source);
+  if (refs !== undefined) markHits(body, refs, reports, form);
 
   const children: Node[] = [header, body];
-  if (withTable) children.push(diagram ? buildKeyedTable(round.table) : buildTable(round.table));
+  if (withTable) children.push(diagram ? buildKeyedTable(round.table) : buildTable(round.table, reports, form));
 
   if (animate) el.setAttribute(CHART_ANIMATE_ATTR, "");
   el.removeAttribute(COLLAPSED_ATTR);
   el.replaceChildren(...children);
   el.setAttribute(CHART_STATE_ATTR, "rendered");
-  setChartFigureData(el, { table: round.table, context: options.annotation });
+  setChartFigureData(el, {
+    table: round.table,
+    context: options.annotation,
+    source: round.table.source,
+    canReport: reports,
+  });
   if (refs !== undefined) {
     attachRefSets(el);
     attachRefLight(el);

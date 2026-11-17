@@ -403,8 +403,11 @@ body {
  * under the plot or the table: the figure clips to its radius, so a list
  * floated over it would lose whatever ran past the figure's edge, and a heat
  * strip is too short to hold one at all. In flow the figure grows to hold
- * it, on every form. Its members wrap as a row of atoms, and a long set
- * scrolls inside the panel's own height.
+ * it, on every form. Where the surface can ask about the set, the panel
+ * holds a report (`chart-ref-report.css`); with nobody to ask, its members
+ * wrap as a row of atoms under a head. Either way the panel is the one
+ * scroller, and its cap is `--tugx-chart-report-max-h`, so an unfolded row's
+ * detail is read by scrolling the panel and nothing inside it.
  */
 .tgh.tugx-annotation,
 .tgh[data-tugx-ref-set] {
@@ -420,7 +423,7 @@ body {
 
 /* @tug-renders-on: --tugx-block-chrome-bg */
 .tugx-chart-set-list {
-  max-height: 16rem;
+  max-height: var(--tugx-chart-report-max-h, 22rem);
   overflow-y: auto;
   padding: var(--tug-space-sm) var(--tug-space-md);
   border-top: 1px solid var(--tugx-block-hairline);

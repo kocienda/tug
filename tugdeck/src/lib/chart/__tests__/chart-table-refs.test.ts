@@ -7,7 +7,20 @@ import { describe, expect, test } from "bun:test";
 
 import type { ChartTableRefs } from "@/lib/lazy/load-tuggraphics";
 
-import { effectiveRef, foldItemSlots, isActionableSet, refLabel, slotAt, slotLabel } from "../chart-table-refs";
+import type { AnnotationContext } from "@/lib/annotator/types";
+
+import {
+  canAsk,
+  canReport,
+  effectiveRef,
+  foldItemSlots,
+  isReportable,
+  refLabel,
+  slotAt,
+  slotCount,
+  slotLabel,
+} from "../chart-table-refs";
+import { wholeRowSlot } from "../chart-table-refs";
 
 function refs(partial: Partial<ChartTableRefs>): ChartTableRefs {
   return { rows: [], cols: [], cells: [], items: [], marks: [], ...partial };
@@ -119,11 +132,41 @@ describe("refLabel", () => {
   });
 });
 
-describe("isActionableSet and foldItemSlots", () => {
-  test("only a set with members is actionable", () => {
-    expect(isActionableSet({ kind: "commit", members: ["commit:abcd"] })).toBe(true);
-    expect(isActionableSet({ kind: "commit", count: 4 })).toBe(false);
-    expect(isActionableSet("commit:abcd")).toBe(false);
+describe("canReport, isReportable and foldItemSlots", () => {
+  const source = { recipe: "commits", args: { since: "2026-10-18" } };
+  /** A context with only the two fields the answer reads. */
+  function context(partial: Partial<AnnotationContext>): AnnotationContext {
+    return { commitRoot: "/repo", ...partial } as AnnotationContext;
+  }
+
+  test("a figure reports only with a source, a context that can answer, and a repository", () => {
+    expect(canReport(source, context({}))).toBe(true);
+    expect(canReport(undefined, context({}))).toBe(false);
+    expect(canReport(source, undefined)).toBe(false);
+    expect(canReport(source, context({ unanswerable: true }))).toBe(false);
+    expect(canReport(source, context({ commitRoot: null }))).toBe(false);
+  });
+
+  test("there is somebody to ask whatever the spec names", () => {
+    expect(canAsk(context({}))).toBe(true);
+    expect(canAsk(undefined)).toBe(false);
+    expect(canAsk(context({ unanswerable: true }))).toBe(false);
+    expect(canAsk(context({ commitRoot: null }))).toBe(false);
+  });
+
+  test("a set with members opens anywhere; a count form opens only where the figure reports", () => {
+    expect(isReportable("commit:abcd", true)).toBe(false);
+    expect(isReportable({ kind: "commit", members: ["commit:abcd"] }, false)).toBe(true);
+    expect(isReportable({ kind: "commit", members: [] }, true)).toBe(false);
+    expect(isReportable({ kind: "commit", count: 4 }, true)).toBe(true);
+    expect(isReportable({ kind: "commit", count: 4 }, false)).toBe(false);
+    expect(isReportable({ kind: "commit", count: 0 }, true)).toBe(false);
+  });
+
+  test("a slot counts one ref, its members, or its number", () => {
+    expect(slotCount("commit:abcd")).toBe(1);
+    expect(slotCount({ kind: "commit", members: ["commit:a1b2", "commit:c3d4"] })).toBe(2);
+    expect(slotCount({ kind: "commit", count: 312 })).toBe(312);
   });
 
   test("a row's dots fold to distinct refs per prefix, oldest first", () => {
@@ -133,5 +176,25 @@ describe("isActionableSet and foldItemSlots", () => {
     expect(foldItemSlots(["commit:aaaa", "commit:aaaa"])).toEqual(["commit:aaaa"]);
     expect(foldItemSlots([{ kind: "commit", count: 9 }])).toEqual([]);
     expect(foldItemSlots(undefined)).toEqual([]);
+  });
+});
+
+describe("wholeRowSlot", () => {
+  test("sums a row's cells under the kind they share", () => {
+    const table = refs({
+      rows: [null, "file:/a.ts", null, null],
+      cells: [
+        [null, { kind: "commit", members: ["commit:aaaa1111", "commit:bbbb2222"] }, "commit:cccc3333", { kind: "commit", count: 40 }],
+        [null, "commit:dddd4444"],
+        [null, null],
+        [null, "commit:eeee5555", "session:048e4155"],
+      ],
+    });
+    expect(wholeRowSlot(table, 0)).toEqual({ kind: "commit", count: 43 });
+    expect(wholeRowSlot(table, 1), "a row with a slot of its own already has its atom").toBeNull();
+    expect(wholeRowSlot(table, 2), "no cell holds anything").toBeNull();
+    expect(wholeRowSlot(table, 3), "two kinds are not one count").toBeNull();
+    expect(wholeRowSlot(table, 9)).toBeNull();
+    expect(wholeRowSlot(undefined, 0)).toBeNull();
   });
 });

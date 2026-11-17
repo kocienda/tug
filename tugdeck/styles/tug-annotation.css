@@ -133,6 +133,9 @@
 .tugx-chart-ref.tugx-annotation[data-tug-annotation="slash-command"],
 .tugx-chart-ref.tugx-annotation[data-tug-annotation="shell-command"],
 .tugx-chart-ref.tugx-annotation[data-tug-annotation="arc"],
+.tugx-chart-report-ref.tugx-annotation[data-tug-annotation="file-path"],
+.tugx-chart-report-ref.tugx-annotation[data-tug-annotation="directory"],
+.tugx-chart-report-ref.tugx-annotation[data-tug-annotation="url"],
 .tug-session-row-description
   [data-tugx-wrapped].tugx-annotation[data-tug-annotation="commit-sha"],
 .session-identity-activity-post

@@ -1,6 +1,6 @@
 /**
  * at0842-chart-refs-figure.test.ts — a chart's marks open what they name,
- * and a set opens a list.
+ * and a set opens a report.
  *
  * A ` ```tugchart ` fence in a streamed turn names, beside its three rows,
  * a file written to a temp directory, a sibling never written, and a
@@ -16,12 +16,16 @@
  *  - Hovering the file's mark raises the bubble with a foot reading
  *    `Open <basename>`: the words and the click agree.
  *  - Right-clicking the file's mark offers the file's own menu.
- *  - Clicking the set's mark opens a list inside the figure with two commit
- *    atoms, each wearing the commit pill; clicking one raises a Commit card;
- *    Escape closes the list.
+ *  - Clicking the set's mark opens a report inside the figure: the panel
+ *    holds two History commit rows, one per member, in the set's order. The
+ *    fence names no source, so the rows are the members described. Clicking
+ *    a row's commit pill raises a Commit card; Escape closes the panel.
  *
  * @covers tugdeck/src/lib/chart/render-chart.ts
  * @covers tugdeck/src/lib/chart/chart-ref-set.ts
+ * @covers tugdeck/src/lib/chart/chart-report-store.ts
+ * @covers tugdeck/src/components/tugways/chart-ref-report.tsx
+ * @covers tugdeck/src/components/tugways/chart-report-portals.tsx
  * @covers tugdeck/src/lib/chart/chart-figure-data.ts
  * @covers tugdeck/src/lib/chart/chart-hover.ts
  * @covers tugdeck/src/lib/chart/chart-table-refs.ts
@@ -155,18 +159,27 @@ function click(selector: string): string {
 interface ListFacts {
   count: number;
   label: string;
-  rows: { annotation: string; pill: boolean; text: string }[];
+  /** The report's title, as its head reads. */
+  title: string;
+  /** Each History row's sha, in order. */
+  shas: string[];
+  /** Every row carries the commit pill. */
+  pills: boolean;
   noScan: boolean;
-  /** Every member's box lies inside the list's, and the list's inside the figure's, which clips. */
+  /** Every row's box lies inside the panel's, and the panel's inside the figure's, which clips. */
   shown: boolean;
 }
+
+const REPORT_ROW = '[data-testid="session-history-commit"]';
 
 const LIST_JS = `(function(){
   var lists = document.querySelectorAll(${JSON.stringify(LIST)});
   var list = lists[0] || null;
+  var rows = list === null ? [] : Array.from(list.querySelectorAll(${JSON.stringify(REPORT_ROW)}));
   return {
     count: lists.length,
     label: list === null ? "" : (list.getAttribute("aria-label") || ""),
+    title: list === null ? "" : ((list.querySelector(".tugx-chart-report-title") || {}).textContent || ""),
     noScan: list !== null && list.hasAttribute("data-tugx-no-scan"),
     shown: (function () {
       if (list === null) return false;
@@ -176,15 +189,10 @@ const LIST_JS = `(function(){
       var l = list.getBoundingClientRect();
       var within = function (r, o) { return r.height > 0 && r.width > 0 && r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5 && r.left >= o.left - 0.5 && r.right <= o.right + 0.5; };
       if (!within(l, f)) return false;
-      return Array.from(list.querySelectorAll(".tugx-chart-ref")).every(function (a) { return within(a.getBoundingClientRect(), l); });
+      return rows.every(function (a) { return within(a.getBoundingClientRect(), l); });
     })(),
-    rows: list === null ? [] : Array.from(list.querySelectorAll(".tugx-chart-ref")).map(function (a) {
-      return {
-        annotation: a.getAttribute("data-tug-annotation") || "",
-        pill: a.querySelector('[data-slot="tug-commit-atom"]') !== null,
-        text: (a.textContent || "").trim()
-      };
-    })
+    shas: rows.map(function (a) { return a.getAttribute("data-sha") || ""; }),
+    pills: rows.every(function (a) { return a.querySelector(".commit-sha-text") !== null; })
   };
 })()`;
 
@@ -266,24 +274,24 @@ describe.skipIf(!SHOULD_RUN)("at0842 — a chart's marks open what they name", (
           timeoutMs: 4_000,
         });
 
-        // The set's mark opens a list of its members, each an atom.
+        // The set's mark opens a report of its members, each a History row.
         await page.evalJS(click(`${CHART} .tgh[data-row="2"]`));
         await page.waitForCondition<boolean>(
-          `(function(){ var l = ${LIST_JS}; return l.rows.length === 2 && l.rows.every(function (r) { return r.pill; }); })()`,
+          `(function(){ var l = ${LIST_JS}; return l.shas.length === 2 && l.pills; })()`,
           { timeoutMs: RESOLVE_MS },
         );
         const list = await page.evalJS<ListFacts>(LIST_JS);
         note(`at0842 set list: ${JSON.stringify(list)}`);
         expect(list.count, "one list, inside the figure").toBe(1);
         expect(list.label).toBe("2 commits");
+        expect(list.title, "the head says what the panel's label says").toBe("2 commits");
         expect(list.noScan, "the list is read only through its refs").toBe(true);
         expect(list.shown, "the list and its members are inside the figure's clip, not cut off by it").toBe(true);
-        expect(list.rows.map((r) => r.annotation), "both members are commit references").toEqual(["commit-sha", "commit-sha"]);
-        expect(list.rows[0]!.text, "a member reads as the commit atom does").toBe(`commit:${HEAD_SHA.slice(0, 8)}`);
+        expect(list.shas, "the rows are the set's two commits, in the set's order").toEqual([HEAD_SHA, PARENT_SHA]);
 
-        // Clicking a member is the commit's own click: its card opens.
+        // Clicking a row's pill is the commit's own click: its card opens.
         expect(await app.evalJS<number>(countByComponent("commit"))).toBe(0);
-        await page.evalJS(click(`${LIST} .tugx-chart-ref`));
+        await page.evalJS(click(`${LIST} ${REPORT_ROW} .commit-sha-text`));
         await app.waitForCondition<boolean>(`${countByComponent("commit")} === 1`, { timeoutMs: 15_000 });
         await kindBody(app, "commit").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMMIT_CARD)}) !== null`,

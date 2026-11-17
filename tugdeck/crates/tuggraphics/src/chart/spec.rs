@@ -468,6 +468,10 @@ pub struct Spec {
     pub motion: bool,
     pub annotations: Vec<Annotation>,
     pub data: Data,
+    /// The recipe and absolute arguments that drew this spec, so a reader
+    /// can ask that recipe again for a mark's members. Validated for shape
+    /// and never drawn.
+    pub source: Option<Value>,
 }
 
 impl Spec {
@@ -582,7 +586,7 @@ const FORM_NAMES: [&str; 10] = [
     "scatter",
 ];
 const FORMS: &str = "bar, line, area, sparkline, dots, histogram, spans, heat, bullet or scatter";
-const COMMON: [&str; 9] = [
+const COMMON: [&str; 10] = [
     "tugchart",
     "form",
     "title",
@@ -592,7 +596,15 @@ const COMMON: [&str; 9] = [
     "size",
     "motion",
     "annotations",
+    "source",
 ];
+
+/// A source's limits: its recipe name, its argument count, and each
+/// argument's string and list.
+const MAX_SOURCE_RECIPE: usize = 64;
+const MAX_SOURCE_ARGS: usize = 16;
+const MAX_SOURCE_STRING: usize = 512;
+const MAX_SOURCE_LIST: usize = 64;
 
 /// Reads and validates `source` for a door taking `layers`, returning
 /// every error.
@@ -934,6 +946,84 @@ impl Validator {
         }
     }
 
+    /// `source`: `{"recipe": <name>, "args"?: {…}}`. Its shape is checked
+    /// and nothing more; whether the recipe exists is the reader's to say.
+    /// Any fault leaves the spec without one.
+    fn source(&mut self, obj: &Map<String, Value>) -> Option<Value> {
+        let value = obj.get("source")?;
+        let Value::Object(src) = value else {
+            self.err("/source", "source is an object {\"recipe\", \"args\"}");
+            return None;
+        };
+        let before = self.errors.len();
+        self.known_keys(src, "/source", &["recipe", "args"]);
+        match src.get("recipe") {
+            None => self.err("/source/recipe", "recipe is required"),
+            Some(Value::String(name))
+                if !name.is_empty()
+                    && name.len() <= MAX_SOURCE_RECIPE
+                    && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') => {}
+            Some(_) => self.err(
+                "/source/recipe",
+                format!(
+                    "recipe is a name of 1 to {MAX_SOURCE_RECIPE} lowercase letters and hyphens"
+                ),
+            ),
+        }
+        match src.get("args") {
+            None => {}
+            Some(Value::Object(args)) => {
+                if args.len() > MAX_SOURCE_ARGS {
+                    self.err(
+                        "/source/args",
+                        format!("args holds at most {MAX_SOURCE_ARGS} keys"),
+                    );
+                }
+                for (key, arg) in args {
+                    let path = key_path("/source/args", key);
+                    match arg {
+                        Value::Array(items) => {
+                            if items.len() > MAX_SOURCE_LIST {
+                                self.err(
+                                    &path,
+                                    format!(
+                                        "a list argument holds at most {MAX_SOURCE_LIST} strings"
+                                    ),
+                                );
+                            }
+                            for (i, item) in items.iter().enumerate() {
+                                self.source_string(item, &format!("{path}/{i}"), true);
+                            }
+                        }
+                        other => self.source_string(other, &path, false),
+                    }
+                }
+            }
+            Some(_) => self.err("/source/args", "args is an object"),
+        }
+        (self.errors.len() == before).then(|| value.clone())
+    }
+
+    /// One `source` argument value: a string of at most
+    /// [`MAX_SOURCE_STRING`] characters, or, outside a list, a finite number
+    /// or a boolean.
+    fn source_string(&mut self, value: &Value, path: &str, in_list: bool) {
+        match value {
+            Value::String(s) if s.chars().count() > MAX_SOURCE_STRING => self.err(
+                path,
+                format!("a source argument is at most {MAX_SOURCE_STRING} characters"),
+            ),
+            Value::String(_) => {}
+            Value::Number(n) if !in_list && n.as_f64().is_some_and(f64::is_finite) => {}
+            Value::Bool(_) if !in_list => {}
+            _ if in_list => self.err(path, "a list argument holds strings"),
+            _ => self.err(
+                path,
+                "a source argument is a string, a number, a boolean or a list of strings",
+            ),
+        }
+    }
+
     fn one_of(&mut self, obj: &Map<String, Value>, key: &str, allowed: &[&str]) -> Option<String> {
         match obj.get(key) {
             None => None,
@@ -1194,6 +1284,7 @@ impl Validator {
         let unit = self.opt_label(obj, "", "unit");
         let format = self.format_field(obj, "format");
         let motion = self.one_of(obj, "motion", &["enter", "none"]).as_deref() != Some("none");
+        let source = self.source(obj);
         // Read before the data, so a bad size is reported beside bad data;
         // the axis forms' taller floor is checked once the form is known.
         let (w, h) = self.size(obj);
@@ -1375,6 +1466,7 @@ impl Validator {
             motion,
             annotations,
             data,
+            source,
         };
         let members = spec.ref_members();
         if members > MAX_REFS {

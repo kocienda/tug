@@ -328,7 +328,7 @@ fn print_recipe(recipe: &Recipe, matches: &clap::ArgMatches, json: bool) -> Resu
         .run(&context, &args)
         .map_err(|e| AppError::Exit1("failed", e.to_string()))?;
     let (summary, spec) = match outcome {
-        RecipeOutcome::Chart { summary, spec } => (summary, Some(spec)),
+        RecipeOutcome::Chart { summary, spec, .. } => (summary, Some(spec)),
         RecipeOutcome::NoData { summary } => (summary, None),
     };
     let line = spec.as_ref().map(chart_line).transpose()?;

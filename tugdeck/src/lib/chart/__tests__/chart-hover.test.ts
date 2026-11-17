@@ -67,6 +67,9 @@ describe("footLine", () => {
       "Put the command in the prompt",
     );
     expect(footLine({ payload: { kind: "shell-command", command: "just ci" } }, null)).toBe("Put the command in the prompt");
+    expect(footLine({ report: "run" }, null)).toBe("Show the run");
+    expect(footLine({ report: "span" }, null)).toBe("Show the stage");
+    expect(footLine({ report: "runs" }, null)).toBe("Show the runs");
   });
 
   test("a session mark says the act the press would take now", () => {
@@ -77,8 +80,11 @@ describe("footLine", () => {
   });
 
   test("a set offers its list; a count form and a bare mark offer nothing", () => {
-    expect(footLine({ set: { kind: "commit", members: ["commit:a1", "commit:b2"] } }, null)).toBe("Show 2 commits");
-    expect(footLine({ set: { kind: "commit", count: 312 } }, null)).toBeNull();
+    expect(footLine({ set: { kind: "commit", members: ["commit:a1", "commit:b2"] }, reports: false }, null)).toBe(
+      "Show 2 commits",
+    );
+    expect(footLine({ set: { kind: "commit", count: 312 }, reports: false }, null)).toBeNull();
+    expect(footLine({ set: { kind: "commit", count: 312 }, reports: true }, null)).toBe("Show 312 commits");
     expect(footLine(null, null)).toBeNull();
   });
 

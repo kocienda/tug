@@ -36,6 +36,21 @@ pub struct DayUsage {
     pub cost_usd: f64,
     /// The distinct sessions that took those turns, in the order first met.
     pub sessions: Vec<String>,
+    /// What each of those sessions took of the day, in the same order. The
+    /// shares sum to the day's own totals.
+    pub by_session: Vec<SessionShare>,
+}
+
+/// One session's part of a family's day.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionShare {
+    pub session: String,
+    pub turns: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub cost_usd: f64,
 }
 
 /// One model family for every way a model is named: `opus` and
@@ -129,10 +144,28 @@ pub fn usage_from(conn: &Connection, project: &Path) -> Vec<DayUsage> {
                     cache_creation_tokens: 0,
                     cost_usd: 0.0,
                     sessions: Vec::new(),
+                    by_session: Vec::new(),
                 });
             usage.turns += 1;
             if !usage.sessions.contains(&session) {
-                usage.sessions.push(session);
+                usage.sessions.push(session.clone());
+                usage.by_session.push(SessionShare {
+                    session: session.clone(),
+                    turns: 0,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_read_tokens: 0,
+                    cache_creation_tokens: 0,
+                    cost_usd: 0.0,
+                });
+            }
+            if let Some(share) = usage.by_session.iter_mut().find(|s| s.session == session) {
+                share.turns += 1;
+                share.input_tokens += input;
+                share.output_tokens += output;
+                share.cache_read_tokens += cache_read;
+                share.cache_creation_tokens += cache_creation;
+                share.cost_usd += cost;
             }
             usage.input_tokens += input;
             usage.output_tokens += output;
@@ -325,6 +358,47 @@ mod tests {
         sessions.sort();
         assert_eq!(sessions, ["live", "staged"]);
         assert_eq!(usage[3].sessions, ["live"]);
+    }
+
+    #[test]
+    fn each_days_shares_sum_to_the_days_totals() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let mut ledger = Ledger::at(dir.path());
+        ledger.session("a", &project, Some("opus"));
+        ledger.session("b", &project, Some("opus"));
+        ledger.session("c", &project, Some("fable"));
+        ledger.turn("a", 20);
+        ledger.turn("b", 20);
+        ledger.turn("a", 20);
+        ledger.turn("c", 20);
+        ledger.turn("b", 21);
+
+        let usage = usage_by_day(&ledger.path, &project);
+        assert_eq!(usage.len(), 3);
+        for day in &usage {
+            let names: Vec<&str> = day.by_session.iter().map(|s| s.session.as_str()).collect();
+            assert_eq!(
+                names, day.sessions,
+                "the shares are the day's sessions, in order"
+            );
+            let sum = |read: fn(&SessionShare) -> i64| day.by_session.iter().map(read).sum::<i64>();
+            assert_eq!(sum(|s| s.turns), day.turns);
+            assert_eq!(sum(|s| s.input_tokens), day.input_tokens);
+            assert_eq!(sum(|s| s.output_tokens), day.output_tokens);
+            assert_eq!(sum(|s| s.cache_read_tokens), day.cache_read_tokens);
+            assert_eq!(sum(|s| s.cache_creation_tokens), day.cache_creation_tokens);
+            let cost: f64 = day.by_session.iter().map(|s| s.cost_usd).sum();
+            assert!((cost - day.cost_usd).abs() < 1e-9);
+        }
+        // Two turns of one session are one share.
+        let opus = usage
+            .iter()
+            .find(|u| u.family == "opus" && u.day == date(20))
+            .unwrap();
+        let a = opus.by_session.iter().find(|s| s.session == "a").unwrap();
+        assert_eq!((a.turns, a.output_tokens), (2, 2));
     }
 
     #[test]

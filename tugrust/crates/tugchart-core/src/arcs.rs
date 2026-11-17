@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Days, Local, NaiveDate};
+use chrono::{DateTime, FixedOffset, Local, NaiveDate};
 use serde_json::{Map, Value, json};
 use tugarc_core::log::{is_terminal, split_log_line};
 use tugarc_core::timeline::{ArcTimeline, StepEnd, arcs_newest_first, newest_arc, timeline_for};
@@ -16,6 +16,10 @@ use tugtool_core::paths::arc_log_path_at;
 use crate::commits::{labels, week_axis};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_back, clip_front,
+};
+use crate::members::{
+    FactKind, Member, MemberKey, MemberTable, SourceArgs, plain, stamp_source, until_for,
+    window_for, window_label,
 };
 use crate::refs::{RefBudget, arc_ref, commit_ref, is_sha, session_slot, set_slots};
 
@@ -113,6 +117,8 @@ struct ArcChart {
     total: u32,
     finished: usize,
     left_out: usize,
+    /// Each span's member: what the log holds of it, and the ref it links.
+    members: MemberTable,
 }
 
 /// One span per stage and per step span, relative to the arc's first moment
@@ -138,6 +144,22 @@ fn arc_chart(name: &str, timeline: &ArcTimeline, now_ms: u64) -> Option<ArcChart
     // A stable sort, so a step opened the moment its stage began reads under it.
     let mut rows: Vec<&SpanRow> = stages.iter().chain(&steps).collect();
     rows.sort_by_key(|row| row.start_ms);
+    let mut members = MemberTable::default();
+    for (i, row) in rows.iter().enumerate() {
+        members.set(
+            MemberKey::Row(i),
+            vec![Member::fact(
+                FactKind::Span,
+                row.reference.clone(),
+                json!({
+                    "label": row.label,
+                    "start_ms": row.start_ms,
+                    "end_ms": row.end_ms,
+                    "status": row.status,
+                }),
+            )],
+        );
+    }
     let items: Vec<Value> = rows
         .iter()
         .map(|row| {
@@ -178,6 +200,7 @@ fn arc_chart(name: &str, timeline: &ArcTimeline, now_ms: u64) -> Option<ArcChart
         total,
         finished,
         left_out,
+        members,
         spec: json!({
             "tugchart": 1,
             "form": "spans",
@@ -196,7 +219,7 @@ pub(crate) fn arc_timeline(
     let no_data = |summary: String| Ok(RecipeOutcome::NoData { summary });
     let log = match read_log(ctx) {
         Ok(log) => log,
-        Err(answer) => return Ok(answer),
+        Err(summary) => return Ok(RecipeOutcome::NoData { summary }),
     };
     let Some(name) = args.subjects.first().cloned().or_else(|| newest_arc(&log)) else {
         return no_data(format!(
@@ -207,12 +230,23 @@ pub(crate) fn arc_timeline(
     let Some(timeline) = timeline_for(&log, &name) else {
         return no_data(format!("no arc named {name} in the log"));
     };
-    let now_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
+    // A source's `until` closes what was open when the chart was drawn, so a
+    // re-run draws the same spans.
+    let until = until_for(args);
+    let now_ms = DateTime::parse_from_rfc3339(&until)
+        .ok()
+        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
+        .unwrap_or(0);
     let Some(chart) = arc_chart(&name, &timeline, now_ms) else {
         return no_data(format!("arc {name} has no stages or steps recorded"));
     };
     let mut spec = chart.spec;
     apply_title(&mut spec, args);
+    stamp_source(
+        &mut spec,
+        "arc-timeline",
+        SourceArgs::until(&until).with("name", &name),
+    );
     let left_out = if chart.left_out == 0 {
         String::new()
     } else {
@@ -222,16 +256,18 @@ pub(crate) fn arc_timeline(
         "arc {name}: {} of {} step(s) finished, {} stage(s), {} step span(s){left_out}",
         chart.finished, chart.total, chart.stages, chart.spans
     );
-    Ok(RecipeOutcome::Chart { summary, spec })
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members: chart.members,
+    })
 }
 
-/// The project's arc log, or the answer to give when it has no such thing.
-fn read_log(ctx: &RecipeContext) -> Result<String, RecipeOutcome> {
-    std::fs::read_to_string(arc_log_path_at(&ctx.paths, &ctx.repo_root)).map_err(|_| {
-        RecipeOutcome::NoData {
-            summary: format!("no arc log for {}", ctx.repo_root.display()),
-        }
-    })
+/// The project's arc log, or the summary to answer with when it has no such
+/// thing.
+fn read_log(ctx: &RecipeContext) -> Result<String, String> {
+    std::fs::read_to_string(arc_log_path_at(&ctx.paths, &ctx.repo_root))
+        .map_err(|_| format!("no arc log for {}", ctx.repo_root.display()))
 }
 
 /// Arcs started, joined and discarded in one week.
@@ -267,9 +303,13 @@ impl ArcEvents {
     }
 }
 
-/// What the log says happened on each local day from `since`, which is what
-/// a weekly bucket is then read from.
-fn arc_events(log: &str, since: NaiveDate) -> BTreeMap<NaiveDate, ArcEvents> {
+/// What the log says happened on each local day from `since` up to `until`,
+/// which is what a weekly bucket is then read from.
+fn arc_events(
+    log: &str,
+    since: NaiveDate,
+    until: Option<DateTime<FixedOffset>>,
+) -> BTreeMap<NaiveDate, ArcEvents> {
     let mut days: BTreeMap<NaiveDate, ArcEvents> = BTreeMap::new();
     for (timestamp, name, marker, note) in log.lines().filter_map(split_log_line) {
         let started = marker == "arc-start";
@@ -279,6 +319,9 @@ fn arc_events(log: &str, since: NaiveDate) -> BTreeMap<NaiveDate, ArcEvents> {
         let Ok(at) = DateTime::parse_from_rfc3339(timestamp) else {
             continue;
         };
+        if until.is_some_and(|until| at > until) {
+            continue;
+        }
         let day = at.with_timezone(&Local).date_naive();
         if day < since {
             continue;
@@ -300,6 +343,8 @@ struct ArcsChart {
     spec: Value,
     weeks: usize,
     totals: WeekCounts,
+    /// Per series and week, the arcs counted there.
+    members: MemberTable,
 }
 
 /// Arcs per week as a stacked bar, empty weeks included, each series carrying
@@ -319,12 +364,19 @@ fn arcs_chart(days: &BTreeMap<NaiveDate, ArcEvents>, subtitle: &str) -> Option<A
         totals.extend(events);
     }
     let mut budget = RefBudget::new();
+    let mut members = MemberTable::default();
+    let mut col = 0;
     let mut series = |name: &str, pick: fn(&ArcEvents) -> &Vec<String>, role: Option<&str>| {
         let values: Vec<usize> = weeks.iter().map(|w| pick(w).len()).collect();
         let buckets: Vec<Vec<String>> = weeks
             .iter()
             .map(|w| pick(w).iter().map(|name| arc_ref(name)).collect())
             .collect();
+        // Each cell's arcs, before the budget folds any of them.
+        for (row, refs) in buckets.iter().enumerate() {
+            members.set(MemberKey::Cell { row, col }, plain(refs));
+        }
+        col += 1;
         let refs = set_slots("arc", buckets, &mut budget);
         let mut s = Map::new();
         s.insert("name".to_string(), json!(name));
@@ -343,6 +395,7 @@ fn arcs_chart(days: &BTreeMap<NaiveDate, ArcEvents>, subtitle: &str) -> Option<A
     Some(ArcsChart {
         weeks: axis.len(),
         totals: totals.counts(),
+        members,
         spec: json!({
             "tugchart": 1,
             "form": "bar",
@@ -360,26 +413,32 @@ fn arcs_chart(days: &BTreeMap<NaiveDate, ArcEvents>, subtitle: &str) -> Option<A
 pub(crate) fn arcs(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutcome, RecipeError> {
     let log = match read_log(ctx) {
         Ok(log) => log,
-        Err(answer) => return Ok(answer),
+        Err(summary) => return Ok(RecipeOutcome::NoData { summary }),
     };
-    let days = args.days.unwrap_or(DEFAULT_ARCS_DAYS);
-    let range = format!("last {days} days");
-    let today = Local::now().date_naive();
-    let since = today
-        .checked_sub_days(Days::new(u64::from(days.saturating_sub(1))))
-        .unwrap_or(NaiveDate::MIN);
-    let Some(chart) = arcs_chart(&arc_events(&log, since), &range) else {
+    let window = window_for(args, DEFAULT_ARCS_DAYS);
+    let range = window_label(args, &window, DEFAULT_ARCS_DAYS);
+    let since = NaiveDate::parse_from_str(&window.since, "%Y-%m-%d").unwrap_or(NaiveDate::MIN);
+    let until = window
+        .until
+        .as_deref()
+        .and_then(|until| DateTime::parse_from_rfc3339(until).ok());
+    let Some(chart) = arcs_chart(&arc_events(&log, since, until), &range) else {
         return Ok(RecipeOutcome::NoData {
             summary: format!("no arcs started, joined or discarded, {range}"),
         });
     };
     let mut spec = chart.spec;
     apply_title(&mut spec, args);
+    stamp_source(&mut spec, "arcs", SourceArgs::window(&window));
     let summary = format!(
         "{} started, {} joined, {} discarded over {} week(s), {range}",
         chart.totals.started, chart.totals.joined, chart.totals.discarded, chart.weeks
     );
-    Ok(RecipeOutcome::Chart { summary, spec })
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members: chart.members,
+    })
 }
 
 /// The last moment the log recorded of `timeline`. An arc nobody finished has
@@ -455,16 +514,23 @@ pub(crate) fn arc_stages(
 ) -> Result<RecipeOutcome, RecipeError> {
     let log = match read_log(ctx) {
         Ok(log) => log,
-        Err(answer) => return Ok(answer),
+        Err(summary) => return Ok(RecipeOutcome::NoData { summary }),
     };
     let limit = args.limit.unwrap_or(DEFAULT_STAGE_ARCS).clamp(1, MAX_ROWS);
     // An arc with no stage recorded has nothing to compare, and does not take
-    // a row from one that has.
+    // a row from one that has; nor does one that began after the chart's
+    // `until`, so a re-run from a source finds the arcs the first run did.
+    let until = until_for(args);
+    let until_ms = DateTime::parse_from_rfc3339(&until)
+        .ok()
+        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
+        .unwrap_or(u64::MAX);
     let arcs: Vec<(String, ArcTimeline)> = arcs_newest_first(&log)
         .into_iter()
         .filter_map(|name| {
             let timeline = timeline_for(&log, &name)?;
-            (!timeline.stages.is_empty()).then_some((name, timeline))
+            let first = timeline.stages.iter().map(|stage| stage.at_ms).min()?;
+            (first <= until_ms).then_some((name, timeline))
         })
         .take(limit)
         .collect();
@@ -474,6 +540,11 @@ pub(crate) fn arc_stages(
         });
     };
     apply_title(&mut spec, args);
+    stamp_source(
+        &mut spec,
+        "arc-stages",
+        SourceArgs::until(&until).with("limit", limit),
+    );
     let total: u64 = arcs
         .iter()
         .flat_map(|(_, timeline)| stage_totals(timeline).into_values())
@@ -483,13 +554,17 @@ pub(crate) fn arc_stages(
         arcs.len(),
         Format::Secs.apply(total as f64 / 1000.0)
     );
-    Ok(RecipeOutcome::Chart { summary, spec })
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members: MemberTable::default(),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::test_support::{assert_valid, context_at};
+    use crate::context::test_support::{assert_source, assert_valid, context_at};
 
     fn line(at_secs: u32, arc: &str, marker: &str, note: &str) -> String {
         format!(
@@ -550,6 +625,23 @@ mod tests {
                 { "label": "Audit", "start": 140.0, "end": 190.0 },
             ])
         );
+        // Each span's member carries its bounds, and the ref the span links.
+        let member = |i: usize| chart.members.get(MemberKey::Row(i))[0].clone();
+        let step = member(2);
+        assert_eq!(step.r#ref.as_deref(), Some("commit:aaa1111"));
+        assert_eq!(step.fact_kind, Some(FactKind::Span));
+        let facts = step.facts.unwrap();
+        assert_eq!(facts["label"], "1/3 First");
+        assert_eq!(facts["status"], "good");
+        assert_eq!(
+            facts["end_ms"].as_u64().unwrap() - facts["start_ms"].as_u64().unwrap(),
+            20_000
+        );
+        assert_eq!(member(0).r#ref.as_deref(), Some("session:0f3c1e5a"));
+        let audit = member(5);
+        assert_eq!(audit.r#ref, None);
+        assert_eq!(audit.facts.unwrap()["status"], Value::Null);
+        assert_eq!(chart.members.sets.len(), 6);
     }
 
     #[test]
@@ -647,7 +739,7 @@ mod tests {
             at("2026-10-21", "d", "abc", "joined"),
         ]
         .concat();
-        let days = arc_events(&log, date("2026-10-01"));
+        let days = arc_events(&log, date("2026-10-01"), None);
         let chart = arcs_chart(&days, "last 30 days").unwrap();
         assert_valid(&chart.spec);
         assert_eq!(chart.weeks, 3);
@@ -680,6 +772,21 @@ mod tests {
         );
         assert_eq!(series[1]["refs"], json!(["arc:a", null, "arc:d"]));
         assert_eq!(series[2]["refs"], json!([null, null, ["arc:b", "arc:c"]]));
+        // And the member table holds the same arcs, cell for cell.
+        let cell = |row, col| -> Vec<String> {
+            chart
+                .members
+                .get(MemberKey::Cell { row, col })
+                .iter()
+                .filter_map(|m| m.r#ref.clone())
+                .collect()
+        };
+        assert_eq!(cell(0, 1), ["arc:a"]);
+        assert!(cell(1, 1).is_empty());
+        assert_eq!(cell(2, 1), ["arc:d"]);
+        assert_eq!(cell(0, 0), ["arc:a", "arc:b"]);
+        assert_eq!(cell(2, 2), ["arc:b", "arc:c"]);
+        assert!(chart.members.measure.is_none());
         assert!(arcs_chart(&BTreeMap::new(), "s").is_none());
     }
 
@@ -740,10 +847,25 @@ mod tests {
             ..Default::default()
         };
         let outcome = crate::find("arc-stages").unwrap().run(&ctx, &args).unwrap();
-        let RecipeOutcome::Chart { spec, summary } = outcome else {
+        let RecipeOutcome::Chart { spec, summary, .. } = outcome else {
             panic!("expected a chart");
         };
         assert_eq!(spec["categories"], json!(["real"]));
+        assert_source(&spec, "arc-stages");
+        assert_eq!(spec["source"]["args"]["limit"], 1);
+        let named = RecipeArgs {
+            subjects: vec!["real".to_string()],
+            ..Default::default()
+        };
+        let outcome = crate::find("arc-timeline")
+            .unwrap()
+            .run(&ctx, &named)
+            .unwrap();
+        let RecipeOutcome::Chart { spec, .. } = outcome else {
+            panic!("expected a chart");
+        };
+        assert_source(&spec, "arc-timeline");
+        assert_eq!(spec["source"]["args"]["name"], "real");
         assert_eq!(
             summary,
             "1 newest arc(s), 1m00s of wall time in their stages"

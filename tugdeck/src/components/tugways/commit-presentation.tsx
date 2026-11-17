@@ -59,51 +59,15 @@ import {
 } from "@/lib/git-commit-files-store";
 import {
   commitRoster,
+  formatCommitStamp,
   statLine,
   type CommitFileShape,
+  type CommitStampGrain,
 } from "@/lib/commit-format";
 
-/** How much of the clock a stamp states. */
-export type CommitStampGrain =
-  /** `12:51:25` — the time alone. */
-  | "time"
-  /** `2026-07-24` — the date alone. */
-  | "date"
-  /** `2026-07-24 12:51:25` — sortable date + time, the full row stamp. */
-  | "datetime"
-  /** `Friday, July 24, 2026 at 12:51:25 PM` — the expanded detail's stamp. */
-  | "full";
-
-/**
- * Format a strict-ISO commit date at one of three grains. Returns the input
- * verbatim when it doesn't parse (a truncated record still shows something),
- * and the empty string for empty input.
- */
-export function formatCommitStamp(iso: string, grain: CommitStampGrain): string {
-  if (iso.length === 0) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  if (grain === "full") {
-    return d.toLocaleString(undefined, {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  }
-  const time = d.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-  if (grain === "time") return time;
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return grain === "date" ? date : `${date} ${time}`;
-}
+// The stamp's words are pure and live with the other commit words; they are
+// re-exported here, where the surfaces that draw a stamp have always read them.
+export { formatCommitStamp, type CommitStampGrain };
 
 /** The timestamp as a tabular mono cell — the trailing column of a commit row. */
 export function CommitStamp({

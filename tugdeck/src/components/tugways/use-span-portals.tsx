@@ -38,6 +38,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
+import { insideReport } from "@/lib/annotator/chart-refs";
 import { breadcrumb } from "@/lib/dom-forensics";
 
 /** A mount: the emptied host and the facts the portal is rendered from. */
@@ -107,6 +108,9 @@ export function useSpanPortals<M extends SpanMount>(
     for (const host of Array.from(
       container.querySelectorAll<HTMLElement>(selector),
     )) {
+      // A report's rows mount their own surfaces, which portal into the
+      // marks under them; this one leaves them alone.
+      if (insideReport(container, host)) continue;
       const target = host.getAttribute(targetAttribute);
       if (target === null || target === "") continue;
       let text = host.getAttribute(textAttribute);

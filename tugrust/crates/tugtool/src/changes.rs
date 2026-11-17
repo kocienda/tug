@@ -538,6 +538,7 @@ pub fn run_log(
         limit,
         range,
         days,
+        window: None,
         path,
     })?;
     if chart {

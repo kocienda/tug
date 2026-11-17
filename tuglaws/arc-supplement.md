@@ -12,7 +12,7 @@ What a step's checkpoint comes to in this checkout:
 
 - `bunx tsc --noEmit` for TypeScript that moved.
 - Pure-logic tests for the scope that moved (`bun test <scope>`).
-- `cargo nextest run` for Rust — the affected crates while iterating, and on the **last step that touched Rust** the workspace as `just test-rust`, plus `just test-rust-slow` when the step touched `tugarc-core` or tugcast's integration binaries, `arc_runner`, `operator`, `attribution` or `git` (the Justfile's `RUST_SLOW_FILTER`).
+- `cargo nextest run` for Rust — the affected crates while iterating, and on the **last step that touched Rust** the workspace as `just test-rust`, plus `just test-rust-slow` when the step touched `tugarc-core` or tugcast's integration binaries, `arc_runner`, `operator`, `attribution`, `git` or `chart_report` (the Justfile's `RUST_SLOW_FILTER`).
 - An app-test where the change is one only the real app can show.
 
 The arc's ending runs what the `[[tugtool.arc.surface]]` table in `.tugtool/config.toml` declares, through `tugtool arc verify`.

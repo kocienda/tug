@@ -10,10 +10,12 @@
 //! is spent **newest bucket first**: the chart's right edge is what a reader
 //! reaches for, so when a spec cannot carry every commit it is the oldest
 //! days that fold into counts. A count form still says how many and is
-//! still right; it only has no list to open. The cap exists for the Bash
-//! result a recipe's `TUG-CHART:` line rides in, which is truncated past
-//! 30,000 characters (Risk R01); the budget keeps a 90-day `commits` spec
-//! well under that.
+//! still right; the list it folded is in the recipe's member table
+//! (`crate::members`), which a press on the count reads back through the
+//! spec's `source` as a paged report. The cap exists for the Bash result a
+//! recipe's `TUG-CHART:` line rides in, which is truncated past 30,000
+//! characters (Risk R01); the budget keeps a 90-day `commits` spec well
+//! under that.
 
 use serde_json::{Value, json};
 use tuggraphics::chart::spec::{MAX_REFS, MAX_SET};

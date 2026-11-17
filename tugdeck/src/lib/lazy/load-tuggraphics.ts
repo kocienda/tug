@@ -97,6 +97,18 @@ export interface ChartTable {
   rows: string[][];
   /** Absent when the spec carries no refs. */
   refs?: ChartTableRefs;
+  /** The spec's `source`, verbatim; absent when the spec has none. */
+  source?: ChartSource;
+}
+
+/**
+ * The recipe and absolute arguments a chart was drawn from, which a reader
+ * hands back to ask that recipe for a mark's members. The engine checks its
+ * shape and draws nothing from it.
+ */
+export interface ChartSource {
+  recipe: string;
+  args?: Record<string, unknown>;
 }
 
 export interface ChartError {

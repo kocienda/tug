@@ -10,6 +10,8 @@ use tugcore::instance::Paths;
 use tugcore::report_gaps::ReportGaps;
 use tugtool_core::apptest_ledger;
 
+use crate::members::MemberTable;
+
 /// Where a recipe's data lives, for one project.
 #[derive(Debug, Clone)]
 pub struct RecipeContext {
@@ -39,10 +41,14 @@ impl RecipeContext {
 }
 
 /// Every argument any recipe takes. A recipe's `args` list says which of these
-/// its parser accepts.
+/// its parser accepts. `since` and `until` are set only from a chart's
+/// `source`, never from a flag: a re-run reads by the window the first run
+/// stamped, and the command line keeps `days`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RecipeArgs {
     pub days: Option<u32>,
+    pub since: Option<String>,
+    pub until: Option<String>,
     pub path: Option<String>,
     pub range: Option<String>,
     pub staged: bool,
@@ -58,11 +64,19 @@ pub struct RecipeArgs {
 }
 
 /// A recipe's answer: a chart with the line that sums it up, or the line that
-/// says why there is none. Having nothing to draw is not an error.
+/// says why there is none. Having nothing to draw is not an error. A chart
+/// comes with its member table: the full list behind every mark, from the
+/// same buckets the spec's refs were cut from.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecipeOutcome {
-    Chart { summary: String, spec: Value },
-    NoData { summary: String },
+    Chart {
+        summary: String,
+        spec: Value,
+        members: MemberTable,
+    },
+    NoData {
+        summary: String,
+    },
 }
 
 /// A read that should have worked, such as a `--range` naming no commit.
@@ -163,6 +177,33 @@ pub(crate) mod test_support {
                 .collect();
             panic!("{}", listed.join("; "));
         }
+    }
+
+    /// `spec` is valid and carries the source of `recipe`: every key of its
+    /// row of `SOURCE_KEYS` is stamped, save the ones that ride only when
+    /// given (`path`, `files`), nothing outside the row is, and the whole
+    /// stamp stays within the 400-character budget a `files` list aside.
+    pub(crate) fn assert_source(spec: &Value, recipe: &str) {
+        assert_valid(spec);
+        let source = &spec["source"];
+        assert_eq!(source["recipe"], recipe, "{recipe}: {source}");
+        let keys = crate::members::source_keys(recipe);
+        let stamped = source["args"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{recipe}: source has no args: {source}"));
+        for key in stamped.keys() {
+            assert!(keys.contains(&key.as_str()), "{recipe} stamped {key}");
+        }
+        for key in keys {
+            assert!(
+                stamped.contains_key(*key) || ["path", "files"].contains(key),
+                "{recipe} did not stamp {key}: {source}"
+            );
+        }
+        let mut counted = source.clone();
+        counted["args"].as_object_mut().unwrap().remove("files");
+        let text = serde_json::to_string(&counted).unwrap();
+        assert!(text.len() <= 400, "{recipe}: {} chars: {text}", text.len());
     }
 }
 

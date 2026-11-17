@@ -8,7 +8,10 @@
  * They are portal hosts discovered by the same walk, so they are collected
  * together: a surface hands `onAnnotated` to its markdown block once, and
  * renders `portals` once, rather than knowing how many kinds currently earn
- * a component.
+ * a component. A chart's open report is the fourth collector, beside the
+ * session, commit and file ones: its host is stamped by the figure's set
+ * panel rather than by the annotator, `useChartReportPortals` finds it in
+ * the same pass, and it is announced through the same call.
  *
  * @module components/tugways/annotation-portals
  */
@@ -16,6 +19,7 @@
 import React from "react";
 
 import { useAnnotationScope } from "@/components/tugways/annotation-scope";
+import { useChartReportPortals } from "@/components/tugways/chart-report-portals";
 import {
   useCommitTipPortals,
   type CommitMark,
@@ -58,17 +62,20 @@ export function useAnnotationPortals(
     options?.commitMark,
   );
   const files = useFileTipPortals();
+  const reports = useChartReportPortals();
 
   const sessionsAnnotated = sessions.onAnnotated;
   const commitsAnnotated = commits.onAnnotated;
   const filesAnnotated = files.onAnnotated;
+  const reportsAnnotated = reports.onAnnotated;
   const onAnnotated = React.useCallback(
     (container: HTMLElement): void => {
       sessionsAnnotated(container);
       commitsAnnotated(container);
       filesAnnotated(container);
+      reportsAnnotated(container);
     },
-    [sessionsAnnotated, commitsAnnotated, filesAnnotated],
+    [sessionsAnnotated, commitsAnnotated, filesAnnotated, reportsAnnotated],
   );
 
   return {
@@ -78,6 +85,7 @@ export function useAnnotationPortals(
         {sessions.portals}
         {commits.portals}
         {files.portals}
+        {reports.portals}
       </>
     ),
   };

@@ -7,7 +7,7 @@ BUN_HANG_GUARD_MS := "120000"
 
 # The Rust slow set: the suites that spawn git or the real tugcast.
 # `test-rust` runs everything else; `test-rust-slow` runs exactly this.
-RUST_SLOW_FILTER := "package(tugarc-core) | (package(tugcast) & kind(test)) | (package(tugcast) & test(/^feeds::(arc_runner|operator|attribution|git)::/))"
+RUST_SLOW_FILTER := "package(tugarc-core) | (package(tugcast) & kind(test)) | (package(tugcast) & test(/^feeds::(arc_runner|operator|attribution|git)::/)) | (package(tugcast) & test(/^chart_report::/))"
 
 [private]
 default:

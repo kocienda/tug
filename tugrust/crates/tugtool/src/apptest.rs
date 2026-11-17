@@ -102,7 +102,7 @@ fn run_history_chart(
     }
     let subtitle = format!("newest {per_file} runs per file, oldest left");
     match tugchart_core::tests::file_outcomes(&rows, "App-test history", &subtitle) {
-        Some(spec) => {
+        Some((spec, _)) => {
             let plotted = spec["rows"].as_array().map_or(0, Vec::len);
             println!(
                 "{plotted} of {} file(s) with recorded runs for {base_root}, newest {per_file} each{}",

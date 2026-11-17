@@ -1,0 +1,186 @@
+/* chart-ref-report.css — the layout of the report under a chart mark.
+ *
+ * The report stands in the figure's set panel (`.tugx-chart-set-list`,
+ * `chart-block.css`), which gives it its padding, its hairline, its type
+ * size and its one scroller. This file lays out what is inside: a head row,
+ * the note, the rows as a two-column grid (the kind's own row, then a
+ * trailing cell for the member's measure), and the foot. A commit row is the History card's row and
+ * keeps its own tokens and its own type scale (`.tugx-commit`); nothing here
+ * restyles it.
+ */
+
+/* @tug-pairings {
+  --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-raised-rest | content
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                      | Surface                                           | Role    | Context                                                                 |
+ * |----------------------------------------------|---------------------------------------------------|---------|-------------------------------------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-raised-rest  | content | .tugx-chart-report-note, -status, -group, -error-text, -plain, -sum, -fact (color) |
+ *
+ * A path, a url and a command's head are drawn in the panel's own ink, which
+ * `chart-block.css` pairs with the panel's surface.
+ */
+
+.tugx-chart-report-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+.tugx-chart-report-head {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+.tugx-chart-report-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* @tug-renders-on: --tugx-block-chrome-bg */
+.tugx-chart-report-note,
+.tugx-chart-report-status,
+.tugx-chart-report-group,
+.tugx-chart-report-error-text,
+.tugx-chart-report-plain,
+.tugx-chart-report-sum,
+.tugx-chart-report-fact {
+  color: var(--tugx-block-text-color-muted);
+}
+
+.tugx-chart-report-group {
+  padding-top: var(--tug-space-xs);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.tugx-chart-report-rows {
+  min-width: 0;
+}
+
+.tugx-chart-report-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.tugx-chart-report-main {
+  min-width: 0;
+}
+
+/* A session's or an arc's row: the entity's own atom, then its facts, on the
+ * one-line box a commit row's first line rides so a mixed list keeps one
+ * rhythm. The facts wrap under the atom in a narrow panel. */
+.tugx-chart-report-entity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--tug-space-sm);
+  row-gap: 2px;
+  min-width: 0;
+  min-height: var(--tugx-commit-line, 1.25rem);
+  padding-block: 1px;
+}
+
+.tugx-chart-report-entity-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tugx-chart-report-fact {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A run's outcome, as the dot the chart drew for it: the chart's own good
+ * and bad roles, and the muted ink for anything else. */
+.tugx-chart-report-dot {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--tugx-block-text-color-muted);
+}
+
+.tugx-chart-report-dot[data-outcome="good"] {
+  background: var(--tugx-chart-good);
+}
+
+.tugx-chart-report-dot[data-outcome="bad"] {
+  background: var(--tugx-chart-bad);
+}
+
+/* A run's status word and a span's label: the row's own name. */
+.tugx-chart-report-status-word {
+  font-weight: var(--tug-font-weight-semibold);
+  white-space: nowrap;
+}
+
+/* A path, a url, a command's head: the reference itself, in the code face,
+ * cut with an ellipsis when the panel is narrower than it. */
+.tugx-chart-report-path,
+.tugx-chart-report-url,
+.tugx-chart-report-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+}
+
+/* The commits touching a path, under its row: a report of its own, set in
+ * from the row it belongs to. */
+.tugx-chart-report-nested {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+  padding-inline-start: var(--tug-space-md);
+  padding-block-end: var(--tug-space-xs);
+}
+
+/* The set's sum, beside the title: one line, never squeezed by a long title. */
+.tugx-chart-report-sum {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A member's share of the mark. Right-aligned in tabular figures so a column
+ * of them reads as one; an unmeasured row keeps the empty cell. It rides the
+ * one-line box a commit row's first line and stamp share (the element wears
+ * `.tug-line-box`, which reads the height set here), under the row's own
+ * hairline of block padding, so the figure sits on the row's first line
+ * however far the row unfolds beneath it. */
+.tugx-chart-report-measure {
+  --tugx-line-box: var(--tugx-commit-line, 1.25rem);
+  justify-self: end;
+  padding-block: 1px;
+  white-space: nowrap;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.tugx-chart-report-error {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+.tugx-chart-report-more {
+  align-self: flex-start;
+}

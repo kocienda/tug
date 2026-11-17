@@ -46,7 +46,11 @@ A chart's rows, columns, cells and marks can name the things they stand for, and
 - `spans` and `bullet`: an item may carry `ref`; `scatter`: a point may carry `ref`.
 - `histogram`: a top-level `refs` array parallel to `values`, each a single ref or `null`; a bin links the union of its samples.
 
-A spec carries at most 800 ref members in all. Past that, or past 100 in a slot, write the count form: it still says how many, and only has no list to open.
+A set of refs opens a report under the figure when its mark or its Table atom is pressed: one row per member, each drawn as its kind is drawn everywhere else, so a commit is a commit row, a file is its path with the commits that touched it folded beneath, and a run or a stage is its outcome and its time. A row of a stacked chart has one more atom in the Table view, which opens the row's members across every series, grouped under each series' name.
+
+A spec carries at most 800 ref members in all. Past that, or past 100 in a slot, write the count form: it still says how many, and it opens a paged report when the spec names its `source`.
+
+`source` is the recipe's own mark, and a fence written by hand never carries one. A recipe stamps it with its name and the arguments it ran with, and the card reads a report's pages from it: the members of a count, each member's measure, and the series a member belongs to. Without a `source` a set still opens a report of the members the spec lists, and a count only says how many.
 
 **The rule: when a row is a file, a commit, a session, an arc, a directory, a url or a command, put it in the ref, and never invent one.** A ref is a claim that the thing exists, and the card checks it: a file that is not there, a sha the project does not have and a session not on this machine are shown as plain text, never as a working link. A recipe fills its own refs, so a chart from `tugtool chart` needs nothing added; a fence written by hand from data that names such things carries them too.
 

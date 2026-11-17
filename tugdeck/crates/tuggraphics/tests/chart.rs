@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use tuggraphics::chart::LAYER0_IN_FENCE;
+use tuggraphics::chart::{histogram_bins, Source, LAYER0_IN_FENCE};
 use tuggraphics::measure::table_key;
 use tuggraphics::{
     compile_round, compile_with, find_text, validate, ChartError, CompileOpts, Compiled,
@@ -320,6 +320,38 @@ fn a_scatter_tabulates_every_point_under_its_own_axes() {
     let single = compile_with(&golden("scatter-single"), &opts(), &FixedMetrics).unwrap();
     assert_eq!(single.table.head, vec!["", "x", "y"]);
     assert!(!single.svg.contains(">errors</text>"), "{}", single.svg);
+}
+
+#[test]
+fn histogram_bins_name_each_bins_samples_as_the_table_lays_them_out() {
+    let source = golden("histogram");
+    let Source::Chart(spec) = validate(&source, Layers::Chart).unwrap() else {
+        panic!("not a chart");
+    };
+    let (labels, members) = histogram_bins(&spec).unwrap();
+    let auto = compile_with(&source, &opts(), &FixedMetrics).unwrap();
+    let laid: Vec<&str> = auto.table.rows.iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(labels, laid);
+    let counts: Vec<usize> = members.iter().map(Vec::len).collect();
+    let drawn: Vec<usize> = auto
+        .table
+        .rows
+        .iter()
+        .map(|r| r[1].parse().unwrap())
+        .collect();
+    assert_eq!(counts, drawn);
+    // Every sample is in exactly one bin.
+    let mut all: Vec<usize> = members.iter().flatten().copied().collect();
+    all.sort_unstable();
+    assert_eq!(all, (0..20).collect::<Vec<usize>>());
+    let Source::Chart(bar) = validate(
+        r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a"], "series": [{"name": "s", "values": [1]}]}"#,
+        Layers::Chart,
+    )
+    .unwrap() else {
+        panic!("not a chart");
+    };
+    assert!(histogram_bins(&bar).is_none());
 }
 
 #[test]
@@ -884,4 +916,104 @@ fn caution_and_outside_paint_a_series_and_a_span() {
             "a series role is good, bad, caution, outside or accent"
         )
     );
+}
+
+const SOURCED: &str = r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a"], "series": [{"name": "s", "values": [1]}], "source": {"recipe": "churn", "args": {"since": "2026-10-18", "until": "2026-11-16T09:14:02-08:00", "path": "tugdeck", "net": true, "limit": 20, "files": ["a.ts", "b.ts"]}}}"#;
+
+#[test]
+fn a_source_rides_the_table_and_is_absent_without_one() {
+    let out = compile_with(SOURCED, &opts(), &FixedMetrics).unwrap();
+    let source = out
+        .table
+        .source
+        .clone()
+        .expect("the table carries the source");
+    assert_eq!(source["recipe"], "churn");
+    assert_eq!(source["args"]["path"], "tugdeck");
+    let wire = serde_json::to_value(&out.table).unwrap();
+    assert_eq!(wire["source"], source);
+
+    let bare = compile_with(
+        r#"{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a"], "series": [{"name": "s", "values": [1]}]}"#,
+        &opts(),
+        &FixedMetrics,
+    )
+    .unwrap();
+    assert!(bare.table.source.is_none());
+    let wire = serde_json::to_value(&bare.table).unwrap();
+    assert!(wire.get("source").is_none(), "{wire}");
+}
+
+#[test]
+fn a_sparkline_takes_a_source() {
+    let out = compile_with(
+        r#"{"tugchart": 1, "form": "sparkline", "values": [1, 2], "source": {"recipe": "commits"}}"#,
+        &opts(),
+        &FixedMetrics,
+    )
+    .unwrap();
+    assert_eq!(out.table.source.unwrap()["recipe"], "commits");
+}
+
+#[test]
+fn each_source_fault_is_an_error_at_its_path() {
+    let with = |source: &str| {
+        format!(
+            r#"{{"tugchart": 1, "form": "bar", "title": "t", "categories": ["a"], "series": [{{"name": "s", "values": [1]}}], "source": {source}}}"#
+        )
+    };
+    let path_of = |source: &str| one_error(&with(source)).path;
+    assert_eq!(path_of(r#""churn""#), "/source");
+    assert_eq!(
+        path_of(r#"{"recipe": "churn", "extra": 1}"#),
+        "/source/extra"
+    );
+    assert_eq!(path_of(r#"{"args": {}}"#), "/source/recipe");
+    assert_eq!(path_of(r#"{"recipe": ""}"#), "/source/recipe");
+    assert_eq!(path_of(r#"{"recipe": "Churn"}"#), "/source/recipe");
+    assert_eq!(
+        path_of(r#"{"recipe": "churn", "args": []}"#),
+        "/source/args"
+    );
+    assert_eq!(
+        path_of(r#"{"recipe": "churn", "args": {"path": {"a": 1}}}"#),
+        "/source/args/path"
+    );
+    assert_eq!(
+        path_of(r#"{"recipe": "churn", "args": {"files": ["a", 2]}}"#),
+        "/source/args/files/1"
+    );
+    let long = "x".repeat(513);
+    assert_eq!(
+        path_of(&format!(
+            r#"{{"recipe": "churn", "args": {{"path": "{long}"}}}}"#
+        )),
+        "/source/args/path"
+    );
+    let list: Vec<String> = (0..65).map(|i| format!("\"f{i}\"")).collect();
+    assert_eq!(
+        path_of(&format!(
+            r#"{{"recipe": "churn", "args": {{"files": [{}]}}}}"#,
+            list.join(", ")
+        )),
+        "/source/args/files"
+    );
+    let keys: Vec<String> = (0..17).map(|i| format!("\"k{i}\": {i}")).collect();
+    assert_eq!(
+        path_of(&format!(
+            r#"{{"recipe": "churn", "args": {{{}}}}}"#,
+            keys.join(", ")
+        )),
+        "/source/args"
+    );
+    // Sixteen keys is the limit, not past it.
+    let keys: Vec<String> = (0..16).map(|i| format!("\"k{i}\": {i}")).collect();
+    assert!(validate(
+        &with(&format!(
+            r#"{{"recipe": "churn", "args": {{{}}}}}"#,
+            keys.join(", ")
+        )),
+        Layers::Chart
+    )
+    .is_ok());
 }

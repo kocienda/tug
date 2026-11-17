@@ -80,6 +80,7 @@ import { filterHighlightRanges, filterQueryMatch } from "@/lib/text-match";
 import type { GitLogCommit } from "@/lib/git-log-store";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import { requestCommitCard } from "@/lib/open-commit-in-card";
+import { registerReportCommitRow } from "@/components/tugways/chart-report-row-registry";
 
 /**
  * How a commit that landed as an arc join names its arc on its row ([P09]) —
@@ -224,7 +225,7 @@ function matchedContext(
  * is the fold's click target; the sha's copy menu and the trailing controls own
  * their own gestures and stop propagation.
  */
-function CommitRow({
+export function HistoryCommitRow({
   commit,
   projectDir,
   metaFields,
@@ -455,6 +456,11 @@ function CommitRow({
   );
 }
 
+// A chart's report draws a commit with this row. It cannot import the row
+// (the row's markdown reaches the portals that mount the report), so the row
+// is named to it here, once, when this module loads.
+registerReportCommitRow(HistoryCommitRow);
+
 export interface HistoryListProps {
   /** The commits to render, newest first. */
   commits: readonly GitLogCommit[];
@@ -502,7 +508,7 @@ export function HistoryList({
       data-slot="tug-history-list"
     >
       {commits.map((commit) => (
-        <CommitRow
+        <HistoryCommitRow
           key={commit.sha}
           commit={commit}
           projectDir={projectDir}

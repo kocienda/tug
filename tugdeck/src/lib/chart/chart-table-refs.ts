@@ -19,7 +19,8 @@
  */
 
 import { linkAtomLabel } from "@/lib/annotator/atom-segment";
-import type { ChartRefSlot, ChartTableRefs } from "@/lib/lazy/load-tuggraphics";
+import type { AnnotationContext } from "@/lib/annotator/types";
+import type { ChartRefSlot, ChartSource, ChartTableRefs } from "@/lib/lazy/load-tuggraphics";
 
 /** The prefixes a ref may carry, in the order the spec documents them. */
 export const REF_KINDS = ["commit", "file", "dir", "session", "arc", "url", "command"] as const;
@@ -92,6 +93,24 @@ export function slotAt(refs: ChartTableRefs | undefined, address: string, kind: 
   }
 }
 
+/**
+ * What row `row` stands for across all its series, when it has cells and no
+ * slot of its own: the cells' counts summed, under the kind they share. Null
+ * for a row with a slot, with no cell slot, or whose cells are of two kinds.
+ */
+export function wholeRowSlot(refs: ChartTableRefs | undefined, row: number): { kind: string; count: number } | null {
+  if (refs === undefined || at(refs.rows, row) !== null) return null;
+  let kind: string | null = null;
+  let count = 0;
+  for (const cell of refs.cells[row] ?? []) {
+    if (cell === null) continue;
+    if (kind !== null && slotKind(cell) !== kind) return null;
+    kind = slotKind(cell);
+    count += slotCount(cell);
+  }
+  return kind === null || count === 0 ? null : { kind, count };
+}
+
 /** The prefix of a ref string, or `""` when it has none. */
 export function refKindOf(ref: string): string {
   const colon = ref.indexOf(":");
@@ -115,9 +134,40 @@ export function slotMembers(slot: ChartRefSlot): string[] {
   return "members" in slot ? slot.members : [];
 }
 
-/** A set with members a press can list — not a single ref, not a count. */
-export function isActionableSet(slot: ChartRefSlot): boolean {
-  return typeof slot !== "string" && "members" in slot && slot.members.length > 0;
+/** How many things a slot stands for: one for a ref, the members' count, or a count form's number. */
+export function slotCount(slot: ChartRefSlot): number {
+  if (typeof slot === "string") return 1;
+  return "members" in slot ? slot.members.length : slot.count;
+}
+
+/**
+ * Whether there is somebody to ask about a ref from this surface: a context,
+ * one that can answer, and a repository to read. The share page has none, and
+ * a surface bound to no repository has no root.
+ */
+export function canAsk(context: AnnotationContext | undefined): boolean {
+  return context !== undefined && context.unanswerable !== true && context.commitRoot !== null;
+}
+
+/**
+ * Whether a figure's marks can be reported on by the recipe that drew them:
+ * the spec names its source, and there is somebody to ask. Decided once,
+ * where the figure is drawn, so that what is stamped pressable, what the
+ * hover offers and what a press opens all read one answer.
+ */
+export function canReport(source: ChartSource | undefined, context: AnnotationContext | undefined): boolean {
+  return source !== undefined && canAsk(context);
+}
+
+/**
+ * A set a press can open: one with members, or a count form where the recipe
+ * can be asked for the list the spec folded away. A count form with nobody
+ * to ask offers nothing, and a count of zero has nothing to list.
+ */
+export function isReportable(slot: ChartRefSlot, reports: boolean): boolean {
+  if (typeof slot === "string") return false;
+  if ("members" in slot) return slot.members.length > 0;
+  return reports && slot.count > 0;
 }
 
 const NOUNS: Record<string, readonly [string, string]> = {
@@ -128,9 +178,11 @@ const NOUNS: Record<string, readonly [string, string]> = {
   arc: ["arc", "arcs"],
   url: ["link", "links"],
   command: ["command", "commands"],
+  run: ["run", "runs"],
 };
 
-function counted(n: number, kind: string): string {
+/** `57 commits`, `1 file`: a count of things of one kind. */
+export function counted(n: number, kind: string): string {
   const [one, many] = NOUNS[kind] ?? ["item", "items"];
   return `${n} ${n === 1 ? one : many}`;
 }

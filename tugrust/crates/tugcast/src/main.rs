@@ -6,6 +6,7 @@ mod background_session;
 mod boot;
 mod changes_journal;
 mod changes_writer;
+mod chart_report;
 mod cli;
 mod client_fault;
 mod control;

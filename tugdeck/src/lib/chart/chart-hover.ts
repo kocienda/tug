@@ -33,10 +33,11 @@
  */
 
 import { readAnnotation } from "@/lib/annotator/annotation-element";
-import { REF_SET_ATTR, refActionLabel, type SessionActKind } from "@/lib/annotator/chart-refs";
+import { REF_REPORT_ATTR, REF_SET_ATTR, refActionLabel, type SessionActKind } from "@/lib/annotator/chart-refs";
 import type { AnnotationPayload } from "@/lib/annotator/payloads";
 import * as canvasOverlayRegistry from "@/lib/canvas-overlay-registry";
-import { effectiveRef, isActionableSet, slotLabel, type RefTarget } from "@/lib/chart/chart-table-refs";
+import { chartFigureData } from "@/lib/chart/chart-figure-data";
+import { effectiveRef, isReportable, slotLabel, type RefTarget } from "@/lib/chart/chart-table-refs";
 import type { ChartRefSlot, ChartTable } from "@/lib/lazy/load-tuggraphics";
 import { anyMenuOpen, observeOpenMenus } from "@/lib/open-menu-registry";
 import { claimSoleTooltip, releaseSoleTooltip, type TooltipClaim } from "@/lib/open-tooltip-registry";
@@ -131,9 +132,14 @@ function buildArrow(): SVGSVGElement {
 
 /**
  * What the bubble's foot is about: the payload a stamped mark carries, or
- * the set an actionable set mark stands for.
+ * the set a set mark stands for, with whether the figure can ask the recipe
+ * that drew it for a count form's list, or what a report mark reads from
+ * the recipe: one `run`, one `span`, or a file's `runs`.
  */
-export type FootSubject = { payload: AnnotationPayload } | { set: ChartRefSlot };
+export type FootSubject =
+  | { payload: AnnotationPayload }
+  | { set: ChartRefSlot; reports: boolean }
+  | { report: "run" | "span" | "runs" };
 
 /**
  * The foot line under a mark's row (Spec S06): what a press on the mark
@@ -143,7 +149,10 @@ export type FootSubject = { payload: AnnotationPayload } | { set: ChartRefSlot }
  */
 export function footLine(subject: FootSubject | null, sessionAct: SessionActKind): string | null {
   if (subject === null) return null;
-  if ("set" in subject) return isActionableSet(subject.set) ? `Show ${slotLabel(subject.set)}` : null;
+  if ("report" in subject) {
+    return subject.report === "run" ? "Show the run" : subject.report === "span" ? "Show the stage" : "Show the runs";
+  }
+  if ("set" in subject) return isReportable(subject.set, subject.reports) ? `Show ${slotLabel(subject.set)}` : null;
   return refActionLabel(subject.payload, sessionAct);
 }
 
@@ -154,10 +163,15 @@ function footSubject(hit: Element, table: ChartTable): FootSubject | null {
     if (payload !== null) return { payload };
   }
   if (!hit.hasAttribute(REF_SET_ATTR)) return null;
+  const report = hit.getAttribute(REF_REPORT_ATTR);
+  if (report === "runs") return { report: "runs" };
+  if (report === "one") return { report: hit.getAttribute("data-item") === null ? "span" : "run" };
   const target = readTarget(hit);
   if (target === null) return null;
   const set = effectiveRef(table.refs, refTarget(target));
-  return set === null ? null : { set };
+  if (set === null) return null;
+  const figure = hit.closest<HTMLElement>(".tugx-chart");
+  return { set, reports: figure !== null && chartFigureData(figure)?.canReport === true };
 }
 
 /** The act a press on a session payload takes now, as the foot words it. */

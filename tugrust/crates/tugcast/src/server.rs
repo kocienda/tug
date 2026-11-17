@@ -9,6 +9,7 @@
 use axum::Extension;
 use axum::Router;
 use axum::body::Bytes;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{
     ConnectInfo, DefaultBodyLimit, FromRef, Path as UrlPath, Query, Request, State,
 };
@@ -316,6 +317,37 @@ async fn chart_recipe_handler(
     }
 }
 
+/// `POST /api/chart/report`: one page of row records for a chart mark's
+/// members, for a list of refs, or for the commits touching a path; the
+/// contract is in [`crate::chart_report`]. Loopback only and read-only. A body
+/// that is not the request's shape is a `400` like any other bad request.
+async fn chart_report_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    body: Result<axum::Json<crate::chart_report::ReportRequest>, JsonRejection>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    let outcome = match body {
+        Ok(axum::Json(req)) => crate::chart_report::report(req).await,
+        Err(rejection) => Err(crate::chart_report::ReportError::BadRequest(
+            rejection.body_text(),
+        )),
+    };
+    match outcome {
+        Ok(page) => axum::Json(page).into_response(),
+        Err(e) => (
+            e.status(),
+            axum::Json(serde_json::json!({ "status": "error", "message": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
 /// A recipe's answer on the wire. No data is a good answer with a null `spec`;
 /// only a read that should have worked is a `500`.
 pub(crate) fn chart_outcome_response(
@@ -324,7 +356,7 @@ pub(crate) fn chart_outcome_response(
 ) -> Response {
     use tugchart_core::context::RecipeOutcome;
     let (summary, spec) = match outcome {
-        Ok(RecipeOutcome::Chart { summary, spec }) => (summary, spec),
+        Ok(RecipeOutcome::Chart { summary, spec, .. }) => (summary, spec),
         Ok(RecipeOutcome::NoData { summary }) => (summary, serde_json::Value::Null),
         Err(e) => {
             return (
@@ -2513,6 +2545,7 @@ pub(crate) fn build_app(
         .route("/api/ink-census", get(ink_census_handler))
         .route("/api/report-gaps", get(report_gaps_handler))
         .route("/api/chart/list", get(chart_list_handler))
+        .route("/api/chart/report", post(chart_report_handler))
         .route("/api/chart/{recipe}", get(chart_recipe_handler))
         .route("/api/draft", post(draft_handler))
         .route("/api/arc", post(arc_handler))

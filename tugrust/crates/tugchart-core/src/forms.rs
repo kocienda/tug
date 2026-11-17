@@ -7,7 +7,7 @@
 //! [`reform`] is what `--form` on a recipe runs: the same categories and the
 //! same series, drawn as another of the forms that can hold them.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// Which fence a form is drawn in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -363,6 +363,7 @@ mod tests {
             "categories": ["a", "b"],
             "series": [{ "name": "s", "values": [1, 2] }, { "name": "u", "values": [3, 4] }],
             "annotations": [{ "kind": "rule", "value": 2 }],
+            "source": { "recipe": "commits", "args": { "since": "2026-10-01" } },
         });
         let mut area = bar.clone();
         reform(&mut area, "area").unwrap();
@@ -370,6 +371,8 @@ mod tests {
         assert_eq!(area["x"], json!(["a", "b"]));
         assert!(area.get("categories").is_none());
         assert_eq!(area["annotations"], bar["annotations"]);
+        // A redraw keeps what it was drawn from.
+        assert_eq!(area["source"], bar["source"]);
         assert_valid(&area);
 
         let mut line = bar.clone();

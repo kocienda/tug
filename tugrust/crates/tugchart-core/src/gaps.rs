@@ -9,6 +9,7 @@ use crate::commits::{left_out_older, median, without_the_largest_tenth};
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_front,
 };
+use crate::members::{MemberTable, SourceArgs, stamp_source, until_for};
 use crate::refs::command_ref;
 
 const DEFAULT_LIMIT: usize = 12;
@@ -56,6 +57,11 @@ pub(crate) fn gaps(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutco
     let kept = &gaps[..gaps.len().min(limit)];
     let mut spec = gaps_chart(kept);
     apply_title(&mut spec, args);
+    stamp_source(
+        &mut spec,
+        "gaps",
+        SourceArgs::until(&until_for(args)).with("limit", limit),
+    );
     let calls: i64 = kept.iter().map(|gap| gap.count).sum();
     let left_out = gaps.len() - kept.len();
     let left_out = if left_out == 0 {
@@ -67,7 +73,11 @@ pub(crate) fn gaps(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutco
         "{} command head(s), {calls} long call(s) that reported nothing{left_out}",
         kept.len()
     );
-    Ok(RecipeOutcome::Chart { summary, spec })
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members: MemberTable::default(),
+    })
 }
 
 fn secs(wall_ms: u64) -> f64 {
@@ -122,7 +132,12 @@ pub(crate) fn calls(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutc
     }
     let (summary, mut spec) = calls_chart(&times);
     apply_title(&mut spec, args);
-    Ok(RecipeOutcome::Chart { summary, spec })
+    stamp_source(&mut spec, "calls", SourceArgs::until(&until_for(args)));
+    Ok(RecipeOutcome::Chart {
+        summary,
+        spec,
+        members: MemberTable::default(),
+    })
 }
 
 #[cfg(test)]

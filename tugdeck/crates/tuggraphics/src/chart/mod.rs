@@ -32,7 +32,7 @@ pub use spec::{
     validate, ChartError, Layers, Source, Spec, DIAGRAM_IN_CHART_FENCE, LAYER0_IN_FENCE, MAX_REFS,
     MAX_SERIES, MAX_SET, NOT_A_DIAGRAM,
 };
-pub use table::{ChartTable, MarkRef, RefSlot, TableRefs};
+pub use table::{histogram_bins, ChartTable, MarkRef, RefSlot, TableRefs};
 
 /// How to compile: the width available, the prefix for the SVG's ids,
 /// whether entrances are written at all, which layers the door takes, and

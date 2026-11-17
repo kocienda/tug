@@ -13,7 +13,7 @@
  */
 
 import type { AnnotationContext } from "@/lib/annotator/types";
-import type { ChartTable } from "@/lib/lazy/load-tuggraphics";
+import type { ChartSource, ChartTable } from "@/lib/lazy/load-tuggraphics";
 
 /**
  * Dispatched on a figure, bubbling, whenever its annotated hosts changed:
@@ -29,6 +29,10 @@ export const CHART_ANNOTATED_EVENT = "tugx-chart-annotated";
 export interface ChartFigureData {
   table: ChartTable;
   context: AnnotationContext | undefined;
+  /** The recipe the chart was drawn from, when its spec named one. */
+  source: ChartSource | undefined;
+  /** Whether that recipe can be asked for a mark's members from here. */
+  canReport: boolean;
 }
 
 const figureData = new WeakMap<HTMLElement, ChartFigureData>();

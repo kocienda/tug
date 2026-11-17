@@ -5,13 +5,17 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use chrono::{DateTime, Datelike, Days, NaiveDate, Timelike};
 use serde_json::{Value, json};
 use tugchanges_core::{
-    DayStat, DiffOptions, FileStat, LogEntry, LogOptions, LogReport, PathStat, diff, log,
-    numstat_by_commit, numstat_by_day, numstat_by_path, path_prefix,
+    CommitLines, DayStat, DiffOptions, FileStat, LogEntry, LogOptions, LogReport, PathStat, Window,
+    day_stats, diff, git_output, log, numstat_by_commit_in, numstat_by_path_in, numstat_commits_in,
+    path_prefix,
 };
 use tuggraphics::chart::spec::{MAX_LABEL, MAX_ROWS, MAX_SERIES, MAX_VALUES};
 
 use crate::context::{
     RecipeArgs, RecipeContext, RecipeError, RecipeOutcome, apply_title, clip_front, git_gate,
+};
+use crate::members::{
+    Member, MemberKey, MemberTable, SourceArgs, plain, stamp_source, window_for, window_label,
 };
 use crate::refs::{RefBudget, commit_ref, path_ref, sample_refs, set_slots};
 
@@ -37,12 +41,21 @@ fn titled(base: &str, path: Option<&str>) -> String {
     }
 }
 
-/// The window a numstat read covered, spelled as `log` spells its range.
-fn window(days: u32, path: Option<&str>) -> String {
+/// The window a read covered, spelled as `log` spells its range.
+fn window(label: &str, path: Option<&str>) -> String {
     match path {
-        Some(path) => format!("last {days} days under {path}"),
-        None => format!("last {days} days"),
+        Some(path) => format!("{label} under {path}"),
+        None => label.to_string(),
     }
+}
+
+/// The window a recipe reads by, resolved once, and the range it names: the
+/// last `default_days` (or `--days`) ending now, or the source's own.
+fn span(args: &RecipeArgs, default_days: u32) -> (Window, String) {
+    let window = window_for(args, default_days);
+    let label = window_label(args, &window, default_days);
+    let range = self::window(&label, args.path.as_deref());
+    (window, range)
 }
 
 fn no_commits(range: &str) -> RecipeOutcome {
@@ -51,9 +64,26 @@ fn no_commits(range: &str) -> RecipeOutcome {
     }
 }
 
-fn charted(summary: String, mut spec: Value, args: &RecipeArgs) -> RecipeOutcome {
+/// The chart, titled and stamped with the source a reader hands back to ask
+/// `recipe` again (`None` for a read with no absolute spelling), beside the
+/// members behind its marks.
+fn charted(
+    summary: String,
+    mut spec: Value,
+    args: &RecipeArgs,
+    recipe: &str,
+    source: Option<SourceArgs>,
+    members: MemberTable,
+) -> RecipeOutcome {
     apply_title(&mut spec, args);
-    RecipeOutcome::Chart { summary, spec }
+    if let Some(source) = source {
+        stamp_source(&mut spec, recipe, source);
+    }
+    RecipeOutcome::Chart {
+        summary,
+        spec,
+        members,
+    }
 }
 
 fn left_out_days(left_out: usize) -> String {
@@ -169,15 +199,68 @@ fn entry_day(entry: &LogEntry) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(&entry.date, "%Y-%m-%d").ok()
 }
 
-fn read_log(ctx: &RecipeContext, args: &RecipeArgs) -> Result<LogReport, RecipeError> {
-    log(LogOptions {
+fn commit_day(commit: &CommitLines) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(&commit.day, "%Y-%m-%d").ok()
+}
+
+/// `Row(i)` per bucket of `axis`: the commits whose day `key` places there,
+/// in the order read and deduplicated, each measured by `measure`, the
+/// table measuring `unit` as a count. It is built from the same commits the
+/// chart summed, so a row's members sum to the row's value.
+fn measured_rows(
+    axis: &[NaiveDate],
+    commits: &[CommitLines],
+    key: impl Fn(NaiveDate) -> NaiveDate,
+    measure: impl Fn(&CommitLines) -> f64,
+    unit: &str,
+) -> MemberTable {
+    let index: HashMap<NaiveDate, usize> =
+        axis.iter().enumerate().map(|(i, day)| (*day, i)).collect();
+    let mut rows: Vec<Vec<Member>> = vec![Vec::new(); axis.len()];
+    for commit in commits {
+        let Some(day) = commit_day(commit) else {
+            continue;
+        };
+        let Some(&at) = index.get(&key(day)) else {
+            continue;
+        };
+        let r = commit_ref(&commit.sha);
+        if rows[at]
+            .iter()
+            .any(|m| m.r#ref.as_deref() == Some(r.as_str()))
+        {
+            continue;
+        }
+        rows[at].push(Member::of(r).measured(measure(commit)));
+    }
+    let mut table = MemberTable::measured(unit, "count");
+    for (i, row) in rows.into_iter().enumerate() {
+        table.set(MemberKey::Row(i), row);
+    }
+    table
+}
+
+/// The log over the recipe's window, its `range` spelled as the subtitle
+/// reads it, and the source args the window gives.
+fn read_log(
+    ctx: &RecipeContext,
+    args: &RecipeArgs,
+) -> Result<(LogReport, SourceArgs), RecipeError> {
+    let (window, range) = span(args, DEFAULT_DAYS);
+    let mut report = log(LogOptions {
         project: Some(ctx.repo_root.clone()),
         limit: None,
         range: None,
-        days: Some(args.days.unwrap_or(DEFAULT_DAYS)),
+        days: None,
+        window: Some(window.clone()),
         path: args.path.clone(),
     })
-    .map_err(RecipeError::Git)
+    .map_err(RecipeError::Git)?;
+    report.range = range;
+    Ok((
+        report,
+        SourceArgs::window(&window).maybe("path", args.path.as_deref()),
+    ))
 }
 
 /// A built spec, and what the summary line reports of it.
@@ -185,6 +268,7 @@ struct DayChart {
     spec: Value,
     days: usize,
     left_out: usize,
+    members: MemberTable,
 }
 
 /// Commits per committer day or week as a bar chart: one category per bucket
@@ -219,10 +303,12 @@ fn commits_chart(
         .iter()
         .map(|day| by_day.remove(day).unwrap_or_default())
         .collect();
+    let members = MemberTable::rows(&buckets);
     let refs = set_slots("commit", buckets, &mut RefBudget::new());
     Some(DayChart {
         days: axis.len(),
         left_out,
+        members,
         spec: json!({
             "tugchart": 1,
             "form": "bar",
@@ -250,7 +336,7 @@ pub(crate) fn commits(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let report = read_log(ctx, args)?;
+    let (report, source) = read_log(ctx, args)?;
     let bucket = Bucket::from_args(args);
     let base = format!("Commits per {}", bucket.noun());
     let title = titled(&base, args.path.as_deref());
@@ -265,12 +351,22 @@ pub(crate) fn commits(
         report.range,
         left_out_older(chart.left_out, bucket.noun())
     );
-    Ok(charted(summary, chart.spec, args))
+    let source = source.with("by", bucket.noun());
+    Ok(charted(
+        summary,
+        chart.spec,
+        args,
+        "commits",
+        Some(source),
+        chart.members,
+    ))
 }
 
 /// Lines added and removed per day as a stacked area, zero days included.
-/// Each day carries its commits in `refs`, parallel to `x`.
-fn churn_chart(stats: &[DayStat], title: &str, subtitle: &str) -> Option<DayChart> {
+/// Each day carries its commits in `refs`, parallel to `x`, and in the
+/// member table, each measured by the lines it changed.
+fn churn_chart(commits: &[CommitLines], title: &str, subtitle: &str) -> Option<DayChart> {
+    let stats = day_stats(commits);
     let by_day: HashMap<NaiveDate, &DayStat> = stats
         .iter()
         .filter_map(|stat| {
@@ -295,10 +391,12 @@ fn churn_chart(stats: &[DayStat], title: &str, subtitle: &str) -> Option<DayChar
             })
         })
         .collect();
+    let members = measured_rows(&axis, commits, |day| day, |c| c.lines() as f64, "lines");
     let refs = set_slots("commit", buckets, &mut RefBudget::new());
     Some(DayChart {
         days: axis.len(),
         left_out,
+        members,
         spec: json!({
             "tugchart": 1,
             "form": "area",
@@ -321,23 +419,30 @@ pub(crate) fn churn(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOutc
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let days = args.days.unwrap_or(DEFAULT_DAYS);
     let path = args.path.as_deref();
-    let range = window(days, path);
-    let stats = numstat_by_day(&ctx.repo_root, days, path).map_err(RecipeError::Git)?;
+    let (window, range) = span(args, DEFAULT_DAYS);
+    let commits = numstat_commits_in(&ctx.repo_root, &window, path).map_err(RecipeError::Git)?;
     let title = titled("Lines added and removed per day", path);
-    let Some(chart) = churn_chart(&stats, &title, &range) else {
+    let Some(chart) = churn_chart(&commits, &title, &range) else {
         return Ok(no_commits(&range));
     };
-    let added: u64 = stats.iter().map(|s| s.added).sum();
-    let removed: u64 = stats.iter().map(|s| s.deleted).sum();
-    let commits: u32 = stats.iter().map(|s| s.commits).sum();
+    let added: u64 = commits.iter().map(|c| c.added).sum();
+    let removed: u64 = commits.iter().map(|c| c.deleted).sum();
     let summary = format!(
-        "+{added} −{removed} line(s) in {commits} commit(s) over {} day(s), {range}{}",
+        "+{added} −{removed} line(s) in {} commit(s) over {} day(s), {range}{}",
+        commits.len(),
         chart.days,
         left_out_days(chart.left_out)
     );
-    Ok(charted(summary, chart.spec, args))
+    let source = SourceArgs::window(&window).maybe("path", path);
+    Ok(charted(
+        summary,
+        chart.spec,
+        args,
+        "churn",
+        Some(source),
+        chart.members,
+    ))
 }
 
 /// The most changed paths as a horizontal bar, each row linked to its path:
@@ -373,27 +478,44 @@ pub(crate) fn hotspots(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let days = args.days.unwrap_or(DEFAULT_DAYS);
     let path = args.path.as_deref();
     let depth = args.depth.unwrap_or(DEFAULT_HOTSPOT_DEPTH).max(1) as usize;
     let limit = args
         .limit
         .unwrap_or(DEFAULT_HOTSPOT_LIMIT)
         .clamp(1, MAX_ROWS);
-    let range = window(days, path);
-    let stats = numstat_by_path(&ctx.repo_root, days, path, depth).map_err(RecipeError::Git)?;
+    let (window, range) = span(args, DEFAULT_DAYS);
+    let stats =
+        numstat_by_path_in(&ctx.repo_root, &window, path, depth).map_err(RecipeError::Git)?;
     if stats.is_empty() {
         return Ok(no_commits(&range));
     }
     let kept = &stats[..stats.len().min(limit)];
-    let title = titled(&format!("Most changed paths, last {days} days"), path);
+    let title = titled(
+        &format!(
+            "Most changed paths, {}",
+            window_label(args, &window, DEFAULT_DAYS)
+        ),
+        path,
+    );
     let summary = format!(
         "{} of {} path(s) at depth {depth}, {range}{}",
         kept.len(),
         stats.len(),
         left_out_rows(stats.len() - kept.len())
     );
-    Ok(charted(summary, hotspots_chart(kept, &title, &range), args))
+    let source = SourceArgs::window(&window)
+        .with("depth", depth)
+        .with("limit", limit)
+        .maybe("path", path);
+    Ok(charted(
+        summary,
+        hotspots_chart(kept, &title, &range),
+        args,
+        "hotspots",
+        Some(source),
+        MemberTable::default(),
+    ))
 }
 
 /// One row of `landed`. `is_file` says the group is one file rather than a
@@ -493,7 +615,36 @@ pub(crate) fn landed(ctx: &RecipeContext, args: &RecipeArgs) -> Result<RecipeOut
         left_out_rows(rows.len() - kept.len())
     );
     let spec = landed_chart(kept, "Lines changed by directory", &scope);
-    Ok(charted(summary, spec, args))
+    // Only a range has an absolute spelling: the working tree, the index and
+    // a session's files move under a reader, so those stamp nothing.
+    let source = args
+        .range
+        .as_deref()
+        .and_then(|range| resolved_range(&ctx.repo_root, range))
+        .map(|range| SourceArgs::new().with("range", range).with("depth", depth));
+    Ok(charted(
+        summary,
+        spec,
+        args,
+        "landed",
+        source,
+        MemberTable::default(),
+    ))
+}
+
+/// `a..b` with each end resolved to the sha it named, so the stamp survives a
+/// branch moving; `None` when git cannot resolve one.
+fn resolved_range(repo_root: &std::path::Path, range: &str) -> Option<String> {
+    let (from, to) = range.split_once("..")?;
+    let to = if to.is_empty() { "HEAD" } else { to };
+    // `--short` takes one revision at a time.
+    let sha = |rev: &str| -> Option<String> {
+        let out = git_output(repo_root, &["rev-parse", "--short", rev]).ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    Some(format!("{}..{}", sha(from)?, sha(to)?))
 }
 
 /// A commit's kind: the lowercase text before the first `(` or `:` in its
@@ -568,6 +719,13 @@ fn kinds_chart(entries: &[LogEntry], title: &str, subtitle: &str) -> Option<Kind
             .unwrap_or(names.len() - 1);
         rows[series][at].push(commit_ref(sha));
     }
+    // Each cell's commits, before the budget folds any of them.
+    let mut members = MemberTable::default();
+    for (col, buckets) in rows.iter().enumerate() {
+        for (row, refs) in buckets.iter().enumerate() {
+            members.set(MemberKey::Cell { row, col }, plain(refs));
+        }
+    }
     let mut budget = RefBudget::new();
     let series: Vec<Value> = names
         .iter()
@@ -583,6 +741,7 @@ fn kinds_chart(entries: &[LogEntry], title: &str, subtitle: &str) -> Option<Kind
         chart: DayChart {
             days: axis.len(),
             left_out,
+            members,
             spec: json!({
                 "tugchart": 1,
                 "form": "area",
@@ -605,7 +764,7 @@ pub(crate) fn commit_kinds(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let report = read_log(ctx, args)?;
+    let (report, source) = read_log(ctx, args)?;
     let title = titled("Commits by kind per day", args.path.as_deref());
     let Some(KindChart { chart, folded }) = kinds_chart(&report.commits, &title, &report.range)
     else {
@@ -623,34 +782,76 @@ pub(crate) fn commit_kinds(
         report.range,
         left_out_days(chart.left_out)
     );
-    Ok(charted(summary, chart.spec, args))
+    Ok(charted(
+        summary,
+        chart.spec,
+        args,
+        "commit-kinds",
+        Some(source),
+        chart.members,
+    ))
+}
+
+/// A commit's ref and its committer day, which is what a heat bucket's
+/// members are grouped by.
+type Dated = (String, String);
+
+fn dated(entry: &LogEntry) -> Dated {
+    (commit_ref(&entry.sha), entry.date.clone())
 }
 
 /// The commits of each hour of the day, in the committer's own offset. `None`
 /// when no commit carries a time that parses.
-fn hours(entries: &[LogEntry]) -> Option<Vec<Vec<String>>> {
+fn hours(entries: &[LogEntry]) -> Option<Vec<Vec<Dated>>> {
     let mut buckets = vec![Vec::new(); 24];
     let mut any = false;
     for entry in entries {
         if let Ok(at) = DateTime::parse_from_rfc3339(&entry.at) {
-            buckets[at.hour() as usize].push(commit_ref(&entry.sha));
+            buckets[at.hour() as usize].push(dated(entry));
             any = true;
         }
     }
     any.then_some(buckets)
 }
 
+/// `Row(i)` per bucket: its commits deduplicated, each grouped under its
+/// day, newest day first.
+fn dated_rows(buckets: &[Vec<Dated>]) -> MemberTable {
+    let mut table = MemberTable::default();
+    for (i, bucket) in buckets.iter().enumerate() {
+        let mut seen: Vec<&Dated> = Vec::with_capacity(bucket.len());
+        for d in bucket {
+            if !seen.iter().any(|s| s.0 == d.0) {
+                seen.push(d);
+            }
+        }
+        seen.sort_by(|a, b| b.1.cmp(&a.1));
+        let members = seen
+            .into_iter()
+            .map(|(r, day)| Member::of(r.clone()).grouped(day.clone()))
+            .collect();
+        table.set(MemberKey::Row(i), members);
+    }
+    table
+}
+
 /// A heat strip of one bucket per category: the count drawn, the bucket's
-/// commits in `refs`.
+/// commits in `refs`, and the same commits in the member table under their
+/// days.
 fn heat_chart(
     categories: &[String],
-    buckets: Vec<Vec<String>>,
+    buckets: Vec<Vec<Dated>>,
     title: &str,
     subtitle: &str,
-) -> Value {
+) -> (Value, MemberTable) {
+    let members = dated_rows(&buckets);
+    let buckets: Vec<Vec<String>> = buckets
+        .into_iter()
+        .map(|bucket| bucket.into_iter().map(|(r, _)| r).collect())
+        .collect();
     let counts: Vec<usize> = buckets.iter().map(Vec::len).collect();
     let refs = set_slots("commit", buckets, &mut RefBudget::new());
-    json!({
+    let spec = json!({
         "tugchart": 1,
         "form": "heat",
         "title": title,
@@ -660,10 +861,11 @@ fn heat_chart(
         "categories": categories,
         "values": counts,
         "refs": refs,
-    })
+    });
+    (spec, members)
 }
 
-fn hours_chart(buckets: Vec<Vec<String>>, title: &str, subtitle: &str) -> Value {
+fn hours_chart(buckets: Vec<Vec<Dated>>, title: &str, subtitle: &str) -> (Value, MemberTable) {
     let categories: Vec<String> = (0..24).map(|hour| format!("{hour:02}")).collect();
     heat_chart(&categories, buckets, title, subtitle)
 }
@@ -675,7 +877,7 @@ pub(crate) fn commit_hours(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let report = read_log(ctx, args)?;
+    let (report, source) = read_log(ctx, args)?;
     let Some(buckets) = hours(&report.commits) else {
         return Ok(no_commits(&report.range));
     };
@@ -685,18 +887,25 @@ pub(crate) fn commit_hours(
         report.commits.len(),
         report.range
     );
-    let spec = hours_chart(buckets, &title, &report.range);
-    Ok(charted(summary, spec, args))
+    let (spec, members) = hours_chart(buckets, &title, &report.range);
+    Ok(charted(
+        summary,
+        spec,
+        args,
+        "commit-hours",
+        Some(source),
+        members,
+    ))
 }
 
 /// The commits of each weekday, Monday first, in the committer's own offset.
 /// `None` when no commit carries a time that parses.
-fn weekdays(entries: &[LogEntry]) -> Option<Vec<Vec<String>>> {
+fn weekdays(entries: &[LogEntry]) -> Option<Vec<Vec<Dated>>> {
     let mut buckets = vec![Vec::new(); 7];
     let mut any = false;
     for entry in entries {
         if let Ok(at) = DateTime::parse_from_rfc3339(&entry.at) {
-            buckets[at.weekday().num_days_from_monday() as usize].push(commit_ref(&entry.sha));
+            buckets[at.weekday().num_days_from_monday() as usize].push(dated(entry));
             any = true;
         }
     }
@@ -710,7 +919,7 @@ pub(crate) fn commit_days(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let report = read_log(ctx, args)?;
+    let (report, source) = read_log(ctx, args)?;
     let Some(buckets) = weekdays(&report.commits) else {
         return Ok(no_commits(&report.range));
     };
@@ -723,8 +932,15 @@ pub(crate) fn commit_days(
     let categories: Vec<String> = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         .map(String::from)
         .to_vec();
-    let spec = heat_chart(&categories, buckets, &title, &report.range);
-    Ok(charted(summary, spec, args))
+    let (spec, members) = heat_chart(&categories, buckets, &title, &report.range);
+    Ok(charted(
+        summary,
+        spec,
+        args,
+        "commit-days",
+        Some(source),
+        members,
+    ))
 }
 
 /// `sizes` up to their 90th percentile, in the order given, and that size. One
@@ -752,10 +968,9 @@ pub(crate) fn commit_size(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let days = args.days.unwrap_or(DEFAULT_DAYS);
     let path = args.path.as_deref();
-    let range = window(days, path);
-    let sizes = numstat_by_commit(&ctx.repo_root, days, path).map_err(RecipeError::Git)?;
+    let (window, range) = span(args, DEFAULT_DAYS);
+    let sizes = numstat_by_commit_in(&ctx.repo_root, &window, path).map_err(RecipeError::Git)?;
     if sizes.is_empty() {
         return Ok(no_commits(&range));
     }
@@ -767,10 +982,19 @@ pub(crate) fn commit_size(
     let (drawn, cap) = without_the_largest_tenth(&lines);
     let not_drawn = kept.len() - drawn.len();
     // Each drawn sample's own commit, in the drawn order, newest first; a
-    // bin unions its samples' refs ([B10]).
-    let samples: Vec<String> = kept
+    // bin unions its samples' refs ([B10]). The table keeps every drawn
+    // sample, those the budget leaves `null` included.
+    let drawn_commits: Vec<&(String, u64)> =
+        kept.iter().filter(|(_, lines)| *lines <= cap).collect();
+    let mut members = MemberTable::measured("lines changed", "count");
+    for (i, (sha, lines)) in drawn_commits.iter().enumerate() {
+        members.set(
+            MemberKey::Sample(i),
+            vec![Member::of(commit_ref(sha)).measured(*lines as f64)],
+        );
+    }
+    let samples: Vec<String> = drawn_commits
         .iter()
-        .filter(|(_, lines)| *lines <= cap)
         .map(|(sha, _)| commit_ref(sha))
         .collect();
     let refs = sample_refs(samples, &mut RefBudget::new());
@@ -794,7 +1018,15 @@ pub(crate) fn commit_size(
         "values": drawn,
         "refs": refs,
     });
-    Ok(charted(summary, spec, args))
+    let source = SourceArgs::window(&window).maybe("path", path);
+    Ok(charted(
+        summary,
+        spec,
+        args,
+        "commit-size",
+        Some(source),
+        members,
+    ))
 }
 
 /// A built velocity chart, and what the summary line reports of it.
@@ -804,19 +1036,22 @@ struct VelocityChart {
     left_out: usize,
     total: i64,
     median: f64,
+    members: MemberTable,
 }
 
 /// Lines per week as an area, empty weeks included, with a rule at the median
 /// week. `net` draws added minus removed in place of added plus removed.
-/// Each week carries its days' commits in `refs`, parallel to `x`.
+/// Each week carries its days' commits in `refs`, parallel to `x`, and in
+/// the member table, each measured as the week is.
 fn velocity_chart(
-    stats: &[DayStat],
+    commits: &[CommitLines],
     net: bool,
     title: &str,
     subtitle: &str,
 ) -> Option<VelocityChart> {
+    let stats = day_stats(commits);
     let mut by_week: HashMap<NaiveDate, (i64, Vec<String>)> = HashMap::new();
-    for stat in stats {
+    for stat in &stats {
         let Ok(day) = NaiveDate::parse_from_str(&stat.day, "%Y-%m-%d") else {
             continue;
         };
@@ -846,11 +1081,20 @@ fn velocity_chart(
     let as_f64: Vec<f64> = values.iter().map(|lines| *lines as f64).collect();
     let middle = median(&as_f64)?;
     let name = if net { "net lines" } else { "lines changed" };
+    let lines = |c: &CommitLines| {
+        if net {
+            c.added as f64 - c.deleted as f64
+        } else {
+            c.lines() as f64
+        }
+    };
+    let members = measured_rows(&axis, commits, week_start, lines, name);
     Some(VelocityChart {
         weeks: axis.len(),
         left_out,
         total: values.iter().sum(),
         median: middle,
+        members,
         spec: json!({
             "tugchart": 1,
             "form": "area",
@@ -873,17 +1117,16 @@ pub(crate) fn velocity(
     if let Some(answer) = git_gate(ctx) {
         return Ok(answer);
     }
-    let days = args.days.unwrap_or(DEFAULT_VELOCITY_DAYS);
     let path = args.path.as_deref();
-    let range = window(days, path);
-    let stats = numstat_by_day(&ctx.repo_root, days, path).map_err(RecipeError::Git)?;
+    let (window, range) = span(args, DEFAULT_VELOCITY_DAYS);
+    let commits = numstat_commits_in(&ctx.repo_root, &window, path).map_err(RecipeError::Git)?;
     let base = if args.net {
         "Net lines per week"
     } else {
         "Lines changed per week"
     };
     let title = titled(base, path);
-    let Some(chart) = velocity_chart(&stats, args.net, &title, &range) else {
+    let Some(chart) = velocity_chart(&commits, args.net, &title, &range) else {
         return Ok(no_commits(&range));
     };
     let noun = if args.net {
@@ -898,14 +1141,26 @@ pub(crate) fn velocity(
         chart.median,
         left_out_older(chart.left_out, "week")
     );
-    Ok(charted(summary, chart.spec, args))
+    let source = SourceArgs::window(&window)
+        .with("net", args.net)
+        .maybe("path", path);
+    Ok(charted(
+        summary,
+        chart.spec,
+        args,
+        "velocity",
+        Some(source),
+        chart.members,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::test_support::assert_valid;
+    use crate::context::test_support::{assert_source, assert_valid};
+    use crate::members::{Address, Resolved, args_from_source, resolve};
     use tugcore::test_fixtures::git::{GitFixture, git};
+    use tuggraphics::chart::{Layers, Source};
 
     #[test]
     fn commits_per_day_fills_the_zero_days_and_validates() {
@@ -1025,15 +1280,23 @@ mod tests {
         assert_valid(&chart.spec);
     }
 
-    fn stat(day: &str, added: u64, deleted: u64) -> DayStat {
-        DayStat {
+    /// One commit on `day`, its sha the day's digits.
+    fn stat(day: &str, added: u64, deleted: u64) -> CommitLines {
+        CommitLines {
+            sha: day.replace('-', ""),
             day: day.to_string(),
             added,
             deleted,
-            commits: 1,
-            // One commit a day, its sha the day's digits.
-            shas: vec![day.replace('-', "")],
         }
+    }
+
+    /// The sum of a row's measures, which is what the row's bar draws.
+    fn row_sum(table: &MemberTable, row: usize) -> f64 {
+        table
+            .get(MemberKey::Row(row))
+            .iter()
+            .map(|m| m.measure.unwrap())
+            .sum()
     }
 
     #[test]
@@ -1065,6 +1328,16 @@ mod tests {
                 "commit:20261019"
             ])
         );
+        // And the table's members, each measured as the week is, sum to it.
+        assert_eq!(
+            chart.members.measure,
+            Some(("lines changed".to_string(), "count".to_string()))
+        );
+        for (row, value) in [16.0, 0.0, 150.0].into_iter().enumerate() {
+            assert_eq!(row_sum(&chart.members, row), value, "week {row}");
+        }
+        assert_eq!(chart.members.get(MemberKey::Row(0)).len(), 2);
+        assert!(chart.members.get(MemberKey::Row(1)).is_empty());
         assert!(velocity_chart(&[], false, "t", "s").is_none());
     }
 
@@ -1077,6 +1350,12 @@ mod tests {
         assert_eq!(chart.spec["series"][0]["values"], json!([8, -8]));
         assert_eq!(chart.total, 0);
         assert_eq!(chart.median, 0.0);
+        assert_eq!(
+            chart.members.measure,
+            Some(("net lines".to_string(), "count".to_string()))
+        );
+        assert_eq!(row_sum(&chart.members, 0), 8.0);
+        assert_eq!(row_sum(&chart.members, 1), -8.0);
     }
 
     #[test]
@@ -1098,7 +1377,10 @@ mod tests {
         let buckets = weekdays(&[at("2026-10-29T23:30:00-07:00"), at("not a time")]).unwrap();
         let counts: Vec<usize> = buckets.iter().map(Vec::len).collect();
         assert_eq!(counts, [0, 0, 0, 1, 0, 0, 0]);
-        assert_eq!(buckets[3], vec!["commit:abc1234"]);
+        assert_eq!(
+            buckets[3],
+            vec![("commit:abc1234".to_string(), "2026-10-29".to_string())]
+        );
         assert!(weekdays(&[at("not a time")]).is_none());
     }
 
@@ -1114,23 +1396,18 @@ mod tests {
 
     #[test]
     fn a_churn_chart_stacks_added_and_removed_over_filled_days() {
-        let stats = [
-            DayStat {
-                day: "2026-10-28".to_string(),
-                added: 5,
-                deleted: 1,
-                commits: 2,
-                shas: vec!["aaa1111".to_string(), "bbb2222".to_string()],
-            },
-            DayStat {
-                day: "2026-10-30".to_string(),
-                added: 0,
-                deleted: 7,
-                commits: 1,
-                shas: vec!["ccc3333".to_string()],
-            },
+        let commit = |sha: &str, day: &str, added, deleted| CommitLines {
+            sha: sha.to_string(),
+            day: day.to_string(),
+            added,
+            deleted,
+        };
+        let commits = [
+            commit("aaa1111", "2026-10-28", 5, 0),
+            commit("bbb2222", "2026-10-28", 0, 1),
+            commit("ccc3333", "2026-10-30", 0, 7),
         ];
-        let chart = churn_chart(&stats, "t", "s").unwrap();
+        let chart = churn_chart(&commits, "t", "s").unwrap();
         assert_eq!(chart.days, 3);
         assert_eq!(chart.spec["layout"], "stacked");
         assert_eq!(chart.spec["series"][0]["name"], "added");
@@ -1144,6 +1421,32 @@ mod tests {
             json!([["commit:aaa1111", "commit:bbb2222"], null, "commit:ccc3333"])
         );
         assert_valid(&chart.spec);
+        // The table measures each commit's lines, and a row's members sum to
+        // the day's added plus removed.
+        assert_eq!(
+            chart.members.measure,
+            Some(("lines".to_string(), "count".to_string()))
+        );
+        let day = chart.members.get(MemberKey::Row(0));
+        assert_eq!(day.len(), 2);
+        assert_eq!(day[0], Member::of("commit:aaa1111").measured(5.0));
+        assert_eq!(day[1], Member::of("commit:bbb2222").measured(1.0));
+        for (row, (added, removed)) in [(5.0, 1.0), (0.0, 0.0), (0.0, 7.0)].into_iter().enumerate()
+        {
+            assert_eq!(row_sum(&chart.members, row), added + removed, "day {row}");
+        }
+        // Pressed with a column: a per-row set answers for either series.
+        let address = Address {
+            row: 0,
+            label: "2026-10-28".to_string(),
+            col: Some(1),
+            series: Some("removed".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve(&chart.spec, &chart.members, &address),
+            Resolved::Members(day.to_vec())
+        );
     }
 
     #[test]
@@ -1283,22 +1586,116 @@ mod tests {
                 sha: "bbb2222".to_string(),
                 ..at("2026-10-30T06:30:00+00:00")
             },
+            LogEntry {
+                sha: "ccc3333".to_string(),
+                date: "2026-10-27".to_string(),
+                ..at("2026-10-27T23:45:00-07:00")
+            },
+            LogEntry {
+                sha: "ddd4444".to_string(),
+                date: "2026-10-31".to_string(),
+                ..at("2026-10-31T23:05:00-07:00")
+            },
             at("not a time"),
         ])
         .unwrap();
-        assert_eq!(buckets[23], vec!["commit:aaa1111"]);
-        assert_eq!(buckets[6], vec!["commit:bbb2222"]);
-        assert_eq!(buckets.iter().map(Vec::len).sum::<usize>(), 2);
-        let spec = hours_chart(buckets, "t", "s");
-        assert_eq!(spec["values"][23], 1);
+        assert_eq!(buckets[23].len(), 3);
+        assert_eq!(
+            buckets[6],
+            vec![("commit:bbb2222".to_string(), "2026-10-29".to_string())]
+        );
+        assert_eq!(buckets.iter().map(Vec::len).sum::<usize>(), 4);
+        let (spec, members) = hours_chart(buckets, "t", "s");
+        assert_eq!(spec["values"][23], 3);
         assert_eq!(spec["values"][0], 0);
         // The strip's refs are parallel to its hours.
         assert_eq!(spec["refs"].as_array().unwrap().len(), 24);
-        assert_eq!(spec["refs"][23], "commit:aaa1111");
+        assert_eq!(
+            spec["refs"][23],
+            json!(["commit:aaa1111", "commit:ccc3333", "commit:ddd4444"])
+        );
         assert_eq!(spec["refs"][6], "commit:bbb2222");
         assert_eq!(spec["refs"][0], Value::Null);
         assert_valid(&spec);
+        // The hour's members carry their day as a group, newest day first.
+        assert_eq!(
+            members.get(MemberKey::Row(23)),
+            [
+                Member::of("commit:ddd4444").grouped("2026-10-31"),
+                Member::of("commit:aaa1111").grouped("2026-10-29"),
+                Member::of("commit:ccc3333").grouped("2026-10-27"),
+            ]
+        );
+        assert!(members.get(MemberKey::Row(0)).is_empty());
         assert!(hours(&[at("not a time")]).is_none());
+    }
+
+    #[test]
+    fn a_bucket_past_the_set_limit_is_a_count_in_the_spec_and_a_list_in_the_table() {
+        let entries: Vec<LogEntry> = (0..101)
+            .map(|i| sha_entry(&format!("{i:07x}"), "2026-10-29"))
+            .collect();
+        let chart = commits_chart(&entries, Bucket::Day, "t", "s").unwrap();
+        assert_eq!(
+            chart.spec["refs"][0],
+            json!({ "kind": "commit", "count": 101 })
+        );
+        let members = chart.members.get(MemberKey::Row(0));
+        assert_eq!(members.len(), 101);
+        assert_eq!(members[0].r#ref.as_deref(), Some("commit:0000000"));
+        assert_eq!(members[100].r#ref.as_deref(), Some("commit:0000064"));
+        assert!(members.iter().all(|m| m.measure.is_none()));
+    }
+
+    #[test]
+    fn a_kind_cell_is_the_days_commits_of_that_kind_and_a_whole_row_names_each_series() {
+        let entries = [
+            LogEntry {
+                sha: "aaa1111".to_string(),
+                ..entry("feat: x", "2026-10-29")
+            },
+            LogEntry {
+                sha: "bbb2222".to_string(),
+                ..entry("fix: y", "2026-10-29")
+            },
+            LogEntry {
+                sha: "ccc3333".to_string(),
+                ..entry("feat: z", "2026-10-30")
+            },
+        ];
+        let KindChart { chart, .. } = kinds_chart(&entries, "t", "s").unwrap();
+        let cell = |row, col| chart.members.get(MemberKey::Cell { row, col }).to_vec();
+        assert_eq!(cell(0, 0), vec![Member::of("commit:aaa1111")]);
+        assert_eq!(cell(0, 1), vec![Member::of("commit:bbb2222")]);
+        assert_eq!(cell(1, 0), vec![Member::of("commit:ccc3333")]);
+        assert!(cell(1, 1).is_empty());
+        assert!(chart.members.get(MemberKey::Row(0)).is_empty());
+        // A column press is its cell; a whole-row press is every cell with
+        // the series it came from.
+        let address = Address {
+            row: 0,
+            label: "2026-10-29".to_string(),
+            series: Some("fix".to_string()),
+            col: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve(&chart.spec, &chart.members, &address),
+            Resolved::Members(vec![Member::of("commit:bbb2222")])
+        );
+        let whole = Address {
+            whole_row: true,
+            series: None,
+            col: None,
+            ..address
+        };
+        assert_eq!(
+            resolve(&chart.spec, &chart.members, &whole),
+            Resolved::Members(vec![
+                Member::of("commit:aaa1111").grouped("feat"),
+                Member::of("commit:bbb2222").grouped("fix"),
+            ])
+        );
     }
 
     #[test]
@@ -1346,11 +1743,35 @@ mod tests {
                 .unwrap()
                 .run(&ctx, &RecipeArgs::default())
                 .unwrap();
-            let RecipeOutcome::Chart { spec, summary } = outcome else {
+            let RecipeOutcome::Chart {
+                spec,
+                summary,
+                members,
+            } = outcome
+            else {
                 panic!("{name} found nothing to draw");
             };
             assert_valid(&spec);
             assert!(!summary.is_empty());
+            // A commit-set recipe's table holds HEAD where it counted it;
+            // a path recipe has no sets.
+            let in_table = members
+                .sets
+                .values()
+                .flatten()
+                .any(|m| m.r#ref.as_deref() == Some(head_ref.as_str()));
+            if matches!(name, "hotspots" | "landed") {
+                assert!(members.sets.is_empty(), "{name}");
+            } else {
+                assert!(in_table, "{name}: {members:?}");
+            }
+            // Every commit recipe stamps its source; `landed` over the
+            // working tree alone has no absolute spelling and stamps none.
+            if name == "landed" {
+                assert!(spec.get("source").is_none(), "{spec}");
+            } else {
+                assert_source(&spec, name);
+            }
             // A commit-set recipe puts HEAD's own sha where it counted it.
             if !matches!(name, "hotspots" | "landed") {
                 let text = serde_json::to_string(&spec).unwrap();
@@ -1378,7 +1799,7 @@ mod tests {
             ..Default::default()
         };
         let outcome = crate::find("churn").unwrap().run(&ctx, &args).unwrap();
-        let RecipeOutcome::Chart { spec, summary } = outcome else {
+        let RecipeOutcome::Chart { spec, summary, .. } = outcome else {
             panic!("churn under a found nothing to draw");
         };
         assert_eq!(spec["title"], "Named");
@@ -1388,6 +1809,161 @@ mod tests {
             "{summary}"
         );
         assert!(summary.ends_with("under a"), "{summary}");
+        assert_eq!(spec["source"]["args"]["path"], "a");
+
+        // `landed` over a range stamps the range with both ends resolved.
+        let args = RecipeArgs {
+            range: Some("HEAD~1..HEAD".to_string()),
+            ..Default::default()
+        };
+        let outcome = crate::find("landed").unwrap().run(&ctx, &args).unwrap();
+        let RecipeOutcome::Chart { spec, .. } = outcome else {
+            panic!("landed over a range found nothing to draw");
+        };
+        assert_source(&spec, "landed");
+        let range = spec["source"]["args"]["range"].as_str().unwrap();
+        let (from, to) = range.split_once("..").unwrap();
+        assert_eq!(to, head.trim());
+        assert_eq!(from, git(&root, &["rev-parse", "--short", "HEAD~1"]).trim());
+        assert_eq!(spec["source"]["args"]["depth"], 1);
+    }
+
+    #[test]
+    fn a_source_re_runs_the_same_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        GitFixture::init(&root);
+        for (n, name) in ["one", "two", "three"].iter().enumerate() {
+            std::fs::write(root.join(format!("{name}.txt")), "x\n".repeat(n + 1)).unwrap();
+            git(&root, &["add", "-A"]);
+            git(&root, &["commit", "-q", "-m", &format!("feat: {name}")]);
+        }
+        let ctx = RecipeContext::for_project(&root);
+        let recipe = crate::find("commits").unwrap();
+        let args = RecipeArgs {
+            days: Some(30),
+            ..Default::default()
+        };
+        let RecipeOutcome::Chart {
+            spec: first,
+            members,
+            ..
+        } = recipe.run(&ctx, &args).unwrap()
+        else {
+            panic!("commits found nothing to draw");
+        };
+        assert_eq!(first["subtitle"], "last 30 days");
+        // One day of three commits: the bar's slot and the table's row hold
+        // the same three, in the same order.
+        assert_eq!(first["categories"].as_array().unwrap().len(), 1);
+        let slot: Vec<String> = first["refs"][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(slot.len(), 3);
+        let row: Vec<String> = members
+            .get(MemberKey::Row(0))
+            .iter()
+            .map(|m| m.r#ref.clone().unwrap())
+            .collect();
+        assert_eq!(row, slot);
+        let address = Address {
+            row: 0,
+            label: first["categories"][0].as_str().unwrap().to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve(&first, &members, &address),
+            Resolved::Members(members.get(MemberKey::Row(0)).to_vec())
+        );
+        let stamped = first["source"]["args"].as_object().unwrap();
+        let again = args_from_source(recipe, stamped).unwrap();
+        assert_eq!(
+            again.since.as_deref(),
+            Some(stamped["since"].as_str().unwrap())
+        );
+        assert_eq!(again.by.as_deref(), Some("day"));
+        let RecipeOutcome::Chart { spec: second, .. } = recipe.run(&ctx, &again).unwrap() else {
+            panic!("the re-run found nothing to draw");
+        };
+        // The subtitle names the window by its dates on a re-run, by design;
+        // everything else, the source included, is the same.
+        assert!(
+            second["subtitle"].as_str().unwrap().contains(" to "),
+            "{}",
+            second["subtitle"]
+        );
+        let mut first = first;
+        let mut second = second;
+        first.as_object_mut().unwrap().remove("subtitle");
+        second.as_object_mut().unwrap().remove("subtitle");
+        assert_eq!(first, second);
+    }
+
+    /// A pressed histogram bin names the commits of its samples, binned as
+    /// the engine bins them, smallest first.
+    #[test]
+    fn a_commit_size_bin_resolves_to_its_commits_sorted_by_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        GitFixture::init(&root);
+        for (n, lines) in [1usize, 2, 3, 10, 11, 12].into_iter().enumerate() {
+            std::fs::write(root.join(format!("f{n}.txt")), "x\n".repeat(lines)).unwrap();
+            git(&root, &["add", "-A"]);
+            git(&root, &["commit", "-q", "-m", &format!("size {lines}")]);
+        }
+        let ctx = RecipeContext::for_project(&root);
+        let recipe = crate::find("commit-size").unwrap();
+        let RecipeOutcome::Chart { spec, members, .. } =
+            recipe.run(&ctx, &RecipeArgs::default()).unwrap()
+        else {
+            panic!("commit-size found nothing to draw");
+        };
+        assert_eq!(
+            members.measure,
+            Some(("lines changed".to_string(), "count".to_string()))
+        );
+        // One sample per drawn commit, each its own member.
+        let drawn = spec["values"].as_array().unwrap().len();
+        assert_eq!(drawn, 6);
+        for i in 0..drawn {
+            let sample = members.get(MemberKey::Sample(i));
+            assert_eq!(sample.len(), 1, "sample {i}");
+            assert_eq!(sample[0].measure, spec["values"][i].as_f64(), "sample {i}");
+        }
+        let text = spec.to_string();
+        let Source::Chart(validated) = tuggraphics::validate(&text, Layers::Chart).unwrap() else {
+            panic!("not a chart");
+        };
+        let (labels, bins) = tuggraphics::chart::histogram_bins(&validated).unwrap();
+        let mut seen = 0;
+        for (row, label) in labels.iter().enumerate() {
+            let address = Address {
+                row,
+                label: label.clone(),
+                ..Default::default()
+            };
+            let Resolved::Members(found) = resolve(&spec, &members, &address) else {
+                panic!("bin {label} moved");
+            };
+            assert_eq!(found.len(), bins[row].len(), "bin {label}");
+            let sizes: Vec<f64> = found.iter().map(|m| m.measure.unwrap()).collect();
+            assert!(
+                sizes.windows(2).all(|w| w[0] <= w[1]),
+                "bin {label}: {sizes:?}"
+            );
+            seen += found.len();
+        }
+        assert_eq!(seen, drawn);
+        // A bin the chart no longer has is a move, not an empty list.
+        let gone = Address {
+            row: 0,
+            label: "nowhere".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(resolve(&spec, &members, &gone), Resolved::Moved);
     }
 
     #[test]
@@ -1475,7 +2051,7 @@ mod tests {
             ("commit-kinds", "x"),
         ] {
             let outcome = crate::find(name).unwrap().run(&ctx, &args).unwrap();
-            let RecipeOutcome::Chart { spec, summary } = outcome else {
+            let RecipeOutcome::Chart { spec, summary, .. } = outcome else {
                 panic!("{name} found nothing to draw");
             };
             assert_eq!(spec[axis].as_array().unwrap().len(), 3, "{name}");

@@ -60,6 +60,7 @@ import "../components/tugways/internal/tug-progress-wave.css";
 import "../components/tugways/session-identity-row.css";
 import "../components/tugways/tug-markdown-block.css";
 import "../components/tugways/body-kinds/chart-block.css";
+import "../components/tugways/chart-ref-report.css";
 import "../components/tugways/use-read-only-text-surface.css";
 import "../components/tugways/tug-commit-atom.css";
 import "../components/tugways/arc-lifecycle-mark.css";
