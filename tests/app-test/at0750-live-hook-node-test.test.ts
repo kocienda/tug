@@ -17,11 +17,14 @@
  *      call open exactly as it would a model's, so the call is a run that a
  *      report can attach to.
  *   2. The bundle's own `hooks/pre-tool-use.sh` is handed the payload Claude
- *      Code would hand it, and rewrites the command — the call's id
- *      exported, the runner inside the bundle's `tugtool test run`.
- *   3. The rewritten command runs as the call's shell would, with the
- *      session's `TUG_SESSION_ID`, so its reports go to the instance under
- *      test and attach to the call by its id.
+ *      Code would hand it. It allows the call and rewrites the command — the
+ *      runner inside the bundle's `tugtool test run`, and nothing else added
+ *      — and records the call's id beside it, under the process it takes
+ *      for `claude` (this test, by `CLAUDE_PID`) ([D233]).
+ *   3. The rewritten command runs as the call's shell would, a child of
+ *      that process, with the session's `TUG_SESSION_ID`, so the run finds
+ *      its id in the call's record and its reports go to the instance under
+ *      test and attach to the call.
  *
  * Then the call returns, and the block settles as the run it was: its strip
  * says PASS over `2/2 tests`, and expanded it is the finished panel. A test
@@ -42,7 +45,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -170,6 +173,10 @@ describe.skipIf(!SHOULD_RUN)("AT0750: the live hook gives a bare node --test its
         CLAUDE_PLUGIN_ROOT: pluginRoot,
         TUG_SESSION_ID: tugSessionId,
         TUG_TEST_RESULTS_DB: join(scratch, "test_results.db"),
+        // This process stands in for `claude`: the hook records the call
+        // under it, and the call's shell is spawned from it.
+        CLAUDE_PID: String(process.pid),
+        TUG_CALLS_DIR: join(scratch, "calls"),
       };
       delete shellEnv.TUG_TOOL_USE_ID;
 
@@ -200,18 +207,25 @@ describe.skipIf(!SHOULD_RUN)("AT0750: the live hook gives a bare node --test its
           }),
         });
         expect(hook.code, hook.err).toBe(0);
-        const rewritten: string = JSON.parse(hook.out).hookSpecificOutput.updatedInput.command;
+        const answer = JSON.parse(hook.out).hookSpecificOutput;
+        const rewritten: string = answer.updatedInput.command;
         note(`at0750 the hook's command: ${rewritten}`);
-        expect(rewritten.startsWith(`# tug-call: ${USE_ID}\n`), "the call carries its id").toBe(true);
-        expect(rewritten, "the runner runs inside the bundle's own tugtool").toContain(
-          `${join(macos, "tugtool")} test run `,
-        );
+        expect(answer.permissionDecision, "a changed input arrives decided").toBe("allow");
+        expect(rewritten.includes(USE_ID), "the call's id is never in the command").toBe(false);
+        expect(
+          rewritten.startsWith(`${join(macos, "tugtool")} test run `),
+          "the runner runs inside the bundle's own tugtool",
+        ).toBe(true);
         expect(rewritten.endsWith(` -- ${COMMAND}`), "the runner as typed").toBe(true);
+        expect(
+          readFileSync(join(scratch, "calls", String(process.pid), USE_ID), "utf8"),
+          "the call is recorded as the command that will run",
+        ).toBe(rewritten);
 
-        // The call's shell runs it. The run reads its call id from this
-        // shell's argv (`tugcore::call_id`), so the shell has to persist:
-        // `sh -c` with one simple command execs it in its own place, argv and
-        // mark gone, and Claude Code's own wrapper is a `&&` chain.
+        // The call's shell runs it. The run finds its call by this shell's
+        // argv (`tugcore::call_id`), so the shell has to persist: `sh -c`
+        // with one simple command execs it in its own place, argv gone, and
+        // Claude Code's own wrapper is a `&&` chain.
         const ran = spawn(["/bin/sh", "-c", `${rewritten} && :`], { cwd: project, env: shellEnv });
         note(`at0750 the run exited ${ran.code}`);
         expect(ran.code, ran.err).toBe(0);

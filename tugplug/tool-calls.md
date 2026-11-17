@@ -82,7 +82,7 @@ match = "scripts/run-suites"
 unit = "file"
 ```
 
-A row with a `kind` is wrapped in `tugtool test run` (rung 3 below); a row with only a `unit` names a command that reports for itself (rung 2), and the hook passes it the call's id so its reports reach the right block.
+A row with a `kind` is wrapped in `tugtool test run` (rung 3 below); a row with only a `unit` names a command that reports for itself (rung 2), and the hook records the call's id, changing nothing in the command, so its reports reach the right block.
 
 **2. A loop over items reports each one.** A script that walks files, targets or suites says so with `tugtool report unit`, one line per move, and builds no JSON:
 

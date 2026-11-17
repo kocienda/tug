@@ -1,16 +1,15 @@
 /**
- * The hook's mark on every readable Bash call, and how the block reads
- * past it.
+ * The call mark a Bash command may open with, and how the block reads past
+ * it.
  *
- * `tugtool hook pre-tool-use` rewrites every Bash call it can read to open
- * with a `# tug-call: <id>` line — a comment the shell ignores and Claude
- * Code's permission check reads past, which rides into the argv of the shell
- * that runs the call, so whatever the call runs — a recipe, a nested `just`,
- * a probe's child — reads its id back and reports to this call's block
- * exactly. The mark is the hook's, not the model's, so the block elides its
- * own id's mark from the command it shows and copies: the header reads what
- * the model wrote. A mark naming another id, or one the model typed itself,
- * is part of the command and stands.
+ * `tugtool hook pre-tool-use` once rewrote every Bash call it could read to
+ * open with a `# tug-call: <id>` line, so whatever the call ran read its id
+ * back from the shell's argv. It no longer does: the id is kept in a call
+ * record beside the command (`tugcore::call_id`, [D233]), because auto mode
+ * refuses a call whose input a hook changed. A transcript recorded while the
+ * hook marked commands still carries the mark, and it was never the model's
+ * own text, so the block elides its own id's mark from the command it shows
+ * and copies. A mark naming another id is part of the command and stands.
  *
  * @module lib/call-id-prefix
  */

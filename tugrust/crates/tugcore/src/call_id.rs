@@ -1,21 +1,36 @@
-//! The call a process runs under: how a Bash call is marked with its id, and
-//! how a child of that call reads the id back.
+//! The call a process runs under: how a Bash call's id is kept, and how a
+//! child of that call reads it back.
 //!
-//! `tugtool hook pre-tool-use` opens every readable Bash command with a
-//! `# tug-call: <id>` line. A comment is the one carrier that is transparent
-//! all the way down: the shell ignores it, Claude Code's permission check
-//! reads past it (since 2.1.311 that check judges the *rewritten* command, and
-//! an `export TUG_TOOL_USE_ID=<id>;` in front made every tagged call ask), and
-//! Claude Code runs the call as `/bin/zsh -c '… eval <command> …'`, so the
-//! marked command stands verbatim in that shell's argv. A `tugtool report`
-//! three processes down — a recipe's step, a probe's child — walks up its
-//! ancestors to that shell and reads the id from the mark
-//! ([`ancestor_call_id`]). A probe or a harness that spawns the child itself
-//! sets `TUG_TOOL_USE_ID` instead, which every reader prefers.
+//! **The id never rides the command Claude Code runs.** `tugtool hook
+//! pre-tool-use` writes a *call record* instead ([`record_call`]): one small
+//! file per Bash call, `<calls-dir>/<claude-pid>/<tool-use-id>`, holding the
+//! command's text. Claude Code runs the call as `/bin/zsh -c '… eval
+//! <command> …'`, a child of the `claude` process, so the command stands in
+//! that shell's argv. A `tugtool report` three processes down — a recipe's
+//! step, a probe's child — walks up its ancestors to the `claude` process
+//! that has a record directory and takes the record whose command one of the
+//! shells on the way carries ([`ancestor_call_id`]).
 //!
-//! Every reader of a call's command — the report-gaps record's head, the
-//! deck's Bash block header — reads past the mark ([`past_call_mark`]), so
-//! what is shown and grouped is what the model wrote.
+//! It was in the command twice before. First as an `export
+//! TUG_TOOL_USE_ID=<id>;`, until Claude Code 2.1.311 judged permission on the
+//! rewritten command and every tagged call asked. Then as a leading
+//! `# tug-call: <id>` comment, until auto mode began refusing any call whose
+//! input a hook changed after its classifier had reviewed it: every call the
+//! classifier saw came back unrun, to be issued a second time. No carrier
+//! inside the input survives a check that compares the input, so the hook
+//! changes a command only where it also allows it (a runner's wrap).
+//!
+//! The mark is still read, and read first: tugcast's engine puts one on the
+//! commands it runs itself (a re-audit's checks, through `tugtool report
+//! rewrite --call`), where no hook wrote a record, and transcripts recorded
+//! while the hook marked commands carry it. A probe or a harness that spawns
+//! the child itself sets `TUG_TOOL_USE_ID` instead, which every reader
+//! prefers. Every reader of a call's command — the report-gaps record's
+//! head, the deck's Bash block header — reads past the mark
+//! ([`past_call_mark`]), so what is shown and grouped is what the model wrote.
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 /// The mark's text up to the id. The line is `# tug-call: <id>` and a newline.
 pub const CALL_MARK: &str = "# tug-call: ";
@@ -57,21 +72,172 @@ pub fn call_id_in(text: &str) -> Option<&str> {
         .find_map(|(at, _)| marked_call_id(&text[at..]))
 }
 
-/// The call the current process runs under, read from the nearest ancestor
-/// whose argv carries a mark. `None` when no ancestor does — a process not
-/// under a Bash call at all — or on a platform this cannot read.
-pub fn ancestor_call_id() -> Option<String> {
+/// Environment variable relocating the call records, for test isolation.
+pub const ENV_CALLS_DIR: &str = "TUG_CALLS_DIR";
+
+/// How long a call record is kept. A Bash call the harness moved to the
+/// background may run two hours, so a record outlives that and no more.
+const RECORD_TTL: Duration = Duration::from_secs(3 * 60 * 60);
+
+/// Where call records live: `<data-dir>/calls`, one directory per `claude`
+/// process. Machine-global, since the reader knows only its ancestors.
+pub fn calls_dir() -> PathBuf {
+    match std::env::var_os(ENV_CALLS_DIR).filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => crate::instance::base_data_dir().join("calls"),
+    }
+}
+
+/// The `claude` process the current process — the hook — runs under: the
+/// `CLAUDE_PID` Claude Code exports when it is an ancestor, else the nearest
+/// ancestor whose executable is named `claude`. `None` outside one.
+pub fn claude_pid() -> Option<i32> {
+    let ancestors = ancestors_of_self();
+    let exported = std::env::var("CLAUDE_PID")
+        .ok()
+        .and_then(|v| v.trim().parse::<i32>().ok());
+    if let Some(pid) = exported
+        && ancestors.iter().any(|(p, _)| *p == pid)
+    {
+        return Some(pid);
+    }
+    ancestors.into_iter().find_map(|(pid, args)| {
+        let exe = args.split_whitespace().next()?;
+        (exe.rsplit('/').next() == Some("claude")).then_some(pid)
+    })
+}
+
+/// Record that the `claude` process `claude_pid` is about to run `command`
+/// as the call `id`, in [`calls_dir`]. The hook's one write, made before the
+/// call's shell exists, so every descendant of that shell finds it.
+pub fn record_call(claude_pid: i32, id: &str, command: &str) -> std::io::Result<()> {
+    record_call_in(&calls_dir(), claude_pid, id, command)
+}
+
+/// [`record_call`] under a given root. Prunes as it goes: this process's
+/// records past [`RECORD_TTL`], and the directory of any `claude` process
+/// that is gone.
+pub fn record_call_in(
+    root: &Path,
+    claude_pid: i32,
+    id: &str,
+    command: &str,
+) -> std::io::Result<()> {
+    if id.is_empty() || !id.chars().all(is_id_char) {
+        return Ok(());
+    }
+    let dir = root.join(claude_pid.to_string());
+    std::fs::create_dir_all(&dir)?;
+    prune(root, &dir);
+    std::fs::write(dir.join(id), command)
+}
+
+fn prune(root: &Path, own: &Path) {
+    let now = SystemTime::now();
+    for entry in std::fs::read_dir(own).into_iter().flatten().flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|at| now.duration_since(at).ok())
+            .is_some_and(|age| age > RECORD_TTL);
+        if old {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let pid = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.parse::<i32>().ok());
+        if let Some(pid) = pid
+            && path != own
+            && !sys::is_alive(pid)
+        {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// A command, or an argv holding one, with everything a shell's quoting adds
+/// or takes away removed: quotes, backslashes and whitespace. Claude Code
+/// single-quotes the command for `eval`, so the two sides agree only here.
+fn unquoted(text: &str) -> String {
+    text.chars()
+        .filter(|c| !matches!(c, '\'' | '"' | '\\') && !c.is_whitespace())
+        .collect()
+}
+
+/// The call recorded for `claude_pid` whose command one of `argvs` carries:
+/// the longest such command, so `ls` is not read into `ls -la`, and the
+/// newest among equals.
+pub fn recorded_call_id(root: &Path, claude_pid: i32, argvs: &[String]) -> Option<String> {
+    let dir = root.join(claude_pid.to_string());
+    let argvs: Vec<String> = argvs.iter().map(|a| unquoted(a)).collect();
+    let now = SystemTime::now();
+    let mut best: Option<(usize, SystemTime, String)> = None;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let Some(id) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Ok(at) = entry.metadata().and_then(|m| m.modified()) else {
+            continue;
+        };
+        if now.duration_since(at).is_ok_and(|age| age > RECORD_TTL) {
+            continue;
+        }
+        let Ok(command) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let needle = unquoted(&command);
+        if needle.is_empty() || !argvs.iter().any(|argv| argv.contains(&needle)) {
+            continue;
+        }
+        let key = (needle.len(), at);
+        if best
+            .as_ref()
+            .is_none_or(|(len, when, _)| key > (*len, *when))
+        {
+            best = Some((key.0, key.1, id));
+        }
+    }
+    best.map(|(_, _, id)| id)
+}
+
+/// The current process's ancestors, nearest first, each with its argv.
+fn ancestors_of_self() -> Vec<(i32, String)> {
+    let mut out = Vec::new();
     let mut pid = std::process::id() as i32;
     for _ in 0..64 {
-        pid = sys::parent_of(pid)?;
-        if pid <= 1 {
-            return None;
+        match sys::parent_of(pid) {
+            Some(parent) if parent > 1 => pid = parent,
+            _ => break,
         }
-        if let Some(args) = sys::args_of(pid)
-            && let Some(id) = call_id_in(&args)
-        {
+        out.push((pid, sys::args_of(pid).unwrap_or_default()));
+    }
+    out
+}
+
+/// The call the current process runs under. Walking up the ancestors: one
+/// whose argv carries a mark names the call outright; one that has a record
+/// directory is the `claude` process, and the call is the record whose
+/// command a shell passed on the way carries. `None` when neither is found —
+/// a process not under a Bash call at all — or on a platform this cannot read.
+pub fn ancestor_call_id() -> Option<String> {
+    let root = calls_dir();
+    let mut argvs: Vec<String> = Vec::new();
+    for (pid, args) in ancestors_of_self() {
+        if let Some(id) = call_id_in(&args) {
             return Some(id.to_string());
         }
+        if !argvs.is_empty()
+            && root.join(pid.to_string()).is_dir()
+            && let Some(id) = recorded_call_id(&root, pid, &argvs)
+        {
+            return Some(id);
+        }
+        argvs.push(args);
     }
     None
 }
@@ -145,6 +311,15 @@ mod sys {
             .collect();
         Some(args.join(" "))
     }
+
+    /// Whether `pid` names a live process: a signal 0 reaches it, or is
+    /// refused for a reason other than its absence.
+    pub fn is_alive(pid: i32) -> bool {
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -154,6 +329,9 @@ mod sys {
     }
     pub fn args_of(_pid: i32) -> Option<String> {
         None
+    }
+    pub fn is_alive(_pid: i32) -> bool {
+        true
     }
 }
 
@@ -215,6 +393,81 @@ mod tests {
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
             stdout.contains("ancestor=toolu_ancestor"),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn a_record_is_matched_through_the_shells_quoting() {
+        let root = tempfile::tempdir().unwrap();
+        let command = "echo \"it's\" $x; ls -la";
+        record_call_in(root.path(), 4242, "toolu_long", command).unwrap();
+        record_call_in(root.path(), 4242, "toolu_short", "ls").unwrap();
+        record_call_in(root.path(), 4242, "toolu_other", "cargo build").unwrap();
+        // Claude Code's argv: the command single-quoted for `eval`, its own
+        // single quote closed, double-quoted and reopened.
+        let argv = "/bin/zsh -c source snap.sh || true && eval 'echo \"it'\"'\"'s\" $x; ls -la' < /dev/null".to_string();
+        assert_eq!(
+            recorded_call_id(root.path(), 4242, std::slice::from_ref(&argv)).as_deref(),
+            Some("toolu_long"),
+            "the longest command an argv carries is the call"
+        );
+        // Another process's records are not this one's.
+        assert_eq!(recorded_call_id(root.path(), 4243, &[argv]), None);
+        // An argv carrying no recorded command names no call.
+        assert_eq!(
+            recorded_call_id(root.path(), 4242, &["/bin/zsh -c make".to_string()]),
+            None
+        );
+        // An id that is not an id word is never a file name.
+        record_call_in(root.path(), 4242, "../escape", "make").unwrap();
+        assert!(!root.path().join("escape").exists());
+    }
+
+    #[test]
+    fn recording_removes_the_records_of_a_process_that_is_gone() {
+        let root = tempfile::tempdir().unwrap();
+        // A pid no process has: past the kernel's ceiling.
+        let gone = 99_999_999;
+        record_call_in(root.path(), gone, "toolu_old", "ls").unwrap();
+        let own = std::process::id() as i32;
+        record_call_in(root.path(), own, "toolu_new", "ls").unwrap();
+        assert!(!root.path().join(gone.to_string()).exists());
+        assert!(root.path().join(own.to_string()).join("toolu_new").exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_child_of_an_unmarked_shell_reads_the_call_from_its_record() {
+        // This test process stands in for `claude`: the record is under its
+        // pid, and the shell it spawns carries the command and no mark.
+        let exe = std::env::current_exe().unwrap();
+        let script = format!(
+            "{} --exact call_id::tests::prints_ancestor_call_id --nocapture --ignored && :",
+            exe.display()
+        );
+        let root = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        record_call_in(
+            root.path(),
+            std::process::id() as i32,
+            "toolu_recorded",
+            &script,
+        )
+        .unwrap();
+        let out = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&script)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", home.path())
+            .env(ENV_CALLS_DIR, root.path())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("ancestor=toolu_recorded"),
             "{stdout}\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
