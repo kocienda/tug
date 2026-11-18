@@ -2042,6 +2042,31 @@ impl SessionLedger {
                 DELETE FROM turn_telemetry WHERE session_id = OLD.session_id;
             END;
 
+            -- A Bash call's report runs as they ended: the JSON array of
+            -- run bodies the block's panels draw from, recorded when the
+            -- call's run closes and given back on replay after the line
+            -- that carried its `tool_result`, so a reloaded card draws the
+            -- finished panel it drew live. Keyed by the globally unique
+            -- `tool_use_id`, so a replay across a rotated line's segments
+            -- finds every call's runs. Like `turn_telemetry`, it lives as
+            -- long as its session and goes with it; nothing else evicts it.
+            CREATE TABLE IF NOT EXISTS settled_runs (
+                tool_use_id TEXT PRIMARY KEY,
+                session_id  TEXT NOT NULL,
+                runs        BLOB NOT NULL,
+                recorded_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS settled_runs_session
+                ON settled_runs(session_id);
+
+            CREATE TRIGGER IF NOT EXISTS settled_runs_cascade_delete_on_session
+            AFTER DELETE ON sessions
+            FOR EACH ROW
+            BEGIN
+                DELETE FROM settled_runs WHERE session_id = OLD.session_id;
+            END;
+
             -- Per-session LIVE-ONLY metadata — the full `system_metadata`
             -- payload Claude Code emits on `session_init` (model with
             -- the `[1m]` suffix, cwd, permissionMode, tools,
@@ -6957,6 +6982,49 @@ impl SessionLedger {
         )?;
         let rows = stmt
             .query_map(params![session_id], turn_telemetry_row_from_query)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Record one call's settled runs: the JSON array of its run bodies.
+    /// `INSERT OR REPLACE` on the call, so a call recorded twice (a moved
+    /// call whose job end follows its first close) keeps the later.
+    pub fn record_settled_runs(
+        &self,
+        tool_use_id: &str,
+        session_id: &str,
+        runs_json: &[u8],
+        recorded_at: i64,
+    ) -> Result<(), LedgerError> {
+        let conn = self.db.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO settled_runs (tool_use_id, session_id, runs, recorded_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![tool_use_id, session_id, runs_json, recorded_at],
+        )?;
+        Ok(())
+    }
+
+    /// The recorded runs of the calls asked for, as `(tool_use_id, runs
+    /// JSON)`; a call with none recorded is absent. One query however many
+    /// ids a replayed line carries.
+    pub fn settled_runs_for(
+        &self,
+        tool_use_ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>)>, LedgerError> {
+        if tool_use_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.db.lock();
+        let marks = vec!["?"; tool_use_ids.len()].join(", ");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT tool_use_id, runs FROM settled_runs WHERE tool_use_id IN ({marks})
+             ORDER BY recorded_at ASC, tool_use_id ASC"
+        ))?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(tool_use_ids.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
@@ -19939,5 +20007,64 @@ mod tests {
                 Finding::Absent => panic!("the finder missed {spelling}, which the ledger answers"),
             }
         }
+    }
+
+    // ── settled runs ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn settled_runs_round_trip_by_call() {
+        let ledger = fresh();
+        ledger
+            .record_settled_runs("toolu_a", "s1", br#"[{"run_id":"r"}]"#, 10)
+            .unwrap();
+        let got = ledger.settled_runs_for(&["toolu_a".to_string()]).unwrap();
+        assert_eq!(got, vec![("toolu_a".to_string(), br#"[{"run_id":"r"}]"#.to_vec())]);
+    }
+
+    #[test]
+    fn recording_a_call_twice_keeps_the_later() {
+        let ledger = fresh();
+        ledger.record_settled_runs("toolu_a", "s1", b"[1]", 10).unwrap();
+        ledger.record_settled_runs("toolu_a", "s1", b"[2]", 20).unwrap();
+        let got = ledger.settled_runs_for(&["toolu_a".to_string()]).unwrap();
+        assert_eq!(got, vec![("toolu_a".to_string(), b"[2]".to_vec())]);
+    }
+
+    #[test]
+    fn trashing_a_session_removes_its_settled_runs() {
+        let ledger = fresh();
+        seed_live(&ledger, "s1", WS_A, "card-1", millis(0));
+        seed_live(&ledger, "s2", WS_A, "card-2", millis(0));
+        ledger.record_settled_runs("toolu_a", "s1", b"[1]", 10).unwrap();
+        ledger.record_settled_runs("toolu_b", "s2", b"[2]", 10).unwrap();
+        {
+            let conn = ledger.db.lock();
+            conn.execute("DELETE FROM sessions WHERE session_id = 's1'", [])
+                .expect("delete session row");
+        }
+        let ids = ["toolu_a".to_string(), "toolu_b".to_string()];
+        let got: Vec<String> = ledger
+            .settled_runs_for(&ids)
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(got, ["toolu_b"], "the trigger took s1's runs and left s2's");
+    }
+
+    #[test]
+    fn settled_runs_for_reads_only_the_ids_asked() {
+        let ledger = fresh();
+        for (id, at) in [("toolu_a", 1), ("toolu_b", 2), ("toolu_c", 3)] {
+            ledger.record_settled_runs(id, "s1", b"[]", at).unwrap();
+        }
+        let got: Vec<String> = ledger
+            .settled_runs_for(&["toolu_c".to_string(), "toolu_a".to_string(), "toolu_z".to_string()])
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(got, ["toolu_a", "toolu_c"]);
+        assert!(ledger.settled_runs_for(&[]).unwrap().is_empty());
     }
 }

@@ -225,18 +225,26 @@ struct PosterState {
 /// the run's output. It keeps only the latest state and posts it on the
 /// [`Throttle`]'s schedule; the first session a post reaches is the one the
 /// run is recorded under.
+///
+/// At stop it always posts once more, saying the run finished: the state
+/// still waiting if there is one, else the last one it posted. A run whose
+/// latest state already went out on the throttle would otherwise end with no
+/// post that says so, and a run that never says it finished is not green.
+/// A run that observed nothing posts nothing.
 struct Poster {
     shared: Arc<(Mutex<PosterState>, Condvar)>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Poster {
-    fn start(post: impl Fn(&Progress) -> Option<String> + Send + 'static) -> Self {
+    fn start(post: impl Fn(&Progress, bool) -> Option<String> + Send + 'static) -> Self {
         let shared = Arc::new((Mutex::new(PosterState::default()), Condvar::new()));
         let theirs = shared.clone();
         let thread = std::thread::spawn(move || {
             let (lock, wake) = &*theirs;
             let mut throttle = Throttle::default();
+            // The last state that went out, for the finishing post at stop.
+            let mut posted: Option<Progress> = None;
             loop {
                 // `last` once the run is over: the state still waiting, if
                 // any, is posted at once — it is the one the block keeps.
@@ -258,12 +266,16 @@ impl Poster {
                 };
                 let Some(progress) = next else {
                     if last {
+                        if let Some(progress) = posted.take() {
+                            post(&progress, true);
+                        }
                         return;
                     }
                     continue;
                 };
-                let reached = post(&progress);
+                let reached = post(&progress, last);
                 throttle.posted(&progress, Instant::now());
+                posted = Some(progress);
                 if let Some(id) = reached {
                     let mut state = lock.lock();
                     if state.session.is_none() {
@@ -304,8 +316,14 @@ impl ProgressSink for Poster {
     }
 }
 
-/// The report a progress state becomes.
-fn report_of(progress: &Progress, label: &str, unit: &str, needles: &[String]) -> RunReport {
+/// The report a progress state becomes; `finished` on the run's last post.
+fn report_of(
+    progress: &Progress,
+    label: &str,
+    unit: &str,
+    needles: &[String],
+    finished: bool,
+) -> RunReport {
     let units: Vec<serde_json::Value> = progress
         .failed
         .iter()
@@ -328,6 +346,8 @@ fn report_of(progress: &Progress, label: &str, unit: &str, needles: &[String]) -
         units: Some(serde_json::Value::Array(units)),
         needles: needles.to_vec(),
         nests: false,
+        finished,
+        run_id: None,
     }
 }
 
@@ -383,8 +403,13 @@ fn sink_for(args: &RunArgs, unit: &str) -> Box<dyn ProgressSink> {
     let label = args.label.clone().unwrap_or_else(|| args.suite.clone());
     let needles = args.needles.clone();
     let unit = unit.to_string();
-    Box::new(Poster::start(move |progress| {
-        post_report(&report_of(progress, &label, &unit, &needles))
+    // One run per wrapped command: every post it makes is that run's.
+    let run_id = crate::report::mint_run_id();
+    Box::new(Poster::start(move |progress, finished| {
+        post_report(&RunReport {
+            run_id: Some(run_id.clone()),
+            ..report_of(progress, &label, &unit, &needles, finished)
+        })
     }))
 }
 
@@ -2066,10 +2091,10 @@ mod tests {
     /// the second is never posted, and a failure goes out without waiting.
     #[test]
     fn the_poster_drops_intermediate_states_and_posts_a_failure_at_once() {
-        let posts: Arc<Mutex<Vec<Progress>>> = Arc::default();
+        let posts: Arc<Mutex<Vec<(Progress, bool)>>> = Arc::default();
         let seen = posts.clone();
-        let mut poster = Poster::start(move |p| {
-            seen.lock().push(p.clone());
+        let mut poster = Poster::start(move |p, finished| {
+            seen.lock().push((p.clone(), finished));
             Some("seg-1".to_string())
         });
         let wait_for = |n: usize| {
@@ -2087,7 +2112,47 @@ mod tests {
         poster.observe(&state(4, 1));
         wait_for(2);
         assert_eq!(poster.finish(), Some("seg-1".to_string()));
-        assert_eq!(*posts.lock(), vec![state(1, 0), state(4, 1)]);
+        assert_eq!(
+            *posts.lock(),
+            vec![
+                (state(1, 0), false),
+                (state(4, 1), false),
+                (state(4, 1), true)
+            ],
+            "the states between were dropped; the stop says the run finished"
+        );
+    }
+
+    /// The stop always posts, saying the run finished — even when the
+    /// latest state already went out and nothing was waiting.
+    #[test]
+    fn a_poster_says_finished_on_its_last_post_even_when_nothing_was_waiting() {
+        let posts: Arc<Mutex<Vec<(Progress, bool)>>> = Arc::default();
+        let seen = posts.clone();
+        let mut poster = Poster::start(move |p, finished| {
+            seen.lock().push((p.clone(), finished));
+            None
+        });
+        poster.observe(&state(1, 0));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while posts.lock().is_empty() {
+            assert!(Instant::now() < deadline, "the poster never posted");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        poster.finish();
+        assert_eq!(
+            *posts.lock(),
+            vec![(state(1, 0), false), (state(1, 0), true)]
+        );
+        // A run that observed nothing posts nothing.
+        let quiet: Arc<Mutex<Vec<bool>>> = Arc::default();
+        let heard = quiet.clone();
+        let mut poster = Poster::start(move |_, finished| {
+            heard.lock().push(finished);
+            None
+        });
+        poster.finish();
+        assert!(quiet.lock().is_empty());
     }
 
     #[test]
@@ -2097,7 +2162,7 @@ mod tests {
             total: Some(10998),
             ..state(120, 2)
         };
-        let bun = report_of(&counted, "bun test · tugdeck", "test", &needles);
+        let bun = report_of(&counted, "bun test · tugdeck", "test", &needles, false);
         assert_eq!(bun.text, "t120");
         assert_eq!(
             (bun.done, bun.total, bun.failures),
@@ -2106,7 +2171,7 @@ mod tests {
         assert_eq!(bun.needles, needles);
 
         // No count from the runner: no total, whatever the history says.
-        let filtered = report_of(&state(5, 0), "bun test · tugdeck", "test", &needles);
+        let filtered = report_of(&state(5, 0), "bun test · tugdeck", "test", &needles, false);
         assert_eq!((filtered.done, filtered.total), (Some(5), None));
     }
 
@@ -2162,7 +2227,7 @@ mod tests {
         ] {
             follow.feed(line.as_bytes());
         }
-        let report = report_of(&follow.progress, "rust", "test", &[]);
+        let report = report_of(&follow.progress, "rust", "test", &[], false);
         assert_eq!(report.unit.as_deref(), Some("test"));
         assert_eq!(
             report.units,

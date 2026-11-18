@@ -360,6 +360,7 @@ export interface IngestProgressPatch {
   payload:
     | { op: "heartbeat"; toolUseId: string; elapsedSeconds: number; nowMs: number }
     | { op: "report"; frame: unknown; nowMs: number; runningJob: boolean }
+    | { op: "restore"; toolUseId: string; runs: unknown[]; nowMs: number }
     | { op: "close"; toolUseId: string }
     | { op: "clear" };
 }

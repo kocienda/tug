@@ -28,6 +28,12 @@
  * "unattached" tag, the reason in the tag's title on a test build, and the
  * JOBS placard lists the session's dark calls from tugcast's gaps record.
  *
+ * A run whose plan repeats an item draws a cell per copy, each named by its
+ * ordinal (`a`, `a #2`), and ends with every cell filled, the count whole
+ * and the strip green once its reporter said it finished. A frame that
+ * arrives late with a lower `seq` than the one the run holds cannot take a
+ * landed cell back to running.
+ *
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
  * @covers tugdeck/src/components/tugways/cards/blocks/report-panel.tsx
  * @covers tugdeck/src/lib/report-panel-model.ts
@@ -63,6 +69,9 @@ const GREEN_ID = `${SID}-tc3`;
 const GREEN_STRIP = `[data-slot="bash-tool-block"][data-tool-use-id="${GREEN_ID}"] [data-slot="bash-report-strip"]`;
 const UNATTACHED = '[data-slot="session-jobs-popover-unattached"]';
 const DARK_CALL = '[data-slot="session-jobs-popover-dark-call"]';
+const REPEAT_ID = `${SID}-tc4`;
+const REPEAT_BLOCK = `[data-slot="bash-tool-block"][data-tool-use-id="${REPEAT_ID}"]`;
+const REPEAT_RUN = `${SID}-run-repeat`;
 
 function frame(app: App, decoded: Record<string, unknown>): Promise<unknown> {
   return app.driveSession("A", {
@@ -405,6 +414,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
             { name: "at0310-file-view-open", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
             { name: "at0360-session-identity-menu", status: "pass", index: 1, passed: 3, total: 3, secs: 7, median: 7 },
           ],
+          finished: true,
         });
         await frame(app, { type: "tool_result", tool_use_id: GREEN_ID, is_error: false, output: "VERDICT: PASS" });
         await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(GREEN_STRIP)})`, {
@@ -413,6 +423,79 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
         expect(await text(card, GREEN_STRIP)).toContain("PASS");
         expect(await count(card, `${GREEN_STRIP} .tug-report-panel-cell`), "a green strip keeps its completed track").toBe(2);
         expect(await count(card, `${GREEN_STRIP} [data-slot="tug-report-panel-red"]`)).toBe(0);
+
+        // A plan that repeats an item: a cell per copy, every one filled by
+        // the end, and a late frame cannot take a landed cell back.
+        await frame(app, {
+          type: "tool_use",
+          msg_id: `${SID}-m4`,
+          tool_use_id: REPEAT_ID,
+          tool_name: "Bash",
+          input: { command: "scripts/run-suites a a b" },
+          seq: 4,
+        });
+        const NAMES = ["a", "a #2", "b"];
+        const repeat = (seq: number, statuses: string[], extra: Record<string, unknown> = {}) =>
+          frame(app, {
+            type: "report",
+            tool_use_id: REPEAT_ID,
+            run_id: REPEAT_RUN,
+            seq,
+            label: "suites",
+            text: `${statuses.filter((s) => s === "pass").length} landed`,
+            done: statuses.filter((s) => s === "pass").length,
+            total: 3,
+            unit: "file",
+            units: NAMES.map((name, index) => ({ name, status: statuses[index], index })),
+            ...extra,
+          });
+        await repeat(1, ["pending", "pending", "pending"]);
+        await repeat(2, ["running", "pending", "pending"]);
+        await repeat(3, ["pass", "pending", "pending"]);
+        const REPEAT_PANEL = `${REPEAT_BLOCK} [data-slot="tug-report-panel"]`;
+        const FIRST_CELL = `${REPEAT_PANEL} [data-slot="tug-report-panel-track"] .tug-report-panel-cell`;
+        await card.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(FIRST_CELL)}) || { getAttribute: () => null }).getAttribute("data-status") === "pass"`,
+          { timeoutMs: 10_000 },
+        );
+        // The stale frame, then a fresh one behind it so the page has
+        // certainly applied (or dropped) the stale one before the read.
+        await repeat(2, ["running", "pending", "pending"]);
+        await repeat(4, ["pass", "running", "pending"]);
+        await card.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(`${REPEAT_PANEL} [data-slot="tug-report-panel-lane"]`)}) || { textContent: "" }).textContent.includes("a #2")`,
+          { timeoutMs: 10_000 },
+        );
+        expect(
+          await card.evalJS<string | null>(
+            `document.querySelector(${JSON.stringify(FIRST_CELL)}).getAttribute("data-status")`,
+          ),
+          "a frame older than the one held cannot un-land a cell",
+        ).toBe("pass");
+        await repeat(5, ["pass", "pass", "pending"]);
+        await repeat(6, ["pass", "pass", "running"]);
+        await repeat(7, ["pass", "pass", "pass"], { finished: true });
+        await frame(app, { type: "tool_result", tool_use_id: REPEAT_ID, is_error: false, output: "3 passed" });
+        const REPEAT_STRIP = `${REPEAT_BLOCK} [data-slot="tug-report-strip"]`;
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(REPEAT_STRIP)})`, {
+          timeoutMs: 10_000,
+        });
+        const REPEAT_CELLS = `${REPEAT_STRIP} [data-slot="tug-report-panel-track"] .tug-report-panel-cell`;
+        expect(await count(card, REPEAT_CELLS), "a cell per copy, the repeat included").toBe(3);
+        expect(
+          await count(
+            card,
+            ["pending", "running", "unreported"].map((s) => `${REPEAT_CELLS}[data-status="${s}"]`).join(", "),
+          ),
+          "every cell filled",
+        ).toBe(0);
+        expect(await text(card, `${REPEAT_STRIP} [data-slot="tug-report-panel-fraction"]`)).toContain("3/3");
+        expect(
+          await card.evalJS<string | null>(
+            `document.querySelector(${JSON.stringify(REPEAT_STRIP)}).getAttribute("data-verdict")`,
+          ),
+          "a finished run with every cell landed and no reds is green",
+        ).toBe("green");
 
         // The gaps record answers through tugcast's own route.
         await card.evalJS<boolean>(

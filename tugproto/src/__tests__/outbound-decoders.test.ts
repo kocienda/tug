@@ -24,7 +24,7 @@ describe("table", () => {
   test("every key is a tugcode wire tag, or one of tugcast's own frames", () => {
     const tags = new Set<string>(OUTBOUND_TAGS);
     const foreign = Object.keys(OUTBOUND_DECODERS).filter((key) => !tags.has(key));
-    expect(foreign.sort()).toEqual(["report", "tug_notice"]);
+    expect(foreign.sort()).toEqual(["report", "settled_runs", "tug_notice"]);
   });
 
   test("hasDecoder reads own keys only", () => {
@@ -428,6 +428,18 @@ describe("unwrapped before admission", () => {
     expect(failPath("tool_progress", { ...frame, elapsed_time_seconds: "3" })).toBe("$.elapsed_time_seconds");
   });
 
+  test("settled_runs: each call's recorded runs, passed through", () => {
+    const frame = {
+      type: "settled_runs",
+      calls: [{ tool_use_id: "tu", runs: [{ run_id: "r", unit: "file", units: [] }] }],
+      tug_session_id: "s",
+    };
+    expect(decodeOutbound("settled_runs", frame)).toEqual(frame);
+    expect(decodeOutbound("settled_runs", { type: "settled_runs", calls: [] })).toEqual({ type: "settled_runs", calls: [] });
+    expect(failPath("settled_runs", { ...frame, calls: [{ runs: [] }] })).toBe("$.calls[0].tool_use_id");
+    expect(failPath("settled_runs", { ...frame, calls: [{ tool_use_id: "tu", runs: "x" }] })).toBe("$.calls[0].runs");
+  });
+
   test("report: tugcast's payload, attached or not", () => {
     const frame = { type: "report", tool_use_id: null, label: "rust", text: "compiling", done: 3, total: 9, at_ms: 1 };
     expect(failPath("report", frame)).toBeNull();
@@ -458,6 +470,14 @@ describe("unwrapped before admission", () => {
     expect(decodeOutbound("report", frame)).toEqual(frame);
     expect(decodeOutbound("report", { ...frame, nests: true })).toEqual({ ...frame, nests: true });
     expect(failPath("report", { ...frame, nests: "yes" })).toBe("$.nests");
+    expect(decodeOutbound("report", { ...frame, finished: true })).toEqual({ ...frame, finished: true });
+    expect(failPath("report", { ...frame, finished: "yes" })).toBe("$.finished");
+    const placed = { ...frame, run_id: "r2", run_ord: 1, first_at_ms: 5, under: { run_id: "r1", slot: 3 } };
+    expect(decodeOutbound("report", placed)).toEqual(placed);
+    expect(failPath("report", { ...frame, run_ord: "1" })).toBe("$.run_ord");
+    expect(decodeOutbound("report", { ...frame, seq: 4 })).toEqual({ ...frame, seq: 4 });
+    expect(failPath("report", { ...frame, seq: "4" })).toBe("$.seq");
+    expect(failPath("report", { ...frame, under: { run_id: "r1" } })).toBe("$.under.slot");
     expect(failPath("report", { ...frame, unit: 7 })).toBe("$.unit");
     expect(failPath("report", { ...frame, jobs: "4" })).toBe("$.jobs");
     expect(failPath("report", { ...frame, units: "rows" })).toBe("$.units");

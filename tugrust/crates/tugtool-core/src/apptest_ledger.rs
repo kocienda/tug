@@ -786,6 +786,44 @@ mod tests {
         assert_eq!(shas, ["sha1", "sha0"], "a run that ended later is left out");
     }
 
+    /// A file named three times in one run is three results, each recorded
+    /// under the plain file name: repeats add to one file's history rather
+    /// than replacing one another, and the history read still answers.
+    #[test]
+    fn a_run_with_a_repeated_file_records_a_row_per_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        record_run(
+            &mut conn,
+            &run(
+                &root,
+                "sha0",
+                1_700_000_000,
+                vec![
+                    file("a.test.ts", "PASS"),
+                    file("a.test.ts", "FAIL"),
+                    file("a.test.ts", "PASS"),
+                ],
+            ),
+        )
+        .unwrap();
+        let base = resolve_base_root(Path::new(&root));
+
+        let rows = recent_file_runs(&conn, &base, "a.test.ts", 10).unwrap();
+        let mut statuses: Vec<&str> = rows.iter().map(|r| r.status.as_str()).collect();
+        statuses.sort_unstable();
+        assert_eq!(statuses, ["FAIL", "PASS", "PASS"], "one row per copy");
+        assert!(
+            rows.iter().all(|r| r.head_sha == "sha0"),
+            "every copy is the one run's"
+        );
+        assert!(
+            !matches!(history_of(&conn, &root, "a.test.ts"), History::NoHistory),
+            "the history read answers for a repeated file"
+        );
+    }
+
     /// **The batch-pressure fact.** Three files pass in isolation and fail in
     /// a sixteen-file batch, and until the run's size rode the answer the
     /// `history:` line recorded *the run* without recording *the run's size* —

@@ -232,6 +232,8 @@ describe.skipIf(!RUNS)("video shot: the transcript", () => {
               ...(i < done ? { secs: 0.003 } : {}),
               ...(i === done ? { started_at_ms: Date.now() } : {}),
             })),
+            // The last report says the run finished, as a real reporter's does.
+            ...(done === TESTS.length ? { finished: true } : {}),
           });
         for (let done = 0; done <= TESTS.length; done++) {
           s.at(testAt + 500 + done * TEST_MS, () => report(done));

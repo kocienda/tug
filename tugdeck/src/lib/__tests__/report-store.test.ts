@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   ReportStore,
   REPORT_CAP,
-  RUN_SETTLED_CAP,
   engineLiveness,
   formatReportLine,
   liveElapsedMs,
@@ -15,6 +14,7 @@ describe("ReportStore — a running command's reports", () => {
     expect(
       formatReportLine({
         toolUseId: "t",
+        runs: [],
         label: "app-test",
         done: 7,
         total: 20,
@@ -23,10 +23,10 @@ describe("ReportStore — a running command's reports", () => {
       }),
     ).toBe("app-test · 7/20 · 1 fail · at0603 PASS (14/14) 38s");
     expect(
-      formatReportLine({ toolUseId: "t", label: "rust", text: "compiling tugcast" }),
+      formatReportLine({ toolUseId: "t", runs: [], label: "rust", text: "compiling tugcast" }),
     ).toBe("rust · compiling tugcast");
     expect(
-      formatReportLine({ toolUseId: "t", label: "rust", done: 3, failures: 0, text: "x" }),
+      formatReportLine({ toolUseId: "t", runs: [], label: "rust", done: 3, failures: 0, text: "x" }),
     ).toBe("rust · 3 · x");
   });
 
@@ -163,98 +163,134 @@ describe("ReportStore — a run that names its unit", () => {
     );
     const p = store.get("t")!;
     expect(p.unit).toBe("file");
-    expect(p.jobs).toBe(4);
-    expect(p.units?.map((u) => [u.name, u.status])).toEqual([
+    const run = p.runs[0]!;
+    expect(run.jobs).toBe(4);
+    expect(run.units?.map((u) => [u.name, u.status])).toEqual([
       ["at0310", "pass"],
       ["at0339", "fail"],
       ["at0352", "running"],
     ]);
-    expect(p.units?.[2]?.startedAtMs).toBe(1_000);
-    expect(p.units?.[1]?.history).toBe("red in the last 7");
+    expect(run.units?.[2]?.startedAtMs).toBe(1_000);
+    expect(run.units?.[1]?.history).toBe("red in the last 7");
 
     store.applyReport({ tool_use_id: "u", text: "y", jobs: 4, units: ROWS }, 1000);
-    expect(store.get("u")?.units).toBeUndefined();
-    expect(store.get("u")?.jobs).toBeUndefined();
+    expect(store.get("u")?.runs[0]?.units).toBeUndefined();
+    expect(store.get("u")?.runs[0]?.jobs).toBeUndefined();
   });
 
-  test("a phase run and a unit run under one call share the entry: the units own it, the phases ride beside", () => {
+  test("two runs under one label are two runs, in first-report order, and the first keeps its rows", () => {
+    const store = new ReportStore();
+    const rows = (status: string) => [{ name: "a", status, index: 0 }];
+    store.applyReport({ tool_use_id: "t", label: "checks", unit: "file", units: rows("pass"), run_id: "r1", run_ord: 0, first_at_ms: 500 }, 1000);
+    store.applyReport({ tool_use_id: "t", label: "checks", unit: "file", units: rows("running"), run_id: "r2", run_ord: 1, first_at_ms: 900 }, 2000);
+    const p = store.get("t")!;
+    expect(p.runs.map((r) => [r.runId, r.ord])).toEqual([["r1", 0], ["r2", 1]]);
+    expect(p.runs[0]?.units?.[0]?.status, "the second run left the first one's rows alone").toBe("pass");
+    expect(p.runs[1]?.units?.[0]?.status).toBe("running");
+    // A later frame of a run replaces that run whole and keeps when it first arrived.
+    store.applyReport({ tool_use_id: "t", label: "checks", unit: "file", units: rows("fail"), run_id: "r1", run_ord: 0 }, 3000);
+    const again = store.get("t")!;
+    expect(again.runs.length).toBe(2);
+    expect(again.runs[0]?.units?.[0]?.status).toBe("fail");
+    expect(again.runs[0]?.firstAtMs).toBe(500);
+    expect(again.runs[0]?.reportAtMs).toBe(3000);
+    // The entry's line is the latest frame's.
+    expect(again.reportAtMs).toBe(3000);
+  });
+
+  test("a frame older than the one held is dropped", () => {
+    const store = new ReportStore();
+    store.applyReport({ tool_use_id: "t", text: "a landed", done: 1, total: 2, unit: "file", units: ROWS, run_id: "r", seq: 2 }, 1000);
+    const held = store.get("t");
+    // A frame tugcast published earlier arrives late: its run and the line stay.
+    store.applyReport({ tool_use_id: "t", text: "starting", done: 0, total: 2, unit: "file", units: [], run_id: "r", seq: 1 }, 2000);
+    store.applyReport({ tool_use_id: "t", text: "again", done: 0, total: 2, unit: "file", units: [], run_id: "r", seq: 2 }, 2500);
+    expect(store.get("t")).toBe(held);
+    expect(store.get("t")?.text).toBe("a landed");
+    // A later one is applied.
+    store.applyReport({ tool_use_id: "t", text: "b landed", done: 2, total: 2, unit: "file", units: ROWS, run_id: "r", seq: 3 }, 3000);
+    expect(store.get("t")?.runs[0]?.seq).toBe(3);
+    expect(store.get("t")?.text).toBe("b landed");
+  });
+
+  test("a frame with no sequence is applied", () => {
+    const store = new ReportStore();
+    store.applyReport({ tool_use_id: "t", text: "one", unit: "file", units: ROWS, run_id: "r", seq: 5 }, 1000);
+    store.applyReport({ tool_use_id: "t", text: "two", unit: "file", units: ROWS, run_id: "r" }, 2000);
+    expect(store.get("t")?.text).toBe("two");
+    expect(store.get("t")?.runs[0]?.seq).toBeUndefined();
+    // And a run that holds no sequence takes the next numbered frame.
+    store.applyReport({ tool_use_id: "t", text: "three", unit: "file", units: ROWS, run_id: "r", seq: 1 }, 3000);
+    expect(store.get("t")?.text).toBe("three");
+  });
+
+  test("a frame with no run id is keyed by its label", () => {
+    const store = new ReportStore();
+    store.applyReport({ tool_use_id: "t", label: "build", unit: "phase", units: [] }, 1000);
+    store.applyReport({ tool_use_id: "t", label: "build", unit: "phase", units: [] }, 2000);
+    store.applyReport({ tool_use_id: "t", label: "files", unit: "file", units: [] }, 3000);
+    const p = store.get("t")!;
+    expect(p.runs.map((r) => r.runId)).toEqual(["label:build", "label:files"]);
+    expect(p.runs[0]?.firstAtMs, "the local clock at first arrival").toBe(1000);
+  });
+
+  test("a heartbeat before any report makes an entry with no runs", () => {
+    const store = new ReportStore();
+    store.applyHeartbeat("t", 3, 1000);
+    expect(store.get("t")?.runs).toEqual([]);
+    store.applyReport({ tool_use_id: "t", label: "rust", text: "x" }, 2000);
+    expect(store.get("t")?.runs.length).toBe(1);
+    expect(store.get("t")?.engineElapsedMs).toBe(3000);
+  });
+
+  test("a phase run and a unit run under one call share the entry as two runs", () => {
     const store = new ReportStore();
     const phase = (status: string) => [
       { name: "build", status: "pass", index: 0, secs: 40 },
       { name: "sign", status, index: 1 },
     ];
-    store.applyReport({ tool_use_id: "t", label: "build-app", text: "sign", done: 1, total: 2, unit: "phase", units: phase("running") }, 1000);
-    store.applyReport({ tool_use_id: "t", label: "app-test", text: "x", done: 0, total: 3, unit: "file", units: ROWS }, 2000);
-    let p = store.get("t")!;
-    expect(p.unit).toBe("file");
-    expect(p.phases?.map((u) => u.name)).toEqual(["build", "sign"]);
-
-    // A later unit report keeps the phases; a later phase report updates them and leaves the units.
-    store.applyReport({ tool_use_id: "t", label: "app-test", text: "y", done: 1, total: 3, unit: "file", units: ROWS }, 3000);
-    expect(store.get("t")?.phases?.length).toBe(2);
-    store.applyReport({ tool_use_id: "t", label: "build-app", text: "done", done: 2, total: 2, unit: "phase", units: phase("pass") }, 4000);
-    p = store.get("t")!;
-    expect(p.unit).toBe("file");
-    expect(p.text).toBe("y");
-    expect(p.phases?.[1]?.status).toBe("pass");
-
-    // One label's phases replace themselves, as any report does.
-    store.applyReport({ tool_use_id: "u", label: "build-app", unit: "phase", units: phase("running") }, 1000);
-    store.applyReport({ tool_use_id: "u", label: "build-app", unit: "phase", units: phase("pass") }, 2000);
-    expect(store.get("u")?.phases).toBeUndefined();
-    expect(store.get("u")?.units?.[1]?.status).toBe("pass");
+    store.applyReport({ tool_use_id: "t", label: "build-app", text: "sign", done: 1, total: 2, unit: "phase", units: phase("running"), run_id: "b", run_ord: 0 }, 1000);
+    store.applyReport({ tool_use_id: "t", label: "app-test", text: "x", done: 0, total: 3, unit: "file", units: ROWS, run_id: "f", run_ord: 1 }, 2000);
+    store.applyReport({ tool_use_id: "t", label: "build-app", text: "done", done: 2, total: 2, unit: "phase", units: phase("pass"), run_id: "b", run_ord: 0 }, 3000);
+    const p = store.get("t")!;
+    expect(p.runs.map((r) => [r.label, r.unit])).toEqual([["build-app", "phase"], ["app-test", "file"]]);
+    expect(p.runs[0]?.units?.[1]?.status).toBe("pass");
+    expect(p.runs[1]?.units?.length).toBe(3);
   });
 
-  test("a nesting run's report under another label is its child; the parent's own report replaces the entry whole", () => {
+  test("a nesting run's child is a run carrying the unit it ran under, and outlives the parent's next report and the close", () => {
     const store = new ReportStore();
     const surfaces = (rust: string) => [
       { name: "rust", status: rust, index: 0 },
       { name: "docs", status: "pending", index: 1 },
     ];
     store.applyReport(
-      { tool_use_id: "t", label: "arc verify", text: "checking rust", done: 0, total: 2, unit: "surface", units: surfaces("running"), nests: true },
+      { tool_use_id: "t", label: "arc verify", text: "checking rust", done: 0, total: 2, unit: "surface", units: surfaces("running"), nests: true, run_id: "v", run_ord: 0 },
       1000,
     );
-    expect(store.get("t")?.nests).toBe(true);
-
-    // The wrapped child reports under its own label: it lands beneath, not in place.
     store.applyReport(
-      { tool_use_id: "t", label: "rust", text: "compiling", unit: "test", done: 0, total: 748, units: [] },
+      { tool_use_id: "t", label: "rust", text: "compiling", unit: "test", done: 0, total: 748, units: [], run_id: "c", run_ord: 1, under: { run_id: "v", slot: 0 } },
       2000,
     );
     let p = store.get("t")!;
-    expect(p.label).toBe("arc verify");
-    expect(p.units?.[0]?.status).toBe("running");
-    expect(p.child?.label).toBe("rust");
-    expect(p.child?.unit).toBe("test");
-    expect(p.reportAtMs).toBe(2000);
+    expect(p.runs[0]?.nests).toBe(true);
+    expect(p.runs[1]?.under).toEqual({ runId: "v", slot: 0 });
 
-    // The child's own relations hold inside the slot: its later report replaces it, and a
-    // phase run under a third label rides beside the child's units.
-    store.applyReport({ tool_use_id: "t", label: "cargo", unit: "phase", units: [{ name: "build", status: "running", index: 0 }] }, 2500);
     store.applyReport(
-      { tool_use_id: "t", label: "rust", text: "a FAIL", unit: "test", done: 10, total: 748, failures: 1, units: [{ name: "a", status: "fail", index: 0 }] },
-      3000,
-    );
-    p = store.get("t")!;
-    expect(p.child?.done).toBe(10);
-    expect(p.child?.units?.[0]?.name).toBe("a");
-    expect(p.child?.phases?.[0]?.name).toBe("build");
-
-    // The parent's next report, under its label, is the whole entry again.
-    store.applyReport(
-      { tool_use_id: "t", label: "arc verify", text: "rust FAIL (747/748)", done: 1, total: 2, failures: 1, unit: "surface", units: surfaces("fail"), nests: true },
+      { tool_use_id: "t", label: "arc verify", text: "rust FAIL (747/748)", done: 1, total: 2, failures: 1, unit: "surface", units: surfaces("fail"), nests: true, run_id: "v", run_ord: 0 },
       4000,
     );
     p = store.get("t")!;
-    expect(p.child).toBeUndefined();
-    expect(p.units?.[0]?.status).toBe("fail");
+    expect(p.runs.map((r) => r.runId)).toEqual(["v", "c"]);
+    expect(p.runs[0]?.units?.[0]?.status).toBe("fail");
+    expect(p.runs[1]?.label).toBe("rust");
 
-    // A run that does not nest is replaced by another label's report, as ever.
-    store.applyReport({ tool_use_id: "u", label: "app-test", unit: "file", units: ROWS }, 1000);
-    store.applyReport({ tool_use_id: "u", label: "rust", unit: "test", units: [] }, 2000);
-    expect(store.get("u")?.label).toBe("rust");
-    expect(store.get("u")?.child).toBeUndefined();
+    // The call closes: the settled entry keeps the child under its row.
+    store.close("t");
+    const settled = store.getSettled("t")!;
+    expect(settled.runs.map((r) => r.runId)).toEqual(["v", "c"]);
+    expect(settled.runs[1]?.under).toEqual({ runId: "v", slot: 0 });
+    expect(settled.runs[1]?.label).toBe("rust");
   });
 
   test("a row with no name or a status it does not know is dropped; a mistyped field is absent", () => {
@@ -280,28 +316,66 @@ describe("ReportStore — a run that names its unit", () => {
     ).toEqual([{ name: "b", status: "stalled", index: 1 }]);
   });
 
-  test("closing settles the last report, and a run without a unit does not", () => {
+  test("closing settles a call any of whose runs named a unit, and a call with none does not", () => {
     const store = new ReportStore();
     store.applyReport({ tool_use_id: "t", text: "x", unit: "file", units: ROWS }, 1000);
+    store.applyReport({ tool_use_id: "t", label: "tail", text: "a line" }, 1500);
     store.applyReport({ tool_use_id: "u", text: "y" }, 1000);
     let heard = 0;
     store.subscribe("t", () => heard++);
     store.close("t");
     store.close("u");
     expect(store.get("t")).toBeNull();
-    expect(store.getSettled("t")?.units?.length).toBe(3);
+    expect(store.getSettled("t")?.runs[0]?.units?.length).toBe(3);
+    expect(store.getSettled("t")?.runs.length).toBe(2);
     expect(store.getSettled("u")).toBeNull();
     expect(heard, "the block hears the close, and reads the settled run on it").toBe(1);
   });
 
-  test("settled runs outlive a cleared transport and are capped oldest first", () => {
+  test("settled runs outlive a cleared transport", () => {
     const store = new ReportStore();
-    for (let i = 0; i <= RUN_SETTLED_CAP; i++) {
-      store.applyReport({ tool_use_id: `t${i}`, text: "x", unit: "test", units: [] }, i);
-      store.close(`t${i}`);
-    }
+    store.applyReport({ tool_use_id: "t", text: "x", unit: "test", units: [] }, 1);
+    store.close("t");
     store.clear();
-    expect(store.getSettled("t0")).toBeNull();
-    expect(store.getSettled(`t${RUN_SETTLED_CAP}`)?.unit).toBe("test");
+    expect(store.getSettled("t")?.unit).toBe("test");
+  });
+
+  test("a restored call's runs are its settled entry, even though the call is closed", () => {
+    const store = new ReportStore();
+    let heard = 0;
+    store.subscribe("t", () => heard++);
+    store.close("t");
+    store.restoreSettled(
+      "t",
+      [
+        { run_id: "v", run_ord: 0, label: "arc verify", text: "done", unit: "surface", units: [{ name: "deck", status: "pass", index: 0 }], nests: true, finished: true, first_at_ms: 100, at_ms: 900 },
+        { run_id: "c", run_ord: 1, label: "bun test", text: "748 pass", unit: "test", done: 748, total: 748, units: [], under: { run_id: "v", slot: 0 }, first_at_ms: 200, at_ms: 800 },
+        { run_id: "bad", unit: 7 },
+        "not a run",
+      ],
+      5_000,
+    );
+    const settled = store.getSettled("t")!;
+    expect(settled.runs.map((r) => r.runId)).toEqual(["v", "c"]);
+    expect(settled.runs[1]?.under).toEqual({ runId: "v", slot: 0 });
+    expect(settled.runs[1]?.firstAtMs).toBe(200);
+    expect(settled.runs[1]?.reportAtMs).toBe(800);
+    expect(settled.runs[0]?.units?.[0]?.status).toBe("pass");
+    expect(settled.text).toBe("748 pass");
+    expect(store.get("t")).toBeNull();
+    expect(heard, "the block hears the restore").toBe(1);
+    // A call whose recorded runs named no unit restores nothing.
+    store.restoreSettled("u", [{ run_id: "l", text: "a line" }], 5_000);
+    expect(store.getSettled("u")).toBeNull();
+  });
+
+  test("a restore does not replace a settled entry the page already holds", () => {
+    const store = new ReportStore();
+    store.applyReport({ tool_use_id: "t", text: "live", unit: "file", units: ROWS, run_id: "r" }, 1000);
+    store.close("t");
+    const live = store.getSettled("t");
+    store.restoreSettled("t", [{ run_id: "r", text: "recorded", unit: "file", units: [] }], 2000);
+    expect(store.getSettled("t")).toBe(live);
+    expect(store.getSettled("t")?.text).toBe("live");
   });
 });

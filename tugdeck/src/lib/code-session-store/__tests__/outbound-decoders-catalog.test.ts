@@ -62,6 +62,7 @@ const UNCAPTURED = [
   "report",
   "request_replay_dropped",
   "resume_failed",
+  "settled_runs",
   "stop_all_work_done",
   "tool_progress",
   "tug_notice",

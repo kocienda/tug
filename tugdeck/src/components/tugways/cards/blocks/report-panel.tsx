@@ -22,10 +22,14 @@
  *      only its reds, so the masthead's fraction and the band are its
  *      progress, and its total is the runner's own count, never an estimate.
  *      A run that **nests** — a verify whose surfaces are checks that are
- *      runs themselves — draws the run its running unit is beneath these
- *      rows: the child's own masthead, track, in-flight rows and reds,
- *      indented under the parent band, which keeps its place as children
- *      come and go.
+ *      runs themselves — draws each run that ran under one of its units
+ *      beneath these rows, indented under the parent band. While its unit
+ *      runs a child is open: its own masthead, track, in-flight rows and
+ *      reds. Once its unit lands it folds to one line — the unit's name, the
+ *      child's verdict word, label, fraction, tally and wall time — and
+ *      opens on a tap to its finished track, sentence and reds. A finished
+ *      panel keeps its children, folded, after the verdict band: a track a
+ *      child completed is part of the record and never disappears.
  *   4. **Reds** — the most recent failed or stalled unit open as a card, its
  *      first failure and what the record said of it before this run, and
  *      every earlier red folded under it, newest first, one tap away. While
@@ -43,6 +47,8 @@
  * the completed track — and a red one holds rows 1, 2 and 4, so it says what
  * failed without being opened. Running panel, strip and expanded result all
  * open on the same masthead and track.
+ * The strip draws no children: the parent's rows carry each child's
+ * verdict, and the expanded panel holds the children themselves.
  *
  * Colour is never the only reading: every cell has a title, every row's dot
  * is labelled and stands beside a word, and the tally is words.
@@ -67,11 +73,12 @@ import {
   isRed,
   laneSlots,
   projectionText,
-  reportPanelModel,
+  reportPanels,
   unitWord,
   verdictSentence,
   type ReportPanelModel,
   type ReportPanelState,
+  type ChildPanel,
 } from "@/lib/report-panel-model";
 import type { Report, RunUnit, RunUnitStatus } from "@/lib/report-store";
 
@@ -102,6 +109,7 @@ const DOT: Record<RunUnitStatus, { role: TugProgressIndicatorRole; state: TugPro
   error: { role: "danger", state: "aborted" },
   stalled: { role: "caution", state: "aborted" },
   skipped: { role: "inherit", state: "stopped" },
+  unreported: { role: "caution", state: "stopped" },
 };
 
 /** The 10px dot at the head of a unit's row, still or breathing by its status. */
@@ -119,6 +127,7 @@ const WORD: Record<RunUnitStatus, string> = {
   error: "ERROR",
   stalled: "STALLED",
   skipped: "skipped",
+  unreported: "no report",
 };
 
 const STEP_STATUS: Record<RunUnitStatus, TugStepRowStatus> = {
@@ -129,6 +138,7 @@ const STEP_STATUS: Record<RunUnitStatus, TugStepRowStatus> = {
   error: "error",
   stalled: "error",
   skipped: "pending",
+  unreported: "pending",
 };
 
 // ---------------------------------------------------------------------------
@@ -494,27 +504,26 @@ function InFlight({ m, text, nowMs }: { m: ReportPanelModel; text: string | unde
 }
 
 /**
- * The run the running unit is, beneath the parent band: a report panel's own
- * running rows — masthead, track, in-flight, reds — for the child, indented
- * under the row it runs for. The band above it is the parent's masthead and
- * track, which this never redraws.
+ * A child whose unit is running, beneath the parent band: a report panel's
+ * own running rows — masthead, track, in-flight, reds — for the child,
+ * indented under the row it runs for. The band above it is the parent's
+ * masthead and track, which this never redraws.
  */
 function NestedRun({
-  m,
-  text,
+  child,
   nowMs,
-  under,
 }: {
-  m: ReportPanelModel;
-  text: string | undefined;
+  child: ChildPanel;
   nowMs: number;
-  under: string | null;
 }): React.ReactElement {
+  const { model: m, text, underName: under } = child;
   const counted = m.unit === "test";
   return (
     <div
       className="tug-report-panel-child"
       data-slot="tug-report-panel-child"
+      data-folded="false"
+      data-verdict={m.verdict}
       {...(under !== null ? { "data-under": under } : {})}
     >
       <Masthead m={m} state="running" wallSecs={undefined} text={counted && m.total === undefined ? text : undefined} />
@@ -525,17 +534,112 @@ function NestedRun({
   );
 }
 
+/**
+ * A child whose unit has landed, folded to one line under the parent band:
+ * the unit it ran under, its verdict word, its label, fraction and tally,
+ * and its wall time. The fold opens to the child's finished track, its
+ * verdict sentence and its reds. Open or closed is the accordion's own
+ * state, kept in the card's bag by run [L06].
+ */
+function FoldedChild({ child, foldKey }: { child: ChildPanel; foldKey: string | undefined }): React.ReactElement {
+  const { model: m, underName: under, wallSecs } = child;
+  const key = foldKey !== undefined ? `${foldKey}-child-${m.runId}` : undefined;
+  return (
+    <div
+      className="tug-report-panel-child"
+      data-slot="tug-report-panel-child"
+      data-folded="true"
+      data-verdict={m.verdict}
+      {...(under !== null ? { "data-under": under } : {})}
+    >
+      <TugAccordion
+        type="multiple"
+        variant="plain"
+        density="compact"
+        className="tug-report-panel-child-fold"
+        {...(key !== undefined ? { componentStatePreservationKey: key } : {})}
+      >
+        <TugAccordionItem value="child" trigger={<ChildLine m={m} under={under} wallSecs={wallSecs} />}>
+          <div className="tug-report-panel-child-body">
+            <ReportTrack m={m} />
+            <Verdict m={m} slot="tug-report-panel-child-verdict" />
+            <Reds reds={m.reds} foldKey={key} />
+          </div>
+        </TugAccordionItem>
+      </TugAccordion>
+    </div>
+  );
+}
+
+/** A folded child's one line: unit, verdict word, label, fraction, tally, wall time. */
+function ChildLine({
+  m,
+  under,
+  wallSecs,
+}: {
+  m: ReportPanelModel;
+  under: string | null;
+  wallSecs: number | null;
+}): React.ReactElement {
+  return (
+    <span className="tug-report-panel-masthead tug-report-panel-child-line">
+      {under !== null && <span className="tug-report-panel-child-under">{under}</span>}
+      <span className="tug-report-panel-verdict-word">{verdictWord(m)}</span>
+      {m.label.length > 0 && <span className="tug-report-panel-label">{m.label}</span>}
+      {m.countWords !== null ? (
+        <span className="tug-report-panel-fraction" data-slot="tug-report-panel-fraction">
+          <span className="tug-report-panel-unit">{m.countWords}</span>
+        </span>
+      ) : (
+        <>
+          <Fraction done={m.done} total={m.total} unit={m.unit} />
+          <Tally m={m} />
+        </>
+      )}
+      <span className="tug-report-panel-spacer" />
+      {wallSecs !== null && <span className="tug-report-panel-child-wall">{formatSecs(wallSecs)}</span>}
+    </span>
+  );
+}
+
+/**
+ * Every child of a panel, in parent slot order: open while its unit runs,
+ * folded once it lands. Drawn while the parent runs and after it finishes,
+ * so a child never disappears with its unit.
+ */
+function Children({
+  items,
+  nowMs,
+  foldKey,
+}: {
+  items: readonly ChildPanel[];
+  nowMs: number;
+  foldKey: string | undefined;
+}): React.ReactElement | null {
+  if (items.length === 0) return null;
+  return (
+    <div className="tug-report-panel-children" data-slot="tug-report-panel-children">
+      {items.map((c) =>
+        c.folded ? (
+          <FoldedChild key={c.model.runId} child={c} foldKey={foldKey} />
+        ) : (
+          <NestedRun key={c.model.runId} child={c} nowMs={nowMs} />
+        ),
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The panel
 // ---------------------------------------------------------------------------
 
 export interface ReportPanelProps {
-  run: Report;
+  /** The panel's model: one run, with its phase band and its children. */
+  m: ReportPanelModel;
   state: ReportPanelState;
   /** The clock the lanes' elapsed reads against (ms). */
   nowMs: number;
-  /** Finished: whether the call itself failed. */
-  callFailed?: boolean;
   /** Finished: the call's wall time, in seconds. */
   wallSecs?: number;
   /** Finished: the run's own output, folded at the foot. */
@@ -602,15 +706,13 @@ function Masthead({
 }
 
 export function ReportPanel({
-  run,
+  m,
   state,
   nowMs,
-  callFailed = false,
   wallSecs,
   output,
   foldKey,
 }: ReportPanelProps): React.ReactElement {
-  const m = reportPanelModel(run, state, nowMs, { callFailed });
   const landed = m.units.filter((u) => u.secs !== undefined);
   const running = state === "running";
   // A test run counts its passes and lists only its reds: it has no in-flight
@@ -628,16 +730,15 @@ export function ReportPanel({
   // Once over, the reds lead the body.
   return (
     <div className="tug-report-panel" data-slot="tug-report-panel" data-state={state} data-verdict={m.verdict}>
-      <Masthead m={m} state={state} wallSecs={wallSecs} text={counted && m.total === undefined ? run.text : undefined} />
+      <Masthead m={m} state={state} wallSecs={wallSecs} text={counted && m.total === undefined ? m.text : undefined} />
       {m.phases.length > 0 && m.unit !== "phase" && <PhaseSteps units={m.phases} nowMs={nowMs} />}
       <ReportTrack m={m} />
 
       {!running && <Verdict m={m} />}
+      {!running && <Children items={m.children} nowMs={nowMs} foldKey={foldKey} />}
 
-      {running && !counted && <InFlight m={m} text={run.text} nowMs={nowMs} />}
-      {running && m.child !== null && (
-        <NestedRun m={m.child} text={run.child?.text} nowMs={nowMs} under={m.nestedUnder} />
-      )}
+      {running && !counted && <InFlight m={m} text={m.text} nowMs={nowMs} />}
+      {running && <Children items={m.children} nowMs={nowMs} foldKey={foldKey} />}
       {!running && m.unit === "phase" && <InFlight m={m} text={undefined} nowMs={nowMs} />}
 
       {!running && reds}
@@ -696,9 +797,16 @@ export function ReportPanel({
  * The verdict band: the sentence, and on a red the one act that names the
  * reds without a re-run — the command to type, or where the report put them.
  */
-function Verdict({ m }: { m: ReportPanelModel }): React.ReactElement {
+function Verdict({
+  m,
+  slot = "tug-report-panel-verdict",
+}: {
+  m: ReportPanelModel;
+  /** A child's sentence wears its own slot, so the panel's verdict stays the one `tug-report-panel-verdict`. */
+  slot?: string;
+}): React.ReactElement {
   return (
-    <div className="tug-report-panel-verdict" data-slot="tug-report-panel-verdict" data-verdict={m.verdict}>
+    <div className="tug-report-panel-verdict" data-slot={slot} data-verdict={m.verdict}>
       {verdictSentence(m)}
       {m.nextAct !== null && (
         <span className="tug-report-panel-next" data-slot="tug-report-panel-next">
@@ -709,9 +817,13 @@ function Verdict({ m }: { m: ReportPanelModel }): React.ReactElement {
   );
 }
 
-/** The verdict as the word a test runner says: PASS or FAIL. */
+/**
+ * The verdict as the word a test runner says: PASS, FAIL, or INCOMPLETE for
+ * a run that ended with no red and is not green.
+ */
 function verdictWord(m: ReportPanelModel): string {
-  return m.verdict === "red" ? "FAIL" : "PASS";
+  if (m.verdict === "red") return "FAIL";
+  return m.verdict === "incomplete" ? "INCOMPLETE" : "PASS";
 }
 
 /**
@@ -728,18 +840,15 @@ function verdictWord(m: ReportPanelModel): string {
  * eye was already reading.
  */
 export function ReportStrip({
-  run,
-  callFailed = false,
+  m,
   wallSecs,
   foldKey,
 }: {
-  run: Report;
-  callFailed?: boolean;
+  m: ReportPanelModel;
   wallSecs?: number;
   /** Keys the earlier-failures fold's open state in the card's saved bag. */
   foldKey?: string;
 }): React.ReactElement {
-  const m = reportPanelModel(run, "finished", 0, { callFailed });
   return (
     <div
       className="tug-report-panel tug-report-strip"
@@ -754,9 +863,81 @@ export function ReportStrip({
   );
 }
 
-/** Whether a report is drawn as a report panel rather than the one line. */
-export function isPanelReport(p: Report | null): p is Report & { unit: string } {
-  return p !== null && p.unit !== undefined;
+/**
+ * A call's runs as a stack of panels, one per run the model groups, in the
+ * order the runs first reported. The call's wall time and its own output go
+ * to the last panel, which is where the call ended; each panel's folds are
+ * keyed by its run, so two panels never share an open state.
+ */
+export function ReportPanels({
+  entry,
+  state,
+  nowMs,
+  callFailed = false,
+  wallSecs,
+  output,
+  foldKey,
+}: {
+  entry: Report;
+  state: ReportPanelState;
+  nowMs: number;
+  /** Finished: whether the call itself failed. */
+  callFailed?: boolean;
+  wallSecs?: number;
+  output?: React.ReactNode;
+  foldKey?: string;
+}): React.ReactElement {
+  const models = reportPanels(entry, state, nowMs, { callFailed });
+  return (
+    <>
+      {models.map((m, i) => {
+        const last = i === models.length - 1;
+        return (
+          <ReportPanel
+            key={m.runId}
+            m={m}
+            state={state}
+            nowMs={nowMs}
+            {...(last && wallSecs !== undefined ? { wallSecs } : {})}
+            {...(last && output !== undefined ? { output } : {})}
+            {...(foldKey !== undefined ? { foldKey: `${foldKey}-${m.runId}` } : {})}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/** A settled call's runs as a stack of strips, as {@link ReportPanels} stacks panels. */
+export function ReportStrips({
+  entry,
+  callFailed = false,
+  wallSecs,
+  foldKey,
+}: {
+  entry: Report;
+  callFailed?: boolean;
+  wallSecs?: number;
+  foldKey?: string;
+}): React.ReactElement {
+  const models = reportPanels(entry, "finished", 0, { callFailed });
+  return (
+    <>
+      {models.map((m, i) => (
+        <ReportStrip
+          key={m.runId}
+          m={m}
+          {...(i === models.length - 1 && wallSecs !== undefined ? { wallSecs } : {})}
+          {...(foldKey !== undefined ? { foldKey: `${foldKey}-${m.runId}` } : {})}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Whether a call is drawn as report panels rather than the one line: any of its runs names a unit. */
+export function isPanelReport(p: Report): boolean {
+  return p.runs.some((r) => r.unit !== undefined);
 }
 
 export { isRed };

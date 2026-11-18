@@ -1185,6 +1185,8 @@ pub struct OpenRun {
     /// Whether a progress report carrying a `unit` has attached to this call
     /// — the block has a report panel, and the call is not a gap.
     pub unit_reported: bool,
+    /// Every run that has reported under this call, folded report by report.
+    pub runs: super::report_fold::CallRuns,
 }
 
 /// The gap row a closing foreground call earns, or `None`: it ran past
@@ -1222,6 +1224,7 @@ mod gap_tests {
             moved: false,
             task_id: None,
             unit_reported,
+            runs: Default::default(),
         }
     }
 
@@ -1276,6 +1279,12 @@ pub struct Report {
     /// report under another label while it holds the call is its running
     /// unit's child. Carried to the block, which is what nests them.
     pub nests: bool,
+    /// The reporter says the run is over. Carried to the block, which draws
+    /// a run that never said so as incomplete rather than green.
+    pub finished: bool,
+    /// The run the report belongs to, as its reporter minted it; a report
+    /// with none is keyed by its label.
+    pub run_id: Option<String>,
 }
 
 /// A live Bash `tool_use`'s `(tool_use_id, OpenRun)`, or `None` for any other
@@ -1307,6 +1316,7 @@ fn parse_bash_run(payload: &[u8], now_ms: i64) -> Option<(String, OpenRun)> {
             moved: false,
             task_id: None,
             unit_reported: false,
+            runs: Default::default(),
         },
     ))
 }
@@ -1370,12 +1380,18 @@ fn rekey_moved_run(
     entry.touch_turn();
 }
 
-/// The Spec S03 `report` CODE_OUTPUT payload for `live`, with
-/// `tug_session_id` spliced in as its first key and absent numbers omitted.
+/// The `report` CODE_OUTPUT payload for `live`, with `tug_session_id`
+/// spliced in as its first key and absent numbers omitted. `run` is the run
+/// as the call's fold holds it; `folded` says it went through one, which is
+/// what gives it a place among the call's runs (`run_ord`), a first report
+/// (`first_at_ms`), the call's fold count (`seq`) and, for a child, the unit
+/// it ran under (`under`). An unattached report has no call to fold into, so
+/// it carries its `run_id` alone.
 fn report_payload(
     live: &str,
     attached: Result<&str, &str>,
-    report: &Report,
+    run: &super::report_fold::RunState,
+    folded: bool,
     at_ms: i64,
 ) -> Vec<u8> {
     let mut body = serde_json::Map::new();
@@ -1387,29 +1403,9 @@ fn report_payload(
     if let Err(reason) = attached {
         body.insert("unattached".into(), reason.into());
     }
-    if let Some(label) = &report.label {
-        body.insert("label".into(), label.clone().into());
-    }
-    body.insert("text".into(), report.text.clone().into());
-    for (key, value) in [
-        ("done", report.done),
-        ("total", report.total),
-        ("failures", report.failures),
-        ("jobs", report.jobs),
-    ] {
-        if let Some(n) = value {
-            body.insert(key.into(), n.into());
-        }
-    }
-    if let Some(unit) = &report.unit {
-        body.insert("unit".into(), unit.clone().into());
-    }
-    if let Some(units) = &report.units {
-        body.insert("units".into(), units.clone());
-    }
-    if report.nests {
-        body.insert("nests".into(), true.into());
-    }
+    // The run's own fields are its body, the same body a call's recorded
+    // runs carry, so a replayed panel reads what the live one read.
+    body.extend(run.body(folded));
     body.insert("at_ms".into(), at_ms.into());
     let bytes = serde_json::to_vec(&body).expect("a json object of plain values serializes");
     splice_tug_session_id(&bytes, live)
@@ -3969,8 +3965,32 @@ impl AgentSupervisor {
             return;
         };
         let project_dir = entry.project_dir.to_string_lossy().into_owned();
+        let claude_session_id = entry.claude_session_id.clone();
         drop(entry);
         self.record_call_end(&run, &project_dir, session_id.as_str());
+        self.record_settled(&tool_use_id, &run, claude_session_id);
+    }
+
+    /// Record a call's runs as they ended, so a replay can give the block
+    /// back the finished panel it drew live. Nothing when there is no
+    /// ledger, no claude session id to key the row on, or no run that named
+    /// a unit. Telemetry, as the turn telemetry write is: a failure is noted
+    /// against the ledger's health and a `warn!`, and nothing else.
+    fn record_settled(&self, tool_use_id: &str, run: &OpenRun, claude_session_id: Option<String>) {
+        let Some(ledger) = self.session_ledger.as_ref() else {
+            return;
+        };
+        let Some(claude_session_id) = claude_session_id else {
+            return;
+        };
+        let Some(runs) = run.runs.settled_json() else {
+            return;
+        };
+        let now_ms = crate::session_ledger::now_millis();
+        if let Err(err) = ledger.record_settled_runs(tool_use_id, &claude_session_id, &runs, now_ms) {
+            crate::ledger_integrity::health::note_error("sessions", &err);
+            warn!(error = %err, tool_use_id = %tool_use_id, "settled runs not recorded");
+        }
     }
 
     /// Record the end of a call the session waited on: its wall time under
@@ -4016,28 +4036,37 @@ impl AgentSupervisor {
         report: Report,
     ) -> Option<(bool, Option<String>)> {
         let (card, entry_arc) = self.card_entry_for_segment(segment).await?;
-        let (attached, unattached) = {
+        let at_ms = crate::session_ledger::now_millis();
+        let (attached, unattached, run) = {
             let mut entry = entry_arc.lock().await;
             let attached = entry.attach_run(report.tool_use_id.as_deref(), &report.needles);
-            // A report with a unit is the report panel: the call it reached is
-            // reporting, and is no gap when it closes.
-            if report.unit.is_some()
-                && let Some(id) = attached.as_deref()
-                && let Some(run) = entry.open_runs.get_mut(id)
-            {
-                run.unit_reported = true;
-            }
+            // An attached report folds into its call's runs, and the frame is
+            // the run as the fold now holds it. A report with a unit is the
+            // report panel: the call it reached is reporting, and is no gap
+            // when it closes.
+            let run = attached
+                .as_deref()
+                .and_then(|id| entry.open_runs.get_mut(id))
+                .map(|open| {
+                    if report.unit.is_some() {
+                        open.unit_reported = true;
+                    }
+                    open.runs.fold(&report, at_ms).clone()
+                });
             let unattached = match attached {
                 Some(_) => String::new(),
                 None => entry.unattached_reason(&report.needles),
             };
-            (attached, unattached)
+            (attached, unattached, run)
         };
+        let folded = run.is_some();
+        let run = run.unwrap_or_else(|| super::report_fold::RunState::unfolded(&report, at_ms));
         let payload = report_payload(
             card.as_str(),
             attached.as_deref().ok_or(unattached.as_str()),
-            &report,
-            crate::session_ledger::now_millis(),
+            &run,
+            folded,
+            at_ms,
         );
         self.code_output
             .publish_tagged(Frame::new(FeedId::CODE_OUTPUT, payload));
@@ -4158,7 +4187,11 @@ impl AgentSupervisor {
         }
         // The moved run a closing edge ends, recorded once the guard is
         // released ([B03]).
-        let mut ended_run: Option<OpenRun> = None;
+        let mut ended_run: Option<(String, OpenRun)> = None;
+        // A background launch's run whose job ended: its runs are recorded
+        // once the guard is released, and it stays in the map for the lazy
+        // prune to remove, since a late report may still attach to it.
+        let mut ended_background: Option<(String, OpenRun)> = None;
         match edge {
             JobEdge::Opened(task) => {
                 // Gated on the launching call ([Q01], resolved by the Step 1
@@ -4231,7 +4264,14 @@ impl AgentSupervisor {
                     .iter()
                     .find(|(_, run)| run.moved && run.task_id.as_deref() == Some(task.as_str()))
                     .map(|(id, _)| id.clone());
-                ended_run = moved_id.and_then(|id| entry.open_runs.remove(&id));
+                ended_run = moved_id.and_then(|id| entry.open_runs.remove(&id).map(|run| (id, run)));
+                ended_background = entry
+                    .open_runs
+                    .iter()
+                    .find(|(_, run)| {
+                        run.background && !run.moved && run.task_id.as_deref() == Some(task.as_str())
+                    })
+                    .map(|(id, run)| (id.clone(), run.clone()));
                 // A wake means the model is speaking again, so the gap every
                 // provisional entry was holding open is over — including the
                 // scheduler's own re-init wake, which names no job at all.
@@ -4266,10 +4306,16 @@ impl AgentSupervisor {
         if quiet {
             entry.quiesced.notify_waiters();
         }
-        if let Some(run) = ended_run {
+        if let Some((id, run)) = ended_run {
             let project_dir = entry.project_dir.to_string_lossy().into_owned();
+            let claude_session_id = entry.claude_session_id.clone();
             drop(entry);
             self.record_call_end(&run, &project_dir, session_id.as_str());
+            self.record_settled(&id, &run, claude_session_id);
+        } else if let Some((id, run)) = ended_background {
+            let claude_session_id = entry.claude_session_id.clone();
+            drop(entry);
+            self.record_settled(&id, &run, claude_session_id);
         }
         quiet
     }
@@ -8921,11 +8967,18 @@ mod tests {
         }
     }
 
+    /// `report` as a call's first run, folded at `7`.
+    fn run_of(report: &Report) -> crate::feeds::report_fold::RunState {
+        crate::feeds::report_fold::CallRuns::default()
+            .fold(report, 7)
+            .clone()
+    }
+
     /// `nests` rides the frame only when the reporter set it, so a block
     /// nests nothing under a run that did not ask to be a parent.
     #[test]
     fn a_nesting_report_says_so_on_its_frame_and_a_plain_one_does_not() {
-        let plain = report_payload("sess-1", Ok("tu_1"), &report(&[]), 7);
+        let plain = report_payload("sess-1", Ok("tu_1"), &run_of(&report(&[])), true, 7);
         let plain: serde_json::Value = serde_json::from_slice(&plain).unwrap();
         assert!(plain.get("nests").is_none());
         let nesting = Report {
@@ -8933,10 +8986,25 @@ mod tests {
             unit: Some("surface".into()),
             ..report(&[])
         };
-        let frame = report_payload("sess-1", Ok("tu_1"), &nesting, 7);
+        let frame = report_payload("sess-1", Ok("tu_1"), &run_of(&nesting), true, 7);
         let frame: serde_json::Value = serde_json::from_slice(&frame).unwrap();
         assert_eq!(frame["nests"], true);
         assert_eq!(frame["unit"], "surface");
+    }
+
+    /// `finished` rides the frame only when the reporter said it.
+    #[test]
+    fn a_finished_report_says_so_on_its_frame_and_a_running_one_does_not() {
+        let running = report_payload("sess-1", Ok("tu_1"), &run_of(&report(&[])), true, 7);
+        let running: serde_json::Value = serde_json::from_slice(&running).unwrap();
+        assert!(running.get("finished").is_none());
+        let last = Report {
+            finished: true,
+            ..report(&[])
+        };
+        let frame = report_payload("sess-1", Ok("tu_1"), &run_of(&last), true, 7);
+        let frame: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+        assert_eq!(frame["finished"], true);
     }
 
     /// The published frame, parsed, after its raw bytes are checked to lead
@@ -8986,6 +9054,131 @@ mod tests {
             "a report without units is the one line, as before: {frame}"
         );
         assert!(frame["at_ms"].as_i64().is_some());
+    }
+
+    /// An attached report goes out as its run in the call's fold: its id, its
+    /// place among the call's runs and when it first reported. A report no
+    /// call holds has no fold, so it carries its key and no place.
+    #[tokio::test]
+    async fn a_published_frame_names_its_run_and_its_place_among_the_calls_runs() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-runs");
+        insert_ledger_entry(&sup, &id).await;
+        let mut code_rx = sup.code_output.subscribe();
+
+        let unattached = sup.publish_report("sess-runs", report(&[])).await;
+        assert_eq!(unattached, Some((false, None)));
+        let frame = next_report(&mut code_rx, "sess-runs");
+        assert_eq!(frame["run_id"], "label:rust");
+        assert!(
+            frame.get("run_ord").is_none() && frame.get("first_at_ms").is_none(),
+            "an unattached report has no place among a call's runs: {frame}"
+        );
+
+        sup.record_run_open(&id, &bash_use("toolu_W", "just app-test", false))
+            .await;
+        let run = |run_id: &str| Report {
+            run_id: Some(run_id.into()),
+            ..report(&[])
+        };
+        sup.publish_report("sess-runs", run("r1")).await;
+        let first = next_report(&mut code_rx, "sess-runs");
+        sup.publish_report("sess-runs", run("r2")).await;
+        let second = next_report(&mut code_rx, "sess-runs");
+        sup.publish_report("sess-runs", run("r1")).await;
+        let again = next_report(&mut code_rx, "sess-runs");
+        assert_eq!(
+            (&first["run_id"], &first["run_ord"]),
+            (&"r1".into(), &0.into())
+        );
+        assert_eq!(
+            (&second["run_id"], &second["run_ord"]),
+            (&"r2".into(), &1.into())
+        );
+        assert_eq!(again["run_ord"], 0);
+        assert_eq!(again["first_at_ms"], first["first_at_ms"]);
+        assert!(first["first_at_ms"].as_i64().is_some());
+        assert!(first.get("under").is_none());
+    }
+
+    /// Two reports on one call go out numbered 1 then 2, and a stale second
+    /// snapshot goes out with the first's landed row intact: tugcast's fold
+    /// is the one merge, and a landed row is final there.
+    #[tokio::test]
+    async fn a_calls_frames_are_numbered_and_a_stale_snapshot_keeps_the_landed_row() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-seq");
+        insert_ledger_entry(&sup, &id).await;
+        let mut code_rx = sup.code_output.subscribe();
+        sup.record_run_open(&id, &bash_use("toolu_S", "just app-test", false))
+            .await;
+        let snapshot = |a: &str, b: &str| Report {
+            run_id: Some("r".into()),
+            unit: Some("file".into()),
+            total: Some(2),
+            units: Some(serde_json::json!([
+                {"name": "a", "status": a, "index": 0},
+                {"name": "b", "status": b, "index": 1},
+            ])),
+            ..report(&[])
+        };
+        sup.publish_report("sess-seq", snapshot("pass", "running")).await;
+        let first = next_report(&mut code_rx, "sess-seq");
+        sup.publish_report("sess-seq", snapshot("running", "pending")).await;
+        let second = next_report(&mut code_rx, "sess-seq");
+        assert_eq!((&first["seq"], &second["seq"]), (&1.into(), &2.into()));
+        assert_eq!(second["units"][0]["status"], "pass");
+        assert_eq!(second["units"][1]["status"], "running");
+        assert_eq!(second["done"], 1);
+    }
+
+    /// A foreground call whose runs named a unit leaves its runs in the
+    /// ledger when its `tool_result` closes it, keyed by the call; a call
+    /// that only ever reported a line leaves nothing.
+    #[tokio::test]
+    async fn a_closed_call_with_a_unit_report_records_its_settled_runs() {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+        let id = TugSessionId::new("sess-settle");
+        insert_ledger_entry(&sup, &id).await;
+        {
+            let outer = sup.ledger.lock().await;
+            outer.get(&id).unwrap().lock().await.claude_session_id = Some("claude-s".into());
+        }
+
+        sup.record_run_open(&id, &bash_use("toolu_U", "just app-test", false))
+            .await;
+        let unit = Report {
+            tool_use_id: Some("toolu_U".into()),
+            run_id: Some("r".into()),
+            unit: Some("file".into()),
+            total: Some(1),
+            finished: true,
+            units: Some(serde_json::json!([{"name": "a", "status": "pass", "index": 0}])),
+            ..report(&[])
+        };
+        sup.publish_report("sess-settle", unit).await;
+        sup.close_run(&id, &tool_result_for("toolu_U")).await;
+
+        sup.record_run_open(&id, &bash_use("toolu_L", "cargo build", false))
+            .await;
+        let line = Report {
+            tool_use_id: Some("toolu_L".into()),
+            ..report(&[])
+        };
+        sup.publish_report("sess-settle", line).await;
+        sup.close_run(&id, &tool_result_for("toolu_L")).await;
+
+        let rows = ledger
+            .settled_runs_for(&["toolu_U".to_string(), "toolu_L".to_string()])
+            .unwrap();
+        assert_eq!(rows.len(), 1, "only the call with a unit report recorded: {rows:?}");
+        assert_eq!(rows[0].0, "toolu_U");
+        let runs: serde_json::Value = serde_json::from_slice(&rows[0].1).unwrap();
+        assert_eq!(runs[0]["run_id"], "r");
+        assert_eq!(runs[0]["finished"], true);
+        assert_eq!(runs[0]["units"][0]["status"], "pass");
     }
 
     /// Every arc stage runs on a rotated segment: the server resolves the

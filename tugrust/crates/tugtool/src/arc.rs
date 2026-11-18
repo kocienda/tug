@@ -1152,6 +1152,11 @@ fn run_verify(
         Ok(r) => r,
         Err(e) => return engine_failed(COMMAND, json, e),
     };
+    // The verify ran every surface it planned: say the run finished, so its
+    // panel can be green rather than left asking whether it ended.
+    if reporting {
+        let _ = post_report(&surfaces.finish());
+    }
 
     if json {
         print_ok(COMMAND, &report);

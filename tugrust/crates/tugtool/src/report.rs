@@ -34,6 +34,23 @@ pub struct RunReport {
     /// under another label arriving while it holds the call is its running
     /// unit's child, drawn beneath it, rather than a report that replaces it.
     pub nests: bool,
+    /// The reporter says the run is over: every unit it was going to report
+    /// has reported. Sent only when true. A run that ends without saying so
+    /// is not green, whatever its rows show, because nobody said it finished.
+    pub finished: bool,
+    /// The run this report belongs to. Two runs under one label are two
+    /// runs, and a run's rows are its own: nothing another run reports can
+    /// touch them.
+    pub run_id: Option<String>,
+}
+
+/// A fresh run id: the clock, the process and a per-process count, so two
+/// runs minted in one millisecond, by one process or by two, never share one.
+pub(crate) fn mint_run_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static MINTED: AtomicU64 = AtomicU64::new(0);
+    let n = MINTED.fetch_add(1, Ordering::Relaxed);
+    format!("{:x}-{:x}-{n:x}", now_ms(), std::process::id())
 }
 
 /// The units a reporter handed over, from a path or `-` for stdin: a JSON
@@ -95,6 +112,12 @@ fn report_fields(report: &RunReport, tool_use_id: Option<String>) -> serde_json:
     }
     if report.nests {
         fields.insert("nests".into(), true.into());
+    }
+    if report.finished {
+        fields.insert("finished".into(), true.into());
+    }
+    if let Some(run_id) = &report.run_id {
+        fields.insert("run_id".into(), run_id.clone().into());
     }
     fields.insert("needles".into(), report.needles.clone().into());
     serde_json::Value::Object(fields)
@@ -305,6 +328,8 @@ pub fn run_wait(label: &str, until: &str, every: f64, limit: f64, needles: Vec<S
                 done: Some(probes),
                 unit: Some("probe".into()),
                 needles: needles.clone(),
+                // The probe that held is the wait's last.
+                finished: held,
                 ..RunReport::default()
             });
         }
@@ -348,6 +373,9 @@ pub fn run(report: RunReport) {
 pub struct PhaseRun {
     pub names: Vec<String>,
     pub started_ms: Vec<i64>,
+    /// The run's id, minted when the run starts and kept while it is walked.
+    #[serde(default)]
+    pub run_id: String,
 }
 
 impl PhaseRun {
@@ -360,7 +388,8 @@ impl PhaseRun {
     /// An `n` one past the names is the finish — every phase has landed —
     /// when the list was given or no `name` is passed; a `name` with no
     /// list is a phase, so a recipe that never lists its phases finishes
-    /// with a bare `n`.
+    /// with a bare `n`. A fresh run gets a fresh id, so a run re-walked
+    /// under its label is a new run rather than an old one going back.
     pub fn advance(
         prior: Option<PhaseRun>,
         n: usize,
@@ -372,6 +401,9 @@ impl PhaseRun {
             Some(prior) if n > 0 => prior,
             _ => PhaseRun::default(),
         };
+        if run.run_id.is_empty() {
+            run.run_id = mint_run_id();
+        }
         // Phases this call did not see started are taken to begin now, and
         // starts past this phase belong to a run that is being re-walked.
         run.started_ms.truncate(n);
@@ -424,6 +456,7 @@ impl PhaseRun {
     }
 
     /// The report this state makes, under `label`, with `text` as its line.
+    /// It says the run finished once every phase has landed.
     pub fn report(&self, label: &str, text: &str, needles: Vec<String>) -> RunReport {
         let total = self.names.len() as u64;
         RunReport {
@@ -437,6 +470,8 @@ impl PhaseRun {
             units: Some(self.rows()),
             needles,
             nests: false,
+            finished: self.running() >= self.names.len(),
+            run_id: Some(self.run_id.clone()),
         }
     }
 
@@ -470,6 +505,8 @@ impl PhaseRun {
         }
         report.done = report.total;
         report.failures = (status == "fail").then_some(1);
+        // A stop is the run's end.
+        report.finished = true;
         report
     }
 }
@@ -667,6 +704,30 @@ mod tests {
     }
 
     #[test]
+    fn a_phased_run_says_it_finished_at_its_finish_and_at_a_stop() {
+        let of = names(&["build", "sign"]);
+        let run = PhaseRun::advance(None, 0, Some("build"), &of, 1_000);
+        assert!(!run.report("x", "build", vec![]).finished);
+        let run = PhaseRun::advance(Some(run), 1, Some("sign"), &of, 2_000);
+        assert!(!run.report("x", "sign", vec![]).finished);
+        assert!(
+            run.stopped_report("x", "stopped", "fail", vec![], 3_000)
+                .finished,
+            "a stop is the run's end"
+        );
+        let run = PhaseRun::advance(Some(run), 2, None, &of, 3_000);
+        let finished = run.report("x", "done", vec![]);
+        assert!(finished.finished);
+        assert_eq!(report_fields(&finished, None)["finished"], true);
+        assert!(
+            report_fields(&RunReport::default(), None)
+                .get("finished")
+                .is_none(),
+            "never sent as false"
+        );
+    }
+
+    #[test]
     fn a_phased_run_starts_lands_and_finishes() {
         let of = names(&["build", "sign"]);
         let run = PhaseRun::advance(None, 0, Some("build"), &of, 1_000);
@@ -715,6 +776,19 @@ mod tests {
         assert_eq!(again.started_ms, vec![9_000]);
         assert_eq!(again.rows()[0]["status"], "running");
         assert_eq!(again.rows()[1]["status"], "pending");
+    }
+
+    #[test]
+    fn a_rewalked_phase_run_is_a_new_run() {
+        let of = names(&["build", "sign"]);
+        let first = PhaseRun::advance(None, 0, Some("build"), &of, 1_000);
+        assert!(!first.run_id.is_empty());
+        let walked = PhaseRun::advance(Some(first.clone()), 1, Some("sign"), &of, 2_000);
+        assert_eq!(walked.run_id, first.run_id, "a later phase keeps the run");
+        let report = walked.report("build-app", "sign", vec![]);
+        assert_eq!(report.run_id.as_deref(), Some(first.run_id.as_str()));
+        let again = PhaseRun::advance(Some(walked), 0, Some("build"), &of, 9_000);
+        assert_ne!(again.run_id, first.run_id, "a re-walk is a new run");
     }
 
     #[test]

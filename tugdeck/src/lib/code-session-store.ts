@@ -2278,6 +2278,9 @@ export class CodeSessionStore extends Subscribable {
       case "report":
         this.reports.applyReport(op.frame as ReportFrame, op.nowMs, () => op.runningJob);
         return;
+      case "restore":
+        this.reports.restoreSettled(op.toolUseId, op.runs, op.nowMs);
+        return;
       case "close":
         this.reports.close(op.toolUseId);
         return;

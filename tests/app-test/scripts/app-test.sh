@@ -394,6 +394,33 @@ while IFS="$(printf '\t')" read -r queue f; do
     esac
 done <<< "$QUEUES"
 FILES=(${BG_QUEUE[@]+"${BG_QUEUE[@]}"} ${MOTION_QUEUE[@]+"${MOTION_QUEUE[@]}"} ${FG_QUEUE[@]+"${FG_QUEUE[@]}"})
+
+# A file's identity in this run is its POSITION — its 0-based index in FILES,
+# the order the three run loops walk and the order the report panel's plan
+# declares — never its name. A file named twice runs twice, and each copy is
+# a result of its own: its own files under $RUNDIR, its own row, its own cell
+# on the block. Keyed by name, a red copy was overwritten by a green one and
+# the run read all green.
+#
+# A copy's ORDINAL is 1 for the first time its name appears in FILES and n for
+# the n-th; its DISPLAY name is the file name with ` #n` appended from the
+# second copy on. The text output prints the display name; the ledger, the
+# history lookup and the JSON document's `file` keep the plain name, so
+# repeats add to one file's history. Built by a loop over earlier entries:
+# bash 3.2 has no associative arrays.
+declare -a FILE_ORD=() FILE_DISP=()
+for ((fi_ = 0; fi_ < ${#FILES[@]}; fi_++)); do
+    ord_=1
+    for ((fj_ = 0; fj_ < fi_; fj_++)); do
+        [ "${FILES[$fj_]}" = "${FILES[$fi_]}" ] && ord_=$((ord_ + 1))
+    done
+    FILE_ORD+=("$ord_")
+    if [ "$ord_" -ge 2 ]; then
+        FILE_DISP+=("${FILES[$fi_]} #$ord_")
+    else
+        FILE_DISP+=("${FILES[$fi_]}")
+    fi
+done
 if [ "${#MOTION_QUEUE[@]}" -gt 0 ] && [ "${#BG_QUEUE[@]}" -gt 0 ]; then
     echo "==> the ${#MOTION_QUEUE[@]} motion test(s) run after the batched set, one at a time."
 fi
@@ -476,12 +503,13 @@ resolve_foreground_decision() {
 }
 
 declare -a RESULT_ROWS=()
-# Each entry: file US title US message US location. `note()` values and
+# Each entry: position US title US message US location. `note()` values and
 # per-failure detail are extracted ONCE, here, and both the human summary
 # and the JSON document render from these arrays — never by re-parsing
 # printed text.
 declare -a FAIL_DETAILS=()
-# Each entry: file US <the raw TUG-NOTE json object>.
+# Each entry: position US <the raw TUG-NOTE json object>. A position is a
+# copy's index in FILES; the renderers print its FILE_DISP.
 declare -a NOTE_ROWS=()
 US=$'\037'
 RS=$'\036'
@@ -624,11 +652,13 @@ clip_lines() {
     awk '{ if (length($0) > 240) print substr($0, 1, 240) " …"; else print }' | iconv -c -f UTF-8 -t UTF-8
 }
 
-# Run one file and write its outcome to $RUNDIR, so a concurrent job can
-# report without sharing a shell array with anybody.
+# Run one file — the copy at position `$2` in FILES — and write its outcome
+# to $RUNDIR under that position, so a concurrent job can report without
+# sharing a shell array with anybody, and two copies of one file never share
+# a result.
 run_one_file() {
-    local f="$1"
-    local out="$RUNDIR/$(printf '%s' "$f" | tr '/' '_')"
+    local f="$1" pos="$2"
+    local out="$RUNDIR/f$pos"
     local tmpout="$out.out"
     local file_start rc passed failed total secs status
     # Under TUG_APPTEST_REACH=1 the harness folds each page's reach map into
@@ -636,7 +666,7 @@ run_one_file() {
     local reach_out=""
     if [ "${TUG_APPTEST_REACH:-}" = "1" ]; then
         mkdir -p "$RUNDIR/reach"
-        reach_out="$RUNDIR/reach/$(printf '%s' "$f" | tr '/' '_').json"
+        reach_out="$RUNDIR/reach/f$pos.json"
     fi
     file_start="$(date +%s)"
     # The block's report panel draws this file's lane from here.
@@ -644,9 +674,9 @@ run_one_file() {
     local _cap basis
     IFS=$'\t' read -r _cap basis <<< "$(wedge_cap_for "$f")"
     if [ -n "$basis" ] && [ "$basis" != "-" ]; then
-        unit_report start app-test "${f%.test.ts}" --median "$basis"
+        unit_report start app-test "${f%.test.ts}" --slot "$pos" --median "$basis"
     else
-        unit_report start app-test "${f%.test.ts}"
+        unit_report start app-test "${f%.test.ts}" --slot "$pos"
     fi
     # The file runs under the budget (run-capped.sh), which stops it and
     # leaves $out.wedged behind when it has not finished by then.
@@ -717,8 +747,8 @@ run_one_file() {
             printf '%s' "(the file failed before any test reported)$US$(tail -n 12 "$tmpout" | clip_lines)$US$RS" > "$out.fails"
         fi
     fi
-    printf '%s\n' "$status:$f:$passed:$total:$secs" > "$out.row"
-    report_progress "$f" "$status" "$passed" "$total" "$secs" "$out.fails"
+    printf '%s\n' "$status:$f:$passed:$total:$secs:$pos:${FILE_ORD[$pos]}" > "$out.row"
+    report_progress "$f" "$pos" "$status" "$passed" "$total" "$secs" "$out.fails"
 }
 
 # The word a row's status code prints as — the report panel's own vocabulary,
@@ -737,10 +767,9 @@ status_word() {
 }
 
 # Why an OVERTIME file is red, as its line says it: stopped at the budget,
-# or green but past it.
+# or green but past it. Takes the copy's position.
 overtime_reason() {
-    local f="$1"
-    if [ -e "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').wedged" ]; then
+    if [ -e "$RUNDIR/f$1.wedged" ]; then
         printf 'stopped at %ss' "$BUDGET_SECS"
     else
         printf 'over the %ss budget' "$BUDGET_SECS"
@@ -757,11 +786,11 @@ overtime_reason() {
 # guard: `TUG_APPTEST_STREAM=1` empties PROGRESS, and the block's line must
 # not depend on these text lines being on. The verb is silent and bounded.
 report_progress() {
-    local f="$1" status="$2" passed="$3" total="$4" secs="$5" fails="$6"
+    local f="$1" pos="$2" status="$3" passed="$4" total="$5" secs="$6" fails="$7"
     local nth elapsed detail="" first title msg
     # shellcheck disable=SC2012  # counting rows the runner named itself
     nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
-    report_unit_done "$f" "$status" "$passed" "$total" "$secs" "$fails"
+    report_unit_done "$f" "$pos" "$status" "$passed" "$total" "$secs" "$fails"
     [ -n "$PROGRESS" ] || return 0
     elapsed=$(( $(date +%s) - START_EPOCH ))
     # The first record's title and the first line of its message: enough to
@@ -773,7 +802,7 @@ report_progress() {
         msg="${msg%%"$US"*}"
         detail="$(printf '\n          ↳ %s\n            %s' "${title:0:140}" "${msg:0:160}")"
     fi
-    if [ "$status" = OVERTIME ] && [ -e "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').wedged" ]; then
+    if [ "$status" = OVERTIME ] && [ -e "$RUNDIR/f$pos.wedged" ]; then
         detail="$(printf '\n          ↳ stopped at the %ss budget, unfinished' "$BUDGET_SECS")"
         first="$(head -n 1 "$fails")"
         title="${first%%"$US"*}"
@@ -783,7 +812,7 @@ report_progress() {
     fi
     printf '%3d/%-3d %02d:%02d  %-7s %-56s (%d/%d)  %4ds%s\n' \
         "$nth" "${#FILES[@]}" $((elapsed / 60)) $((elapsed % 60)) \
-        "$(status_word "$status")" "$f" "$passed" "$total" "$secs" "$detail"
+        "$(status_word "$status")" "${FILE_DISP[$pos]}" "$passed" "$total" "$secs" "$detail"
 }
 
 # The run as the calling Session card's block draws it: one row per file,
@@ -810,7 +839,7 @@ trim() {
 # at the budget carries its records like any red; one that finished green
 # past it says so.
 report_unit_done() {
-    local f="$1" status="$2" passed="$3" total="$4" secs="$5" fails="$6"
+    local f="$1" pos="$2" status="$3" passed="$4" total="$5" secs="$6" fails="$7"
     local word first title="" msg=""
     local -a extra=()
     case "$status" in
@@ -831,26 +860,27 @@ report_unit_done() {
     [ -n "$title" ] && extra+=(--title "$title")
     [ -n "$msg" ] && extra+=(--message "$msg")
     [ "$word" = skipped ] || extra+=(--secs "$secs")
-    unit_report "done" app-test "${f%.test.ts}" "$word" --passed "$passed" --total "$total" \
-        ${extra[@]+"${extra[@]}"}
+    unit_report "done" app-test "${f%.test.ts}" "$word" --slot "$pos" \
+        --passed "$passed" --total "$total" ${extra[@]+"${extra[@]}"}
 }
 
-# Fold one finished file's $RUNDIR output into the arrays the summary reads.
+# Fold one finished copy's $RUNDIR output into the arrays the summary reads.
+# Takes the copy's position; the notes and failures it gathers lead with it.
 collect_file() {
-    local f="$1"
-    local out="$RUNDIR/$(printf '%s' "$f" | tr '/' '_')"
+    local pos="$1"
+    local out="$RUNDIR/f$pos"
     local row
     [ -f "$out.row" ] || return 0
     row="$(cat "$out.row")"
     RESULT_ROWS+=("$row")
     if [ -f "$out.notes" ]; then
         while IFS= read -r ln; do
-            [ -n "$ln" ] && NOTE_ROWS+=("$f$US$ln")
+            [ -n "$ln" ] && NOTE_ROWS+=("$pos$US$ln")
         done < "$out.notes"
     fi
     if [ -f "$out.fails" ]; then
         while IFS= read -r -d "$RS" rec; do
-            [ -n "$rec" ] && FAIL_DETAILS+=("$f$US$rec")
+            [ -n "$rec" ] && FAIL_DETAILS+=("$pos$US$rec")
         done < "$out.fails"
     fi
 }
@@ -919,10 +949,15 @@ START_EPOCH="$(date +%s)"
 
 # The background tier, a rolling pool of JOBS: the moment a file finishes,
 # the next starts in its slot, so a slow file holds only its own. macOS ships
-# bash 3.2, which has no `wait -n`; each job instead writes its file's name to
-# a FIFO as its last act, and a blocking read on it is the retirement. Each
-# file runs under an instance prefix of its own, so its stragglers are reaped
-# without touching the apps of the files still running beside it.
+# bash 3.2, which has no `wait -n`; each job instead writes its file's
+# position to a FIFO as its last act, and a blocking read on it is the
+# retirement. Each file runs under an instance prefix of its own, so its
+# stragglers are reaped without touching the apps of the files still running
+# beside it.
+#
+# The three loops walk BG_QUEUE, MOTION_QUEUE and FG_QUEUE in FILES's order
+# with one counter, so `pos` is each copy's position.
+pos=0
 if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
     POOL_FIFO="$RUNDIR/pool.fifo"
     mkfifo "$POOL_FIFO"
@@ -931,22 +966,23 @@ if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
     pool_running=0
     for f in "${BG_QUEUE[@]}"; do
         if [ "$pool_running" -ge "$JOBS" ]; then
-            read -r done_f <&3
-            collect_file "$done_f"
+            read -r done_pos <&3
+            collect_file "$done_pos"
             pool_running=$((pool_running - 1))
         fi
         pool_seq=$((pool_seq + 1))
         (
             export TUG_APPTEST_ID_PREFIX="${TUG_APPTEST_ID_PREFIX}-f${pool_seq}"
-            run_one_file "$f"
+            run_one_file "$f" "$pos"
             reap_stragglers "$TUG_APPTEST_ID_PREFIX"
-            printf '%s\n' "$f" >&3
+            printf '%s\n' "$pos" >&3
         ) &
         pool_running=$((pool_running + 1))
+        pos=$((pos + 1))
     done
     while [ "$pool_running" -gt 0 ]; do
-        read -r done_f <&3
-        collect_file "$done_f"
+        read -r done_pos <&3
+        collect_file "$done_pos"
         pool_running=$((pool_running - 1))
     done
     wait
@@ -957,9 +993,10 @@ fi
 # The motion tail, strictly one at a time and at an unscaled budget: alone,
 # a motion file has the machine its frame bars were sized for.
 for f in ${MOTION_QUEUE[@]+"${MOTION_QUEUE[@]}"}; do
-    TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
+    TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f" "$pos"
     reap_stragglers
-    collect_file "$f"
+    collect_file "$pos"
+    pos=$((pos + 1))
 done
 
 # The screen-takers, strictly one at a time. The decision resolves here,
@@ -968,16 +1005,18 @@ for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
     resolve_foreground_decision
     if [ "$FG_DECISION" = "skip" ]; then
         [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
-        RESULT_ROWS+=("SKIP:$f:0:0:0")
-        printf '%s\n' "SKIP:$f:0:0:0" > "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').row"
-        unit_report "done" app-test "${f%.test.ts}" skipped
+        RESULT_ROWS+=("SKIP:$f:0:0:0:$pos:${FILE_ORD[$pos]}")
+        printf '%s\n' "SKIP:$f:0:0:0:$pos:${FILE_ORD[$pos]}" > "$RUNDIR/f$pos.row"
+        unit_report "done" app-test "${f%.test.ts}" skipped --slot "$pos"
         [ -n "$PROGRESS" ] && printf '%3d/%-3d %5s  %-7s %-56s (takes the screen)\n' \
-            "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "skipped" "$f"
+            "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "skipped" "${FILE_DISP[$pos]}"
+        pos=$((pos + 1))
         continue
     fi
-    TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
+    TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f" "$pos"
     reap_stragglers
-    collect_file "$f"
+    collect_file "$pos"
+    pos=$((pos + 1))
     sleep 0.3
 done
 
@@ -994,7 +1033,7 @@ files_overtime=0
 tests_passed_total=0
 tests_total=0
 for row in "${RESULT_ROWS[@]}"; do
-    IFS=':' read -r status _file rpassed rtotal _rsecs <<< "$row"
+    IFS=':' read -r status _file rpassed rtotal _rsecs _rpos _rord <<< "$row"
     case "$status" in
         PASS) files_passed=$((files_passed + 1)) ;;
         FAIL) files_failed=$((files_failed + 1)) ;;
@@ -1029,22 +1068,22 @@ fi
 echo
 echo "Per-file results:"
 for row in "${RESULT_ROWS[@]}"; do
-    IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
+    IFS=':' read -r status _file rpassed rtotal rsecs rpos _rord <<< "$row"
     reason=""
-    [ "$status" = OVERTIME ] && reason="  $(overtime_reason "$file")"
-    printf '  %-7s %-56s (%d/%d)  %4ds%s\n' "$(status_word "$status")" "$file" "$rpassed" "$rtotal" "$rsecs" "$reason"
+    [ "$status" = OVERTIME ] && reason="  $(overtime_reason "$rpos")"
+    printf '  %-7s %-56s (%d/%d)  %4ds%s\n' "$(status_word "$status")" "${FILE_DISP[$rpos]}" "$rpassed" "$rtotal" "$rsecs" "$reason"
 done
 
 if [ ${#NOTE_ROWS[@]} -gt 0 ]; then
     echo
     echo "Diagnostics:"
-    note_file=""
+    note_pos=""
     for row in "${NOTE_ROWS[@]}"; do
-        nfile="${row%%"$US"*}"
+        npos="${row%%"$US"*}"
         njson="${row#*"$US"}"
-        if [ "$nfile" != "$note_file" ]; then
-            echo "  $nfile"
-            note_file="$nfile"
+        if [ "$npos" != "$note_pos" ]; then
+            echo "  ${FILE_DISP[$npos]}"
+            note_pos="$npos"
         fi
         if command -v jq >/dev/null 2>&1; then
             printf '%s' "$njson" | jq -r \
@@ -1065,9 +1104,10 @@ fi
 HISTORY_JSON=""
 HISTORY_ERR=""
 declare -a RED_FILES=()
+declare -a RED_POS=()
 for row in "${RESULT_ROWS[@]}"; do
-    IFS=':' read -r status file _p _t _s <<< "$row"
-    case "$status" in FAIL|ERR|OVERTIME) RED_FILES+=("$file") ;; esac
+    IFS=':' read -r status file _p _t _s rpos _o <<< "$row"
+    case "$status" in FAIL|ERR|OVERTIME) RED_FILES+=("$file"); RED_POS+=("$rpos") ;; esac
 done
 if [ "${#RED_FILES[@]}" -gt 0 ]; then
     if [ -z "$TUGTOOL_BIN" ]; then
@@ -1136,16 +1176,16 @@ history_line() {
 if [ ${#FAIL_DETAILS[@]} -gt 0 ]; then
     echo
     echo "Failures:"
-    fail_file=""
+    fail_pos=""
     for row in "${FAIL_DETAILS[@]}"; do
-        dfile="${row%%"$US"*}"; rest="${row#*"$US"}"
+        dpos="${row%%"$US"*}"; rest="${row#*"$US"}"
         dtitle="${rest%%"$US"*}"; rest="${rest#*"$US"}"
         dmsg="${rest%%"$US"*}"
         dloc="${rest##*"$US"}"
-        if [ "$dfile" != "$fail_file" ]; then
-            echo "  $dfile"
-            history_line "$dfile"
-            fail_file="$dfile"
+        if [ "$dpos" != "$fail_pos" ]; then
+            echo "  ${FILE_DISP[$dpos]}"
+            history_line "${FILES[$dpos]}"
+            fail_pos="$dpos"
         fi
         echo "    > $dtitle"
         [ -n "$dmsg" ] && printf '%s\n' "$dmsg" | sed 's/^/      /'
@@ -1159,9 +1199,10 @@ fi
 # recorded runs end in a red streak is amended with that history, which is
 # what the panel reads as "recovered".
 declare -a GREEN_FILES=()
+declare -a GREEN_POS=()
 for row in "${RESULT_ROWS[@]}"; do
-    IFS=':' read -r status file _p _t _s <<< "$row"
-    [ "$status" = PASS ] && GREEN_FILES+=("$file")
+    IFS=':' read -r status file _p _t _s rpos _o <<< "$row"
+    [ "$status" = PASS ] && GREEN_FILES+=("$file") && GREEN_POS+=("$rpos")
 done
 if [ "${#GREEN_FILES[@]}" -gt 0 ] && [ -n "$TUGTOOL_BIN" ] && [ -n "${TUG_SESSION_ID:-}" ] \
     && command -v jq >/dev/null 2>&1; then
@@ -1171,9 +1212,12 @@ if [ "${#GREEN_FILES[@]}" -gt 0 ] && [ -n "$TUGTOOL_BIN" ] && [ -n "${TUG_SESSIO
     if [ -n "$RECOVERED_JSON" ] && [ "$RECOVERED_JSON" != "{}" ]; then
         SAVED_HISTORY_JSON="$HISTORY_JSON"; SAVED_HISTORY_ERR="$HISTORY_ERR"
         HISTORY_JSON="$RECOVERED_JSON"; HISTORY_ERR=""
-        for f in "${GREEN_FILES[@]}"; do
+        # Each copy's cell is amended by its position; the history is the
+        # file's, so every copy of a recovered file says so.
+        for p in "${GREEN_POS[@]}"; do
+            f="${FILES[$p]}"
             green_history="$(history_line "$f" | sed 's/^ *history: //')"
-            [ -n "$green_history" ] && unit_report amend app-test "${f%.test.ts}" --history "$green_history"
+            [ -n "$green_history" ] && unit_report amend app-test "${f%.test.ts}" --slot "$p" --history "$green_history"
         done
         HISTORY_JSON="$SAVED_HISTORY_JSON"; HISTORY_ERR="$SAVED_HISTORY_ERR"
     fi
@@ -1182,9 +1226,10 @@ fi
 # The block's last report: every file landed, and each red carrying the line
 # the record says of it. Posted before the call returns, so the block settles
 # on this.
-for f in ${RED_FILES[@]+"${RED_FILES[@]}"}; do
+for p in ${RED_POS[@]+"${RED_POS[@]}"}; do
+    f="${FILES[$p]}"
     red_history="$(history_line "$f" | sed 's/^ *history: //')"
-    [ -n "$red_history" ] && unit_report amend app-test "${f%.test.ts}" --history "$red_history"
+    [ -n "$red_history" ] && unit_report amend app-test "${f%.test.ts}" --slot "$p" --history "$red_history"
 done
 unit_report finish app-test "$files_passed passed, $((files_failed + files_errored + files_overtime)) failed, $files_stalled stalled"
 
@@ -1203,11 +1248,11 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
         fi
         {
             for row in "${RESULT_ROWS[@]}"; do
-                IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
+                IFS=':' read -r status file rpassed rtotal rsecs rpos rord <<< "$row"
                 fails="$(
                     for d in ${FAIL_DETAILS[@]+"${FAIL_DETAILS[@]}"}; do
-                        dfile="${d%%"$US"*}"; rest="${d#*"$US"}"
-                        [ "$dfile" = "$file" ] || continue
+                        dpos="${d%%"$US"*}"; rest="${d#*"$US"}"
+                        [ "$dpos" = "$rpos" ] || continue
                         dtitle="${rest%%"$US"*}"; rest="${rest#*"$US"}"
                         jq -n --arg title "$dtitle" \
                               --arg message "${rest%%"$US"*}" \
@@ -1226,7 +1271,7 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
                 # reported either way.
                 notes="$(
                     for n in ${NOTE_ROWS[@]+"${NOTE_ROWS[@]}"}; do
-                        [ "${n%%"$US"*}" = "$file" ] || continue
+                        [ "${n%%"$US"*}" = "$rpos" ] || continue
                         printf '%s\n' "${n#*"$US"}"
                     done | jq -R 'fromjson? // empty' | jq -s '.'
                 )"
@@ -1246,9 +1291,10 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
                 jq -n --arg file "$file" --arg status "$status" \
                       --argjson passed "$rpassed" --argjson total "$rtotal" \
                       --argjson seconds "$rsecs" \
+                      --argjson ordinal "$rord" --argjson position "$rpos" \
                       --argjson failures "$fails" --argjson notes "$notes" \
                       --argjson history "$history" \
-                      '{file:$file,status:$status,passed:$passed,total:$total,seconds:$seconds,failures:$failures,notes:$notes,history:$history}'
+                      '{file:$file,ordinal:$ordinal,position:$position,status:$status,passed:$passed,total:$total,seconds:$seconds,failures:$failures,notes:$notes,history:$history}'
             done
         } | jq -s \
             --arg sweep "$SWEEP_LABEL" \
@@ -1293,14 +1339,16 @@ else
     [ -n "$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null)" ] && record_dirty=true
     record_payload="$(
         {
+            # One row per copy, each under the plain file name: repeats add
+            # to one file's history. A copy is a screen-taker when its
+            # position falls in FG_QUEUE's span of FILES.
+            fg_from=$(( ${#BG_QUEUE[@]} + ${#MOTION_QUEUE[@]} ))
             for row in "${RESULT_ROWS[@]}"; do
-                IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
+                IFS=':' read -r status file rpassed rtotal rsecs rpos _rord <<< "$row"
                 # The ledger knows no OVERTIME: it is a red with its real time.
                 [ "$status" = OVERTIME ] && status=FAIL
                 fg=false
-                for q in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
-                    [ "$q" = "$file" ] && fg=true && break
-                done
+                [ "$rpos" -ge "$fg_from" ] && fg=true
                 jq -n --arg file "$file" --arg status "$status" \
                       --argjson passed "$rpassed" --argjson total "$rtotal" \
                       --argjson secs "$rsecs" --argjson foreground "$fg" \
@@ -1326,15 +1374,19 @@ else
 
     # The reach maps of the files that passed: what each one's run actually
     # executed, which the selector ranks by. A red file's map is not a fact
-    # about the test, so it is never recorded. Telemetry, like the record above.
+    # about the test, so it is never recorded. One map per file name, the
+    # first passing copy's. Telemetry, like the record above.
     if [ "${TUG_APPTEST_REACH:-}" = "1" ]; then
         reach_payload="$(
             {
+                reach_seen=" "
                 for row in "${RESULT_ROWS[@]}"; do
-                    IFS=':' read -r status file _ <<< "$row"
+                    IFS=':' read -r status file _p _t _s rpos _o <<< "$row"
                     [ "$status" = PASS ] || continue
-                    reach_file="$RUNDIR/reach/$(printf '%s' "$file" | tr '/' '_').json"
+                    case "$reach_seen" in *" $file "*) continue ;; esac
+                    reach_file="$RUNDIR/reach/f$rpos.json"
                     [ -s "$reach_file" ] || continue
+                    reach_seen="$reach_seen$file "
                     jq -c --arg file "$file" '{file:$file, map:.}' "$reach_file"
                 done
             } | jq -s \

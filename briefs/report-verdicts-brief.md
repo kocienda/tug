@@ -44,6 +44,8 @@ The report ladder in `tugplug/tool-calls.md` already says every long call report
 
 **[B02] Reports nest: a run opened under another label while a parent run holds the block becomes the parent's child rows.** The store gains a third relation beside "replace" and "phases beside units". A parent is any unit run that declares itself one (verify does; a loop of runners may), and a child report under a different label attaches to the parent's running row. The panel draws the parent band with the active child's rows beneath it. This generalizes past verify to `just test` and any `report unit` loop whose items are themselves runners.
 
+*Withdrawn in part by `briefs/report-single-use-brief.md` [B08]:* drawing only the **active** child, and letting a child's rows go when its unit lands (the child's rows are not the record), is withdrawn. A child now stays beneath its parent's row: open while its unit runs, folded to its one-line masthead once the unit lands, and kept by a finished panel. The parent's row still carries the child's verdict, as [B03] decides.
+
 **[B03] The surface row carries its child's verdict.** `SurfaceResult` and the `surface` unit row gain `passed`, `total` and the first failure's `title` and `message` from the wrapped child, so a red verify names the test on the block and in `print_verify`'s table, not just "red".
 
 **[B04] Every wrapped child of a verify records under the call, and `tugtool test last --failures` reads them all.** `test last` keyed on the call id lists every red across every surface of one verify, in surface order. The record is the retrieval path after a tailed or truncated verify, never a rerun.

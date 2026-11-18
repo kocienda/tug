@@ -644,6 +644,14 @@ const toolProgress = obj({
  * whose units are runs of their own, and the store nests a report under
  * another label beneath it. This is that JSON's shape, and the deck's store
  * reads its fields from this type, so the three cannot drift.
+ *
+ * A call may carry several runs, and each frame is one run's: `run_id` names
+ * it (`label:<label>` for a reporter that minted none), and on a report
+ * attached to a call `run_ord` is its place among the call's runs by first
+ * report, `first_at_ms` tugcast's clock at that report, and `under` the
+ * parent run and the slot of the unit it ran under, fixed at its first report.
+ * `seq` rises with every frame tugcast publishes for the call, so a frame
+ * whose `seq` is not above the one held for its run is older and is dropped.
  */
 export interface ReportFrame {
   type: "report";
@@ -657,6 +665,13 @@ export interface ReportFrame {
   jobs?: number;
   units?: unknown[];
   nests?: boolean;
+  /** The reporter says the run is over; sent only when true. */
+  finished?: boolean;
+  run_id?: string;
+  run_ord?: number;
+  under?: { run_id: string; slot: number };
+  first_at_ms?: number;
+  seq?: number;
   at_ms?: number;
   tug_session_id?: string;
   /** Why no call claimed it, on a card-level report (`tool_use_id: null`). */
@@ -678,9 +693,36 @@ const report = obj({
   jobs: opt(num),
   units: opt(arr(raw)),
   nests: opt(bool),
+  finished: opt(bool),
+  run_id: opt(str),
+  run_ord: opt(num),
+  under: opt(obj({ run_id: str, slot: num })),
+  first_at_ms: opt(num),
+  seq: opt(num),
   at_ms: opt(num),
   tug_session_id: opt(str),
   unattached: opt(str),
+});
+
+/**
+ * `settled_runs` — from tugcast, after a replayed line that carried a
+ * `tool_result`: each call that line closed, with the runs its reports had
+ * when the call ended, as tugcast recorded them. A run is a `report` frame's
+ * body without `type`, `tug_session_id` and `tool_use_id`, passed through as
+ * it came; the deck's store narrows it as it narrows a live frame. The deck
+ * restores each call's settled panel from it, so a reloaded card draws the
+ * finished panel it drew live.
+ */
+export interface SettledRunsFrame {
+  type: "settled_runs";
+  calls: { tool_use_id: string; runs: unknown[] }[];
+  tug_session_id?: string;
+}
+
+const settledRuns = obj({
+  type: lit("settled_runs"),
+  calls: arr(obj({ tool_use_id: str, runs: arr(raw) })),
+  tug_session_id: opt(str),
 });
 
 // ---------------------------------------------------------------------------
@@ -781,12 +823,15 @@ export const OUTBOUND_DECODERS = {
   tool_progress: toolProgress,
   // From tugcast, not tugcode — see {@link ReportFrame}.
   report,
+  // From tugcast, not tugcode — see {@link SettledRunsFrame}.
+  settled_runs: settledRuns,
 } as const satisfies {
   readonly [T in Exclude<OutboundTag, "replay_batch">]?: Decoder<Admitted<T>>;
 } & {
   readonly tug_notice: Decoder<TugNotice>;
   readonly replay_batch: Decoder<ReplayBatchEnvelope>;
   readonly report: Decoder<ReportFrame>;
+  readonly settled_runs: Decoder<SettledRunsFrame>;
 };
 
 /** A wire tag with a decoder. */

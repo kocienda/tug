@@ -12,16 +12,16 @@ import { afterAll, describe, expect, test } from "bun:test";
 import React from "react";
 
 import { installJsdom } from "../../../../../__tests__/jsdom-deck";
-import { FAILURE_PREVIEW_CHARS } from "../../../../../lib/report-panel-model";
-import type { Report, RunUnit } from "../../../../../lib/report-store";
+import { FAILURE_PREVIEW_CHARS, reportPanelModel } from "../../../../../lib/report-panel-model";
+import type { Run, RunUnit } from "../../../../../lib/report-store";
 
 const substrate = installJsdom();
 
 afterAll(() => substrate.restore());
 
-function finishedRun(red: Partial<RunUnit>): Report {
+function finishedRun(red: Partial<RunUnit>): Run {
   return {
-    toolUseId: "t",
+    runId: "r",
     label: "app-test",
     text: "at0339 FAIL",
     done: 2,
@@ -35,7 +35,7 @@ function finishedRun(red: Partial<RunUnit>): Report {
   };
 }
 
-async function mountPanel(run: Report) {
+async function mountPanel(run: Run) {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { ReportPanel } = await import("../report-panel");
@@ -43,7 +43,8 @@ async function mountPanel(run: Report) {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(<ReportPanel run={run} state="finished" nowMs={100_000} callFailed />);
+    const m = reportPanelModel(run, "finished", 100_000, { callFailed: true });
+    root.render(<ReportPanel m={m} state="finished" nowMs={100_000} />);
   });
   return {
     host,

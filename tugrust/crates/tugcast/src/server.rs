@@ -1238,6 +1238,12 @@ struct SessionApiRequest {
     /// own, so a report under another label nests beneath it on the block.
     #[serde(default)]
     nests: Option<bool>,
+    /// `report`: the reporter says the run is over.
+    #[serde(default)]
+    finished: Option<bool>,
+    /// `report`: the run the report belongs to, as its reporter minted it.
+    #[serde(default)]
+    run_id: Option<String>,
     /// `spawn_headless` / `trash_headless`: the background owner — the card
     /// id becomes `background:<owner>`, which is also how `trash_headless`
     /// finds every session the owner spawned. A lab puts its run id in it.
@@ -1583,6 +1589,8 @@ async fn session_handler(
             units: req.units.clone().filter(|u| u.is_array()),
             needles: req.needles.clone().unwrap_or_default(),
             nests: req.nests.unwrap_or(false),
+            finished: req.finished.unwrap_or(false),
+            run_id: req.run_id.clone().filter(|id| !id.is_empty()),
         };
         let Some((on_block, attached)) = supervisor.publish_report(&live, report).await else {
             return err(StatusCode::NOT_FOUND, "unknown_session");

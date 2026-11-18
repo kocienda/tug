@@ -95,7 +95,7 @@ done
 tugtool report unit finish checks
 ```
 
-`plan` draws every item as pending, `start` and `done` move one, and `finish` closes the run. `done` takes `--passed`/`--total` for the tests inside an item, and `--title`/`--message` for a red item's first failure.
+`plan` draws every item as pending, `start` and `done` move one, and `finish` closes the run — a run that never calls `finish` is not drawn green, whatever its cells show. `done` takes `--passed`/`--total` for the tests inside an item, and `--title`/`--message` for a red item's first failure. Every planned item is a cell of its own, repeats included: a name listed twice is two cells, the second drawn as `<name> #2`, and a loop that runs items in parallel names each one's cell with `--slot <n>`, its 0-based place in the plan.
 
 **3. An unknown runner is wrapped.** `tugtool test run --suite <name> --kind tap|junit|lines -- <command>` runs the command, passes its output through unchanged, follows its progress, and records the result so `tugtool test last --failures` can name the reds later. `tap` reads TAP on stdout; `junit` needs `--junit <path>`, the document the command writes, and records it at exit; `lines` reads one item per line with `--item <regex>`, whose `name` and `status` named groups say which item and how it went, `--total <regex>` with a `total` group for the count up front, and `--stream stdout|stderr` for where the lines are:
 
@@ -105,7 +105,7 @@ tugtool test run --suite checks --kind lines --item '^(?P<status>ok|FAIL) (?P<na
 
 The status words a `lines` item may carry are listed by `tugtool test run --help`: `pass`, `ok` and `✓` read as a pass, `fail`, `not ok` and `✗` as a fail, `error` as an error, `skip`, `pending` and `todo` as skipped, among others. A line whose status is none of them is not an item.
 
-**4. A command that only knows a count reports the count.** `tugtool report count --label <label> --done <n> --total <t> "<text>"` sets the bar and the line, and `--failures <n>` keeps the reds counted. A wait has no count at all: `tugtool report wait --label <label> --until '<probe>' [--every <secs>] [--for <secs>]` runs the probe until it exits 0, shows how long it has waited and the probe's last line, and exits 1 at the deadline.
+**4. A command that only knows a count reports the count.** `tugtool report count --label <label> --done <n> --total <t> "<text>"` sets the bar and the line, `--failures <n>` keeps the reds counted, and `--finished` on the last report says the run is over — a run that never says so is not drawn green, whatever its count shows. A wait has no count at all: `tugtool report wait --label <label> --until '<probe>' [--every <secs>] [--for <secs>]` runs the probe until it exits 0, shows how long it has waited and the probe's last line, and exits 1 at the deadline.
 
 Every row the panel draws carries a `status`, one of `pending running pass fail error stalled skipped`, and beside it the item's `name`, its 0-based `index`, and as known its `passed` and `total` tests, its `secs`, a `median` it is expected to take, a `title` and `message` for its first failure, and a `history` line. `stalled` is an item stopped because it ran far past its time, which is a machine state rather than a test result.
 

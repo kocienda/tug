@@ -49,6 +49,7 @@ pub mod refs;
 pub mod render_bridge;
 pub mod render_stage;
 pub mod repo_files;
+pub mod report_fold;
 pub mod secret_filter;
 pub mod session_digest;
 pub mod session_index_watch;

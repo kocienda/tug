@@ -344,6 +344,7 @@ fn main() -> ExitCode {
             jobs,
             units_json,
             needles,
+            finished,
             text,
         })) => {
             // Read before anything else, so a pipe feeding the units is
@@ -360,6 +361,10 @@ fn main() -> ExitCode {
                 units,
                 needles,
                 nests: false,
+                finished,
+                // Each count is a call of its own, so it has no run to name:
+                // tugcast keys it by its label.
+                run_id: None,
             });
             ExitCode::SUCCESS
         }

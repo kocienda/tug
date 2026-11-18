@@ -125,7 +125,7 @@ import { useJobForToolUse } from "@/lib/code-session-store/hooks/use-job-for-too
 import { formatReportLine, type Report } from "@/lib/report-store";
 import { useLiveTick } from "@/lib/live-tick";
 import { stripCallIdPrefix } from "@/lib/call-id-prefix";
-import { ReportPanel, ReportStrip, isPanelReport } from "./report-panel";
+import { ReportPanels, ReportStrips, isPanelReport } from "./report-panel";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
 import type { ToolBlockProps } from "../../blocks/types";
 
@@ -318,7 +318,7 @@ function LiveReportPanel({ run }: { run: Report }): React.ReactElement {
   const now = useLiveTick();
   return (
     <div data-slot="bash-report-panel" className="bash-report-panel">
-      <ReportPanel run={run} state="running" nowMs={now} />
+      <ReportPanels entry={run} state="running" nowMs={now} />
     </div>
   );
 }
@@ -334,7 +334,7 @@ function LiveReportPanel({ run }: { run: Report }): React.ReactElement {
  */
 export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => {
   const progress = useReport(toolUseId);
-  if (isPanelReport(progress)) return <LiveReportPanel run={progress} />;
+  if (progress !== null && isPanelReport(progress)) return <LiveReportPanel run={progress} />;
   if (progress?.text === undefined) return null;
   const ring =
     progress.total !== undefined ? (
@@ -556,8 +556,8 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   if (settled !== null && commit === null) {
     body = (
       <div data-slot="bash-report-panel" className="bash-report-panel">
-        <ReportPanel
-          run={settled}
+        <ReportPanels
+          entry={settled}
           state="finished"
           nowMs={0}
           callFailed={callFailed}
@@ -642,8 +642,8 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
           <BashLiveBand toolUseId={toolUseId} />
         ) : settled !== null ? (
           <div data-slot="bash-report-strip" className="bash-report-strip">
-            <ReportStrip
-              run={settled}
+            <ReportStrips
+              entry={settled}
               callFailed={callFailed}
               {...(wallSecs !== undefined ? { wallSecs } : {})}
               foldKey={`${toolUseId}-strip-folds`}

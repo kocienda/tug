@@ -21,26 +21,38 @@
  * background job that is still running, whose call returned at once while
  * its command kept going.
  *
- * A report that names its **unit** (`file`, `test`, `phase`) carries the
- * run's unit rows, and the block draws it as a report panel rather than a line.
- * A unit run that says it **nests** is a parent whose units are runs of their
- * own — a verify's surfaces, a loop of runners — and a report under another
- * label arriving while it holds the call is its running unit's child: it
- * lands in the parent's child slot, folded there by the same rules, and the
- * panel draws it beneath the parent band. The parent's own next report
- * replaces the entry whole, child and all, since its row now carries what the
- * child ended with. That is the third relation beside "replace" and "phases
- * beside units".
- * When such a call closes, its last report is kept as the call's **settled**
- * run, so the block can show how the run ended. Settled runs live as long as
- * the page: they are a view of a run, never part of the record, and a block
- * restored from the transcript without one renders its output as it always
- * did.
+ * A call may carry several **runs** — a build's phases and then its files, a
+ * verify and the test runs its surfaces wrap, a loop planned twice — and the
+ * entry keeps them as a list, each keyed by the `run_id` tugcast sent (or
+ * `label:<label>` when the frame carries none). A frame replaces its own run
+ * whole and touches no other: a run's rows are its own. Which runs pair into
+ * one panel and which is a child under another's row is the panel model's to
+ * say, from the runs' `unit` and `under`; the store merges nothing.
+ *
+ * A run that names its **unit** (`file`, `test`, `phase`) carries its unit
+ * rows, and the block draws a call with such a run as report panels rather
+ * than a line. The entry's own line fields are the latest frame's, for the
+ * one-line readers.
+ *
+ * When such a call closes, its entry is kept as the call's **settled** runs,
+ * so the block can show how they ended. tugcast records them too, when the
+ * call ends, and gives them back on replay after the line that carried the
+ * call's `tool_result` ({@link ReportStore.restoreSettled}), so a reloaded
+ * card draws the finished panel it drew live. Nothing evicts a settled
+ * entry: the page holds every call it has drawn a panel for, and the ledger
+ * keeps them as long as their session. A block restored from a transcript
+ * with no recorded runs renders its output as it always did.
  */
 
-import type { ReportFrame as WireReportFrame } from "@tugproto/outbound-decoders";
+import { isDecodeError } from "@tugproto/decode";
+import { decodeOutbound, type ReportFrame as WireReportFrame } from "@tugproto/outbound-decoders";
 
-/** Where a unit of a run stands. */
+/**
+ * Where a unit of a run stands. `unreported` is never read from the wire: it
+ * is what the panel's model makes of a listed unit still `pending` or
+ * `running` when its run has finished — a cell nobody reported, said so
+ * rather than guessed into a pass or a fail.
+ */
 export type RunUnitStatus =
   | "pending"
   | "running"
@@ -48,8 +60,10 @@ export type RunUnitStatus =
   | "fail"
   | "error"
   | "stalled"
-  | "skipped";
+  | "skipped"
+  | "unreported";
 
+/** The statuses a reporter may send; `unreported` is the model's alone. */
 const RUN_UNIT_STATUSES: ReadonlySet<string> = new Set<RunUnitStatus>([
   "pending",
   "running",
@@ -82,34 +96,53 @@ export interface RunUnit {
   history?: string;
 }
 
-/** What is known about one running call, or about the card's unattached run. */
-export interface Report {
-  /** The call it belongs to; `null` for the card-level slot. */
-  toolUseId: string | null;
+/** One run's latest snapshot. */
+export interface Run {
+  /** The run's id; `label:<label>` for a reporter that minted none. */
+  runId: string;
   label?: string;
   text?: string;
   done?: number;
   total?: number;
   failures?: number;
-  /** What the run counts; present when the report is a report panel's. */
+  /** What the run counts; present when the run is a report panel's. */
   unit?: string;
   /** How many units run at once. */
   jobs?: number;
   /** The run's unit rows, narrowed. */
   units?: readonly RunUnit[];
-  /**
-   * The phase rows a run reported under another label before or beside its
-   * units — a build before its files — so one block draws the phase band
-   * above the unit rows rather than the second report replacing the first.
-   */
-  phases?: readonly RunUnit[];
-  /** Whether this run's units are runs of their own; see {@link child}. */
+  /** Whether this run's units are runs of their own, which run under them. */
   nests?: boolean;
   /**
-   * The run the running unit is, when this run nests one: the latest report
-   * under another label since this run's own, folded as a report of its own.
+   * The reporter said the run is over. A finished run is green only when
+   * every unit it listed landed and none is red; one that never says so is
+   * never green.
    */
-  child?: Report;
+  finished?: boolean;
+  /** The parent run and the slot of the unit this run ran under. */
+  under?: { runId: string; slot: number };
+  /** Its place among the call's runs, by first report, as tugcast numbered it. */
+  ord?: number;
+  seq?: number;
+  /** tugcast's clock at the run's first report, else the local clock at first arrival. */
+  firstAtMs?: number;
+  /** The local clock at the latest arrival. */
+  reportAtMs?: number;
+}
+
+/** What is known about one running call, or about the card's unattached line. */
+export interface Report {
+  /** The call it belongs to; `null` for the card-level slot. */
+  toolUseId: string | null;
+  /** Every run the call has reported, ordered by `ord`, then by first arrival. */
+  runs: readonly Run[];
+  /** The latest report's line fields, for the one-line readers. */
+  label?: string;
+  text?: string;
+  done?: number;
+  total?: number;
+  failures?: number;
+  unit?: string;
   /** When the latest report arrived (local ms). */
   reportAtMs?: number;
   /**
@@ -181,8 +214,6 @@ export function narrowRunUnits(raw: unknown): RunUnit[] | undefined {
 export const REPORT_CAP = 64;
 /** How many closed ids are remembered, to ignore their late frames. */
 export const REPORT_CLOSED_CAP = 256;
-/** How many settled runs are kept; the oldest goes first. */
-export const RUN_SETTLED_CAP = 64;
 /** A heartbeat younger than this reads as `live`. */
 export const ENGINE_LIVE_MS = 10_000;
 
@@ -206,7 +237,7 @@ export class ReportStore {
     if (this.closed.has(toolUseId)) return;
     const prev = this.entries.get(toolUseId);
     this.put(toolUseId, {
-      ...(prev ?? { toolUseId }),
+      ...(prev ?? { toolUseId, runs: [] }),
       engineElapsedMs: elapsedSeconds * 1000,
       heartbeatAtMs: nowMs,
     });
@@ -215,7 +246,11 @@ export class ReportStore {
   /**
    * Record a report. A `null` id lands in the card slot. A report for a
    * closed call is ignored unless `isRunningJob` says the call is a
-   * background job still running.
+   * background job still running. The frame replaces its own run whole,
+   * keeping when it first arrived, and leaves every other run as it was.
+   * A frame whose `seq` is not above the one its run already holds is
+   * older than what the store has, and is dropped whole: its run, and the
+   * entry's line fields, stay as they were. A frame with no `seq` is applied.
    */
   applyReport(
     frame: ReportFrame,
@@ -226,21 +261,30 @@ export class ReportStore {
     if (id !== null && this.closed.has(id) && !isRunningJob(id)) return;
     const key = keyOf(id);
     const prev = this.entries.get(key);
-    // A nesting parent holds the call: a report under another label is its
-    // running unit's child and folds into the child slot, by the same rules
-    // a report of its own follows. The parent's own report, under its label,
-    // replaces the entry whole — child and all. Either way the heartbeat
-    // fields ride along untouched.
-    const next =
-      prev?.nests === true && frame.label !== prev.label
-        ? { ...prev, child: foldReport(prev.child, frame, nowMs), reportAtMs: nowMs }
-        : foldReport(prev, frame, nowMs);
-    this.put(key, { ...next, engineElapsedMs: prev?.engineElapsedMs, heartbeatAtMs: prev?.heartbeatAtMs });
+    const run = runOfFrame(frame, nowMs);
+    const held = prev?.runs.find((r) => r.runId === run.runId);
+    if (run.seq !== undefined && held?.seq !== undefined && run.seq <= held.seq) return;
+    const runs = withRun(prev?.runs ?? [], run);
+    const unit = str(frame.unit);
+    this.put(key, {
+      toolUseId: id,
+      runs,
+      label: frame.label,
+      text: frame.text,
+      done: frame.done,
+      total: frame.total,
+      failures: frame.failures,
+      ...(unit !== undefined ? { unit } : {}),
+      ...(id === null && str(frame.unattached) !== undefined ? { unattached: str(frame.unattached) } : {}),
+      reportAtMs: nowMs,
+      engineElapsedMs: prev?.engineElapsedMs,
+      heartbeatAtMs: prev?.heartbeatAtMs,
+    });
   }
 
   /**
    * The call's `tool_result` arrived: forget it, and ignore its late frames.
-   * A run that named its unit settles — its last report is kept for
+   * A call any of whose runs named a unit settles — its runs are kept for
    * {@link getSettled}.
    */
   close(toolUseId: string): void {
@@ -250,21 +294,50 @@ export class ReportStore {
       if (oldest !== undefined) this.closed.delete(oldest);
     }
     const entry = this.entries.get(toolUseId);
-    if (entry?.unit !== undefined) {
+    if (entry !== undefined && entry.runs.some((r) => r.unit !== undefined)) {
       this.settled.delete(toolUseId);
       this.settled.set(toolUseId, entry);
-      if (this.settled.size > RUN_SETTLED_CAP) {
-        const oldest = this.settled.keys().next().value;
-        if (oldest !== undefined) {
-          this.settled.delete(oldest);
-          this.notify(oldest);
-        }
-      }
     }
     if (this.entries.delete(toolUseId)) this.notify(toolUseId);
   }
 
-  /** A closed call's last unit report, or `null`. */
+  /**
+   * A replayed call's runs as tugcast recorded them when it ended: each body
+   * is narrowed exactly as a live `report` frame is, and the call's settled
+   * entry is built from them. A settled entry the page already holds is the
+   * one it drew live, and stays. The call's subscribers hear it, so a block
+   * that rendered its output a moment earlier redraws as its panel.
+   */
+  restoreSettled(toolUseId: string, runBodies: readonly unknown[], nowMs: number): void {
+    if (this.settled.has(toolUseId)) return;
+    let runs: Run[] = [];
+    let last: WireReportFrame | undefined;
+    for (const body of runBodies) {
+      if (typeof body !== "object" || body === null || Array.isArray(body)) continue;
+      const frame = decodeOutbound("report", { ...body, type: "report", tool_use_id: toolUseId });
+      if (isDecodeError(frame)) continue;
+      // The run's last report is tugcast's `at_ms`, not this page's clock:
+      // a child's wall time reads from its first report to its last.
+      runs = withRun(runs, { ...runOfFrame(frame, nowMs), reportAtMs: num(frame.at_ms) ?? nowMs });
+      last = frame;
+    }
+    if (last === undefined || !runs.some((r) => r.unit !== undefined)) return;
+    const unit = str(last.unit);
+    this.settled.set(toolUseId, {
+      toolUseId,
+      runs,
+      label: last.label,
+      text: last.text,
+      done: last.done,
+      total: last.total,
+      failures: last.failures,
+      ...(unit !== undefined ? { unit } : {}),
+      reportAtMs: nowMs,
+    });
+    this.notify(toolUseId);
+  }
+
+  /** A closed call's runs as they ended, or `null`. */
   getSettled(toolUseId: string): Report | null {
     return this.settled.get(toolUseId) ?? null;
   }
@@ -318,30 +391,25 @@ export class ReportStore {
   }
 }
 
+/** The key a frame's run is held under: its id, else its label. */
+export function runKeyOf(frame: Pick<ReportFrame, "run_id" | "label">): string {
+  return str(frame.run_id) ?? `label:${frame.label ?? ""}`;
+}
+
 /**
- * The entry a report makes over the one before it. A report replaces the
- * previous report's fields whole — a field absent now was not carried forward
- * by the reporter, so it is not stale-kept here. The one thing kept across
- * labels is the phase relation: a phase run and a unit run under one call,
- * by two labels, share the entry — the units own it and the phases ride
- * beside them, whichever came first.
+ * The run a frame describes, whole: a field absent now was not carried
+ * forward by the reporter, so it is not stale-kept. `firstAtMs` is tugcast's
+ * when the frame carries it; {@link withRun} keeps an earlier one.
  */
-function foldReport(prev: Report | undefined, frame: ReportFrame, nowMs: number): Report {
-  const id = frame.tool_use_id;
+function runOfFrame(frame: ReportFrame, nowMs: number): Run {
   const unit = str(frame.unit);
   const units = unit === undefined ? undefined : narrowRunUnits(frame.units);
-  const otherLabel = prev?.label !== frame.label;
-  if (unit === "phase" && prev?.unit !== undefined && prev.unit !== "phase" && otherLabel) {
-    return { ...prev, ...(units !== undefined ? { phases: units } : {}), reportAtMs: nowMs };
-  }
-  const phases =
-    unit !== undefined && unit !== "phase"
-      ? prev?.unit === "phase" && otherLabel
-        ? prev.units
-        : prev?.phases
-      : undefined;
+  const under = frame.under;
+  const ord = num(frame.run_ord);
+  const seq = num(frame.seq);
+  const firstAtMs = num(frame.first_at_ms);
   return {
-    toolUseId: id,
+    runId: runKeyOf(frame),
     label: frame.label,
     text: frame.text,
     done: frame.done,
@@ -350,11 +418,33 @@ function foldReport(prev: Report | undefined, frame: ReportFrame, nowMs: number)
     ...(unit !== undefined ? { unit } : {}),
     ...(unit !== undefined && num(frame.jobs) !== undefined ? { jobs: num(frame.jobs) } : {}),
     ...(units !== undefined ? { units } : {}),
-    ...(phases !== undefined ? { phases } : {}),
     ...(unit !== undefined && frame.nests === true ? { nests: true } : {}),
-    ...(id === null && str(frame.unattached) !== undefined ? { unattached: str(frame.unattached) } : {}),
+    ...(unit !== undefined && frame.finished === true ? { finished: true } : {}),
+    ...(under !== undefined && str(under.run_id) !== undefined && num(under.slot) !== undefined
+      ? { under: { runId: under.run_id, slot: under.slot } }
+      : {}),
+    ...(ord !== undefined ? { ord } : {}),
+    ...(seq !== undefined ? { seq } : {}),
+    firstAtMs: firstAtMs ?? nowMs,
     reportAtMs: nowMs,
   };
+}
+
+/**
+ * `runs` with `run` in its place: the run of that id replaced whole, keeping
+ * the first arrival it already had, or `run` added. Ordered by `ord`, then
+ * by first arrival, so a run tugcast has not numbered keeps its place.
+ */
+function withRun(runs: readonly Run[], run: Run): Run[] {
+  const at = runs.findIndex((r) => r.runId === run.runId);
+  const next =
+    at < 0
+      ? [...runs, run]
+      : runs.map((r, i) => (i === at ? { ...run, firstAtMs: r.firstAtMs ?? run.firstAtMs } : r));
+  return next
+    .map((r, arrival) => ({ r, arrival }))
+    .sort((a, b) => (a.r.ord ?? Infinity) - (b.r.ord ?? Infinity) || a.arrival - b.arrival)
+    .map(({ r }) => r);
 }
 
 /**

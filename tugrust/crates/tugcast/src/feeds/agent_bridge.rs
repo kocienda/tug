@@ -3714,6 +3714,42 @@ async fn relay_session_io_tracked(
                             warn!(session = %tug_session_id, "merger receiver closed; ending relay");
                             return RelayOutcome::Cancelled;
                         }
+                        // A replayed `tool_result` closes its call in the
+                        // deck; the runs recorded when the call ended follow
+                        // the line, so the block draws the finished panel it
+                        // drew live. One read for the ids this line carries,
+                        // never a whole session's runs per replay window.
+                        if in_replay
+                            && line_to_emit.windows(TOOL_RESULT_MARK.len()).any(|w| w == TOOL_RESULT_MARK)
+                            && let Some(ledger) = session_ledger
+                        {
+                            let ids = tool_result_ids(&line_to_emit);
+                            if !ids.is_empty() {
+                                match ledger.run(move |l| l.settled_runs_for(&ids)).await {
+                                    Ok(calls) if !calls.is_empty() => {
+                                        let restore = Frame::new(
+                                            FeedId::CODE_OUTPUT,
+                                            splice_tug_session_id(
+                                                &settled_runs_frame(&calls),
+                                                tug_session_id.as_str(),
+                                            ),
+                                        );
+                                        if merger_tx.send(restore).await.is_err() {
+                                            warn!(session = %tug_session_id, "merger receiver closed; ending relay");
+                                            return RelayOutcome::Cancelled;
+                                        }
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        warn!(
+                                            session = %tug_session_id,
+                                            error = %e,
+                                            "settled_runs_for failed; replayed calls draw no recorded panel"
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                     Ok(None) => {
                         if let Some((stale, reason)) = resume_failed.take() {
@@ -4074,6 +4110,53 @@ fn inject_replay_telemetry(
         serde_json::to_vec(&value).unwrap_or_else(|_| line.to_vec()),
         injected,
     )
+}
+
+/// The bytes every line carrying a `tool_result` holds, tested before a
+/// replayed line is parsed for its ids.
+const TOOL_RESULT_MARK: &[u8] = b"\"type\":\"tool_result\"";
+
+/// The `tool_use_id` of every `tool_result` a line carries: the line itself,
+/// or each frame of a `replay_batch`. An unparseable line carries none.
+fn tool_result_ids(line: &[u8]) -> Vec<String> {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+        return Vec::new();
+    };
+    let id_of = |frame: &serde_json::Value| -> Option<String> {
+        if frame.get("type").and_then(|t| t.as_str()) != Some("tool_result") {
+            return None;
+        }
+        frame
+            .get("tool_use_id")
+            .and_then(|id| id.as_str())
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+    };
+    if value.get("type").and_then(|t| t.as_str()) == Some("replay_batch") {
+        return value
+            .get("frames")
+            .and_then(|f| f.as_array())
+            .map(|frames| frames.iter().filter_map(id_of).collect())
+            .unwrap_or_default();
+    }
+    id_of(&value).into_iter().collect()
+}
+
+/// The `settled_runs` frame for the calls a replayed line closed: each
+/// call's recorded runs, which are a JSON array of run bodies, given back
+/// as they were written. A row whose bytes do not parse is left out rather
+/// than sent broken.
+fn settled_runs_frame(calls: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let calls: Vec<serde_json::Value> = calls
+        .iter()
+        .filter_map(|(id, runs)| {
+            let runs = serde_json::from_slice::<serde_json::Value>(runs).ok()?;
+            runs.is_array()
+                .then(|| serde_json::json!({"tool_use_id": id, "runs": runs}))
+        })
+        .collect();
+    serde_json::to_vec(&serde_json::json!({"type": "settled_runs", "calls": calls}))
+        .expect("plain json serializes")
 }
 
 /// Whether a live `turn_complete` line ended the turn with a result — the
@@ -7925,6 +8008,137 @@ mod tests {
         let (out, injected) = inject_replay_telemetry(line, &map);
         assert_eq!(out, line.to_vec());
         assert_eq!(injected, 0);
+    }
+
+    // ---- settled runs on replay ---------------------------------------
+
+    #[test]
+    fn tool_result_ids_reads_a_line_and_every_frame_of_a_batch() {
+        let single = br#"{"type":"tool_result","tool_use_id":"toolu_1","output":"","is_error":false}"#;
+        assert_eq!(tool_result_ids(single), ["toolu_1"]);
+        let batch = serde_json::json!({
+            "type": "replay_batch",
+            "frames": [
+                { "type": "tool_use", "tool_use_id": "toolu_1", "tool_name": "Bash" },
+                { "type": "tool_result", "tool_use_id": "toolu_1", "output": "" },
+                { "type": "assistant_text", "msg_id": "m", "text": "a \"type\":\"tool_result\" quoted" },
+                { "type": "tool_result", "tool_use_id": "toolu_2", "output": "" },
+                { "type": "tool_result", "tool_use_id": "", "output": "" },
+            ],
+            "ipc_version": 2,
+        })
+        .to_string()
+        .into_bytes();
+        assert_eq!(tool_result_ids(&batch), ["toolu_1", "toolu_2"]);
+        assert!(tool_result_ids(b"not json").is_empty());
+        assert!(tool_result_ids(br#"{"type":"turn_complete","msg_id":"m"}"#).is_empty());
+    }
+
+    #[test]
+    fn settled_runs_frame_gives_each_calls_runs_back_as_written() {
+        let calls = vec![
+            ("toolu_1".to_string(), br#"[{"run_id":"r","unit":"file"}]"#.to_vec()),
+            ("toolu_bad".to_string(), b"not json".to_vec()),
+        ];
+        let frame: serde_json::Value = serde_json::from_slice(&settled_runs_frame(&calls)).unwrap();
+        assert_eq!(
+            frame,
+            serde_json::json!({
+                "type": "settled_runs",
+                "calls": [{"tool_use_id": "toolu_1", "runs": [{"run_id": "r", "unit": "file"}]}],
+            })
+        );
+    }
+
+    /// End to end through the real relay: a call's recorded runs follow the
+    /// replayed line that carried its `tool_result`, spliced like every
+    /// CODE_OUTPUT frame; a live `tool_result` outside the bracket brings
+    /// nothing back.
+    #[tokio::test]
+    async fn a_replayed_tool_result_is_followed_by_its_recorded_runs() {
+        use crate::feeds::agent_supervisor::CountingSessionsRecorder;
+        use crate::feeds::workspace_registry::WorkspaceKey;
+
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        ledger
+            .record_settled_runs("toolu_R", "claude-1", br#"[{"run_id":"r","unit":"file","units":[]}]"#, 1)
+            .expect("record");
+        let handle = crate::ledger_handle::LedgerHandle::new(ledger);
+
+        let tug_session_id = TugSessionId::new("tug-settled".to_string());
+        let ledger_entry = Arc::new(Mutex::new(crate::feeds::agent_supervisor::LedgerEntry::new(
+            tug_session_id.clone(),
+            WorkspaceKey::from_test_str("ws-test"),
+            PathBuf::from("/proj"),
+            SessionMode::Resume,
+            CrashBudget::new(3, Duration::from_secs(60)),
+        )));
+        ledger_entry.lock().await.claude_session_id = Some("claude-1".to_string());
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(CountingSessionsRecorder::new(&[]));
+        let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
+        let (merger_tx, mut merger_rx) = mpsc::channel::<Frame>(256);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(64);
+        let cancel = CancellationToken::new();
+        let (relay_stdin_w, _tugcode_stdin_r) = tokio::io::duplex(64 * 1024);
+        let (relay_stdout_r, mut feed_w) = tokio::io::duplex(256 * 1024);
+        let reader: Box<dyn AsyncRead + Send + Unpin> = Box::new(relay_stdout_r);
+        let lines = BufReader::new(reader).lines();
+        let relay = tokio::spawn(async move {
+            relay_session_io(
+                &tug_session_id,
+                &ledger_entry,
+                &mut input_rx,
+                &merger_tx,
+                &state_tx,
+                None,
+                Box::new(relay_stdin_w),
+                lines,
+                "/proj",
+                &recorder,
+                Some(&handle),
+                &crate::feeds::changeset::ChangesetBumper::disconnected(),
+                &cancel,
+            )
+            .await
+        });
+
+        for frame in [
+            r#"{"type":"protocol_ack"}"#,
+            r#"{"type":"replay_started"}"#,
+            r#"{"type":"tool_result","tool_use_id":"toolu_R","output":"","is_error":false}"#,
+            r#"{"type":"replay_complete","count":0,"firstLoadedTurnIndex":0,"totalTurns":0,"hasOlder":false,"ipc_version":2}"#,
+            r#"{"type":"tool_result","tool_use_id":"toolu_R","output":"","is_error":false}"#,
+        ] {
+            feed_w.write_all(frame.as_bytes()).await.expect("write");
+            feed_w.write_all(b"\n").await.expect("write newline");
+        }
+        drop(feed_w);
+        let _ = relay.await.expect("relay task");
+
+        let mut kinds = Vec::new();
+        let mut restore = None;
+        while let Ok(frame) = merger_rx.try_recv() {
+            let value: serde_json::Value = match serde_json::from_slice(&frame.payload) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let kind = value["type"].as_str().unwrap_or("").to_string();
+            if kind == "settled_runs" {
+                restore = Some(value.clone());
+            }
+            if matches!(kind.as_str(), "tool_result" | "settled_runs" | "replay_complete") {
+                kinds.push(kind);
+            }
+        }
+        assert_eq!(
+            kinds,
+            ["tool_result", "settled_runs", "replay_complete", "tool_result"],
+            "the recorded runs follow the replayed result, and only that one"
+        );
+        let restore = restore.unwrap();
+        assert_eq!(restore["tug_session_id"], "tug-settled");
+        assert_eq!(restore["calls"][0]["tool_use_id"], "toolu_R");
+        assert_eq!(restore["calls"][0]["runs"][0]["run_id"], "r");
     }
     // ---- parse_session_title ------------------------------------------
 

@@ -362,6 +362,10 @@ pub enum ReportCommands {
         /// when the session has several calls open.
         #[arg(long = "needle")]
         needles: Vec<String>,
+        /// The run is over: this is its last report. A run that never says
+        /// so is not drawn green, whatever its rows show.
+        #[arg(long)]
+        finished: bool,
         /// The report's line.
         text: String,
     },
@@ -452,6 +456,13 @@ pub enum ReportCommands {
     /// the calling session, so parallel jobs never share a file. A `start`
     /// or `done` for a name the plan did not list adds it.
     ///
+    /// Every planned item is a cell of its own, repeats included: a name
+    /// listed twice is two cells, the second drawn as `<name> #2`. Without
+    /// `--slot`, `start` takes the first copy of the name nobody has started
+    /// and `done` the first one running; a parallel loop that knows each
+    /// item's place in the plan names it with `--slot <n>` (0-based). A
+    /// landed cell is final: a later `start` or `done` on it changes nothing.
+    ///
     /// A row is `name`, `status`, `index` (0-based), and optionally
     /// `passed`, `total`, `secs`, `median`, `started_at_ms`, `title`,
     /// `message` and `history`. The statuses are `pending running pass fail
@@ -467,7 +478,8 @@ pub enum ReportCommands {
 #[derive(Subcommand)]
 pub enum UnitCommands {
     /// Declare the run's items, which draw as pending until they start. A
-    /// rerun under the same label starts over.
+    /// rerun under the same label is a new run: it draws beside the last
+    /// one, which keeps its rows.
     Plan {
         /// The run's short name (`app-test`).
         label: String,
@@ -498,6 +510,10 @@ pub enum UnitCommands {
         label: String,
         /// The item's name; one the plan lacks is added.
         name: String,
+        /// The item's cell: its 0-based place in the plan. The first copy of
+        /// the name nobody has started when left off.
+        #[arg(long)]
+        slot: Option<usize>,
         /// The seconds it is expected to take, over the plan's.
         #[arg(long)]
         median: Option<f64>,
@@ -510,6 +526,10 @@ pub enum UnitCommands {
         name: String,
         #[arg(value_enum)]
         status: crate::report_unit::LandedStatus,
+        /// The item's cell: its 0-based place in the plan. The first copy of
+        /// the name that is running when left off.
+        #[arg(long)]
+        slot: Option<usize>,
         /// Its wall seconds; the time since its start when left off.
         #[arg(long)]
         secs: Option<f64>,
@@ -534,6 +554,10 @@ pub enum UnitCommands {
     Amend {
         label: String,
         name: String,
+        /// The item's cell: its 0-based place in the plan. The latest copy
+        /// of the name that ran when left off.
+        #[arg(long)]
+        slot: Option<usize>,
         /// What the record says of this item before this run.
         #[arg(long)]
         history: Option<String>,
@@ -572,11 +596,13 @@ impl UnitCommands {
             UnitCommands::Start {
                 label,
                 name,
+                slot,
                 median,
                 text,
             } => UnitCall::Start {
                 label,
                 name,
+                slot,
                 median,
                 text,
             },
@@ -584,6 +610,7 @@ impl UnitCommands {
                 label,
                 name,
                 status,
+                slot,
                 secs,
                 passed,
                 total,
@@ -594,6 +621,7 @@ impl UnitCommands {
                 label,
                 name,
                 status,
+                slot,
                 landing: Landing {
                     secs,
                     passed,
@@ -606,6 +634,7 @@ impl UnitCommands {
             UnitCommands::Amend {
                 label,
                 name,
+                slot,
                 history,
                 message,
                 title,
@@ -613,6 +642,7 @@ impl UnitCommands {
             } => UnitCall::Amend {
                 label,
                 name,
+                slot,
                 amendment: Amendment {
                     history,
                     message,

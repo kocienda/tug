@@ -418,6 +418,104 @@ fn a_unit_loop_posts_the_run_as_rows_on_every_call() {
     assert_eq!(body["units"].as_array().unwrap().len(), 2);
 }
 
+/// A plan that lists a name twice draws two cells, and each fills once: a
+/// repeated item is not one cell written twice beside one that never fills.
+#[test]
+fn a_unit_loop_with_a_repeated_item_posts_a_row_per_copy() {
+    let (_dir, tmp) = scratch();
+    let (port, requests) = fake_tugcast(Answer::Ok);
+    register_fake_instance(&tmp, port);
+    let call = |args: &[&str]| {
+        let mut cmd = report(&tmp);
+        cmd.env("TUG_SESSION_ID", "seg-0").arg("unit").args(args);
+        silent(&mut cmd);
+        requests.recv_timeout(Duration::from_secs(5)).unwrap()
+    };
+
+    let mut earlier = vec![call(&[
+        "plan", "checks", "--unit", "file", "--of", "a", "a", "b",
+    ])];
+    for (name, status) in [("a", "pass"), ("a", "fail"), ("b", "pass")] {
+        earlier.push(call(&["start", "checks", name]));
+        earlier.push(call(&["done", "checks", name, status]));
+    }
+    let body = call(&["finish", "checks"]);
+    // Only the finish says the run is over.
+    assert_eq!(body["finished"], true);
+    assert!(earlier.iter().all(|b| b.get("finished").is_none()));
+    let rows = body["units"].as_array().unwrap();
+    let cells: Vec<(u64, &str, &str)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r["index"].as_u64().unwrap(),
+                r["name"].as_str().unwrap(),
+                r["status"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        cells,
+        [(0, "a", "pass"), (1, "a #2", "fail"), (2, "b", "pass")]
+    );
+    assert_eq!(
+        (
+            body["done"].as_u64(),
+            body["total"].as_u64(),
+            body["failures"].as_u64()
+        ),
+        (Some(3), Some(3), Some(1))
+    );
+    // Every call of one plan's run names the same run.
+    let run_id = body["run_id"].as_str().unwrap().to_string();
+    assert!(earlier.iter().all(|b| b["run_id"] == run_id.as_str()));
+}
+
+/// A second `plan` under a label is a second run: its posts carry a run id of
+/// their own, and the first run's state is left where it was, so nothing the
+/// second run reports can rewrite a row the first one landed.
+#[test]
+fn a_second_plan_under_one_label_is_a_second_run() {
+    let (_dir, tmp) = scratch();
+    let (port, requests) = fake_tugcast(Answer::Ok);
+    register_fake_instance(&tmp, port);
+    let call = |args: &[&str]| {
+        let mut cmd = report(&tmp);
+        cmd.env("TUG_SESSION_ID", "seg-0").arg("unit").args(args);
+        silent(&mut cmd);
+        requests.recv_timeout(Duration::from_secs(5)).unwrap()
+    };
+
+    let first = call(&["plan", "checks", "--of", "a"]);
+    call(&["start", "checks", "a"]);
+    let landed = call(&["done", "checks", "a", "pass"]);
+    let second = call(&["plan", "checks", "--of", "a"]);
+    let first_id = first["run_id"].as_str().unwrap();
+    let second_id = second["run_id"].as_str().unwrap();
+    assert_eq!(landed["run_id"], first_id);
+    assert_ne!(first_id, second_id);
+    assert_eq!(second["units"][0]["status"], "pending");
+
+    let labels: Vec<_> = std::fs::read_dir(tmp.join("tug-report-unit"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(labels.len(), 1, "one directory per label");
+    assert!(
+        labels[0]
+            .join(first_id)
+            .join("units")
+            .join("0.json")
+            .is_file(),
+        "the first run's landed row is still on disk"
+    );
+    assert_eq!(
+        std::fs::read_to_string(labels[0].join("current")).unwrap(),
+        second_id
+    );
+}
+
 /// With no calling session a unit loop keeps nothing and sends nothing.
 #[test]
 fn a_unit_loop_with_no_calling_session_keeps_nothing() {

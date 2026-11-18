@@ -33,7 +33,7 @@ TUGTOOL_BIN="$REPO_ROOT/tugrust/target/debug/tugtool"
 report() {
     [ -n "$TUGTOOL_BIN" ] || return 0
     "$TUGTOOL_BIN" report count --label "$label" --unit second \
-        --done "$1" --total "$seconds" "$2" >/dev/null 2>&1 || true
+        --done "$1" --total "$seconds" ${3:+"$3"} "$2" >/dev/null 2>&1 || true
 }
 
 /usr/bin/sample "$pid" "$seconds" -file "$out" >/dev/null 2>&1 &
@@ -47,7 +47,10 @@ while kill -0 "$sampler" 2>/dev/null; do
 done
 wait "$sampler"
 status=$?
+# The last report says the run finished, so a green sample draws green.
 if [ "$status" -eq 0 ]; then
-    report "$seconds" "sampled pid $pid · ${seconds}s"
+    report "$seconds" "sampled pid $pid · ${seconds}s" --finished
+else
+    report "$elapsed" "sample of pid $pid exited $status" --finished
 fi
 exit "$status"

@@ -245,12 +245,14 @@ let warnedTurnKeyFallback = false;
  * CODE_OUTPUT tags the engine takes apart before admission. Each has a
  * decoder, and none reaches the reducer as itself: `routeFrame` unwraps a
  * `replay_batch` and routes its frames one by one, and `divertProgress`
- * sends the two progress frames to the mirror's `ReportStore`.
+ * sends the progress frames to the mirror's `ReportStore`: the heartbeat,
+ * a live report, and the runs tugcast recorded for a replayed call.
  */
 export const UNWRAPPED_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set<DecodedTag>([
   "replay_batch",
   "tool_progress",
   "report",
+  "settled_runs",
 ]);
 
 /**
@@ -543,9 +545,9 @@ export class SessionEngine {
 
   /**
    * Send a CODE_OUTPUT frame's live-progress meaning to the mirror's
-   * `ReportStore`. Returns true for the two progress frames, which the
-   * reducer never sees; a `tool_result` also closes its call there, and still
-   * goes on to the reducer.
+   * `ReportStore`. Returns true for the progress frames, which the reducer
+   * never sees; a `tool_result` also closes its call there, and still goes on
+   * to the reducer.
    */
   private divertProgress(frame: AnyDecodedFrame): boolean {
     switch (frame.type) {
@@ -568,6 +570,16 @@ export class SessionEngine {
           runningJob:
             id !== null && this.state.jobs.some((j) => j.toolUseId === id && j.status === "running"),
         });
+        return true;
+      }
+      case "settled_runs": {
+        // A replayed call's runs as tugcast recorded them when it ended. The
+        // replayed `tool_result` just before it closed the call, so these
+        // land as its settled panel.
+        const nowMs = Date.now();
+        for (const call of frame.calls) {
+          this.progress({ op: "restore", toolUseId: call.tool_use_id, runs: call.runs, nowMs });
+        }
         return true;
       }
       case "tool_result":
@@ -855,6 +867,7 @@ export class SessionEngine {
       case "replay_batch":
       case "tool_progress":
       case "report":
+      case "settled_runs":
         // Taken apart before admission (`UNWRAPPED_CODE_OUTPUT_TYPES`).
         return null;
     }

@@ -326,6 +326,8 @@ describe.skipIf(!RUNS)("video: the session card sequence", () => {
               ...(i < done ? { secs: 0.003 } : {}),
               ...(i === done ? { started_at_ms: Date.now() } : {}),
             })),
+            // The last report says the run finished, as a real reporter's does.
+            ...(done === TESTS.length ? { finished: true } : {}),
           });
         for (let done = 0; done <= TESTS.length; done++) a.at(testAt + 400 + done * TEST_MS, () => report(done));
         a.at(A(21.3), () => ingest(app, { type: "tool_result", tool_use_id: "tu-test", output: TEST_OUT, is_error: false }));

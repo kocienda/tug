@@ -1,7 +1,18 @@
 /**
- * What a report panel shows, derived from one report — pure, so every reading
- * the panel makes is a function of the report and the clock, and testable
+ * What a report panel shows, derived from one run — pure, so every reading
+ * the panel makes is a function of the run and the clock, and testable
  * without a DOM.
+ *
+ * A call may carry several runs, and {@link reportPanels} groups them into
+ * panels: a phase run beside a unit run under the same parent (or none) is
+ * one panel, the phases its band; a run that ran under another run's unit is
+ * that run's child; every other run with a unit is a panel of its own, in
+ * the order the call's runs first reported.
+ *
+ * A child stays under the row it ran under for the life of the panel: open
+ * while that unit runs, folded once the unit lands, and folded, never
+ * dropped, when the panel is finished. A folded child is a finished run of
+ * its own, so its verdict is its own rows', whatever its parent's call did.
  *
  * A run counts **units**: a file for an app-test batch, a test for a unit
  * suite, a phase for a build. The panel is one shape for all three; the unit
@@ -10,14 +21,23 @@
  * band past that, and a band too whenever the report carries only some of
  * its units (a test run sends its reds, not its thousand greens).
  *
- * Finished, a unit the last report still had running resolves by the call's
- * own outcome: a build whose last word was "re-sign" and whose call
- * succeeded signed; one whose call failed failed there.
+ * A finished panel claims no more than its rows show. A unit the last report
+ * still had pending or running never reported, and is drawn `unreported`
+ * rather than guessed into a pass or a fail by the call's exit status. The
+ * verdict is green only for a run that said it finished, whose call did not
+ * fail, with no reds and every unit landed; a run that ended any other way
+ * without a red is `incomplete`, and its sentence says what is missing.
+ *
+ * A phase is the one exception: a phase did end with its call, so a run that
+ * counts phases needs no word that it finished, and a phase the last report
+ * still had running resolves by the call's own outcome — a build whose last
+ * word was "re-sign" and whose call succeeded signed; one whose call failed
+ * failed there.
  *
  * @module lib/report-panel-model
  */
 
-import type { Report, RunUnit, RunUnitStatus } from "./report-store";
+import type { Report, Run, RunUnit, RunUnitStatus } from "./report-store";
 
 /** Past this many units the track is a density band rather than cells. */
 export const CELLS_UP_TO = 64;
@@ -43,6 +63,10 @@ export interface RunLane {
 }
 
 export interface ReportPanelModel {
+  /** The run this panel draws. */
+  runId: string;
+  /** The run's latest line. */
+  text: string | undefined;
   /** The unit word, singular (`file`). */
   unit: string;
   label: string;
@@ -52,7 +76,16 @@ export interface ReportPanelModel {
   jobs: number | undefined;
   /** The rows, run order, with a finished run's leftovers resolved. */
   units: RunUnit[];
-  counts: { pass: number; red: number; fail: number; stalled: number; skipped: number; pending: number };
+  counts: {
+    pass: number;
+    red: number;
+    fail: number;
+    stalled: number;
+    skipped: number;
+    pending: number;
+    /** Listed units a finished run never reported. */
+    unreported: number;
+  };
   /** One cell per unit, or a band. */
   track: "cells" | "band" | "none";
   /**
@@ -83,17 +116,30 @@ export interface ReportPanelModel {
   /** The phase rows a run carried beside its units, a finished phase landed. */
   phases: RunUnit[];
   /**
-   * The run the running unit is, while a nesting run goes — a surface's
-   * check, a loop's runner — as a model of its own, drawn beneath the parent
-   * band. Null once the run is over: the row carries what the child ended
-   * with, and the child's rows are not the record.
+   * The runs that ran under this run's units — a surface's check, a loop's
+   * runner — each a model of its own, in parent slot order then run order.
    */
-  child: ReportPanelModel | null;
-  /** The running unit the child runs under, by name, when there is one. */
-  nestedUnder: string | null;
+  children: ChildPanel[];
   /** A red run's next act: the command, or the place, that names the reds. */
   nextAct: string | null;
-  verdict: "running" | "green" | "red";
+  /**
+   * `incomplete` is a run that ended with no red and is not green: it never
+   * said it finished, or some of its units never reported.
+   */
+  verdict: "running" | "green" | "red" | "incomplete";
+}
+
+/** A run that ran under one of its parent's units. */
+export interface ChildPanel {
+  model: ReportPanelModel;
+  /** The parent row it ran under, by index and by name. */
+  underSlot: number;
+  underName: string | null;
+  /** Folded to its masthead: its parent unit has landed, or the panel is finished. */
+  folded: boolean;
+  /** Seconds from its first report to its last. */
+  wallSecs: number | null;
+  text: string | undefined;
 }
 
 /**
@@ -216,20 +262,46 @@ export function failurePreview(
   return preview;
 }
 
-function resolveFinished(u: RunUnit, callFailed: boolean): RunUnit {
+/** A phase still running at the call's close ended with it, as the call did. */
+function resolvePhaseAtClose(u: RunUnit, callFailed: boolean): RunUnit {
   if (u.status !== "running") return u;
   return { ...u, status: callFailed ? "fail" : "pass" };
 }
 
+/** A unit still pending or running when its run ended never reported. */
+function resolveUnreported(u: RunUnit): RunUnit {
+  return u.status === "pending" || u.status === "running" ? { ...u, status: "unreported" } : u;
+}
+
+/** Whether a unit has landed: it reported how it ended. */
+function landed(u: RunUnit): boolean {
+  return u.status !== "pending" && u.status !== "running" && u.status !== "unreported";
+}
+
 export function reportPanelModel(
-  p: Report,
+  p: Run,
   state: ReportPanelState,
   nowMs: number,
-  opts: { callFailed?: boolean } = {},
+  opts: {
+    callFailed?: boolean;
+    /** The phase rows of the phase run this run is paired with. */
+    phases?: readonly RunUnit[];
+    /**
+     * Runs that may have run under this one: those whose `under` names this
+     * run are its children, and theirs are found in the same list.
+     */
+    children?: readonly Run[];
+  } = {},
 ): ReportPanelModel {
   const callFailed = opts.callFailed === true;
+  const phased = p.unit === "phase";
   const raw = [...(p.units ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-  const units = state === "finished" ? raw.map((u) => resolveFinished(u, callFailed)) : raw;
+  const units =
+    state !== "finished"
+      ? raw
+      : phased
+        ? raw.map((u) => resolvePhaseAtClose(u, callFailed))
+        : raw.map(resolveUnreported);
   const total = p.total;
   const count = (s: RunUnitStatus): number => units.filter((u) => u.status === s).length;
   const reds = units.filter((u) => isRed(u.status));
@@ -278,20 +350,34 @@ export function reportPanelModel(
   // The units started, so the phases before them are over: a phase still
   // marked running landed when the first unit began.
   const unitsBegan = units.some((u) => u.status !== "pending");
-  const phases = [...(p.phases ?? [])]
+  const phases = [...(opts.phases ?? [])]
     .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-    .map((u) => (unitsBegan || state === "finished" ? resolveFinished(u, callFailed && !unitsBegan) : u));
+    .map((u) => (unitsBegan || state === "finished" ? resolvePhaseAtClose(u, callFailed && !unitsBegan) : u));
 
+  // Green claims the run ended (said so, or is phases, which end with their
+  // call), the call did not fail, nothing is red, and every unit landed: none
+  // listed went unreported, and a run listing only some rows reached its total.
+  // Phases end with their call, so the call's end lands a phased run's too.
+  const unreported = count("unreported");
+  const allLanded =
+    phased || (full ? unreported === 0 : total === undefined || (p.done ?? 0) >= total);
   const verdict: ReportPanelModel["verdict"] =
-    state === "running" ? "running" : red > 0 || callFailed ? "red" : "green";
+    state === "running"
+      ? "running"
+      : red > 0 || callFailed
+        ? "red"
+        : (p.finished === true || phased) && allLanded
+          ? "green"
+          : "incomplete";
 
-  const child = state === "running" && p.child !== undefined ? reportPanelModel(p.child, "running", nowMs) : null;
-  const nestedUnder = child === null ? null : (units.find((u) => u.status === "running")?.name ?? null);
+  const children = childPanels(p, units, state, nowMs, opts.children ?? []);
 
   return {
+    runId: p.runId,
+    text: p.text,
     unit: p.unit ?? "unit",
     label: p.label ?? "",
-    done: p.done ?? units.filter((u) => u.status !== "pending" && u.status !== "running").length,
+    done: p.done ?? units.filter(landed).length,
     total,
     jobs: p.jobs,
     units,
@@ -302,6 +388,7 @@ export function reportPanelModel(
       stalled: count("stalled"),
       skipped: count("skipped"),
       pending: count("pending"),
+      unreported,
     },
     track,
     countWords: countWordsFor(p.unit ?? "unit", state, red, p.done ?? 0, total, units.length),
@@ -313,11 +400,122 @@ export function reportPanelModel(
     unknownCount,
     recovered: greens.filter((u) => u.history !== undefined),
     phases,
-    child,
-    nestedUnder,
+    children,
     nextAct: verdict === "red" ? nextActFor(p.label ?? "", p.unit ?? "unit") : null,
     verdict,
   };
+}
+
+/** A run and the phase rows of the phase run it is paired with. */
+interface RunGroup {
+  run: Run;
+  phases?: readonly RunUnit[];
+}
+
+/**
+ * Runs that share one parent (or none), in list order, as panels: a phase run
+ * pairs with the unit run under another label beside it — the one after it
+ * first, a build before its files, else the one before — and rides it as its
+ * phase band. Every other run is a group of its own.
+ */
+function groupRuns(runs: readonly Run[]): RunGroup[] {
+  const pairs = (phase: Run, other: Run | undefined): other is Run =>
+    other !== undefined && other.unit !== "phase" && other.label !== phase.label;
+  const groups: RunGroup[] = [];
+  const phasesFor = new Map<number, readonly RunUnit[]>();
+  runs.forEach((run, i) => {
+    if (run.unit !== "phase") {
+      const phases = phasesFor.get(i);
+      groups.push(phases !== undefined ? { run, phases } : { run });
+      return;
+    }
+    const next = runs[i + 1];
+    const prev = groups[groups.length - 1];
+    if (pairs(run, next)) phasesFor.set(i + 1, run.units ?? []);
+    else if (prev !== undefined && prev.phases === undefined && pairs(run, prev.run) && prev.run === runs[i - 1]) {
+      prev.phases = run.units ?? [];
+    } else groups.push({ run });
+  });
+  return groups;
+}
+
+/** Whether two runs ran under the same unit of the same parent, or both under none. */
+function sameUnder(a: Run, b: Run): boolean {
+  return a.under?.runId === b.under?.runId && a.under?.slot === b.under?.slot;
+}
+
+/** The children of `parent`, from `runs`, as their panels. */
+function childPanels(
+  parent: Run,
+  units: readonly RunUnit[],
+  state: ReportPanelState,
+  nowMs: number,
+  runs: readonly Run[],
+): ChildPanel[] {
+  const mine = runs
+    .filter((r) => r.unit !== undefined && r.under?.runId === parent.runId)
+    .map((r, order) => ({ r, order }))
+    .sort((a, b) => (a.r.under?.slot ?? 0) - (b.r.under?.slot ?? 0) || a.order - b.order)
+    .map(({ r }) => r);
+  const out: ChildPanel[] = [];
+  // Pairing holds among the children under one row, as it does at the top.
+  for (let i = 0; i < mine.length; ) {
+    let j = i + 1;
+    while (j < mine.length && sameUnder(mine[j], mine[i])) j += 1;
+    for (const group of groupRuns(mine.slice(i, j))) {
+      const slot = group.run.under?.slot ?? 0;
+      const row = units.find((u) => u.index === slot);
+      const folded = state === "finished" || (row !== undefined && landed(row));
+      const model = reportPanelModel(group.run, folded ? "finished" : "running", nowMs, {
+        ...(group.phases !== undefined ? { phases: group.phases } : {}),
+        children: runs,
+      });
+      const first = group.run.firstAtMs;
+      const last = group.run.reportAtMs;
+      out.push({
+        model,
+        underSlot: slot,
+        underName: row?.name ?? null,
+        folded,
+        wallSecs: first !== undefined && last !== undefined ? Math.max(0, (last - first) / 1000) : null,
+        text: group.run.text,
+      });
+    }
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * A call's runs as the panels its block draws, in the order the runs first
+ * reported. A run with no unit is no panel. A run under a run in the list is
+ * that run's child, drawn in its panel; one whose parent is not in the list
+ * is a panel of its own. A phase run pairs with the unit run beside it under
+ * the same parent, as its phase band.
+ *
+ * The call's outcome is the last panel's alone: the call ended there, so its
+ * exit status speaks for that run. An earlier run in the same call ended
+ * before it, and its verdict is its own rows' and its own word that it
+ * finished, as a child's is — a later run failing the call does not make an
+ * earlier, finished, all-green run read FAIL.
+ */
+export function reportPanels(
+  entry: Report,
+  state: ReportPanelState,
+  nowMs: number,
+  opts: { callFailed?: boolean } = {},
+): ReportPanelModel[] {
+  const runs = entry.runs.filter((r) => r.unit !== undefined);
+  const ids = new Set(runs.map((r) => r.runId));
+  const top = runs.filter((r) => r.under === undefined || !ids.has(r.under.runId));
+  const groups = groupRuns(top);
+  return groups.map((group, i) =>
+    reportPanelModel(group.run, state, nowMs, {
+      callFailed: i === groups.length - 1 && opts.callFailed === true,
+      ...(group.phases !== undefined ? { phases: group.phases } : {}),
+      children: runs,
+    }),
+  );
 }
 
 function countWordsFor(
@@ -345,11 +543,24 @@ export function projectionText(m: ReportPanelModel): string | null {
 
 /**
  * The verdict band's sentence: `2 of 25 files failed, 1 stalled · 1 skipped`,
- * or `25 files passed`. A run that stopped short says how many never ran.
+ * or `25 files passed`. An incomplete run says what is missing — `3 of 5
+ * files reported · 2 never reported` — and a red one with cells that never
+ * reported says how many.
  */
 export function verdictSentence(m: ReportPanelModel): string {
   const total = m.total ?? m.done;
   const word = unitWord(m.unit, total);
+  const never = m.counts.unreported;
+  if (m.verdict === "incomplete") {
+    if (never > 0) {
+      const reported = m.units.filter(landed).length;
+      return `${reported} of ${total} ${word} reported · ${never} never reported`;
+    }
+    if (!m.listed && m.total !== undefined && m.done < m.total) {
+      return `${m.done} of ${m.total} ${unitWord(m.unit, m.total)} reported`;
+    }
+    return "the run did not say it finished";
+  }
   const parts: string[] = [];
   if (m.counts.red > 0) {
     const failed = m.counts.red - m.counts.stalled;
@@ -363,6 +574,6 @@ export function verdictSentence(m: ReportPanelModel): string {
   }
   if (m.recovered.length > 0) parts.push(`${m.recovered.length} recovered`);
   if (m.counts.skipped > 0) parts.push(`${m.counts.skipped} skipped`);
-  if (m.counts.pending > 0 && m.track === "cells") parts.push(`${m.counts.pending} not run`);
+  if (never > 0) parts.push(`${never} never reported`);
   return parts.join(" · ");
 }

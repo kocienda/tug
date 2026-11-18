@@ -11,6 +11,14 @@
 //! posts only the rows worth drawing once it is past what the panel draws
 //! one by one.
 //!
+//! A row's identity is its **slot** — its `index`, its place in the plan —
+//! and never its name. A plan that lists a name twice has two cells, the
+//! second drawn as `<name> #2`, and each fills once: `start` claims the
+//! first copy of the name nobody has started (atomically, so parallel jobs
+//! never share a cell), `done` lands the first copy that is running, and a
+//! loop that knows each item's place names it with `--slot`. A landed cell
+//! is final; a later `start` or `done` on it changes nothing.
+//!
 //! The row is the report panel's `RunUnit`: `name`, `status`, `index`, and
 //! optionally `passed`, `total`, `secs`, `median`, `started_at_ms`, `title`,
 //! `message`, `history`. Nothing here adds a field the panel does not read.
@@ -23,7 +31,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::report::{RunReport, now_ms, post_report, safe_label};
+use crate::report::{RunReport, mint_run_id, now_ms, post_report, safe_label};
 
 /// Past this many items the panel draws a band rather than one cell per item
 /// (`CELLS_UP_TO` in the deck's report-panel model), so a report past it carries
@@ -103,6 +111,10 @@ pub struct UnitPlan {
     /// One per name: the median the pending row carries, if any.
     pub medians: Vec<Option<f64>>,
     pub created_ms: i64,
+    /// The run's id. A second `plan` under the label is a second run, with
+    /// an id of its own, so nothing it reports touches the first run's rows.
+    #[serde(default)]
+    pub run_id: String,
 }
 
 impl UnitPlan {
@@ -117,11 +129,8 @@ impl UnitPlan {
         }
     }
 
-    /// The index of `name`, appending it when the plan does not list it.
-    fn index_of(&mut self, name: &str) -> usize {
-        if let Some(i) = self.names.iter().position(|n| n == name) {
-            return i;
-        }
+    /// Add a cell for `name` past the plan's end, and answer its index.
+    fn append(&mut self, name: &str) -> usize {
         self.names.push(name.to_string());
         self.medians.push(None);
         self.names.len() - 1
@@ -157,9 +166,9 @@ pub struct UnitRow {
 }
 
 impl UnitRow {
-    fn pending(name: &str, index: usize, median: Option<f64>) -> Self {
+    fn pending(name: String, index: usize, median: Option<f64>) -> Self {
         UnitRow {
-            name: name.to_string(),
+            name,
             status: UnitStatus::Pending,
             index,
             passed: None,
@@ -271,27 +280,131 @@ pub struct UnitRun {
 }
 
 impl UnitRun {
-    /// Item `name` starts now. A plan's median rides the row unless `median`
-    /// overrides it.
-    pub fn start(&mut self, name: &str, median: Option<f64>, now: i64) -> usize {
-        let index = self.plan.index_of(name);
-        let mut row = UnitRow::pending(name, index, median.or(self.plan.median(index)));
+    /// The cells the plan lists for `name`, in plan order.
+    fn copies<'a>(&'a self, name: &'a str) -> impl DoubleEndedIterator<Item = usize> + 'a {
+        self.plan
+            .names
+            .iter()
+            .enumerate()
+            .filter(move |(_, n)| *n == name)
+            .map(|(i, _)| i)
+    }
+
+    /// The cell an explicit `slot` names: one in the plan is itself, one
+    /// just past its end appends `name`, and one further out names nothing.
+    fn explicit(&mut self, name: &str, slot: usize) -> Option<usize> {
+        match slot.cmp(&self.plan.names.len()) {
+            std::cmp::Ordering::Less => Some(slot),
+            std::cmp::Ordering::Equal => Some(self.plan.append(name)),
+            std::cmp::Ordering::Greater => None,
+        }
+    }
+
+    /// The cell a `start` of `name` takes: the slot it names, else the first
+    /// copy of the name nobody has started, else a new cell at the end.
+    pub fn slot_for_start(&mut self, name: &str, slot: Option<usize>) -> Option<usize> {
+        if let Some(slot) = slot {
+            return self.explicit(name, slot);
+        }
+        let free = self.copies(name).find(|i| !self.rows.contains_key(i));
+        Some(free.unwrap_or_else(|| self.plan.append(name)))
+    }
+
+    /// The cell a `done` of `name` lands: the slot it names, else the first
+    /// copy of the name that is running, else the first nobody has started,
+    /// else a new cell at the end.
+    pub fn slot_for_done(&mut self, name: &str, slot: Option<usize>) -> Option<usize> {
+        if let Some(slot) = slot {
+            return self.explicit(name, slot);
+        }
+        let running = self.copies(name).find(|i| {
+            self.rows
+                .get(i)
+                .is_some_and(|r| r.status == UnitStatus::Running)
+        });
+        let free = || self.copies(name).find(|i| !self.rows.contains_key(i));
+        Some(match running.or_else(free) {
+            Some(index) => index,
+            None => self.plan.append(name),
+        })
+    }
+
+    /// The cell an `amend` of `name` adds to: the slot it names, else the
+    /// latest copy of the name that ran. It never makes a cell.
+    pub fn slot_for_amend(&self, name: &str, slot: Option<usize>) -> Option<usize> {
+        if let Some(slot) = slot {
+            return (slot < self.plan.names.len()).then_some(slot);
+        }
+        self.copies(name).rev().find(|i| {
+            self.rows
+                .get(i)
+                .is_some_and(|r| r.status != UnitStatus::Pending)
+        })
+    }
+
+    /// The name the row at `index` draws: its plan name, with ` #<n>` when
+    /// it is the n-th copy of that name in the plan and n is past one.
+    pub fn display_name(&self, index: usize) -> String {
+        let Some(name) = self.plan.names.get(index) else {
+            return String::new();
+        };
+        let n = self.plan.names[..=index]
+            .iter()
+            .filter(|m| *m == name)
+            .count();
+        if n >= 2 {
+            format!("{name} #{n}")
+        } else {
+            name.clone()
+        }
+    }
+
+    /// Item `name` starts now, in the cell [`Self::slot_for_start`] names. A
+    /// plan's median rides the row unless `median` overrides it. A landed
+    /// cell is final, so a start on one changes nothing; answers the index
+    /// of the row it wrote, if any.
+    pub fn start(
+        &mut self,
+        name: &str,
+        slot: Option<usize>,
+        median: Option<f64>,
+        now: i64,
+    ) -> Option<usize> {
+        let index = self.slot_for_start(name, slot)?;
+        if self.rows.get(&index).is_some_and(|r| r.status.landed()) {
+            return None;
+        }
+        let mut row = UnitRow::pending(
+            self.display_name(index),
+            index,
+            median.or(self.plan.median(index)),
+        );
         row.status = UnitStatus::Running;
         row.started_at_ms = Some(now);
         self.rows.insert(index, row);
-        index
+        Some(index)
     }
 
-    /// Item `name` landed. Its seconds are the ones given, else the time
-    /// since it started, and a skipped item that was given none has none.
-    /// Its counts ride only as a pair, and only when the item ran any tests.
-    pub fn done(&mut self, name: &str, status: UnitStatus, landing: Landing, now: i64) -> usize {
-        let index = self.plan.index_of(name);
-        let median = self.plan.median(index);
-        let row = self
-            .rows
-            .entry(index)
-            .or_insert_with(|| UnitRow::pending(name, index, median));
+    /// Item `name` landed, in the cell [`Self::slot_for_done`] names. Its
+    /// seconds are the ones given, else the time since it started, and a
+    /// skipped item that was given none has none. Its counts ride only as a
+    /// pair, and only when the item ran any tests. A landed cell is final, so
+    /// a second landing changes nothing; answers the index of the row it
+    /// wrote, if any.
+    pub fn done(
+        &mut self,
+        name: &str,
+        slot: Option<usize>,
+        status: UnitStatus,
+        landing: Landing,
+        now: i64,
+    ) -> Option<usize> {
+        let index = self.slot_for_done(name, slot)?;
+        if self.rows.get(&index).is_some_and(|r| r.status.landed()) {
+            return None;
+        }
+        let pending = UnitRow::pending(self.display_name(index), index, self.plan.median(index));
+        let row = self.rows.entry(index).or_insert(pending);
         row.status = status;
         row.secs = match landing.secs {
             Some(secs) => Some(secs.max(0.0).round() as u64),
@@ -312,13 +425,19 @@ impl UnitRun {
         if let Some(message) = landing.message {
             row.message = Some(clip_message(&message));
         }
-        index
+        Some(index)
     }
 
-    /// Add to a running or landed row; a pending or unknown one is left as it
-    /// is. Answers the row's index when it was amended.
-    pub fn amend(&mut self, name: &str, amendment: Amendment) -> Option<usize> {
-        let index = self.plan.names.iter().position(|n| n == name)?;
+    /// Add to a running or landed row, in the cell
+    /// [`Self::slot_for_amend`] names; a pending or unknown one is left as
+    /// it is. Answers the row's index when it was amended.
+    pub fn amend(
+        &mut self,
+        name: &str,
+        slot: Option<usize>,
+        amendment: Amendment,
+    ) -> Option<usize> {
+        let index = self.slot_for_amend(name, slot)?;
         let row = self.rows.get_mut(&index)?;
         if row.status == UnitStatus::Pending {
             return None;
@@ -342,11 +461,10 @@ impl UnitRun {
             .names
             .iter()
             .enumerate()
-            .map(|(i, name)| {
-                self.rows
-                    .get(&i)
-                    .cloned()
-                    .unwrap_or_else(|| UnitRow::pending(name, i, self.plan.median(i)))
+            .map(|(i, _)| {
+                self.rows.get(&i).cloned().unwrap_or_else(|| {
+                    UnitRow::pending(self.display_name(i), i, self.plan.median(i))
+                })
             })
             .collect()
     }
@@ -388,6 +506,8 @@ impl UnitRun {
             units: serde_json::to_value(self.rows()).ok(),
             needles: self.plan.needles.clone(),
             nests,
+            finished: false,
+            run_id: Some(self.plan.run_id.clone()).filter(|id| !id.is_empty()),
         }
     }
 
@@ -423,15 +543,82 @@ pub fn parse_medians(medians: &[String], names: usize) -> Vec<Option<f64>> {
 // The state directory
 // ---------------------------------------------------------------------------
 
-/// Where a run's state lives: a directory under the temp dir, keyed by the
-/// calling session and the label, as a phased run's file is.
-fn run_dir(label: &str) -> Option<PathBuf> {
+/// Where a label's runs live: a directory under the temp dir, keyed by the
+/// calling session and the label, as a phased run's file is. Each run is a
+/// directory inside it named by its run id, and the file `current` holds the
+/// id of the run the label's calls are reporting to. A second `plan` makes a
+/// new run and repoints `current`; the first run's directory stays, so
+/// nothing the second run does can rewrite a row the first one landed.
+fn label_dir(label: &str) -> Option<PathBuf> {
     let token = crate::session_identity::calling_session_token()?;
     Some(
         std::env::temp_dir()
             .join("tug-report-unit")
             .join(format!("{token}-{}", safe_label(label))),
     )
+}
+
+/// A run older than this is a finished run's leftovers, and the next `plan`
+/// under its label removes it.
+const STALE_RUN_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// A run directory's id, which is its name.
+fn run_id_of(dir: &Path) -> String {
+    dir.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The run directory `current` names, if there is one.
+fn current_run_dir(label_dir: &Path) -> Option<PathBuf> {
+    let id = std::fs::read_to_string(label_dir.join("current")).ok()?;
+    let id = id.trim();
+    (!id.is_empty() && safe_label(id) == id).then(|| label_dir.join(id))
+}
+
+/// The live run's directory, minting one for a label nobody planned: a loop
+/// that never calls `plan` still draws. The first caller's id is linked into
+/// place, so two parallel first calls agree on one run.
+fn live_run_dir(label_dir: &Path) -> Option<PathBuf> {
+    if let Some(dir) = current_run_dir(label_dir) {
+        return Some(dir);
+    }
+    std::fs::create_dir_all(label_dir).ok()?;
+    let id = mint_run_id();
+    let tmp = label_dir.join(format!("current.{}.claim", std::process::id()));
+    std::fs::write(&tmp, &id).ok()?;
+    let linked = std::fs::hard_link(&tmp, label_dir.join("current"));
+    let _ = std::fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => Some(label_dir.join(id)),
+        Err(_) => current_run_dir(label_dir),
+    }
+}
+
+/// Begin a planned run: its directory, `current` repointed at it by rename,
+/// and any sibling run planned more than a day ago removed (one with no plan
+/// is left to the janitor, which sweeps the whole tree by age).
+fn begin_run(label_dir: &Path, run_id: &str, now: i64) -> PathBuf {
+    let dir = label_dir.join(run_id);
+    let _ = std::fs::create_dir_all(dir.join("units"));
+    write_whole(&label_dir.join("current"), run_id.as_bytes());
+    if let Ok(entries) = std::fs::read_dir(label_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path == dir || !path.is_dir() {
+                continue;
+            }
+            let created = std::fs::read(path.join("plan.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<UnitPlan>(&bytes).ok())
+                .map(|plan| plan.created_ms);
+            if created.is_some_and(|created| now - created > STALE_RUN_MS) {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+    }
+    dir
 }
 
 /// Write `bytes` to `path` whole: a sibling temp file, then a rename, so a
@@ -447,10 +634,14 @@ fn write_whole(path: &Path, bytes: &[u8]) {
 }
 
 fn load(dir: &Path, label: &str, now: i64) -> UnitRun {
-    let plan = std::fs::read(dir.join("plan.json"))
+    let mut plan = std::fs::read(dir.join("plan.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<UnitPlan>(&bytes).ok())
         .unwrap_or_else(|| UnitPlan::unplanned(label, now));
+    if plan.run_id.is_empty() {
+        // An unplanned run's id is its directory's name.
+        plan.run_id = run_id_of(dir);
+    }
     let mut rows = BTreeMap::new();
     if let Ok(entries) = std::fs::read_dir(dir.join("units")) {
         for entry in entries.flatten() {
@@ -486,6 +677,62 @@ fn save_row(dir: &Path, row: &UnitRow) {
     }
 }
 
+/// Claim `row`'s cell: write its file only if no file is there. The bytes go
+/// to a sibling temp file first and are hard-linked into place, so the claim
+/// is as atomic as a `create_new` open and a reader never sees half a row.
+/// Two parallel `start`s of one name can therefore never take one cell: the
+/// second sees `AlreadyExists` and resolves again.
+fn claim_row(dir: &Path, row: &UnitRow) -> std::io::Result<()> {
+    let units = dir.join("units");
+    std::fs::create_dir_all(&units)?;
+    let path = units.join(format!("{}.json", row.index));
+    let bytes = serde_json::to_vec(row).map_err(std::io::Error::other)?;
+    let tmp = units.join(format!("{}.json.{}.claim", row.index, std::process::id()));
+    std::fs::write(&tmp, bytes)?;
+    let linked = std::fs::hard_link(&tmp, &path);
+    let _ = std::fs::remove_file(&tmp);
+    linked
+}
+
+/// A `start` with no slot: take the first free copy of `name` by claiming
+/// its file, and when another job claimed it first, read the run again and
+/// take the next. Bounded by the cells there were plus one; past that the
+/// row is written at a new cell at the end, as a start of a name with no
+/// free copy is.
+fn start_claiming(
+    dir: &Path,
+    label: &str,
+    name: &str,
+    median: Option<f64>,
+    now: i64,
+) -> (UnitRun, Option<usize>) {
+    let mut run = load(dir, label, now);
+    let tries = run.plan.names.len() + 1;
+    for _ in 0..tries {
+        let names = run.plan.names.len();
+        let Some(index) = run.start(name, None, median, now) else {
+            return (run, None);
+        };
+        if run.plan.names.len() != names {
+            save_plan(dir, &run.plan);
+        }
+        match claim_row(dir, &run.rows[&index]) {
+            Ok(()) => return (run, Some(index)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                run = load(dir, label, now);
+            }
+            Err(_) => return (run, None),
+        }
+    }
+    let index = run.plan.names.len();
+    let index = run.start(name, Some(index), median, now);
+    if let Some(index) = index {
+        save_plan(dir, &run.plan);
+        save_row(dir, &run.rows[&index]);
+    }
+    (run, index)
+}
+
 /// Post `run` under `text`, and remember the text for an `amend` that names
 /// none.
 fn post(dir: &Path, run: &UnitRun, text: &str) {
@@ -495,6 +742,14 @@ fn post(dir: &Path, run: &UnitRun, text: &str) {
 
 fn last_text(dir: &Path) -> String {
     std::fs::read_to_string(dir.join("text")).unwrap_or_default()
+}
+
+/// `report` as the run's last: it says the run finished.
+fn finished(report: RunReport) -> RunReport {
+    RunReport {
+        finished: true,
+        ..report
+    }
 }
 
 /// One `report unit` call, as the CLI hands it over.
@@ -511,12 +766,14 @@ pub enum UnitCall {
     Start {
         label: String,
         name: String,
+        slot: Option<usize>,
         median: Option<f64>,
         text: Option<String>,
     },
     Done {
         label: String,
         name: String,
+        slot: Option<usize>,
         status: LandedStatus,
         landing: Landing,
         text: Option<String>,
@@ -524,6 +781,7 @@ pub enum UnitCall {
     Amend {
         label: String,
         name: String,
+        slot: Option<usize>,
         amendment: Amendment,
         text: Option<String>,
     },
@@ -542,10 +800,18 @@ pub fn run_unit(call: UnitCall) {
         | UnitCall::Amend { label, .. }
         | UnitCall::Finish { label, .. } => label.clone(),
     };
-    let Some(dir) = run_dir(&label) else {
+    let Some(label_dir) = label_dir(&label) else {
         return;
     };
     let now = now_ms();
+    let dir = match &call {
+        // A plan is a new run, whatever ran under the label before it.
+        UnitCall::Plan { .. } => Some(begin_run(&label_dir, &mint_run_id(), now)),
+        _ => live_run_dir(&label_dir),
+    };
+    let Some(dir) = dir else {
+        return;
+    };
     match call {
         UnitCall::Plan {
             label,
@@ -556,7 +822,6 @@ pub fn run_unit(call: UnitCall) {
             medians,
             of,
         } => {
-            let _ = std::fs::remove_dir_all(&dir);
             let medians = parse_medians(&medians, of.len());
             let run = UnitRun {
                 plan: UnitPlan {
@@ -567,6 +832,7 @@ pub fn run_unit(call: UnitCall) {
                     names: of,
                     medians,
                     created_ms: now,
+                    run_id: run_id_of(&dir),
                 },
                 rows: BTreeMap::new(),
             };
@@ -576,20 +842,38 @@ pub fn run_unit(call: UnitCall) {
             post(&dir, &run, &text);
         }
         UnitCall::Start {
-            name, median, text, ..
+            name,
+            slot: None,
+            median,
+            text,
+            ..
+        } => {
+            let (run, _) = start_claiming(&dir, &label, &name, median, now);
+            let text = text.unwrap_or_else(|| format!("{name} started"));
+            post(&dir, &run, &text);
+        }
+        UnitCall::Start {
+            name,
+            slot,
+            median,
+            text,
+            ..
         } => {
             let mut run = load(&dir, &label, now);
             let names = run.plan.names.len();
-            let index = run.start(&name, median, now);
+            let index = run.start(&name, slot, median, now);
             if run.plan.names.len() != names {
                 save_plan(&dir, &run.plan);
             }
-            save_row(&dir, &run.rows[&index]);
+            if let Some(index) = index {
+                save_row(&dir, &run.rows[&index]);
+            }
             let text = text.unwrap_or_else(|| format!("{name} started"));
             post(&dir, &run, &text);
         }
         UnitCall::Done {
             name,
+            slot,
             status,
             landing,
             text,
@@ -597,22 +881,28 @@ pub fn run_unit(call: UnitCall) {
         } => {
             let mut run = load(&dir, &label, now);
             let names = run.plan.names.len();
-            let index = run.done(&name, status.into(), landing, now);
+            let index = run.done(&name, slot, status.into(), landing, now);
             if run.plan.names.len() != names {
                 save_plan(&dir, &run.plan);
             }
-            save_row(&dir, &run.rows[&index]);
-            let text = text.unwrap_or_else(|| run.done_text(index));
+            if let Some(index) = index {
+                save_row(&dir, &run.rows[&index]);
+            }
+            let text = text.unwrap_or_else(|| match index {
+                Some(index) => run.done_text(index),
+                None => last_text(&dir),
+            });
             post(&dir, &run, &text);
         }
         UnitCall::Amend {
             name,
+            slot,
             amendment,
             text,
             ..
         } => {
             let mut run = load(&dir, &label, now);
-            if let Some(index) = run.amend(&name, amendment) {
+            if let Some(index) = run.amend(&name, slot, amendment) {
                 save_row(&dir, &run.rows[&index]);
             }
             let text = text.unwrap_or_else(|| last_text(&dir));
@@ -620,7 +910,10 @@ pub fn run_unit(call: UnitCall) {
         }
         UnitCall::Finish { text, .. } => {
             let run = load(&dir, &label, now);
-            post(&dir, &run, text.as_deref().unwrap_or("done"));
+            let text = text.as_deref().unwrap_or("done");
+            write_whole(&dir.join("text"), text.as_bytes());
+            // The one call that says the run is over.
+            let _ = post_report(&finished(run.report(text)));
         }
     }
 }
@@ -643,6 +936,7 @@ impl SurfaceReport {
                     unit: "surface".into(),
                     needles,
                     created_ms: now_ms(),
+                    run_id: mint_run_id(),
                     ..UnitPlan::default()
                 },
                 rows: BTreeMap::new(),
@@ -669,7 +963,8 @@ impl SurfaceReport {
                     .report(&format!("{} surface(s) to check", surfaces.len()))
             }
             VerifyEvent::Started(name) => {
-                self.run.start(name, None, now);
+                // Surface names are unique, so the name alone is the cell.
+                self.run.start(name, None, None, now);
                 self.run.report(&format!("checking {name}"))
             }
             VerifyEvent::Finished(result) => {
@@ -707,13 +1002,30 @@ impl SurfaceReport {
                     title,
                     message,
                 };
-                let index = self.run.done(&result.name, status, landing, now);
-                self.run.report(&self.run.done_text(index))
+                let index = self.run.done(&result.name, None, status, landing, now);
+                let text = index.map(|i| self.run.done_text(i)).unwrap_or_default();
+                self.run.report(&text)
             }
         };
         RunReport {
             nests: true,
             ..report
+        }
+    }
+
+    /// The verify's last report, once every surface it planned has run: the
+    /// rows as they landed, saying the run finished. It still nests, so a
+    /// child posting after it stays beneath its row.
+    pub fn finish(&self) -> RunReport {
+        let done = self
+            .run
+            .all_rows()
+            .iter()
+            .filter(|r| r.status.landed())
+            .count();
+        RunReport {
+            nests: true,
+            ..finished(self.run.report(&format!("{done} surface(s) checked")))
         }
     }
 }
@@ -740,13 +1052,15 @@ mod tests {
         );
 
         let mut run = UnitRun::default();
-        run.start("a", None, 0);
+        run.start("a", None, None, 0);
         let landing = Landing {
             title: Some("t\nrest".into()),
             message: Some("m".repeat(MESSAGE_CAP_BYTES * 2)),
             ..Landing::default()
         };
-        let index = run.done("a", UnitStatus::Fail, landing, 1000);
+        let index = run
+            .done("a", None, UnitStatus::Fail, landing, 1000)
+            .unwrap();
         let row = &run.rows[&index];
         assert_eq!(row.title.as_deref(), Some("t…"));
         assert!(row.message.as_ref().unwrap().len() < MESSAGE_CAP_BYTES + 64);
@@ -886,6 +1200,7 @@ mod tests {
                 medians: parse_medians(&medians, names.len()),
                 names,
                 created_ms: 0,
+                run_id: "run-a".into(),
             },
             rows: BTreeMap::new(),
         }
@@ -898,9 +1213,9 @@ mod tests {
     #[test]
     fn a_plan_then_a_start_then_a_done_draws_pass_running_pending() {
         let mut run = planned(&["a", "b", "c"], &[]);
-        run.start("a", None, 1_000);
-        run.done("a", UnitStatus::Pass, Landing::default(), 4_600);
-        run.start("b", None, 5_000);
+        run.start("a", None, None, 1_000);
+        run.done("a", None, UnitStatus::Pass, Landing::default(), 4_600);
+        run.start("b", None, None, 5_000);
         assert_eq!(
             statuses(&run),
             [UnitStatus::Pass, UnitStatus::Running, UnitStatus::Pending]
@@ -932,15 +1247,15 @@ mod tests {
             !run.report("planned").nests,
             "nothing running, nothing to nest"
         );
-        run.start("a", None, 1_000);
+        run.start("a", None, None, 1_000);
         assert!(
             run.report("a started").nests,
             "an item's own runner reports beneath its row, not in place of the loop"
         );
-        run.done("a", UnitStatus::Pass, Landing::default(), 2_000);
+        run.done("a", None, UnitStatus::Pass, Landing::default(), 2_000);
         assert!(!run.report("a PASS").nests);
-        run.start("b", None, 3_000);
-        run.done("b", UnitStatus::Fail, Landing::default(), 4_000);
+        run.start("b", None, None, 3_000);
+        run.done("b", None, UnitStatus::Fail, Landing::default(), 4_000);
         assert!(
             !run.report("done").nests,
             "a finished loop is replaced by a later run under another label"
@@ -950,19 +1265,22 @@ mod tests {
     #[test]
     fn a_done_carries_what_it_was_given_and_its_default_line() {
         let mut run = planned(&["a"], &[]);
-        run.start("a", Some(6.5), 0);
-        let index = run.done(
-            "a",
-            UnitStatus::Fail,
-            Landing {
-                secs: Some(12.0),
-                passed: Some(3),
-                total: Some(4),
-                title: Some("drag".into()),
-                message: Some("expected 1".into()),
-            },
-            99_000,
-        );
+        run.start("a", None, Some(6.5), 0);
+        let index = run
+            .done(
+                "a",
+                None,
+                UnitStatus::Fail,
+                Landing {
+                    secs: Some(12.0),
+                    passed: Some(3),
+                    total: Some(4),
+                    title: Some("drag".into()),
+                    message: Some("expected 1".into()),
+                },
+                99_000,
+            )
+            .unwrap();
         let row = &run.rows[&index];
         assert_eq!(row.secs, Some(12), "the given seconds win");
         assert_eq!((row.passed, row.total), (Some(3), Some(4)));
@@ -975,19 +1293,24 @@ mod tests {
     #[test]
     fn counts_of_nothing_are_left_off_and_a_skip_has_no_seconds() {
         let mut run = planned(&["a", "b"], &[]);
-        run.start("a", None, 0);
-        let a = run.done(
-            "a",
-            UnitStatus::Error,
-            Landing {
-                passed: Some(0),
-                total: Some(0),
-                ..Landing::default()
-            },
-            2_000,
-        );
+        run.start("a", None, None, 0);
+        let a = run
+            .done(
+                "a",
+                None,
+                UnitStatus::Error,
+                Landing {
+                    passed: Some(0),
+                    total: Some(0),
+                    ..Landing::default()
+                },
+                2_000,
+            )
+            .unwrap();
         assert_eq!((run.rows[&a].passed, run.rows[&a].total), (None, None));
-        let b = run.done("b", UnitStatus::Skipped, Landing::default(), 9_000);
+        let b = run
+            .done("b", None, UnitStatus::Skipped, Landing::default(), 9_000)
+            .unwrap();
         assert_eq!(run.rows[&b].secs, None);
         assert_eq!(run.done_text(b), "b SKIPPED");
     }
@@ -995,10 +1318,11 @@ mod tests {
     #[test]
     fn amend_adds_history_and_leaves_the_status() {
         let mut run = planned(&["a", "b"], &[]);
-        run.start("a", None, 0);
-        run.done("a", UnitStatus::Fail, Landing::default(), 1_000);
+        run.start("a", None, None, 0);
+        run.done("a", None, UnitStatus::Fail, Landing::default(), 1_000);
         let amended = run.amend(
             "a",
+            None,
             Amendment {
                 history: Some("green 3 runs ago".into()),
                 ..Amendment::default()
@@ -1008,8 +1332,8 @@ mod tests {
         assert_eq!(run.rows[&0].status, UnitStatus::Fail);
         assert_eq!(run.rows[&0].history.as_deref(), Some("green 3 runs ago"));
         // A pending row, or a name the plan lacks, is not amended.
-        assert_eq!(run.amend("b", Amendment::default()), None);
-        assert_eq!(run.amend("zz", Amendment::default()), None);
+        assert_eq!(run.amend("b", None, Amendment::default()), None);
+        assert_eq!(run.amend("zz", None, Amendment::default()), None);
     }
 
     #[test]
@@ -1017,13 +1341,13 @@ mod tests {
         let names: Vec<String> = (0..65).map(|i| format!("f{i}")).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let mut run = planned(&refs, &[]);
-        run.start("f0", None, 0);
-        run.done("f0", UnitStatus::Pass, Landing::default(), 1_000);
-        run.start("f1", None, 0);
-        run.done("f1", UnitStatus::Fail, Landing::default(), 1_000);
-        run.start("f2", None, 0);
-        run.start("f3", None, 0);
-        run.done("f3", UnitStatus::Stalled, Landing::default(), 1_000);
+        run.start("f0", None, None, 0);
+        run.done("f0", None, UnitStatus::Pass, Landing::default(), 1_000);
+        run.start("f1", None, None, 0);
+        run.done("f1", None, UnitStatus::Fail, Landing::default(), 1_000);
+        run.start("f2", None, None, 0);
+        run.start("f3", None, None, 0);
+        run.done("f3", None, UnitStatus::Stalled, Landing::default(), 1_000);
         let rows = run.rows();
         assert_eq!(
             rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
@@ -1037,7 +1361,7 @@ mod tests {
         );
         // At sixty-four every row still rides.
         let mut run = planned(&refs[..64], &[]);
-        run.start("f0", None, 0);
+        run.start("f0", None, None, 0);
         assert_eq!(run.rows().len(), 64);
     }
 
@@ -1055,7 +1379,7 @@ mod tests {
     #[test]
     fn a_start_of_an_unplanned_name_appends_at_the_next_index() {
         let mut run = planned(&["a", "b"], &[]);
-        assert_eq!(run.start("late", None, 0), 2);
+        assert_eq!(run.start("late", None, None, 0), Some(2));
         assert_eq!(run.plan.names, ["a", "b", "late"]);
         assert_eq!(run.report("x").total, Some(3));
         // A loop that never planned at all draws from its first start.
@@ -1063,7 +1387,7 @@ mod tests {
             plan: UnitPlan::unplanned("loop", 0),
             rows: BTreeMap::new(),
         };
-        assert_eq!(run.start("only", None, 0), 0);
+        assert_eq!(run.start("only", None, None, 0), Some(0));
         assert_eq!(statuses(&run), [UnitStatus::Running]);
     }
 
@@ -1080,12 +1404,173 @@ mod tests {
         );
         // A start keeps the plan's median unless it names its own.
         let mut started = run.clone();
-        started.start("a", None, 0);
-        started.start("c", Some(4.0), 0);
+        started.start("a", None, None, 0);
+        started.start("c", None, Some(4.0), 0);
         assert_eq!(started.rows[&0].median, Some(12.0));
         assert_eq!(started.rows[&2].median, Some(4.0));
 
         let misfit = planned(&["a", "b", "c"], &["12", "3"]);
         assert!(misfit.rows().iter().all(|r| r.median.is_none()));
+    }
+
+    fn names(run: &UnitRun) -> Vec<String> {
+        run.rows().into_iter().map(|r| r.name).collect()
+    }
+
+    #[test]
+    fn finish_says_the_run_finished() {
+        let mut run = planned(&["a"], &[]);
+        run.start("a", None, None, 0);
+        run.done("a", None, UnitStatus::Pass, Landing::default(), 1_000);
+        assert!(!run.report("a PASS").finished, "a done does not say it");
+        assert!(finished(run.report("done")).finished);
+
+        use tugarc_core::surfaces::VerifyEvent;
+        let mut verify = SurfaceReport::new(vec![]);
+        let planned = [("docs".to_string(), 0)];
+        assert!(!verify.event(VerifyEvent::Planned(&planned), 0).finished);
+        let last = verify.finish();
+        assert!(last.finished && last.nests);
+    }
+
+    #[test]
+    fn a_repeated_name_fills_one_cell_per_copy() {
+        let mut run = planned(&["a", "a", "b"], &[]);
+        assert_eq!(
+            names(&run),
+            ["a", "a #2", "b"],
+            "pending rows carry the ordinal"
+        );
+        assert_eq!(run.start("a", None, None, 0), Some(0));
+        run.done("a", None, UnitStatus::Pass, Landing::default(), 1_000);
+        assert_eq!(run.start("a", None, None, 1_000), Some(1));
+        run.done("a", None, UnitStatus::Fail, Landing::default(), 2_000);
+        run.start("b", None, None, 2_000);
+        run.done("b", None, UnitStatus::Pass, Landing::default(), 3_000);
+        assert_eq!(
+            statuses(&run),
+            [UnitStatus::Pass, UnitStatus::Fail, UnitStatus::Pass]
+        );
+        assert_eq!(names(&run), ["a", "a #2", "b"]);
+        assert_eq!(
+            run.rows().iter().map(|r| r.index).collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+        let report = run.report("done");
+        assert_eq!(
+            (report.done, report.total, report.failures),
+            (Some(3), Some(3), Some(1))
+        );
+    }
+
+    #[test]
+    fn an_explicit_slot_names_its_cell() {
+        let mut run = planned(&["a", "a"], &[]);
+        assert_eq!(run.start("a", Some(1), None, 0), Some(1));
+        assert_eq!(
+            run.done("a", Some(1), UnitStatus::Pass, Landing::default(), 1_000),
+            Some(1)
+        );
+        assert_eq!(statuses(&run), [UnitStatus::Pending, UnitStatus::Pass]);
+        assert_eq!(run.rows[&1].name, "a #2");
+        // One just past the end is a new cell; one further out names nothing.
+        assert_eq!(run.start("a", Some(2), None, 0), Some(2));
+        assert_eq!(run.start("a", Some(9), None, 0), None);
+        assert_eq!(run.plan.names.len(), 3);
+    }
+
+    #[test]
+    fn a_landed_row_is_final() {
+        let mut run = planned(&["a"], &[]);
+        run.start("a", Some(0), None, 0);
+        run.done("a", Some(0), UnitStatus::Fail, Landing::default(), 1_000);
+        assert_eq!(run.start("a", Some(0), None, 2_000), None);
+        assert_eq!(
+            run.done("a", Some(0), UnitStatus::Pass, Landing::default(), 3_000),
+            None
+        );
+        assert_eq!(statuses(&run), [UnitStatus::Fail]);
+        assert_eq!(run.rows[&0].secs, Some(1));
+    }
+
+    #[test]
+    fn a_name_with_no_free_slot_is_appended() {
+        let mut run = planned(&["a"], &[]);
+        assert_eq!(run.start("a", None, None, 0), Some(0));
+        assert_eq!(run.start("a", None, None, 0), Some(1));
+        assert_eq!(names(&run), ["a", "a #2"]);
+        assert_eq!(run.report("x").total, Some(2));
+    }
+
+    #[test]
+    fn amend_reaches_the_latest_run_copy() {
+        let mut run = planned(&["a", "a"], &[]);
+        assert_eq!(
+            run.amend("a", None, Amendment::default()),
+            None,
+            "nothing ran"
+        );
+        run.start("a", None, None, 0);
+        run.done("a", None, UnitStatus::Fail, Landing::default(), 1_000);
+        let history = |h: &str| Amendment {
+            history: Some(h.into()),
+            ..Amendment::default()
+        };
+        assert_eq!(run.amend("a", None, history("first")), Some(0));
+        run.start("a", None, None, 1_000);
+        assert_eq!(run.amend("a", None, history("second")), Some(1));
+        assert_eq!(run.rows[&1].history.as_deref(), Some("second"));
+        // An explicit slot wins, and never makes a cell.
+        assert_eq!(run.amend("a", Some(0), history("again")), Some(0));
+        assert_eq!(run.rows[&0].history.as_deref(), Some("again"));
+        assert_eq!(run.amend("a", Some(2), history("x")), None);
+        assert_eq!(run.plan.names.len(), 2);
+    }
+
+    #[test]
+    fn a_parallel_start_claims_the_next_free_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = planned(&["a", "a"], &[]);
+        save_plan(dir.path(), &run.plan);
+        let (_, first) = start_claiming(dir.path(), "app-test", "a", None, 0);
+        let (_, second) = start_claiming(dir.path(), "app-test", "a", None, 0);
+        assert_eq!((first, second), (Some(0), Some(1)));
+        // A claim another job made first is never overwritten.
+        let row = UnitRow::pending("a".into(), 0, None);
+        let taken = claim_row(dir.path(), &row).unwrap_err();
+        assert_eq!(taken.kind(), std::io::ErrorKind::AlreadyExists);
+        let (run, third) = start_claiming(dir.path(), "app-test", "a", None, 0);
+        assert_eq!(third, Some(2));
+        assert_eq!(names(&run), ["a", "a #2", "a #3"]);
+    }
+
+    #[test]
+    fn a_second_plan_is_a_second_run() {
+        let label = tempfile::tempdir().unwrap();
+        let first = begin_run(label.path(), &mint_run_id(), 1_000);
+        let second = begin_run(label.path(), &mint_run_id(), 2_000);
+        assert_ne!(run_id_of(&first), run_id_of(&second));
+        assert!(
+            first.is_dir(),
+            "the first run's rows are left where they are"
+        );
+        assert_eq!(current_run_dir(label.path()), Some(second.clone()));
+        assert_eq!(load(&second, "app-test", 0).plan.run_id, run_id_of(&second));
+        // A run planned more than a day before the next plan is swept by it.
+        let mut plan = planned(&["a"], &[]).plan;
+        plan.created_ms = 2_000;
+        save_plan(&second, &plan);
+        let third = begin_run(label.path(), &mint_run_id(), 2_000 + STALE_RUN_MS + 1);
+        assert!(!second.is_dir());
+        assert!(third.is_dir());
+    }
+
+    #[test]
+    fn an_unplanned_label_mints_one_run_its_calls_share() {
+        let label = tempfile::tempdir().unwrap();
+        let first = live_run_dir(label.path()).unwrap();
+        let again = live_run_dir(label.path()).unwrap();
+        assert_eq!(first, again);
+        assert!(!run_id_of(&first).is_empty());
     }
 }
