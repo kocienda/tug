@@ -71,3 +71,8 @@ export function forgetOpenMark(hash: string, store: ChartOpenMemory = memory): O
 export function recallOpenMark(hash: string, store: ChartOpenMemory = memory): OpenMark | null {
   return store.get(hash) ?? null;
 }
+
+/** Every open mark the page remembers, with its chart's source hash, oldest first. */
+export function openMarkEntries(store: ChartOpenMemory = memory): [string, OpenMark][] {
+  return [...store.entries()];
+}

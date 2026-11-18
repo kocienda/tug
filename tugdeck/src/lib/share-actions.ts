@@ -33,6 +33,12 @@ import type { CodeSessionStore } from "./code-session-store";
 import { shareCopyFile, sharePick, sharePreview, shareRender, shareSave, type ShareAnchor } from "./os-share";
 import { getOnScreenTheme } from "../contexts/theme-provider";
 import { scrubShareTexts } from "./share-scrub";
+import { captureChartShareState } from "./chart/chart-share-capture";
+import {
+  applyChartShareStrings,
+  collectChartShareStrings,
+  EMPTY_CHART_SHARE_STATE,
+} from "./chart/chart-share-state";
 import {
   applyShareStrings,
   buildShareRenderDocument,
@@ -122,13 +128,21 @@ async function makeArtifact(ctx: ShareActionContext): Promise<ShareArtifact | nu
     // The offers' runs ride the same scrub as the turns: one request, split
     // back at the turns' count.
     const runs = format === "markdown" ? [] : shareOfferRuns(slice, ctx.offerRuns());
+    // The charts' open reports ride it too: their rows are commit subjects
+    // and paths, which are text like any other.
+    const charts = format === "markdown" ? EMPTY_CHART_SHARE_STATE : captureChartShareState();
     const turnTexts = collectShareStrings(slice, header);
-    const scrubbed = await scrubShareTexts([...turnTexts, ...collectOfferRunStrings(runs)]);
+    const runTexts = collectOfferRunStrings(runs);
+    const scrubbed = await scrubShareTexts([...turnTexts, ...runTexts, ...collectChartShareStrings(charts)]);
     const applied =
       scrubbed === null ? null : applyShareStrings(slice, header, scrubbed.slice(0, turnTexts.length));
     const appliedRuns =
-      scrubbed === null ? null : applyOfferRunStrings(runs, scrubbed.slice(turnTexts.length));
-    if (applied === null || appliedRuns === null) {
+      scrubbed === null
+        ? null
+        : applyOfferRunStrings(runs, scrubbed.slice(turnTexts.length, turnTexts.length + runTexts.length));
+    const appliedCharts =
+      scrubbed === null ? null : applyChartShareStrings(charts, scrubbed.slice(turnTexts.length + runTexts.length));
+    if (applied === null || appliedRuns === null || appliedCharts === null) {
       ctx.notify()?.caution(SCRUB_FAILED_TEXT);
       return null;
     }
@@ -158,6 +172,7 @@ async function makeArtifact(ctx: ShareActionContext): Promise<ShareArtifact | nu
       slice: applied.slice,
       turnNumbers: shareTurnNumbers(applied.slice, snapshot.transcript, snapshot),
       offerRuns: appliedRuns,
+      charts: appliedCharts,
     });
     const outcome = await shareRender(format, JSON.stringify(renderDocument));
     if (!store.getSnapshot().active) return null;

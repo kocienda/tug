@@ -226,6 +226,11 @@ export interface ReportState {
   error: string | null;
   /** How far into the set the reads have got; the next page starts here. */
   fetched: number;
+  /**
+   * The report was seeded from a snapshot and reads nothing: it shows the
+   * rows it was given and never asks for more (the share page).
+   */
+  sealed: boolean;
 }
 
 const ABSENT: ReportState = Object.freeze({
@@ -240,6 +245,7 @@ const ABSENT: ReportState = Object.freeze({
   loadingMore: false,
   error: null,
   fetched: 0,
+  sealed: false,
 });
 
 const states = new Map<string, ReportState>();
@@ -309,6 +315,69 @@ export function setNestedReport(parentId: string, ref: string, id: string | null
 /** What is known of report `id`, with no read taken. */
 export function reportState(id: string): ReportState {
   return states.get(id) ?? ABSENT;
+}
+
+/**
+ * A report as it stood at one moment: what it asked, the rows it had read,
+ * and the reports unfolded under its rows. It is what a share carries, so the
+ * render page shows the report the reader had open with nobody to ask.
+ */
+export interface ReportSnapshot {
+  descriptor: ReportDescriptor;
+  rows: ReportRow[];
+  total: number | null;
+  sum: number | null;
+  sumText: string | null;
+  measure: ReportMeasure | null;
+  moved: boolean;
+  fetched: number;
+  nested: { ref: string; report: ReportSnapshot }[];
+}
+
+/** Report `id` as it stands, or null for one nobody registered. */
+export function snapshotReport(id: string): ReportSnapshot | null {
+  const state = states.get(id);
+  if (state === undefined || state.descriptor === null) return null;
+  const nested: ReportSnapshot["nested"] = [];
+  for (const [ref, child] of nestedIds.get(id) ?? []) {
+    const report = snapshotReport(child);
+    if (report !== null) nested.push({ ref, report });
+  }
+  return {
+    descriptor: state.descriptor,
+    rows: [...state.rows],
+    total: state.total,
+    sum: state.sum,
+    sumText: state.sumText,
+    measure: state.measure,
+    moved: state.moved,
+    fetched: state.fetched,
+    nested,
+  };
+}
+
+/**
+ * Register `snapshot` as a sealed report under a fresh id, its nested
+ * reports with it, and return the id. A sealed report is ready as it is
+ * given and takes no read.
+ */
+export function seedReport(snapshot: ReportSnapshot): string {
+  const id = newReportId();
+  publish(id, {
+    ...ABSENT,
+    descriptor: { ...snapshot.descriptor, id },
+    phase: "ready",
+    rows: snapshot.rows,
+    total: snapshot.total,
+    sum: snapshot.sum,
+    sumText: snapshot.sumText,
+    measure: snapshot.measure,
+    moved: snapshot.moved,
+    fetched: snapshot.fetched,
+    sealed: true,
+  });
+  for (const { ref, report } of snapshot.nested) setNestedReport(id, ref, seedReport(report));
+  return id;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -600,7 +669,7 @@ export function nextRequest(state: ReportState): Record<string, unknown> | null 
  */
 export async function loadReportPage(id: string): Promise<void> {
   const state = states.get(id);
-  if (state === undefined || inFlight.has(id)) return;
+  if (state === undefined || state.sealed || inFlight.has(id)) return;
   if (state.phase === "ready" && state.total !== null && state.fetched >= state.total) return;
   const body = nextRequest(state);
   if (body === null) return;

@@ -107,6 +107,7 @@ import {
 import { sessionNameStore } from "./lib/session-name-store";
 import { readClipboardViaNative } from "./lib/tug-native-clipboard";
 import { getOnScreenTheme } from "./contexts/theme-provider";
+import { captureChartShareState } from "./lib/chart/chart-share-capture";
 import { sharePick, shareRender, type ShareDoneResult, type ShareRenderOutcome } from "./lib/os-share";
 import type { ChartLayers } from "./lib/lazy/load-tuggraphics";
 import {
@@ -4520,6 +4521,7 @@ function pageStoreSurfaceMethods() {
         slice,
         turnNumbers: shareTurnNumbers(slice, snapshot.transcript, snapshot),
         offerRuns: shareOfferRuns(slice, services.shellSessionStore.offers.runs()),
+        charts: captureChartShareState(),
       });
       return shareRender(format, JSON.stringify(doc));
     },

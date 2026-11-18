@@ -739,8 +739,15 @@ describe("the render document", () => {
       slice,
       turnNumbers: shareTurnNumbers(slice, transcript, snapshotAt(null)),
       offerRuns: [],
+      charts: { tables: ["h1"], opens: [{ hash: "h2", anchor: "hit|3||||", report: null }] },
     });
     expect(decodeShareRenderDocument(JSON.stringify(doc))).toEqual(doc);
+    // A document with no chart state reads as one that says nothing of charts.
+    expect(decodeShareRenderDocument(JSON.stringify({ ...doc, charts: undefined }))?.charts).toEqual({
+      tables: [],
+      opens: [],
+    });
+    expect(decodeShareRenderDocument(JSON.stringify({ ...doc, charts: { tables: [1], opens: [] } }))).toBeNull();
   });
 });
 
@@ -791,6 +798,7 @@ describe("a share of runnable offers", () => {
       slice,
       turnNumbers: [1],
       offerRuns: [run("m#0#00000000")],
+      charts: { tables: [], opens: [] },
     });
     expect(decodeShareRenderDocument(JSON.stringify(doc))).toEqual(doc);
     expect(decodeShareRenderDocument(JSON.stringify({ ...doc, offerRuns: undefined }))).toBeNull();

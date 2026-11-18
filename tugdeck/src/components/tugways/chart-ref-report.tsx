@@ -401,7 +401,12 @@ function ReportRows({ id, emptyText }: { id: string; emptyText?: string }): Reac
           </TugPushButton>
         </div>
       ) : null}
-      {more && state.phase !== "error" ? (
+      {more && state.sealed ? (
+        <div className="tugx-chart-report-status" data-slot="chart-report-sealed-foot">
+          {state.fetched} of {total}
+        </div>
+      ) : null}
+      {more && !state.sealed && state.phase !== "error" ? (
         <TugPushButton
           className="tugx-chart-report-more"
           size="2xs"

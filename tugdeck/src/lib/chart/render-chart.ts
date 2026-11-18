@@ -93,6 +93,7 @@ import { CHART_ANNOTATED_EVENT, setChartFigureData } from "@/lib/chart/chart-fig
 import { attachChartHover, endChartHoverIn } from "@/lib/chart/chart-hover";
 import { awaitRoleFaces, ensureRoleProbes, probeMeasurer, roleFacesLoaded, runMeasureLoop } from "@/lib/chart/chart-measure";
 import { attachRefLight } from "@/lib/chart/chart-ref-light";
+import { recallOpenMark } from "@/lib/chart/chart-open-memory";
 import { attachRefSets, detachRefSetIn, restoreRefSet } from "@/lib/chart/chart-ref-set";
 import { recallChartView, rememberChartView, type ChartView } from "@/lib/chart/chart-view-memory";
 import {
@@ -782,7 +783,13 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
   }
 
   const hash = textHash(source);
-  const animate = !thumbnail && !picture && takeEntrance(entered, hash, isShown(el));
+  // The share page is recognised by its annotation context, which answers
+  // nothing, and by the mark its root wears. It is photographed the moment
+  // its figures have landed, so a figure there never plays an entrance: the
+  // picture would hold whichever frame of it the snapshot met.
+  const sharePage =
+    options.annotation?.unanswerable === true || document.documentElement.hasAttribute("data-share-page");
+  const animate = !thumbnail && !picture && !sharePage && takeEntrance(entered, hash, isShown(el));
   nextId += 1;
   const idPrefix = `tgc${nextId}`;
   const avail = el.clientWidth;
@@ -834,12 +841,10 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
   if (view === "table") el.setAttribute(CHART_VIEW_ATTR, "table");
   else el.setAttribute(CHART_VIEW_ATTR, "chart");
 
-  // The share page is recognised by its annotation context, which answers
-  // nothing, and by the mark its root wears.
   const offered = figureHeaderActions({
     drawn: true,
     hostShares: isShareAvailable(),
-    sharePage: options.annotation?.unanswerable === true || document.documentElement.hasAttribute("data-share-page"),
+    sharePage,
   });
   const figure = { source, layers };
   const actions: HTMLElement[] = [
@@ -888,7 +893,11 @@ async function drawChartInto(el: HTMLElement, source: string, options: RenderCha
   if (withTable) attachChartHover(body, round.table);
   // One answer for the whole figure: whether the recipe that drew it can be
   // asked for a mark's members from this surface.
-  const reports = canReport(round.table.source, options.annotation);
+  // The share page has nobody to ask, and still shows the report the card
+  // had open on this chart, from the rows it was seeded with: there the
+  // marks are stamped as the card's were, so the open one is found again.
+  const reports =
+    canReport(round.table.source, options.annotation) || (sharePage && recallOpenMark(hash)?.reportId != null);
   const form = chartForm(source);
   if (refs !== undefined) markHits(body, refs, reports, form);
 

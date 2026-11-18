@@ -86,3 +86,11 @@ html[data-share-page] .tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-
 html[data-share-page] .tugx-chart[data-tugx-chart-kind="diagram"] > .tugx-chart-body > .tugx-chart-svg {
   min-width: 0;
 }
+
+/* A mark's report scrolls inside its panel in a live card. A page that is
+   photographed has no scrolling, so here the panel is as tall as the rows
+   the card had read. */
+html[data-share-page] .tugx-chart-set-list {
+  max-height: none;
+  overflow-y: visible;
+}

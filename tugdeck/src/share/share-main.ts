@@ -76,6 +76,7 @@ import {
   shareRenderReadyToHost,
 } from "../host/declarations/services";
 import { ToolBlockExpansionState } from "../components/tugways/blocks/expansion-state";
+import { seedChartShareState } from "../lib/chart/chart-share-capture";
 import { CHART_STATE_ATTR, renderChartInto } from "../lib/chart/render-chart";
 import { CodeSessionStore } from "../lib/code-session-store";
 import { TestFrameChannel } from "../lib/code-session-store/testing/mock-feed-store";
@@ -138,6 +139,10 @@ function mount(doc: ShareRenderDocument): void {
   // draws its result under it.
   const offerRuns = new RunOfferStore();
   offerRuns.seed(doc.offerRuns);
+  // The card's charts, as the reader left them: each one's view, its open
+  // mark and the report under it. Seeded before the mount, since a figure
+  // reads these memories as it is built.
+  seedChartShareState(doc.charts);
 
   const container = document.getElementById("deck-container") ?? document.body;
   const root = createRoot(container);

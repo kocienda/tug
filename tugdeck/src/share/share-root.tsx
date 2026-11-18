@@ -16,6 +16,9 @@
  */
 
 import React from "react";
+// A chart report draws a commit with the History list's row, which names
+// itself to the report when its module loads. Nothing else here loads it.
+import "../components/tugways/cards/session-history/history-list";
 import { TugThemeProvider } from "../contexts/theme-provider";
 import { TugTooltipProvider } from "../components/tugways/tug-tooltip";
 import { ResponderChainProvider } from "../components/tugways/responder-chain-provider";

@@ -44,6 +44,7 @@ import { composeShellShareText } from "@/lib/shell-share";
 import { turnNumberAt, walkTurnGroups } from "@/lib/session-transcript-data-source";
 import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import type { ToolCallMode } from "@/lib/turn-entry-markdown";
+import { readChartShareState, type ChartShareState } from "@/lib/chart/chart-share-state";
 import { parseRunOfferKey, runOfferKey, type RunOfferRun } from "@/lib/run-offer-store";
 import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
 
@@ -533,6 +534,9 @@ export interface ShareRenderDocument {
   /** The settled runs of the offers in the slice's messages, scrubbed, so the
    *  render shows each result under its offer as the card does. */
   offerRuns: RunOfferRun[];
+  /** What the reader did to the card's charts: each one's view, its open mark
+   *  and the report under it, scrubbed, so the render shows them as the card does. */
+  charts: ChartShareState;
 }
 
 /**
@@ -575,6 +579,7 @@ export function buildShareRenderDocument(input: {
   slice: TurnEntry[];
   turnNumbers: number[];
   offerRuns: RunOfferRun[];
+  charts: ChartShareState;
 }): ShareRenderDocument {
   return {
     version: 1,
@@ -586,6 +591,7 @@ export function buildShareRenderDocument(input: {
     turns: input.slice,
     turnNumbers: input.turnNumbers,
     offerRuns: input.offerRuns,
+    charts: input.charts,
   };
 }
 
@@ -656,7 +662,9 @@ function readTurnsDocument(value: Record<string, unknown>): ShareRenderDocument 
       return null;
     }
   }
-  return value as unknown as ShareRenderDocument;
+  const charts = readChartShareState(value.charts);
+  if (charts === null) return null;
+  return { ...(value as unknown as ShareRenderDocument), charts };
 }
 
 // ---------------------------------------------------------------------------

@@ -415,14 +415,17 @@ function buildPanel(figure: HTMLElement, anchor: Element, data: ChartFigureData,
   const members = slot === null ? [] : slotMembers(slot);
   const root = canAsk(data.context) ? (data.context?.commitRoot ?? null) : null;
 
-  if (root === null) {
-    if (slot === null || members.length === 0) return null;
-    return { list: buildList(slot, () => closeRefSetIn(figure)), reportId: null };
-  }
+  // A report the store already holds is taken up before anyone is asked,
+  // which is how the share page shows one: seeded from the card's, sealed,
+  // with nobody to ask.
   const kept = resume === null ? null : reportState(resume).descriptor;
   if (resume !== null && kept !== null) {
     const title = reportTitle(kept.rowLabel, kept.seriesName, kept.slotCount, kept.kind, kept.single === true);
     return { list: buildReportPanel(resume, title), reportId: resume };
+  }
+  if (root === null) {
+    if (slot === null || members.length === 0) return null;
+    return { list: buildList(slot, () => closeRefSetIn(figure)), reportId: null };
   }
   const address = data.source === undefined ? null : addressOf(anchor, data.table);
   if (address === null && members.length === 0) return null;

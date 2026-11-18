@@ -56,3 +56,8 @@ export function rememberChartView(
 export function recallChartView(hash: string, store: ChartViewMemory = memory): ChartView {
   return store.has(hash) ? "table" : "chart";
 }
+
+/** The source hash of every chart the page remembers in its Table view, oldest first. */
+export function tableViewHashes(store: ChartViewMemory = memory): string[] {
+  return [...store.keys()];
+}
