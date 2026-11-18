@@ -46,25 +46,27 @@ describe("notifyStatusLine", () => {
 
 describe("notifyTestLine", () => {
   it("says nothing before a test", () => {
-    expect(notifyTestLine({ kind: "idle" }, ALLOWED)).toBeNull();
+    expect(notifyTestLine({ kind: "idle" })).toBeNull();
   });
 
-  it("names a Focus when the test was delivered with banners on", () => {
-    expect(notifyTestLine({ kind: "delivered" }, ALLOWED)).toContain("Focus");
+  it("tells the user to switch away while a test is pending", () => {
+    expect(notifyTestLine({ kind: "sending" })).toContain("Switch to another app");
   });
 
-  it("does not blame a Focus when banners are off", () => {
-    const line = notifyTestLine({ kind: "delivered" }, QUIET);
-    expect(line).not.toContain("Focus");
-    expect(line).toContain("Notification Center");
+  it("reports a delivery and guesses at nothing else", () => {
+    expect(notifyTestLine({ kind: "delivered" })).toBe("macOS delivered the test notification.");
+  });
+
+  it("says a test was not posted while Tug stayed frontmost", () => {
+    expect(notifyTestLine({ kind: "frontmost" })).toContain("no test was posted");
   });
 
   it("reports a post macOS dropped", () => {
-    expect(notifyTestLine({ kind: "dropped" }, ALLOWED)).toContain("did not deliver");
+    expect(notifyTestLine({ kind: "dropped" })).toContain("did not deliver");
   });
 
   it("carries the host's error", () => {
-    expect(notifyTestLine({ kind: "failed", error: "not allowed" }, ALLOWED)).toContain("not allowed");
+    expect(notifyTestLine({ kind: "failed", error: "not allowed" })).toContain("not allowed");
   });
 });
 

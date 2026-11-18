@@ -722,8 +722,8 @@ struct DictionaryLookup: Decodable, Equatable {
 /// `notifyCheck`: the Settings card asks what macOS will do with a Tug
 /// notification, answered with `onNotifyStatus` under `requestId`. `status`
 /// only reads; `authorize` asks macOS for permission first; `test` posts a
-/// notification that shows even while Tug is frontmost; `settings` opens
-/// Tug's pane in System Settings.
+/// notification after a few seconds, unless Tug is still frontmost then;
+/// `settings` opens Tug's pane in System Settings.
 struct NotifyCheck: Decodable, Equatable {
     enum Verb: String, Decodable, Equatable {
         case status, authorize, test, settings
@@ -1048,14 +1048,15 @@ struct ClipboardContents: Codable, Equatable {
 /// `onNotifyStatus`: what macOS will do with a Tug notification, and how a
 /// `test` went. `banners` is false when the alert style is None or alerts are
 /// off, where a notification goes straight to Notification Center. `test` is
-/// `none` for every verb but `test`; `dropped` is a post macOS accepted and
+/// `none` for every verb but `test`; `frontmost` is a test not posted because
+/// Tug was still the frontmost app; `dropped` is a post macOS accepted and
 /// then did not deliver; `error` is `""` unless `test` is `failed`.
 struct NotifyStatus: Codable, Equatable {
     enum Authorization: String, Codable, Equatable {
         case notDetermined, denied, authorized
     }
     enum Test: String, Codable, Equatable {
-        case none, delivered, dropped, failed
+        case none, delivered, dropped, frontmost, failed
     }
     var requestId: String
     var authorization: Authorization

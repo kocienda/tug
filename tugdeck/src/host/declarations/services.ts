@@ -153,8 +153,9 @@ export const sessionNotifyToHost = defineToHost({
 /**
  * The Settings card asks what macOS will do with a Tug notification, answered
  * with `onNotifyStatus` under `requestId`. `status` only reads; `authorize`
- * asks macOS for permission first; `test` posts a notification that shows
- * even while Tug is frontmost; `settings` opens Tug's pane in System Settings.
+ * asks macOS for permission first; `test` posts a notification after a few
+ * seconds, unless Tug is still frontmost then; `settings` opens Tug's pane in
+ * System Settings.
  */
 export const notifyCheckToHost = defineToHost({
   name: "notifyCheck",
@@ -776,7 +777,8 @@ export const spellingGuessesToPage = defineToPage({
  * What macOS will do with a Tug notification, and how a `test` went.
  * `banners` is false when the alert style is None or alerts are off, where a
  * notification goes straight to Notification Center. `test` is `none` for
- * every verb but `test`; `dropped` is a post macOS accepted and then did not
+ * every verb but `test`; `frontmost` is a test not posted because Tug was
+ * still the frontmost app; `dropped` is a post macOS accepted and then did not
  * deliver; `error` is `""` unless `test` is `failed`.
  */
 export const notifyStatusToPage = defineToPage({
@@ -786,7 +788,7 @@ export const notifyStatusToPage = defineToPage({
     requestId: str,
     authorization: literal("notDetermined", "denied", "authorized"),
     banners: bool,
-    test: literal("none", "delivered", "dropped", "failed"),
+    test: literal("none", "delivered", "dropped", "frontmost", "failed"),
     error: str,
   }),
   samples: [
@@ -794,6 +796,7 @@ export const notifyStatusToPage = defineToPage({
     { requestId: "notify-2", authorization: "authorized", banners: true, test: "delivered", error: "" },
     { requestId: "notify-3", authorization: "denied", banners: false, test: "failed", error: "macOS does not allow notifications from Tug." },
     { requestId: "notify-4", authorization: "notDetermined", banners: false, test: "none", error: "" },
+    { requestId: "notify-5", authorization: "authorized", banners: true, test: "frontmost", error: "" },
   ],
   refused: [
     "authorized",

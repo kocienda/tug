@@ -32,8 +32,9 @@
  * happens, and the host acts on them only while Tug is in the background.
  * While either switch is on, a status line under the rows says what macOS
  * will do with a notification — not asked, turned off, no banners, or
- * allowed — with the one button that state calls for, and Send Test reports
- * how a real one went (`lib/notify-status.ts`). Turning a switch on asks
+ * allowed — with the one button that state calls for, and Send Test posts
+ * one the way a session's is posted and reports whether macOS delivered it
+ * (`lib/notify-status.ts`). Turning a switch on asks
  * macOS for permission then, while the user is looking at the setting.
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
@@ -270,7 +271,7 @@ export function SettingsGeneralBody() {
   const notifyOn = notifyComplete.notification || notifyInput.notification;
   const notifyLine =
     notifyOn && notifyStatus.status !== null ? notifyStatusLine(notifyStatus.status) : null;
-  const notifyTest = notifyOn ? notifyTestLine(notifyStatus.test, notifyStatus.status) : null;
+  const notifyTest = notifyOn ? notifyTestLine(notifyStatus.test) : null;
 
   // Turning a switch on is the moment to ask macOS, while the user is here.
   const setNotifyBanner = (event: SessionNotifyEvent, on: boolean) => {

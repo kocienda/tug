@@ -11,8 +11,11 @@
  * line the Settings card shows under its switches, with the one action that
  * state calls for.
  *
- * A Focus cannot be read. It is what is left when a test was delivered,
- * banners are on, and no banner appeared, and {@link notifyTestLine} says so.
+ * A test is posted the way a session's notification is: after a few seconds,
+ * and only if Tug is no longer the frontmost app. Its line says what the host
+ * read — delivered, not delivered, not posted — and nothing about why a
+ * banner did or did not draw, which macOS does not report and Tug cannot
+ * infer.
  *
  * The snapshot is external state: components read it through
  * {@link useNotifyStatus} ([L02]). Outside the host nothing is asked and the
@@ -41,6 +44,7 @@ export type NotifyTest =
   | { kind: "sending" }
   | { kind: "delivered" }
   | { kind: "dropped" }
+  | { kind: "frontmost" }
   | { kind: "failed"; error: string };
 
 /** What the Settings card reads. `status` is null until the host answers. */
@@ -60,10 +64,11 @@ export interface NotifyStatusLine {
 }
 
 /**
- * How long a test may go unanswered. The host answers about two seconds
- * after it posts; the bound is for a host that never answers.
+ * How long a test may go unanswered. The host posts five seconds after it is
+ * asked and answers about two seconds after that; the bound is for a host
+ * that never answers.
  */
-export const NOTIFY_TEST_TIMEOUT_MS = 10_000;
+export const NOTIFY_TEST_TIMEOUT_MS = 15_000;
 
 /** The line for `status`. */
 export function notifyStatusLine(status: NotifyStatus): NotifyStatusLine {
@@ -96,18 +101,18 @@ export function notifyStatusLine(status: NotifyStatus): NotifyStatusLine {
 }
 
 /** The line for the last test, or null when none has been sent. */
-export function notifyTestLine(test: NotifyTest, status: NotifyStatus | null): string | null {
+export function notifyTestLine(test: NotifyTest): string | null {
   switch (test.kind) {
     case "idle":
       return null;
     case "sending":
-      return "Sending a test notification…";
+      return "A test notification is posted in 5 seconds. Switch to another app to see it.";
     case "delivered":
-      return status !== null && status.banners
-        ? "macOS delivered the test notification. If no banner appeared, a Focus is silencing Tug: allow it under System Settings › Focus."
-        : "macOS delivered the test notification to Notification Center.";
+      return "macOS delivered the test notification.";
     case "dropped":
       return "macOS accepted the test notification but did not deliver it.";
+    case "frontmost":
+      return "Tug was still the frontmost app, so no test was posted. Press Send Test, then switch to another app.";
     case "failed":
       return `The test notification failed: ${test.error}`;
   }
@@ -135,7 +140,7 @@ function clearTestTimer(): void {
 export function takeNotifyStatus(reply: {
   authorization: NotifyStatus["authorization"];
   banners: boolean;
-  test: "none" | "delivered" | "dropped" | "failed";
+  test: "none" | "delivered" | "dropped" | "frontmost" | "failed";
   error: string;
 }): void {
   const status: NotifyStatus = { authorization: reply.authorization, banners: reply.banners };

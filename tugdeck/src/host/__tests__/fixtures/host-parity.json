@@ -2672,6 +2672,13 @@
           "banners": false,
           "test": "none",
           "error": ""
+        },
+        {
+          "requestId": "notify-5",
+          "authorization": "authorized",
+          "banners": true,
+          "test": "frontmost",
+          "error": ""
         }
       ],
       "refused": [

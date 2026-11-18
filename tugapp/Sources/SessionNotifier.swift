@@ -27,11 +27,15 @@ import UserNotifications
 /// Settings card.** macOS can accept a post and show nothing — the alert
 /// style is None, a Focus is on — and reports neither. So `check` answers the
 /// card with what macOS will say (`NotifyStatus`), its `test` verb posts a
-/// notification that shows even while Tug is frontmost and reports whether
-/// macOS delivered it, and every post, real or test, writes one `notify`
-/// line carrying the settings it was posted under. A Focus cannot be read;
-/// it is what is left when the test was delivered, banners are on, and no
-/// banner appeared, and the card says so.
+/// notification the way a session's is posted and reports whether macOS
+/// delivered it, and every post, real or test, writes one `notify` line
+/// carrying the settings it was posted under.
+///
+/// **The test claims only what the host can read.** It goes out after a wait,
+/// so the user can switch to another app, and it is held to the rule every
+/// notification is: nothing is posted while Tug is frontmost. Whether a
+/// banner drew is the user's to see and not something macOS reports, so the
+/// answer says delivered or not and never guesses at why nothing appeared.
 final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = SessionNotifier()
 
@@ -44,6 +48,10 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// The test notification's identifier: one, so a newer test replaces
     /// the older.
     private static let testIdentifier = "session-test"
+
+    /// How long a test waits before it is posted: the user's time to switch
+    /// to another app. The Settings card says the same number.
+    private static let testLead: TimeInterval = 5
 
     /// How long a test waits before asking macOS whether it was delivered.
     private static let testSettle: TimeInterval = 2
@@ -145,8 +153,9 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Post the test notification, wait for macOS to settle it, and report
-    /// whether it was delivered.
+    /// Wait out the lead, post the test notification unless Tug is still
+    /// frontmost, wait for macOS to settle it, and report whether it was
+    /// delivered.
     private func postTest(_ id: String, reply: @escaping (NotifyStatus) -> Void) {
         let center = UNUserNotificationCenter.current()
         let content = UNMutableNotificationContent()
@@ -155,8 +164,14 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
         content.sound = .default
         content.userInfo = [Self.testKey: true]
         let request = UNNotificationRequest(identifier: Self.testIdentifier, content: content, trigger: nil)
-        DispatchQueue.main.async { [weak self] in
-            self?.testClicked = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.testLead) { [weak self] in
+            guard let self else { return }
+            guard !NSApp.isActive else {
+                self.log("test not posted: frontmost", event: "test", error: nil)
+                self.readStatus(id, test: .frontmost, reply: reply)
+                return
+            }
+            self.testClicked = false
             center.add(request) { [weak self] error in
                 guard let self else { return }
                 if let error {
@@ -222,12 +237,6 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
         alert == .enabled && style != .none
     }
 
-    /// What a notification arriving while Tug is frontmost shows: nothing,
-    /// unless it is the Settings card's test, which is there to be seen.
-    static func presentation(isTest: Bool) -> UNNotificationPresentationOptions {
-        isTest ? [.banner, .list, .sound] : []
-    }
-
     // MARK: - The log line
 
     /// One `notify` line: what happened, and the settings it happened under.
@@ -283,15 +292,13 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
     // MARK: - UNUserNotificationCenterDelegate
 
     /// A notification arriving while Tug is frontmost — the user came back
-    /// between the post and its delivery — shows nothing: they are here. The
-    /// Settings card's test is the exception.
+    /// between the post and its delivery — shows nothing: they are here.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        let isTest = notification.request.content.userInfo[Self.testKey] as? Bool == true
-        completionHandler(Self.presentation(isTest: isTest))
+        completionHandler([])
     }
 
     /// A click: bring Tug forward and open the card the notification names.
