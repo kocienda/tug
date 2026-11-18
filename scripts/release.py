@@ -5,7 +5,7 @@ The release used to be a chain of seven commands typed in an order one person
 remembered. This is that chain, with the order written down: the script probes
 where the release already stands, runs the checks CI would run, works out which
 step is next, and then walks bump -> draft the notes -> show them -> commit ->
-push -> wait for CI -> bless -> dispatch -> watch. Before every command that
+tag -> push -> wait for CI -> bless -> dispatch -> watch. Before every command that
 changes state it prints the exact command and asks Y/n, defaulting to Y: the
 point of running this is to release, so Enter goes on and n is the deliberate
 answer. Read-only probes and gates run without asking.
@@ -13,6 +13,11 @@ answer. Read-only probes and gates run without asking.
 Nothing here is new machinery. `just version-bump`, `just bless` and
 `scripts/watch-release-run.sh` already exist and already know their jobs; this
 script is the order they go in, plus one `claude -p` call that drafts the notes.
+
+The release commit is tagged v<version> here, by an annotated tag, and the tag
+is pushed with main. The release run is dispatched on that tag, so the tag is
+the commit the run builds rather than whatever main is when it publishes, and
+this checkout keeps every release's tag instead of having none of them.
 
 Every step is idempotent and the run is resumable: declining a row, a step that
 fails, or a red CI run on the commit about to ship, ends the run, and running
@@ -323,7 +328,9 @@ class State:
 
     def __init__(self):
         self.version = None
-        self.tag = None  # True published, False absent, None unknown
+        self.published = None  # True published, False absent, None unknown
+        self.local_tag_sha = None  # the commit v<version> names here, or None
+        self.remote_tag_sha = None  # ... on origin: a sha, "" absent, None unknown
         self.built_sha = None  # the commit a published tag's run checked out
         self.built_ci = None  # (run id, conclusion) of ci.yml on that commit
         self.notes_path = None
@@ -343,25 +350,31 @@ def probe():
     if not st.version:
         refuse("cannot read a version from tugrust/Cargo.toml")
 
-    # 2. Does origin already have the tag for it? Three outcomes, never two:
-    #    exit 0 is published, an HTTP 404 is absent, and anything else is a
-    #    network this script should not guess about.
-    proc = run_read(["gh", "api", f"repos/{{owner}}/{{repo}}/git/ref/tags/v{st.version}"])
+    # 2. Is it already published? The release is the mark, not the tag: the
+    #    walk pushes v<version> before it dispatches, so a tag on origin with
+    #    no release beside it is a release in flight, not one shipped. Three
+    #    outcomes, never two: exit 0 is published, an HTTP 404 is absent, and
+    #    anything else is a network this script should not guess about.
+    proc = run_read(["gh", "api", f"repos/{{owner}}/{{repo}}/releases/tags/v{st.version}"])
     if proc is None:
-        st.tag = None
+        st.published = None
     elif proc.returncode == 0:
-        st.tag = True
+        st.published = True
     elif "HTTP 404" in proc.stderr:
-        st.tag = False
+        st.published = False
     else:
-        st.tag = None
+        st.published = None
+
+    # 2a. The tag, here and on origin, as the commit each names.
+    st.local_tag_sha = local_tag_commit(f"v{st.version}")
+    st.remote_tag_sha = remote_tag_commit(f"v{st.version}")
 
     # 2b. A published version's health: the commit its run built, and what CI
     #     made of that commit. The run checked out one sha and the release body
     #     records it; the tag itself is not trusted for this (see
     #     previous_release). This is what tells a release to be retracted from
     #     one to be bumped past.
-    if st.tag:
+    if st.published:
         st.built_sha = built_from(f"v{st.version}")
         if st.built_sha:
             run = ci_run_for(st.built_sha)
@@ -388,9 +401,12 @@ def probe():
 def report(st):
     say(f"release {st.version}")
     say()
-    tag = {True: "published on origin", False: "not on origin", None: "UNKNOWN (cannot reach origin)"}[st.tag]
-    say(f"  {('tag v' + st.version):<16} {tag}")
-    if st.tag:
+    published = {True: "published on origin", False: "not published", None: "UNKNOWN (cannot reach origin)"}[st.published]
+    say(f"  {('release v' + st.version):<16} {published}")
+    here = st.local_tag_sha[:9] if st.local_tag_sha else "absent"
+    origin = {None: "UNKNOWN", "": "absent"}.get(st.remote_tag_sha) or st.remote_tag_sha[:9]
+    say(f"  {('tag v' + st.version):<16} here {here}, origin {origin}")
+    if st.published:
         if not st.built_sha:
             built = "UNKNOWN (no 'Built from commit' in the release body)"
         elif not st.built_ci:
@@ -417,14 +433,14 @@ def report(st):
 
 # ------------------------------------------------------------------ plan ----
 #
-# The walking order is bump -> draft -> show -> commit -> push -> ci -> bless ->
-# dispatch. Every one of them is idempotent, so a rerun skips the ones already
-# done, and the probe is what says which is next.
+# The walking order is bump -> draft -> show -> commit -> tag -> push -> ci ->
+# bless -> dispatch. Every one of them is idempotent, so a rerun skips the ones
+# already done, and the probe is what says which is next.
 #
 # ci and bless sit between push and dispatch, and a pushed tree resumes at ci:
 # both are read-only, both gate dispatch, and a resume that came in at dispatch
 # still has to pass through them.
-ORDER = ["bump", "draft", "show", "commit", "push", "ci", "bless", "dispatch"]
+ORDER = ["bump", "draft", "show", "commit", "tag", "push", "ci", "bless", "dispatch"]
 
 
 def decide_next(st, component, redo=False):
@@ -435,12 +451,12 @@ def decide_next(st, component, redo=False):
     version built from a commit CI failed is retracted, not bumped past, and
     `redo` asks for that retraction whatever CI said.
     """
-    if st.tag is None:
+    if st.published is None:
         stop("Cannot reach origin to tell whether this version is already released.")
 
     if component:
         return "bump"
-    if st.tag:
+    if st.published:
         if redo or (st.built_ci and st.built_ci[1] != "success"):
             return "retract"
         return "bump"
@@ -448,9 +464,11 @@ def decide_next(st, component, redo=False):
         return "draft"
     if not st.tree_clean:
         return "commit"
-    if st.remote_sha is None:
-        stop("Cannot reach origin to tell whether HEAD is already pushed.")
-    if not st.head_pushed:
+    if not st.head_sha or st.local_tag_sha != st.head_sha:
+        return "tag"
+    if st.remote_sha is None or st.remote_tag_sha is None:
+        stop("Cannot reach origin to tell whether HEAD and its tag are already pushed.")
+    if not st.head_pushed or st.remote_tag_sha != st.head_sha:
         return "push"
     return "ci"
 
@@ -485,6 +503,37 @@ def built_from(release):
     if built and read_rc(["git", "cat-file", "-e", f"{built.group(1)}^{{commit}}"]) == 0:
         return built.group(1)
     return None
+
+
+def local_tag_commit(tag):
+    """The commit `tag` names in this checkout, or None when there is no such tag."""
+    return read(["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"])
+
+
+def remote_tag_commit(tag):
+    """The commit `tag` names on origin: its sha, "" when origin has no such
+    tag, or None when origin gives no answer.
+
+    `--exit-code` is what tells the two empty answers apart: 2 is a reachable
+    origin with no matching ref, anything else non-zero is no answer at all.
+    An annotated tag lists twice and its `^{}` line is the commit, so that wins.
+    """
+    proc = run_read(["git", "ls-remote", "--exit-code", "--tags", "origin",
+                     f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"])
+    if proc is None:
+        return None
+    if proc.returncode == 2:
+        return ""
+    if proc.returncode != 0:
+        return None
+    sha = ""
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2:
+            continue
+        if parts[1].strip().endswith("^{}") or not sha:
+            sha = parts[0].strip()
+    return sha
 
 
 def tag_order(tag):
@@ -761,12 +810,59 @@ def step_commit(st):
     )
 
 
+def step_tag(st):
+    """Tag the release commit v<version>, as its own row.
+
+    An annotated tag, because it is the release's own record in this checkout:
+    `git describe` reads it, and bless finds the release before this one by it.
+    A tag that already names HEAD is left alone. One that names another commit
+    is moved, and only here: the walk reaches this step for an unpublished
+    version alone -- a published one is bumped past or retracted first -- so
+    the commit it named was never shipped. That is the case of a fix pushed
+    after CI went red on the first one, and of a retraction re-releasing.
+    HEAD is read fresh, because the commit row just before this moved it.
+    """
+    tag = f"v{st.version}"
+    head = read(["git", "rev-parse", "HEAD"])
+    local = local_tag_commit(tag)
+    if head and local == head:
+        say()
+        say(f"  {tag} already names HEAD ({head[:9]}).")
+        return
+    if local:
+        row(
+            ["git", "tag", "-f", "-a", tag, "-m", f"Tug {st.version}"],
+            why=f"Move {tag} from {local[:9]} to HEAD {(head or '?')[:9]}. {st.version} is not\n"
+                f"published, so nothing anyone downloaded was built from {local[:9]}:",
+        )
+    else:
+        row(
+            ["git", "tag", "-a", tag, "-m", f"Tug {st.version}"],
+            why=f"Tag the {st.version} release commit {tag} — the commit the release run builds:",
+        )
+
+
 def step_push(st):
-    """Push, as its own row. CI builds the pushed ref, not this one."""
-    row(
-        ["git", "push", "origin", "main"],
-        why=f"Push {st.version} to origin/main — CI builds the pushed ref, not yours:",
-    )
+    """Push main and the tag together, as one row.
+
+    `--atomic`, so origin never holds the tag without the commit under it or
+    the reverse. The tag ref is forced only when origin's copy names another
+    commit, which step_tag has just moved for the same reason it could.
+    """
+    tag = f"v{st.version}"
+    head = read(["git", "rev-parse", "HEAD"])
+    remote = remote_tag_commit(tag)
+    if remote and remote != head:
+        row(
+            ["git", "push", "--atomic", "origin", "main", f"+refs/tags/{tag}"],
+            why=f"Push {st.version} to origin/main and move {tag} there from {remote[:9]},\n"
+                f"which was never published — CI builds the pushed ref, not yours:",
+        )
+    else:
+        row(
+            ["git", "push", "--atomic", "origin", "main", f"refs/tags/{tag}"],
+            why=f"Push {st.version} and its tag {tag} to origin — CI builds the pushed ref, not yours:",
+        )
 
 
 def ci_run_for(sha):
@@ -925,9 +1021,9 @@ def step_dispatch(st):
 
     prior = newest_run_id()
     row(
-        ["gh", "workflow", "run", "release.yml", "--ref", "main"],
-        why=f"Dispatch Stable Release for {st.version} on main. This is the row that\n"
-            f"ships {st.version} to everyone running Tug:",
+        ["gh", "workflow", "run", "release.yml", "--ref", f"v{st.version}"],
+        why=f"Dispatch Stable Release for {st.version} on its tag v{st.version}. This is\n"
+            f"the row that ships {st.version} to everyone running Tug:",
     )
 
     if DRY_RUN:
@@ -1018,11 +1114,12 @@ def main(argv):
     say(f"Next: {nxt}")
 
     # A retraction stands outside the order: it is what makes the version
-    # unpublished again, after which the walk resumes where any pushed, green,
-    # written-up tree would — at the blessing, then the dispatch.
+    # unpublished again, after which the walk resumes at the tag, which still
+    # names the commit the retracted build came from and moves to HEAD, then
+    # pushes it and goes on through CI and the blessing to the dispatch.
     if nxt == "retract":
         step_retract(st, force)
-        nxt = "bless"
+        nxt = "tag"
 
     # The walk starts wherever the probe said and runs to the end. Each step is
     # idempotent, so resuming into the middle of the order is the ordinary case
@@ -1036,6 +1133,8 @@ def main(argv):
             step_show(st)
         elif name == "commit":
             step_commit(st)
+        elif name == "tag":
+            step_tag(st)
         elif name == "push":
             step_push(st)
         elif name == "ci":

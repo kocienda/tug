@@ -1226,8 +1226,9 @@ release-notes:
 # the version has to read the same in four files, the release notes for that
 # version have to have actually been written, the Claude Code floor has to be
 # one that was captured against and named in the notes if it moved, the tree
-# has to be clean and pushed (CI builds the pushed ref, not yours), and the
-# version must not already be published.
+# has to be clean and pushed (CI builds the pushed ref, not yours), the
+# version must not already be published, and its v<version> tag has to be on
+# origin naming HEAD, since that tag is what the release run builds.
 #
 # CI's own state on HEAD is REPORTED, NOT REQUIRED. Two facts decided that:
 # over the last 40 recorded runs of ci.yml on main, 15 were red; and the
@@ -1374,22 +1375,38 @@ bless:
     #    of these itself, but only after a run has been queued and the
     #    keychain built; asking here costs a second.
     #
-    #    Three outcomes, never two: `git ls-remote --tags` returned empty both
-    #    when the tag was absent and when origin was unreachable, so the row
-    #    read `ok` on a dead network. The `gh api` ref read distinguishes them
-    #    — exit 0 is present, an HTTP 404 in the error is absent, and anything
+    #    The release is the mark, not the tag: `just release` tags the release
+    #    commit and pushes the tag before it dispatches, so a tag with no
+    #    release beside it is a release in flight. Three outcomes, never two —
+    #    exit 0 is published, an HTTP 404 in the error is absent, and anything
     #    else is unknown and says so.
     if ! command -v gh >/dev/null 2>&1; then
-        fail "gh not found — cannot check for tag v$VERSION on origin"
+        fail "gh not found — cannot check for release v$VERSION on origin"
     else
-        TAG_ERR="$(gh api "repos/{owner}/{repo}/git/ref/tags/v$VERSION" 2>&1 >/dev/null)"; TAG_RC=$?
-        if [ "$TAG_RC" -eq 0 ]; then
-            fail "tag v$VERSION already exists on origin — bump the version first"
-        elif printf '%s' "$TAG_ERR" | grep -q "HTTP 404"; then
-            ok "no v$VERSION tag on origin"
+        REL_ERR="$(gh api "repos/{owner}/{repo}/releases/tags/v$VERSION" 2>&1 >/dev/null)"; REL_RC=$?
+        if [ "$REL_RC" -eq 0 ]; then
+            fail "release v$VERSION is already published — bump the version first"
+        elif printf '%s' "$REL_ERR" | grep -q "HTTP 404"; then
+            ok "release v$VERSION is not published"
         else
-            fail "cannot reach origin to check for tag v$VERSION"
+            fail "cannot reach origin to check for release v$VERSION"
         fi
+    fi
+    #
+    #    The tag is what the release run is dispatched on and builds, so it has
+    #    to be on origin and name HEAD. `--exit-code` keeps the three outcomes
+    #    apart: 2 is a reachable origin without the tag, any other failure is
+    #    no answer. An annotated tag lists twice, and its `^{}` line is the commit.
+    TAG_OUT="$(git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" "refs/tags/v$VERSION^{}" 2>/dev/null)"; TAG_RC=$?
+    TAG_SHA="$(printf '%s\n' "$TAG_OUT" | awk -F'\t' 'NF == 2 { if ($2 ~ /\^\{\}$/) peeled = $1; else if (plain == "") plain = $1 } END { print (peeled != "" ? peeled : plain) }')"
+    if [ "$TAG_RC" -eq 2 ]; then
+        fail "tag v$VERSION is not on origin — \`just release\` tags HEAD and pushes it"
+    elif [ "$TAG_RC" -ne 0 ]; then
+        fail "cannot reach origin to check for tag v$VERSION"
+    elif [ "$TAG_SHA" != "$HEAD_SHA" ]; then
+        fail "tag v$VERSION on origin names ${TAG_SHA:0:9}, not HEAD ${HEAD_SHA:0:9}"
+    else
+        ok "tag v$VERSION on origin names HEAD"
     fi
     if command -v gh >/dev/null 2>&1; then
         ASSETS="$(gh release view updates --json assets --jq '.assets[].name' 2>/dev/null || true)"
@@ -1431,10 +1448,17 @@ bless:
 # go in — scripts/release.py — and asks before every command that changes
 # state. The script probes where the release already stands, runs `just lint`
 # as a gate, works out which step is next, and walks bump → draft the notes →
-# show them → commit → push → wait for CI → bless → dispatch → watch, printing
+# show them → commit → tag → push → wait for CI → bless → dispatch → watch, printing
 # the exact command and asking Y/n (default Y) each time — running this is the
 # decision to release, so Enter goes on and n is the deliberate answer.
 # Read-only probes and gates run without asking.
+#
+# The release commit is tagged v<version> with an annotated tag, and the tag is
+# pushed with main in one atomic push. The release run is dispatched on the
+# tag, so the tag names exactly the commit that was built, and this checkout
+# keeps every release's tag. "Published" is read from the GitHub release, not
+# the tag: a pushed tag with no release beside it is a release in flight, and
+# a tag on an unpublished version is moved to HEAD when a fix follows it.
 #
 # CI on the pushed commit gates the dispatch. release.yml builds the app and
 # ci.yml runs the tests and lints, so a release run can be green over a commit
@@ -1487,7 +1511,7 @@ bless:
 # version (see above). Anything else on the line is emphasis for the notes
 # draft: `just release patch emphasise the update pill`.
 #
-# Walk a release: bump, notes, commit, push, CI, bless, dispatch, watch (Y/n each).
+# Walk a release: bump, notes, commit, tag, push, CI, bless, dispatch, watch (Y/n each).
 [group('release')]
 release *ARGS:
     #!/usr/bin/env bash
