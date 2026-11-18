@@ -3001,6 +3001,13 @@ extension MainWindow {
             TooltipDelay.apply(milliseconds: delay.delayMs)
         case .sessionNotify(let note):
             SessionNotifier.shared.handle(note)
+        case .notifyCheck(let request):
+            // The Settings card's status line, Ask, Send Test and Open
+            // System Settings. Every verb is answered, some after macOS has
+            // been asked, so the answer goes back on a later turn.
+            SessionNotifier.shared.check(request) { [weak self] status in
+                self?.reply(.notifyStatus(status), in: replyView)
+            }
         case .pageZoom(let zoom):
             // The Layout card's Zoom row: a level, chosen directly. The same
             // path as the View menu's, so it persists and is remembered for

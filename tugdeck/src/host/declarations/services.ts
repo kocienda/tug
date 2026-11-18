@@ -150,6 +150,23 @@ export const sessionNotifyToHost = defineToHost({
   ],
 });
 
+/**
+ * The Settings card asks what macOS will do with a Tug notification, answered
+ * with `onNotifyStatus` under `requestId`. `status` only reads; `authorize`
+ * asks macOS for permission first; `test` posts a notification that shows
+ * even while Tug is frontmost; `settings` opens Tug's pane in System Settings.
+ */
+export const notifyCheckToHost = defineToHost({
+  name: "notifyCheck",
+  from: "any",
+  codec: obj({ requestId: str, verb: literal("status", "authorize", "test", "settings") }),
+  samples: [
+    { requestId: "notify-1", verb: "status" },
+    { requestId: "notify-2", verb: "test" },
+  ],
+  refused: ["status", { requestId: "notify-1" }, { requestId: "notify-1", verb: "ask" }, { requestId: 1, verb: "status" }],
+});
+
 export const clipboardReadToHost = defineToHost({
   name: "clipboardRead",
   from: "any",
@@ -753,6 +770,38 @@ export const spellingGuessesToPage = defineToPage({
     { requestId: "spell-2", misspelled: false, guesses: [] },
   ],
   refused: ["spell-1", { requestId: "spell-1", misspelled: true }, { requestId: "spell-1", misspelled: "yes", guesses: [] }],
+});
+
+/**
+ * What macOS will do with a Tug notification, and how a `test` went.
+ * `banners` is false when the alert style is None or alerts are off, where a
+ * notification goes straight to Notification Center. `test` is `none` for
+ * every verb but `test`; `dropped` is a post macOS accepted and then did not
+ * deliver; `error` is `""` unless `test` is `failed`.
+ */
+export const notifyStatusToPage = defineToPage({
+  member: "onNotifyStatus",
+  to: "any",
+  codec: obj({
+    requestId: str,
+    authorization: literal("notDetermined", "denied", "authorized"),
+    banners: bool,
+    test: literal("none", "delivered", "dropped", "failed"),
+    error: str,
+  }),
+  samples: [
+    { requestId: "notify-1", authorization: "authorized", banners: true, test: "none", error: "" },
+    { requestId: "notify-2", authorization: "authorized", banners: true, test: "delivered", error: "" },
+    { requestId: "notify-3", authorization: "denied", banners: false, test: "failed", error: "macOS does not allow notifications from Tug." },
+    { requestId: "notify-4", authorization: "notDetermined", banners: false, test: "none", error: "" },
+  ],
+  refused: [
+    "authorized",
+    { requestId: "notify-1", authorization: "authorized", banners: true, test: "none" },
+    { requestId: "notify-1", authorization: "provisional", banners: true, test: "none", error: "" },
+    { requestId: "notify-1", authorization: "authorized", banners: "on", test: "none", error: "" },
+    { requestId: "notify-1", authorization: "authorized", banners: true, test: "sent", error: "" },
+  ],
 });
 
 /** What a trash or a restore came to: where the file went, or why it did not move. */

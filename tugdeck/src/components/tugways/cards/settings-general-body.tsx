@@ -30,6 +30,11 @@
  * Once or Never — and its own switch for a macOS notification beside it. The
  * shell's watcher (`lib/session-notify.ts`) reads both at the moment the event
  * happens, and the host acts on them only while Tug is in the background.
+ * While either switch is on, a status line under the rows says what macOS
+ * will do with a notification — not asked, turned off, no banners, or
+ * allowed — with the one button that state calls for, and Send Test reports
+ * how a real one went (`lib/notify-status.ts`). Turning a switch on asks
+ * macOS for permission then, while the user is looking at the setting.
  *
  * **The field never comes to rest on a value tugbank doesn't hold.** A path
  * shown in a settled field is a claim about what Tug will do — Open Quickly
@@ -63,11 +68,14 @@ import { TugSettingsGroup } from "../tug-settings-group";
 import { TugChoiceGroup } from "../tug-choice-group";
 import { TugSwitch } from "../tug-switch";
 import { TugLabel } from "../tug-label";
+import { TugPushButton } from "../tug-push-button";
 import { TugFileChooser, useFileChooserHost } from "../tug-file-chooser";
 import { useResponderForm } from "../use-responder-form";
 import { useHostFacts } from "@/lib/host-facts-store";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import { probeDirExistence } from "@/lib/dir-existence";
+import { getAppLifecycle } from "@/lib/app-lifecycle";
+import { askNotify, notifyStatusLine, notifyTestLine, useNotifyStatus } from "@/lib/notify-status";
 import {
   DEFAULT_PROJECT_PATH_DOMAIN,
   DEFAULT_PROJECT_PATH_KEY,
@@ -251,6 +259,25 @@ export function SettingsGeneralBody() {
   const notifyComplete = useSessionNotifySetting("complete");
   const notifyInput = useSessionNotifySetting("input");
 
+  // What macOS will do with a notification. Read when the card opens and
+  // whenever Tug comes forward again, which is the user returning from
+  // System Settings.
+  const notifyStatus = useNotifyStatus();
+  useEffect(() => {
+    askNotify("status");
+    return getAppLifecycle()?.observeApplicationDidBecomeActive(() => askNotify("status"));
+  }, []);
+  const notifyOn = notifyComplete.notification || notifyInput.notification;
+  const notifyLine =
+    notifyOn && notifyStatus.status !== null ? notifyStatusLine(notifyStatus.status) : null;
+  const notifyTest = notifyOn ? notifyTestLine(notifyStatus.test, notifyStatus.status) : null;
+
+  // Turning a switch on is the moment to ask macOS, while the user is here.
+  const setNotifyBanner = (event: SessionNotifyEvent, on: boolean) => {
+    putNotifyBanner(event, on);
+    askNotify(on ? "authorize" : "status");
+  };
+
   const { ResponderScope, responderRef } = useResponderForm({
     selectValue: {
       [mastheadPathsId]: (v: string) =>
@@ -260,8 +287,8 @@ export function SettingsGeneralBody() {
       [notifyInput.bounceId]: (v: string) => putDockBounce("input", asDockBounce(v)),
     },
     toggle: {
-      [notifyComplete.notificationId]: (on: boolean) => putNotifyBanner("complete", on),
-      [notifyInput.notificationId]: (on: boolean) => putNotifyBanner("input", on),
+      [notifyComplete.notificationId]: (on: boolean) => setNotifyBanner("complete", on),
+      [notifyInput.notificationId]: (on: boolean) => setNotifyBanner("input", on),
     },
   });
 
@@ -419,6 +446,33 @@ export function SettingsGeneralBody() {
               </div>
             </div>
           ))}
+          {notifyLine !== null ? (
+            <div
+              className="settings-general-notify-status"
+              data-testid="settings-notify-status"
+              data-notify-action={notifyLine.action}
+            >
+              <TugLabel size="sm">{notifyLine.text}</TugLabel>
+              <TugPushButton
+                size="xs"
+                data-testid="settings-notify-status-action"
+                disabled={notifyStatus.test.kind === "sending"}
+                onClick={() => askNotify(notifyLine.action)}
+              >
+                {notifyLine.actionLabel}
+              </TugPushButton>
+              {notifyTest !== null ? (
+                <TugLabel
+                  size="sm"
+                  emphasis="calm"
+                  className="settings-general-hint"
+                  data-testid="settings-notify-test"
+                >
+                  {notifyTest}
+                </TugLabel>
+              ) : null}
+            </div>
+          ) : null}
           <div className="settings-general-notify-hints">
             <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
               Tug doesn’t bounce or notify while it’s the frontmost app.
@@ -427,7 +481,8 @@ export function SettingsGeneralBody() {
               Clicking a notification opens the card for that session.
             </TugLabel>
             <TugLabel size="sm" emphasis="calm" className="settings-general-hint">
-              macOS asks for permission the first time a notification is posted.
+              macOS asks for permission when you turn a notification on. A Focus
+              can silence notifications unless Tug is allowed in it.
             </TugLabel>
           </div>
         </TugSettingsGroup>

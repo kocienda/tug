@@ -1133,6 +1133,34 @@
       ]
     },
     {
+      "name": "notifyCheck",
+      "from": "any",
+      "samples": [
+        {
+          "requestId": "notify-1",
+          "verb": "status"
+        },
+        {
+          "requestId": "notify-2",
+          "verb": "test"
+        }
+      ],
+      "refused": [
+        "status",
+        {
+          "requestId": "notify-1"
+        },
+        {
+          "requestId": "notify-1",
+          "verb": "ask"
+        },
+        {
+          "requestId": 1,
+          "verb": "status"
+        }
+      ]
+    },
+    {
       "name": "clipboardRead",
       "from": "any",
       "samples": [
@@ -2610,6 +2638,70 @@
           "requestId": "spell-1",
           "misspelled": "yes",
           "guesses": []
+        }
+      ]
+    },
+    {
+      "member": "onNotifyStatus",
+      "to": "any",
+      "samples": [
+        {
+          "requestId": "notify-1",
+          "authorization": "authorized",
+          "banners": true,
+          "test": "none",
+          "error": ""
+        },
+        {
+          "requestId": "notify-2",
+          "authorization": "authorized",
+          "banners": true,
+          "test": "delivered",
+          "error": ""
+        },
+        {
+          "requestId": "notify-3",
+          "authorization": "denied",
+          "banners": false,
+          "test": "failed",
+          "error": "macOS does not allow notifications from Tug."
+        },
+        {
+          "requestId": "notify-4",
+          "authorization": "notDetermined",
+          "banners": false,
+          "test": "none",
+          "error": ""
+        }
+      ],
+      "refused": [
+        "authorized",
+        {
+          "requestId": "notify-1",
+          "authorization": "authorized",
+          "banners": true,
+          "test": "none"
+        },
+        {
+          "requestId": "notify-1",
+          "authorization": "provisional",
+          "banners": true,
+          "test": "none",
+          "error": ""
+        },
+        {
+          "requestId": "notify-1",
+          "authorization": "authorized",
+          "banners": "on",
+          "test": "none",
+          "error": ""
+        },
+        {
+          "requestId": "notify-1",
+          "authorization": "authorized",
+          "banners": true,
+          "test": "sent",
+          "error": ""
         }
       ]
     },

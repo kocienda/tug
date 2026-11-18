@@ -719,6 +719,19 @@ struct DictionaryLookup: Decodable, Equatable {
     var italic: Bool
 }
 
+/// `notifyCheck`: the Settings card asks what macOS will do with a Tug
+/// notification, answered with `onNotifyStatus` under `requestId`. `status`
+/// only reads; `authorize` asks macOS for permission first; `test` posts a
+/// notification that shows even while Tug is frontmost; `settings` opens
+/// Tug's pane in System Settings.
+struct NotifyCheck: Decodable, Equatable {
+    enum Verb: String, Decodable, Equatable {
+        case status, authorize, test, settings
+    }
+    var requestId: String
+    var verb: Verb
+}
+
 /// `spellingGuesses`: a word for the system spell checker, answered with
 /// `onSpellingGuesses` under `requestId`.
 struct SpellingGuessesRequest: Decodable, Equatable {
@@ -1032,6 +1045,25 @@ struct ClipboardContents: Codable, Equatable {
     var atoms: String
 }
 
+/// `onNotifyStatus`: what macOS will do with a Tug notification, and how a
+/// `test` went. `banners` is false when the alert style is None or alerts are
+/// off, where a notification goes straight to Notification Center. `test` is
+/// `none` for every verb but `test`; `dropped` is a post macOS accepted and
+/// then did not deliver; `error` is `""` unless `test` is `failed`.
+struct NotifyStatus: Codable, Equatable {
+    enum Authorization: String, Codable, Equatable {
+        case notDetermined, denied, authorized
+    }
+    enum Test: String, Codable, Equatable {
+        case none, delivered, dropped, failed
+    }
+    var requestId: String
+    var authorization: Authorization
+    var banners: Bool
+    var test: Test
+    var error: String
+}
+
 /// `onSpellingGuesses`: whether the checker flags the word, and its guesses,
 /// best first; `[]` when it has none or the word is spelled correctly.
 struct SpellingGuessesReply: Codable, Equatable {
@@ -1165,7 +1197,7 @@ enum ToHostName: String, CaseIterable {
     case bodyHello, painted, bodyThemed, bodyStale, frontendReady, frontendLaunchStalled, launchLap, pageFault, quitConfirmed, quitRequested
     case crossingReady, crossingSolved, bodySurface, bodyCreate, bodyDestroy, bodyDelays, bodyFocus, hmrUpdate
     // The host's services.
-    case sourceTree, choosePath, getSettings, setTheme, tooltipDelay, sessionNotify
+    case sourceTree, choosePath, getSettings, setTheme, tooltipDelay, sessionNotify, notifyCheck
     case clipboardRead, clipboardWrite, clipboardWriteImage, menuState
     case openPath, lookUpInDictionary, spellingGuesses, rememberSpelling, trashPath, restorePath, thumbnailPath
     case exportSession, sharePreview, shareSave, shareRender, shareHello, shareRenderReady, shareRenderHtml
@@ -1252,6 +1284,7 @@ enum ToHost {
     case setTheme(SetTheme)
     case tooltipDelay(TooltipDelay)
     case sessionNotify(SessionNotify)
+    case notifyCheck(NotifyCheck)
     case clipboardRead(ClipboardReadRequest)
     case clipboardWrite(ClipboardWrite)
     case clipboardWriteImage(ClipboardWriteImage)
@@ -1323,6 +1356,7 @@ enum ToHost {
         case .setTheme: return .setTheme(try read(SetTheme.self))
         case .tooltipDelay: return .tooltipDelay(try read(TooltipDelay.self))
         case .sessionNotify: return .sessionNotify(try read(SessionNotify.self))
+        case .notifyCheck: return .notifyCheck(try read(NotifyCheck.self))
         case .clipboardRead: return .clipboardRead(try read(ClipboardReadRequest.self))
         case .clipboardWrite: return .clipboardWrite(try read(ClipboardWrite.self))
         case .clipboardWriteImage: return .clipboardWriteImage(try read(ClipboardWriteImage.self))
@@ -1453,7 +1487,7 @@ enum ToPageMember: String, CaseIterable {
     // Page lifecycle.
     case onBodyBind, onBodyState, onBodyVisibility, onBodyTheme, onPlanStarted
     // The host's services.
-    case onSettingsLoaded, onPathChosen, onExportDone, onShareDone, onShareDocument, onShareHtmlRequest, onShareRendered, onClipboardRead, onSpellingGuesses, onTrashResult, onThumbnail, onHostFrames
+    case onSettingsLoaded, onPathChosen, onExportDone, onShareDone, onShareDocument, onShareHtmlRequest, onShareRendered, onClipboardRead, onSpellingGuesses, onNotifyStatus, onTrashResult, onThumbnail, onHostFrames
     case onDictation, onUpdateState, onPageZoom, onActivationClick, onNetworkPath, onScrollPhase
 }
 
@@ -1477,6 +1511,7 @@ enum ToPage {
     case shareRendered(ShareRendered)
     case clipboardRead(ClipboardContents)
     case spellingGuesses(SpellingGuessesReply)
+    case notifyStatus(NotifyStatus)
     case trashResult(TrashResult)
     case thumbnail(Thumbnail)
     case hostFrames(HostFramesReply)
@@ -1507,6 +1542,7 @@ enum ToPage {
         case .shareRendered: return .onShareRendered
         case .clipboardRead: return .onClipboardRead
         case .spellingGuesses: return .onSpellingGuesses
+        case .notifyStatus: return .onNotifyStatus
         case .trashResult: return .onTrashResult
         case .thumbnail: return .onThumbnail
         case .hostFrames: return .onHostFrames
@@ -1541,6 +1577,7 @@ enum ToPage {
         case .shareRendered(let rendered): return try? encoder.encode(rendered)
         case .clipboardRead(let contents): return try? encoder.encode(contents)
         case .spellingGuesses(let reply): return try? encoder.encode(reply)
+        case .notifyStatus(let status): return try? encoder.encode(status)
         case .trashResult(let result): return try? encoder.encode(result)
         case .thumbnail(let thumbnail): return try? encoder.encode(thumbnail)
         case .hostFrames(let reply): return try? encoder.encode(reply)
@@ -1578,6 +1615,7 @@ enum ToPage {
             case .onShareRendered: return .success(.shareRendered(try read(ShareRendered.self)))
             case .onClipboardRead: return .success(.clipboardRead(try read(ClipboardContents.self)))
             case .onSpellingGuesses: return .success(.spellingGuesses(try read(SpellingGuessesReply.self)))
+            case .onNotifyStatus: return .success(.notifyStatus(try read(NotifyStatus.self)))
             case .onTrashResult: return .success(.trashResult(try read(TrashResult.self)))
             case .onThumbnail: return .success(.thumbnail(try read(Thumbnail.self)))
             case .onHostFrames: return .success(.hostFrames(try read(HostFramesReply.self)))

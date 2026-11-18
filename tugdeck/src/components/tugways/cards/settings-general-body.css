@@ -61,6 +61,17 @@
   gap: var(--tug-space-sm);
 }
 
+/* What macOS will do with a notification: the sentence, its one button, and
+   under them how the last test went. It stands off from the rows as they
+   stand off from each other. */
+.settings-general-notify-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-sm);
+  margin-top: var(--tug-space-lg);
+}
+
 /* The group's closing hints: one sentence to a line, so each fact breaks
    where it ends rather than wherever the measure runs out. They stand off
    from the last row by what separates the rows, so they read as a note on
