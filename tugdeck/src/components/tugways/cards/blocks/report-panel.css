@@ -350,7 +350,11 @@ body {
 
 /* @tug-renders-on: --tugx-report-card-surface */
 .tug-report-panel-red-title {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
   color: var(--tugx-report-text-color);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* @tug-renders-on: --tugx-report-card-surface */
@@ -367,6 +371,29 @@ body {
   margin-top: var(--tug-space-2xs);
   font-size: var(--tug-font-size-2xs);
   color: var(--tugx-report-subtle-color);
+}
+
+/* The failure as first shown: title and message, capped by the model. */
+.tug-report-panel-red-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
+/* The fold under a capped failure. Open, the whole text stands in place of
+   the preview, in a box that scrolls rather than growing past its height. */
+.tug-report-panel-red:has(> .tug-report-panel-red-full .tug-accordion-item[data-state="open"])
+  > .tug-report-panel-red-preview {
+  display: none;
+}
+
+.tug-report-panel-red-full-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  max-height: 24lh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* The most recent red open, the earlier ones in a fold under it. */

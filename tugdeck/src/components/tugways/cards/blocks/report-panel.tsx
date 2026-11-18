@@ -62,6 +62,7 @@ import React, { useRef } from "react";
 
 import {
   CELLS_UP_TO,
+  failurePreview,
   formatSecs,
   isRed,
   laneSlots,
@@ -327,9 +328,15 @@ function PhaseSteps({ units, nowMs }: { units: readonly RunUnit[]; nowMs: number
   );
 }
 
-/** A red unit: head, first failure, what the record said. */
-function RedCard({ unit }: { unit: RunUnit }) {
+/**
+ * A red unit: head, first failure, what the record said. The failure is
+ * shown capped: a few lines of it, and when that held anything back a fold
+ * under them that opens the whole text in a box of its own height, in place
+ * of the preview. The swap is CSS off the fold's open state [L06].
+ */
+function RedCard({ unit, foldKey }: { unit: RunUnit; foldKey: string | undefined }) {
   const timing = secsOfMedian(unit);
+  const preview = failurePreview(unit.title, unit.message);
   return (
     <div className="tug-report-panel-red" data-slot="tug-report-panel-red" data-status={unit.status}>
       <div className="tug-report-panel-red-head">
@@ -339,8 +346,34 @@ function RedCard({ unit }: { unit: RunUnit }) {
         <span className="tug-report-panel-spacer" />
         {timing !== null && <span className="tug-report-panel-red-secs">{timing}</span>}
       </div>
-      {unit.title !== undefined && <div className="tug-report-panel-red-title">{unit.title}</div>}
-      {unit.message !== undefined && <div className="tug-report-panel-red-message">{unit.message}</div>}
+      {(preview.title !== undefined || preview.message !== undefined) && (
+        <div className="tug-report-panel-red-preview" data-slot="tug-report-panel-red-preview">
+          {preview.title !== undefined && <div className="tug-report-panel-red-title">{preview.title}</div>}
+          {preview.message !== undefined && <div className="tug-report-panel-red-message">{preview.message}</div>}
+        </div>
+      )}
+      {preview.cut && (
+        <TugAccordion
+          type="multiple"
+          variant="plain"
+          density="compact"
+          className="tug-report-panel-red-full"
+          data-slot="tug-report-panel-red-full"
+          {...(foldKey !== undefined
+            ? { componentStatePreservationKey: `${foldKey}-red-full-${unit.index ?? 0}-${unit.name}` }
+            : {})}
+        >
+          <TugAccordionItem
+            value="full"
+            trigger={<FoldTitle label="Full output" count={`${preview.lines} ${unitWord("line", preview.lines)}`} />}
+          >
+            <div className="tug-report-panel-red-full-box">
+              {unit.title !== undefined && <div className="tug-report-panel-red-title">{unit.title}</div>}
+              {unit.message !== undefined && <div className="tug-report-panel-red-message">{unit.message}</div>}
+            </div>
+          </TugAccordionItem>
+        </TugAccordion>
+      )}
       {unit.history !== undefined && <div className="tug-report-panel-red-history">{unit.history}</div>}
     </div>
   );
@@ -359,7 +392,7 @@ function Reds({ reds, foldKey }: { reds: readonly RunUnit[]; foldKey: string | u
   const earlier = reds.slice(0, -1).reverse();
   return (
     <div className="tug-report-panel-reds" data-slot="tug-report-panel-reds">
-      <RedCard unit={latest} />
+      <RedCard unit={latest} foldKey={foldKey} />
       {earlier.length > 0 && (
         <TugAccordion
           type="multiple"
@@ -373,7 +406,7 @@ function Reds({ reds, foldKey }: { reds: readonly RunUnit[]; foldKey: string | u
             trigger={<FoldTitle label="Earlier failures" count={String(earlier.length)} />}
           >
             <div className="tug-report-panel-red-list">
-              {earlier.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
+              {earlier.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} foldKey={foldKey} />)}
             </div>
           </TugAccordionItem>
         </TugAccordion>

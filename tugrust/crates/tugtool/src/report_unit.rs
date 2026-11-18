@@ -174,6 +174,77 @@ impl UnitRow {
     }
 }
 
+/// The characters a row's title may carry: one line, since a title names the
+/// failure and the message holds the rest.
+pub const TITLE_CAP_CHARS: usize = 200;
+/// The bytes a row's message may carry. The panel shows a few lines of it and
+/// folds the rest; the whole text is the test record's to keep, not the
+/// report's, which is posted again with every row that lands after it.
+pub const MESSAGE_CAP_BYTES: usize = 16 * 1024;
+/// The characters of a check's command that title a surface when its child
+/// recorded no failure of its own.
+const COMMAND_TITLE_CHARS: usize = 80;
+
+/// `title` as a row carries it: its first line, within [`TITLE_CAP_CHARS`],
+/// ending in `…` when anything was dropped.
+pub fn clip_title(title: &str) -> String {
+    clip_line(title, TITLE_CAP_CHARS)
+}
+
+fn clip_line(text: &str, cap: usize) -> String {
+    let trimmed = text.trim();
+    let line = trimmed.lines().next().unwrap_or("").trim_end();
+    if line.chars().count() <= cap {
+        return if line.len() == trimmed.len() {
+            line.to_string()
+        } else {
+            format!("{line}…")
+        };
+    }
+    let head: String = line.chars().take(cap).collect();
+    format!("{}…", head.trim_end())
+}
+
+/// `message` as a row carries it: whole within [`MESSAGE_CAP_BYTES`], else
+/// its head on a character boundary and a last line saying how much went.
+pub fn clip_message(message: &str) -> String {
+    if message.len() <= MESSAGE_CAP_BYTES {
+        return message.to_string();
+    }
+    let mut end = MESSAGE_CAP_BYTES;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n… {} bytes dropped",
+        message[..end].trim_end(),
+        message.len() - end
+    )
+}
+
+/// The title a failed check's command makes: the command's leading words
+/// within [`COMMAND_TITLE_CHARS`], so a recipe handed two hundred paths is
+/// named by its recipe and not by its operands.
+fn command_title(command: &str) -> String {
+    let command = command.trim();
+    if command.chars().count() <= COMMAND_TITLE_CHARS {
+        return command.to_string();
+    }
+    let mut title = String::new();
+    for word in command.split_whitespace() {
+        if !title.is_empty()
+            && title.chars().count() + 1 + word.chars().count() > COMMAND_TITLE_CHARS
+        {
+            break;
+        }
+        if !title.is_empty() {
+            title.push(' ');
+        }
+        title.push_str(word);
+    }
+    clip_line(&format!("{title} …"), COMMAND_TITLE_CHARS + 2)
+}
+
 /// How an item landed, as `done` reports it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Landing {
@@ -235,11 +306,11 @@ impl UnitRun {
             row.passed = Some(passed);
             row.total = Some(total);
         }
-        if landing.title.is_some() {
-            row.title = landing.title;
+        if let Some(title) = landing.title {
+            row.title = Some(clip_title(&title));
         }
-        if landing.message.is_some() {
-            row.message = landing.message;
+        if let Some(message) = landing.message {
+            row.message = Some(clip_message(&message));
         }
         index
     }
@@ -255,11 +326,11 @@ impl UnitRun {
         if amendment.history.is_some() {
             row.history = amendment.history;
         }
-        if amendment.message.is_some() {
-            row.message = amendment.message;
+        if let Some(message) = amendment.message {
+            row.message = Some(clip_message(&message));
         }
-        if amendment.title.is_some() {
-            row.title = amendment.title;
+        if let Some(title) = amendment.title {
+            row.title = Some(clip_title(&title));
         }
         Some(index)
     }
@@ -615,7 +686,7 @@ impl SurfaceReport {
                 let (status, title, message) = match failed {
                     Some(c) => (
                         UnitStatus::Fail,
-                        Some(c.title.clone().unwrap_or_else(|| c.command.clone())),
+                        Some(c.title.clone().unwrap_or_else(|| command_title(&c.command))),
                         Some(
                             c.message
                                 .clone()
@@ -650,6 +721,49 @@ impl SurfaceReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_row_carries_a_one_line_title_and_a_bounded_message() {
+        assert_eq!(clip_title("drag > lands"), "drag > lands");
+        assert_eq!(clip_title("first\nsecond"), "first…");
+        let long = clip_title(&"é".repeat(TITLE_CAP_CHARS + 50));
+        assert_eq!(long.chars().count(), TITLE_CAP_CHARS + 1);
+        assert!(long.ends_with('…'));
+
+        assert_eq!(clip_message("exit 1"), "exit 1");
+        // A multi-byte character astride the cap is dropped whole.
+        let big = format!("{}é{}", "x".repeat(MESSAGE_CAP_BYTES - 1), "y".repeat(100));
+        let clipped = clip_message(&big);
+        assert_eq!(
+            clipped,
+            format!("{}\n… 102 bytes dropped", "x".repeat(MESSAGE_CAP_BYTES - 1))
+        );
+
+        let mut run = UnitRun::default();
+        run.start("a", None, 0);
+        let landing = Landing {
+            title: Some("t\nrest".into()),
+            message: Some("m".repeat(MESSAGE_CAP_BYTES * 2)),
+            ..Landing::default()
+        };
+        let index = run.done("a", UnitStatus::Fail, landing, 1000);
+        let row = &run.rows[&index];
+        assert_eq!(row.title.as_deref(), Some("t…"));
+        assert!(row.message.as_ref().unwrap().len() < MESSAGE_CAP_BYTES + 64);
+    }
+
+    #[test]
+    fn a_surface_with_no_recorded_failure_is_titled_by_its_commands_leading_words() {
+        assert_eq!(command_title("just lint-docs"), "just lint-docs");
+        let command = format!(
+            "just app-test-changed{}",
+            " 'tugdeck/src/some/file.ts'".repeat(200)
+        );
+        assert_eq!(
+            command_title(&command),
+            "just app-test-changed 'tugdeck/src/some/file.ts' 'tugdeck/src/some/file.ts' …"
+        );
+    }
 
     #[test]
     fn a_verify_draws_one_surface_row_per_surface_with_its_checks() {

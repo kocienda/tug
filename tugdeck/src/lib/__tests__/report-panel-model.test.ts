@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   CELLS_UP_TO,
+  FAILURE_PREVIEW_CHARS,
+  FAILURE_PREVIEW_LINES,
+  failurePreview,
   formatSecs,
   laneSlots,
   nextActFor,
@@ -280,5 +283,48 @@ describe("laneSlots", () => {
     expect(slots).toEqual(["c", "b"]);
     slots = laneSlots(slots, ["b", "d", "e"]);
     expect(slots).toEqual(["d", "b", "e"]);
+  });
+});
+
+describe("failurePreview", () => {
+  test("a failure inside the budget comes back whole and uncut", () => {
+    const p = failurePreview("drag > lands", "Expected 1\nReceived 0");
+    expect(p).toEqual({ title: "drag > lands", message: "Expected 1\nReceived 0", cut: false, lines: 3 });
+  });
+
+  test("a unit with neither title nor message has nothing to fold", () => {
+    expect(failurePreview(undefined, undefined)).toEqual({ cut: false, lines: 0 });
+  });
+
+  test("a long message is cut at the line budget the title left", () => {
+    const message = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+    const p = failurePreview("t", message);
+    expect(p.cut).toBe(true);
+    expect(p.lines).toBe(41);
+    expect(p.title).toBe("t");
+    const shown = (p.message ?? "").split("\n");
+    expect(shown.length).toBe(FAILURE_PREVIEW_LINES - 1);
+    expect(shown[shown.length - 1]).toBe(`line ${FAILURE_PREVIEW_LINES - 2}…`);
+  });
+
+  test("one enormous line is cut at the character budget", () => {
+    const p = failurePreview(undefined, "x".repeat(5000));
+    expect(p.cut).toBe(true);
+    expect(p.lines).toBe(1);
+    expect(p.message).toBe(`${"x".repeat(FAILURE_PREVIEW_CHARS)}…`);
+  });
+
+  test("a title that spends the budget holds the whole message back", () => {
+    const title = `just app-test-changed ${"'tugdeck/src/some/file.ts' ".repeat(200)}`;
+    const p = failurePreview(title, "exit 1");
+    expect(p.cut).toBe(true);
+    expect(p.message).toBeUndefined();
+    expect(p.title?.endsWith("…")).toBe(true);
+    expect((p.title ?? "").length).toBeLessThanOrEqual(FAILURE_PREVIEW_CHARS + 1);
+  });
+
+  test("the cut never splits a surrogate pair", () => {
+    const p = failurePreview(undefined, `${"x".repeat(FAILURE_PREVIEW_CHARS - 1)}😀 tail`);
+    expect(p.message).toBe(`${"x".repeat(FAILURE_PREVIEW_CHARS - 1)}…`);
   });
 });

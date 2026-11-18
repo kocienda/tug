@@ -613,6 +613,17 @@ reap_stragglers() {
     done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
 }
 
+# Each line of a tail of raw output, held to a width a failure can be read
+# at. A tail is kept to say where a file was when it stopped, and one
+# diagnostic note of several kilobytes on a line buries that under itself.
+# The notes themselves are in the report's Diagnostics section, whole.
+# awk counts bytes or characters by its locale, so a cut may land inside a
+# character; iconv drops the broken one, since an argument that is not UTF-8
+# is one `tugtool report unit` refuses.
+clip_lines() {
+    awk '{ if (length($0) > 240) print substr($0, 1, 240) " …"; else print }' | iconv -c -f UTF-8 -t UTF-8
+}
+
 # Run one file and write its outcome to $RUNDIR, so a concurrent job can
 # report without sharing a shell array with anybody.
 run_one_file() {
@@ -686,7 +697,7 @@ run_one_file() {
         extract_failures "$tmpout" "$f" > "$out.fails"
         failed="$(grep -c '^(fail) ' "$tmpout" 2>/dev/null || true)"
         passed=0; total=$(( ${failed:-0} + 1 ))
-        printf '%s' "(stopped at the ${BUDGET_SECS}s budget, unfinished)$US$(grep -v '^[[:space:]]*$' "$tmpout" | tail -n 12)$US$RS" >> "$out.fails"
+        printf '%s' "(stopped at the ${BUDGET_SECS}s budget, unfinished)$US$(grep -v '^[[:space:]]*$' "$tmpout" | tail -n 12 | clip_lines)$US$RS" >> "$out.fails"
     elif [ "$rc" -eq 0 ] && [ "$total" -eq 0 ]; then
         status=SKIP; passed=0; total=0
     elif [ "$rc" -eq 0 ]; then
@@ -703,7 +714,7 @@ run_one_file() {
         # hang detail off — carry the tail of its output instead, so an
         # early crash is not silently reduced to `[ERR]`.
         if [ ! -s "$out.fails" ]; then
-            printf '%s' "(the file failed before any test reported)$US$(tail -n 12 "$tmpout")$US$RS" > "$out.fails"
+            printf '%s' "(the file failed before any test reported)$US$(tail -n 12 "$tmpout" | clip_lines)$US$RS" > "$out.fails"
         fi
     fi
     printf '%s\n' "$status:$f:$passed:$total:$secs" > "$out.row"

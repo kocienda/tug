@@ -142,6 +142,80 @@ export function formatSecs(s: number): string {
   return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
 }
 
+/** The lines of a failure a red card shows before its fold. */
+export const FAILURE_PREVIEW_LINES = 8;
+/** The characters of a failure a red card shows before its fold. */
+export const FAILURE_PREVIEW_CHARS = 640;
+
+/** A failure's text as a red card first shows it. */
+export interface FailurePreview {
+  /** The title's share of the preview; absent when the unit has none. */
+  title?: string;
+  /** The message's share; absent when it has none or the title used the budget. */
+  message?: string;
+  /** Whether anything was held back, which is what earns the card its fold. */
+  cut: boolean;
+  /** The lines of the whole text, title and message together. */
+  lines: number;
+}
+
+function countLines(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
+}
+
+/** `text` within a budget of lines and characters, ending in `…` when cut. */
+function clipText(text: string, maxLines: number, maxChars: number): { text: string; cut: boolean } {
+  const all = text.split("\n");
+  let out = all.slice(0, maxLines).join("\n");
+  let cut = all.length > maxLines;
+  if (out.length > maxChars) {
+    out = out.slice(0, maxChars);
+    // Never leave half of a surrogate pair at the cut.
+    const last = out.charCodeAt(out.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) out = out.slice(0, -1);
+    cut = true;
+  }
+  return { text: cut ? `${out.trimEnd()}…` : out, cut };
+}
+
+/**
+ * The capped reading of a failure: title then message, under one budget of
+ * lines and characters, so a command line of two hundred paths and a dump of
+ * diagnostics are each a few lines until the reader asks for the rest. A
+ * failure inside the budget comes back whole and `cut` is false. Pure, so
+ * the cap is decided from the text and never from a measured box.
+ */
+export function failurePreview(
+  title: string | undefined,
+  message: string | undefined,
+  maxLines: number = FAILURE_PREVIEW_LINES,
+  maxChars: number = FAILURE_PREVIEW_CHARS,
+): FailurePreview {
+  const preview: FailurePreview = {
+    cut: false,
+    lines: countLines(title ?? "") + countLines(message ?? ""),
+  };
+  let lines = maxLines;
+  let chars = maxChars;
+  if (title !== undefined) {
+    const t = clipText(title, lines, chars);
+    preview.title = t.text;
+    preview.cut = t.cut;
+    lines -= countLines(t.text);
+    chars -= t.text.length;
+  }
+  if (message !== undefined) {
+    if (preview.cut || lines <= 0 || chars <= 0) {
+      preview.cut = preview.cut || message.length > 0;
+    } else {
+      const m = clipText(message, lines, chars);
+      preview.message = m.text;
+      preview.cut = m.cut;
+    }
+  }
+  return preview;
+}
+
 function resolveFinished(u: RunUnit, callFailed: boolean): RunUnit {
   if (u.status !== "running") return u;
   return { ...u, status: callFailed ? "fail" : "pass" };
