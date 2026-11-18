@@ -88,19 +88,49 @@ enum LaunchHandoff {
     /// before `host_pid` existed reads as `hostPid == 0`, which never hands
     /// off.
     static func entry(in registry: Data, instanceId: String) -> Entry? {
-        guard let json = try? JSONSerialization.jsonObject(with: registry) as? [String: Any],
-              let instances = json["instances"] as? [[String: Any]] else {
+        guard let document = try? JSONDecoder().decode(RegistryDocument.self, from: registry) else {
             return nil
         }
-        for item in instances where (item["instance_id"] as? String) == instanceId {
+        for item in document.instances where item.instanceId == instanceId {
             return Entry(
                 instanceId: instanceId,
-                bundlePath: item["bundle_path"] as? String ?? "",
-                hostPid: Int32(truncatingIfNeeded: item["host_pid"] as? Int ?? 0),
-                tugcastPort: item["tugcast_port"] as? Int ?? 0
+                bundlePath: item.bundlePath ?? "",
+                hostPid: Int32(truncatingIfNeeded: item.hostPid ?? 0),
+                tugcastPort: item.tugcastPort ?? 0
             )
         }
         return nil
+    }
+
+    /// The registry document, as much of it as `entry(in:instanceId:)`
+    /// reads.
+    private struct RegistryDocument: Decodable {
+        let instances: [RegistryItem]
+    }
+
+    /// One registry entry. Each field decodes on its own, so a field that
+    /// is absent or of another type reads as nil and never costs the entry
+    /// or the document.
+    private struct RegistryItem: Decodable {
+        let instanceId: String?
+        let bundlePath: String?
+        let hostPid: Int?
+        let tugcastPort: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case instanceId = "instance_id"
+            case bundlePath = "bundle_path"
+            case hostPid = "host_pid"
+            case tugcastPort = "tugcast_port"
+        }
+
+        init(from decoder: Decoder) throws {
+            let fields = try decoder.container(keyedBy: CodingKeys.self)
+            instanceId = try? fields.decode(String.self, forKey: .instanceId)
+            bundlePath = try? fields.decode(String.self, forKey: .bundlePath)
+            hostPid = try? fields.decode(Int.self, forKey: .hostPid)
+            tugcastPort = try? fields.decode(Int.self, forKey: .tugcastPort)
+        }
     }
 
     /// The registry tugcast writes, `$TMPDIR/tug-instances.json`. Mirrors
