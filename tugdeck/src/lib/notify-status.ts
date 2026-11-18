@@ -24,7 +24,7 @@
  * @module lib/notify-status
  */
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { hostAvailable, onHostMessage, postToHost } from "@/host/channel";
 import { notifyCheckToHost, notifyStatusToPage } from "@/host/declarations/services";
 
