@@ -753,7 +753,7 @@ final class TestHarnessConnection {
         })()
         """
         let completionState = EvalCompletionState()
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
             webView.evaluateJavaScript(script) { [weak self] result, error in
                 guard let self = self else { return }
                 guard completionState.markCompleted() else { return }
@@ -821,7 +821,7 @@ final class TestHarnessConnection {
     /// reads the file and is responsible for deleting it.
     private func dispatchScreenshot(id: Int, in webView: WKWebView) {
         let completionState = EvalCompletionState()
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
             let config = WKSnapshotConfiguration()
             config.afterScreenUpdates = true
             webView.takeSnapshot(with: config) { [weak self] image, error in
@@ -1829,7 +1829,7 @@ final class TestHarnessConnection {
 
     private func dispatchEvalJS(id: Int, script: String, timeoutMs: Int, in webView: WKWebView) {
         let completionState = EvalCompletionState()
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
             webView.evaluateJavaScript(script) { [weak self] result, error in
                 guard let self = self else { return }
                 guard completionState.markCompleted() else {
@@ -1891,7 +1891,7 @@ final class TestHarnessConnection {
                 )
                 return
             }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 webView.evaluateJavaScript(script) { [weak self] result, error in
                     guard let self = self else { return }
                     if pollState.isCompleted { return }
