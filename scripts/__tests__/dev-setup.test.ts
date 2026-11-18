@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -109,7 +109,7 @@ chmod +x "$dir/$name"`,
 bin="$TUG_DEV_SETUP_BREW_PREFIX/bin"
 case "$2" in
   oven-sh/bun/bun@*)
-    printf '#!/bin/bash\\nif [ "$1" = install ]; then mkdir -p "$3/node_modules"; else echo 1.3.9; fi\\n' > "$bin/bun"
+    printf '#!/bin/bash\\nif [ "$1" = install ]; then mkdir -p "$3/node_modules/.bin"; touch "$3/node_modules/.bin"; else echo 1.3.9; fi\\n' > "$bin/bun"
     chmod +x "$bin/bun" ;;
   python)
     printf '#!/bin/bash\\necho "Python 3.12.1"\\n' > "$bin/python3"
@@ -242,6 +242,28 @@ describe("dev-setup", () => {
     expect(r.status).toBe(0);
     expect(r.log).not.toContain("curl");
     expect(r.log).not.toContain("brew install");
+  });
+
+  // What `git pull` leaves behind when it moves a lockfile: packages that were
+  // installed before the lockfile's bytes arrived.
+  test("packages older than their lockfile are red, and one more run brings them level", () => {
+    run(["--yes"]);
+    const longAgo = new Date("2020-01-01T00:00:00Z");
+    utimesSync(join(root, "tugdeck/node_modules/.bin"), longAgo, longAgo);
+    writeFileSync(join(root, "tugdeck/bun.lock"), "{}\n");
+
+    const stale = run(["--check", "--tier", "run", "--quiet"], { path: freshPath() });
+    expect(stale.status).toBe(1);
+    expect(stale.err).toContain("1 problem blocks `just app-debug`");
+    expect(stale.err).toContain("✗ tugdeck packages are older than tugdeck/bun.lock");
+    expect(stale.err).toContain("bun install --cwd tugdeck --frozen-lockfile");
+
+    const r = run(["--yes"], { path: freshPath() });
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("✓ tugdeck packages are installed");
+    const level = run(["--check", "--tier", "run", "--quiet"], { path: freshPath() });
+    expect(level.status).toBe(0);
+    expect(level.err).toBe("");
   });
 
   test("does not run rustup's or Homebrew's installer unasked", () => {

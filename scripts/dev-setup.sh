@@ -390,12 +390,21 @@ check_just() { check_brew_tool just just "it runs every recipe"; }
 check_tmux() { check_brew_tool tmux tmux "the app refuses to start without it" -V; }
 check_shellcheck() { check_brew_tool shellcheck shellcheck "just lint runs it over the build scripts"; }
 
-# check_deps <dir> — the directory's packages are installed.
+# check_deps <dir> — the directory's packages are installed, and were
+# installed since its `bun.lock` last changed. Bun keeps no copy of the
+# lockfile under `node_modules`, but every `bun install` relinks
+# `node_modules/.bin`, a run that changes nothing included, so that
+# directory's mtime is when the packages were last brought level. A pull or
+# a branch switch that moves the lockfile leaves it newer, and the one
+# `bun install` line in the hint is the whole repair. A directory whose
+# packages ship no executables has no `.bin` and is checked for presence only.
 check_deps() {
-    if [ -d "$ROOT/$1/node_modules" ]; then
-        ok "$1 packages are installed"
-    else
+    if [ ! -d "$ROOT/$1/node_modules" ]; then
         bad "$1 packages are not installed" "bun install --cwd $1 --frozen-lockfile"
+    elif [ -d "$ROOT/$1/node_modules/.bin" ] && [ "$ROOT/$1/bun.lock" -nt "$ROOT/$1/node_modules/.bin" ]; then
+        bad "$1 packages are older than $1/bun.lock" "bun install --cwd $1 --frozen-lockfile"
+    else
+        ok "$1 packages are installed"
     fi
 }
 check_deps_tugcode() { check_deps tugcode; }

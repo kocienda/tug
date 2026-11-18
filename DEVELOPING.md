@@ -210,6 +210,7 @@ The debug bundle is the normal inner loop:
 - Edit the frontend under `tugdeck/`, and Vite reloads it in the running app.
 - Edit Rust, and run `just app-debug` again, or run `just dev-watch` in a terminal to have `tugcast` rebuilt on save.
 - Edit Swift, and run `just app-debug` again.
+- Pull, and run `just app-debug` again. Its first second checks the tools it needs and that each directory's packages were installed since its `bun.lock` last changed, so a pull that adds a tool or moves a lockfile stops there with the command that fixes it, and `just dev-setup` runs that command for you.
 
 ### Build identities: several Tugs at once
 
