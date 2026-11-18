@@ -201,6 +201,8 @@ export interface MenuItemSnapshot {
  */
 export interface WindowState {
   isKeyWindow: boolean;
+  /** Whether the harness window is in the Dock. */
+  isMiniaturized: boolean;
   appKeyWindow: boolean;
   isActive: boolean;
   firstResponder: string | null;

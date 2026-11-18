@@ -88,6 +88,18 @@ TugApplication.recordLaunchReadings()
 let app = NSApplication.shared
 #endif
 
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+// A copy that finds its instance already running, live at the registry's
+// bundle path, hands its launch to that copy and quits; it never constructs
+// `AppDelegate`, so it touches none of the running instance's state. Any
+// other launch proceeds, and a duplicate that slipped past this check still
+// meets tugcast's guard and the takeover alert.
+switch LaunchHandoff.decideForThisLaunch() {
+case .handOff(let entry):
+    let handoff = LaunchHandoffDelegate(entry: entry)
+    app.delegate = handoff
+    app.run()
+case .proceed:
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.run()
+}

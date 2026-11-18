@@ -400,6 +400,7 @@ impl FeedRouter {
             pending_evals: &self.pending_evals,
             pending_asks: &self.pending_asks,
             shared_agent: &self.shared_agent,
+            host_link: &self.host_link,
             page_lane: &self.page_lane,
             pages: &self.pages,
             default_to,

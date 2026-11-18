@@ -220,7 +220,13 @@ final class TestHarnessConnection {
     /// of performed, so a test learns which item a key equivalent reaches.
     /// Disarmed, with validation restored, at `close()`.
     /// Additive; major stays `3`.
-    static let surfaceVersion = "3.2.0"
+    ///
+    /// `3.3.0`: `windowState` adds `isMiniaturized`; adds
+    /// `miniaturizeWindow`, which sends the harness window to the Dock and
+    /// answers once it is there, and `awaitMiniaturized` (`value`,
+    /// `timeoutMs`), which answers the window's state once it equals `value`
+    /// or at the deadline. Additive; major stays `3`.
+    static let surfaceVersion = "3.3.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -321,6 +327,7 @@ final class TestHarnessConnection {
                 let responder = window?.firstResponder
                 let payload: [String: Any] = [
                     "isKeyWindow": window?.isKeyWindow ?? false,
+                    "isMiniaturized": window?.isMiniaturized ?? false,
                     "appKeyWindow": NSApp.keyWindow != nil,
                     "isActive": NSApp.isActive,
                     "firstResponder": responder.map { String(describing: type(of: $0)) } ?? NSNull(),
@@ -330,6 +337,21 @@ final class TestHarnessConnection {
                     "inputSourceNow": TugApplication.inputSourceNow() ?? NSNull(),
                 ]
                 self.respond(id: id, ok: true, payload: ["value": payload])
+            }
+        case "miniaturizeWindow":
+            // Send the window to the Dock, as the yellow button does, and
+            // answer once AppKit says it is there — the miniaturise animates.
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.webView?.window?.miniaturize(nil)
+                self.answerMiniaturized(id: id, value: true, deadline: Date().addingTimeInterval(5))
+            }
+        case "awaitMiniaturized":
+            let value = (obj["value"] as? Bool) ?? false
+            let timeoutMs = (obj["timeoutMs"] as? Int) ?? 5000
+            let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
+            DispatchQueue.main.async { [weak self] in
+                self?.answerMiniaturized(id: id, value: value, deadline: deadline)
             }
         case "sessionTapProbe":
             dispatchSessionTapProbe(id: id)
@@ -583,6 +605,20 @@ final class TestHarnessConnection {
     }
 
     // MARK: - Accessibility preflight ([D03])
+
+    /// Answer the window's `isMiniaturized` once it equals `value`, or at
+    /// `deadline` with whatever it is then. Main thread; re-checks every
+    /// 50 ms.
+    private func answerMiniaturized(id: Int, value: Bool, deadline: Date) {
+        let now = webView?.window?.isMiniaturized ?? false
+        if now == value || Date() >= deadline {
+            respond(id: id, ok: true, payload: ["value": now])
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.answerMiniaturized(id: id, value: value, deadline: deadline)
+        }
+    }
 
     /// Pid mode only: post a Shift down/up to the *session* event tap — the
     /// user's keyboard, as WindowServer routes it — and report whether this

@@ -76,6 +76,10 @@ class ProcessManager {
     /// Callback for ready message (UDS-based): passes auth URL and actual tugcast port
     var onReady: ((String, Int) -> Void)?
 
+    /// Called when tugcast relays a `raise` tell: a duplicate launch handed
+    /// off to this copy and asks it to restore its window and come forward.
+    var onRaise: (() -> Void)?
+
     /// Called on every respawn from `respawnFailureThreshold` onward, with
     /// the attempt count and the last exit code. The backoff is unchanged by
     /// it — this only reports.
@@ -654,6 +658,9 @@ class ProcessManager {
                 let errorMessage = msg.data["error"] as? String ?? "Unknown error"
                 TugLog.warn("tugcast", "dev_mode refused", [TugLog.field("error", errorMessage)])
             }
+        case "raise":
+            TugLog.info("tugcast", "raise")
+            onRaise?()
         case "shutdown":
             guard restartDecision == .pending else {
                 TugLog.info("quiesce", "ignoring duplicate shutdown signal (decision already set)")

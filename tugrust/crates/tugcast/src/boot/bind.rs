@@ -30,71 +30,48 @@ pub(crate) struct Bound {
     pub(crate) control_socket: Option<control::ControlSocket>,
 }
 
-/// Refuse a duplicate launch, bind the listener, resolve the bank path,
-/// check tmux and its session, create auth state, and connect the control
-/// socket. Every failure here is fatal and exits the process.
+/// Refuse a duplicate launch, bind the listener, write the bundle-path
+/// marker, resolve the bank path, check tmux and its session, create auth
+/// state, and connect the control socket. Every failure here is fatal and
+/// exits the process.
 pub(crate) async fn bind(cli: &cli::Cli) -> Bound {
-    // Duplicate-launch guard (per [D07]). When TUG_INSTANCE_ID is
-    // set and the registry already lists a live tugcast for this
-    // identity, bail out *before* binding any port. The walker in
-    // `allocate_port` would otherwise quietly step to the next free
-    // port and let a second tugcast cohabit, defeating the
-    // single-instance semantics LaunchServices provides for the GUI
-    // app. `--force` overrides the check — useful for harness rigs
-    // that kill the previous process first.
-    if !cli.force
-        && let Some(id) = tug_instance::instance_id()
-        && let Ok(Some(existing)) = tugcore::registry::find_by_id(&id)
-    {
-        eprintln!(
-            "tugcast: another '{id}' instance is already running (PID {})",
-            existing.pid
-        );
-        warn!(
-            instance_id = %id,
-            pid = existing.pid,
-            port = existing.tugcast_port,
-            "duplicate-launch refused; exiting EX_CANTCREAT (73)"
-        );
-        std::process::exit(73);
-    }
-
-    let requested_port = requested_port(cli.port, tug_instance::instance_id);
-
-    // --force: kill any existing process holding the TCP port before we try to bind.
-    if cli.force {
-        force_kill_port_holder(requested_port);
-    }
-
-    // Bind the listener *now*, before auth state is constructed, so
-    // we can use the actually-bound port (which may differ from the
-    // request when port==0) in the auth allowlist and ready message.
-    let (listener, actual_port) = match bind_listener(requested_port).await {
+    let claimed = claim_port(
+        cli.force,
+        tug_instance::instance_id(),
+        || requested_port(cli.port, tug_instance::instance_id),
+        |id| tugcore::registry::find_by_id(id).ok().flatten(),
+        mark_bundle_path,
+    )
+    .await;
+    let (listener, actual_port) = match claimed {
         Ok(bound) => bound,
-        Err(e) => {
-            // On EADDRINUSE, consult the registry: if a live tugcast
-            // for the same instance ID is already registered, this is
-            // a duplicate-launch collision (per [D07]). Exit code 73
-            // (`EX_CANTCREAT`) signals "structurally cannot create"
-            // — the Swift supervisor recognizes it as a duplicate and
-            // does not retry the spawn.
-            if e.kind() == std::io::ErrorKind::AddrInUse
-                && let Some(id) = tug_instance::instance_id()
-                && let Ok(Some(existing)) = tugcore::registry::find_by_id(&id)
-            {
-                eprintln!(
-                    "tugcast: another '{id}' instance is already running (PID {})",
-                    existing.pid
-                );
-                warn!(
-                    instance_id = %id,
-                    pid = existing.pid,
-                    port = existing.tugcast_port,
-                    "duplicate-launch collision; exiting EX_CANTCREAT (73)"
-                );
-                std::process::exit(73);
-            }
-            eprintln!("tugcast: error: failed to bind to 127.0.0.1:{requested_port}: {e}");
+        Err(Refusal::Duplicate {
+            id,
+            existing,
+            collision,
+        }) => {
+            // Exit code 73 (`EX_CANTCREAT`) signals "structurally cannot
+            // create" — the Swift supervisor recognizes it as a duplicate
+            // and does not retry the spawn.
+            eprintln!(
+                "tugcast: another '{id}' instance is already running (PID {})",
+                existing.pid
+            );
+            let what = if collision {
+                "duplicate-launch collision; exiting EX_CANTCREAT (73)"
+            } else {
+                "duplicate-launch refused; exiting EX_CANTCREAT (73)"
+            };
+            warn!(
+                instance_id = %id,
+                pid = existing.pid,
+                port = existing.tugcast_port,
+                "{what}"
+            );
+            std::process::exit(73);
+        }
+        Err(Refusal::Bind { port, error }) => {
+            eprintln!("tugcast: error: failed to bind to 127.0.0.1:{port}: {error}");
             std::process::exit(1);
         }
     };
@@ -171,6 +148,94 @@ pub(crate) async fn bind(cli: &cli::Cli) -> Bound {
         auth,
         auth_url,
         control_socket,
+    }
+}
+
+/// Why this launch may not claim its port.
+#[derive(Debug)]
+enum Refusal {
+    /// A live tugcast already holds this identity. `collision` when it was
+    /// found only after the bind failed, rather than by the pre-bind check.
+    Duplicate {
+        id: String,
+        existing: Box<tugcore::registry::Instance>,
+        collision: bool,
+    },
+    /// The bind failed for any other reason.
+    Bind { port: u16, error: std::io::Error },
+}
+
+/// Pass the duplicate-launch guard, bind the listener, and only then `mark`.
+///
+/// The guard (per [D07]) runs twice. Before binding: when the identity is
+/// set and `find` lists a live tugcast for it, refuse *before* binding any
+/// port, since the walker in `allocate_port` would otherwise step to the
+/// next free port and let a second tugcast cohabit. `force` skips this
+/// check, for harness rigs that kill the previous process first, and kills
+/// whatever holds the port instead. After a failed bind: on `EADDRINUSE`,
+/// `find` is consulted again, and a live entry makes it a collision.
+///
+/// `mark` writes the bundle-path marker and runs only once both have
+/// passed and the listener is bound. A refused launch shares its identity,
+/// and so its data dir, with the running instance, so writing earlier
+/// would replace that instance's marker with the refused bundle's path.
+///
+/// The listener is bound here, before auth state is constructed, so the
+/// auth allowlist and ready message name the port actually bound, which
+/// differs from the request only when that was 0.
+async fn claim_port(
+    force: bool,
+    instance_id: Option<String>,
+    requested_port: impl FnOnce() -> u16,
+    find: impl Fn(&str) -> Option<tugcore::registry::Instance>,
+    mark: impl FnOnce(),
+) -> Result<(TcpListener, u16), Refusal> {
+    if !force
+        && let Some(id) = &instance_id
+        && let Some(existing) = find(id)
+    {
+        return Err(Refusal::Duplicate {
+            id: id.clone(),
+            existing: Box::new(existing),
+            collision: false,
+        });
+    }
+
+    let port = requested_port();
+    if force {
+        force_kill_port_holder(port);
+    }
+
+    match bind_listener(port).await {
+        Ok(bound) => {
+            mark();
+            Ok(bound)
+        }
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::AddrInUse
+                && let Some(id) = instance_id
+                && let Some(existing) = find(&id)
+            {
+                return Err(Refusal::Duplicate {
+                    id,
+                    existing: Box::new(existing),
+                    collision: true,
+                });
+            }
+            Err(Refusal::Bind { port, error })
+        }
+    }
+}
+
+/// Write the per-instance bundle-path marker, which anchors `tugtool host
+/// instance prune`'s orphan detection. Swift passes `TUG_INSTANCE_ID` and
+/// `TUG_BUNDLE_PATH`; with either unset (standalone harness launches, dev
+/// iteration) nothing is written.
+fn mark_bundle_path() {
+    match tug_instance::write_bundle_path_marker() {
+        Ok(tug_instance::MarkerWrite::Written) => info!("bundle-path marker written"),
+        Ok(tug_instance::MarkerWrite::Unchanged | tug_instance::MarkerWrite::Skipped) => {}
+        Err(e) => warn!(error = %e, "failed to write bundle-path marker"),
     }
 }
 
@@ -370,6 +435,131 @@ mod tests {
             .await
             .expect_err("second bind must fail");
         assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
+    }
+
+    /// A registry entry for `id`, as a running instance would have written it.
+    fn running(id: &str) -> tugcore::registry::Instance {
+        tugcore::registry::Instance {
+            instance_id: id.to_string(),
+            profile: "release".to_string(),
+            branch: "main".to_string(),
+            bundle_id: "dev.tugapp.app".to_string(),
+            bundle_path: PathBuf::from("/Applications/Tug.app"),
+            pid: 4242,
+            host_pid: 4241,
+            tugcast_port: 55312,
+            vite_port: 0,
+            tmux_session: "tug".to_string(),
+            data_dir: PathBuf::from("/tmp/Tug/instances/release-main"),
+            started_at: "2026-11-17T00:00:00Z".to_string(),
+        }
+    }
+
+    /// A marker file holding the running instance's bundle path, and a
+    /// `mark` that overwrites it with this launch's path, as the real write
+    /// would.
+    fn marker() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("bundle-path");
+        std::fs::write(&path, "/Applications/Tug.app").expect("seed marker");
+        (dir, path)
+    }
+
+    fn mark_into(path: &std::path::Path) -> impl FnOnce() + '_ {
+        move || std::fs::write(path, "/Users/me/DerivedData/Tug.app").expect("write marker")
+    }
+
+    #[tokio::test]
+    async fn a_launch_refused_before_binding_leaves_the_marker_untouched() {
+        let (_dir, path) = marker();
+        let refused = claim_port(
+            false,
+            Some("release-main".to_string()),
+            || panic!("a refused launch must not pick a port"),
+            |id| Some(running(id)),
+            mark_into(&path),
+        )
+        .await;
+        assert!(matches!(
+            refused,
+            Err(Refusal::Duplicate {
+                collision: false,
+                ..
+            })
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "/Applications/Tug.app"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_launch_refused_as_a_collision_leaves_the_marker_untouched() {
+        let (_dir, path) = marker();
+        let (_held, port) = bind_listener(0).await.expect("bind port 0");
+        // Not registered at the pre-bind check, registered by the time the
+        // bind fails: the race the second check exists for.
+        let lookups = std::cell::Cell::new(0);
+        let refused = claim_port(
+            false,
+            Some("release-main".to_string()),
+            || port,
+            |id| {
+                lookups.set(lookups.get() + 1);
+                (lookups.get() > 1).then(|| running(id))
+            },
+            mark_into(&path),
+        )
+        .await;
+        assert!(matches!(
+            refused,
+            Err(Refusal::Duplicate {
+                collision: true,
+                ..
+            })
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "/Applications/Tug.app"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_accepted_launch_writes_the_marker_once_bound() {
+        let (_dir, path) = marker();
+        let (_listener, port) = claim_port(
+            false,
+            Some("release-main".to_string()),
+            || 0,
+            |_| None,
+            mark_into(&path),
+        )
+        .await
+        .expect("an unregistered identity is accepted");
+        assert_ne!(port, 0);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "/Users/me/DerivedData/Tug.app"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_held_port_without_a_registered_instance_is_a_bind_failure() {
+        let (_dir, path) = marker();
+        let (_held, port) = bind_listener(0).await.expect("bind port 0");
+        let refused = claim_port(
+            false,
+            Some("release-main".to_string()),
+            || port,
+            |_| None,
+            mark_into(&path),
+        )
+        .await;
+        assert!(matches!(refused, Err(Refusal::Bind { port: p, .. }) if p == port));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "/Applications/Tug.app"
+        );
     }
 
     #[test]

@@ -1,7 +1,6 @@
 //! `boot::early` — everything that runs before the server claims anything.
 
-use tracing::{info, warn};
-use tugcore::instance as tug_instance;
+use tracing::info;
 
 use crate::cli;
 use crate::feeds;
@@ -14,25 +13,16 @@ pub(crate) struct Early {
     pub(crate) cli: cli::Cli,
 }
 
-/// Install the panic hook, write the bundle-path marker, start the debris
-/// sweep, take our own process group, and parse the command line. A developer
-/// subcommand or a ledger seed runs here and exits; neither returns.
+/// Install the panic hook, start the debris sweep, take our own process
+/// group, and parse the command line. A developer subcommand or a ledger
+/// seed runs here and exits; neither returns. The bundle-path marker is not
+/// written here: it waits for `bind` to pass the duplicate-launch guard, so
+/// a refused launch never rewrites the running instance's marker.
 pub(crate) async fn early(log_guard: tuglog::LogGuard) -> Early {
     // Every panic from here on reaches `tugcast.log`, whichever thread or
     // task it happens on. Installed straight after tracing so nothing the
     // server does runs without it.
     crate::panic_hook::install();
-
-    // Write the per-instance bundle-path marker. When Swift launched
-    // us it passed TUG_INSTANCE_ID and TUG_BUNDLE_PATH; the marker
-    // anchors `tugtool host instance prune` orphan detection. When either
-    // var is unset (standalone harness launches, dev iteration) the
-    // helper no-ops.
-    match tug_instance::write_bundle_path_marker() {
-        Ok(tug_instance::MarkerWrite::Written) => info!("bundle-path marker written"),
-        Ok(tug_instance::MarkerWrite::Unchanged | tug_instance::MarkerWrite::Skipped) => {}
-        Err(e) => warn!(error = %e, "failed to write bundle-path marker"),
-    }
 
     // Reclaim leaked runtime debris machine-wide. A dev/release launch is
     // the only routine event on a machine where app-tests never run, so

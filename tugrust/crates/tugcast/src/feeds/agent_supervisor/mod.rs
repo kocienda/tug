@@ -2297,6 +2297,7 @@ impl AgentSupervisor {
             | A::EvalResponse
             | A::AskResponse
             | A::Relaunch
+            | A::Raise
             | A::CheckAuth
             | A::CheckHostTools
             | A::BodyDormant

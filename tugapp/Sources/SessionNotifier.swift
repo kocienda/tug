@@ -59,6 +59,10 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
     /// Sends a control action to the shell; installed by `AppDelegate`.
     var sendControl: ((String, ControlParams) -> Void)?
 
+    /// Restores the main window from the Dock, so a click reaches a window
+    /// the user can see rather than an app active with nothing on screen.
+    var restoreWindow: (() -> Void)?
+
     /// Whether a refusal has been logged, so a user who said no is not
     /// logged at on every event.
     private var loggedDenied = false
@@ -312,6 +316,7 @@ final class SessionNotifier: NSObject, UNUserNotificationCenterDelegate {
         let isTest = userInfo[Self.testKey] as? Bool == true
         DispatchQueue.main.async { [weak self] in
             if isTest { self?.testClicked = true }
+            self?.restoreWindow?()
             NSApp.activate()
             if let cardId, response.actionIdentifier == UNNotificationDefaultActionIdentifier {
                 self?.sendControl?("focus-session-card", ["cardId": cardId])

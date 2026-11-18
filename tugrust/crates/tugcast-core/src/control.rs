@@ -119,6 +119,7 @@ control_actions! {
 
     // `dispatch_action`: host, auth, and Claude Code installation.
     Relaunch => "relaunch",
+    Raise => "raise",
     CheckAuth => "check_auth",
     CheckHostTools => "check_host_tools",
     BodyDormant => "body_dormant",
@@ -144,6 +145,10 @@ pub const RUST_ONLY_ACTIONS: &[(ControlAction, &str)] = &[
     (
         ControlAction::FeedStats,
         "a router telemetry read for diagnostics; nothing in the deck asks for it",
+    ),
+    (
+        ControlAction::Raise,
+        "posted by a duplicate launch handing off to the running copy, and answered by the host, not a page; no deck control sends it",
     ),
     (
         ControlAction::SharedAgentClassify,

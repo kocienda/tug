@@ -69,6 +69,17 @@ impl HostLink {
         *self.writer.lock() = Some(writer);
     }
 
+    /// Ask the app to restore its main window from the Dock and bring it
+    /// forward. Fire-and-forget: with no host attached, or a full channel,
+    /// nothing is sent and the caller is told so.
+    pub(crate) fn raise(&self) -> bool {
+        let Some(writer) = self.writer.lock().clone() else {
+            return false;
+        };
+        let message = serde_json::json!({ "type": "raise" }).to_string();
+        writer.try_send(message).is_ok()
+    }
+
     /// Ask the app for its run-loop and dispatch state, waiting at most `wait`.
     pub(crate) async fn request_state(
         &self,
@@ -212,6 +223,7 @@ impl ControlReader {
                                             pending_evals: &pending_evals,
                                             pending_asks: &pending_asks,
                                             shared_agent: &shared_agent,
+                                            host_link: &host_link,
                                             page_lane: &page_lane,
                                             pages: &pages,
                                             // A host tell is for the deck

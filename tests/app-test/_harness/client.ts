@@ -1249,6 +1249,16 @@ export function windowState(caller: HarnessCaller): Promise<WindowState> {
   return caller.rpcCall<WindowState>("windowState", {});
 }
 
+/** Send the harness window to the Dock; true once it is there. */
+export function miniaturizeWindow(caller: HarnessCaller): Promise<boolean> {
+  return caller.rpcCall<boolean>("miniaturizeWindow", {});
+}
+
+/** The window's minimised state once it equals `value`, or at the deadline. */
+export function awaitMiniaturized(caller: HarnessCaller, value: boolean, timeoutMs: number): Promise<boolean> {
+  return caller.rpcCall<boolean>("awaitMiniaturized", { value, timeoutMs });
+}
+
 /**
  * Pid mode only: post a Shift to the session event tap and report whether
  * the app received it. See `SessionTapProbe`.

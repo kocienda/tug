@@ -235,6 +235,9 @@ pub struct ActionContext<'a> {
     pub pending_evals: &'a crate::router::PendingEvals,
     pub pending_asks: &'a crate::router::PendingAsks,
     pub shared_agent: &'a crate::shared_agent::SharedAgentHandle,
+    /// The host app's control-socket line, for the one tell the host
+    /// answers itself (`raise`).
+    pub host_link: &'a crate::control::HostLink,
     /// The page lane every tell the catch-all forwards is published on.
     pub page_lane: &'a broadcast::Sender<AddressedFrame>,
     /// The live pages a tell's target is resolved against.
@@ -261,6 +264,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
         pending_evals,
         pending_asks,
         shared_agent,
+        host_link,
         page_lane,
         pages,
         default_to: _,
@@ -278,6 +282,17 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                     crate::control::handle_relaunch(shared, cat, stx).await;
                 }
             });
+        }
+        Ok(A::Raise) => {
+            // The host's own tell: a duplicate launch handing off to this
+            // copy asks it to restore its window and come forward. It goes
+            // to the app over the control socket and never to a page, which
+            // could not un-minimise the window it lives in.
+            if host_link.raise() {
+                info!("dispatch_action: raise sent to the host");
+            } else {
+                info!("dispatch_action: raise with no host attached; dropped");
+            }
         }
         Ok(A::EvalResponse) => {
             // Complete a pending eval request
@@ -613,6 +628,7 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                host_link: &crate::control::HostLink::default(),
                 page_lane: &page_lane,
                 pages,
                 default_to,
@@ -650,6 +666,84 @@ mod tests {
             },
         );
         pages
+    }
+
+    /// `raise` is the host's: it goes to the app over the control socket as
+    /// a `raise` message, and no page hears it, though a shell is live.
+    #[tokio::test]
+    async fn a_raise_tell_goes_to_the_host_and_no_page() {
+        let pages = registry_with_shell_and_body();
+        let host_link = crate::control::HostLink::default();
+        let (host_tx, mut host_rx) = mpsc::channel::<String>(4);
+        host_link.attach(host_tx);
+        let (shutdown_tx, _) = mpsc::channel(1);
+        let (client_action_tx, mut control_rx) = broadcast::channel(16);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, mut lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let mut stream_outputs = HashMap::new();
+        stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+
+        dispatch_action(
+            "raise",
+            br#"{"action":"raise"}"#,
+            &ActionContext {
+                shutdown_tx: &shutdown_tx,
+                stream_outputs: &stream_outputs,
+                dev_state: &dev_state,
+                pending_evals: &pending_evals,
+                pending_asks: &pending_asks,
+                shared_agent: &None,
+                host_link: &host_link,
+                page_lane: &page_lane,
+                pages: &pages,
+                default_to: PageTarget::Shell,
+            },
+        )
+        .await;
+
+        let sent = host_rx.try_recv().expect("the host was sent a message");
+        let message: serde_json::Value = serde_json::from_str(&sent).unwrap();
+        assert_eq!(message, serde_json::json!({ "type": "raise" }));
+        assert!(lane_rx.try_recv().is_err(), "no page is told");
+        assert!(control_rx.try_recv().is_err(), "nothing goes out on CONTROL");
+    }
+
+    /// With no host attached the tell is dropped, and still reaches no page.
+    #[tokio::test]
+    async fn a_raise_tell_without_a_host_reaches_no_page() {
+        let pages = registry_with_shell_and_body();
+        let host_link = crate::control::HostLink::default();
+        assert!(!host_link.raise(), "nothing to send through");
+        let (shutdown_tx, _) = mpsc::channel(1);
+        let (client_action_tx, _control_rx) = broadcast::channel(16);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, mut lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let mut stream_outputs = HashMap::new();
+        stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
+        let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
+
+        dispatch_action(
+            "raise",
+            br#"{"action":"raise"}"#,
+            &ActionContext {
+                shutdown_tx: &shutdown_tx,
+                stream_outputs: &stream_outputs,
+                dev_state: &dev_state,
+                pending_evals: &pending_evals,
+                pending_asks: &pending_asks,
+                shared_agent: &None,
+                host_link: &host_link,
+                page_lane: &page_lane,
+                pages: &pages,
+                default_to: PageTarget::Shell,
+            },
+        )
+        .await;
+
+        assert!(lane_rx.try_recv().is_err(), "no page is told");
     }
 
     /// A host tell with no `to` reaches the shell alone, on the page lane,
@@ -739,6 +833,7 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                host_link: &crate::control::HostLink::default(),
                 page_lane: &page_lane,
                 pages: &pages,
                 default_to: PageTarget::Shell,
@@ -780,6 +875,7 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &agent,
+                host_link: &crate::control::HostLink::default(),
                 page_lane: &page_lane,
                 pages: &pages,
                 default_to: PageTarget::Shell,
@@ -828,6 +924,7 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                host_link: &crate::control::HostLink::default(),
                 page_lane: &page_lane,
                 pages: &pages,
                 default_to: PageTarget::Shell,
@@ -873,6 +970,7 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                host_link: &crate::control::HostLink::default(),
                 page_lane: &page_lane,
                 pages: &pages,
                 default_to: PageTarget::Shell,
@@ -903,6 +1001,7 @@ mod tests {
             pending_evals: &pending_evals,
             pending_asks: &pending_asks,
             shared_agent: &None,
+            host_link: &crate::control::HostLink::default(),
             page_lane: &page_lane,
             pages: &pages,
             default_to: PageTarget::Shell,

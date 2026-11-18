@@ -283,8 +283,12 @@ export type { KeyboardTypeName } from "./types";
  * `3.2.0`: adds `menuKeyProbe` — while armed, a menu item's action is
  * recorded instead of performed ({@link App.armMenuKeyProbe}). Additive;
  * major stays `3`.
+ *
+ * `3.3.0`: `windowState` adds `isMiniaturized`; adds `miniaturizeWindow` and
+ * `awaitMiniaturized` ({@link App.miniaturizeWindow}). Additive; major stays
+ * `3`.
  */
-export const EXPECTED_SURFACE_VERSION = "3.2.0" as const;
+export const EXPECTED_SURFACE_VERSION = "3.3.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -991,6 +995,24 @@ export class App {
    */
   windowState(): Promise<WindowState> {
     return client.windowState(this as HarnessCaller);
+  }
+
+  /**
+   * Send the harness window to the Dock, as its yellow button does, and
+   * answer whether it got there — the miniaturise animates, so the host
+   * answers once AppKit says the window is minimised, or after 5 s.
+   */
+  miniaturizeWindow(): Promise<boolean> {
+    return client.miniaturizeWindow(this as HarnessCaller);
+  }
+
+  /**
+   * The window's minimised state once it equals `value`, or whatever it is
+   * at `timeoutMs` — for a window something outside the test is expected
+   * to restore.
+   */
+  awaitMiniaturized(value: boolean, timeoutMs = 5000): Promise<boolean> {
+    return client.awaitMiniaturized(this as HarnessCaller, value, timeoutMs);
   }
 
   /**
@@ -1839,6 +1861,76 @@ export class App {
   async awaitExit(timeoutMs: number): Promise<boolean> {
     const timeout = new Promise<false>((resolve) => setTimeoutNative(() => resolve(false), timeoutMs));
     return Promise.race([this.subprocess.exited.then(() => true as const), timeout]);
+  }
+
+  /**
+   * Launch a second copy of this app's own bundle under this launch's
+   * identity and environment, plus `env`, opening `files` — the duplicate
+   * launch macOS makes when a copy of Tug is opened while one with the same
+   * identity runs. Nothing about this app's own launch changes.
+   *
+   * The copy goes through `open -n -W` like every harness launch, so the
+   * returned `exitedWithin` settles `true` when the copy has quit and
+   * `false` at the deadline; `exitCode` is the `open` wrapper's status once
+   * it has. The copy's stdout and stderr land in `logPath`, read back by
+   * `log()`.
+   *
+   * The copy is not tracked for teardown. One that quits on its own needs
+   * none; one that does not is a red, and the recipe's end-of-run sweep
+   * reclaims it.
+   */
+  launchSecondCopy(opts: { env?: Record<string, string>; files?: string[]; logPath: string }): {
+    exitedWithin: (timeoutMs: number) => Promise<boolean>;
+    exitCode: () => Promise<number>;
+    log: () => string;
+  } {
+    const spawnFn = (globalThis as unknown as {
+      Bun?: { spawn: (o: Record<string, unknown>) => { exited: Promise<number> } };
+    }).Bun?.spawn;
+    if (!spawnFn) throw new Error("launchSecondCopy: Bun.spawn is unavailable (run via `bun test`)");
+    const env: Record<string, string | undefined> = { ...this.resolvedLaunch.env, ...opts.env };
+    const envArgs: string[] = [];
+    for (const [k, v] of Object.entries(env)) {
+      if (typeof v === "string") envArgs.push("--env", `${k}=${v}`);
+    }
+    const bundlePath = this.resolvedLaunch.appPath.replace(/\/Contents\/MacOS\/[^/]+$/, "");
+    writeFileSync(opts.logPath, "");
+    const spawned = spawnFn({
+      cmd: [
+        "/usr/bin/open",
+        "-n",
+        "-W",
+        ...(env.TUGAPP_NATIVE_EVENT_MODE === "pid" ? ["-g"] : []),
+        "--stdout", opts.logPath,
+        "--stderr", opts.logPath,
+        ...envArgs,
+        "-a", bundlePath,
+        ...(opts.files ?? []),
+        "--args", "-ApplePersistenceIgnoreState", "YES",
+      ],
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        USER: process.env.USER ?? "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+    return {
+      exitedWithin: (timeoutMs) => {
+        const timeout = new Promise<false>((resolve) => setTimeoutNative(() => resolve(false), timeoutMs));
+        return Promise.race([spawned.exited.then(() => true as const), timeout]);
+      },
+      exitCode: () => spawned.exited,
+      log: () => {
+        try {
+          return readFileSync(opts.logPath, "utf8");
+        } catch {
+          return "";
+        }
+      },
+    };
   }
 
   /**

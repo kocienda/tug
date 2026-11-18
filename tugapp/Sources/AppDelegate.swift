@@ -247,6 +247,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         SessionNotifier.shared.sendControl = { [weak self] action, params in
             self?.sendControl(action, params: params)
         }
+        SessionNotifier.shared.restoreWindow = { [weak self] in
+            self?.restoreMainWindow()
+        }
         SessionNotifier.shared.install()
 
         // Cocoa's StandardKeyBinding.dict binds ⌃⌘↓ / ⌃⌘← / ⌃⌘→ to the
@@ -518,6 +521,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // Setup process manager
+        processManager.onRaise = { [weak self] in
+            DispatchQueue.main.async { self?.restoreMainWindow() }
+        }
         processManager.onReady = { [weak self] url, port in
             guard let self = self else { return }
             lap("onReady (tugcast port=\(port))", entering: .loadingInterface)
@@ -981,7 +987,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// yet (cold launch by opening a file), the paths queue and flush on
     /// `bridgeFrontendReady`.
     func application(_ application: NSApplication, open urls: [URL]) {
+        restoreMainWindow()
         openFilesFromOS(urls)
+    }
+
+    /// Bring the main window back from the Dock and forward, for an intent
+    /// that reached this copy from outside it: a file opened by the OS, a
+    /// notification click, or a duplicate launch's `raise`. Activating an
+    /// app leaves a minimised window minimised, so without this the app
+    /// comes forward with nothing on screen. Under the harness's pid mode the
+    /// app is never really activated, so the window is restored and ordered
+    /// front without taking the user's focus. Before the window exists (a
+    /// cold launch by opening a file) there is nothing to restore.
+    func restoreMainWindow() {
+        guard let window else { return }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        if Self.harnessPidMode {
+            window.orderFront(nil)
+        } else {
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Open each supported file in `urls` — the OS open path (Dock-icon drop,
