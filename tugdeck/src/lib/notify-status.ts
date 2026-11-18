@@ -100,21 +100,24 @@ export function notifyStatusLine(status: NotifyStatus): NotifyStatusLine {
   };
 }
 
-/** The line for the last test, or null when none has been sent. */
-export function notifyTestLine(test: NotifyTest): string | null {
+/**
+ * What to say about the last test, one sentence to a line, or null when none
+ * has been sent.
+ */
+export function notifyTestLines(test: NotifyTest): string[] | null {
   switch (test.kind) {
     case "idle":
       return null;
     case "sending":
-      return "A test notification is posted in 5 seconds. Switch to another app to see it.";
+      return ["A test notification will be posted in 5 seconds.", "Switch to another app to see it."];
     case "delivered":
-      return "macOS delivered the test notification.";
+      return ["macOS delivered the test notification."];
     case "dropped":
-      return "macOS accepted the test notification but did not deliver it.";
+      return ["macOS accepted the test notification but did not deliver it."];
     case "frontmost":
-      return "Tug was still the frontmost app, so no test was posted. Press Send Test, then switch to another app.";
+      return ["Tug was still the frontmost app, so no test was posted.", "Press Send Test, then switch to another app."];
     case "failed":
-      return `The test notification failed: ${test.error}`;
+      return [`The test notification failed: ${test.error}`];
   }
 }
 

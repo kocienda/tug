@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   notifyStatusLine,
   notifyStatusSnapshot,
-  notifyTestLine,
+  notifyTestLines,
   resetNotifyStatus,
   takeNotifyStatus,
   type NotifyStatus,
@@ -44,29 +44,36 @@ describe("notifyStatusLine", () => {
   });
 });
 
-describe("notifyTestLine", () => {
+describe("notifyTestLines", () => {
+  const text = (lines: string[] | null) => (lines ?? []).join(" ");
+
   it("says nothing before a test", () => {
-    expect(notifyTestLine({ kind: "idle" })).toBeNull();
+    expect(notifyTestLines({ kind: "idle" })).toBeNull();
   });
 
   it("tells the user to switch away while a test is pending", () => {
-    expect(notifyTestLine({ kind: "sending" })).toContain("Switch to another app");
+    expect(notifyTestLines({ kind: "sending" })).toEqual([
+      "A test notification will be posted in 5 seconds.",
+      "Switch to another app to see it.",
+    ]);
   });
 
   it("reports a delivery and guesses at nothing else", () => {
-    expect(notifyTestLine({ kind: "delivered" })).toBe("macOS delivered the test notification.");
+    expect(notifyTestLines({ kind: "delivered" })).toEqual(["macOS delivered the test notification."]);
   });
 
   it("says a test was not posted while Tug stayed frontmost", () => {
-    expect(notifyTestLine({ kind: "frontmost" })).toContain("no test was posted");
+    const lines = notifyTestLines({ kind: "frontmost" });
+    expect(lines).toHaveLength(2);
+    expect(text(lines)).toContain("no test was posted");
   });
 
   it("reports a post macOS dropped", () => {
-    expect(notifyTestLine({ kind: "dropped" })).toContain("did not deliver");
+    expect(text(notifyTestLines({ kind: "dropped" }))).toContain("did not deliver");
   });
 
   it("carries the host's error", () => {
-    expect(notifyTestLine({ kind: "failed", error: "not allowed" })).toContain("not allowed");
+    expect(text(notifyTestLines({ kind: "failed", error: "not allowed" }))).toContain("not allowed");
   });
 });
 

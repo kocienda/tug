@@ -72,6 +72,13 @@
   margin-top: var(--tug-space-lg);
 }
 
+/* How the last test went: one sentence to a line, as the closing hints are. */
+.settings-general-notify-test {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
 /* The group's closing hints: one sentence to a line, so each fact breaks
    where it ends rather than wherever the measure runs out. They stand off
    from the last row by what separates the rows, so they read as a note on

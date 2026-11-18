@@ -76,7 +76,7 @@ import { useHostFacts } from "@/lib/host-facts-store";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import { probeDirExistence } from "@/lib/dir-existence";
 import { getAppLifecycle } from "@/lib/app-lifecycle";
-import { askNotify, notifyStatusLine, notifyTestLine, useNotifyStatus } from "@/lib/notify-status";
+import { askNotify, notifyStatusLine, notifyTestLines, useNotifyStatus } from "@/lib/notify-status";
 import {
   DEFAULT_PROJECT_PATH_DOMAIN,
   DEFAULT_PROJECT_PATH_KEY,
@@ -271,7 +271,7 @@ export function SettingsGeneralBody() {
   const notifyOn = notifyComplete.notification || notifyInput.notification;
   const notifyLine =
     notifyOn && notifyStatus.status !== null ? notifyStatusLine(notifyStatus.status) : null;
-  const notifyTest = notifyOn ? notifyTestLine(notifyStatus.test) : null;
+  const notifyTest = notifyOn ? notifyTestLines(notifyStatus.test) : null;
 
   // Turning a switch on is the moment to ask macOS, while the user is here.
   const setNotifyBanner = (event: SessionNotifyEvent, on: boolean) => {
@@ -463,14 +463,13 @@ export function SettingsGeneralBody() {
                 {notifyLine.actionLabel}
               </TugPushButton>
               {notifyTest !== null ? (
-                <TugLabel
-                  size="sm"
-                  emphasis="calm"
-                  className="settings-general-hint"
-                  data-testid="settings-notify-test"
-                >
-                  {notifyTest}
-                </TugLabel>
+                <div className="settings-general-notify-test" data-testid="settings-notify-test">
+                  {notifyTest.map((sentence) => (
+                    <TugLabel key={sentence} size="sm" emphasis="calm" className="settings-general-hint">
+                      {sentence}
+                    </TugLabel>
+                  ))}
+                </div>
               ) : null}
             </div>
           ) : null}
