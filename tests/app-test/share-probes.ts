@@ -59,7 +59,8 @@ export const UNMARKED_WORD = "bananas";
 export interface SeedTurn {
   prompt: string;
   reply: string;
-  tool?: { name: string; input: Record<string, unknown> };
+  /** `output` is the tool result's text; a file's one line unless named. */
+  tool?: { name: string; input: Record<string, unknown>; output?: string };
 }
 
 const TURNS: SeedTurn[] = [
@@ -125,7 +126,12 @@ export async function openSeededCard(
         input: turn.tool.input,
         seq: 1,
       });
-      await frame({ type: "tool_result", tool_use_id: useId, is_error: false, output: "export {};" });
+      await frame({
+        type: "tool_result",
+        tool_use_id: useId,
+        is_error: false,
+        output: turn.tool.output ?? "export {};",
+      });
     }
     await frame({ type: "turn_complete", seq: 0, msg_id: msg, result: "success" });
   }

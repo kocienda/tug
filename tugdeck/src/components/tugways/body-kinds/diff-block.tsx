@@ -125,6 +125,7 @@ import {
 } from "@/lib/diff/syntax-tokens-from-lezer";
 import { fileExtension } from "@/lib/language-registry";
 import { loadTugdiffWasm } from "@/lib/lazy/load-tugdiff-wasm";
+import { trackEnhancement } from "@/lib/markdown/pending-enhancements";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -661,12 +662,24 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
   // asynchronously — hold its hunks in state and render them once
   // available.
   const [asyncHunks, setAsyncHunks] = React.useState<DiffHunk[] | null>(null);
+  // The engine loads lazily, so the diff is a pass a page about to be
+  // photographed has to wait for. It registers with `pending-enhancements`
+  // and settles when the hunks have committed, not when the engine answered:
+  // the state it sets draws on a later task.
+  const hunksCommittedRef = React.useRef<(() => void) | null>(null);
 
   React.useEffect(() => {
     if (data === undefined) return;
     if (data.source !== "two-text") return;
 
     let cancelled = false;
+    let committed: () => void = () => {};
+    void trackEnhancement(
+      new Promise<void>((resolve) => {
+        committed = resolve;
+      }),
+    );
+    hunksCommittedRef.current = committed;
     loadTugdiffWasm()
       .then((engine) => {
         if (cancelled) return;
@@ -683,8 +696,13 @@ export const DiffBlock: React.FC<DiffBlockProps> = ({
 
     return () => {
       cancelled = true;
+      committed();
     };
   }, [data]);
+
+  React.useLayoutEffect(() => {
+    if (asyncHunks !== null) hunksCommittedRef.current?.();
+  }, [asyncHunks]);
 
   const hunks: DiffHunk[] | null =
     syncHunks !== null ? syncHunks : asyncHunks;

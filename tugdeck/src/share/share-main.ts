@@ -31,9 +31,11 @@
  * **What the cells defer past their first commit.** A `TugMarkdownBlock`
  * renders its seeded text synchronously in its layout effect — the G1 pass,
  * which runs inside the mount's commit — and coalesces only *later* text
- * changes through a frame, which a seeded store never makes. Two passes do
+ * changes through a frame, which a seeded store never makes. Four passes do
  * outlive the commit: a fenced block's syntax colouring, whose grammar chunk
- * loads lazily, and math, whose KaTeX engine does. Both register their
+ * loads lazily, math, whose KaTeX engine does, a chart or diagram, in prose
+ * or under a tool block, whose graphics engine does, and a diff computed
+ * from two texts, whose diff engine does. Each registers its
  * promise with `lib/markdown/pending-enhancements`, and readiness awaits
  * `enhancementsSettled()` — their own completion — then each font face the
  * laid-out page asked for, loaded by name, under one horizon that bounds

@@ -27,7 +27,6 @@ import {
   renderChartInto,
 } from "@/lib/chart/render-chart";
 import type { ChartLayers } from "@/lib/lazy/load-tuggraphics";
-import { trackEnhancement } from "./pending-enhancements";
 
 /** Selector for pending chart placeholders. */
 const PENDING_SELECTOR = `.${CHART_CLASS}[${CHART_PENDING_ATTR}="true"]`;
@@ -60,14 +59,14 @@ export function placeholderLayers(el: Element): ChartLayers {
  * `unanswerable`. The pass files what it consulted, so a verdict that lands
  * later re-marks the block it sits in.
  *
- * The pass is registered with `pending-enhancements`: the engine loads
- * lazily, so a page about to be photographed waits for its figures as it
- * waits for coloured code and math.
+ * Each render registers itself with `pending-enhancements` inside
+ * `renderChartInto`: the engine loads lazily, so a page about to be
+ * photographed waits for its figures as it waits for coloured code and math.
  */
 export function enhanceChart(container: HTMLElement, annotation?: AnnotationContext): Promise<void> {
   const pending = Array.from(container.querySelectorAll<HTMLElement>(PENDING_SELECTOR));
   if (pending.length === 0) return Promise.resolve();
-  return trackEnhancement(Promise.all(
+  return Promise.all(
     pending.map((el) => renderChartInto(el, el.textContent ?? "", { layers: placeholderLayers(el), annotation })),
-  ).then(() => undefined));
+  ).then(() => undefined);
 }

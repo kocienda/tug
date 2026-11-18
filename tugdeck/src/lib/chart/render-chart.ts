@@ -108,6 +108,7 @@ import {
 } from "@/lib/chart/chart-table-refs";
 import { isDiagramSource, keyedRows } from "@/lib/chart/keyed-table";
 import { textHash } from "@/lib/ingest/text-hash";
+import { trackEnhancement } from "@/lib/markdown/pending-enhancements";
 import {
   getTuggraphicsSync,
   loadTuggraphics,
@@ -717,8 +718,18 @@ function hasTable(table: ChartTable): boolean {
  * as the reader scrolls never shows its pending source, and a Find
  * comparison run from the same commit reads the table. The two waits are
  * taken only when they would actually wait.
+ *
+ * Every call is registered with `pending-enhancements`, whichever door made
+ * it: a fence in prose, a `ChartBlock` under a Bash block, a sheet. The
+ * engine loads lazily, so a page about to be photographed waits for its
+ * figures through that one registration, and no caller can leave one out.
  */
-export async function renderChartInto(el: HTMLElement, source: string, options: RenderChartOptions = {}): Promise<void> {
+export function renderChartInto(el: HTMLElement, source: string, options: RenderChartOptions = {}): Promise<void> {
+  return trackEnhancement(drawChartInto(el, source, options));
+}
+
+/** The render itself; synchronous up to its first wait, as an `async` body is. */
+async function drawChartInto(el: HTMLElement, source: string, options: RenderChartOptions): Promise<void> {
   const layers: ChartLayers = options.layers ?? "chart";
   const thumbnail = options.thumbnail ?? false;
   const picture = !thumbnail && (options.picture ?? false);
