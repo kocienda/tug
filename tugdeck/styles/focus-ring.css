@@ -117,12 +117,10 @@
   --tugx-drop-ring-width: 2px;
 }
 
-/* Light and Dusk themes carry the drop ring a pixel thicker so the accent
-   reads with the same pop on their pale and mid-tone fields — a Dusk Accent
-   holds only 3:1 against its ground. `data-theme-mode` lives on <html>, the
+/* Light themes carry the drop ring a pixel thicker so the accent reads with
+   the same pop on their pale fields. `data-theme-mode` lives on <html>, the
    same element as :root, so this override composes by specificity. */
-:root[data-theme-mode="light"],
-:root[data-theme-mode="dusk"] {
+:root[data-theme-mode="light"] {
   --tugx-drop-ring-width: 3px;
 }
 

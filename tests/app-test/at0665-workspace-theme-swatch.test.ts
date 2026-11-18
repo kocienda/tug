@@ -281,11 +281,6 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
             "barque",
             "galleon",
             "collier",
-            "lugger",
-            "packet",
-            "tender",
-            "cutter",
-            "trawler",
             "sloop",
             "ketch",
             "skiff",
@@ -309,8 +304,6 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           expect(sequence).toEqual([
             "# Dark",
             ...THEME_CATALOG.filter((e) => e.mode === "dark").map((e) => e.name),
-            "# Dusk",
-            ...THEME_CATALOG.filter((e) => e.mode === "dusk").map((e) => e.name),
             "# Light",
             ...THEME_CATALOG.filter((e) => e.mode === "light").map((e) => e.name),
           ]);

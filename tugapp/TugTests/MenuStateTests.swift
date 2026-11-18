@@ -56,15 +56,6 @@ final class MenuStateTests: XCTestCase {
         (try? decode(type, object)) == nil
     }
 
-    func testAThemeFileDeclaresItsFamily() {
-        let dusk = "/* Cutter — Dusk theme.\n   a long header. */\nbody {\n  --tugx-host-canvas-color: #525f64;\n  --tugx-theme-appearance: dusk;\n}"
-        check("a Dusk file is dusk, past its header comment", themeAppearance(in: dusk) == "dusk")
-        check("a light file is light", themeAppearance(in: "body {\n  --tugx-theme-appearance: light;\n}") == "light")
-        check("a dark file is dark", themeAppearance(in: "body { --tugx-theme-appearance: dark; }") == "dark")
-        check("a file with no token is dark", themeAppearance(in: "/* Sloop — light theme. */\nbody {}") == "dark")
-        check("an unknown family is dark", themeAppearance(in: "--tugx-theme-appearance: twilight;") == "dark")
-    }
-
     func testTheEmptyStateIsColdStart() {
         let state = MenuState.empty
         check("no panes", state.panes.isEmpty)

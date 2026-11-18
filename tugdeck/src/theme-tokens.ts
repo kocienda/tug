@@ -13,7 +13,6 @@
  */
 
 import { createSubscribable } from "@/lib/subscribable";
-import { themeModeOf } from "./theme-catalog";
 
 // Sentinel token — used to detect when CSS has been applied after a theme change.
 // Must differ between themes. --tugx-host-canvas-color is designed for this.
@@ -34,15 +33,15 @@ export function subscribeThemeChange(callback: () => void): () => void {
 }
 
 /**
- * Reflect the active theme's appearance — `dark`, `dusk` or `light` — onto
+ * Reflect the active theme's light/dark appearance onto
  * `<html data-theme-mode>` so component CSS can branch on it (e.g. thicker
  * accent rings on the pale light-theme fields). The value comes from each
  * theme's own `--tugx-theme-appearance` metadata token, read from applied CSS
  * — same mechanism as `--tugx-host-canvas-color`. Defaults to `dark` when the
- * token is absent or unrecognised (the base theme is dark).
+ * token is absent (the base theme is dark).
  */
 function reflectThemeAppearance(): void {
-  const mode = themeModeOf(getTokenValue("--tugx-theme-appearance"));
+  const mode = getTokenValue("--tugx-theme-appearance") === "light" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme-mode", mode);
 }
 

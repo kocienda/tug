@@ -36,9 +36,6 @@ const TUGWAYS_DIR = path.join(TUGDECK, "src/components/tugways");
 
 const LIGHT_THEMES = ["sloop", "ketch", "skiff", "kayak", "pinnace"] as const;
 const DARK_THEMES = ["ironclad", "caravel", "barque", "galleon", "collier"] as const;
-/** Dusk draws the selected-row rule but no lid rule: its lid's own step and chroma say focus. */
-const DUSK_THEMES = ["lugger", "packet", "tender", "cutter", "trawler"] as const;
-const SELECTION_KNOBS = ["--tugx-chrome-selection-rule-width", "--tugx-chrome-selection-rule-color"] as const;
 
 /** Each knob and the default its consumers must fall back to. */
 const KNOBS = [
@@ -73,21 +70,6 @@ describe("the two Key rules' knobs", () => {
           declares(css, name),
           `${theme} does not declare ${name} — the rule it feeds would fall back to painting nothing`,
         ).toBe(true);
-      }
-    });
-  }
-
-  for (const theme of DUSK_THEMES) {
-    it(`${theme} declares the selection rule's knobs and not the lid rule's`, () => {
-      const css = readTheme(theme);
-      for (const { name } of KNOBS) {
-        const wanted = (SELECTION_KNOBS as readonly string[]).includes(name);
-        expect(
-          declares(css, name),
-          wanted
-            ? `${theme} does not declare ${name} — the selected-row rule would fall back to painting nothing`
-            : `${theme} declares ${name} — a Dusk lid says focus with its own lightness step and chroma, not a Key rule`,
-        ).toBe(wanted);
       }
     });
   }

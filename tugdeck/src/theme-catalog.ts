@@ -16,30 +16,7 @@
 
 import { BASE_THEME_NAME } from "./theme-constants";
 
-/**
- * A theme's family. Dark themes are ships, Dusk themes working craft on a
- * mid-tone ground light enough for dark ink, light themes boats.
- */
-export type ThemeMode = "dark" | "dusk" | "light";
-
-/** The families in the order the catalog, the menu and `next-theme` take them. */
-export const THEME_MODES: readonly ThemeMode[] = ["dark", "dusk", "light"];
-
-/** Each family's name as a menu heading shows it. */
-export const THEME_MODE_LABEL: Readonly<Record<ThemeMode, string>> = {
-  dark: "Dark",
-  dusk: "Dusk",
-  light: "Light",
-};
-
-/**
- * The mode a stylesheet's `--tugx-theme-appearance` names. Anything
- * unrecognised, an absent token included, is `dark`, the base theme's mode.
- */
-export function themeModeOf(appearance: string): ThemeMode {
-  const value = appearance.trim();
-  return value === "light" || value === "dusk" ? value : "dark";
-}
+export type ThemeMode = "dark" | "light";
 
 export interface ThemeCatalogEntry {
   readonly name: string;
@@ -57,18 +34,13 @@ export interface ThemeCatalogEntry {
   readonly keyColor: string;
 }
 
-/** Every shipped theme: the dark ships, the Dusk craft, then the light boats. */
+/** Every shipped theme: the dark ships, then the light boats. */
 export const THEME_CATALOG: readonly ThemeCatalogEntry[] = [
   { name: BASE_THEME_NAME, label: "Ironclad", mode: "dark", canvasColor: "#16181d", keyColor: "oklch(0.65 0.2 250)" },
   { name: "caravel", label: "Caravel", mode: "dark", canvasColor: "#111816", keyColor: "oklch(0.65 0.1881 165)" },
   { name: "barque", label: "Barque", mode: "dark", canvasColor: "#18181d", keyColor: "oklch(0.65 0.2 285)" },
   { name: "galleon", label: "Galleon", mode: "dark", canvasColor: "#1b1813", keyColor: "oklch(0.65 0.1584 75)" },
   { name: "collier", label: "Collier", mode: "dark", canvasColor: "#131a1b", keyColor: "oklch(0.65 0.1487 200)" },
-  { name: "lugger", label: "Lugger", mode: "dusk", canvasColor: "#5c5c5c", keyColor: "oklch(0.4 0.122 240)" },
-  { name: "packet", label: "Packet", mode: "dusk", canvasColor: "#635b51", keyColor: "oklch(0.4 0.15 300)" },
-  { name: "tender", label: "Tender", mode: "dusk", canvasColor: "#565f56", keyColor: "oklch(0.4 0.0933 207.5)" },
-  { name: "cutter", label: "Cutter", mode: "dusk", canvasColor: "#525f64", keyColor: "oklch(0.4 0.1492 250)" },
-  { name: "trawler", label: "Trawler", mode: "dusk", canvasColor: "#5f5a64", keyColor: "oklch(0.4 0.15 340)" },
   { name: "sloop", label: "Sloop", mode: "light", canvasColor: "#3d4446", keyColor: "oklch(0.65 0.16 230)" },
   { name: "ketch", label: "Ketch", mode: "light", canvasColor: "#404248", keyColor: "oklch(0.65 0.16 277.5)" },
   { name: "skiff", label: "Skiff", mode: "light", canvasColor: "#414743", keyColor: "oklch(0.65 0.16 165)" },

@@ -70,12 +70,7 @@ import type {
   TugListViewCellProps,
   TugListViewCellRenderer,
 } from "@/components/tugways/tug-list-view";
-import {
-  THEME_CATALOG,
-  THEME_MODE_LABEL,
-  THEME_MODES,
-  themeCatalogEntry,
-} from "@/theme-catalog";
+import { THEME_CATALOG, themeCatalogEntry } from "@/theme-catalog";
 
 import type { CardsDataSource } from "./cards-data-source";
 import { CARDS_RENAME_FOCUS_ORDER, useCellContext } from "./cards-cell-context";
@@ -297,11 +292,11 @@ function ThemeSwatch({ theme }: { theme: string }): React.ReactElement {
 }
 
 /**
- * The themes a workspace can wear, as the swatch's menu: one group per mode
- * in the catalog's order — dark, Dusk, light — split by rules, each under its
- * heading, with the workspace's current theme marked. A mode the catalog holds
- * no theme of draws no group. The headings are what keep two chips of one hue
- * apart: no two themes in a mode share a Key hue, but themes of two modes can.
+ * The themes a workspace can wear, as the swatch's menu: the dark ones, a
+ * rule, the light ones — View ▸ Theme's own grouping — each group under its
+ * heading, with the workspace's current theme marked. The headings are what
+ * keep two chips of one hue apart: no two themes in a mode share a Key hue,
+ * but a dark and a light one can.
  */
 function themeMenuItems(current: string): TugPopupMenuEntry[] {
   const item = (entry: (typeof THEME_CATALOG)[number]): TugPopupMenuEntry => ({
@@ -310,15 +305,13 @@ function themeMenuItems(current: string): TugPopupMenuEntry[] {
     icon: <ThemeSwatch theme={entry.name} />,
     selected: entry.name === current,
   });
-  const groups = THEME_MODES.map((mode) => ({
-    mode,
-    entries: THEME_CATALOG.filter((entry) => entry.mode === mode),
-  })).filter((group) => group.entries.length > 0);
-  return groups.flatMap((group, index): TugPopupMenuEntry[] => [
-    ...(index > 0 ? [{ type: "separator" } as const] : []),
-    { type: "label", label: THEME_MODE_LABEL[group.mode] },
-    ...group.entries.map(item),
-  ]);
+  return [
+    { type: "label", label: "Dark" },
+    ...THEME_CATALOG.filter((entry) => entry.mode === "dark").map(item),
+    { type: "separator" },
+    { type: "label", label: "Light" },
+    ...THEME_CATALOG.filter((entry) => entry.mode === "light").map(item),
+  ];
 }
 
 /** A WORKSPACE header — the outermost row ([P09], Spec S04, Spec S05). */

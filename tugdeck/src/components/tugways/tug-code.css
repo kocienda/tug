@@ -87,27 +87,6 @@ body {
   --tug-syntax-attribute: --tug-color(cyan, l: 440, c: 400);
 }
 
-/* Dusk-appearance syntax palette. A Dusk theme's code sits on a mid-tone
-   ground (l: 775) or its lighter well (l: 845), not on paper, so the light
-   rung above falls under 4.5:1 there. Same hues and chroma, each at the
-   lightest l that holds 4.5:1 against all five Dusk grounds — which leaves
-   about 5.8:1 on the well. */
-[data-theme-mode="dusk"] body {
-  --tug-syntax-keyword: --tug-color(violet, l: 410, c: 340);
-  --tug-syntax-string: --tug-color(amber, l: 400, c: 360);
-  --tug-syntax-string-expression: --tug-color(orange, l: 400, c: 360);
-  --tug-syntax-number: --tug-color(gold, l: 400, c: 340);
-  --tug-syntax-function: --tug-color(cobalt, l: 390, c: 360);
-  --tug-syntax-type: --tug-color(plum, l: 420, c: 340);
-  --tug-syntax-property: --tug-color(cyan, l: 380, c: 400);
-  --tug-syntax-variable: --tug-color(cyan, l: 380, c: 400);
-  --tug-syntax-constant: --tug-color(gold, l: 400, c: 340);
-  --tug-syntax-decorator: --tug-color(purple, l: 410, c: 340);
-  --tug-syntax-hard-break-bg: --tug-color(purple, l: 410, c: 340, a: 180);
-  --tug-syntax-tag: --tug-color(pink, l: 420, c: 360);
-  --tug-syntax-attribute: --tug-color(cyan, l: 380, c: 400);
-}
-
 body {
   /* --- Terminal --- */
   --tugx-terminal-bg: var(--tug7-surface-global-primary-normal-sunken-rest);

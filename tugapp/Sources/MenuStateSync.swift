@@ -112,14 +112,12 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
             menuState.activeTheme.isEmpty ? baseThemeName : menuState.activeTheme
 
         // Read theme names directly from shipped CSS files on disk, plus each
-        // theme's mode from its own `--tugx-theme-appearance` token — `dark`,
-        // `dusk` or `light`, the same token the frontend reflects onto
-        // `data-theme-mode`. sourceTreePath is the tugtool repo root; themes
-        // are at tugdeck/styles/themes/*.css, base is "ironclad". Reading the
-        // token lets the menu group them without a separate manifest.
+        // theme's mode from its header comment. sourceTreePath is the tugtool
+        // repo root; themes are at tugdeck/styles/themes/*.css, base is "ironclad".
+        // The header's first line carries "— dark theme" / "— light theme",
+        // so the menu can group them without a separate manifest.
         var themeNames = Set<String>([baseThemeName])
-        var duskThemes = Set<String>()
-        var lightThemes = Set<String>()
+        var darkThemes = Set<String>()
         if let root = sourceTreePath {
             let themesDir = (root as NSString).appendingPathComponent("tugdeck/styles/themes")
             if let files = try? FileManager.default.contentsOfDirectory(atPath: themesDir) {
@@ -127,21 +125,18 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
                     let name = (file as NSString).deletingPathExtension
                     themeNames.insert(name)
                     let path = (themesDir as NSString).appendingPathComponent(file)
-                    // The token sits in the file's first rule, after the header
-                    // comment. Dark is the default when the file is unreadable
-                    // or the token absent or unrecognised, as on the frontend.
-                    let head = (try? String(contentsOfFile: path, encoding: .utf8))?.prefix(4096) ?? ""
-                    switch themeAppearance(in: head) {
-                    case "dusk": duskThemes.insert(name)
-                    case "light": lightThemes.insert(name)
-                    default: break
+                    // Light themes are the exception; default to dark when the
+                    // header is unreadable or unmarked.
+                    let header = (try? String(contentsOfFile: path, encoding: .utf8))?.prefix(200) ?? ""
+                    if !header.localizedCaseInsensitiveContains("light theme") {
+                        darkThemes.insert(name)
                     }
                 }
             }
         }
 
-        // Group: dark themes first, then Dusk, then light. Within each group
-        // the base theme sorts first, then alphabetical.
+        // Group: dark themes first, then light themes. Within each group the
+        // base theme sorts first, then alphabetical.
         func sortGroup(_ names: [String]) -> [String] {
             names.sorted { a, b in
                 if a.lowercased() == baseThemeName { return true }
@@ -149,9 +144,8 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
                 return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
             }
         }
-        let dusk = sortGroup(themeNames.filter { duskThemes.contains($0) })
-        let light = sortGroup(themeNames.filter { lightThemes.contains($0) })
-        let dark = sortGroup(themeNames.filter { !duskThemes.contains($0) && !lightThemes.contains($0) })
+        let dark = sortGroup(themeNames.filter { darkThemes.contains($0) })
+        let light = sortGroup(themeNames.filter { !darkThemes.contains($0) })
 
         func addThemeItem(_ name: String) {
             let item = NSMenuItem(title: name.capitalized, action: #selector(AppDelegate.selectTheme(_:)), keyEquivalent: "").identified("view.theme.\(name)")
@@ -159,11 +153,11 @@ final class MenuStateSync: NSObject, NSMenuDelegate {
             item.state = (name == activeThemeName) ? .on : .off
             menu.addItem(item)
         }
-        // One run per family present, split by separators.
-        for group in [dark, dusk, light] where !group.isEmpty {
-            if !menu.items.isEmpty { menu.addItem(NSMenuItem.separator()) }
-            for name in group { addThemeItem(name) }
+        for name in dark { addThemeItem(name) }
+        if !dark.isEmpty && !light.isEmpty {
+            menu.addItem(NSMenuItem.separator())
         }
+        for name in light { addThemeItem(name) }
 
         // If no themes found, show a placeholder
         if menu.items.isEmpty {

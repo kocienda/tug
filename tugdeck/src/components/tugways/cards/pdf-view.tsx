@@ -154,8 +154,7 @@ export interface PdfViewProps {
   pageGap?: number;
   /**
    * Render pages inverted while a DARK theme is in force — dark paper, light
-   * ink. A light or Dusk theme keeps the page as printed, since both carry
-   * dark ink. The prop carries only the PREFERENCE; whether a dark theme is
+   * ink. The prop carries only the PREFERENCE; whether a dark theme is
    * actually in force is `<html data-theme-mode>`, which the stylesheet reads
    * directly ([L06]), so a theme switch re-paints without this surface
    * subscribing to anything.

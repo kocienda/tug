@@ -96,14 +96,11 @@ body {
   --tugx-diff-sbs-column-gap: 1px;
 }
 
-/* Light- and Dusk-appearance word bands — vivid pastels over the pale line
- * wash (GitHub-style): saturated enough to read as "this exact text
- * changed" at a glance, light enough that the dark syntax colors of both
- * modes keep full contrast on top. On a Dusk ground (l: 775) the pastel
- * band is a step lighter than the line it sits in, which is the same
- * direction it reads in on paper. */
-[data-theme-mode="light"] body,
-[data-theme-mode="dusk"] body {
+/* Light-appearance word bands — vivid pastels over the pale line wash
+ * (GitHub-style): saturated enough to read as "this exact text
+ * changed" at a glance, light enough that the dark light-mode syntax
+ * colors keep full contrast on top. */
+[data-theme-mode="light"] body {
   --tugx-diff-word-add-bg: --tug-color(green, l: 880, c: 240);
   --tugx-diff-word-remove-bg: --tug-color(red, l: 870, c: 180);
 }
