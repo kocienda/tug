@@ -199,6 +199,22 @@ export function targetRefusesFocus(target: EventTarget | null): boolean {
 }
 
 /**
+ * Whether a press on `target` leaves the first responder where it is — the
+ * two `skip` reasons {@link classify} gives that are facts about the target
+ * alone: a focus-refusing control, and first-responder-preserving chrome.
+ *
+ * It exists for the page with no interpreter. A body classifies no gesture,
+ * so its pointerdown promotion has no record to read, and promoting from the
+ * target unasked moved the first responder onto whatever responder enclosed a
+ * refusing button: a Claim press in the Changes shade put it on the list,
+ * off the composer, and every chord scoped to the composer went dead.
+ */
+export function targetKeepsFirstResponder(target: EventTarget | null): boolean {
+  const el = elementFor(target);
+  return isFocusRefusing(el) || isFrPreserving(el);
+}
+
+/**
  * Structural gesture surfaces (the pane title bar) are activation and drag
  * targets, never responder targets — promoting the coarse container would
  * strand every accelerator registered on the card's content, since the chain

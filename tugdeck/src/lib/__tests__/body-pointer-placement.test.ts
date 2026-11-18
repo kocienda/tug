@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
-import { bodyPointerPlacementCard } from "../../gesture-interpreter";
+import { bodyPointerPlacementCard, targetKeepsFirstResponder } from "../../gesture-interpreter";
 import { _resetPageForTest, installPage } from "../../bus/page";
 
 /** This page is `cardId`'s body, or the shell with null. */
@@ -26,6 +26,7 @@ const dom = new JSDOM(
      <input id="field" />
      <div id="row" data-tug-focusable="row"></div>
      <button id="refuser" data-tug-focus="refuse"></button>
+     <div data-tug-focus="refuse"><div data-responder-id="list"><button id="nested"></button></div></div>
    </div></body>`,
 );
 const doc = dom.window.document;
@@ -80,5 +81,24 @@ describe("bodyPointerPlacementCard", () => {
   test("a focus-refusing control places nothing", () => {
     pageIs("C");
     expect(bodyPointerPlacementCard(press("refuser"), "C")).toBe(null);
+  });
+});
+
+describe("targetKeepsFirstResponder", () => {
+  // A body classifies no gesture, so this is all its pointerdown promotion has
+  // to go on. Without it a press on a refusing control promoted the responder
+  // around the control (at0857: a Claim press took ⌃⌘M off the composer).
+  test("a focus-refusing control keeps the first responder where it is", () => {
+    expect(targetKeepsFirstResponder(doc.getElementById("refuser"))).toBe(true);
+  });
+
+  test("so does a control inside a refusing surface, a responder between or not", () => {
+    expect(targetKeepsFirstResponder(doc.getElementById("nested"))).toBe(true);
+  });
+
+  test("an ordinary target promotes", () => {
+    expect(targetKeepsFirstResponder(doc.getElementById("field"))).toBe(false);
+    expect(targetKeepsFirstResponder(doc.getElementById("row"))).toBe(false);
+    expect(targetKeepsFirstResponder(null)).toBe(false);
   });
 });

@@ -707,7 +707,10 @@ mod tests {
         let message: serde_json::Value = serde_json::from_str(&sent).unwrap();
         assert_eq!(message, serde_json::json!({ "type": "raise" }));
         assert!(lane_rx.try_recv().is_err(), "no page is told");
-        assert!(control_rx.try_recv().is_err(), "nothing goes out on CONTROL");
+        assert!(
+            control_rx.try_recv().is_err(),
+            "nothing goes out on CONTROL"
+        );
     }
 
     /// With no host attached the tell is dropped, and still reaches no page.

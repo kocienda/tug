@@ -53,7 +53,12 @@ import {
   registerMenuValidationChain,
 } from "../../lib/host-menu-state";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
-import { bodyPointerPlacementCard, currentGesture, targetRefusesFocus } from "@/gesture-interpreter";
+import {
+  bodyPointerPlacementCard,
+  currentGesture,
+  targetKeepsFirstResponder,
+  targetRefusesFocus,
+} from "@/gesture-interpreter";
 import { isSyntheticEscape } from "./internal/synthetic-escape";
 import { useOpenMenuClaim } from "./use-open-menu-claim";
 
@@ -1557,10 +1562,13 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
     function promoteOnPointerDown(event: PointerEvent): void {
       const gesture = currentGesture();
       if (gesture === null) {
-        // No interpreter installed: promote from the target. A bare provider
-        // outside the deck leaves the engine placement alone; a body page
-        // places for its one card by the interpreter's own rule
+        // No interpreter installed: promote from the target, unless the
+        // target is one a classified gesture would skip for what it is — a
+        // focus-refusing control or first-responder-preserving chrome. A
+        // bare provider outside the deck leaves the engine placement alone;
+        // a body page places for its one card by the interpreter's own rule
         // (`bodyPointerPlacementCard`).
+        if (targetKeepsFirstResponder(event.target)) return;
         promoteFromTarget(event.target as Node | null);
         const bodyCardId = bodyPointerPlacementCard(event, focusManager.keyCard());
         if (bodyCardId !== null) placeFromPointer(event.target, bodyCardId);
