@@ -345,3 +345,17 @@ enum MenuStatePost: Decodable {
         }
     }
 }
+
+/// The family a theme stylesheet declares in its `--tugx-theme-appearance`
+/// token — `dark`, `dusk` or `light` — read from the head of the file, so the
+/// View ▸ Theme menu groups the themes the way the frontend's catalog and its
+/// `data-theme-mode` do. Anything else, the token absent included, is `dark`,
+/// the base theme's family.
+func themeAppearance<S: StringProtocol>(in css: S) -> String {
+    let marker = "--tugx-theme-appearance:"
+    guard let start = css.range(of: marker)?.upperBound else { return "dark" }
+    let rest = css[start...]
+    let value = rest[..<(rest.firstIndex(of: ";") ?? rest.endIndex)]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return value == "dusk" || value == "light" ? value : "dark"
+}

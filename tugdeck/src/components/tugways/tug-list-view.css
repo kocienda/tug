@@ -141,14 +141,16 @@ body {
      resolves nothing. */
   --tugx-list-view-stripe-tint: var(--tug7-element-global-text-normal-default-rest);
   --tugx-list-view-stripe-shade: var(--tug7-surface-global-primary-normal-content-rest);
-  /* A multiplier on every stripe strength. The light themes raise it (below):
-     on paper the even rows' wash runs toward a content surface the rail
-     already nearly is, so only the odd rows' wash moves and the same percent
-     bands at under half the strength it has on a dark theme. */
+  /* A multiplier on every stripe strength. The light and Dusk themes raise it
+     (below): both stripe with dark ink, and on paper the even rows' wash runs
+     toward a content surface the rail already nearly is, so only the odd rows'
+     wash moves and the same percent bands at under half the strength it has on
+     a dark theme. A Dusk ground takes the same gain as paper. */
   --tugx-list-view-stripe-gain: 1;
 }
 
-[data-theme-mode="light"] body {
+[data-theme-mode="light"] body,
+[data-theme-mode="dusk"] body {
   --tugx-list-view-stripe-gain: 2.5;
 }
 

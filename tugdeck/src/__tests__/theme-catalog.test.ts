@@ -10,7 +10,12 @@ import postcss from "postcss";
 
 import postcssTugColor from "../../postcss-tug-color";
 import { SHIPPED_THEME_NAMES } from "../action-dispatch";
-import { THEME_CATALOG, themeCatalogEntry } from "../theme-catalog";
+import {
+  THEME_CATALOG,
+  THEME_MODES,
+  themeCatalogEntry,
+  themeModeOf,
+} from "../theme-catalog";
 import { BASE_THEME_NAME } from "../theme-constants";
 
 const THEMES_DIR = resolve(import.meta.dir, "..", "..", "styles", "themes");
@@ -73,7 +78,7 @@ describe("theme catalog", () => {
   });
 
   test("gives every theme in a mode its own Key hue", () => {
-    for (const mode of ["dark", "light"] as const) {
+    for (const mode of THEME_MODES) {
       const keys = THEME_CATALOG.filter((entry) => entry.mode === mode).map(
         (entry) => entry.keyColor,
       );
@@ -81,11 +86,35 @@ describe("theme catalog", () => {
     }
   });
 
-  test("groups the dark themes ahead of the light ones", () => {
-    const modes = THEME_CATALOG.map((entry) => entry.mode);
-    const firstLight = modes.indexOf("light");
-    expect(firstLight).toBeGreaterThan(0);
-    expect(modes.slice(firstLight).every((mode) => mode === "light")).toBe(true);
+  test("keeps each family contiguous, in the order dark, dusk, light", () => {
+    const runs: string[] = [];
+    for (const entry of THEME_CATALOG) {
+      if (runs[runs.length - 1] !== entry.mode) runs.push(entry.mode);
+    }
+    // One run per mode present, and those runs in the families' order: a mode
+    // split in two, or out of order, shows here as an extra or misplaced run.
+    expect(runs).toEqual(THEME_MODES.filter((mode) => runs.includes(mode)));
+    expect(runs[0]).toBe("dark");
+  });
+
+  test("gives each theme the mode its stylesheet declares", () => {
+    const fromCatalog: Record<string, string> = {};
+    const fromDisk: Record<string, string> = {};
+    for (const entry of THEME_CATALOG) {
+      fromCatalog[entry.name] = entry.mode;
+      fromDisk[entry.name] = themeModeOf(
+        declared(entry.name, "--tugx-theme-appearance") ?? "",
+      );
+    }
+    expect(fromCatalog).toEqual(fromDisk);
+  });
+
+  test("reads an appearance token as one of the three modes", () => {
+    expect(themeModeOf("dark")).toBe("dark");
+    expect(themeModeOf(" dusk ")).toBe("dusk");
+    expect(themeModeOf("light")).toBe("light");
+    expect(themeModeOf("")).toBe("dark");
+    expect(themeModeOf("twilight")).toBe("dark");
   });
 
   test("answers the base theme for a name that is not shipped", () => {

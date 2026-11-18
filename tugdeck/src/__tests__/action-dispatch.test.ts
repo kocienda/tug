@@ -507,7 +507,7 @@ describe("initActionDispatch: next-theme", () => {
   });
 
   it("SHIPPED_THEME_NAMES includes every shipped theme", () => {
-    for (const name of ["caravel", "barque", "galleon", "collier", "sloop", "ketch", "skiff", "kayak", "pinnace"]) {
+    for (const name of ["caravel", "barque", "galleon", "collier", "lugger", "packet", "tender", "cutter", "trawler", "sloop", "ketch", "skiff", "kayak", "pinnace"]) {
       expect(SHIPPED_THEME_NAMES).toContain(name);
     }
   });

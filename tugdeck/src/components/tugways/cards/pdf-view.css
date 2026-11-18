@@ -38,7 +38,9 @@
   visibility: hidden;
 }
 
-/* Inverted pages — dark paper, light ink — under a dark theme only.
+/* Inverted pages — dark paper, light ink — under a dark theme only. A Dusk
+   theme keeps the page as printed: its own ink is dark, so a white page with
+   dark ink is the polarity the rest of the deck already has.
 
    TWO conditions, and both belong here rather than in JS: the card's
    preference rides `data-pdf-invert-in-dark` on the surface, and whether a

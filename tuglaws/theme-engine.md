@@ -30,23 +30,30 @@ low-chroma Keys read as pale tints, high-chroma Keys as vivid.
 | `barque` | dark | grape | purple (vivid) | orange (vivid) |
 | `galleon` | dark | honey | gold (vivid) | orange (vivid) |
 | `collier` | dark | azure | cyan (vivid) | orange (vivid) |
+| `lugger` | dusk | gray | sapphire (vivid) | orange (vivid) |
+| `packet` | dusk | honey | plum (vivid) | orange (vivid) |
+| `tender` | dusk | jade | azure (vivid) | orange (vivid) |
+| `cutter` | dusk | cerulean | cobalt (vivid) | orange (vivid) |
+| `trawler` | dusk | orchid | cerise (vivid) | orange (vivid) |
 | `sloop` | light | indigo | blue (vivid) | orange (vivid) |
 | `ketch` | light | orchid | iris (vivid) | orange (vivid) |
 | `skiff` | light | cyan | seafoam (vivid) | orange (vivid) |
 | `kayak` | light | honey | sapphire (vivid) | orange (vivid) |
 | `pinnace` | light | pink | rose (vivid) | orange (vivid) |
 
-The names are vessel types: ships for the dark themes, boats for the light ones, so the mode reads
-from the word alone. `galleon` and `kayak` are a warm cross-mode pair sharing the honey tint; `kayak`
+The names are vessel types: ships for the dark themes, working craft for the Dusk ones, boats for the
+light ones, so the mode reads from the word alone. `galleon` and `kayak` are a warm cross-mode pair sharing the honey tint; `kayak`
 takes a cool Key, because a warm Key crowds both the caution signal and the orange Accent. A dark
 theme's Key sits beside its tint, as `ironclad`'s cobalt sits beside indigo-violet: `collier` is cyan
 on azure and `galleon` gold on honey — a Key from across the wheel reads as a second theme laid over
 the first. `galleon` accepts the crowding that costs. `pinnace` carries the one hot Key, rose on pink.
 
 Two repetitions in that table are the files' own and not transcription slips: every theme currently
-declares the same `--tugx-accent`, so the Accent column is one hue ten times, and every Key is vivid
+declares an orange `--tugx-accent`, so the Accent column is one hue fifteen times, and every Key is vivid
 (`c: 400` dark, `c: 320` light on the filled action), so the chroma note distinguishes nothing today.
-The duet above is the *authoring* rule; the Accent column is where the ten files have not yet taken
+The dark and light themes share one Accent at `l: 755`; each Dusk theme cuts its own, lower, because
+that orange cannot hold contrast on a mid-tone ground (rule 3b below).
+The duet above is the *authoring* rule; the Accent column is where the files have not yet taken
 it up. Read the table against `styles/themes/*.css` before copying a row — it has drifted twice.
 
 Every theme is a peer — none depends on another at runtime. `ironclad` is special only as
@@ -90,6 +97,30 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
    hue is the specific mistake — it puts the action color under everything instead of on the things
    that act. `tugdeck/src/__tests__/light-theme-paper.test.ts` holds the ceiling, the ladder and the
    one-hue rule for the five shipped light themes; a new one joins that list.
+3b. **A Dusk theme breaks two of rule 3's clauses on purpose, and keeps the rest.** Dusk is the mode
+   between dark and light (`--tugx-theme-appearance: dusk`, reflected as `data-theme-mode="dusk"`): a
+   mid-tone ground light enough for dark ink. Its token families are the light themes', since the ink
+   polarity is theirs, and wherever a component answers `data-theme-mode="light"` it answers Dusk too
+   unless it states otherwise. What changes:
+
+   - **Colour may be a field.** The card ground is the tint at `l: 775, c: 30` (`gray` at no chroma on
+     `lugger`), and the lid and the canvas carry the tint at chroma a paper theme is forbidden. The
+     one-hue rule still holds: every neutral surface and neutral ink is on the tint, and the Key stays
+     in marks, fills and washes.
+   - **Elevation steps both ways from the ground.** Raised, overlay and the code well are lighter
+     (`l: 845`); the sunken band (`740`), the focused lid (`705`, at `c: 45`), the inactive lid (`745`)
+     and the canvas field (`475`) are darker. The card edge sits at `605`, the divider at `675`.
+   - **Ink and marks are dark.** Body text is near-black `gray`, muted ink is the tint at `l: 340`, and
+     every mark is cut to hold 3:1 against `l: 775` rather than 985: the Key is a dark fill (`l: 400`)
+     under near-white ink, and the signal and chart hues sit lower than on paper.
+   - **The Accent is cut per theme**: orange at `c: 1000` and the lightest `l` (in steps of 5) whose
+     8-bit hex holds 3:1 against the theme's own ground — `l: 505` on most grounds, `500` on honey and
+     orchid.
+   - **No lid rule.** The focused lid's own lightness step and chroma say focus, so a Dusk theme draws
+     no Key rule on it; the selected-row rule stays.
+
+   `tugdeck/src/__tests__/dusk-theme-ground.test.ts` holds the ground, the one-hue rule, the two-way
+   ladder and the Accent cut for the five shipped Dusk themes; the paper test names none of them.
 4. **Signals are fixed across themes** by hue: `danger`=red, `success`=green, `caution`=yellow/gold,
    `data`=teal, `agent`=violet. The **selection / primary-action axis is no longer a fixed blue** —
    each theme picks its own **Key** hue (the `selection`/`active`/`toggle-on`/`link`/filled-action
@@ -106,7 +137,8 @@ largely a hue swap: keep the *lightness* ladder, change the *hue*.
 6. **Consistent authoring style** (uniform `l:`/`c:` usage) so themes diff cleanly and the next tint
    swap stays mechanical.
 
-A new theme: derive it from the same-mode reference (`ironclad` for dark, `sloop` for light) with the
+A new theme: derive it from the same-mode reference (`ironclad` for dark, `cutter` for Dusk, `sloop`
+for light) with the
 Theme Deriver (`deriveTheme` in `tugdeck/theme-editor-core.ts`), which rotates the Key cluster and
 holds each token's `l`/`c`. Then, by hand: remap the whole neutral-tint family to the new tint — in
 `ironclad` that is every `indigo`, `indigo-cobalt` and `indigo-violet` token, in `sloop` every
@@ -116,6 +148,11 @@ the canvas token; and validate with the contrast audit below. The deriver's Key 
 `violet` agent signal, so check where it lands: a Key far from the reference's rotates agent with it,
 and one that would put agent within 30° of red holds agent at the reference's violet instead
 (`pinnace` does).
+
+A new Dusk theme is a hue swap of `cutter`: its `cerulean` tokens become the new tint, its `cobalt`
+and `cobalt-violet` tokens the new Key (all but the fixed first chart series), and its `plum` agent
+moves to a hue at least 30° from the Key. Then recompute the canvas hex and the Accent cut against
+the new ground, and run the contrast audit and the Dusk ground test.
 
 ---
 

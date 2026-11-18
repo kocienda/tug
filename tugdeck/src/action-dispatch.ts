@@ -164,8 +164,8 @@ export {
  * Ordered list of all shipped themes.
  * Must stay in sync with tugdeck/styles/themes/*.css plus the base theme.
  * Base theme always comes first. The remainder are grouped by mode — the dark
- * themes, then the light themes — so the `next-theme` cycle sweeps through all
- * darks before all lights instead of ping-ponging between modes.
+ * themes, then the Dusk themes, then the light themes — so the `next-theme`
+ * cycle sweeps through each family whole instead of ping-ponging between them.
  */
 export const SHIPPED_THEME_NAMES: readonly string[] = [
   BASE_THEME_NAME, // ironclad (dark)
@@ -173,6 +173,11 @@ export const SHIPPED_THEME_NAMES: readonly string[] = [
   "barque", // dark
   "galleon", // dark
   "collier", // dark
+  "lugger", // dusk
+  "packet", // dusk
+  "tender", // dusk
+  "cutter", // dusk
+  "trawler", // dusk
   "sloop", // light
   "ketch", // light
   "skiff", // light
