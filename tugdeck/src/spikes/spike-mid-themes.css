@@ -1,0 +1,310 @@
+/**
+ * spike-mid-themes.css — a scoped mid-tone theme, five times over.
+ *
+ * Each `.sp-mt-deck` is a THEME ROOT in miniature: it names one tint hue and
+ * one Key hue, derives a whole ladder from them, and restates the `--tug7-*`
+ * tokens the components inside it read. `TugButton` and `TugBadge` resolve
+ * their tokens at the element, so an override on an ancestor reaches them and
+ * they paint as they would under a real theme file.
+ *
+ * Two knobs, written onto `.sp-mt-fleet` by the card's sliders: `--sp-mt-l`,
+ * the card ground's lightness, and `--sp-mt-c`, its chroma. Every other rung
+ * is an offset from that pair, built with `oklch(from <tint> L C h)` so only
+ * the hue passes through and one setting is judged on five hues at once.
+ * Their defaults live in the `var()` fallbacks, so the first paint is right.
+ *
+ * The ladder, which is the proposal: a mid-tone ground has headroom BOTH
+ * ways, so elevation is lighter (raised, the code well) and recession is
+ * darker (the lid, the sunken row, the field). A light theme can only step
+ * down and a dark one only up.
+ *
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role          | Context                |
+ * |------------------------------------------------|---------------------------------------------------|---------------|------------------------|
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | content       | .sp-mt-card, .sp-mt-well |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest | informational | .sp-mt-muted, .sp-mt-names, .sp-mt-note |
+ * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-raised-rest  | content       | .sp-mt-well            |
+ */
+
+/* ── The spike's own furniture (wears the ACTIVE theme) ───────────────── */
+
+.sp-mt-note {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
+  line-height: var(--tug-line-height-normal);
+}
+
+.sp-mt-tuner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 24px;
+}
+
+.sp-mt-fleet {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 16px;
+}
+
+/* ── The five hues ────────────────────────────────────────────────────── */
+
+/* Only the HUE of each is read; lightness and chroma come from the knobs. */
+/* Gravel is the one neutral: a gray has no hue to pass through, so its scale
+   zeroes every chroma the ladder would otherwise give it. */
+.sp-mt-deck[data-tint="gravel"] {
+  --sp-mt-tint: --tug-color(gray, l: 740);
+  --sp-mt-key: --tug-color(sapphire, l: 400, c: 300);
+  --sp-mt-scale: 0;
+}
+.sp-mt-deck[data-tint="sand"] {
+  --sp-mt-tint: --tug-color(honey, l: 740, c: 50);
+  --sp-mt-key: --tug-color(plum, l: 400, c: 300);
+}
+.sp-mt-deck[data-tint="sage"] {
+  --sp-mt-tint: --tug-color(jade, l: 740, c: 50);
+  --sp-mt-key: --tug-color(azure, l: 400, c: 300);
+}
+.sp-mt-deck[data-tint="slate"] {
+  --sp-mt-tint: --tug-color(cerulean, l: 740, c: 50);
+  --sp-mt-key: --tug-color(cobalt, l: 400, c: 300);
+}
+.sp-mt-deck[data-tint="mauve"] {
+  --sp-mt-tint: --tug-color(orchid, l: 740, c: 50);
+  --sp-mt-key: --tug-color(cerise, l: 400, c: 300);
+}
+
+/* ── The ladder, and the tokens it stands in for ──────────────────────── */
+
+.sp-mt-deck {
+  --sp-mt-L: var(--sp-mt-l, 0.74);
+  --sp-mt-C: calc(var(--sp-mt-c, 0.025) * var(--sp-mt-scale, 1));
+
+  /* Surfaces: the card ground, two rungs up, three down. */
+  --sp-mt-ground: oklch(from var(--sp-mt-tint) var(--sp-mt-L) var(--sp-mt-C) h);
+  --sp-mt-raised: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) + 0.07) calc(var(--sp-mt-C) * 0.8) h);
+  --sp-mt-sunken: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) - 0.035) var(--sp-mt-C) h);
+  --sp-mt-lid: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) - 0.07) calc(var(--sp-mt-C) * 1.5) h);
+  --sp-mt-lid-off: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) - 0.03) calc(var(--sp-mt-C) * 0.3) h);
+  --sp-mt-field: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) - 0.3) calc(var(--sp-mt-C) * 1.2) h);
+  --sp-mt-edge: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) - 0.17) var(--sp-mt-C) h);
+  --sp-mt-rule: oklch(from var(--sp-mt-tint) calc(var(--sp-mt-L) - 0.1) var(--sp-mt-C) h);
+
+  /* Ink: near-black, and a muted rung that stays on the tint hue. */
+  --sp-mt-ink: --tug-color(gray, l: 130);
+  --sp-mt-ink-muted: oklch(from var(--sp-mt-tint) 0.34 calc(0.03 * var(--sp-mt-scale, 1)) h);
+  --sp-mt-on-fill: oklch(from var(--sp-mt-key) 0.97 0.01 h);
+
+  /* The global families the miniature and its components read. */
+  --tug7-surface-global-primary-normal-default-rest: var(--sp-mt-ground);
+  --tug7-surface-global-primary-normal-content-rest: var(--sp-mt-ground);
+  --tug7-surface-global-primary-normal-raised-rest: var(--sp-mt-raised);
+  --tug7-surface-global-primary-normal-sunken-rest: var(--sp-mt-sunken);
+  --tug7-surface-global-primary-normal-canvas-rest: var(--sp-mt-field);
+  --tug7-element-global-text-normal-default-rest: var(--sp-mt-ink);
+  --tug7-element-global-text-normal-muted-rest: var(--sp-mt-ink-muted);
+  --tug7-element-global-text-normal-link-rest: var(--sp-mt-key);
+  --tug7-element-global-border-normal-default-rest: var(--sp-mt-edge);
+  --tug7-element-global-divider-normal-default-rest: var(--sp-mt-rule);
+
+  /* Filled action: the Key as a DARK fill under light ink. On a mid ground a
+     dark fill is the loud thing, where a light theme's mid-tone fill was. */
+  --tug7-surface-control-primary-filled-action-rest: var(--sp-mt-key);
+  --tug7-surface-control-primary-filled-action-hover: oklch(from var(--sp-mt-key) 0.34 c h);
+  --tug7-surface-control-primary-filled-action-active: oklch(from var(--sp-mt-key) 0.47 c h);
+  --tug7-element-control-text-filled-action-rest: var(--sp-mt-on-fill);
+  --tug7-element-control-text-filled-action-hover: var(--sp-mt-on-fill);
+  --tug7-element-control-text-filled-action-active: var(--sp-mt-on-fill);
+  --tug7-element-control-icon-filled-action-rest: var(--sp-mt-on-fill);
+  --tug7-element-control-icon-filled-action-hover: var(--sp-mt-on-fill);
+  --tug7-element-control-icon-filled-action-active: var(--sp-mt-on-fill);
+  --tug7-element-control-border-filled-action-rest: var(--sp-mt-key);
+  --tug7-element-control-border-filled-action-hover: oklch(from var(--sp-mt-key) 0.34 c h);
+  --tug7-element-control-border-filled-action-active: oklch(from var(--sp-mt-key) 0.47 c h);
+
+  /* Outlined action: the ground's own ink inside a Key edge. */
+  --tug7-surface-control-primary-outlined-action-rest: transparent;
+  --tug7-surface-control-primary-outlined-action-hover: oklch(from var(--sp-mt-key) l c h / 0.14);
+  --tug7-surface-control-primary-outlined-action-active: oklch(from var(--sp-mt-key) l c h / 0.24);
+  --tug7-element-control-text-outlined-action-rest: var(--sp-mt-ink);
+  --tug7-element-control-text-outlined-action-hover: var(--sp-mt-ink);
+  --tug7-element-control-text-outlined-action-active: var(--sp-mt-ink);
+  --tug7-element-control-icon-outlined-action-rest: var(--sp-mt-ink);
+  --tug7-element-control-icon-outlined-action-hover: var(--sp-mt-ink);
+  --tug7-element-control-icon-outlined-action-active: var(--sp-mt-ink);
+  --tug7-element-control-border-outlined-action-rest: var(--sp-mt-key);
+  --tug7-element-control-border-outlined-action-hover: var(--sp-mt-key);
+  --tug7-element-control-border-outlined-action-active: var(--sp-mt-key);
+
+  /* Signals as badge fills. Success and danger go DARK under light ink;
+     caution goes LIGHT under dark ink — the one ground where both read. */
+  --tug7-surface-control-primary-filled-success-rest: --tug-color(green, l: 430, c: 300);
+  --tug7-element-control-text-filled-success-rest: --tug-color(green, l: 970, c: 20);
+  --tug7-element-control-border-filled-success-rest: --tug-color(green, l: 430, c: 300);
+  --tug7-surface-control-primary-filled-danger-rest: --tug-color(red, l: 450, c: 400);
+  --tug7-element-control-text-filled-danger-rest: --tug-color(red, l: 970, c: 20);
+  --tug7-element-control-border-filled-danger-rest: --tug-color(red, l: 450, c: 400);
+  --tug7-surface-control-primary-filled-caution-rest: --tug-color(yellow, l: 900, c: 300);
+  --tug7-element-control-text-filled-caution-rest: --tug-color(gray, l: 130);
+  --tug7-element-control-border-filled-caution-rest: --tug-color(yellow, l: 900, c: 300);
+
+  /* The deck itself: the field. */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--tug-radius-lg);
+  background-color: var(--sp-mt-field);
+  color: var(--sp-mt-ink);
+  font-size: var(--tug-font-size-sm);
+  line-height: var(--tug-line-height-normal);
+}
+
+/* Name plate, on the field: the one place light ink appears at rest. */
+.sp-mt-plate {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: oklch(from var(--sp-mt-tint) 0.93 calc(0.02 * var(--sp-mt-scale, 1)) h);
+}
+
+.sp-mt-plate-tint {
+  font-size: var(--tug-font-size-md);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-mt-plate-contrast {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+}
+
+.sp-mt-names {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: oklch(from var(--sp-mt-tint) 0.82 calc(0.02 * var(--sp-mt-scale, 1)) h);
+}
+
+/* ── A card ───────────────────────────────────────────────────────────── */
+
+.sp-mt-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--sp-mt-edge);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+  background-color: var(--sp-mt-ground);
+  color: var(--sp-mt-ink);
+}
+
+.sp-mt-lid {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding-inline: 10px;
+  border-bottom: 1px solid var(--sp-mt-edge);
+  background-color: var(--sp-mt-lid);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+.sp-mt-lid svg {
+  width: var(--tug-icon-size-sm);
+  height: var(--tug-icon-size-sm);
+  color: var(--sp-mt-key);
+}
+
+.sp-mt-card[data-focused="false"] .sp-mt-lid {
+  background-color: var(--sp-mt-lid-off);
+  color: var(--sp-mt-ink-muted);
+  font-weight: var(--tug-font-weight-regular, 400);
+}
+
+.sp-mt-card[data-focused="false"] .sp-mt-lid svg {
+  color: var(--sp-mt-ink-muted);
+}
+
+.sp-mt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.sp-mt-body p {
+  margin: 0;
+}
+
+.sp-mt-muted {
+  color: var(--sp-mt-ink-muted);
+  font-size: var(--tug-font-size-xs);
+}
+
+.sp-mt-link {
+  color: var(--sp-mt-key);
+  text-decoration: underline;
+}
+
+/* The code well: one rung LIGHTER than the ground. */
+.sp-mt-well {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--sp-mt-rule);
+  border-radius: var(--tug-radius-sm);
+  background-color: var(--sp-mt-raised);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  white-space: pre-wrap;
+}
+
+/* Rows: one at rest on a sunken band, one selected under a Key wash + rule. */
+.sp-mt-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--sp-mt-rule);
+  border-radius: var(--tug-radius-sm);
+  overflow: hidden;
+}
+
+.sp-mt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 10px;
+  background-color: var(--sp-mt-sunken);
+}
+
+.sp-mt-row + .sp-mt-row {
+  border-top: 1px solid var(--sp-mt-rule);
+}
+
+.sp-mt-row[data-selected="true"] {
+  background-color: oklch(from var(--sp-mt-key) 0.55 c h / 0.26);
+  box-shadow: inset 3px 0 0 var(--sp-mt-key);
+}
+
+.sp-mt-row span:last-child {
+  color: var(--sp-mt-ink-muted);
+  font-size: var(--tug-font-size-xs);
+}
+
+.sp-mt-actions,
+.sp-mt-marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The focus ring, in the two candidates a mid ground forces a choice between:
+   the shipped Accent, which every theme shares today, and a deeper cut of it. */
+.sp-mt-ring {
+  padding: 2px 8px;
+  border-radius: var(--tug-radius-sm);
+  font-size: var(--tug-font-size-xs);
+  outline: 2px solid var(--tugx-accent);
+  outline-offset: 1px;
+}
+
+.sp-mt-ring[data-cut="deep"] {
+  outline-color: --tug-color(orange, l: 560, c: 1000);
+}
