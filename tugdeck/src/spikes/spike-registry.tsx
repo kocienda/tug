@@ -49,6 +49,7 @@ import { spike as miniaturePlusSpike } from "./spike-miniature-plus";
 import { spike as timePopupSpike } from "./spike-time-popup";
 import { spike as shareShadeCtaSpike } from "./spike-share-shade-cta";
 import { spike as codeExplainerSpike } from "./spike-code-explainer";
+import { spike as arcShadeSpike } from "./spike-arc-shade";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -120,6 +121,7 @@ export const SPIKES: readonly SpikeDef[] = [
   timePopupSpike,
   shareShadeCtaSpike,
   codeExplainerSpike,
+  arcShadeSpike,
   cardChromeSpike,
   modalHeadersSpike,
   focusLanguageSpike,

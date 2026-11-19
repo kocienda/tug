@@ -1,0 +1,571 @@
+/**
+ * spike-arc-shade.css — the Session card stand-in the arc shade rises in, the
+ * shade itself, and the four rung cards with the connectors between them.
+ *
+ * The Z2 cells, the track, the badges, the buttons and the inputs are styled
+ * by their own stylesheets. One rule reaches into one of them, and says so:
+ * the ARC cell's endcap rule takes the accent while the shade is up, which the
+ * real cell would do from a pressed state of its own.
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role          | Context                                                         |
+ * |--------------------------------------------------|---------------------------------------------------|---------------|-----------------------------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .sp-as-note, .sp-as-control-label, .sp-as-masthead-meta         |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-default-rest | content       | .sp-as-masthead-title, .sp-as-turn                              |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .sp-as-turn-who                                                 |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .sp-as-arc-name, .sp-as-rung-title                              |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .sp-as-rung-name, .sp-as-arc-reading, .sp-as-rung-point, .sp-as-legend-item, .sp-as-does, .sp-as-effect, .sp-as-doc-head |
+ * | --tug7-element-global-text-normal-caution-rest   | --tug7-surface-global-primary-normal-content-rest | informational | .sp-as-rung-point[data-caution]                                 |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .sp-as-doc-list, .sp-as-rung-sigil                              |
+ */
+
+/* ---- Above the card ------------------------------------------------------ */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-as-note {
+  margin: 0;
+  max-width: 46rem;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-as-controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-2xl);
+}
+
+.sp-as-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-as-control-label {
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* ---- The Session card stand-in ------------------------------------------ */
+
+.sp-as-card {
+  display: flex;
+  flex-direction: column;
+  height: 760px;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+}
+
+.sp-as-masthead {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--tug-space-md);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-as-masthead-title {
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-as-masthead-meta {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The transcript and the shade over it. The shade is positioned against this
+   box, so "90%" is 90% of the transcript, not of the card. */
+.sp-as-transcript-area {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sp-as-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-md);
+  height: 100%;
+  padding: var(--tug-space-md);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+/* With the shade up the transcript is the strip above it, a scroller of its
+   own that keeps the newest turn in view, so a prompt sent from under the
+   shade is seen to land. */
+.sp-as-card[data-shade="open"] .sp-as-transcript {
+  height: 10%;
+  padding-block: var(--tug-space-xs);
+}
+
+.sp-as-card[data-shade="open"][data-reach="75"] .sp-as-transcript {
+  height: 25%;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-as-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  margin: 0;
+  max-width: 44rem;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-inline-start: 2px solid transparent;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The idea's turn, after Show in Transcript. */
+.sp-as-turn[data-marked="true"] {
+  border-inline-start-color: var(--tug7-element-global-fill-normal-accent-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-as-turn-who {
+  font-size: var(--tug-font-size-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The aim a prompt was sent with, in the sigil's own face. */
+.sp-as-turn-aim {
+  font-family: var(--tug-font-family-mono);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tug7-element-global-fill-normal-accent-rest);
+}
+
+/* ---- The shade ----------------------------------------------------------- */
+
+/* Rooted at the bottom of the transcript, on Z2, and as tall as its reach.
+   Lowered, it is translated its own height down and clipped by the area. */
+.sp-as-shade {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 90%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background-color: var(--tugx-shade-bg);
+  border-top: 1px solid var(--tugx-shade-border);
+  transform: translateY(100%);
+  transition: transform calc(240ms * var(--tug-timing, 1)) ease-out;
+}
+
+.sp-as-card[data-reach="75"] .sp-as-shade {
+  height: 75%;
+}
+
+.sp-as-card[data-reach="100"] .sp-as-shade {
+  height: 100%;
+  border-top-color: transparent;
+}
+
+.sp-as-card[data-shade="open"] .sp-as-shade {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-as-shade {
+    transition: none;
+  }
+}
+
+body[data-tug-motion="off"] .sp-as-shade {
+  transition: none;
+}
+
+.sp-as-shade-head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-md);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-bottom: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-arc-name {
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-arc-reading {
+  font-size: var(--tug-font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-as-spacer {
+  flex: 1 1 0;
+}
+
+/* ---- The ladder: four rungs and three connectors -------------------------- */
+
+.sp-as-ladder {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* The canvas the cards stand on. The spike sizes it to hold wherever they
+   have been dragged, so the ladder scrolls to reach them. */
+.sp-as-canvas {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+/* A card is placed by `left` and `top`, written by the spike as it is
+   dragged. It has a surface of its own now, since a connector can pass
+   behind it. */
+.sp-as-rung {
+  position: absolute;
+  width: 200px;
+  min-height: 236px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  box-sizing: border-box;
+  padding: var(--tug-space-md);
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-top-width: 3px;
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tugx-shade-bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+/* In hand: above its neighbours and the connectors. */
+.sp-as-rung[data-dragging="true"] {
+  z-index: 3;
+  cursor: grabbing;
+  box-shadow: 0 4px 12px var(--tug7-element-global-shadow-normal-md-rest);
+}
+
+/* The card the prompt is aimed at wears the accent all the way round. */
+.sp-as-rung[data-aimed="true"] {
+  outline: 2px solid var(--tug7-element-global-fill-normal-accent-rest);
+  outline-offset: 2px;
+}
+
+/* Open: wider, and the spike moves the cards to its right along. */
+.sp-as-rung[data-expanded="true"] {
+  width: 440px;
+  z-index: 2;
+}
+
+.sp-as-rung[data-state="done"] {
+  border-top-color: var(--tug7-element-global-text-normal-success-rest);
+}
+
+.sp-as-rung[data-state="active"] {
+  border-top-color: var(--tug7-element-global-fill-normal-accent-rest);
+}
+
+/* A rung that does not exist yet is an empty seat. */
+.sp-as-rung[data-state="pending"] {
+  border-style: dashed;
+  border-top-width: 1px;
+  border-color: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-as-rung-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-xs) var(--tug-space-sm);
+  min-height: 20px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-rung-name {
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-rung-title {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-semibold);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-as-rung[data-state="pending"] .sp-as-rung-title {
+  font-weight: inherit;
+  opacity: 0.7;
+}
+
+.sp-as-rung-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-rung-point {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-rung-point[data-caution="true"] {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-rung-sigil {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  opacity: 0.7;
+}
+
+/* What an expanded card stands for. */
+.sp-as-rung-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-md);
+  min-width: 0;
+}
+
+/* What a control does, said in a sentence: under the prompt, and at the head
+   of each expanded card. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-does {
+  margin: 0;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-as-digest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+}
+
+.sp-as-confirm {
+  --tugx-idialog-max-width: none;
+}
+
+.sp-as-doc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-doc-head {
+  margin: 0;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-doc-list {
+  margin: 0;
+  padding-inline-start: var(--tug-space-xl);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* A line a revision added; one the arc has not been built from yet is marked. */
+.sp-as-doc-added[data-unbuilt="true"] {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+.sp-as-steps {
+  min-width: 0;
+}
+
+.sp-as-rung-foot {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  margin-top: auto;
+  padding-top: var(--tug-space-sm);
+  border-top: 1px dashed var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* The connectors: one drawing over the whole canvas, its paths written by
+   the spike from where the cards stand. It takes no presses. */
+.sp-as-links {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.sp-as-link {
+  color: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-as-link[data-state="linked"] {
+  color: var(--tug7-element-global-text-normal-success-rest);
+}
+
+.sp-as-link[data-state="changed"] {
+  color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+.sp-as-link-path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sp-as-link[data-state="changed"] .sp-as-link-path {
+  stroke-dasharray: 5 4;
+}
+
+.sp-as-link[data-state="pending"] .sp-as-link-path {
+  stroke-dasharray: 1 5;
+}
+
+.sp-as-link-ring {
+  fill: var(--tugx-shade-bg);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+/* ---- The legend ---------------------------------------------------------- */
+
+.sp-as-shade-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-top: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* What the last act did. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-effect {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.4;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-as-legend {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--tug-space-xs) var(--tug-space-xl);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-as-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The sample of the line the item names. */
+.sp-as-legend-item::before {
+  content: "";
+  width: 22px;
+  border-top: 2px solid var(--tug7-element-global-text-normal-success-rest);
+}
+
+.sp-as-legend-item[data-state="changed"]::before {
+  border-top: 2px dashed var(--tug7-element-global-text-normal-caution-rest);
+}
+
+.sp-as-legend-item[data-state="pending"]::before {
+  border-top: 2px dotted var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* ---- Z2 ------------------------------------------------------------------ */
+
+/* The strip the status row stands in, named as the real one is so the row's
+   own container rules apply. */
+.sp-as-z2 {
+  container-type: inline-size;
+  container-name: session-status;
+  padding: var(--tug-space-sm);
+  border-top: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+/* The ARC cell's seat. While the shade is up the cell's own endcap rule, the
+   two ticks and the two fills beside the label, takes the accent: the cell
+   says it is pressed with the lines it already has, and nothing in the row
+   moves. This is the one rule here that reaches into a shipping component;
+   the real cell would style itself from a pressed attribute. */
+.sp-as-arc-seat {
+  display: flex;
+}
+
+.sp-as-arc-seat[data-on="true"] .session-telemetry-endcap-tick,
+.sp-as-arc-seat[data-on="true"] .session-telemetry-endcap-rule-fill {
+  background-color: var(--tug7-element-global-fill-normal-accent-rest);
+  opacity: 1;
+}
+
+/* ---- The prompt entry ---------------------------------------------------- */
+
+.sp-as-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
+  border-top: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-as-composer-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+.sp-as-composer-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
