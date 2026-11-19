@@ -11,6 +11,7 @@ import {
   SHADE_NOTICE_RANK,
   rankShadeNotices,
   shadeOriginReplay,
+  stagedPathListing,
   type ShadeNoticeCandidate,
 } from "../session-changes-notice-face";
 
@@ -143,5 +144,48 @@ describe("shadeOriginReplay", () => {
 
   test("an empty slot yields nothing", () => {
     expect(shadeOriginReplay(null, "session:s1")).toBeNull();
+  });
+});
+
+describe("stagedPathListing", () => {
+  const paths = (...names: string[]) => names.map((path) => ({ path, status: "deleted" }));
+
+  test("says the shared directory once and leaves each row what tells it apart", () => {
+    const listing = stagedPathListing(
+      paths("tests/app-test/at0140-cycle.test.ts", "tests/app-test/body/row-11.test.ts"),
+    );
+    expect(listing.dir).toBe("tests/app-test/");
+    expect(listing.head.map((row) => row.name)).toEqual(["at0140-cycle.test.ts", "body/row-11.test.ts"]);
+    // The full path survives as the row's identity.
+    expect(listing.head[1]?.path).toBe("tests/app-test/body/row-11.test.ts");
+  });
+
+  test("shares only whole directories, never a filename prefix", () => {
+    const listing = stagedPathListing(paths("src/at0140.ts", "src/at0165.ts"));
+    expect(listing.dir).toBe("src/");
+    expect(stagedPathListing(paths("alpha.ts", "alpine.ts")).dir).toBeNull();
+    expect(stagedPathListing(paths("src/a.ts", "docs/b.md")).dir).toBeNull();
+  });
+
+  test("leaves a lone path whole", () => {
+    const listing = stagedPathListing(paths("src/lib/a.ts"));
+    expect(listing.dir).toBeNull();
+    expect(listing.head[0]?.name).toBe("src/lib/a.ts");
+  });
+
+  test("folds the remainder, but never a single leftover row", () => {
+    const many = paths(...Array.from({ length: 22 }, (_, i) => `src/f${i}.ts`));
+    const folded = stagedPathListing(many);
+    expect(folded.head).toHaveLength(6);
+    expect(folded.rest).toHaveLength(16);
+
+    const seven = stagedPathListing(many.slice(0, 7));
+    expect(seven.head).toHaveLength(7);
+    expect(seven.rest).toHaveLength(0);
+  });
+
+  test("calls a staged creation an addition", () => {
+    const listing = stagedPathListing([{ path: "a.ts", status: "created" }]);
+    expect(listing.head[0]?.status).toBe("added");
   });
 });

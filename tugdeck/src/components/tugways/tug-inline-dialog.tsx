@@ -168,6 +168,28 @@ export interface TugInlineDialogProps
    */
   actions?: React.ReactNode;
   /**
+   * Which arrangement the frame takes.
+   *
+   * `"bar"` is the header-bar dialog: a fixed-height row with a one-line
+   * title, and a centred description beneath it — the shape a prompt with two
+   * buttons wants.
+   *
+   * `"notice"` is for a frame that reports something and has to be read: the
+   * title wraps instead of truncating, the description is left-aligned at the
+   * frame's full width under the title, and the frame fills its container
+   * rather than centring at a capped width. Pair it with {@link footer} so the
+   * buttons do not compete with the title for the header row.
+   *
+   * @default "bar"
+   */
+  variant?: "bar" | "notice";
+  /**
+   * Optional cluster of controls on a row of its own at the bottom of the
+   * frame, trailing-aligned. Where a notice's acts go: below what they act
+   * on, so the title has the header row to itself.
+   */
+  footer?: React.ReactNode;
+  /**
    * Free-form body region inside the dialog between the header row
    * and the options block. For an Edit confirm: a `DiffBlock`. For a
    * Bash request: nothing (the command sits in the description).
@@ -269,6 +291,8 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
     description,
     leadingActions,
     actions,
+    variant = "bar",
+    footer,
     children,
     options,
     selectedOption,
@@ -287,6 +311,8 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
     leadingActions !== false;
   const hasActions =
     actions !== undefined && actions !== null && actions !== false;
+  const hasFooter =
+    footer !== undefined && footer !== null && footer !== false;
   const hasChildren =
     children !== undefined && children !== null && children !== false;
   const renderOptions = shouldRenderOptions(options);
@@ -306,6 +332,7 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
       {...rest}
       data-icon-tone={iconTone}
       data-layout={layout}
+      data-variant={variant}
     >
       <div
         className="tug-inline-dialog-row"
@@ -364,6 +391,14 @@ export const TugInlineDialog = React.forwardRef<HTMLDivElement, TugInlineDialogP
               senderId={senderId}
             />
           ))}
+        </div>
+      ) : null}
+      {hasFooter ? (
+        <div
+          className="tug-inline-dialog-footer"
+          data-slot="tug-inline-dialog-footer"
+        >
+          {footer}
         </div>
       ) : null}
     </div>

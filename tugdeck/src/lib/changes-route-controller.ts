@@ -298,8 +298,11 @@ export class ChangesRouteController extends Subscribable {
   /**
    * Commit the current selection with `message` via the app-level verb store
    * ([P07]). No-op when the selection is empty or no store is attached.
+   *
+   * `options.unstage` asks the engine to unstage whatever the index holds
+   * that this commit is not landing, rather than refuse over it.
    */
-  commit(message: string): void {
+  commit(message: string, options?: { unstage?: boolean }): void {
     const files = [...this._snapshot.committedPaths];
     if (files.length === 0) return;
     this._lastCommitMessage = message;
@@ -339,6 +342,7 @@ export class ChangesRouteController extends Subscribable {
         id: this.requestOwnerId(),
       },
       Object.keys(hunks).length > 0 ? hunks : undefined,
+      options?.unstage === true,
     );
   }
 

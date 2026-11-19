@@ -25,7 +25,9 @@ pub use anchors::{
     edit_added_lines, edit_anchor, head_excerpt, head_was_truncated, line_is_distinctive,
 };
 pub use changes::{Change, ChangesError, ChangesOptions, ChangesReport, ForeignChange, changes};
-pub use commit::{Aggregate, CommitError, CommitOptions, CommitReceipt, LeftBehind, commit};
+pub use commit::{
+    Aggregate, CommitError, CommitOptions, CommitReceipt, LeftBehind, StagedPath, commit,
+};
 pub use contention::{Anchor, Claim, ContentionVerdict, OwnerAnchors, classify_contention};
 pub use git::{
     DiffFile, DiffFileStatus, FileStat, ListingError, NumstatEntry, StatusEntry, StatusReport,

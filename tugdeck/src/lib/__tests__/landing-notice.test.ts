@@ -197,13 +197,18 @@ describe("describeLandingFailure", () => {
     expect(said.remedy).toContain("pick the hunks again");
   });
 
-  it("names a staged index and keeps the paths as evidence", () => {
-    const detail =
-      "hunk election needs a clean index; these paths are already staged:\nsrc/a.rs\nsrc/b.rs";
-    const said = describeLandingFailure("commit", detail);
-    expect(said.title).toBe("Some files are already staged");
-    expect(said.remedy).toContain("git reset");
-    expect(said.detail).toBe(detail);
+  // Retry is offered only where pressing again can come out differently. For
+  // every other cause the same press earns the same refusal, and a button
+  // that cannot work is worse than none.
+  it("offers a retry only for a cause a second press can clear", () => {
+    const act = (detail: string) => describeLandingFailure("commit", detail).act;
+    expect(act(INDEX_LOCK_STDERR)).toBe("retry");
+    expect(act("pre-commit hook failed (exit code 1)")).toBe("retry");
+    expect(act("fatal: could not read Username for 'https://github.com'")).toBe("retry");
+    expect(act("*** Please tell me who you are.")).toBe("none");
+    expect(act("nothing to commit, working tree clean")).toBe("none");
+    expect(act("hunk drift: src/main.rs no longer matches")).toBe("none");
+    expect(describeLandingFailure("join", "Cannot join: the worktree is dirty").act).toBe("retry");
   });
 
   // Matching is over the whole detail and case-insensitive, so a row still
@@ -258,7 +263,8 @@ describe("landingNoticeFace", () => {
       title: "Cannot join: the worktree is dirty",
       remedy: "Fix what it names and try again — your message is kept.",
       detail: null,
-      retry: true,
+      staged: null,
+      act: "retry",
     });
 
     // The next attempt goes pending, which empties the channel.
@@ -280,7 +286,8 @@ describe("landingNoticeFace", () => {
       title: "Join not sent",
       remedy: "Wait for the turn to finish",
       detail: null,
-      retry: false,
+      staged: null,
+      act: "none",
     });
 
     // Word for word the same sentence. Keyed on the sentence this would be the
@@ -305,7 +312,7 @@ describe("landingNoticeFace", () => {
     (staged as unknown as () => void)();
 
     const refusal = landingNoticeFace("join", controller.getSnapshot()).refusal;
-    expect(refusal).toMatchObject({ tone: "danger", title: "Join cannot run", retry: false });
+    expect(refusal).toMatchObject({ tone: "danger", title: "Join cannot run", act: "none" });
     controller.dispose();
   });
 
@@ -377,8 +384,75 @@ describe("landingNoticeFace", () => {
       tone: "danger",
       title: "Another git process is holding the repository lock",
       detail: INDEX_LOCK_STDERR,
-      retry: true,
+      act: "retry",
     });
+    controller.dispose();
+  });
+
+  // The staged index is the one failure read from data rather than from a
+  // sentence. This replaces the row that matched "already staged" in the
+  // engine's prose and folded the paths as one block of text: the engine now
+  // names them on the wire, and the notice offers the press that clears them.
+  it("reads a staged index off the wire as rows and an unstage act", () => {
+    const controller = buildController();
+    const detail =
+      "2 staged path(s) are not part of this commit, and committing picked hunks commits the whole index, so nothing was committed.";
+    getChangesetVerbStore()?.commit(ENTRY_KEY, PROJECT, ["src/a.rs"], "a message");
+    reply({
+      action: "changeset_commit_err",
+      project_dir: PROJECT,
+      detail,
+      staged: [
+        { path: "src/b.rs", status: "modified" },
+        { path: "src/c.rs", status: "deleted" },
+      ],
+    });
+
+    const settled = getChangesetVerbStore()?.commitState(ENTRY_KEY);
+    const face = landingNoticeFace("commit", {
+      ...controller.getSnapshot(),
+      landError: settled?.error ?? null,
+      landErrorStaged: settled?.staged ?? null,
+      landRefusal: null,
+    });
+    expect(face.error).toEqual({
+      key: detail,
+      channel: "error",
+      tone: "caution",
+      title: "2 staged files would ride along with this commit",
+      remedy:
+        "This commit lands part of a file, and that commits everything staged, so nothing was committed. Unstage and commit to land without them — their changes stay in your working tree.",
+      detail: null,
+      staged: [
+        { path: "src/b.rs", status: "modified" },
+        { path: "src/c.rs", status: "deleted" },
+      ],
+      act: "unstage",
+    });
+
+    // The next attempt goes pending, which drops the paths with the error.
+    getChangesetVerbStore()?.commit(
+      ENTRY_KEY,
+      PROJECT,
+      ["src/a.rs"],
+      "a message",
+      undefined,
+      undefined,
+      true,
+    );
+    expect(getChangesetVerbStore()?.commitState(ENTRY_KEY).staged).toBeNull();
+    controller.dispose();
+  });
+
+  it("says one file in the singular", () => {
+    const controller = buildController();
+    const face = landingNoticeFace("commit", {
+      ...controller.getSnapshot(),
+      landError: "1 staged path(s) are not part of this commit",
+      landErrorStaged: [{ path: "src/b.rs", status: "created" }],
+      landRefusal: null,
+    });
+    expect(face.error?.title).toBe("1 staged file would ride along with this commit");
     controller.dispose();
   });
 });

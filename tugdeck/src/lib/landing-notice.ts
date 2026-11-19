@@ -18,6 +18,18 @@
  */
 
 import type { LandingKind, LandingSnapshot } from "@/lib/landing-mode";
+import type { StagedPath } from "@/lib/changeset-types";
+
+/**
+ * The one act a notice offers beyond Dismiss.
+ *
+ * `retry` presses land again and is offered only where pressing again can
+ * come out differently — a held lock releases, a hook's complaint gets fixed.
+ * `unstage` presses land with the staged paths put back first. `none` is every
+ * failure a second press would answer in the same words: the remedy is the
+ * user's, somewhere else, and a button that cannot work is worse than none.
+ */
+export type LandingNoticeAct = "retry" | "unstage" | "none";
 
 /** One notice a landing surface can render — the words plus its identity. */
 export interface LandingNotice {
@@ -30,8 +42,10 @@ export interface LandingNotice {
   remedy: string;
   /** Verbatim detail to fold, or null when there is nothing beyond the title. */
   detail: string | null;
-  /** Whether Retry applies — true only for the error channel. */
-  retry: boolean;
+  /** The staged paths this notice is about, or null when it is about none. */
+  staged: readonly StagedPath[] | null;
+  /** What the notice's button does; always `none` on the refusal channel. */
+  act: LandingNoticeAct;
 }
 
 /** Both channels at once, because both can be true ([P02]). */
@@ -45,6 +59,8 @@ interface CauseRow {
   match: (lower: string) => boolean;
   title: string;
   remedy: string;
+  /** Whether pressing land again can come out differently for this cause. */
+  act: "retry" | "none";
 }
 
 const KEPT = "try again — your message is kept.";
@@ -61,6 +77,7 @@ const COMMIT_CAUSES: CauseRow[] = [
     match: (lower) => lower.includes("index.lock") && lower.includes("exists"),
     title: "Another git process is holding the repository lock",
     remedy: `Couldn't take .git/index.lock. If nothing else is running git here, remove the lock file and ${KEPT}`,
+    act: "retry",
   },
   {
     match: (lower) =>
@@ -69,6 +86,7 @@ const COMMIT_CAUSES: CauseRow[] = [
       lower.includes("empty ident name"),
     title: "Git doesn't know who you are yet",
     remedy: `Set user.name and user.email with git config, then ${KEPT}`,
+    act: "none",
   },
   {
     match: (lower) =>
@@ -79,6 +97,7 @@ const COMMIT_CAUSES: CauseRow[] = [
         lower.includes("exit code")),
     title: "A commit hook refused the commit",
     remedy: "Read the hook's output below, fix what it names, and try again.",
+    act: "retry",
   },
   {
     match: (lower) =>
@@ -86,19 +105,40 @@ const COMMIT_CAUSES: CauseRow[] = [
     title: "Nothing left to commit",
     remedy:
       "These files were already committed — likely by another session. Close the shade and check the transcript.",
+    act: "none",
   },
   {
     match: (lower) => lower.includes("hunk drift:"),
     title: "The hunks you picked have moved",
     remedy:
       "The file changed under your selection. Reopen the Changes shade, pick the hunks again, and try again.",
-  },
-  {
-    match: (lower) => lower.includes("already staged"),
-    title: "Some files are already staged",
-    remedy: `Picking hunks commits the whole index, so nothing is committed while other files sit in it. Unstage them with git reset, or commit whole files instead of picking hunks, and ${KEPT}`,
+    act: "none",
   },
 ];
+
+/**
+ * The index holds content the commit was not asked to land.
+ *
+ * Not a row of the table above, because it is not read out of a sentence: the
+ * engine names the paths as data and the surface draws them as rows. The
+ * title carries the count so it says something at a glance, and the remedy
+ * says what the button does to the user's work, which is nothing — unstaging
+ * leaves every byte in the working tree.
+ */
+export function describeStagedIndex(staged: readonly StagedPath[]): {
+  title: string;
+  remedy: string;
+} {
+  const count = staged.length;
+  return {
+    title:
+      count === 1
+        ? "1 staged file would ride along with this commit"
+        : `${count} staged files would ride along with this commit`,
+    remedy:
+      "This commit lands part of a file, and that commits everything staged, so nothing was committed. Unstage and commit to land without them — their changes stay in your working tree.",
+  };
+}
 
 /** git's first line, with the prefix that names a severity the title doesn't need. */
 function firstLine(detail: string): string {
@@ -120,7 +160,7 @@ function firstLine(detail: string): string {
 export function describeLandingFailure(
   kind: LandingKind,
   detail: string,
-): { title: string; remedy: string; detail: string | null } {
+): { title: string; remedy: string; detail: string | null; act: "retry" | "none" } {
   const lower = detail.toLowerCase();
   const row =
     kind === "commit" ? COMMIT_CAUSES.find((candidate) => candidate.match(lower)) : undefined;
@@ -133,7 +173,9 @@ export function describeLandingFailure(
       : `Fix what it names and ${KEPT}`;
 
   const spent = !detail.includes("\n") && detail.trim() === title;
-  return { title, remedy, detail: spent ? null : detail };
+  // A cause the table does not name is one nobody has judged, and a join's
+  // refusals clear outside the shade — both keep the press.
+  return { title, remedy, detail: spent ? null : detail, act: row ? row.act : "retry" };
 }
 
 /**
@@ -152,16 +194,31 @@ export function landingNoticeFace(kind: LandingKind, snapshot: LandingSnapshot):
   const noun = kind === "commit" ? "Commit" : "Join";
 
   const failure = snapshot.landError;
+  const staged = snapshot.landErrorStaged;
   const error: LandingNotice | null =
     failure === null
       ? null
-      : {
-          key: failure,
-          channel: "error",
-          tone: "danger",
-          retry: true,
-          ...describeLandingFailure(kind, failure),
-        };
+      : staged !== null && staged.length > 0
+        ? {
+            key: failure,
+            channel: "error",
+            // Nothing is broken and nothing was lost: the commit waited
+            // rather than take work it was not shown.
+            tone: "caution",
+            ...describeStagedIndex(staged),
+            // The rows are the evidence; the engine's sentence would only
+            // list the same paths again, in prose.
+            detail: null,
+            staged,
+            act: "unstage",
+          }
+        : {
+            key: failure,
+            channel: "error",
+            tone: "danger",
+            staged: null,
+            ...describeLandingFailure(kind, failure),
+          };
 
   const refused = snapshot.landRefusal;
   const refusal: LandingNotice | null =
@@ -174,7 +231,8 @@ export function landingNoticeFace(kind: LandingKind, snapshot: LandingSnapshot):
           title: refused.kind === "fault" ? `${noun} cannot run` : `${noun} not sent`,
           remedy: refused.sentence,
           detail: null,
-          retry: false,
+          staged: null,
+          act: "none",
         };
 
   return { error, refusal };

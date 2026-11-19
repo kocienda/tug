@@ -8014,7 +8014,8 @@ mod tests {
 
     #[test]
     fn tool_result_ids_reads_a_line_and_every_frame_of_a_batch() {
-        let single = br#"{"type":"tool_result","tool_use_id":"toolu_1","output":"","is_error":false}"#;
+        let single =
+            br#"{"type":"tool_result","tool_use_id":"toolu_1","output":"","is_error":false}"#;
         assert_eq!(tool_result_ids(single), ["toolu_1"]);
         let batch = serde_json::json!({
             "type": "replay_batch",
@@ -8037,7 +8038,10 @@ mod tests {
     #[test]
     fn settled_runs_frame_gives_each_calls_runs_back_as_written() {
         let calls = vec![
-            ("toolu_1".to_string(), br#"[{"run_id":"r","unit":"file"}]"#.to_vec()),
+            (
+                "toolu_1".to_string(),
+                br#"[{"run_id":"r","unit":"file"}]"#.to_vec(),
+            ),
             ("toolu_bad".to_string(), b"not json".to_vec()),
         ];
         let frame: serde_json::Value = serde_json::from_slice(&settled_runs_frame(&calls)).unwrap();
@@ -8059,20 +8063,28 @@ mod tests {
         use crate::feeds::agent_supervisor::CountingSessionsRecorder;
         use crate::feeds::workspace_registry::WorkspaceKey;
 
-        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
         ledger
-            .record_settled_runs("toolu_R", "claude-1", br#"[{"run_id":"r","unit":"file","units":[]}]"#, 1)
+            .record_settled_runs(
+                "toolu_R",
+                "claude-1",
+                br#"[{"run_id":"r","unit":"file","units":[]}]"#,
+                1,
+            )
             .expect("record");
         let handle = crate::ledger_handle::LedgerHandle::new(ledger);
 
         let tug_session_id = TugSessionId::new("tug-settled".to_string());
-        let ledger_entry = Arc::new(Mutex::new(crate::feeds::agent_supervisor::LedgerEntry::new(
-            tug_session_id.clone(),
-            WorkspaceKey::from_test_str("ws-test"),
-            PathBuf::from("/proj"),
-            SessionMode::Resume,
-            CrashBudget::new(3, Duration::from_secs(60)),
-        )));
+        let ledger_entry = Arc::new(Mutex::new(
+            crate::feeds::agent_supervisor::LedgerEntry::new(
+                tug_session_id.clone(),
+                WorkspaceKey::from_test_str("ws-test"),
+                PathBuf::from("/proj"),
+                SessionMode::Resume,
+                CrashBudget::new(3, Duration::from_secs(60)),
+            ),
+        ));
         ledger_entry.lock().await.claude_session_id = Some("claude-1".to_string());
         let recorder: Arc<dyn SessionsRecorder> = Arc::new(CountingSessionsRecorder::new(&[]));
         let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
@@ -8126,13 +8138,21 @@ mod tests {
             if kind == "settled_runs" {
                 restore = Some(value.clone());
             }
-            if matches!(kind.as_str(), "tool_result" | "settled_runs" | "replay_complete") {
+            if matches!(
+                kind.as_str(),
+                "tool_result" | "settled_runs" | "replay_complete"
+            ) {
                 kinds.push(kind);
             }
         }
         assert_eq!(
             kinds,
-            ["tool_result", "settled_runs", "replay_complete", "tool_result"],
+            [
+                "tool_result",
+                "settled_runs",
+                "replay_complete",
+                "tool_result"
+            ],
             "the recorded runs follow the replayed result, and only that one"
         );
         let restore = restore.unwrap();

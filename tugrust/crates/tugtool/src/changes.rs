@@ -106,6 +106,7 @@ impl From<CommitError> for AppError {
             }
             CommitError::HunkDrift { .. } => AppError::Exit1("hunk_drift", message),
             CommitError::BadPath { .. } => AppError::Exit1("bad_path", message),
+            CommitError::IndexDirty { .. } => AppError::Exit1("index_dirty", message),
             CommitError::Other(_) => AppError::Exit1("failed", message),
         }
     }
@@ -424,6 +425,7 @@ pub fn run_commit(
     leave_unattributed: bool,
     tree: bool,
     hunks: Option<String>,
+    unstage: bool,
     json: bool,
 ) -> Result<(), AppError> {
     let hunks = match hunks {
@@ -440,6 +442,7 @@ pub fn run_commit(
         leave_unattributed,
         tree,
         hunks,
+        unstage,
     })
     .map_err(refusal_to_app_error)?;
     if json {

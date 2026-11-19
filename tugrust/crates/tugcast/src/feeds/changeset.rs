@@ -2364,30 +2364,67 @@ async fn arc_entries(
 ///
 /// Returns the structured [`tugchanges_core::CommitReceipt`]; the card path takes
 /// `.sha` and the raw `.numstat` for the wire frame it already scrapes ([Q01]).
+///
+/// `unstage` is the answer to a [`CommitFailure`] that carried `staged`: the
+/// same commit again, with the paths the index held put back to unstaged first.
 pub(crate) async fn run_changeset_commit(
     repo_dir: &Path,
     files: &[String],
     message: &str,
     hunks: Option<std::collections::BTreeMap<String, Vec<String>>>,
-) -> Result<tugchanges_core::CommitReceipt, String> {
+    unstage: bool,
+) -> Result<tugchanges_core::CommitReceipt, CommitFailure> {
     let project = repo_dir.to_path_buf();
     let files = files.to_vec();
     let message = message.to_string();
     tokio::task::spawn_blocking(move || {
         // Explicit `--paths` bypasses bucketing, so this can never hit the
-        // [P03] refusal; map any `CommitError` back to the card's `String` error.
+        // [P03] refusal. Every other `CommitError` becomes the card's sentence,
+        // and the one refusal the card can act on keeps its paths as data.
         tugchanges_core::commit(tugchanges_core::CommitOptions {
             session: None,
             project: Some(project),
             message,
             paths: Some(files),
             hunks,
+            unstage,
             ..Default::default()
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| CommitFailure {
+            staged: e.staged_paths().map(<[_]>::to_vec).unwrap_or_default(),
+            detail: e.to_string(),
+        })
     })
     .await
-    .map_err(|e| format!("commit task panicked: {e}"))?
+    .map_err(|e| CommitFailure::from(format!("commit task panicked: {e}")))?
+}
+
+/// Why a card commit did not land: the sentence, and — for the one refusal the
+/// card can clear with a press — the staged paths the engine named.
+///
+/// The paths ride as data because the card renders them as rows and offers to
+/// unstage them; reading them back out of `detail` is how the old refusal came
+/// to be a centred block of monospace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CommitFailure {
+    pub(crate) detail: String,
+    /// Empty for every failure but `CommitError::IndexDirty`.
+    pub(crate) staged: Vec<tugchanges_core::StagedPath>,
+}
+
+impl From<String> for CommitFailure {
+    fn from(detail: String) -> Self {
+        CommitFailure {
+            detail,
+            staged: Vec::new(),
+        }
+    }
+}
+
+impl std::fmt::Display for CommitFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
 }
 
 /// What one proof owner claimed of one path a hunk election is about to land
@@ -6073,7 +6110,7 @@ Some context.
         git(&repo, &["add", "b.txt"]);
         std::fs::write(repo.join("c.txt"), "c\n").unwrap();
 
-        let receipt = run_changeset_commit(&repo, &["a.txt".to_string()], "commit a", None)
+        let receipt = run_changeset_commit(&repo, &["a.txt".to_string()], "commit a", None, false)
             .await
             .expect("commit succeeds");
 
@@ -6107,9 +6144,10 @@ Some context.
     async fn run_changeset_commit_stages_untracked_selections() {
         let (_temp, repo) = init_repo();
         std::fs::write(repo.join("fresh.txt"), "fresh\n").unwrap();
-        let receipt = run_changeset_commit(&repo, &["fresh.txt".to_string()], "add fresh", None)
-            .await
-            .expect("untracked selection commits");
+        let receipt =
+            run_changeset_commit(&repo, &["fresh.txt".to_string()], "add fresh", None, false)
+                .await
+                .expect("untracked selection commits");
         assert!(receipt.numstat.contains("fresh.txt"));
     }
 
@@ -6126,7 +6164,7 @@ Some context.
             ("Tug-Session-Id", FULL_ID),
         ];
         let message = tugchanges_core::append_trailers("commit a", &pair);
-        run_changeset_commit(&repo, &["a.txt".to_string()], &message, None)
+        run_changeset_commit(&repo, &["a.txt".to_string()], &message, None, false)
             .await
             .expect("commit succeeds");
         let read = |key: &'static str| {
@@ -6156,10 +6194,14 @@ Some context.
     #[tokio::test]
     async fn run_changeset_commit_refuses_empty_list_and_blank_message() {
         let (_temp, repo) = init_repo();
-        assert!(run_changeset_commit(&repo, &[], "msg", None).await.is_err());
+        assert!(
+            run_changeset_commit(&repo, &[], "msg", None, false)
+                .await
+                .is_err()
+        );
         std::fs::write(repo.join("a.txt"), "changed\n").unwrap();
         assert!(
-            run_changeset_commit(&repo, &["a.txt".to_string()], "   ", None)
+            run_changeset_commit(&repo, &["a.txt".to_string()], "   ", None, false)
                 .await
                 .is_err()
         );
@@ -6196,6 +6238,7 @@ Some context.
             &["f.txt".to_string()],
             "land the second hunk",
             Some(election),
+            false,
         )
         .await
         .expect("partial commit succeeds");
@@ -6210,11 +6253,12 @@ Some context.
     #[tokio::test]
     async fn run_changeset_commit_error_carries_git_stderr() {
         let (_temp, repo) = init_repo();
-        let err = run_changeset_commit(&repo, &["no-such-file.txt".to_string()], "msg", None)
-            .await
-            .expect_err("missing pathspec fails");
+        let err =
+            run_changeset_commit(&repo, &["no-such-file.txt".to_string()], "msg", None, false)
+                .await
+                .expect_err("missing pathspec fails");
         assert!(
-            err.contains("no-such-file.txt"),
+            err.detail.contains("no-such-file.txt"),
             "stderr detail names the bad path: {err}"
         );
     }

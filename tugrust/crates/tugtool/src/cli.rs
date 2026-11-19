@@ -188,9 +188,13 @@ pub enum Commands {
         tree: bool,
         /// Land only some hunks: a JSON file (or `-` for stdin) mapping each
         /// repo-relative path to the hunk ids to commit. Every path must also
-        /// be in the commit's file set, and the index must be clean.
+        /// be in the commit's file set, and the index may hold nothing else.
         #[arg(long, value_name = "FILE")]
         hunks: Option<String>,
+        /// With --hunks: unstage whatever the index holds that this commit is
+        /// not landing, instead of refusing. The working tree is untouched.
+        #[arg(long, requires = "hunks")]
+        unstage: bool,
     },
     /// Claim files for a session — promote "likely" hints into the changeset
     /// without re-editing them (proof-grade attribution). Paths are

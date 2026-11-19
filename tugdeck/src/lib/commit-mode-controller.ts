@@ -31,7 +31,13 @@
 import { Subscribable } from "@/lib/subscribable";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
-import type { LandOutcome, LandingMode, LandingRefusal, LandingSnapshot } from "@/lib/landing-mode";
+import type {
+  LandOutcome,
+  LandRetryOptions,
+  LandingMode,
+  LandingRefusal,
+  LandingSnapshot,
+} from "@/lib/landing-mode";
 import { CHANGES_SERVICE_DISCONNECTED, sameRefusal } from "@/lib/landing-mode";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { sendLandingReceipt } from "@/lib/landing-press-receipt";
@@ -193,6 +199,7 @@ export class CommitModeController extends Subscribable implements LandingMode {
     const commit = verbStore?.commitState(changesController.entryKey) ?? null;
     const commitPhase: CommitPhase = commit?.phase ?? "idle";
     const commitError = commit?.error ?? null;
+    const commitStaged = commitError === null ? null : (commit?.staged ?? null);
 
     const draftStore = getChangesetDraftStore();
     // Every draft read and write in this controller keys on `workspaceKey` —
@@ -257,6 +264,7 @@ export class CommitModeController extends Subscribable implements LandingMode {
       edited: changes.entry?.draft?.edited === true,
       landPhase: commitPhase,
       landError: commitError,
+      landErrorStaged: commitStaged,
       landRefusal: this.landRefusal,
       draftError,
     };
@@ -391,7 +399,7 @@ export class CommitModeController extends Subscribable implements LandingMode {
    * from ever dismissing the shade. A refusal is surfaced here and reported by
    * type ([L31]) — never a silent no-op.
    */
-  land(message: string): LandOutcome {
+  land(message: string, options?: LandRetryOptions): LandOutcome {
     const text = message.trim();
     const input = this.landGateInput(text);
     const gate = evaluateCommitLandGate(input);
@@ -400,7 +408,7 @@ export class CommitModeController extends Subscribable implements LandingMode {
     }
     this.clearRefusal();
     sendLandingReceipt({ kind: "commit", verdict: "ok", gate: commitGateFacts(input) });
-    const runCommit = () => this.performCommit(text);
+    const runCommit = () => this.performCommit(text, options);
     if (this.landHook !== null) {
       this.landHook(runCommit);
       return { kind: "staged" };
@@ -417,9 +425,14 @@ export class CommitModeController extends Subscribable implements LandingMode {
    * clears the draft, and the gate has to be re-checked because the world may
    * have moved since the failure (a turn started, the changeset emptied). One
    * land verb means Retry and Z5 cannot disagree about what a press does.
+   *
+   * `options.unstage` rides the same land to the engine, which puts the paths
+   * the last refusal named back to unstaged before it stages anything. It is
+   * still one land path: the option changes what the server does with the
+   * index, and nothing about the gate this press goes through.
    */
-  retry(): LandOutcome {
-    return this.land(this.messageProvider?.() ?? "");
+  retry(options?: LandRetryOptions): LandOutcome {
+    return this.land(this.messageProvider?.() ?? "", options);
   }
 
   /**
@@ -473,7 +486,7 @@ export class CommitModeController extends Subscribable implements LandingMode {
    * because the staged path fires a beat later, after the shade animates out,
    * so live state may have drifted (a turn started, the changeset emptied).
    */
-  private performCommit(text: string): void {
+  private performCommit(text: string, options?: LandRetryOptions): void {
     const { changesController } = this.deps;
     const verbStore = getChangesetVerbStore();
     const input = this.landGateInput(text);
@@ -483,7 +496,7 @@ export class CommitModeController extends Subscribable implements LandingMode {
       this.refuse("gate", commitDisabledReason(gate.reason), gate.reason, input);
       return;
     }
-    changesController.commit(text);
+    changesController.commit(text, { unstage: options?.unstage === true });
     if (verbStore === null) {
       // The commit went out with nothing to settle it: no phase to read, so the
       // mode would sit in a landing that never resolves. That is a fault, and
@@ -534,6 +547,7 @@ function snapshotsEqual(a: CommitModeSnapshot, b: CommitModeSnapshot): boolean {
     a.edited === b.edited &&
     a.landPhase === b.landPhase &&
     a.landError === b.landError &&
+    a.landErrorStaged === b.landErrorStaged &&
     sameRefusal(a.landRefusal, b.landRefusal) &&
     a.draftError === b.draftError
   );

@@ -78,8 +78,10 @@ import {
   SHADE_NOTICE_RANK,
   rankShadeNotices,
   shadeOriginReplay,
+  stagedPathListing,
   type ShadeNoticeCandidate,
   type ShadeNoticeTone,
+  type StagedPathRow,
 } from "./session-changes-notice-face";
 
 import "./session-changes-notice.css";
@@ -458,9 +460,11 @@ export function SessionChangesNotice(
           title: face.error.title,
           description: face.error.remedy,
           detail: face.error.detail,
-          // Retry is the error channel's alone: a press that never happened has
-          // nothing to send again.
-          act: face.error.retry ? "retry" : "none",
+          staged: face.error.staged,
+          // The act is the cause's own: a press again where pressing again
+          // can come out differently, the unstage where the index is what
+          // stands in the way, and nothing where the remedy is elsewhere.
+          act: face.error.act,
         },
         slot,
       });
@@ -561,20 +565,36 @@ export function SessionChangesNotice(
     // Writing inside a trusted click is silent in WKWebView; it is *reading*
     // the clipboard that raises the permission sheet.
     const said = face.description === null ? face.title : `${face.title}\n${face.description}`;
-    const text = face.detail === null ? said : `${said}\n\n${face.detail}`;
+    const paths = (face.staged ?? []).map((row) => `${row.path} (${row.status})`).join("\n");
+    const evidence = [paths, face.detail ?? ""].filter((part) => part.length > 0).join("\n\n");
+    const text = evidence.length === 0 ? said : `${said}\n\n${evidence}`;
     void navigator.clipboard?.writeText(text);
     setCopied(true);
   };
 
-  const handleRetry = (): void => {
+  const handleRetry = (unstage: boolean): void => {
     if (tenant.mode === null) return;
-    const outcome = tenant.mode.retry();
+    const outcome = tenant.mode.retry(unstage ? { unstage: true } : undefined);
     // A refused retry has already spoken for itself through the mode ([L31]),
     // and the reader has not moved — the branch mirrors `performSubmit`'s.
     if (outcome.kind !== "refused") notice?.onAfterRetry();
   };
 
   const retryWord = tenant.mode === null ? null : LANDING_WORDS[tenant.mode.kind].retry;
+  const actWord =
+    tenant.mode === null || face.act === "none"
+      ? null
+      : face.act === "unstage"
+        ? `Unstage and ${LANDING_WORDS[tenant.mode.kind].land}`
+        : retryWord;
+  const staged = face.staged ?? null;
+  const listing = staged === null || staged.length === 0 ? null : stagedPathListing(staged);
+  const stagedRow = (row: StagedPathRow): React.ReactElement => (
+    <li key={row.path} title={row.path}>
+      <span className="session-changes-notice-staged-name">{row.name}</span>
+      <span className="session-changes-notice-staged-status">{row.status}</span>
+    </li>
+  );
 
   return (
     <div
@@ -598,62 +618,100 @@ export function SessionChangesNotice(
         icon={toneIcon(face.tone)}
         iconTone={iconToneForTone(face.tone)}
         title={face.title}
-        description={
-          face.description === null && face.detail === null ? undefined : (
-            <>
-              {face.description}
-              {face.detail !== null ? (
-                <details className="session-changes-notice-evidence">
-                  <summary>Show git&rsquo;s message</summary>
-                  <pre>{face.detail}</pre>
-                </details>
-              ) : null}
-            </>
+        // The reading arrangement: a title that wraps rather than truncates,
+        // the remedy set left under it at the band's full width, and the acts
+        // on a row of their own. The bar this used to wear is a prompt's
+        // shape, and it cut "Some files are already staged" off at "sta…" to
+        // make room for two buttons.
+        variant="notice"
+        description={face.description ?? undefined}
+        // Only Dismiss shares the title's row. The caller owns these buttons
+        // and therefore owns focus — and owns it by declining it. No ref, no
+        // focus on mount ([P17]).
+        actions={
+          // Dismiss rides every tenant, not only the actless ones. A standing
+          // server error whose only way out was a second landing would be a
+          // notice the user cannot put down, and the per-channel dismissal
+          // above would be unreachable.
+          <TugIconButton
+            icon={<X size={14} />}
+            aria-label="Dismiss"
+            size="xs"
+            onClick={() => setDismissed((prev) => ({ ...prev, [tenant.slot]: face.key }))}
+            data-testid="session-landing-notice-dismiss"
+          />
+        }
+        footer={
+          face.detail === null && actWord === null ? undefined : (
+          <>
+            {/* One accent per band: Copy is the quiet outlined button, and the
+                act is the one filled call — two coloured buttons side by side
+                read as two asks. Copy goes with evidence worth copying, which
+                is git's own words; the act goes with a cause a press can
+                clear. Neither is red: nothing either one does is destructive,
+                and the tone already rides the icon. */}
+            {face.detail !== null ? (
+              <TugPushButton
+                emphasis="outlined"
+                size="sm"
+                onClick={handleCopy}
+                data-testid="session-landing-notice-copy"
+              >
+                {copied ? "Copied" : "Copy details"}
+              </TugPushButton>
+            ) : null}
+            {actWord !== null ? (
+              <TugPushButton
+                emphasis="filled"
+                role="action"
+                size="sm"
+                onClick={() => handleRetry(face.act === "unstage")}
+                data-testid={
+                  face.act === "unstage"
+                    ? "session-landing-notice-unstage"
+                    : "session-landing-notice-retry"
+                }
+              >
+                {actWord}
+              </TugPushButton>
+            ) : null}
+          </>
           )
         }
-        // The caller owns these buttons and therefore owns focus — and owns it
-        // by declining it. No ref, no focus on mount ([P17]).
-        actions={
+      >
+        {listing === null && face.detail === null ? undefined : (
           <>
-            {face.act === "retry" && retryWord !== null ? (
-              <>
-                {/* One accent per band: Copy is the quiet outlined button in
-                    the neutral action role, and Retry is the one filled,
-                    role-coloured call — two coloured buttons side by side
-                    read as two asks. */}
-                <TugPushButton
-                  emphasis="outlined"
-                  size="sm"
-                  onClick={handleCopy}
-                  data-testid="session-landing-notice-copy"
-                >
-                  {copied ? "Copied" : "Copy details"}
-                </TugPushButton>
-                <TugPushButton
-                  emphasis="filled"
-                  role="danger"
-                  size="sm"
-                  onClick={handleRetry}
-                  data-testid="session-landing-notice-retry"
-                >
-                  {retryWord}
-                </TugPushButton>
-              </>
+            {listing !== null ? (
+              // The staged paths as rows, not as a paragraph: the directory
+              // they share said once, each row the part that tells it from its
+              // neighbours, and the remainder one fold away. The whole list is
+              // height-capped, so twenty paths cannot push the shade up over
+              // the transcript.
+              <div
+                className="session-changes-notice-staged"
+                data-testid="session-landing-notice-staged"
+              >
+                {listing.dir !== null ? (
+                  <div className="session-changes-notice-staged-dir">{listing.dir}</div>
+                ) : null}
+                <ul>{listing.head.map(stagedRow)}</ul>
+                {listing.rest.length > 0 ? (
+                  <details>
+                    <summary>{listing.rest.length} more</summary>
+                    <ul>{listing.rest.map(stagedRow)}</ul>
+                  </details>
+                ) : null}
+              </div>
             ) : null}
-            {/* Dismiss rides every tenant, not only the actless ones. A
-                standing server error whose only way out was a second landing
-                would be a notice the user cannot put down, and the per-channel
-                dismissal above would be unreachable. */}
-            <TugIconButton
-              icon={<X size={14} />}
-              aria-label="Dismiss"
-              size="xs"
-              onClick={() => setDismissed((prev) => ({ ...prev, [tenant.slot]: face.key }))}
-              data-testid="session-landing-notice-dismiss"
-            />
+            {face.detail !== null ? (
+              <details className="session-changes-notice-evidence">
+                <summary>Show git&rsquo;s message</summary>
+                <pre>{face.detail}</pre>
+              </details>
+            ) : null}
           </>
-        }
-      />
+        )}
+      </TugInlineDialog>
     </div>
   );
 }

@@ -3987,7 +3987,8 @@ impl AgentSupervisor {
             return;
         };
         let now_ms = crate::session_ledger::now_millis();
-        if let Err(err) = ledger.record_settled_runs(tool_use_id, &claude_session_id, &runs, now_ms) {
+        if let Err(err) = ledger.record_settled_runs(tool_use_id, &claude_session_id, &runs, now_ms)
+        {
             crate::ledger_integrity::health::note_error("sessions", &err);
             warn!(error = %err, tool_use_id = %tool_use_id, "settled runs not recorded");
         }
@@ -4264,12 +4265,15 @@ impl AgentSupervisor {
                     .iter()
                     .find(|(_, run)| run.moved && run.task_id.as_deref() == Some(task.as_str()))
                     .map(|(id, _)| id.clone());
-                ended_run = moved_id.and_then(|id| entry.open_runs.remove(&id).map(|run| (id, run)));
+                ended_run =
+                    moved_id.and_then(|id| entry.open_runs.remove(&id).map(|run| (id, run)));
                 ended_background = entry
                     .open_runs
                     .iter()
                     .find(|(_, run)| {
-                        run.background && !run.moved && run.task_id.as_deref() == Some(task.as_str())
+                        run.background
+                            && !run.moved
+                            && run.task_id.as_deref() == Some(task.as_str())
                     })
                     .map(|(id, run)| (id.clone(), run.clone()));
                 // A wake means the model is speaking again, so the gap every
@@ -9122,9 +9126,11 @@ mod tests {
             ])),
             ..report(&[])
         };
-        sup.publish_report("sess-seq", snapshot("pass", "running")).await;
+        sup.publish_report("sess-seq", snapshot("pass", "running"))
+            .await;
         let first = next_report(&mut code_rx, "sess-seq");
-        sup.publish_report("sess-seq", snapshot("running", "pending")).await;
+        sup.publish_report("sess-seq", snapshot("running", "pending"))
+            .await;
         let second = next_report(&mut code_rx, "sess-seq");
         assert_eq!((&first["seq"], &second["seq"]), (&1.into(), &2.into()));
         assert_eq!(second["units"][0]["status"], "pass");
@@ -9173,7 +9179,11 @@ mod tests {
         let rows = ledger
             .settled_runs_for(&["toolu_U".to_string(), "toolu_L".to_string()])
             .unwrap();
-        assert_eq!(rows.len(), 1, "only the call with a unit report recorded: {rows:?}");
+        assert_eq!(
+            rows.len(),
+            1,
+            "only the call with a unit report recorded: {rows:?}"
+        );
         assert_eq!(rows[0].0, "toolu_U");
         let runs: serde_json::Value = serde_json::from_slice(&rows[0].1).unwrap();
         assert_eq!(runs[0]["run_id"], "r");

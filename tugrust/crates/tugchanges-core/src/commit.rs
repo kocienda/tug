@@ -16,10 +16,11 @@
 //! `git commit -m <message> -- <files>` — never `git add .` — so anything else
 //! already in the index stays out of the commit, and the receipt can't disagree
 //! with what was staged. `hunks` elects a subset of one file's hunks and
-//! switches staging into the [P07] mode: a clean index is required, elected
-//! files are staged by piping a filtered patch to `git apply --cached`, and the
-//! commit takes no pathspec (a pathspec commits working-tree content, which
-//! would drag the unelected hunks in).
+//! switches staging into the [P07] mode: the index may hold nothing the commit
+//! was not asked to land ([`CommitError::IndexDirty`] names what it holds),
+//! elected files are staged by piping a filtered patch to `git apply --cached`,
+//! and the commit takes no pathspec (a pathspec commits working-tree content,
+//! which would drag the unelected hunks in).
 //!
 //! The result is a structured [`CommitReceipt`] (Spec S03), not scraped text,
 //! with a raw `numstat` field retained as the transition bridge ([Q01]) and a
@@ -56,6 +57,11 @@ pub struct CommitOptions {
     /// Absent or empty means whole-file staging for everything — the pathspec
     /// path this module has always taken.
     pub hunks: Option<BTreeMap<String, Vec<String>>>,
+    /// Unstage whatever a hunk election finds in the index that the commit was
+    /// not asked to land, instead of refusing with
+    /// [`CommitError::IndexDirty`]. The working tree is never touched: the
+    /// paths go back to being unstaged changes. Meaningless without `hunks`.
+    pub unstage: bool,
 }
 
 /// The typed outcome of a failed [`commit`] (Spec S03). `UnattributedPresent` is
@@ -74,6 +80,10 @@ pub enum CommitError {
     /// Tug was about to hand git a path git does not know — [B04]'s tripwire.
     /// Nothing was staged and nothing committed. Carries the offending paths.
     BadPath { paths: Vec<String> },
+    /// A hunk election found content in the index that the commit was not
+    /// asked to land ([P07]). Nothing was staged and nothing committed. Carries
+    /// each staged path with what is staged for it.
+    IndexDirty { paths: Vec<StagedPath> },
     /// A real error (git/sqlite/io/blank message) — exit 1.
     Other(String),
 }
@@ -82,6 +92,16 @@ impl CommitError {
     /// Whether this is the [P03] refusal (exit 3) rather than a real error.
     pub fn is_refusal(&self) -> bool {
         matches!(self, CommitError::UnattributedPresent { .. })
+    }
+
+    /// The staged paths an [`CommitError::IndexDirty`] refusal names, so a
+    /// caller can carry them as data rather than read them back out of the
+    /// sentence.
+    pub fn staged_paths(&self) -> Option<&[StagedPath]> {
+        match self {
+            CommitError::IndexDirty { paths } => Some(paths),
+            _ => None,
+        }
     }
 }
 
@@ -105,6 +125,18 @@ impl fmt::Display for CommitError {
                 paths.len(),
                 paths.join(", ")
             ),
+            CommitError::IndexDirty { paths } => write!(
+                f,
+                "{} staged path(s) are not part of this commit, and committing picked hunks \
+                 commits the whole index, so nothing was committed. Unstage them with \
+                 `git restore --staged`, or re-run with --unstage. The path(s): {}",
+                paths.len(),
+                paths
+                    .iter()
+                    .map(|p| format!("{} ({})", p.path, p.status))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             CommitError::Other(msg) => write!(f, "{msg}"),
         }
     }
@@ -114,6 +146,17 @@ impl From<String> for CommitError {
     fn from(msg: String) -> Self {
         CommitError::Other(msg)
     }
+}
+
+/// One path a hunk election found staged that it was not asked to land.
+///
+/// `status` is what the index holds for it against `HEAD`: `created`,
+/// `modified` or `deleted`. A staged rename reads as its two halves, since
+/// either half can be outside the commit on its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StagedPath {
+    pub path: String,
+    pub status: String,
 }
 
 /// Roll-up totals across the committed files.
@@ -173,7 +216,7 @@ pub fn commit(opts: CommitOptions) -> Result<CommitReceipt, CommitError> {
 
     let elections = normalize_elections(opts.hunks.as_ref(), &files)?;
     check_operands(&repo_root, &files)?;
-    stage_and_commit(&repo_root, &files, &opts.message, &elections)?;
+    stage_and_commit(&repo_root, &files, &opts.message, &elections, opts.unstage)?;
     let mut receipt = build_receipt(&repo_root, &opts.message).map_err(CommitError::Other)?;
     receipt.left_behind = compute_left_behind(&opts);
     Ok(receipt)
@@ -363,18 +406,20 @@ fn compute_left_behind(opts: &CommitOptions) -> LeftBehind {
 ///   records the rename.
 ///
 /// When any file carries a hunk election the shape changes ([P07]): the index
-/// must start clean, the elected files are staged by piping a filtered patch to
-/// `git apply --cached`, and the commit runs with **no** pathspec — a pathspec
-/// would commit working-tree content for those paths and drag the unelected
-/// hunks in with it. See [`stage_partial_and_commit`].
+/// may hold nothing the commit was not asked to land, the elected files are
+/// staged by piping a filtered patch to `git apply --cached`, and the commit
+/// runs with **no** pathspec — a pathspec would commit working-tree content for
+/// those paths and drag the unelected hunks in with it. See
+/// [`stage_partial_and_commit`].
 fn stage_and_commit(
     repo_root: &Path,
     files: &[String],
     message: &str,
     elections: &BTreeMap<String, BTreeSet<String>>,
+    unstage: bool,
 ) -> Result<(), CommitError> {
     if !elections.is_empty() {
-        return stage_partial_and_commit(repo_root, files, message, elections);
+        return stage_partial_and_commit(repo_root, files, message, elections, unstage);
     }
 
     let stageable = stageable_paths(repo_root, files);
@@ -423,19 +468,32 @@ fn normalize_elections(
 
 /// The partial-staging branch ([P07]).
 ///
-/// Every filtered patch is built *before* anything is staged, so drift is a
-/// clean refusal that never touched the index. Staging then runs whole-file
-/// paths through `git add` and elected paths through `git apply --cached`; if
-/// any step after that fails, the whole staged set — whole-file paths included
-/// — is reset, or our own residue would trip the next attempt's index-clean
-/// precondition.
+/// The index is read first ([`index_blockers`]): anything staged that this
+/// commit was not asked to land refuses it, or — when the caller said
+/// `unstage` — is put back to unstaged before anything else happens.
+///
+/// Every filtered patch is then built *before* anything is staged, so drift is
+/// a clean refusal that never staged a thing. Staging runs whole-file paths
+/// through `git add` and elected paths through `git apply --cached`; if any
+/// step after that fails the index is put back exactly as staging found it
+/// ([`IndexSnapshot`]), so our own residue cannot trip the next attempt and a
+/// rename the user staged is still a rename.
 pub(crate) fn stage_partial_and_commit(
     repo_root: &Path,
     files: &[String],
     message: &str,
     elections: &BTreeMap<String, BTreeSet<String>>,
+    unstage: bool,
 ) -> Result<(), CommitError> {
-    require_clean_index(repo_root)?;
+    let blockers = index_blockers(repo_root, files, elections)?;
+    if !blockers.is_empty() {
+        if !unstage {
+            return Err(CommitError::IndexDirty { paths: blockers });
+        }
+        let mut reset_args: Vec<&str> = vec!["reset", "--quiet", "--"];
+        reset_args.extend(blockers.iter().map(|b| b.path.as_str()));
+        run_git_step(repo_root, &reset_args, "git reset failed")?;
+    }
 
     let tracked = tracked_paths(repo_root, files);
     let mut patches: Vec<(&String, String)> = Vec::new();
@@ -466,17 +524,18 @@ pub(crate) fn stage_partial_and_commit(
         .cloned()
         .collect();
     let stageable = stageable_paths(repo_root, &whole);
+    let snapshot = IndexSnapshot::take(repo_root);
     if !stageable.is_empty() {
         let mut add_args: Vec<&str> = vec!["add", "--"];
         add_args.extend(stageable.iter().map(String::as_str));
         run_git_step(repo_root, &add_args, "git add failed").inspect_err(|_| {
-            reset_index(repo_root, files);
+            snapshot.restore(repo_root, files);
         })?;
     }
 
     for (path, patch) in &patches {
         if let Err(e) = git_apply_cached(repo_root, patch) {
-            reset_index(repo_root, files);
+            snapshot.restore(repo_root, files);
             return Err(CommitError::Other(format!(
                 "git apply --cached failed for {path}: {e}"
             )));
@@ -484,26 +543,96 @@ pub(crate) fn stage_partial_and_commit(
     }
 
     run_git_step(repo_root, &["commit", "-m", message], "git commit failed").inspect_err(|_| {
-        reset_index(repo_root, files);
+        snapshot.restore(repo_root, files);
     })?;
     Ok(())
 }
 
-/// Refuse unless the index holds nothing, naming what is staged. Partial
-/// staging commits the whole index without a pathspec, so pre-existing staged
-/// content would silently ride along in the receipt's blind spot.
-fn require_clean_index(repo_root: &Path) -> Result<(), CommitError> {
-    let output =
-        git::git_output(repo_root, &["diff", "--cached", "--quiet"]).map_err(CommitError::Other)?;
-    if output.status.success() {
-        return Ok(());
+/// What the index holds that a hunk election was not asked to land, sorted by
+/// path. Partial staging commits the whole index without a pathspec, so this is
+/// exactly the content that would ride along in the receipt's blind spot.
+///
+/// Two shapes are in that blind spot and nothing else is:
+///
+/// * a staged path **outside the commit's file set** — somebody else's work;
+/// * staged content on a path **carrying an election** — the card's hunks are
+///   read against the index, so what is already staged there is content the
+///   user was never shown and did not elect.
+///
+/// A staged path the commit lands *whole* is neither: the next step runs `git
+/// add` on it anyway, and a deletion already staged is the very removal the
+/// commit was asked for. Nor is the source of a staged rename whose
+/// destination lands whole — that is one rename, and committing the
+/// destination without it records an addition. This matters because Tug's own
+/// `file rm` and `file mv` stage through git: refusing those would refuse the
+/// tree the sanctioned verbs leave behind.
+fn index_blockers(
+    repo_root: &Path,
+    files: &[String],
+    elections: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<Vec<StagedPath>, CommitError> {
+    let staged = git::read_name_status(
+        repo_root,
+        &["diff", "--cached", "--name-status", "--no-renames"],
+    )
+    .map_err(|e| CommitError::Other(format!("cannot read the index before committing: {e}")))?;
+    if staged.is_empty() {
+        return Ok(Vec::new());
     }
-    let staged = git::read_paths(repo_root, &["diff", "--cached", "--name-only"])
-        .unwrap_or_default()
-        .join("\n");
-    Err(CommitError::Other(format!(
-        "hunk election needs a clean index; these paths are already staged:\n{staged}"
-    )))
+
+    let lands_whole = |path: &String| files.contains(path) && !elections.contains_key(path);
+    let rename_sources: BTreeSet<String> = git::read_rename_pairs(
+        repo_root,
+        &["diff", "--cached", "--name-status", "--find-renames"],
+    )
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|(_, destination)| lands_whole(destination))
+    .map(|(source, _)| source)
+    .collect();
+
+    let mut blockers: Vec<StagedPath> = staged
+        .into_iter()
+        .filter(|(path, _)| !lands_whole(path) && !rename_sources.contains(path))
+        .map(|(path, status)| StagedPath { path, status })
+        .collect();
+    blockers.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(blockers)
+}
+
+/// The index as partial staging found it, so a failed attempt can put it back.
+///
+/// A reset is not enough once the index is allowed to start with content in
+/// it: resetting a staged rename's destination leaves the source's deletion
+/// staged and the destination untracked, which is a different tree from the
+/// one the user had and one the next attempt would refuse. Restoring the bytes
+/// is exact. When the index cannot be read there is nothing to restore from,
+/// and the old reset is what is left.
+struct IndexSnapshot {
+    saved: Option<(PathBuf, Vec<u8>)>,
+}
+
+impl IndexSnapshot {
+    fn take(repo_root: &Path) -> Self {
+        let saved = git::git_stdout(repo_root, &["rev-parse", "--git-path", "index"])
+            .ok()
+            .map(|out| repo_root.join(out.trim()))
+            .and_then(|path| std::fs::read(&path).ok().map(|bytes| (path, bytes)));
+        IndexSnapshot { saved }
+    }
+
+    /// Put the index back, best-effort — this runs on a failure path whose real
+    /// error is the one worth reporting.
+    fn restore(&self, repo_root: &Path, files: &[String]) {
+        if let Some((path, bytes)) = &self.saved {
+            let scratch = path.with_extension("tug-restore");
+            if std::fs::write(&scratch, bytes).is_ok() && std::fs::rename(&scratch, path).is_ok() {
+                return;
+            }
+            let _ = std::fs::remove_file(&scratch);
+        }
+        reset_index(repo_root, files);
+    }
 }
 
 /// Which of `files` git already tracks. An untracked path has no diff against
@@ -1173,9 +1302,180 @@ mod tests {
             ..Default::default()
         })
         .expect_err("a dirty index refuses");
-        let detail = err.to_string();
-        assert!(detail.contains("clean index"), "detail was: {detail}");
-        assert!(detail.contains("preexisting.txt"), "detail was: {detail}");
+        assert_eq!(
+            err.staged_paths(),
+            Some(
+                &[StagedPath {
+                    path: "preexisting.txt".to_string(),
+                    status: "created".to_string(),
+                }][..]
+            ),
+            "the refusal names what is staged, as data: {err}"
+        );
+        assert!(
+            err.to_string().contains("preexisting.txt"),
+            "and in its sentence: {err}"
+        );
+        assert_eq!(
+            git(root, &["diff", "--cached", "--name-only"]).trim(),
+            "preexisting.txt",
+            "a refusal leaves the index as it found it"
+        );
+    }
+
+    /// `tugtool file rm` stages its deletion through git. A commit that lands
+    /// that deletion whole beside a hunk election on another file is the tree
+    /// the sanctioned verb leaves behind, and it has to commit.
+    #[test]
+    fn a_staged_deletion_the_commit_lands_whole_does_not_refuse_an_election() {
+        let repo = init_repo();
+        let root = repo.path();
+        seed_three_hunk_file(root, "f.txt");
+        let ids = hunk_ids(root, "f.txt");
+        git(root, &["rm", "-q", "base.txt"]);
+
+        commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "land the middle hunk and the removal".to_string(),
+            paths: Some(vec!["f.txt".to_string(), "base.txt".to_string()]),
+            hunks: elect("f.txt", &[&ids[1]]),
+            ..Default::default()
+        })
+        .expect("a staged deletion in the commit's own set is not a dirty index");
+
+        let landed = git(root, &["show", "--name-status", "--format=", "HEAD"]);
+        assert!(landed.contains("D\tbase.txt"), "landed: {landed}");
+        assert!(landed.contains("M\tf.txt"), "landed: {landed}");
+        let shown = git(root, &["show", "HEAD", "--", "f.txt"]);
+        assert!(shown.contains("+CHANGED-B"), "shown: {shown}");
+        assert!(!shown.contains("INSERTED-A"), "shown: {shown}");
+    }
+
+    /// `tugtool file mv` stages a rename through git, and the ledger names only
+    /// the destination. The source's staged deletion is the same rename, not a
+    /// stranger in the index.
+    #[test]
+    fn a_staged_rename_the_commit_lands_whole_does_not_refuse_an_election() {
+        let repo = init_repo();
+        let root = repo.path();
+        seed_three_hunk_file(root, "f.txt");
+        let ids = hunk_ids(root, "f.txt");
+        git(root, &["mv", "base.txt", "moved.txt"]);
+
+        commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "land the middle hunk and the rename".to_string(),
+            paths: Some(vec!["f.txt".to_string(), "moved.txt".to_string()]),
+            hunks: elect("f.txt", &[&ids[1]]),
+            ..Default::default()
+        })
+        .expect("a staged rename whose destination lands whole is not a dirty index");
+
+        let landed = git(root, &["show", "--name-status", "--format=", "-M", "HEAD"]);
+        assert!(landed.contains("base.txt\tmoved.txt"), "landed: {landed}");
+        assert!(
+            git(root, &["diff", "--cached", "--name-only"]).is_empty(),
+            "nothing is left staged"
+        );
+    }
+
+    /// The card's hunks are read against the index, so content already staged
+    /// on an elected file is content nobody was shown.
+    #[test]
+    fn staged_content_on_an_elected_file_refuses() {
+        let repo = init_repo();
+        let root = repo.path();
+        let edited = seed_three_hunk_file(root, "f.txt");
+        git(root, &["add", "f.txt"]);
+        std::fs::write(root.join("f.txt"), edited.replace("line45\n", "LATER\n")).unwrap();
+        let (_, hunks) = file_diff_hunks(root, "f.txt").expect("file diff");
+        let id = hunks[0].id.clone();
+
+        let err = commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "land the later hunk".to_string(),
+            paths: Some(vec!["f.txt".to_string()]),
+            hunks: elect("f.txt", &[&id]),
+            ..Default::default()
+        })
+        .expect_err("staged content under an election refuses");
+        let staged = err.staged_paths().expect("an IndexDirty refusal");
+        assert_eq!(staged.len(), 1, "{err}");
+        assert_eq!(staged[0].path, "f.txt");
+        assert_eq!(staged[0].status, "modified");
+    }
+
+    /// `unstage` is the refusal's own remedy: the stranger goes back to being
+    /// an unstaged change, its bytes untouched, and the election lands alone.
+    #[test]
+    fn unstage_puts_the_stranger_back_and_lands_the_election() {
+        let repo = init_repo();
+        let root = repo.path();
+        seed_three_hunk_file(root, "f.txt");
+        let ids = hunk_ids(root, "f.txt");
+        std::fs::write(root.join("base.txt"), "base, edited\n").unwrap();
+        git(root, &["add", "base.txt"]);
+
+        commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "land the middle hunk".to_string(),
+            paths: Some(vec!["f.txt".to_string()]),
+            hunks: elect("f.txt", &[&ids[1]]),
+            unstage: true,
+            ..Default::default()
+        })
+        .expect("unstage clears the refusal");
+
+        let landed = git(root, &["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(landed.trim(), "f.txt", "only the election landed");
+        assert!(
+            git(root, &["diff", "--cached", "--name-only"]).is_empty(),
+            "the stranger is no longer staged"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("base.txt")).unwrap(),
+            "base, edited\n",
+            "and its working-tree bytes were never touched"
+        );
+    }
+
+    /// A failure after staging puts the index back as it was found, so a
+    /// staged rename the commit was landing is still a rename for the retry.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_partial_commit_restores_the_index_it_found() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let repo = init_repo();
+        let root = repo.path();
+        seed_three_hunk_file(root, "f.txt");
+        let ids = hunk_ids(root, "f.txt");
+        git(root, &["mv", "base.txt", "moved.txt"]);
+        let before = git(root, &["status", "--porcelain"]);
+
+        let hooks = root.join("hooks-that-refuse");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let hook = hooks.join("pre-commit");
+        std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        git(root, &["config", "core.hooksPath", "hooks-that-refuse"]);
+
+        commit(CommitOptions {
+            project: Some(root.to_path_buf()),
+            message: "refused by the hook".to_string(),
+            paths: Some(vec!["f.txt".to_string(), "moved.txt".to_string()]),
+            hunks: elect("f.txt", &[&ids[1]]),
+            ..Default::default()
+        })
+        .expect_err("the hook refuses");
+
+        // The hooks directory is untracked noise in both reads' terms.
+        let after = git(root, &["status", "--porcelain"]);
+        assert_eq!(
+            after.replace("?? hooks-that-refuse/\n", ""),
+            before,
+            "the index is as staging found it"
+        );
     }
 
     #[test]

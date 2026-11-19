@@ -1668,6 +1668,7 @@ mod tests {
             &["three.rs".to_owned()],
             "land part of the file",
             &elections,
+            false,
         )
         .expect("partial commit");
     }

@@ -347,7 +347,10 @@ fn keyed(rows: &[serde_json::Value]) -> std::collections::BTreeMap<u64, serde_js
     rows.iter()
         .enumerate()
         .map(|(at, row)| {
-            let key = row.get("index").and_then(|i| i.as_u64()).unwrap_or(at as u64);
+            let key = row
+                .get("index")
+                .and_then(|i| i.as_u64())
+                .unwrap_or(at as u64);
             (key, row.clone())
         })
         .collect()
@@ -581,7 +584,10 @@ mod tests {
             &listed(serde_json::json!([{"name": "a", "status": "running", "index": 0, "started_at_ms": 5}])),
             1,
         );
-        let run = call.fold(&listed(serde_json::json!([{"name": "a", "status": "pending", "index": 0}])), 2);
+        let run = call.fold(
+            &listed(serde_json::json!([{"name": "a", "status": "pending", "index": 0}])),
+            2,
+        );
         assert_eq!(statuses(run), ["running"]);
         assert_eq!(run.units.as_ref().unwrap()[0]["started_at_ms"], 5);
     }
@@ -601,7 +607,10 @@ mod tests {
         );
         let row = &run.units.as_ref().unwrap()[0];
         assert_eq!(row["status"], "fail", "a landed status is final");
-        assert_eq!(row["history"], "red for 3 runs", "an amend's history line is taken");
+        assert_eq!(
+            row["history"], "red for 3 runs",
+            "an amend's history line is taken"
+        );
         assert_eq!(row["secs"], 4);
         assert_eq!(run.failures, Some(1));
     }
@@ -656,7 +665,10 @@ mod tests {
             ),
             3,
         );
-        assert_eq!((run.done, run.failures, run.total), (Some(748), Some(2), Some(748)));
+        assert_eq!(
+            (run.done, run.failures, run.total),
+            (Some(748), Some(2), Some(748))
+        );
         assert_eq!(statuses(run).len(), 2);
     }
 
@@ -666,10 +678,16 @@ mod tests {
         let seqs: Vec<u64> = [Some("a"), Some("b"), Some("a")]
             .into_iter()
             .enumerate()
-            .map(|(at, id)| call.fold(&report(id, "x", serde_json::json!([])), at as i64).seq)
+            .map(|(at, id)| {
+                call.fold(&report(id, "x", serde_json::json!([])), at as i64)
+                    .seq
+            })
             .collect();
         assert_eq!(seqs, [1, 2, 3]);
-        assert_eq!(call.runs[0].seq, 3, "the run carries the call's count at its latest fold");
+        assert_eq!(
+            call.runs[0].seq, 3,
+            "the run carries the call's count at its latest fold"
+        );
         assert_eq!(call.runs[1].seq, 2);
     }
 
@@ -689,7 +707,10 @@ mod tests {
             },
             1,
         );
-        assert_eq!((run.done, run.failures, run.total), (Some(3), Some(1), Some(4)));
+        assert_eq!(
+            (run.done, run.failures, run.total),
+            (Some(3), Some(1), Some(4))
+        );
         // A row the latest snapshot lacks is kept, and still counts.
         let run = call.fold(
             &listed(serde_json::json!([{"name": "a", "status": "pass", "index": 0}])),
@@ -702,17 +723,29 @@ mod tests {
     #[test]
     fn settled_json_holds_unit_runs_in_order_and_skips_one_liners() {
         let mut call = CallRuns::default();
-        assert_eq!(call.settled_json(), None, "a call with no runs records nothing");
+        assert_eq!(
+            call.settled_json(),
+            None,
+            "a call with no runs records nothing"
+        );
         let line = Report {
             label: Some("rust".into()),
             text: "compiling".into(),
             ..Report::default()
         };
         call.fold(&line, 1);
-        assert_eq!(call.settled_json(), None, "a call that only said a line records nothing");
-        call.fold(&listed(serde_json::json!([{"name": "a", "status": "pass", "index": 0}])), 2);
+        assert_eq!(
+            call.settled_json(),
+            None,
+            "a call that only said a line records nothing"
+        );
+        call.fold(
+            &listed(serde_json::json!([{"name": "a", "status": "pass", "index": 0}])),
+            2,
+        );
         call.fold(&report(Some("r2"), "phases", serde_json::json!([])), 3);
-        let bodies: serde_json::Value = serde_json::from_slice(&call.settled_json().unwrap()).unwrap();
+        let bodies: serde_json::Value =
+            serde_json::from_slice(&call.settled_json().unwrap()).unwrap();
         let ids: Vec<&str> = bodies
             .as_array()
             .unwrap()
@@ -721,7 +754,10 @@ mod tests {
             .collect();
         assert_eq!(ids, ["r", "r2"]);
         let first = &bodies[0];
-        assert_eq!((first["run_ord"].as_u64(), first["seq"].as_u64()), (Some(1), Some(2)));
+        assert_eq!(
+            (first["run_ord"].as_u64(), first["seq"].as_u64()),
+            (Some(1), Some(2))
+        );
         assert_eq!(first["units"][0]["status"], "pass");
         assert!(first.get("type").is_none() && first.get("tool_use_id").is_none());
     }
@@ -736,14 +772,28 @@ mod tests {
             )
         };
         let mut call = CallRuns::default();
-        call.fold(&listed(rows(&"m".repeat(SETTLED_RUNS_CAP_BYTES / 2), "a")), 1);
-        let kept: serde_json::Value = serde_json::from_slice(&call.settled_json().unwrap()).unwrap();
+        call.fold(
+            &listed(rows(&"m".repeat(SETTLED_RUNS_CAP_BYTES / 2), "a")),
+            1,
+        );
+        let kept: serde_json::Value =
+            serde_json::from_slice(&call.settled_json().unwrap()).unwrap();
         let row = &kept[0]["units"][0];
         assert!(row.get("message").is_none(), "the messages went");
-        assert_eq!((row["status"].as_str(), row["title"].as_str()), (Some("fail"), Some("t")));
+        assert_eq!(
+            (row["status"].as_str(), row["title"].as_str()),
+            (Some("fail"), Some("t"))
+        );
 
         let mut huge = CallRuns::default();
-        huge.fold(&listed(rows("m", &"n".repeat(SETTLED_RUNS_CAP_BYTES / 2))), 1);
-        assert_eq!(huge.settled_json(), None, "past the cap with no messages to drop");
+        huge.fold(
+            &listed(rows("m", &"n".repeat(SETTLED_RUNS_CAP_BYTES / 2))),
+            1,
+        );
+        assert_eq!(
+            huge.settled_json(),
+            None,
+            "past the cap with no messages to drop"
+        );
     }
 }

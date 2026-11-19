@@ -525,6 +525,8 @@ export class JoinModeController extends Subscribable implements LandingMode {
       landReady: this.active && gate.ok && messagePresent,
       landPhase: joinPhase,
       landError,
+      // A join stages nothing of the user's: it has no index to be dirty.
+      landErrorStaged: null,
       landRefusal: this.landRefusal,
       draftPhase,
       draftText,

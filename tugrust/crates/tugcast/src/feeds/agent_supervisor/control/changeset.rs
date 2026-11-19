@@ -23,6 +23,10 @@ pub(in crate::feeds::agent_supervisor) struct ChangesetCommitPayload {
     /// ids of the hunks to land. Absent means whole-file staging for every
     /// path, which is what every caller sent before hunks existed.
     pub(in crate::feeds::agent_supervisor) hunks: Option<BTreeMap<String, Vec<String>>>,
+    /// Unstage what the index holds that this commit was not asked to land,
+    /// rather than refusing over it — the press that answers a
+    /// `changeset_commit_err` carrying `staged`. Absent reads as `false`.
+    pub(in crate::feeds::agent_supervisor) unstage: bool,
 }
 
 pub(in crate::feeds::agent_supervisor) fn parse_changeset_commit_payload(
@@ -60,12 +64,17 @@ pub(in crate::feeds::agent_supervisor) fn parse_changeset_commit_payload(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let hunks = parse_hunk_election(&value, &files)?;
+    let unstage = value
+        .get("unstage")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     Ok(ChangesetCommitPayload {
         project_dir,
         files,
         message,
         session_id,
         hunks,
+        unstage,
     })
 }
 
@@ -1166,6 +1175,7 @@ impl AgentSupervisor {
             &request.files,
             &message,
             request.hunks.clone(),
+            request.unstage,
         )
         .await
         {
@@ -1244,8 +1254,20 @@ impl AgentSupervisor {
                 });
                 send_control(&self.control_tx, body);
             }
-            Err(detail) => {
-                Self::send_changeset_commit_err(&self.control_tx, project_dir, &detail);
+            Err(failure) => {
+                // The staged paths ride beside the sentence, as data: the card
+                // draws them as rows and offers the press that unstages them.
+                // Absent for every other failure, so a client that reads only
+                // `detail` sees what it always saw.
+                let mut body = serde_json::json!({
+                    "action": "changeset_commit_err",
+                    "project_dir": project_dir,
+                    "detail": failure.detail,
+                });
+                if !failure.staged.is_empty() {
+                    body["staged"] = serde_json::json!(failure.staged);
+                }
+                send_control(&self.control_tx, body);
             }
         }
     }

@@ -72,6 +72,7 @@ fn main() -> ExitCode {
             leave_unattributed,
             tree,
             hunks,
+            unstage,
         }) => changes::finish(
             "commit",
             json,
@@ -85,6 +86,7 @@ fn main() -> ExitCode {
                 leave_unattributed,
                 tree,
                 hunks,
+                unstage,
                 json,
             ),
         ),

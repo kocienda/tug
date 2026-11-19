@@ -305,3 +305,73 @@ body {
 
 /* Focus indication is the app-owned focus-ring primitive (focus-ring.css);
    the dialog's buttons no longer override the base ring color. */
+
+/* ---- Footer ----
+ *
+ * A row of its own under everything else, trailing-aligned. Buttons take the
+ * same minimum width the header cluster gives them, so a frame that moves its
+ * acts down here keeps the balanced pair. */
+.tug-inline-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--tugx-idialog-actions-gap);
+}
+
+.tug-inline-dialog-footer .tug-button {
+  min-width: var(--tugx-idialog-action-w);
+}
+
+/* ---- The notice variant ----
+ *
+ * A frame that reports something and has to be read, rather than a prompt
+ * with two buttons. Every rule here undoes a choice the bar makes for a
+ * one-line question: the capped, centred frame; the title that truncates
+ * because its row is fixed-height; the centred, narrowed, dimmed description.
+ * A notice's title is the finding and its description is the remedy, so both
+ * are set left, at full width and full strength, and the title wraps. */
+.tug-inline-dialog[data-variant="notice"] {
+  max-width: none;
+  margin: 0;
+  gap: var(--tugx-idialog-body-gap);
+  padding: var(--tugx-idialog-padding-header);
+}
+
+.tug-inline-dialog[data-variant="notice"] .tug-inline-dialog-row {
+  align-items: flex-start;
+  min-height: 0;
+}
+
+/* The icon keeps the first line's centre: it and the title's first line are
+ * each centred in a box the height of the taller of the two. */
+.tug-inline-dialog[data-variant="notice"] .tug-inline-dialog-icon,
+.tug-inline-dialog[data-variant="notice"] .tug-inline-dialog-title {
+  min-height: var(--tugx-idialog-icon-size);
+}
+
+.tug-inline-dialog[data-variant="notice"] .tug-inline-dialog-title {
+  display: flex;
+  align-items: center;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.tug-inline-dialog[data-variant="notice"] .tug-inline-dialog-description {
+  max-width: none;
+  margin: 0;
+  box-sizing: border-box;
+  padding-inline: calc(
+    var(--tugx-idialog-content-inset) + var(--tugx-idialog-content-nudge)
+  );
+  text-align: start;
+  opacity: 1;
+}
+
+/* The header cluster's minimum width balances a pair of worded buttons. A
+ * notice keeps only an icon button up here, and that minimum would stand it
+ * off the frame's trailing edge by the width of a word it does not have. */
+.tug-inline-dialog[data-variant="notice"] .tug-inline-dialog-actions .tug-button {
+  min-width: 0;
+}

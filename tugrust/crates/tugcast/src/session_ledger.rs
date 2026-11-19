@@ -20018,14 +20018,21 @@ mod tests {
             .record_settled_runs("toolu_a", "s1", br#"[{"run_id":"r"}]"#, 10)
             .unwrap();
         let got = ledger.settled_runs_for(&["toolu_a".to_string()]).unwrap();
-        assert_eq!(got, vec![("toolu_a".to_string(), br#"[{"run_id":"r"}]"#.to_vec())]);
+        assert_eq!(
+            got,
+            vec![("toolu_a".to_string(), br#"[{"run_id":"r"}]"#.to_vec())]
+        );
     }
 
     #[test]
     fn recording_a_call_twice_keeps_the_later() {
         let ledger = fresh();
-        ledger.record_settled_runs("toolu_a", "s1", b"[1]", 10).unwrap();
-        ledger.record_settled_runs("toolu_a", "s1", b"[2]", 20).unwrap();
+        ledger
+            .record_settled_runs("toolu_a", "s1", b"[1]", 10)
+            .unwrap();
+        ledger
+            .record_settled_runs("toolu_a", "s1", b"[2]", 20)
+            .unwrap();
         let got = ledger.settled_runs_for(&["toolu_a".to_string()]).unwrap();
         assert_eq!(got, vec![("toolu_a".to_string(), b"[2]".to_vec())]);
     }
@@ -20035,8 +20042,12 @@ mod tests {
         let ledger = fresh();
         seed_live(&ledger, "s1", WS_A, "card-1", millis(0));
         seed_live(&ledger, "s2", WS_A, "card-2", millis(0));
-        ledger.record_settled_runs("toolu_a", "s1", b"[1]", 10).unwrap();
-        ledger.record_settled_runs("toolu_b", "s2", b"[2]", 10).unwrap();
+        ledger
+            .record_settled_runs("toolu_a", "s1", b"[1]", 10)
+            .unwrap();
+        ledger
+            .record_settled_runs("toolu_b", "s2", b"[2]", 10)
+            .unwrap();
         {
             let conn = ledger.db.lock();
             conn.execute("DELETE FROM sessions WHERE session_id = 's1'", [])
@@ -20059,7 +20070,11 @@ mod tests {
             ledger.record_settled_runs(id, "s1", b"[]", at).unwrap();
         }
         let got: Vec<String> = ledger
-            .settled_runs_for(&["toolu_c".to_string(), "toolu_a".to_string(), "toolu_z".to_string()])
+            .settled_runs_for(&[
+                "toolu_c".to_string(),
+                "toolu_a".to_string(),
+                "toolu_z".to_string(),
+            ])
             .unwrap()
             .into_iter()
             .map(|(id, _)| id)

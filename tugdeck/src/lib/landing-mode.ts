@@ -20,6 +20,13 @@
 import type { ArcJoinRegister } from "@/lib/arc-join-register";
 import type { DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import type { CommitPhase, JoinPhase } from "@/lib/changeset-verb-store";
+import type { StagedPath } from "@/lib/changeset-types";
+
+/** What a retry may ask for beyond pressing land again. */
+export interface LandRetryOptions {
+  /** Unstage what the index holds that the landing is not taking, then land. */
+  unstage?: boolean;
+}
 
 /** Which landing this mode performs — the composer's chrome reads it. */
 export type LandingKind = "commit" | "join";
@@ -169,6 +176,13 @@ export interface LandingSnapshot {
   /** Land error detail to surface, or null. */
   landError: string | null;
   /**
+   * The staged paths the land error named, when the failure was the index
+   * holding content the landing was not asked to take — the one failure a
+   * surface can clear with a press ({@link LandingMode.retry} with `unstage`).
+   * Null whenever `landError` is, and for every other failure.
+   */
+  landErrorStaged: readonly StagedPath[] | null;
+  /**
    * The most recent refused land press, or null when none has been refused
    * since the mode last exited or landed ([L31]).
    */
@@ -220,8 +234,12 @@ export interface LandingMode {
    * still in the editor, so a retry is a press of the same button over the
    * same text; taking it through the same gate is what keeps the two from
    * drifting into a second land path with its own rules.
+   *
+   * `options.unstage` is the press that answers a failure carrying
+   * {@link LandingSnapshot.landErrorStaged}: the same land, with those paths
+   * unstaged first. A mode with no index to speak of ignores it.
    */
-  retry: () => LandOutcome;
+  retry: (options?: LandRetryOptions) => LandOutcome;
   /** The user leaving the route: persist what is typed, then exit. */
   leave: () => void;
   /** Exit the mode without persisting (the land path's own way out). */

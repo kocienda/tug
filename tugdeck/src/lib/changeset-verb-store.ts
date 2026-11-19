@@ -55,6 +55,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
+import { stagedPathsOf, type StagedPath } from "./changeset-types";
 import {
   ANOTHER_PAGE_ENTRY_KEY,
   arcReplayOutcomeStore,
@@ -79,6 +80,13 @@ export type CommitPhase = "idle" | "pending" | "error" | "done";
 export interface CommitState {
   phase: CommitPhase;
   error: string | null;
+  /**
+   * The staged paths a refused commit named, when the refusal was the index
+   * holding content the commit was not asked to land. Null for every other
+   * failure and every other phase. Held as the wire's own array so a reader
+   * comparing by identity sees one value for one failure.
+   */
+  staged: readonly StagedPath[] | null;
   /** New HEAD sha when `phase === "done"`. */
   sha: string | null;
   /** `git show --numstat --format= HEAD` receipt when `phase === "done"`. */
@@ -99,6 +107,7 @@ export interface CommitState {
 const COMMIT_IDLE: CommitState = Object.freeze({
   phase: "idle",
   error: null,
+  staged: null,
   sha: null,
   receipt: null,
   summary: null,
@@ -557,6 +566,7 @@ export class ChangesetVerbStore extends Subscribable {
       this._setCommit(entryKey, {
         phase: "done",
         error: null,
+        staged: null,
         sha: typeof body.sha === "string" ? body.sha : null,
         receipt: typeof body.receipt === "string" ? body.receipt : null,
         summary: typeof body.summary === "string" ? body.summary : null,
@@ -570,6 +580,7 @@ export class ChangesetVerbStore extends Subscribable {
       this._setCommit(entryKey, {
         phase: "error",
         error: detail,
+        staged: stagedPathsOf(body.staged),
         sha: null,
         receipt: null,
         summary: null,
@@ -1023,6 +1034,9 @@ export class ChangesetVerbStore extends Subscribable {
    * `hunks` names, per path, the hunk ids to land for a partial file (Spec
    * S03). Every key must also be in `files`; omitting it lands every path
    * whole, which is what every caller sent before hunks existed.
+   *
+   * `unstage` is the answer to a refusal that carried `staged`: the same
+   * commit, with the paths the index held put back to unstaged first.
    */
   commit(
     entryKey: string,
@@ -1031,11 +1045,13 @@ export class ChangesetVerbStore extends Subscribable {
     message: string,
     session?: { name?: string; id?: string },
     hunks?: Record<string, string[]>,
+    unstage?: boolean,
   ): void {
     this._commitInflight.set(workspaceKey, entryKey);
     this._setCommit(entryKey, {
       phase: "pending",
       error: null,
+      staged: null,
       sha: null,
       receipt: null,
       summary: null,
@@ -1056,6 +1072,9 @@ export class ChangesetVerbStore extends Subscribable {
     }
     if (hunks !== undefined && Object.keys(hunks).length > 0) {
       frame.hunks = hunks;
+    }
+    if (unstage === true) {
+      frame.unstage = true;
     }
     this._connection.sendControlFrame("changeset_commit", frame);
   }

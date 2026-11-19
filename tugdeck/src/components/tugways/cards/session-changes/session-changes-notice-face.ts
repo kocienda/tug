@@ -23,6 +23,8 @@
  * @module components/tugways/cards/session-changes/session-changes-notice-face
  */
 
+import type { StagedPath } from "@/lib/changeset-types";
+
 /**
  * List L01, as numbers: lower speaks first. Named rather than inlined so a
  * later tenant is seated by reading the list rather than by counting.
@@ -42,7 +44,7 @@ export const SHADE_NOTICE_RANK = {
 export type ShadeNoticeTone = "danger" | "caution" | "success" | "default";
 
 /** What act the notice carries *beyond* the Dismiss every tenant has. */
-export type ShadeNoticeAct = "retry" | "none";
+export type ShadeNoticeAct = "retry" | "unstage" | "none";
 
 /**
  * One notice the band could render — the words, the identity, and the rank.
@@ -75,6 +77,8 @@ export interface ShadeNoticeCandidate {
   description: string | null;
   /** Verbatim evidence to fold, or null when there is nothing beyond the title. */
   detail: string | null;
+  /** Staged paths to draw as rows, or absent when the notice is about none. */
+  staged?: readonly StagedPath[] | null;
   act: ShadeNoticeAct;
   /** Recency inside one rank; higher speaks first. */
   seq?: number;
@@ -131,4 +135,68 @@ export function shadeOriginReplay<T extends { readonly entryKey: string }>(
 ): T | null {
   if (outcome === null) return null;
   return outcome.entryKey === shadeEntryKey ? outcome : null;
+}
+
+/** One staged path as the band draws it: what to show, and the path it stands for. */
+export interface StagedPathRow {
+  /** The path with the listing's shared directory taken off the front. */
+  name: string;
+  /** The full repo-relative path — the row's identity and its tooltip. */
+  path: string;
+  /** The word shown beside it: `added`, `modified` or `deleted`. */
+  status: string;
+}
+
+/** A staged listing ready to draw. */
+export interface StagedPathListing {
+  /** The directory every path shares, with its trailing slash, or null. */
+  dir: string | null;
+  /** The rows shown outright. */
+  head: StagedPathRow[];
+  /** The rows behind the "more" fold; empty when everything fits. */
+  rest: StagedPathRow[];
+}
+
+/** How many staged rows the band shows before it folds the remainder. */
+export const STAGED_ROWS_SHOWN = 6;
+
+/**
+ * Lay a staged listing out for the band.
+ *
+ * Twenty paths that share `tests/app-test/` say that directory twenty times,
+ * and the part that tells them apart is pushed off the end of every row. So
+ * the directory they all share is said once, above the list, and each row is
+ * what remains. A lone path keeps its directory: with one row there is nothing
+ * to factor and the full path is the more useful thing to read.
+ *
+ * The fold is not taken for a single leftover row — "1 more" costs a line to
+ * hide a line.
+ */
+export function stagedPathListing(
+  staged: readonly StagedPath[],
+  shown: number = STAGED_ROWS_SHOWN,
+): StagedPathListing {
+  const dir = staged.length > 1 ? sharedDirectory(staged.map((row) => row.path)) : null;
+  const strip = dir === null ? 0 : dir.length;
+  const rows: StagedPathRow[] = staged.map((row) => ({
+    name: row.path.slice(strip),
+    path: row.path,
+    status: row.status === "created" ? "added" : row.status,
+  }));
+  const cut = rows.length <= shown + 1 ? rows.length : shown;
+  return { dir, head: rows.slice(0, cut), rest: rows.slice(cut) };
+}
+
+/** The longest directory prefix every path shares, slash included, or null. */
+function sharedDirectory(paths: readonly string[]): string | null {
+  const first = paths[0];
+  if (first === undefined) return null;
+  let end = first.lastIndexOf("/") + 1;
+  for (const path of paths) {
+    while (end > 0 && !path.startsWith(first.slice(0, end))) {
+      end = first.lastIndexOf("/", end - 2) + 1;
+    }
+    if (end === 0) return null;
+  }
+  return first.slice(0, end);
 }

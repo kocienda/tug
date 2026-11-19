@@ -120,6 +120,7 @@ fn commit_request(session_id: Option<&str>) -> ChangesetCommitPayload {
         message: "commit a".to_string(),
         session_id: session_id.map(str::to_owned),
         hunks: None,
+        unstage: false,
     }
 }
 
@@ -2234,6 +2235,7 @@ async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
         message: "Add a second line".to_string(),
         session_id: Some("sess".to_string()),
         hunks: None,
+        unstage: false,
     };
     sup.do_changeset_commit(&request).await;
 
@@ -2260,6 +2262,7 @@ async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
         message: "Add a third line".to_string(),
         session_id: None,
         hunks: None,
+        unstage: false,
     };
     sup.do_changeset_commit(&bare).await;
     let _ = drain_until_action(&mut rx, "changeset_commit_ok");
@@ -2403,6 +2406,7 @@ fn land(
         message: "Land part of the file".to_string(),
         session_id: Some(session.to_string()),
         hunks: hunks.map(|ids| [("f.txt".to_string(), ids)].into_iter().collect()),
+        unstage: false,
     }
 }
 
@@ -2505,6 +2509,60 @@ async fn a_whole_file_landing_writes_no_carry_row() {
             .iter()
             .all(|r| r.origin != "carry"),
         "a whole-file landing carries nothing forward"
+    );
+}
+
+/// A hunk election that finds a stranger in the index is refused with the
+/// stranger named **as data** on the wire, beside the sentence — the card
+/// draws the paths as rows and offers the press that unstages them. The same
+/// request with `unstage` then lands, and leaves the stranger's bytes alone.
+#[tokio::test]
+async fn a_staged_stranger_is_named_on_the_wire_and_unstage_clears_it() {
+    use tugcore::test_fixtures::git::git;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().canonicalize().expect("canonicalize");
+    let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+    let (sup, mut rx) = partial_landing_stage(&repo, &numbered_lines(&[]), &ledger);
+
+    std::fs::write(repo.join("f.txt"), numbered_lines(&[2, 18])).unwrap();
+    let hunks = tugchanges_core::file_hunks(&repo, "f.txt").expect("hunks");
+    std::fs::write(repo.join("stranger.txt"), "staged by someone else\n").unwrap();
+    git(&repo, &["add", "stranger.txt"]);
+
+    let mut request = land(&repo, "s-claim", Some(vec![hunks[0].id.clone()]));
+    sup.do_changeset_commit(&request).await;
+    let refused = drain_until_action(&mut rx, "changeset_commit_err");
+    assert_eq!(
+        refused["staged"],
+        serde_json::json!([{ "path": "stranger.txt", "status": "created" }]),
+        "the refusal names the staged path as data: {refused}"
+    );
+    assert!(
+        refused["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("stranger.txt")),
+        "and still in its sentence: {refused}"
+    );
+
+    request.unstage = true;
+    sup.do_changeset_commit(&request).await;
+    let _ = drain_until_action(&mut rx, "changeset_commit_ok");
+
+    let landed = tugcore::test_fixtures::git::command()
+        .current_dir(&repo)
+        .args(["show", "--name-only", "--format=", "HEAD"])
+        .output()
+        .expect("git show");
+    assert_eq!(
+        String::from_utf8_lossy(&landed.stdout).trim(),
+        "f.txt",
+        "only the election landed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.join("stranger.txt")).unwrap(),
+        "staged by someone else\n",
+        "unstaging never touches the working tree"
     );
 }
 

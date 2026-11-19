@@ -14,6 +14,34 @@
  * @module lib/changeset-types
  */
 
+/**
+ * One path the commit engine found staged that a commit was not asked to land
+ * — a row of `changeset_commit_err.staged`. `status` is what the index holds
+ * for it against `HEAD`: `created`, `modified` or `deleted`.
+ */
+export interface StagedPath {
+  path: string;
+  status: string;
+}
+
+/** Narrow one wire value to a {@link StagedPath}. */
+function isStagedPath(value: unknown): value is StagedPath {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.path === "string" && typeof row.status === "string";
+}
+
+/**
+ * Read `changeset_commit_err.staged` off the wire: the staged paths, or null
+ * when the frame carries none — which is every failure but the one the card
+ * can clear by unstaging.
+ */
+export function stagedPathsOf(value: unknown): StagedPath[] | null {
+  if (!Array.isArray(value)) return null;
+  const rows = value.filter(isStagedPath);
+  return rows.length > 0 ? rows : null;
+}
+
 /** One file inside a changeset entry. */
 export interface ChangesetFile {
   /** Path relative to the repository root. */
