@@ -241,6 +241,7 @@ body[data-tug-motion="off"] .sp-as-shade {
    behind it. */
 .sp-as-rung {
   position: absolute;
+  z-index: 1;
   width: 200px;
   min-height: 236px;
   display: flex;
@@ -251,15 +252,16 @@ body[data-tug-motion="off"] .sp-as-shade {
   border: 1px solid var(--tug7-element-global-border-normal-default-rest);
   border-top-width: 3px;
   border-radius: var(--tug-radius-md);
+  --sp-as-rung-top: 3px;
   background-color: var(--tugx-shade-bg);
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
 
-/* In hand: above its neighbours and the connectors. */
+/* In hand. Which card is in front is the spike's to say: it raises a card
+   when it is pressed, dragged or opened. */
 .sp-as-rung[data-dragging="true"] {
-  z-index: 3;
   cursor: grabbing;
   box-shadow: 0 4px 12px var(--tug7-element-global-shadow-normal-md-rest);
 }
@@ -273,7 +275,6 @@ body[data-tug-motion="off"] .sp-as-shade {
 /* Open: wider, and the spike moves the cards to its right along. */
 .sp-as-rung[data-expanded="true"] {
   width: 440px;
-  z-index: 2;
 }
 
 .sp-as-rung[data-state="done"] {
@@ -288,6 +289,7 @@ body[data-tug-motion="off"] .sp-as-shade {
 .sp-as-rung[data-state="pending"] {
   border-style: dashed;
   border-top-width: 1px;
+  --sp-as-rung-top: 1px;
   border-color: var(--tug7-element-global-border-normal-muted-rest);
 }
 
@@ -427,28 +429,55 @@ body[data-tug-motion="off"] .sp-as-shade {
   border-top: 1px dashed var(--tug7-element-global-border-normal-muted-rest);
 }
 
-/* The connectors: one drawing over the whole canvas, its paths written by
-   the spike from where the cards stand. It takes no presses. */
+/* The connectors: one drawing under every card, its paths written by the
+   spike from where the cards stand. A card that overlaps a connector covers
+   it. It takes no presses. */
 .sp-as-links {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
   pointer-events: none;
 }
 
-.sp-as-link {
+.sp-as-link,
+.sp-as-port {
   color: var(--tug7-element-global-border-normal-muted-rest);
 }
 
-.sp-as-link[data-state="linked"] {
+.sp-as-link[data-state="linked"],
+.sp-as-port[data-state="linked"] {
   color: var(--tug7-element-global-text-normal-success-rest);
 }
 
-.sp-as-link[data-state="changed"] {
+.sp-as-link[data-state="changed"],
+.sp-as-port[data-state="changed"] {
   color: var(--tug7-element-global-text-normal-caution-rest);
+}
+
+/* A port: the ring a connector meets, centred on the card's edge 64px down
+   it. It belongs to the card, so it is in front of or behind another card
+   exactly as the card is. */
+.sp-as-port {
+  position: absolute;
+  top: calc(64px - var(--sp-as-rung-top) - 5px);
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background-color: var(--tugx-shade-bg);
+  pointer-events: none;
+}
+
+.sp-as-port[data-side="in"] {
+  left: -6px;
+}
+
+.sp-as-port[data-side="out"] {
+  right: -6px;
 }
 
 .sp-as-link-path {
@@ -464,12 +493,6 @@ body[data-tug-motion="off"] .sp-as-shade {
 
 .sp-as-link[data-state="pending"] .sp-as-link-path {
   stroke-dasharray: 1 5;
-}
-
-.sp-as-link-ring {
-  fill: var(--tugx-shade-bg);
-  stroke: currentColor;
-  stroke-width: 2;
 }
 
 /* ---- The legend ---------------------------------------------------------- */

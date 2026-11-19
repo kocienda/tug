@@ -497,6 +497,9 @@ interface RungCardProps {
   >;
   /** Whether the press that just ended was a drag, and so not a click. */
   wasDrag: () => boolean;
+  /** The connector arriving at this card's left port, and leaving its right. */
+  inLink?: LinkState;
+  outLink?: LinkState;
   /** What stands beside the rung's name: a session, or a caution. */
   mark?: React.ReactNode;
   title: string;
@@ -517,7 +520,7 @@ interface RungCardProps {
 
 function RungCard(props: RungCardProps): React.ReactElement {
   const { rung, state, elRef, drag, wasDrag, mark, title, points, aim, aimed, onAim, expanded, onExpand, body } = props;
-  const { children } = props;
+  const { children, inLink, outLink } = props;
   return (
     <section
       ref={elRef}
@@ -534,6 +537,10 @@ function RungCard(props: RungCardProps): React.ReactElement {
         if (aim !== undefined) onAim?.(aim);
       }}
     >
+      {/* The ports are the card's own, so they stack with it: a connector
+          runs beneath every card and meets its port at the edge. */}
+      {inLink !== undefined ? <span className="sp-as-port" data-side="in" data-state={inLink} /> : null}
+      {outLink !== undefined ? <span className="sp-as-port" data-side="out" data-state={outLink} /> : null}
       <header className="sp-as-rung-head">
         <span className="sp-as-rung-name">{rung}</span>
         {mark}
@@ -660,12 +667,7 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
       const x2 = b.x;
       const y2 = b.y + PORT_Y;
       const reach = Math.max(28, Math.abs(x2 - x1) / 2);
-      const [path, from, to] = Array.from(g.children);
-      path.setAttribute("d", `M${x1} ${y1} C ${x1 + reach} ${y1}, ${x2 - reach} ${y2}, ${x2} ${y2}`);
-      from.setAttribute("cx", String(x1));
-      from.setAttribute("cy", String(y1));
-      to.setAttribute("cx", String(x2));
-      to.setAttribute("cy", String(y2));
+      g.children[0]?.setAttribute("d", `M${x1} ${y1} C ${x1 + reach} ${y1}, ${x2 - reach} ${y2}, ${x2} ${y2}`);
     }
     const canvas = canvasRef.current;
     if (canvas !== null) {
@@ -680,10 +682,20 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
 
   const dragRef = useRef<{ rung: Rung; from: Point; origin: Point; moved: boolean } | null>(null);
   const draggedRef = useRef(false);
+  // The cards stack in the order they were last touched: a press, a drag or
+  // an expand brings a card to the front of the others.
+  const topRef = useRef(1);
+  const raise = (rung: Rung): void => {
+    const el = cardEls.current[rung];
+    if (el === null || el === undefined) return;
+    topRef.current += 1;
+    el.style.zIndex = String(topRef.current);
+  };
   const dragOf = (rung: Rung): RungCardProps["drag"] => ({
     onPointerDown: (event) => {
       draggedRef.current = false;
       if (event.button !== 0) return;
+      raise(rung);
       if ((event.target as HTMLElement).closest("button, input, a") !== null) return;
       dragRef.current = {
         rung,
@@ -759,6 +771,7 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
     expanded: expanded === rung,
     onExpand: (next: Rung | null) => {
       setExpanded(next);
+      if (next !== null) raise(next);
       if (next !== "brief") setConfirming(false);
     },
   });
@@ -793,14 +806,13 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
               }}
             >
               <path className="sp-as-link-path" />
-              <circle className="sp-as-link-ring" r="4" />
-              <circle className="sp-as-link-ring" r="4" />
             </g>
           ))}
         </svg>
         <RungCard
           {...card("idea")}
           state="done"
+          outLink={links[0]}
           title={IDEA}
           points={[{ text: `First prompt of ${SESSION}` }]}
           body={
@@ -817,6 +829,8 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
         <RungCard
           {...card("sketch")}
           {...aimAt("sketch")}
+          inLink={links[0]}
+          outLink={links[1]}
           state={sketching ? "active" : "done"}
           mark={<SessionMark name={SESSION} />}
           title="The conversation"
@@ -846,6 +860,8 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
         <RungCard
           {...card("brief")}
           {...aimAt("brief")}
+          inLink={links[1]}
+          outLink={links[2]}
           state={sketching ? "pending" : stage === "briefed" ? "active" : "done"}
           mark={
             behind ? (
@@ -968,6 +984,7 @@ function ArcLadder({ sim, model, aim, onAim, act, onShowIdea, onLower }: ArcLadd
         <RungCard
           {...card("arc")}
           {...aimAt("arc")}
+          inLink={links[2]}
           state={arcOpen ? "active" : stage === "joined" ? "done" : "pending"}
           mark={arcOpen ? <SessionMark name={WORKER} /> : undefined}
           title={arcOpen || stage === "joined" ? sim.arcName : "Not opened"}
