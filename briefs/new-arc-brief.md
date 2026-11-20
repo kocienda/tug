@@ -6,7 +6,7 @@
 
 ## Purpose {#purpose}
 
-A File ▸ New Arc menu item was built on `main` (uncommitted) and tried. The user's notes on it:
+A File ▸ New Arc menu item was built on `main` (landed as `e598aecc1`) and tried. The user's notes on it:
 
 > The *New Arc* menu doesn't really do what I want, since it just creates a new session card. Maybe the menu command in the *File* menu is just wrong. Maybe this command, if we want it at all, belongs in the *Session* menu. Whatever we do, we need to think about what this means, to start an arc using some kind of graphical hook that lives in the UI. We can't relay only on someone knowing they can type /arc.
 
@@ -26,7 +26,7 @@ The standing constraint from the earlier work holds: the command is named **New 
 
 ## Evidence {#evidence}
 
-**[F01] File ▸ New Arc opens an empty Session card and sends `/arc` into it.** The uncommitted build on `main` adds the item `file.newArc`, the action `new-arc`, a deck handler that adds a Session card and stashes `/arc` as its opening command, and an `openingCommand` field on the `restore` body intent so the command survives the card's hand-off to its body and its picker. `tests/app-test/at0862-new-arc-menu.test.ts` passes on it. The card it opens holds no idea, no sketch and no brief, which is the state in which `/arc` has the least to work from. **(verified, built and run)**
+**[F01] File ▸ New Arc opens an empty Session card and sends `/arc` into it.** The build on `main` (`e598aecc1`) adds the item `file.newArc`, the action `new-arc`, a deck handler that adds a Session card and stashes `/arc` as its opening command, and an `openingCommand` field on the `restore` body intent so the command survives the card's hand-off to its body and its picker. `tests/app-test/at0862-new-arc-menu.test.ts` passes on it. The card it opens holds no idea, no sketch and no brief, which is the state in which `/arc` has the least to work from. **(verified, built and run)**
 
 **[F02] The short arc shade tells the user to type.** `SessionArcShadeHint` (`tugdeck/src/components/tugways/cards/session-arc-shade-hint.tsx`) shows `None`, one sentence on what an arc is ending "describe the change in this session and type `/arc`", and a help link. It has no control that starts an arc. **(verified, by reading)**
 
@@ -56,9 +56,9 @@ The standing constraint from the earlier work holds: the command is named **New 
 
 **[B03] New Arc is offered in two places: a button in the short arc shade, and Session ▸ New Arc.** The shade is where the session's arc is shown, so it is where an absent arc is started; the menu item is the same command for the key Session card. The item carries no chord.
 
-**[B04] New Arc is dimmed when the session already has an arc.** In the menu it is disabled; in the shade the question does not arise, because the button is on the short form, which a session with an arc never shows. A card with no session yet has nothing to run `/arc` in, so the menu item is dimmed there too.
+**[B04] New Arc is dimmed when the session already has an arc, and while a turn is running.** With an arc, the menu item is disabled; in the shade the question does not arise, because the button is on the short form, which a session with an arc never shows. While a turn is running both the menu item and the shade's button are dimmed: the door is a conversation, and it is not queued behind work in flight. A card with no session yet has nothing to run `/arc` in, so the menu item is dimmed there too.
 
-**[B05] File ▸ New Arc is not shipped.** The uncommitted build of [F01] is discarded whole: the menu item, the `new-arc` action and handler, the `openingCommand` on the `restore` intent with its test, the census rows, `at0862`, and the two documentation edits. File ▸ New makes containers and an arc is not one.
+**[B05] File ▸ New Arc is removed.** The build of [F01] landed on `main` as `e598aecc1`, and the arc takes it out whole: the menu item, the `new-arc` action and handler, the `openingCommand` on the `restore` intent with its test, the census rows, `at0862`, and the two documentation edits. File ▸ New makes containers and an arc is not one.
 
 ### The shade before an arc exists
 
@@ -67,6 +67,10 @@ The standing constraint from the earlier work holds: the command is named **New 
 ### What the arc takes up
 
 **[B07] When the arc starts, it takes up the idea and the sketch.** The door records both in the arc's own documents beside the brief, as the arc shade brief already decided ([B12] of `briefs/arc-shade-brief.md`): a copy, with a reference to the session and turns it came from.
+
+**[B14] The idea's record is the prompt the work began as; the sketch's is a short digest.** A few sentences on what the conversation settled, with the reference to the session and its turns. The turns themselves are not copied: the brief carries the decisions in full, so the sketch only says how the idea became the brief.
+
+**[B15] A door that no longer holds the conversation reads it from disk, and never invents it.** When the session was compacted, or `/arc` runs in a session other than the one that shaped the work, the door reads the source session's transcript with `tugtool session show`, read-only, when it can find one. When it cannot, as with a brief written by hand, nothing is recorded and the panels say so. A record is never made up from the brief alone.
 
 **[B08] The record is kept current.** If the idea or the sketch changes after the arc exists, the arc's record is rewritten. This amends the earlier [B12], which captured once. The record is rewritten by the door and by each later stage when it runs; nothing watches the transcript between stages.
 
@@ -86,11 +90,8 @@ The standing constraint from the earlier work holds: the command is named **New 
 
 ## Open Questions {#open-questions}
 
-- **Whether the verb row fits a half-width panel at the card's 675 px minimum.** [B13] assumes it does. If it does not, the row needs a narrow form of its own, decided from the measurement rather than from which panel was pressed.
-- **How WebKit sizes content rows under a height cap.** [B10] and [B11] want rows that take their content's height, then share the room when the cap binds, with scrollers inside the panels. The grid specification allows it; it has not been tried here, and a panel whose body is a scroller has no natural height limit of its own.
-- **What the Sketch record is.** A digest of the turns between the idea and the brief was the earlier proposal. How long it is, and whether the turns themselves are kept beside it, was left open in `briefs/arc-shade-brief.md` and is still open.
-- **Taking up the idea and sketch when the door does not hold the conversation.** A compacted session, or a brief written by hand, leaves the door without the turns. The transcript is on disk and readable with `tugtool session show`; whether the door reads it, and what the panels show when there is nothing to find, is not settled.
-- **What New Arc does while a turn is running.** The other Session menu commands have an answer for a busy session; whether New Arc takes the same one or is dimmed was not discussed.
+- **Whether the verb row fits a half-width panel at the card's 675 px minimum.** [B13] assumes it does. The arc measures this before it builds the row; if it does not fit, the row needs a narrow form of its own, decided from the measurement rather than from which panel was pressed.
+- **How WebKit sizes content rows under a height cap.** [B10] and [B11] want rows that take their content's height, then share the room when the cap binds, with scrollers inside the panels. The grid specification allows it; it has not been tried here, and a panel whose body is a scroller has no natural height limit of its own, so a row may need an explicit ceiling. The arc measures this before it settles the row sizing.
 
 ---
 
@@ -110,6 +111,6 @@ The standing constraint from the earlier work holds: the command is named **New 
 
 **An arc**, in two parts that can land in either order, the first standing alone.
 
-*The hook and the grid (deck and app).* Discard the uncommitted File ▸ New Arc build from `main` before the arc opens, so the worktree starts without it. Add the New Arc command for the key Session card, its Session menu item and its dimming; put the button on the short shade and reword the hint. Size the grid's rows by content and the shade by its rows, remove the larger share and what hangs off it, show the whole verb row, and bring `at0860`, `at0861`, D234, the feature guide, the glossary and the recipe for creating an arc into line. The two measurements under Open Questions come first, since they decide the row sizing and the verb row.
+*The hook and the grid (deck and app).* Remove the File ▸ New Arc build of `e598aecc1`. Add the New Arc command for the key Session card, its Session menu item and its dimming; put the button on the short shade and reword the hint. Size the grid's rows by content and the shade by its rows, remove the larger share and what hangs off it, show the whole verb row, and bring `at0860`, `at0861`, D234, the feature guide, the glossary and the recipe for creating an arc into line. The two measurements under Open Questions come first, since they decide the row sizing and the verb row.
 
 *The record (plugin and Rust, then deck).* The door writes the idea and the sketch into the arc's documents when the arc starts, each stage rewrites them when they have changed, `tugtool arc documents` reports them, and the Idea and Sketch panels read them.
