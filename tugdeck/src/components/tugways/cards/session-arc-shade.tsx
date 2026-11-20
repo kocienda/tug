@@ -13,7 +13,7 @@
  * Whether it is raised is read from the card's `ArcShadeController`, and the
  * arc it shows from the session's binding. While raised it holds a focus
  * mode of its own: the key view moves to the header's
- * Transcript button, Escape lowers the shade, and lowering restores the key
+ * Done button, Escape lowers the shade, and lowering restores the key
  * view that was current when it rose and puts the keyboard back on it, ring
  * or caret; with none to return to, the card is asked to take the keyboard.
  * The composer below stays live.
@@ -43,8 +43,8 @@ import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-/** Focus order of the header's Transcript button, where the key view lands on a raise. */
-const TRANSCRIPT_FOCUS_ORDER = 0;
+/** Focus order of the header's Done button, where the key view lands on a raise. */
+const DONE_FOCUS_ORDER = 0;
 
 export interface SessionArcShadeProps {
   /** The card's arc shade store; the shade is raised while its snapshot is true. */
@@ -96,7 +96,7 @@ export function SessionArcShade({
     const root = rootRef.current;
     manager.place(
       cardId,
-      { kind: "focus-key", focusKey: `${focusGroup}:${TRANSCRIPT_FOCUS_ORDER}` },
+      { kind: "focus-key", focusKey: `${focusGroup}:${DONE_FOCUS_ORDER}` },
       { modality: "keyboard" },
     );
     // The shade took the keyboard when it rose, so it owes it back when it
@@ -156,14 +156,15 @@ export function SessionArcShade({
           ) : null}
           <span className="session-arc-shade-spacer" />
           <TugPushButton
-            size="xs"
-            emphasis="ghost"
+            size="sm"
+            emphasis="primary"
             role="action"
             focusGroup={focusGroup}
-            focusOrder={TRANSCRIPT_FOCUS_ORDER}
+            focusOrder={DONE_FOCUS_ORDER}
+            persistentDefaultRing
             onClick={lower}
           >
-            Transcript
+            Done
           </TugPushButton>
         </header>
         <div className="session-arc-shade-body" data-slot="session-arc-shade-body">

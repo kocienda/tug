@@ -62,6 +62,12 @@ body {
      its header, one row of its ledger and its verb row, which read 115 px.
      Below it the verbs would fall out of the panel. */
   --tugx-arc-panel-floor-arc: 120px;
+  /* The most a panel's body shows before it scrolls, in lines of body text.
+     The one number to change to show more or less of a long panel. */
+  --tugx-arc-panel-max-lines: 20;
+  --tugx-arc-panel-body-max: calc(
+    var(--tugx-arc-panel-max-lines) * 1.4 * var(--tug-font-size-sm)
+  );
   box-sizing: border-box;
   flex: 0 1 auto;
   width: 100%;
@@ -158,13 +164,15 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* The body is as tall as what it holds, which is what the row reads, and
-   scrolls inside the panel's seat when the row is shorter. What it holds
-   keeps its own height; nothing is squeezed to fit. */
+/* The body is as tall as what it holds, up to the panel's cap of lines,
+   which is what the row reads, and scrolls inside the panel's seat past the
+   cap or when the row is shorter. What it holds keeps its own height;
+   nothing is squeezed to fit. */
 .session-arc-panel-body {
   flex: 0 1 auto;
   min-width: 0;
   min-height: 0;
+  max-height: var(--tugx-arc-panel-body-max);
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-sm);

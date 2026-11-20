@@ -8,7 +8,7 @@
  *   1. With an arc bound, the raised shade holds the four panels in the
  *      ladder's order at their grid seats — Idea top-left, Sketch top-right,
  *      Brief bottom-left, Arc bottom-right — each wearing its number, and the
- *      shade's header carries Transcript and nothing else.
+ *      shade's header carries Done and nothing else.
  *   2. Each panel's progress dot says where its rung is: an empty seat is
  *      still, the recorded idea and the brief are complete, and the arc,
  *      where the work is, runs.
@@ -379,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         note("at0860 at rest", JSON.stringify(rest));
         expect(rest.panels.map((p) => p.rung)).toEqual(["idea", "sketch", "brief", "arc"]);
         expect(rest.panels.map((p) => p.number)).toEqual(["1", "2", "3", "4"]);
-        expect(rest.headButtons, "the header carries Transcript alone").toEqual(["Transcript"]);
+        expect(rest.headButtons, "the header carries Done alone").toEqual(["Done"]);
         const [idea, sketch, brief, arc] = ["idea", "sketch", "brief", "arc"].map((r) => panelOf(rest, r).box);
         expect(Math.abs(idea.t - sketch.t), "Idea and Sketch share the top row").toBeLessThanOrEqual(0.5);
         expect(Math.abs(brief.t - arc.t), "Brief and Arc share the bottom row").toBeLessThanOrEqual(0.5);

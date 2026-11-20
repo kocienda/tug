@@ -17,7 +17,7 @@
  *   5. With an arc bound the raised shade holds the panels by the same rule:
  *      as tall as they need, never past four fifths of the slot, so at least
  *      a fifth of the transcript shows. It names the arc, and the header's
- *      Transcript button lowers it.
+ *      Done button lowers it.
  *   6. The shade and the History shade never stand together: either one
  *      rising takes the other down.
  *   7. A press on the ARC cell raises the shade and a second lowers it, and
@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         expect(full.transcriptInert).toBe(true);
         expect(full.text, "the header names the arc").toContain(ARC_NAME);
 
-        // The header's Transcript button lowers it.
+        // The header's Done button lowers it.
         await app.body("A").nativeClickAtElement(LOWER_BUTTON);
         const afterButton = await settled(app, false);
         expect(afterButton.transcriptInert).toBe(false);
