@@ -81,7 +81,7 @@ const ARC_CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
 /** The arc's reading in the card's arc shade, while the shade is raised. */
 const PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
 /** The placard's own reading of a stopped arc: the note leads with the stop,
  *  and the strip tints the cell it stopped in. The line drops the two arc
  *  FACTS on purpose — the track already says the arc is running, and the note

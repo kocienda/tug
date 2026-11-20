@@ -120,7 +120,7 @@ const CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
 /** The arc's reading in the card's arc shade, while the shade is raised. */
 const ARC_PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
 const ARC_NAME = "at0473-cockpit";
 
 /** This checkout — the build under test, and never a tree a fixture writes in. */

@@ -19,8 +19,6 @@
  * The composer below stays live.
  *
  * The header and the frame are this component's; the body is its children.
- * With an arc the header carries Tidy, which sends the arc's cards home on
- * its remembered canvas.
  * Composes `TugPushButton` and `ArcSigil`, which keep their own tokens.
  *
  * Laws: [L02] the raised state enters through `useSyncExternalStore`,
@@ -44,12 +42,9 @@ import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
-import { tidyArcCanvas } from "@/lib/use-arc-canvas-state";
 
-/** Focus order of the header's Tidy button. */
-const TIDY_FOCUS_ORDER = 0;
 /** Focus order of the header's Transcript button, where the key view lands on a raise. */
-const TRANSCRIPT_FOCUS_ORDER = 1;
+const TRANSCRIPT_FOCUS_ORDER = 0;
 
 /**
  * The shade's height form. `full` stands over four fifths of the transcript;
@@ -168,19 +163,6 @@ export function SessionArcShade({
             </span>
           ) : null}
           <span className="session-arc-shade-spacer" />
-          {arcName !== null ? (
-            <TugPushButton
-              size="xs"
-              emphasis="ghost"
-              role="action"
-              focusGroup={focusGroup}
-              focusOrder={TIDY_FOCUS_ORDER}
-              // Send the arc's four cards home on its canvas.
-              onClick={() => tidyArcCanvas(arcName)}
-            >
-              Tidy
-            </TugPushButton>
-          ) : null}
           <TugPushButton
             size="xs"
             emphasis="ghost"

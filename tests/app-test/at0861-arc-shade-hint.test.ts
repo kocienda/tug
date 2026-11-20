@@ -5,7 +5,7 @@
  * What is read:
  *
  *   1. A press on the ARC cell of a session with no arc raises the shade in
- *      its short form, and the shade holds no canvas.
+ *      its short form, and the shade holds no panels.
  *   2. The shade says the one word the cell reads, says how to start an arc
  *      by naming the `/arc` command, and carries a link written as a help
  *      link to the guide's section on arcs.
@@ -102,7 +102,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
         );
         const hint = await app.body("A").evalJS<{
           form: string | null;
-          canvas: boolean;
+          panels: boolean;
           none: string;
           text: string;
           code: string[];
@@ -116,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
              const text = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
              return {
                form: shade.getAttribute("data-form"),
-               canvas: shade.querySelector('[data-slot="session-arc-canvas"]') !== null,
+               panels: shade.querySelector('[data-slot="session-arc-panels"]') !== null,
                none: text(hint.querySelector('[data-slot="session-arc-shade-hint-none"]')),
                text: text(hint.querySelector(".session-arc-shade-hint-text")),
                code: Array.from(hint.querySelectorAll("code")).map(text),
@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
         );
         note("at0861 hint", JSON.stringify(hint));
         expect(hint.form).toBe("short");
-        expect(hint.canvas, "no arc, no canvas").toBe(false);
+        expect(hint.panels, "no arc, no panels").toBe(false);
         expect(hint.none, "the shade says the word the cell reads").toBe("None");
         expect(hint.text, "it says what an arc is").toContain("An arc is");
         expect(hint.code, "and names the command that starts one").toEqual(["/arc"]);

@@ -66,7 +66,7 @@ const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
 /** The arc's frame in the raised arc shade, which is where its footer lives —
  *  the body slot is the scroller above it and does not contain the cluster. */
 const PLACARD =
-  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] .session-arc-popover';
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-panel"][data-rung="arc"] .session-arc-popover';
 /** The footer's transport — its verb row's first slot. */
 const TRANSPORT = `${PLACARD} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string => `${TRANSPORT}[data-verb="${verb}"]`;
@@ -265,10 +265,10 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         note("at0525 placard with the Resume", (await app.screenshot()).path);
 
         // The shade rises on a transform, so the press waits for it to stand
-        // on the slot's bottom edge. The arc's frame is on the Arc card, which
-        // stands at the right of a canvas that scrolls, so the control is
-        // scrolled into view; then what is under the point the press will
-        // land on is read.
+        // on the slot's bottom edge. The arc's frame is on the Arc panel,
+        // which holds the larger share of a grid that does not scroll, so the
+        // scroll below moves nothing unless the body has come to scroll; then
+        // what is under the point the press will land on is read.
         await app.body("A").waitForCondition<boolean>(
           `(() => {
              const shade = document.querySelector('${CARD} [data-slot="session-arc-shade"]');

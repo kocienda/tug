@@ -1480,6 +1480,9 @@ function newestRowIndex(statuses: ReadonlyArray<string>): number {
  *
  * A row already comfortably in view is left where it is, so a reader who has
  * scrolled the list themselves is not yanked back by an unrelated re-render.
+ * The scroller changing size is not unrelated: a host that gives the list
+ * more or less room can put the row out of view without a row changing, so
+ * the reveal is made again whenever the scroller's box changes.
  * The item-row lists take this route; the two chronological logs (STATE, TIME)
  * take the scroller's own `stickToBottom`, which says the same thing about a
  * list whose newest row is always its last.
@@ -1492,25 +1495,32 @@ function useRevealRow(
     if (revealIndex < 0) return;
     const root = scrollerRef.current;
     if (root === null) return;
-    const rows = root.querySelectorAll<HTMLElement>(".tug-popup-list-item");
-    const row: HTMLElement | undefined = rows[revealIndex];
-    if (row === undefined) return;
+    const reveal = (): void => {
+      const rows = root.querySelectorAll<HTMLElement>(".tug-popup-list-item");
+      const row: HTMLElement | undefined = rows[revealIndex];
+      if (row === undefined) return;
 
-    // Layout px: the centring meets `clientHeight` and lands in `scrollTop`.
-    const rootRect = layoutRectOf(root);
-    const rowRect = layoutRectOf(row);
-    const margin = rowRect.height;
-    if (
-      rowRect.top >= rootRect.top + margin &&
-      rowRect.bottom <= rootRect.bottom - margin
-    ) {
-      return;
-    }
-    // Centred, so the rows on either side of the revealed one are readable;
-    // the browser clamps the result at both ends, which is what puts a first
-    // or last revealed row flush against its edge.
-    root.scrollTop +=
-      rowRect.top - rootRect.top - (root.clientHeight - rowRect.height) / 2;
+      // Layout px: the centring meets `clientHeight` and lands in `scrollTop`.
+      const rootRect = layoutRectOf(root);
+      const rowRect = layoutRectOf(row);
+      const margin = rowRect.height;
+      if (
+        rowRect.top >= rootRect.top + margin &&
+        rowRect.bottom <= rootRect.bottom - margin
+      ) {
+        return;
+      }
+      // Centred, so the rows on either side of the revealed one are readable;
+      // the browser clamps the result at both ends, which is what puts a first
+      // or last revealed row flush against its edge.
+      root.scrollTop +=
+        rowRect.top - rootRect.top - (root.clientHeight - rowRect.height) / 2;
+    };
+    reveal();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(reveal);
+    observer.observe(root);
+    return () => observer.disconnect();
   }, [scrollerRef, revealIndex]);
 }
 

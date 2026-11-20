@@ -259,15 +259,17 @@ Nothing here is a one-way door. **Discard** on the arc's row in the Arcs sidebar
 
 Press the arc reading at the right of a session's status row, or Option-Command-R, and the **arc shade** rises from the bottom of the card over four fifths of the transcript. The top fifth of the transcript stays in view but takes no input while the shade is up. Press the reading again, the same chord, Escape, or the Transcript button in the shade's header to lower it.
 
-With an arc bound to the session, the shade is a canvas of four cards joined left to right, the ladder a piece of work climbs:
+With an arc bound to the session, the shade is four panels in a grid, two across and two down, numbered in the order a piece of work climbs:
 
-- **Idea** and **Sketch** stand for the prompt the work began as and the conversation that settled its shape. Nothing records either for an arc yet, and each card says so.
-- **Brief** shows the arc's brief: its title, its path, and Open in Text Card. Opened with the button in its header, it also lists the findings and decisions the brief marks.
+- **Idea** and **Sketch** stand for the prompt the work began as and the conversation that settled its shape. Nothing records either for an arc yet, and each panel says so.
+- **Brief** shows the arc's brief: its title, its path, Open in Text Card, and the findings and decisions the brief marks.
 - **Arc** is the arc itself: its name and the session bound to it, the stage it is in, its steps, and its verbs.
 
-The connector between two cards is solid where one was made from the other, as an arc is from its brief, and dotted where there is nothing to join yet. Drag a card by any part of it that is not a button to put it where you like; a card you press comes to the front. Each arc remembers where its cards stand and which are open, and Tidy in the shade's header sends all four home.
+An arrow joins each panel to the next: across each row, and from Sketch back down to Brief. It is solid where one was made from the other, as an arc is from its brief, and dotted where there is nothing to join yet. The dot in a panel's header says where that rung is: settled, pulsing where the work is now, holding still when the arc is stopped, or an empty seat.
 
-The Arc card's verbs are the ones the Arcs sidebar offers for the same arc. The first is the arc's next move: Start, Stop while a stage is working, Resume after a stop, or Join once the audit has marked it. **Changes** lowers the shade and opens the Changes shade on the arc's row. **Unbind** releases the arc from this session and leaves the arc as it is. **Replay** replays the arc's commits onto the current main. **Discard** ends the arc without landing it, after a confirmation on the card.
+One panel is larger than the other three. At rest that is the rung the work is at. Press a panel, or move keyboard focus into it, and it takes the larger share instead; nothing remembers the choice, and the next time the shade rises the larger panel is the resting one again. Each panel scrolls inside itself. On a short card the shade's body also scrolls down, and the larger panel is brought into view.
+
+The Arc panel's verbs are the ones the Arcs sidebar offers for the same arc, on one row under its steps. The first carries its word and the rest are icons, each named by its tooltip; while the Arc panel is one of the smaller three it shows the first alone. The first is the arc's next move: Start, Stop while a stage is working, Resume after a stop, or Join once the audit has marked it. **Changes** lowers the shade and opens the Changes shade on the arc's row. **Unbind** releases the arc from this session and leaves the arc as it is. **Replay** replays the arc's commits onto the current main. **Discard** ends the arc without landing it, after a confirmation on the panel.
 
 With no arc, the shade is short: it says what an arc is, how to start one, and links here.
 

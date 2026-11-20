@@ -106,3 +106,18 @@ body {
 .session-arc-shade[data-form="short"] .session-arc-shade-body {
   flex: 0 1 auto;
 }
+
+/* In the full form the body's content takes the whole of the body's height,
+   so what it holds can fill the shade rather than only its own height. */
+.session-arc-shade[data-form="full"] .session-arc-shade-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-arc-shade[data-form="full"] .session-arc-shade-body > * {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
