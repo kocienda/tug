@@ -74,7 +74,7 @@ Today an arc's state is reachable only through a small popup on the ARC cell, an
 
 ### Where the ladder's facts come from
 
-**[B12] The origin is copied, never linked.** When a brief is written, the idea prompt and the sketch turns it came from are recorded with it. When an arc opens, the brief and that origin are copied into the arc's own documents, and the cards read the copy. The reason is the user's: a link to another session or project leaves "the possibility open that … the resources change from under us." The full turns are kept in the copy; the digest is what the card shows.
+**[B12] The origin is captured when the arc starts, and copied, never linked.** Nothing is recorded while the idea and sketch are happening. When an arc opens, the door looks back over the conversation that led to the brief, writes a summary of the idea and a summary of the sketch, and records both in the arc's own documents beside the brief, with a reference to the source session and the turns they cover. The cards read that record. Capturing at the start means the brief skill records nothing extra, and the door is already a model turn with the conversation in hand, so the summaries cost no separate call. The record is a copy for the user's reason: a link to another session or project leaves "the possibility open that … the resources change from under us."
 
 **[B13] Every arc has a brief.** An arc opened with no brief asks for guidance at the door and adopts that guidance as the brief, so the Brief card is never empty once an arc exists.
 
@@ -96,9 +96,10 @@ Today an arc's state is reachable only through a small popup on the ARC cell, an
 
 ## Open Questions {#open-questions}
 
-- **What the Idea and Sketch cards show before their facts exist.** The deck work ([B02]–[B10]) can land on existing facts, but [B11] needs [B12]. The proposal is that until the origin is recorded the two cards say there is nothing recorded yet. Not confirmed by the user.
-- **How the Sketch digest is made.** Generated once at copy time by a model turn, or derived mechanically from the turns. It decides whether opening an arc costs a model call.
-- **What "the idea" is for a brief written late in a long session.** The first prompt of the session, or the prompt that began the topic the brief settles. The brief skill has to pick one when it records the origin.
+- **What the Idea and Sketch cards show before their facts exist.** The deck work ([B02]–[B10]) can land on existing facts, but [B11] needs [B12]. The proposal is that until the capture of [B12] is built, and for arcs opened before it, the two cards say there is nothing recorded. Not confirmed by the user.
+- **Capture when the door does not hold the conversation.** [B12] assumes `/arc` runs in the session that shaped the brief. Three cases break that: the arc is opened from another session or from the Arcs card; the session was compacted, so its early turns are no longer in the model's context; the brief was written by hand. In the first two the transcript is still on disk and the brief's commit carries its session's trailers, so the door could find and read it with `tugtool session show`; whether it should, and what the cards show when there is nothing to find, is not settled.
+- **Whether the arc's record keeps the turns themselves** or only the two summaries and the reference. The summaries are what the cards show; the turns would make the record survive the source session being trashed.
+- **What tells the shade a brief exists before any arc does.** With capture moved to the arc's start, the "brief, no arc" form of [B06] still needs some fact that this session wrote a brief.
 - **How a nudge reaches the arc's worker session.** The arc often runs in a session other than the one the user is typing in. The delivery path is not designed.
 - **What re-devising after a rethink does to steps already built.**
 
@@ -125,7 +126,7 @@ Today an arc's state is reachable only through a small popup on the ARC cell, an
 
 *The cell and the shade (deck only, existing facts).* Confirm ⌥⌘R; swap JOBS and ARC with their focus order, narrow-width order and the tests in [F08]; build the shade in its short and full forms with its inert strip, Escape, focus handling and motion that pays its costs before the first frame; make the cell the toggle and remove the placard; graduate the spike's canvas with positions stored per arc; host `ArcPopoverContent` and its verbs in the Arc card and re-anchor Discard's confirm; build the Brief card from the document `arc-start` names; write the short shade's hint and the help page it links to.
 
-*The copied origin (Rust and plugin).* The brief skill records the idea and sketch turns; `/arc` copies brief and origin into the arc's documents; a session fact that a brief was written here, for the ladder standing at Brief; the door adopting guidance as a brief; the Idea and Sketch cards reading the copy.
+*The captured origin (Rust and plugin).* The door summarises the idea and the sketch when the arc starts and records them in the arc's documents with the brief; a session fact that a brief was written here, for the ladder standing at Brief; the door adopting guidance as a brief; the Idea and Sketch cards reading the copy.
 
 *Prompts while an arc is open (plugin and deck).* The session's instructions for reading a prompt as ordinary, a nudge or a rethink; the click-to-hint chip; the nudge verb and its delivery; the rethink proposal and confirm; the shade's "taken as" line.
 
