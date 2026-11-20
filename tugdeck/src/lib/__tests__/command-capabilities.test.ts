@@ -251,6 +251,7 @@ describe("computeCommandCapabilities", () => {
       historyVisible: false,
       commitReady: false,
       hasCustomName: false,
+      hasArc: false,
     };
 
     // No session card frontmost: the whole Session surface is dark.
@@ -311,6 +312,7 @@ describe("computeCommandCapabilities", () => {
       historyVisible: true,
       commitReady: false,
       hasCustomName: false,
+      hasArc: false,
     };
     const gates = computeCommandCapabilities(
       source(chain, { sessionCardFrontmost: true, session }),
@@ -362,6 +364,7 @@ describe("computeCommandCapabilities", () => {
       historyVisible: false,
       commitReady: false,
       hasCustomName: false,
+      hasArc: false,
     };
 
     const unnamed = computeCommandCapabilities(
@@ -382,6 +385,41 @@ describe("computeCommandCapabilities", () => {
       source(chain, { sessionCardFrontmost: false, session: null }),
     );
     expect(dark["session.unname"].enabled).toBe(false);
+  });
+
+  test("New Arc is dimmed with an arc, mid-turn, and with no session", () => {
+    const chain = new ResponderChainManager();
+    const session = {
+      sessionBound: true,
+      canInterrupt: false,
+      canChangeSettings: true,
+      permissionMode: "default",
+      aiSummary: "",
+      hasAssistantMessage: false,
+      hasTurns: false,
+      changesVisible: false,
+      historyVisible: false,
+      commitReady: false,
+      hasCustomName: false,
+      hasArc: false,
+    };
+    const gate = (facts: Parameters<typeof source>[1]): boolean =>
+      computeCommandCapabilities(source(chain, facts))["session.newArc"].enabled === true;
+
+    // An idle session with no arc: the one state New Arc runs in.
+    expect(gate({ sessionCardFrontmost: true, session })).toBe(true);
+    // The session already has an arc.
+    expect(gate({ sessionCardFrontmost: true, session: { ...session, hasArc: true } })).toBe(false);
+    // A turn is running: the door is not queued behind work in flight.
+    expect(
+      gate({
+        sessionCardFrontmost: true,
+        session: { ...session, canInterrupt: true, canChangeSettings: false },
+      }),
+    ).toBe(false);
+    // A card with no session yet has nothing to run `/arc` in.
+    expect(gate({ sessionCardFrontmost: true, session: { ...session, sessionBound: false } })).toBe(false);
+    expect(gate({ sessionCardFrontmost: false, session: null })).toBe(false);
   });
 
   test("the deck gates follow pane shape, including the deselected-deck hatch", () => {
@@ -694,6 +732,7 @@ describe("computeCommandCapabilities", () => {
           historyVisible: false,
           commitReady: false,
           hasCustomName: false,
+          hasArc: false,
         },
       };
       const gates = computeCommandCapabilities(
@@ -837,7 +876,7 @@ describe("computeCommandCapabilities", () => {
       expect(inside["file.openFile"].enabled).toBe(false);
     });
 
-    test("the shipped table dims the card-count items", () => {
+    test("the shipped table dims exactly the six card-count items", () => {
       const chain = new ResponderChainManager();
       const gates = computeCommandCapabilities(source(chain, { appModalOpen: true }));
       const dark = Object.entries(gates)
@@ -846,7 +885,6 @@ describe("computeCommandCapabilities", () => {
 
       for (const id of [
         "file.newTextCard",
-        "file.newArc",
         "file.openFile",
         "file.openQuickly",
         "file.openRecent.clear",

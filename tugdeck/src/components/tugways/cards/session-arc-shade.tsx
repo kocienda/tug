@@ -5,14 +5,14 @@
  * Stays mounted for the life of the card and is raised and lowered by one data
  * attribute, which a CSS transform reads, so a raise builds nothing and the
  * first frame of the rise costs only the transform. Raised, it stands over the
- * lower four fifths of the transcript slot; the transcript left showing above
- * it is made inert for as long as the shade is up. Lowered, the shade itself
- * is inert and translated out of its clipping pane.
+ * bottom of the transcript slot, as tall as what it holds and never taller
+ * than four fifths of the slot; the transcript left showing above it is made
+ * inert for as long as the shade is up. Lowered, the shade itself is inert and
+ * translated out of its clipping pane.
  *
  * Whether it is raised is read from the card's `ArcShadeController`, and the
- * arc it shows from the session's binding. Its height form follows from that:
- * full for a session with an arc, short for one without. While
- * raised it holds a focus mode of its own: the key view moves to the header's
+ * arc it shows from the session's binding. While raised it holds a focus
+ * mode of its own: the key view moves to the header's
  * Transcript button, Escape lowers the shade, and lowering restores the key
  * view that was current when it rose and puts the keyboard back on it, ring
  * or caret; with none to return to, the card is asked to take the keyboard.
@@ -46,18 +46,12 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 /** Focus order of the header's Transcript button, where the key view lands on a raise. */
 const TRANSCRIPT_FOCUS_ORDER = 0;
 
-/**
- * The shade's height form. `full` stands over four fifths of the transcript;
- * `short` is as tall as its content, up to the same line.
- */
-export type SessionArcShadeForm = "short" | "full";
-
 export interface SessionArcShadeProps {
   /** The card's arc shade store; the shade is raised while its snapshot is true. */
   controller: ArcShadeController;
   /**
    * The card's session, or null while it has none. The arc that session is
-   * bound to is named in the header and decides the height form.
+   * bound to is named in the header.
    */
   tugSessionId: string | null;
   /**
@@ -84,7 +78,6 @@ export function SessionArcShade({
   const raised = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const lower = useCallback(() => controller.lower(), [controller]);
   const arcName = useArcForSession(tugSessionId)?.name ?? null;
-  const form: SessionArcShadeForm = arcName !== null ? "full" : "short";
 
   // The shade's own focus mode. Pushed before the seed below runs, so the key
   // view the mode restores on pop is the one that was current before the rise.
@@ -149,7 +142,6 @@ export function SessionArcShade({
       data-slot="session-arc-shade"
       className="session-arc-shade"
       data-raised={raised ? "true" : "false"}
-      data-form={form}
       aria-label="Arc"
       aria-hidden={!raised}
       inert={!raised}

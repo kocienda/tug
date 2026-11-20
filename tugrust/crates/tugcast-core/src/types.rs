@@ -1231,11 +1231,13 @@ pub struct ChangesetSnapshot {
     pub orphaned: Vec<OrphanedFile>,
 }
 
-/// Which of an arc's documents exist, with the first heading of each.
+/// Which of an arc's documents exist, with the first heading of each, and
+/// the text of its idea and sketch records.
 ///
 /// Absolute paths, present only when the file is on disk. The title rides along
 /// because the deck has no filesystem: a surface that wants to name a document
-/// cannot open it ([F07]).
+/// cannot open it ([F07]). The records ride as their text for the same
+/// reason, heading and `Source:` line taken off; a record is not a document.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ArcDocuments {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1250,6 +1252,12 @@ pub struct ArcDocuments {
     pub tasks: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tasks_title: Option<String>,
+    /// The idea record's text, what the Idea panel shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idea_text: Option<String>,
+    /// The sketch record's text, what the Sketch panel shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch_text: Option<String>,
 }
 
 impl ArcDocuments {

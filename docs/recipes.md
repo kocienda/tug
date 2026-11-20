@@ -5,7 +5,7 @@ One recipe per thing you can do in Tug, headed the way you would say it. Each gi
 ## Arcs
 
 ### Create an arc
-<!-- source: tugplug/skills/arc/SKILL.md (forms of /arc); tugdeck/src/lib/slash-commands.ts (/arc is not local; /arc-bind); tugdeck/src/lib/arc-verbs.ts (Start); tugapp/Sources/MenuBarBuilder.swift (file.newArc); tugdeck/src/components/chrome/deck-canvas.tsx (new-arc) -->
+<!-- source: tugplug/skills/arc/SKILL.md (forms of /arc); tugdeck/src/lib/slash-commands.ts (/arc is not local; /arc-bind); tugdeck/src/lib/arc-verbs.ts (Start); tugdeck/src/components/tugways/cards/session-arc-shade-hint.tsx (New Arc); tugapp/Sources/MenuBarBuilder.swift (session.newArc) -->
 
 Type `/arc` in a Session card, followed by whatever you have:
 
@@ -15,7 +15,7 @@ Type `/arc` in a Session card, followed by whatever you have:
 
 The model settles what is still open, decides whether the work earns a written plan, says which shape it chose and why, and hands the arc to the app. You will see the arc's name on the card and a **Wheel** divider in the transcript as its first stage starts, and the arc takes its own branch and worktree, so your checkout is untouched.
 
-File > New Arc is the same door from the menu: it opens a new Session card, and once you have picked a project in the list it opens, the card runs `/arc` as its first turn and the model asks what the work is. There is no New Arc button in the Arcs sidebar and no chord. A row in the Arcs sidebar for documents that are already waiting offers **Start**, which runs those documents and opens nothing new. `/arc-bind <name>` with a new name does make an arc, but a bare one: a branch and a worktree, with no brief and nothing driving it. It is not how work is started.
+**New Arc** does the same as typing a bare `/arc`, in the session you are in. It is a button in the arc shade of a session with no arc, and Session > New Arc. Talk the change over first, then press it: the door takes up what the conversation has settled. New Arc is dimmed while a turn is running, and Session > New Arc is also dimmed when the session already has an arc or the card has no session yet. It opens no new card, and the arc gets its name and brief from the door's turn rather than at the press. It has no chord, and the Arcs sidebar has no New Arc. A row in the Arcs sidebar for documents that are already waiting offers **Start**, which runs those documents and opens nothing new. `/arc-bind <name>` with a new name does make an arc, but a bare one: a branch and a worktree, with no brief and nothing driving it. It is not how work is started.
 
 ### Write a brief
 <!-- source: tugplug/skills/brief/SKILL.md -->

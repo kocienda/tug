@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   ARC_PANEL_RUNGS,
   arcPanelDotState,
-  arcPanelRestingFocus,
   arcPanelSeamStates,
   type ArcPanelStates,
 } from "../arc-panels";
@@ -50,16 +49,5 @@ describe("arc panels", () => {
       "pending",
       "pending",
     ]);
-  });
-
-  test("the resting focus is the rung the work is at", () => {
-    expect(arcPanelRestingFocus(states("pending", "pending", "done", "active"))).toBe("arc");
-    expect(arcPanelRestingFocus(states("done", "active", "pending", "pending"))).toBe("sketch");
-  });
-
-  test("with no active rung the resting focus is the furthest settled one", () => {
-    expect(arcPanelRestingFocus(states("pending", "pending", "done", "done"))).toBe("arc");
-    expect(arcPanelRestingFocus(states("done", "done", "pending", "pending"))).toBe("sketch");
-    expect(arcPanelRestingFocus(states("pending", "pending", "pending", "pending"))).toBe("idea");
   });
 });

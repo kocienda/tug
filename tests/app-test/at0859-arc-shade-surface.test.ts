@@ -8,15 +8,16 @@
  * command's two doors, the ARC status cell and ⌥⌘R. What is read:
  *
  *   1. Lowered, the shade is mounted, inert and out of sight below the slot.
- *   2. With no arc the raised shade is its short form: resting on the slot's
- *      bottom edge, no taller than four fifths of the slot.
+ *   2. With no arc the raised shade is short: resting on the slot's bottom
+ *      edge, as tall as its hint, and no taller than four fifths of the slot.
  *   3. While it is up the transcript pane is inert and the key view is inside
  *      the shade; the status row stays in view beneath it.
  *   4. Escape lowers it, the transcript takes input again, and the caret is
  *      back in the composer it was taken from.
- *   5. With an arc bound the raised shade is its full form: exactly four
- *      fifths of the slot, naming the arc, and the header's Transcript button
- *      lowers it.
+ *   5. With an arc bound the raised shade holds the panels by the same rule:
+ *      as tall as they need, never past four fifths of the slot, so at least
+ *      a fifth of the transcript shows. It names the arc, and the header's
+ *      Transcript button lowers it.
  *   6. The shade and the History shade never stand together: either one
  *      rising takes the other down.
  *   7. A press on the ARC cell raises the shade and a second lowers it, and
@@ -29,6 +30,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.tsx
  * @covers tugdeck/src/components/tugways/cards/session-telemetry-cell.css
  * @covers tugdeck/src/lib/arc-shade-controller.ts
+ * @covers tugdeck/src/components/tugways/cards/use-menu-state-publication.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -93,7 +95,10 @@ afterAll(() => {
 
 interface ShadeReading {
   raised: string | null;
-  form: string | null;
+  /** The shade holds the arc's panels rather than the no-arc hint. */
+  panels: boolean;
+  /** How far the shade's body runs past its own box, down. */
+  bodyScroll: number;
   shadeInert: boolean;
   transcriptInert: boolean;
   slotTop: number;
@@ -129,7 +134,11 @@ const read = (app: App): Promise<ShadeReading> =>
          + (el.hasAttribute("data-key-view-kbd") ? " kbd" : "");
        return {
          raised: shade.getAttribute("data-raised"),
-         form: shade.getAttribute("data-form"),
+         panels: shade.querySelector('[data-slot="session-arc-panels"]') !== null,
+         bodyScroll: (() => {
+           const body = shade.querySelector('[data-slot="session-arc-shade-body"]');
+           return body === null ? 0 : body.scrollHeight - body.clientHeight;
+         })(),
          shadeInert: shade.inert === true,
          transcriptInert: pane.inert === true,
          slotTop: round(v.top),
@@ -223,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         note("at0859 lowered", JSON.stringify(lowered));
         expect(lowered.shadeInert, "a lowered shade is inert").toBe(true);
         expect(lowered.transcriptInert, "the transcript is live with the shade down").toBe(false);
-        expect(lowered.form, "no arc is the short form").toBe("short");
+        expect(lowered.panels, "no arc, no panels").toBe(false);
 
         // The caret goes to the composer, so the raise has somewhere to take
         // the keyboard from and the lower somewhere to return it.
@@ -233,16 +242,17 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
           { timeoutMs: 6_000 },
         );
 
-        // ── Raised with no arc: the short form ────────────────────────────
+        // ── Raised with no arc: as tall as the hint ───────────────────────
         await app.dispatchControlAction("toggle-arc-shade");
         const short = await settled(app, true);
-        note("at0859 short form raised", JSON.stringify(short));
-        expect(short.form).toBe("short");
+        note("at0859 no arc raised", JSON.stringify(short));
+        expect(short.panels).toBe(false);
         expect(short.shadeInert, "a raised shade is live").toBe(false);
         expect(short.transcriptInert, "the transcript strip is inert under a raised shade").toBe(true);
-        expect(short.shadeHeight, "the short form is no taller than four fifths of the slot")
+        expect(short.shadeHeight, "the shade is no taller than four fifths of the slot")
           .toBeLessThanOrEqual(short.slotHeight * 0.8 + 1);
         expect(short.shadeHeight, "and it is short").toBeLessThan(short.slotHeight * 0.5);
+        expect(short.bodyScroll, "and holds its hint whole").toBeLessThanOrEqual(0);
         expect(short.keyViewInShade, "the key view moved into the shade").toBe(true);
         expect(short.focusInComposer, "and the caret left the composer").toBe(false);
         expect(short.rowTop, "the status row stays in view beneath the shade")
@@ -260,22 +270,38 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
           { timeoutMs: 6_000 },
         );
 
-        // ── With an arc: the full form, four fifths of the slot ───────────
+        // ── With an arc: the panels, by the same rule ─────────────────────
         bindArc(projectDir(), ARC_NAME, SID, {
           binaryRoot: CHECKOUT,
           env: scratch?.cli.env,
         });
         await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-form") === "full"`,
+          `document.querySelector(${JSON.stringify(`${SHADE} [data-slot="session-arc-panels"]`)}) !== null`,
           { timeoutMs: 30_000 },
         );
+        // A session holds one arc, so Session ▸ New Arc is dimmed now.
+        const deadline = Date.now() + 8_000;
+        let newArc = await app.menuItemState("session.newArc");
+        while (newArc.found && newArc.enabled !== false && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100));
+          newArc = await app.menuItemState("session.newArc");
+        }
+        expect(newArc.found, "the Session menu holds New Arc").toBe(true);
+        expect(newArc.found ? newArc.enabled : undefined, "New Arc is dimmed once the session has an arc").toBe(false);
         await app.dispatchControlAction("toggle-arc-shade");
         const full = await settled(app, true);
-        note("at0859 full form raised", JSON.stringify(full));
-        expect(Math.abs(full.shadeHeight - full.slotHeight * 0.8), "the full form is four fifths of the slot")
+        note("at0859 with an arc raised", JSON.stringify(full));
+        expect(full.panels).toBe(true);
+        expect(Math.abs(full.shadeBottom - full.slotBottom), "the shade rests on the slot's bottom edge")
           .toBeLessThanOrEqual(1);
-        expect(Math.abs(full.shadeTop - (full.slotTop + full.slotHeight * 0.2)), "and a fifth of the transcript shows above it")
-          .toBeLessThanOrEqual(1);
+        expect(full.shadeHeight, "it is no taller than four fifths of the slot")
+          .toBeLessThanOrEqual(full.slotHeight * 0.8 + 1);
+        expect(full.shadeTop, "so at least a fifth of the transcript shows above it")
+          .toBeGreaterThanOrEqual(full.slotTop + full.slotHeight * 0.2 - 1);
+        // Short of the cap, the shade is exactly as tall as the panels need.
+        if (full.shadeHeight < full.slotHeight * 0.8 - 1) {
+          expect(full.bodyScroll, "under the cap, the shade holds the panels whole").toBeLessThanOrEqual(0);
+        }
         expect(full.transcriptInert).toBe(true);
         expect(full.text, "the header names the arc").toContain(ARC_NAME);
 

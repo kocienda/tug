@@ -11,7 +11,7 @@
  * @tug-pairings
  * | Element                                          | Surface                                           | Role          | Context                                                    |
  * |--------------------------------------------------|---------------------------------------------------|---------------|------------------------------------------------------------|
- * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .session-arc-panel-title (color)                           |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .session-arc-panel-title, .session-arc-panel-text (color)  |
  * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-panel-name, .session-arc-panel-detail (color) |
  * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-panel (border-color)                          |
  * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | pending panel border; pending seam; .session-arc-panel-foot |
@@ -20,8 +20,8 @@
  */
 
 /* The arc panels: four fixed panels in a 2×2 grid and the seams between them,
-   filling the arc shade's body. The component writes one attribute on the
-   grid, which panel holds the larger share; everything else is this sheet.
+   in the arc shade's body. The component writes no style of its own; all of
+   it is this sheet.
 
    The progress dot in each panel's header is a `TugProgressIndicator`, styled
    by its own sheet. */
@@ -38,65 +38,49 @@ body {
 /* ---- The grid ------------------------------------------------------------ */
 
 /* Three tracks each way: panel, seam, panel. The seams are real tracks, so
-   the marks on them never sit over a panel. The four panel tracks are
-   variables, which the shares below set and the return seam reads. Every
-   panel track may shrink to nothing, so the grid holds at any width its host
-   has and nothing a panel carries can push it wider. It is never shorter
-   than a height at which each panel can still be read; in a host shorter
-   than that, the host scrolls and the component brings the panel holding the
-   larger share into view. */
+   the marks on them never sit over a panel. The two panel columns are equal
+   and may shrink to nothing, so the grid holds at any width its host has and
+   nothing a panel carries can push it wider. Nothing moves them: a wider
+   column would rewrap a panel's text and so move the rows.
+
+   Each panel row is as tall as the taller of its two panels needs, and never
+   shorter than the floor: a panel's header and one line. The grid is a flex
+   item that may shrink, so when the shade's cap binds the rows share out the
+   room the cap leaves: the grid's track sizing grows each row from its floor
+   evenly and stops a row at its content's height, so a row that needs little
+   keeps all of it and the other takes the rest, its panels scrolling inside
+   themselves. Below the two floors the grid shrinks no further and the
+   shade's body scrolls. */
 .session-arc-panels {
   --tugx-arc-panel-seam: 28px;
-  --tugx-arc-panel-col-1: 1fr;
-  --tugx-arc-panel-col-2: 1fr;
-  --tugx-arc-panel-row-1: 1fr;
-  --tugx-arc-panel-row-2: 1fr;
+  /* A panel's borders, its header, and one line of its body with the body's
+     bottom padding. */
+  --tugx-arc-panel-floor: calc(
+    4px + 20px + 2 * var(--tug-space-sm) + 1.3 * var(--tug-font-size-sm) + var(--tug-space-md)
+  );
+  /* The row holding the Arc panel has a taller floor, the Arc panel's own:
+     its header, one row of its ledger and its verb row, which read 115 px.
+     Below it the verbs would fall out of the panel. */
+  --tugx-arc-panel-floor-arc: 120px;
   box-sizing: border-box;
-  /* Takes the height its host has, as a flex item or by its own height. */
-  flex: 1 1 0;
+  flex: 0 1 auto;
   width: 100%;
-  height: 100%;
   min-width: 0;
-  min-height: 400px;
+  min-height: calc(
+    var(--tugx-arc-panel-floor) + var(--tugx-arc-panel-floor-arc) + var(--tugx-arc-panel-seam) +
+      2 * var(--tug-space-md)
+  );
   display: grid;
   grid-template-columns:
-    minmax(0, var(--tugx-arc-panel-col-1))
+    minmax(0, 1fr)
     var(--tugx-arc-panel-seam)
-    minmax(0, var(--tugx-arc-panel-col-2));
+    minmax(0, 1fr);
   grid-template-rows:
-    minmax(0, var(--tugx-arc-panel-row-1))
+    minmax(var(--tugx-arc-panel-floor), auto)
     var(--tugx-arc-panel-seam)
-    minmax(0, var(--tugx-arc-panel-row-2));
+    minmax(var(--tugx-arc-panel-floor-arc), auto);
   padding: var(--tug-space-md);
   overflow: hidden;
-  /* A change of share snaps. Easing the tracks would re-lay-out all four
-     panels on every frame. */
-}
-
-/* The panel holding the larger share: its column and its row take three
-   parts to the other's two. */
-.session-arc-panels[data-focus="idea"],
-.session-arc-panels[data-focus="brief"] {
-  --tugx-arc-panel-col-1: 3fr;
-  --tugx-arc-panel-col-2: 2fr;
-}
-
-.session-arc-panels[data-focus="sketch"],
-.session-arc-panels[data-focus="arc"] {
-  --tugx-arc-panel-col-1: 2fr;
-  --tugx-arc-panel-col-2: 3fr;
-}
-
-.session-arc-panels[data-focus="idea"],
-.session-arc-panels[data-focus="sketch"] {
-  --tugx-arc-panel-row-1: 3fr;
-  --tugx-arc-panel-row-2: 2fr;
-}
-
-.session-arc-panels[data-focus="brief"],
-.session-arc-panels[data-focus="arc"] {
-  --tugx-arc-panel-row-1: 2fr;
-  --tugx-arc-panel-row-2: 3fr;
 }
 
 /* ---- A panel ------------------------------------------------------------- */
@@ -174,10 +158,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* The body scrolls inside the panel's seat. What it holds keeps its own
-   height; nothing is squeezed to fit. */
+/* The body is as tall as what it holds, which is what the row reads, and
+   scrolls inside the panel's seat when the row is shorter. What it holds
+   keeps its own height; nothing is squeezed to fit. */
 .session-arc-panel-body {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -204,6 +189,18 @@ body {
 .session-arc-panel[data-state="pending"] .session-arc-panel-title {
   font-weight: inherit;
   opacity: 0.7;
+}
+
+/* A recorded text, the idea or the sketch, as it was written: its line
+   breaks and its blank lines kept. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-panel-text {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
@@ -233,9 +230,10 @@ body {
 
 /* A full panel's body is a whole surface of its own, the popup list, which
    brings its own scroller and its own footer. It fills the panel to its
-   edges, its scroller takes whatever height is left, and its footer is the
-   panel's floor. The list is the panel's content here rather than a popup
-   over it, so it gives up the width and the height a popup keeps. */
+   edges, its scroller is as tall as its reading and gives way when the row
+   is shorter, and its footer is the panel's floor. The list is the panel's
+   content here rather than a popup over it, so it gives up the width and the
+   height a popup keeps. */
 .session-arc-panel[data-full="true"] > .session-arc-panel-body {
   padding: 0;
   gap: 0;
@@ -243,7 +241,7 @@ body {
 }
 
 .session-arc-panel[data-full="true"] .tug-popup-list {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: none;
   width: 100%;
@@ -251,12 +249,19 @@ body {
 }
 
 .session-arc-panel[data-full="true"] .tug-popup-list-scroller {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   max-height: none;
 }
 
-/* In a panel too short for the whole reading, the list's head gives way
-   before its footer does: the verb row stays in the panel. */
+/* In a panel too short for the whole reading, the ledger's scroller gives way
+   first, down to one row, then the list's head, and the footer never: the
+   verb row stays in the panel, and so does the row the ledger reveals, the
+   step under way. Flex shrinks each item in proportion to its own size, so a
+   long ledger would otherwise drag the head down with it; the scroller's
+   shrink factor dwarfs the head's, so the head keeps its height until the
+   scroller is down to its one row. The head's first line repeats the arc's
+   name the shade's header already carries, which is why it is the head that
+   gives way past that point. */
 .session-arc-panel[data-full="true"] .tug-popup-list > :not(.tug-popup-list-footer) {
   flex-shrink: 1;
   min-height: 0;
@@ -264,15 +269,9 @@ body {
 }
 
 .session-arc-panel[data-full="true"] .tug-popup-list > .tug-popup-list-scroller {
+  flex-shrink: 10000;
+  min-height: calc(var(--tugx-popup-list-row-h) + 2 * var(--tug-space-xs));
   overflow-y: auto;
-}
-
-/* While the Arc panel does not hold the larger share, its verb row keeps
-   only the arc's next move. */
-.session-arc-panels:not([data-focus="arc"])
-  .session-arc-panel[data-rung="arc"]
-  .tug-arc-verb:not([data-lead="true"]) {
-  display: none;
 }
 
 /* ---- The seams ----------------------------------------------------------- */
@@ -322,9 +321,9 @@ body {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns:
-    minmax(0, var(--tugx-arc-panel-col-1))
+    minmax(0, 1fr)
     var(--tugx-arc-panel-seam)
-    minmax(0, var(--tugx-arc-panel-col-2));
+    minmax(0, 1fr);
 }
 
 .session-arc-panel-return {

@@ -1102,10 +1102,13 @@ export interface ProjectChangeset extends ChangesetSnapshot {
 }
 
 /**
- * Which of an arc's documents exist, with the first heading of each.
+ * Which of an arc's documents exist, with the first heading of each, and the
+ * text of its idea and sketch records.
  *
  * Absolute paths. The title rides along because the deck has no filesystem: a
- * surface that wants to name a document cannot open it to find out.
+ * surface that wants to name a document cannot open it to find out. The
+ * records ride as their text for the same reason, with their heading and
+ * their `Source:` line taken off. A record is not a document.
  */
 export interface ArcDocuments {
   /** Absolute path of `brief.md`, when it exists. */
@@ -1120,6 +1123,10 @@ export interface ArcDocuments {
   tasks?: string;
   /** Its first heading's text. */
   tasks_title?: string;
+  /** The idea record's text (`idea.md`), when it holds any. */
+  idea_text?: string;
+  /** The sketch record's text (`sketch.md`), when it holds any. */
+  sketch_text?: string;
 }
 
 export function isArcDocuments(value: unknown): value is ArcDocuments {
@@ -1131,7 +1138,9 @@ export function isArcDocuments(value: unknown): value is ArcDocuments {
     (value.plan === undefined || typeof value.plan === "string") &&
     (value.plan_title === undefined || typeof value.plan_title === "string") &&
     (value.tasks === undefined || typeof value.tasks === "string") &&
-    (value.tasks_title === undefined || typeof value.tasks_title === "string")
+    (value.tasks_title === undefined || typeof value.tasks_title === "string") &&
+    (value.idea_text === undefined || typeof value.idea_text === "string") &&
+    (value.sketch_text === undefined || typeof value.sketch_text === "string")
   );
 }
 

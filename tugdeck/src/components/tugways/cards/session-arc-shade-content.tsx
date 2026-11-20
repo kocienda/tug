@@ -9,8 +9,10 @@
  * icons that open under the pointer or keyboard focus. Its dot holds its
  * pose while the arc is stopped. The Brief panel shows the arc's brief when
  * it has one: its title, its path and Open in Text Card, and the findings
- * and decisions it marks. Nothing records an arc's idea or its sketch yet,
- * and those two panels say so. With no arc there are no panels: the body is
+ * and decisions it marks. The Idea and Sketch panels show the arc's records
+ * of the prompt the work began as and of how the conversation took it to
+ * the brief, as written; an arc with no record says nothing is recorded.
+ * With no arc there are no panels: the body is
  * the short form's hint, which says so in the one word the ARC cell says,
  * says what an arc is and how to start one, and links to the guide.
  *
@@ -24,23 +26,21 @@
  * shade is lowered, so the confirm survives whatever its answer does to the
  * shade.
  *
- * Laws: [L02] the session's fields, the arc fact and the shade's raised
- *       state enter through `useSyncExternalStore`, [L11] the verbs are
- *       dispatched and the stores own the state, [L20] the composed content
- *       keeps its own tokens
+ * Laws: [L02] the session's fields and the arc fact enter through
+ *       `useSyncExternalStore`, [L11] the verbs are dispatched and the
+ *       stores own the state, [L20] the composed content keeps its own
+ *       tokens
  */
 
 import React, { useCallback, useContext, useMemo, useRef } from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
 import { SessionArcPanels, type SessionArcPanel } from "./session-arc-panels";
@@ -48,13 +48,30 @@ import { SessionArcShadeHint } from "./session-arc-shade-hint";
 import { ArcPopoverContent, useArcPopoverVerbs } from "./session-card-telemetry-popovers";
 
 /** The session fields the arc's reading and its verbs draw on. */
-const ARC_CONTENT_FIELDS = ["tugSessionId", "phase"] as const;
+const ARC_CONTENT_FIELDS = ["tugSessionId", "phase", "canSubmit"] as const;
 
 /** A rung nothing records yet: an empty seat that says so. */
-const NOT_RECORDED: SessionArcPanel = {
+export const NOT_RECORDED: SessionArcPanel = {
   state: "pending",
   title: "Nothing recorded for this arc yet",
 };
+
+/**
+ * The Idea or Sketch panel for an arc's record: its text as written, or the
+ * empty seat when the arc has none, as an arc opened before records were
+ * kept has none.
+ */
+export function recordPanel(text: string | undefined): SessionArcPanel {
+  if (text === undefined || text.trim() === "") return NOT_RECORDED;
+  return {
+    state: "done",
+    body: (
+      <p className="session-arc-panel-text" data-slot="session-arc-panel-text">
+        {text}
+      </p>
+    ),
+  };
+}
 
 /** The Arc panel, within this component's root. */
 const ARC_PANEL_SELECTOR = '[data-slot="session-arc-panel"][data-rung="arc"]';
@@ -62,22 +79,13 @@ const ARC_PANEL_SELECTOR = '[data-slot="session-arc-panel"][data-rung="arc"]';
 export interface SessionArcShadeContentProps {
   /** The card's session store: its session id, its phase and its task list. */
   codeSessionStore: CodeSessionStore;
-  /**
-   * The card's arc shade store. Each time the shade is raised, the panel
-   * holding the larger share is the one the work is at again.
-   */
-  controller: ArcShadeController;
 }
 
-export function SessionArcShadeContent({
-  codeSessionStore,
-  controller,
-}: SessionArcShadeContentProps): React.ReactElement {
+export function SessionArcShadeContent({ codeSessionStore }: SessionArcShadeContentProps): React.ReactElement {
   const snap = useSessionFields(codeSessionStore, ARC_CONTENT_FIELDS);
   const fact = useArcForSession(snap.tugSessionId);
   const taskListState = useTaskListState(codeSessionStore);
   const idle = snap.phase === "idle";
-  const raised = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const cardId = useContext(CardIdContext);
   const rootRef = useRef<HTMLDivElement | null>(null);
   // Where Discard's confirm hangs: the Arc panel's verb row, or the panel
@@ -117,15 +125,14 @@ export function SessionArcShadeContent({
   return (
     <div ref={rootRef} data-slot="session-arc-shade-content">
       {fact === null || arcVerbs.verbs === null ? (
-        <SessionArcShadeHint />
+        <SessionArcShadeHint canStart={snap.canSubmit && fact === null} />
       ) : (
         <SessionArcPanels
-          raised={raised}
           // The seams follow from the panels: the arc is cut from its brief,
           // so Brief to Arc is joined whenever there is one.
           panels={{
-            idea: NOT_RECORDED,
-            sketch: NOT_RECORDED,
+            idea: recordPanel(fact.documents?.idea_text),
+            sketch: recordPanel(fact.documents?.sketch_text),
             brief:
               fact.documents?.brief !== undefined
                 ? {

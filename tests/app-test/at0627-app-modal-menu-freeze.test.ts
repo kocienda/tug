@@ -75,7 +75,6 @@ const CHECK_FOR_UPDATES = "app.checkForUpdates";
 /** Items answered by the registry gate — `changesCardCount` entries. */
 const REGISTRY_TIER = [
   "file.newTextCard",
-  "file.newArc",
   "file.openFile",
   "file.openQuickly",
   "file.closeCard",

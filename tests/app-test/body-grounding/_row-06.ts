@@ -60,7 +60,7 @@ const PARTS: Readonly<Record<Part, (id: string) => boolean>> = {
  * app's own window, changes the workspace set, or closes the fixture.
  */
 const NOT_PERFORMED =
-  /^(file\.(openFile|openQuickly|openRecent|save|saveAs|saveACopy|exportTranscript|revertToSaved|reloadFromDisk|closeAllCardTabs|closeCard|newSessionCard|newArc|newTextCard|newJot)|view\.(enterFullScreen|keyboardFocus|nextKeyboardFocus|previousKeyboardFocus)|window\.(minimize|zoom|bringAllToFront|deleteWorkspace|newWorkspace|duplicateWorkspace|renameWorkspace|space\.|pane\.))/;
+  /^(file\.(openFile|openQuickly|openRecent|save|saveAs|saveACopy|exportTranscript|revertToSaved|reloadFromDisk|closeAllCardTabs|closeCard|newSessionCard|newTextCard|newJot)|view\.(enterFullScreen|keyboardFocus|nextKeyboardFocus|previousKeyboardFocus)|window\.(minimize|zoom|bringAllToFront|deleteWorkspace|newWorkspace|duplicateWorkspace|renameWorkspace|space\.|pane\.))/;
 
 /** Two Session cards side by side in a four-up flow, A in front. */
 function deck(): Record<string, unknown> {

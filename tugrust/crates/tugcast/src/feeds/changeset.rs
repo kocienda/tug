@@ -1937,7 +1937,7 @@ fn wire_timeline(
     }
 }
 
-/// The engine's `ArcDocuments` as the wire's — the same six fields, one
+/// The engine's `ArcDocuments` as the wire's — the same eight fields, one
 /// crate boundary apart.
 fn arc_documents(documents: tugarc_core::ArcDocuments) -> tugcast_core::types::ArcDocuments {
     tugcast_core::types::ArcDocuments {
@@ -1947,6 +1947,8 @@ fn arc_documents(documents: tugarc_core::ArcDocuments) -> tugcast_core::types::A
         plan_title: documents.plan_title,
         tasks: documents.tasks,
         tasks_title: documents.tasks_title,
+        idea_text: documents.idea_text,
+        sketch_text: documents.sketch_text,
     }
 }
 
@@ -5250,6 +5252,23 @@ Some context.
         );
         assert!(wire.plan.as_deref().unwrap().starts_with('/'));
         assert_eq!(wire.brief_title.as_deref(), Some("The live brief"));
+        assert_eq!(wire.idea_text, None);
+
+        // The arc's records ride as their text, for the Idea and Sketch panels.
+        let dir = root.join(".tug").join("arcs").join("live");
+        std::fs::write(
+            dir.join("idea.md"),
+            "# Idea\n\nThe idea.\n\nSource: session s, turn 1\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("sketch.md"),
+            "# Sketch\n\nThe sketch.\n\nSource: session s, turns 1–4\n",
+        )
+        .unwrap();
+        let recorded = arc_documents(tugarc_core::ArcDocuments::read(&root, "live"));
+        assert_eq!(recorded.idea_text.as_deref(), Some("The idea."));
+        assert_eq!(recorded.sketch_text.as_deref(), Some("The sketch."));
 
         let (review, steps, task_list) = arc_plan_reading(Path::new(wire.plan.as_deref().unwrap()));
         assert_eq!(review.as_deref(), Some("reviewed"));

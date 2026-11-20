@@ -29,6 +29,8 @@ The prompt that seated you carries one: `where: worktree <abs path> · session <
 
 **With no `where` line above, stop and say so.** This skill is a stage of a planned arc rather than a standalone command, and `/arc` is the one door into it: it sharpens the idea with the user, writes the brief, and decides there that the arc is planned — the arc then devises the plan and hands it here. A plain arc, whose door settled the steps itself, has no devise stage and no review stage at all. There is no path from here that ends anywhere else — the stamp this stage writes is read by a runner, and with no runner watching it there is nothing behind the gesture.
 
+**Keep the arc's record of its idea and sketch current** as the arc doctrine's *The record of where the work came from* says, once, before reading the plan: rewrite either one only when its source session has turns since that changed it, and never invent one. The record is not the plan, so a rewrite touches nothing the stamp reads.
+
 ### 1. Read the plan's review state, then lint it
 
 ```bash

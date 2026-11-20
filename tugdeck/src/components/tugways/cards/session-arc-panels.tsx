@@ -15,47 +15,37 @@
  * panel under the header, for content that is a surface in its own right and
  * brings its own scroller and footer.
  *
- * One panel holds the larger share of the grid: its column and its row take
- * three parts to the other's two. At rest that is the rung the work is at.
- * Pressing a panel, or moving keyboard focus into it, gives it the share
- * instead. Which panel holds it is the `data-focus` attribute on the grid,
- * written straight to the DOM and read by the sheet, so a press renders
- * nothing. It is not saved, and it returns to the resting panel each time
- * `raised` becomes true. A press that lands on a control inside a panel moves
- * the share only once the press has been delivered, so the control does not
- * move out from under the pointer.
+ * Each row is as tall as the taller of its two panels needs, down to a floor
+ * of a header and one line, so the grid is as tall as what it holds. Under a
+ * host that caps its height the rows share the room: a row that needs little
+ * keeps it, and the other's panels scroll inside themselves.
  *
- * The grid keeps a minimum height. In a host shorter than that the host
- * scrolls, and the panel given the larger share is brought into its view.
- *
- * While the Arc panel does not hold the larger share, the sheet hides every
- * verb in it but the lead one.
+ * The two columns are equal and nothing moves on a press, so a panel's text
+ * wraps one way and the rows' heights hold still. The grid never shrinks
+ * below its two rows' floors; in a host shorter than that the host scrolls.
  *
  * What each panel says is the caller's. Composes `TugProgressIndicator`,
  * which keeps its own tokens.
  *
- * Laws: [L06] the pressed panel is a DOM attribute and CSS, never React
- *       state, [L16] pairings declared, [L19] component authoring guide,
- *       [L20] composed children keep their tokens, [L23] the host's scroll
- *       moves only as far as it takes to show the panel
+ * Laws: [L06] the grid's sizing is CSS, never React state, [L16] pairings
+ *       declared, [L19] component authoring guide, [L20] composed children
+ *       keep their tokens
  */
 
 import "./session-arc-panels.css";
 
-import React, { useLayoutEffect, useRef } from "react";
+import React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import {
   ARC_PANEL_RUNGS,
   arcPanelDotState,
-  arcPanelRestingFocus,
   arcPanelSeamStates,
   type ArcPanelRung,
   type ArcPanelSeamState,
   type ArcPanelState,
 } from "@/lib/arc-panels";
-import { layoutRectOf } from "@/lib/page-zoom-store";
 
 /** The name each panel wears in its header. */
 const RUNG_LABELS: Record<ArcPanelRung, string> = {
@@ -64,33 +54,6 @@ const RUNG_LABELS: Record<ArcPanelRung, string> = {
   brief: "Brief",
   arc: "Arc",
 };
-
-/** A panel's element, from anything inside it. */
-const PANEL_SELECTOR = '[data-slot="session-arc-panel"]';
-
-/** What a press must reach before the grid moves under it: a panel's own controls. */
-const CONTROL_SELECTOR = 'button, input, textarea, a, [role="button"], [contenteditable="true"]';
-
-/**
- * Bring a panel into the view of the nearest ancestor that scrolls down the
- * page, moving that ancestor's own `scrollTop` and no further than it takes.
- * A panel taller than the view shows its lower edge, where its floor and its
- * verbs are. With no such ancestor, or the panel already in view, nothing
- * moves.
- */
-function revealPanel(panel: HTMLElement): void {
-  for (let host = panel.parentElement; host !== null; host = host.parentElement) {
-    if (host.scrollHeight <= host.clientHeight) continue;
-    const overflowY = getComputedStyle(host).overflowY;
-    if (overflowY !== "auto" && overflowY !== "scroll") continue;
-    // Layout px, which is what `scrollTop` is in.
-    const view = layoutRectOf(host);
-    const box = layoutRectOf(panel);
-    if (box.bottom > view.bottom) host.scrollTop += box.bottom - view.bottom;
-    else if (box.top < view.top) host.scrollTop -= view.top - box.top;
-    return;
-  }
-}
 
 /** What one panel says. */
 export interface SessionArcPanel {
@@ -127,53 +90,16 @@ export interface SessionArcPanel {
 export interface SessionArcPanelsProps {
   /** The four panels' content. */
   panels: Readonly<Record<ArcPanelRung, SessionArcPanel>>;
-  /**
-   * Whether the surface holding the panels is showing. Each time it becomes
-   * true, the larger share returns to the resting panel.
-   * @default true
-   */
-  raised?: boolean;
 }
 
-export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProps): React.ReactElement {
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  // A press is down on a control inside a panel. The share waits for the
-  // click, so the control is still under the pointer when the press ends.
-  const pressOnControl = useRef(false);
-
+export function SessionArcPanels({ panels }: SessionArcPanelsProps): React.ReactElement {
   const states = {
     idea: panels.idea.state,
     sketch: panels.sketch.state,
     brief: panels.brief.state,
     arc: panels.arc.state,
   };
-  const resting = arcPanelRestingFocus(states);
   const seams = arcPanelSeamStates(states);
-
-  // The pressed panel is forgotten when the surface is put away: raised
-  // again, the resting panel holds the share.
-  useLayoutEffect(() => {
-    const grid = gridRef.current;
-    if (!raised || grid === null) return;
-    grid.dataset.focus = resting;
-    const panel = grid.querySelector<HTMLElement>(`${PANEL_SELECTOR}[data-rung="${resting}"]`);
-    if (panel !== null) revealPanel(panel);
-  }, [raised, resting]);
-
-  /** Give the panel holding `target` the larger share. */
-  const focusPanelOf = (target: EventTarget): void => {
-    const grid = gridRef.current;
-    if (grid === null || !(target instanceof Element)) return;
-    const panel = target.closest<HTMLElement>(PANEL_SELECTOR);
-    const rung = panel?.dataset.rung;
-    if (panel === null || rung === undefined || grid.dataset.focus === rung) return;
-    grid.dataset.focus = rung;
-    revealPanel(panel);
-  };
-
-  const endPress = (): void => {
-    pressOnControl.current = false;
-  };
 
   const panel = (rung: ArcPanelRung): React.ReactElement => {
     const { state, paused, title, detail, body, full, foot } = panels[rung];
@@ -215,24 +141,7 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
   };
 
   return (
-    <div
-      ref={gridRef}
-      data-slot="session-arc-panels"
-      className="session-arc-panels"
-      data-focus={resting}
-      onPointerDown={(event) => {
-        pressOnControl.current =
-          event.target instanceof Element && event.target.closest(CONTROL_SELECTOR) !== null;
-        if (!pressOnControl.current) focusPanelOf(event.target);
-      }}
-      onPointerUp={endPress}
-      onPointerCancel={endPress}
-      onPointerLeave={endPress}
-      onClick={(event) => focusPanelOf(event.target)}
-      onFocus={(event) => {
-        if (!pressOnControl.current) focusPanelOf(event.target);
-      }}
-    >
+    <div data-slot="session-arc-panels" className="session-arc-panels">
       {panel("idea")}
       <RowSeam from="idea" state={seams[0]} />
       {panel("sketch")}
@@ -267,7 +176,7 @@ function RowSeam({ from, state }: { from: ArcPanelRung; state: ArcPanelSeamState
 /**
  * The return across the middle: down out of the second panel, back along the
  * seam, and down into the third. It is laid on the grid's own columns, so its
- * two drops stay over the middles of the panels however the room is shared.
+ * two drops stay over the middles of the panels.
  */
 function ReturnSeam({ state }: { state: ArcPanelSeamState }): React.ReactElement {
   return (

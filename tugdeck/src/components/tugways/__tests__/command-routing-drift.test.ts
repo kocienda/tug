@@ -264,7 +264,7 @@ describe("routing matches the pre-migration mechanism", () => {
     const perValue = COMMANDS.filter((e) => e.id.includes(":"));
     const slash = perValue.filter((e) => commandWire(e) === TUG_ACTIONS.RUN_SLASH_COMMAND);
 
-    expect(slash.length).toBe(23);
+    expect(slash.length).toBe(24);
     for (const entry of slash) {
       expect(entry.routing).toBe("key-card");
       expect(entry.menuItemId).toBeDefined();
@@ -328,7 +328,6 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "revert-to-saved": "command",
   "reload-from-disk": "command",
   "new-text-card": "command",
-  "new-arc": "command",
   "next-theme": "command",
   "apply-theme-to-all-workspaces": "command",
   "add-card-to-active-pane": "command",

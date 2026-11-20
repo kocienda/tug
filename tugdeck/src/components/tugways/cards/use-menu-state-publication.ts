@@ -27,6 +27,9 @@ import type { TurnEntry } from "@/lib/code-session-store/types";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { ShadeViewController } from "@/lib/shade-view-controller";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { arcForSessionNow } from "@/lib/arc-session-index";
+import { getChangesetAllStore } from "@/lib/changeset-all-store";
+import { sessionLineStore } from "@/lib/session-line-store";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { clearSessionMenuState, publishSessionMenuState } from "@/lib/host-menu-state";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
@@ -127,6 +130,9 @@ export function useMenuStatePublication(
             sessionNameStore.getName(binding.tugSessionId) !== null
           );
         })(),
+        // The session is working on an arc, so New Arc has nothing to start.
+        // The same lookup the arc shade and the ARC cell read.
+        hasArc: arcForSessionNow(snap.tugSessionId) !== null,
         ...cachedFacts,
       });
     };
@@ -145,6 +151,10 @@ export function useMenuStatePublication(
       // session taking the name away — and the Unname item's enablement has to
       // move with it.
       sessionNameStore.subscribe(publish),
+      // The arc a session is working on comes and goes with the aggregate
+      // feed, and its lookup walks the session's line as well.
+      getChangesetAllStore()?.subscribe(publish) ?? (() => {}),
+      sessionLineStore.subscribe(publish),
     ];
     publish();
 

@@ -29,7 +29,6 @@ import AppKit
     func newHelloWorldCard(_ sender: Any)
     func newJot(_ sender: Any)
     func newSessionCard(_ sender: Any)
-    func newArc(_ sender: Any)
     func newSpikesCard(_ sender: Any)
     func newTextCard(_ sender: Any)
     func newWorkspaceFromMenu(_ sender: Any?)
@@ -241,10 +240,6 @@ struct MenuBarBuilder {
         // creators live in the app-maker menu, gated at compile time on
         // BuildInfo.profile.
         fileMenu.addItem(NSMenuItem(title: "New Session", action: #selector(MenuBarActions.newSessionCard(_:)), keyEquivalent: "n").identified("file.newSessionCard"))
-
-        // New Arc: a Session card that opens the `/arc` door as its first
-        // turn. No chord of its own; the registry's entry gates it.
-        fileMenu.addItem(NSMenuItem(title: "New Arc", action: #selector(MenuBarActions.newArc(_:)), keyEquivalent: "").identified("file.newArc"))
 
         // New Text File (⌥⌘N): a new untitled manual buffer — no file
         // exists until the first Save.
@@ -609,6 +604,10 @@ struct MenuBarBuilder {
         configureMenu.addItem(sessionCommandItem("Memory…", "memory", "session.memory"))
         sessionMenu.addItem(configureItem)
         sessionMenu.addItem(NSMenuItem.separator())
+        // New Arc runs `/arc` in this session; the registry gate dims it when
+        // the session has an arc, while a turn runs, and with no session. It
+        // carries no chord.
+        sessionMenu.addItem(sessionCommandItem("New Arc", "new-arc", "session.newArc"))
         sessionMenu.addItem(sessionCommandItem("Visualize Data…", "visualize-data", "session.visualizeData"))
         sessionMenu.addItem(sessionCommandItem("Explain Code…", "explain-code", "session.explainCode"))
 

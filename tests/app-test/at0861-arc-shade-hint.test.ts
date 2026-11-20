@@ -1,14 +1,14 @@
 /**
- * at0861-arc-shade-hint.test.ts — the arc shade's short form, for a session
+ * at0861-arc-shade-hint.test.ts — the arc shade for a session
  * with no arc: what it says, and where its help link goes.
  *
  * What is read:
  *
- *   1. A press on the ARC cell of a session with no arc raises the shade in
- *      its short form, and the shade holds no panels.
- *   2. The shade says the one word the cell reads, says how to start an arc
- *      by naming the `/arc` command, and carries a link written as a help
- *      link to the guide's section on arcs.
+ *   1. A press on the ARC cell of a session with no arc raises the shade,
+ *      and the shade holds no panels.
+ *   2. The shade says the one word the cell reads, says what an arc is,
+ *      offers New Arc in place of a command to type, and carries a link
+ *      written as a help link to the guide's section on arcs.
  *   3. Following the link opens the feature guide in a help card, scrolled to
  *      its Arcs heading.
  *
@@ -94,14 +94,13 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
           { timeoutMs: 20_000 },
         );
 
-        // ── The cell raises the short form ────────────────────────────────
+        // ── The cell raises the shade, with no panels ─────────────────────
         await app.body("A").click(ARC_CELL);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") === "true"`,
           { timeoutMs: 10_000 },
         );
         const hint = await app.body("A").evalJS<{
-          form: string | null;
           panels: boolean;
           none: string;
           text: string;
@@ -115,7 +114,6 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
              const link = document.querySelector(${JSON.stringify(HELP_LINK)});
              const text = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
              return {
-               form: shade.getAttribute("data-form"),
                panels: shade.querySelector('[data-slot="session-arc-panels"]') !== null,
                none: text(hint.querySelector('[data-slot="session-arc-shade-hint-none"]')),
                text: text(hint.querySelector(".session-arc-shade-hint-text")),
@@ -126,11 +124,11 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
            })()`,
         );
         note("at0861 hint", JSON.stringify(hint));
-        expect(hint.form).toBe("short");
         expect(hint.panels, "no arc, no panels").toBe(false);
         expect(hint.none, "the shade says the word the cell reads").toBe("None");
         expect(hint.text, "it says what an arc is").toContain("An arc is");
-        expect(hint.code, "and names the command that starts one").toEqual(["/arc"]);
+        expect(hint.code, "New Arc stands in place of a command to type").toEqual([]);
+        expect(hint.text, "and the sentence points at it").toContain("press New Arc");
         expect(hint.link).toBe("What an arc is");
         expect(hint.href, "the link is a help link to the guide's Arcs section").toBe("features.md#arcs");
 

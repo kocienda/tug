@@ -43,6 +43,8 @@ The documents are **not tracked**. `.tug/` is gitignored, so a plan lands on no 
 
 Read the relevant code before designing. Use Glob/Grep/Read to map the territory: the components, the data flow, the existing conventions, the laws that apply (the `laws` documents `tugtool arc config --json` reports, where the project declares any). Read the `doctrine` documents it reports too: the project's supplement names its test commands, which the plan's checkpoints will run, and says which work its laws require a Project-Law Mapping for, which the skeleton defers to it. Pull external references with WebFetch/WebSearch only when the idea needs them. The plan must be grounded in how the code actually works, not how you imagine it works.
 
+Read the arc's record of its idea and sketch too, and keep it current as the arc doctrine's *The record of where the work came from* says: rewrite either one only when its source session has turns since that changed it, and never invent one.
+
 ### 2. Clarify (only what matters)
 
 Settle what you can from the code, the laws, and the conventional default — which is nearly everything. A question is worth raising **only when the answer changes the design** and nothing you can read decides it.

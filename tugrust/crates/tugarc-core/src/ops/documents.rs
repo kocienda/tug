@@ -1,5 +1,6 @@
 //! The arc's documents home: `.tug/arcs/<name>/`, the brief, plan and task
-//! list in it, the ledger read off them, and the `.tug/` exclusion.
+//! list in it, the record of the idea and the sketch the work began as, the
+//! ledger read off them, and the `.tug/` exclusion.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -36,6 +37,26 @@ pub fn brief_file(repo: &Path, name: &str) -> PathBuf {
 /// The arc's plan: `<repo>/.tug/arcs/<name>/plan.md`.
 pub fn plan_file(repo: &Path, name: &str) -> PathBuf {
     documents_dir(repo, name).join("plan.md")
+}
+
+/// The arc's record of its idea: `<repo>/.tug/arcs/<name>/idea.md`.
+///
+/// The prompt the work began as, copied by the `/arc` door at the hand-off
+/// with a reference to the session and turn it came from. A record and not a
+/// document the arc runs on: it neither opens an arc nor decides its kind, and
+/// an arc without one is an arc whose source could not be found.
+pub fn idea_file(repo: &Path, name: &str) -> PathBuf {
+    documents_dir(repo, name).join("idea.md")
+}
+
+/// The arc's record of its sketch: `<repo>/.tug/arcs/<name>/sketch.md`.
+///
+/// A few sentences on how the conversation took the idea to the brief, with a
+/// reference to the session and turns. The turns themselves are not copied:
+/// the brief carries the decisions. Like [`idea_file`], a record the arc does
+/// not run on.
+pub fn sketch_file(repo: &Path, name: &str) -> PathBuf {
+    documents_dir(repo, name).join("sketch.md")
 }
 
 /// The arc's task list: `<repo>/.tug/arcs/<name>/tasks.md`.
@@ -347,12 +368,16 @@ pub fn document_arc_dirs(repo: &Path) -> Vec<String> {
     names
 }
 
-/// Which of an arc's documents exist, with the first heading of each.
+/// Which of an arc's documents exist, with the first heading of each, and
+/// the text of its idea and sketch records.
 ///
 /// Absolute paths, present only when the file is there. The title is a
 /// convenience for a surface that cannot open the file itself (the deck has no
 /// filesystem); a file whose bytes cannot be read leaves the title `None`
-/// rather than failing the read.
+/// rather than failing the read. The records ride as text for the same
+/// reason, with their heading and their `Source:` line taken off, so what is
+/// left is what the Idea and Sketch panels show. A record is not a document,
+/// so it never makes an arc non-empty.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArcDocuments {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -367,6 +392,12 @@ pub struct ArcDocuments {
     pub tasks: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tasks_title: Option<String>,
+    /// The idea record's text (`idea.md`), when it holds any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idea_text: Option<String>,
+    /// The sketch record's text (`sketch.md`), when it holds any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch_text: Option<String>,
 }
 
 impl ArcDocuments {
@@ -383,6 +414,8 @@ impl ArcDocuments {
             plan_title,
             tasks,
             tasks_title,
+            idea_text: read_record(&dir.join("idea.md")),
+            sketch_text: read_record(&dir.join("sketch.md")),
         }
     }
 
@@ -405,6 +438,44 @@ fn read_document(path: &Path) -> (Option<String>, Option<String>) {
     });
     (Some(abs), title)
 }
+
+/// A record's text, when the file is there and holds any: the leading
+/// heading (`# Idea`, `# Sketch`) and the trailing `Source:` line, which say
+/// what the record is and where it came from, are taken off, and the rest is
+/// trimmed. A record past [`RECORD_TEXT_LIMIT`] characters is cut there with
+/// an ellipsis, since it rides every snapshot of the arc feed.
+fn read_record(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut lines: Vec<&str> = text.lines().collect();
+    while lines.first().is_some_and(|l| l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    if lines.first().is_some_and(|l| l.starts_with('#')) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    if lines
+        .last()
+        .is_some_and(|l| l.trim_start().starts_with("Source:"))
+    {
+        lines.pop();
+    }
+    let body = lines.join("\n").trim().to_string();
+    if body.is_empty() {
+        return None;
+    }
+    if body.chars().count() > RECORD_TEXT_LIMIT {
+        let cut: String = body.chars().take(RECORD_TEXT_LIMIT).collect();
+        return Some(format!("{}…", cut.trim_end()));
+    }
+    Some(body)
+}
+
+/// The most of a record's text the feed carries: room for a long prompt,
+/// short of a pasted file.
+pub const RECORD_TEXT_LIMIT: usize = 8000;
 
 /// The readable text of a markdown heading line: leading `#`s, a trailing
 /// `{#anchor}`, and surrounding `**` removed.
@@ -675,6 +746,43 @@ mod tests {
             "a linked worktree must not resolve its own .tug/arcs: {}",
             from_worktree.display()
         );
+    }
+
+    #[test]
+    fn arc_documents_read_carries_the_records_text_without_heading_or_source() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let dir = documents_dir(root, "records");
+        fs::create_dir_all(&dir).unwrap();
+
+        let none = ArcDocuments::read(root, "records");
+        assert_eq!((none.idea_text, none.sketch_text), (None, None));
+
+        fs::write(
+            dir.join("idea.md"),
+            "# Idea\n\nMake New Arc a button.\n\nAnd a menu item.\n\nSource: session 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, turn 3\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("sketch.md"),
+            "# Sketch\n\nSource: session x, turn 4\n",
+        )
+        .unwrap();
+
+        let docs = ArcDocuments::read(root, "records");
+        assert_eq!(
+            docs.idea_text.as_deref(),
+            Some("Make New Arc a button.\n\nAnd a menu item.")
+        );
+        // A record with nothing past its heading and its source is no record.
+        assert_eq!(docs.sketch_text, None);
+        // Records are not documents.
+        assert!(docs.is_empty());
+
+        fs::write(dir.join("sketch.md"), "x".repeat(RECORD_TEXT_LIMIT + 10)).unwrap();
+        let long = ArcDocuments::read(root, "records").sketch_text.unwrap();
+        assert_eq!(long.chars().count(), RECORD_TEXT_LIMIT + 1);
+        assert!(long.ends_with('…'));
     }
 
     #[test]

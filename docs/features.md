@@ -217,7 +217,7 @@ A big change with AI goes wrong in a familiar way: the model works on your check
 
 ### Opening an arc
 
-An arc begins as an idea typed into a session. Talk it over with the model until the shape is settled; that converged shape is a **sketch** and lives only in the conversation. When it is settled, `/tugplug:brief` writes it down as a **brief**, a short record of what was found and what was decided. Then `/arc` is the one door, and File > New Arc opens it in a new session card. It takes the brief, or writes one from the conversation, decides whether the work earns a written plan first, says which shape it chose and why, and hands the arc to the app.
+An arc begins as an idea typed into a session. Talk it over with the model until the shape is settled; that converged shape is a **sketch** and lives only in the conversation. When it is settled, `/tugplug:brief` writes it down as a **brief**, a short record of what was found and what was decided. Then `/arc` is the one door, typed or reached by **New Arc**, a button in the arc shade of a session with no arc and an item in the Session menu. It takes the brief, or writes one from the conversation, decides whether the work earns a written plan first, says which shape it chose and why, and hands the arc to the app.
 
 There are two **kinds** of arc, and the axis between them is settling time, not size:
 
@@ -261,17 +261,17 @@ Press the arc reading at the right of a session's status row, or Option-Command-
 
 With an arc bound to the session, the shade is four panels in a grid, two across and two down, numbered in the order a piece of work climbs:
 
-- **Idea** and **Sketch** stand for the prompt the work began as and the conversation that settled its shape. Nothing records either for an arc yet, and each panel says so.
+- **Idea** and **Sketch** show the prompt the work began as and a few sentences on how the conversation took it to the brief, as `/arc` recorded them when the arc opened. An arc with no record, such as one opened before records were kept, says nothing is recorded.
 - **Brief** shows the arc's brief: its title, its path, Open in Text Card, and the findings and decisions the brief marks.
 - **Arc** is the arc itself: its name and the session bound to it, the stage it is in, its steps, and its verbs.
 
 An arrow joins each panel to the next: across each row, and from Sketch back down to Brief. It is solid where one was made from the other, as an arc is from its brief, and dotted where there is nothing to join yet. The dot in a panel's header says where that rung is: settled, pulsing where the work is now, holding still when the arc is stopped, or an empty seat.
 
-One panel is larger than the other three. At rest that is the rung the work is at. Press a panel, or move keyboard focus into it, and it takes the larger share instead; nothing remembers the choice, and the next time the shade rises the larger panel is the resting one again. Each panel scrolls inside itself. On a short card the shade's body also scrolls down, and the larger panel is brought into view.
+The two columns are the same width, and each row is as tall as its taller panel needs, so the shade is only as tall as what it shows, up to four fifths of the transcript. When it reaches that line the shorter row keeps its height and the other row's panels scroll inside themselves. On a very short card the shade's body also scrolls down.
 
-The Arc panel's verbs are the ones the Arcs sidebar offers for the same arc, on one row under its steps. The first carries its word and the rest are icons, each named by its tooltip; while the Arc panel is one of the smaller three it shows the first alone. The first is the arc's next move: Start, Stop while a stage is working, Resume after a stop, or Join once the audit has marked it. **Changes** lowers the shade and opens the Changes shade on the arc's row. **Unbind** releases the arc from this session and leaves the arc as it is. **Replay** replays the arc's commits onto the current main. **Discard** ends the arc without landing it, after a confirmation on the panel.
+The Arc panel's verbs are the ones the Arcs sidebar offers for the same arc, on one row under its steps. The first carries its word and the rest are icons, each named by its tooltip. The first is the arc's next move: Start, Stop while a stage is working, Resume after a stop, or Join once the audit has marked it. **Changes** lowers the shade and opens the Changes shade on the arc's row. **Unbind** releases the arc from this session and leaves the arc as it is. **Replay** replays the arc's commits onto the current main. **Discard** ends the arc without landing it, after a confirmation on the panel.
 
-With no arc, the shade is short: it says what an arc is, how to start one, and links here.
+With no arc, the shade is as tall as a few lines: it says what an arc is, offers **New Arc**, and links here. New Arc runs `/arc` in this session, so talk the change over first; it is dimmed while a turn is running.
 
 ### Arcs from the command line
 

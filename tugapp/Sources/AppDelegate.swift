@@ -1402,10 +1402,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("show-card", params: ["component": "session"])
     }
 
-    @objc func newArc(_ sender: Any) {
-        sendControl("new-arc")
-    }
-
     @objc func openFileInEditor(_ sender: Any) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true

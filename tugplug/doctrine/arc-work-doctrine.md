@@ -232,6 +232,34 @@ The rule generalises past the wording: **a stage does not report that it found i
 
 A record that genuinely disagrees is a different matter, and it is not this stage's to announce either: the runner catches it at the dispatch and stops the arc with the doctor's own sentence, so a disagreement arrives as a receipt on the card rather than as a paragraph in a stage's opening.
 
+## The record of where the work came from
+
+An arc's directory holds two **records** beside its documents. `idea.md` is the prompt the work began as, copied verbatim. `sketch.md` is a few sentences on how the conversation took that idea to the brief: what it settled and what changed shape on the way. The turns themselves are not copied, because the brief carries the decisions in full. `tugtool arc documents <name> --json` names both paths and says whether each exists (`idea_exists`, `sketch_exists`). They are records, not documents: no stage runs on them, and neither opens an arc nor decides its kind.
+
+Each has one shape, a fixed heading, the text, and a last line naming where it came from:
+
+```markdown
+# Idea
+
+<the prompt the work began as, verbatim>
+
+Source: session <uuid>, turn <n>
+```
+
+```markdown
+# Sketch
+
+<a few sentences: how the conversation took the idea to the brief>
+
+Source: session <uuid>, turns <first>–<last>
+```
+
+The uuid is the full one, which is the one spelling that cannot be ambiguous; the turn numbers are the ones `tugtool session show <uuid>` prints. The door writes both at the hand-off.
+
+**Every stage after the door keeps them current.** When a stage starts, it reads both. Where a record's source session has turns after the ones its `Source:` line names (the header of `tugtool session show <uuid>` gives the turn count, and `--turn` or `--last` reads them), it reads those turns, and if they changed the idea or what the conversation settled, it rewrites the record and its `Source:` line. Otherwise it leaves the record exactly as it is. Nothing watches the transcript between stages; this read is the whole of keeping the record current.
+
+**A record is never invented.** A source that cannot be found, such as a brief written by hand, or a session `tugtool session find` reports `absent`, means no record is written, and an existing record is left as it was. Never compose an idea or a sketch from the brief alone: a record made up from the document it is meant to stand behind says nothing the document did not. The records are untracked like every arc document, so a rewrite is no round and commits nothing.
+
 ## No plan numbers in durable artifacts
 
 Never write step identifiers — "Step 4.5", "4i", "plan step X" — into code, comments, docstrings, test names, or commit messages. Describe the behavior or the reason directly.

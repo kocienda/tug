@@ -265,9 +265,9 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         note("at0525 placard with the Resume", (await app.screenshot()).path);
 
         // The shade rises on a transform, so the press waits for it to stand
-        // on the slot's bottom edge. The arc's frame is on the Arc panel,
-        // which holds the larger share of a grid that does not scroll, so the
-        // scroll below moves nothing unless the body has come to scroll; then
+        // on the slot's bottom edge. The arc's frame is on the Arc panel, in a
+        // grid sized to fit the shade, so the scroll below moves nothing
+        // unless the body has come to scroll; then
         // what is under the point the press will land on is read.
         await app.body("A").waitForCondition<boolean>(
           `(() => {

@@ -1306,7 +1306,8 @@
             "changesVisible": false,
             "historyVisible": false,
             "commitReady": false,
-            "hasCustomName": false
+            "hasCustomName": false,
+            "hasArc": false
           },
           "file": null,
           "document": {

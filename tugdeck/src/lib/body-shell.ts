@@ -252,13 +252,7 @@ import {
   bodyFocusToHost,
   bodyStateToPage,
 } from "../host/declarations/lifecycle";
-import {
-  drainOpeningCommand,
-  nameRevivedArrivals,
-  restorePassCards,
-  restorePassGate,
-  sessionRestoreRegistry,
-} from "./session-restore";
+import { nameRevivedArrivals, restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
 import { deckRootElement, layoutPxOf, pageZoomStore } from "./page-zoom-store";
@@ -992,13 +986,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     restorePassGate.getSnapshot() &&
     !restorePassCards.has(cardId) &&
     !sessionRestoreRegistry.has(cardId);
-  // The `restore` an unbound Session card is handed off with. A card opened
-  // to run a command (File ▸ New Arc) carries it: the picker binds the card
-  // in its body, so the body is where the command has to be waiting.
-  const restoreIntent = (cardId: string): BodyIntent => {
-    const openingCommand = drainOpeningCommand(cardId);
-    return { kind: "restore", ...(openingCommand !== undefined ? { openingCommand } : {}) };
-  };
   const handOffMountKinds = (): void => {
     for (const card of deck.getSnapshot().cards) {
       if (bodyCardsStore.has(card.id) || !isMountBodyKind(card.componentId)) continue;
@@ -1011,7 +998,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const handOffUnboundSessions = (): void => {
     for (const card of deck.getSnapshot().cards) {
       if (bodyCardsStore.has(card.id) || !sessionCardToHandOff(card.id, card.componentId)) continue;
-      handOffToBody(card.id, () => restoreIntent(card.id));
+      handOffToBody(card.id, () => ({ kind: "restore" }));
     }
   };
   let scanQueued = false;
@@ -1897,7 +1884,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         spaceBindingsLedgerStore.loaded() &&
         spaceBindingsLedgerStore.get(cardId) === undefined),
     handOff: (cardId, componentId) =>
-      void handOffToBody(cardId, () => (isMountBodyKind(componentId) ? { kind: "mount" } : restoreIntent(cardId))),
+      void handOffToBody(cardId, () => (isMountBodyKind(componentId) ? { kind: "mount" } : { kind: "restore" })),
     release: (cardId) => void releaseDeferredBody(cardId),
     askAgain,
     timeEvicted,

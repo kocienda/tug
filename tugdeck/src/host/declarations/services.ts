@@ -233,6 +233,7 @@ const menuSessionBlock = obj({
   historyVisible: bool,
   commitReady: bool,
   hasCustomName: bool,
+  hasArc: bool,
 });
 
 const menuFileBlock = obj({
@@ -358,6 +359,7 @@ export const menuStateToHost = defineToHost<MenuStatePayload | MenuStateBodyPayl
         historyVisible: false,
         commitReady: false,
         hasCustomName: false,
+        hasArc: false,
       },
       file: null,
       document: { cardId: "c1" },

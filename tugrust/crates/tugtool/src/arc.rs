@@ -1609,15 +1609,21 @@ fn run_documents(
     let brief = tugarc_core::brief_file(&root, name);
     let plan = tugarc_core::plan_file(&root, name);
     let tasks = tugarc_core::tasks_file(&root, name);
+    let idea = tugarc_core::idea_file(&root, name);
+    let sketch = tugarc_core::sketch_file(&root, name);
     let payload = DocumentsPayload {
         arc: name.to_string(),
         dir: dir.display().to_string(),
         brief: brief.display().to_string(),
         plan: plan.display().to_string(),
         tasks: tasks.display().to_string(),
+        idea: idea.display().to_string(),
+        sketch: sketch.display().to_string(),
         brief_exists: brief.is_file(),
         plan_exists: plan.is_file(),
         tasks_exists: tasks.is_file(),
+        idea_exists: idea.is_file(),
+        sketch_exists: sketch.is_file(),
         bound_session,
     };
 
@@ -1630,6 +1636,12 @@ fn run_documents(
         println!("brief:  {} ({})", payload.brief, mark(payload.brief_exists));
         println!("plan:   {} ({})", payload.plan, mark(payload.plan_exists));
         println!("tasks:  {} ({})", payload.tasks, mark(payload.tasks_exists));
+        println!("idea:   {} ({})", payload.idea, mark(payload.idea_exists));
+        println!(
+            "sketch: {} ({})",
+            payload.sketch,
+            mark(payload.sketch_exists)
+        );
         if let Some(bound) = payload.bound_session.as_deref() {
             println!("bound:  session {bound}");
         }
@@ -1646,9 +1658,15 @@ struct DocumentsPayload {
     brief: String,
     plan: String,
     tasks: String,
+    /// The record of the prompt the work began as.
+    idea: String,
+    /// The record of how the conversation took the idea to the brief.
+    sketch: String,
     brief_exists: bool,
     plan_exists: bool,
     tasks_exists: bool,
+    idea_exists: bool,
+    sketch_exists: bool,
     /// The session `--bind` bound, as the server named it; absent without
     /// `--bind`.
     #[serde(skip_serializing_if = "Option::is_none")]

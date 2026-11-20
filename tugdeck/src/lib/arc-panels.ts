@@ -1,7 +1,7 @@
 /**
  * arc-panels.ts — the arc shade's four panels as data: their order, and what
- * each panel's state says about its progress dot, the seams between panels,
- * and which panel holds the larger share before anything is pressed.
+ * each panel's state says about its progress dot and the seams between
+ * panels.
  *
  * Pure: no DOM, no store. `SessionArcPanels` draws what these return.
  *
@@ -49,16 +49,4 @@ export function arcPanelSeamStates(
   const seam = (from: ArcPanelRung, to: ArcPanelRung): ArcPanelSeamState =>
     states[from] !== "pending" && states[to] !== "pending" ? "linked" : "pending";
   return [seam("idea", "sketch"), seam("sketch", "brief"), seam("brief", "arc")];
-}
-
-/**
- * The panel that holds the larger share before anything is pressed: the rung
- * the work is at. With no active rung it is the furthest rung that is
- * settled, and with nothing settled either, the first.
- */
-export function arcPanelRestingFocus(states: ArcPanelStates): ArcPanelRung {
-  const active = ARC_PANEL_RUNGS.find((rung) => states[rung] === "active");
-  if (active !== undefined) return active;
-  const settled = ARC_PANEL_RUNGS.filter((rung) => states[rung] === "done");
-  return settled[settled.length - 1] ?? ARC_PANEL_RUNGS[0];
 }

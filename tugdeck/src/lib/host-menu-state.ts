@@ -506,6 +506,11 @@ export interface MenuStateSessionBlock {
    * lie.
    */
   hasCustomName: boolean;
+  /**
+   * The bound session is working on an arc. Gates Session ▸ New Arc, since a
+   * session holds one arc at a time.
+   */
+  hasArc: boolean;
 }
 
 /**
@@ -1292,6 +1297,7 @@ export class HostMenuStatePublisher {
               historyVisible: session.historyVisible,
               commitReady: session.commitReady,
               hasCustomName: session.hasCustomName,
+              hasArc: session.hasArc,
             },
       fileGates: file === null ? null : computeFileMenuGates(file),
       openQuickly,

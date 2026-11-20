@@ -12,8 +12,8 @@
  */
 
 /* The arc shade's short form: the one word the ARC cell reads, a sentence on
-   what an arc is and how to start one, and a link to the guide. The link is a
-   `TugLink`, styled by its own sheet. */
+   what an arc is, the New Arc button and a link to the guide. The button is a
+   `TugPushButton` and the link a `TugLink`, each styled by its own sheet. */
 
 .session-arc-shade-hint {
   display: flex;
@@ -40,4 +40,12 @@
 
 .session-arc-shade-hint-text code {
   font-family: var(--tug-font-family-mono);
+}
+
+/* New Arc and the help link, on one line. */
+.session-arc-shade-hint-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-md);
+  margin-block-start: var(--tug-space-2xs);
 }
