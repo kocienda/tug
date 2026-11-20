@@ -79,7 +79,9 @@ const ARC_VALUE =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"] [data-slot="session-telemetry-arc-value"]';
 const ARC_CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
-const PLACARD = '[data-slot="session-arc-popover-body"]';
+/** The arc's reading in the card's arc shade, while the shade is raised. */
+const PLACARD =
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
 /** The placard's own reading of a stopped arc: the note leads with the stop,
  *  and the strip tints the cell it stopped in. The line drops the two arc
  *  FACTS on purpose — the track already says the arc is running, and the note
@@ -206,13 +208,13 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         expect(stoppedDots.length).toBe(2);
         expect(stoppedDots.every((s) => s === "aborted")).toBe(true);
 
-        // The words are on the placard, which is where there is room for them.
+        // The words are in the arc shade the cell raises, where there is room for them.
         await app.body("A").click(ARC_CELL);
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARC_TRACK)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        // The placard is a popover on the card, and it rises in the card's body.
+        // The shade stands in the card's own body.
         const stopNote = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(ARC_NOTE)})?.textContent ?? "").trim()`,
         );

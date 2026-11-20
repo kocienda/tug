@@ -111,13 +111,11 @@ import { readModelCatalog } from "@/lib/model-catalog";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { SideQuestionStore } from "@/lib/side-question-store";
 import type { PendingContextStore } from "@/lib/pending-context-store";
+import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { useSessionStateChanges } from "@/lib/session-state-changes-store";
 
 import {
   ContextPopoverContent,
-  ArcPopoverContent,
-  useArcPopoverVerbs,
-  ArcNonePopoverContent,
   JobsPopoverContent,
   StateChangeLogPopoverContent,
   TimePopoverContent,
@@ -137,7 +135,6 @@ import { arcCellReadingWord, reauditCellReading } from "@/lib/reaudit-row";
 import { useSessionGaps } from "@/lib/report-gaps-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
 import { useJobsState } from "@/lib/code-session-store/hooks/use-jobs-state";
 import {
   countJobs,
@@ -228,8 +225,8 @@ export interface SessionTelemetryStatusRowProps extends SessionTelemetryProps {
   focusGroup?: string;
   /**
    * Order of the FIRST cell (STATE) within {@link focusGroup}; the cells
-   * take consecutive orders left→right (STATE, TIME, CONTEXT, ARC,
-   * JOBS = base + 0…4).
+   * take consecutive orders left→right (STATE, TIME, CONTEXT, JOBS,
+   * ARC = base + 0…4).
    */
   focusOrderBase?: number;
   /** Walk policy when registered (`accept` default; `skip` = a11y-only). */
@@ -247,6 +244,22 @@ export interface SessionTelemetryStatusRowProps extends SessionTelemetryProps {
    * it) for the next `❯` submission; omitted in the gallery / fixtures.
    */
   pendingContextStore?: PendingContextStore;
+  /**
+   * The card's arc shade store. The ARC cell toggles the shade and wears its
+   * pressed state while the shade is up; omitted in the gallery / fixtures,
+   * where the cell has no shade to raise.
+   */
+  arcShadeController?: ArcShadeController;
+}
+
+/** A subscription for a row with no arc shade: nothing to hear, nothing to drop. */
+function subscribeToNothing(): () => void {
+  return () => {};
+}
+
+/** The arc shade's reading for a row with no arc shade. */
+function readNotRaised(): boolean {
+  return false;
 }
 
 /**
@@ -258,7 +271,6 @@ export type PlacardKind =
   | "state"
   | "time"
   | "context"
-  | "arc"
   | "jobs"
   | "btw";
 
@@ -296,9 +308,6 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
   state: "State",
   time: "Time",
   context: "Context",
-  // The arc's own name rides inside the body: these are static strings, and
-  // the placard header is the surface's legend rather than its subject.
-  arc: "Arc",
   jobs: "Jobs",
   btw: "/btw",
 };
@@ -811,8 +820,8 @@ function CompactionOccupant({
  *     5-segment `cost_update`-derived fallback otherwise. Its
  *     `messages` segment is where the session's conversation total
  *     reads.
- *   - **ARC** → `ArcPopoverContent` — the arc this session drives, its
- *     ledger and its verbs; `ArcNonePopoverContent` when it drives none.
+ *   - **ARC** has no placard: its cell raises and lowers the card's arc
+ *     shade, and wears its pressed state while the shade is up.
  *   - **JOBS** → `JobsPopoverContent` — goal, running, scheduled and
  *     finished rows with their management actions.
  *
@@ -860,7 +869,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   SessionTelemetryStatusRowHandle,
   SessionTelemetryStatusRowProps
 >(function SessionTelemetryStatusRow(
-  { codeSessionStore, sessionMetadataStore, onScrollToRow, focusGroup, focusOrderBase, focusPolicy, sideQuestionStore, pendingContextStore },
+  { codeSessionStore, sessionMetadataStore, onScrollToRow, focusGroup, focusOrderBase, focusPolicy, sideQuestionStore, pendingContextStore, arcShadeController },
   ref,
 ) {
   // The Z2 detail surfaces render as ONE card-scoped SessionPlacard, toggled open
@@ -1289,23 +1298,25 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // id — `sendToTarget` walks upward from its target and the session card's
   // handlers live one scope beneath `card-host`.
   const chain = useResponderChain();
-  const revealChanges = useCallback(() => {
+  const toggleArcShade = useCallback(() => {
     const target = `${cardId}-card-content`;
     if (chain === null || !chain.hasResponder(target)) return;
     chain.sendToTarget(target, {
-      action: TUG_ACTIONS.REVEAL_CHANGES,
+      action: TUG_ACTIONS.TOGGLE_ARC_SHADE,
       phase: "discrete",
     });
   }, [chain, cardId]);
-  // The placard's verbs, and the confirm Discard arms — hosted here, on the
-  // status row, because the placard closes under the press that answers it.
-  const arcVerbs = useArcPopoverVerbs({
-    fact: arcFact,
-    idle: snap.phase === "idle",
-    cardKey: cardId ?? snap.tugSessionId,
-    onShowInChanges: revealChanges,
-    anchor: rowRef,
-  });
+  // Whether the card's arc shade is up, which the ARC cell wears as its
+  // pressed state. A row with no shade to toggle (the gallery) reads false.
+  const arcShadeRaised = useSyncExternalStore(
+    arcShadeController?.subscribe ?? subscribeToNothing,
+    arcShadeController?.getSnapshot ?? readNotRaised,
+  );
+  // The shade rising takes the place of whatever placard was open: it stands
+  // over the transcript the placard would hang across.
+  useLayoutEffect(() => {
+    if (arcShadeRaised) setPlacard(null);
+  }, [arcShadeRaised]);
 
   // TIME cell: live in-flight clock when a turn is in flight; after
   // commit, the last turn's activeMs extended across its background
@@ -1428,9 +1439,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // It lingers its recently-finished work for WORK_LINGER_MS rather than
   // snapping to "None" the instant the last item finishes. `nowMs` is read
   // at render; while idle-and-lingering a single bounded timeout (below)
-  // recomputes once at the earliest expiry — no ticker. The task list is
-  // read here for the placards that show it.
-  const taskListState = useTaskListState(codeSessionStore);
+  // recomputes once at the earliest expiry — no ticker.
   const isIdle = snap.phase === "idle";
   const goal = snap.goal;
   const jobCounts = countJobs(jobsLedger);
@@ -1581,20 +1590,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const statePopover = (
     <StateChangeLogPopoverContent rows={stateChangeSnap.rows} />
   );
-  // With no arc the placard says the one word the cell says; the empty click
-  // does nothing else.
-  const arcPopover =
-    arcFact === null ? (
-      <ArcNonePopoverContent />
-    ) : arcVerbs.verbs === null ? null : (
-      <ArcPopoverContent
-        fact={arcFact}
-        tasks={taskListState.tasks}
-        idle={isIdle}
-        verbs={arcVerbs.verbs}
-        onVerb={arcVerbs.onVerb}
-      />
-    );
   const jobsPopover = (
     <JobsPopoverContent
       goal={goal}
@@ -1626,9 +1621,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           ? timePopover
           : placard.key === "context"
             ? contextPopover
-            : placard.key === "arc"
-              ? arcPopover
-              : placard.key === "jobs"
+            : placard.key === "jobs"
               ? jobsPopover
               : sideQuestionStore !== undefined
                 ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
@@ -1760,7 +1753,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       {overhangForm && placardEl !== null
         ? createPortal(placardEl, paneFrameEl as HTMLElement)
         : placardEl}
-      {arcVerbs.confirm}
       <SessionTelemetryCell
         priority="state"
         label="STATE"
@@ -1824,12 +1816,40 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         </span>
       </SessionTelemetryCell>
       <SessionTelemetryCell
-        priority="arc"
-        label="ARC"
-        onActivate={() => togglePlacard("arc")}
-        valueEmpty={arcFact === null}
+        priority="jobs"
+        label="JOBS"
+        onActivate={() => togglePlacard("jobs")}
+        valueEmpty={jobsDisplayCount === 0}
         focusGroup={focusGroup}
         focusOrder={cellOrder(3)}
+        focusPolicy={focusPolicy}
+      >
+        {replayInert ? (
+          <span className="session-telemetry-status-value">—</span>
+        ) : (
+          <TugProgressIndicator
+            variant="pulsing-dot"
+            glyphPosition="both"
+            size={12}
+            state={jobsIndicatorState}
+            label={jobsLabelText}
+            labelAlign="center"
+            phaseLabels={{
+              none: WORK_CELL_WIDEST_WORD,
+              max: "00",
+            }}
+            aria-label={jobsSummary}
+          />
+        )}
+      </SessionTelemetryCell>
+      <SessionTelemetryCell
+        priority="arc"
+        label="ARC"
+        onActivate={toggleArcShade}
+        pressed={arcShadeRaised}
+        valueEmpty={arcFact === null}
+        focusGroup={focusGroup}
+        focusOrder={cellOrder(4)}
         focusPolicy={focusPolicy}
       >
         {replayInert ? (
@@ -1908,33 +1928,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               aria-hidden
             />
           </>
-        )}
-      </SessionTelemetryCell>
-      <SessionTelemetryCell
-        priority="jobs"
-        label="JOBS"
-        onActivate={() => togglePlacard("jobs")}
-        valueEmpty={jobsDisplayCount === 0}
-        focusGroup={focusGroup}
-        focusOrder={cellOrder(4)}
-        focusPolicy={focusPolicy}
-      >
-        {replayInert ? (
-          <span className="session-telemetry-status-value">—</span>
-        ) : (
-          <TugProgressIndicator
-            variant="pulsing-dot"
-            glyphPosition="both"
-            size={12}
-            state={jobsIndicatorState}
-            label={jobsLabelText}
-            labelAlign="center"
-            phaseLabels={{
-              none: WORK_CELL_WIDEST_WORD,
-              max: "00",
-            }}
-            aria-label={jobsSummary}
-          />
         )}
       </SessionTelemetryCell>
     </div>

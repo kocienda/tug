@@ -33,9 +33,10 @@ const SCRIPT_REL = "tests/app-test/scripts/select-tests.ts";
  * `tuglaws/animation-doctrine.md`, the law its readings enforce — names the document.
  * A root missing here resolves to nothing inside the throwaway repo, so every case
  * below fails on a path lint that has nothing to do with the ratchet. `tugproto` is the
- * same case: `at0757` covers the wire decoder its frame is read through.
+ * same case: `at0757` covers the wire decoder its frame is read through. So is `docs`:
+ * `at0861` covers the feature guide its help link opens.
  */
-const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug", "tugproto"];
+const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws", "tugplug", "tugproto", "docs"];
 
 /**
  * A throwaway repo holding a copy of the corpus, with the real source roots symlinked

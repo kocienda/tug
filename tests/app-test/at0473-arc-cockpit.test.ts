@@ -101,7 +101,6 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import { kindBody } from "./_harness/card-reach";
-import { overlayReady } from "./overlay-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -119,7 +118,9 @@ const planRow = (name: string): string => `${PLAN_ROWS}[data-arc="${name}"]`;
 /** The Z2 ARC cell. */
 const CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
-const ARC_PLACARD = '[data-slot="session-arc-popover-body"]';
+/** The arc's reading in the card's arc shade, while the shade is raised. */
+const ARC_PLACARD =
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
 const ARC_NAME = "at0473-cockpit";
 
 /** This checkout — the build under test, and never a tree a fixture writes in. */
@@ -618,7 +619,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(arcBox.width).toBe(bare.width);
           expect(arcBox.authored).toBe("17ch");
 
-          // ── And the click opens the cockpit detail ────────────────────────
+          // ── And the click raises the cockpit detail in the arc shade ──────
           await app.body("A").click(CELL);
           await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
@@ -687,19 +688,13 @@ describe.skipIf(!SHOULD_RUN)(
           note("at0473 Z2 arc placard", (await app.screenshot()).path);
 
           // ── And the copy the reader sees is styled ────────────────────────
-          // The placard above is the body's, rendered hidden; what is on
-          // screen is the overlay's copy of its markup, styled by the
-          // stylesheets the overlay page loads for itself
-          // (`overlay/overlay-surface-styles.ts`). The block's head drew as
-          // bare text there while every count above passed. Each reading is
-          // one the block's CSS alone produces: the eyebrow stacked over the
-          // line, a hairline with width, a track with a box.
-          const ui = await overlayReady(app);
-          await ui.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${ARC_PLACARD} [data-slot="tug-arc-lifecycle-block"]`)}) !== null`,
-            { timeoutMs: 10000 },
-          );
-          const drawn = await ui.evalJS<{
+          // The reading stands in the arc shade, which is the card body's own
+          // surface: what is read above is what is on screen, with no copy
+          // drawn elsewhere. The block's head once drew as bare text on the
+          // surface the reader saw while every count above passed. Each
+          // reading here is one the block's CSS alone produces: the eyebrow
+          // stacked over the line, a hairline with width, a track with a box.
+          const drawn = await app.body("A").evalJS<{
             direction: string;
             ruleWidth: number;
             ruleHeight: number;
@@ -717,7 +712,7 @@ describe.skipIf(!SHOULD_RUN)(
              };
            })()`,
           );
-          note("at0473 arc placard, overlay copy", JSON.stringify(drawn));
+          note("at0473 arc reading as drawn", JSON.stringify(drawn));
           expect(drawn.direction).toBe("column");
           expect(drawn.ruleWidth).toBeGreaterThanOrEqual(12);
           expect(drawn.ruleHeight).toBe(1);
@@ -821,8 +816,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(audited.text).toBe("Auditing");
           expect(audited.aria).toBe(`arc ${ARC_NAME}, in audit`);
           expect(audited.dots).toEqual(["running", "running"]);
-          // The placard is still up from the click above; a second click
-          // would close it. Open it only if something closed it meanwhile.
+          // The shade is still up from the click above; a second click
+          // would lower it. Raise it only if something lowered it meanwhile.
           if (
             await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(ARC_PLACARD)}) === null`,

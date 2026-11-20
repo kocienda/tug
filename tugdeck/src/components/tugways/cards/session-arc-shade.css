@@ -1,0 +1,108 @@
+/* @tug-pairings {
+  --tug7-element-global-text-normal-muted-rest    | --tug7-surface-global-primary-normal-content-rest | informational
+  --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational
+  --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational
+} */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role          | Context                                        |
+ * |--------------------------------------------------|---------------------------------------------------|---------------|------------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-label (color)               |
+ * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade (border-top-color)          |
+ * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-head (border-bottom-color)  |
+ */
+
+/* The arc shade: a panel rooted at the bottom of the transcript slot, standing
+   over four fifths of it when raised. Its pane, in `session-card.css`, fills
+   the slot and clips, so a lowered shade is translated its own height down
+   and out of sight.
+
+   The buttons in the header and the arc's name are `TugPushButton` and
+   `ArcSigil`, styled by their own sheets. */
+
+body {
+  --tugx-arc-shade-bg: var(--tug7-surface-global-primary-normal-content-rest);
+  --tugx-arc-shade-border: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-arc-shade-rule: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.session-arc-shade {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  /* Four fifths of the transcript: the top fifth always shows. */
+  height: 80%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 0;
+  /* The pane ignores the pointer so the transcript above the shade's edge
+     keeps its own; the shade takes it back. */
+  pointer-events: auto;
+  background-color: var(--tugx-arc-shade-bg);
+  border-top: 1px solid var(--tugx-arc-shade-border);
+  /* Lowered. `transform` is the only property that moves, so the rise and the
+     fall are the compositor's, and the shade is already built when it rises. */
+  transform: translateY(100%);
+  transition: transform calc(240ms * var(--tug-timing, 1)) ease-out;
+}
+
+/* The short form is as tall as what it holds, up to the full form's line. */
+.session-arc-shade[data-form="short"] {
+  height: auto;
+  max-height: 80%;
+}
+
+.session-arc-shade[data-raised="true"] {
+  transform: none;
+}
+
+/* Motion off (`body[data-tug-motion="off"]`) is answered by `styles/tug.css`,
+   which zeroes every transition's duration; reduced motion is answered here. */
+@media (prefers-reduced-motion: reduce) {
+  .session-arc-shade {
+    transition: none;
+  }
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-shade-head {
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-md);
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-bottom: 1px solid var(--tugx-arc-shade-rule);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-shade-label {
+  font-size: var(--tug-font-size-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.session-arc-shade-name {
+  min-width: 0;
+  font-size: var(--tug-font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-arc-shade-spacer {
+  flex: 1 1 0;
+}
+
+.session-arc-shade-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.session-arc-shade[data-form="short"] .session-arc-shade-body {
+  flex: 0 1 auto;
+}

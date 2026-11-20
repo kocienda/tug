@@ -63,9 +63,10 @@ const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
 /** The Z2 ARC cell. */
 const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
-/** The placard's own frame, which is where its footer lives — the body slot
- *  is the scroller above it and does not contain the cluster. */
-const PLACARD = ".session-arc-popover";
+/** The arc's frame in the raised arc shade, which is where its footer lives —
+ *  the body slot is the scroller above it and does not contain the cluster. */
+const PLACARD =
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] .session-arc-popover';
 /** The footer's transport — its verb row's first slot. */
 const TRANSPORT = `${PLACARD} [data-slot="arc-verb"]:is([data-verb="start"], [data-verb="stop"], [data-verb="resume"])`;
 const transportWith = (verb: string): string => `${TRANSPORT}[data-verb="${verb}"]`;
@@ -194,17 +195,17 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
           "you stopped it",
         );
 
-        // ── The Z2 cell opens the placard ─────────────────────────────────
+        // ── The Z2 cell raises the arc shade ──────────────────────────────
         //
-        // The cell reads ARC with no arc too, and only a bound arc opens this
-        // placard — so the wait is on the arc's own reading standing in the
+        // The cell reads ARC with no arc too, and only a bound arc shows this
+        // frame — so the wait is on the arc's own reading standing in the
         // cell rather than on the cell's presence or its label.
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)}) !== null`,
           { timeoutMs: 30_000 },
         );
         await app.body("A").click(CELL);
-        // The placard is the card's own popover, so it stands in its body.
+        // The shade is the card's own surface, so it stands in its body.
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLACARD)}) !== null`,
           { timeoutMs: 30_000 },
@@ -263,6 +264,51 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         expect(face.refused).toBeNull();
         note("at0525 placard with the Resume", (await app.screenshot()).path);
 
+        // The shade rises on a transform, so the press waits for it to stand
+        // on the slot's bottom edge. The arc's frame is on the Arc card, which
+        // stands at the right of a canvas that scrolls, so the control is
+        // scrolled into view; then what is under the point the press will
+        // land on is read.
+        await app.body("A").waitForCondition<boolean>(
+          `(() => {
+             const shade = document.querySelector('${CARD} [data-slot="session-arc-shade"]');
+             const slot = document.querySelector('${CARD} .session-view-slot');
+             if (shade === null || slot === null) return false;
+             return Math.abs(shade.getBoundingClientRect().bottom - slot.getBoundingClientRect().bottom) <= 1;
+           })()`,
+          { timeoutMs: 10_000 },
+        );
+        await app.body("A").evalJS<boolean>(
+          `(() => {
+             // Only the shade's own body is scrolled: scrollIntoView would
+             // also move the clipping panes the shade stands in.
+             const button = document.querySelector(${JSON.stringify(transportWith("resume"))});
+             const body = button.closest('[data-slot="session-arc-shade-body"]');
+             const b = button.getBoundingClientRect();
+             const v = body.getBoundingClientRect();
+             body.scrollLeft += b.left + b.width / 2 - (v.left + v.width / 2);
+             body.scrollTop += b.top + b.height / 2 - (v.top + v.height / 2);
+             return true;
+           })()`,
+        );
+        const hit = await app.body("A").evalJS<{ onButton: boolean; under: string; button: string; shade: string }>(
+          `(() => {
+             const button = document.querySelector(${JSON.stringify(transportWith("resume"))});
+             const shade = document.querySelector('${CARD} [data-slot="session-arc-shade"]');
+             const r = button.getBoundingClientRect();
+             const s = shade.getBoundingClientRect();
+             const under = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+             const box = (b) => [b.left, b.top, b.right, b.bottom].map((n) => Math.round(n)).join(",");
+             return {
+               onButton: under !== null && button.contains(under),
+               under: under === null ? "nothing" : under.tagName.toLowerCase() + "." + String(under.className).split(" ")[0] + "[" + (under.getAttribute("data-slot") ?? "") + "]",
+               button: box(r),
+               shade: box(s),
+             };
+           })()`,
+        );
+        note("at0525 what the press lands on", JSON.stringify(hit));
+        expect(hit.onButton, "Resume is in view and on top in the raised shade").toBe(true);
         await app.body("A").nativeClickAtElement(transportWith("resume"));
 
         // ── The record is the reading, and it is a moving target ──────────

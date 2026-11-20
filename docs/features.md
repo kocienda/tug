@@ -110,7 +110,7 @@ Before anything is made, secrets such as tokens and keys are removed and your ho
 
 ### The status row
 
-Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, the **arc** it is driving, or `None`, and its background **jobs** as they appear, run and finish. `/context` and `/bashes` open the context and jobs panels from the composer. A `/btw` side question's answers open from under this row too.
+Under the transcript, the status row reads out five things, and each opens a panel of detail when pressed: the session's **state**, its elapsed **time**, its **context** window usage, its background **jobs** as they appear, run and finish, and the **arc** it is driving, or `None`. The arc reading is the exception among the five: pressing it raises the arc shade instead of a panel. `/context` and `/bashes` open the context and jobs panels from the composer. A `/btw` side question's answers open from under this row too.
 
 The state reads one of: **Idle** or **Ready**, with no turn in flight; **Sending** and **Waiting**, on the way to the model; **Streaming** while it writes; **Working** while it runs tools; **Running** when a turn has ended and background work carries on; **Awaiting** when it needs your answer; **Interrupting** while a stop is on its way, and **Unanswered** if it goes unheeded; **Restoring** while an earlier session is read back; **Reconnecting** and **Disconnected** for the link to the session; and **Error**.
 
@@ -255,6 +255,22 @@ The join resolves nothing, because there is nothing left to resolve: an arc read
 
 Nothing here is a one-way door. **Discard** on the arc's row in the Arcs sidebar, or `tugtool arc discard <name>`, ends an arc without landing it, copying its uncommitted work back to you and keeping its documents. `tugtool arc undo` reverses a join, a replay or a discard.
 
+### The arc shade
+
+Press the arc reading at the right of a session's status row, or Option-Command-R, and the **arc shade** rises from the bottom of the card over four fifths of the transcript. The top fifth of the transcript stays in view but takes no input while the shade is up. Press the reading again, the same chord, Escape, or the Transcript button in the shade's header to lower it.
+
+With an arc bound to the session, the shade is a canvas of four cards joined left to right, the ladder a piece of work climbs:
+
+- **Idea** and **Sketch** stand for the prompt the work began as and the conversation that settled its shape. Nothing records either for an arc yet, and each card says so.
+- **Brief** shows the arc's brief: its title, its path, and Open in Text Card. Opened with the button in its header, it also lists the findings and decisions the brief marks.
+- **Arc** is the arc itself: its name and the session bound to it, the stage it is in, its steps, and its verbs.
+
+The connector between two cards is solid where one was made from the other, as an arc is from its brief, and dotted where there is nothing to join yet. Drag a card by any part of it that is not a button to put it where you like; a card you press comes to the front. Each arc remembers where its cards stand and which are open, and Tidy in the shade's header sends all four home.
+
+The Arc card's verbs are the ones the Arcs sidebar offers for the same arc. The first is the arc's next move: Start, Stop while a stage is working, Resume after a stop, or Join once the audit has marked it. **Changes** lowers the shade and opens the Changes shade on the arc's row. **Unbind** releases the arc from this session and leaves the arc as it is. **Replay** replays the arc's commits onto the current main. **Discard** ends the arc without landing it, after a confirmation on the card.
+
+With no arc, the shade is short: it says what an arc is, how to start one, and links here.
+
 ### Arcs from the command line
 
 Everything the Arcs sidebar does has a `tugtool arc` verb: `list`, `status`, `record`, `show`, `run`, `stop`, `replay`, `join`, `discard`, `undo`, `redo`, `documents`. A session can read another session's transcript with `tugtool session show <uuid>`, read-only.
@@ -275,6 +291,7 @@ The Keyboard Shortcuts card (Control-Command-K) lists everything. A shortcut is 
 | Shift-Command-Left Bracket / Shift-Command-Right Bracket | Previous or next card across the deck |
 | Option-Command-Left Bracket / Option-Command-Right Bracket | Previous or next card in the stack |
 | Command-R | Reveal the stack behind the focused card |
+| Option-Command-R | Raise or lower the arc shade |
 | Option-Command with an arrow key | Focus the card to the left, above, right or below |
 | Control-Option-Command-Left Bracket / Control-Option-Command-Right Bracket | Back or forward through the cards you had focused |
 | Control-Command-Up Arrow / Control-Command-Down Arrow | Move the card up or down within its split slot |

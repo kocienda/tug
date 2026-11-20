@@ -1,6 +1,6 @@
 /**
  * vd-short-status.test.ts — a YouTube Short on the Session card's status bar:
- * the row of cells under the transcript (STATE, TIME, CONTEXT, ARC, JOBS)
+ * the row of cells under the transcript (STATE, TIME, CONTEXT, JOBS, ARC)
  * through one working turn, the popup each of three cells opens, and the
  * folded card, which is its masthead and this row.
  *
@@ -434,9 +434,9 @@ describe.skipIf(!RUNS)("video shot: the status-bar Short", () => {
           statePopup: over("state"),
           time: span("time", "context"),
           timePopup: over("time"),
-          context: span("time", "arc"),
+          context: span("time", "jobs"),
           contextPopup: over("context"),
-          arc: span("context", "jobs"),
+          arc: span("jobs", "arc"),
           arcPopup: over("arc"),
           folded: { x: folded.x - 12, y: 0, width: foldedArc.x + foldedArc.width - folded.x + 36 },
         };

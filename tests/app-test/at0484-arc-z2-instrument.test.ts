@@ -132,7 +132,7 @@ const VALUE = `${cell("arc")} [data-slot="session-telemetry-arc-value"]`;
 const NONE = `${cell("arc")} [data-slot="session-telemetry-arc-none"]`;
 
 /** The five cells, left to right. */
-const PRIORITIES = ["state", "time", "context", "arc", "jobs"] as const;
+const PRIORITIES = ["state", "time", "context", "jobs", "arc"] as const;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));

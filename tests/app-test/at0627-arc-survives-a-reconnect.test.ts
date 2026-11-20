@@ -129,7 +129,9 @@ const MASTHEAD_ARC =
 /** The Z2 ARC cell. */
 const CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
-const ARC_PLACARD = '[data-slot="session-arc-popover-body"]';
+/** The arc's reading in the card's arc shade, while the shade is raised. */
+const ARC_PLACARD =
+  '[data-slot="session-arc-shade"][data-raised="true"] [data-slot="session-arc-canvas-card"][data-rung="arc"] [data-slot="session-arc-popover-body"]';
 const SUBMIT = '[data-card-id="A"] .tug-prompt-entry-submit-button';
 
 /** This checkout — the build under test, never the tree the fixture cuts in. */
@@ -232,9 +234,9 @@ interface ArcSurfaces {
  * All three surfaces at once, so "before" and "after" are the same reading
  * rather than two readings that happen to agree.
  *
- * The placard is opened by clicking the cell and closed by clicking it again,
+ * The arc shade is raised by clicking the cell and lowered by clicking it again,
  * which leaves the card in the state this was called in — the second call must
- * not inherit a placard the first left up.
+ * not inherit a shade the first left up.
  */
 async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
   const cell = await app.body("A").evalJS<{ label: string; text: string }>(
@@ -256,7 +258,7 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
     `window.__tug.cardLineFacts("A")`,
   );
   await app.body("A").click(CELL);
-  // The placard is the card's own chrome, drawn in its page.
+  // The shade is the card's own surface, drawn in its page.
   await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
     { timeoutMs: 10_000 },

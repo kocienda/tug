@@ -51,6 +51,7 @@ import {
   type PromptEntryDelegate,
 } from "./prompt-entry";
 import { ShadeViewController } from "@/lib/shade-view-controller";
+import { ArcShadeController } from "@/lib/arc-shade-controller";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import {
   isLandingInFlight,
@@ -246,6 +247,8 @@ import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller
 import { ArcReplayNoticeController } from "./arc-replay-notice-controller";
 import { ArcPressNoticeController } from "./arc-press-notice-controller";
 import { ShadeRaiseOnShadeRefusalController } from "./shade-raise-on-shade-refusal-controller";
+import { SessionArcShade } from "./session-arc-shade";
+import { SessionArcShadeContent } from "./session-arc-shade-content";
 import { deriveColdRestoreActive } from "@/lib/session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
 import { PromptHistoryStore } from "@/lib/prompt-history-store";
@@ -1791,6 +1794,22 @@ export function SessionCardBody({
     shadeViewControllerRef.current = new ShadeViewController();
   }
   const shadeViewController = shadeViewControllerRef.current;
+  // The arc shade's raised state: card chrome like the view choice above, in
+  // a store of its own because the arc shade leaves the Z2 row in view where
+  // a `ShadeView` shade covers it. The card keeps the two exclusive, below.
+  const arcShadeControllerRef = useRef<ArcShadeController | null>(null);
+  if (arcShadeControllerRef.current === null) {
+    arcShadeControllerRef.current = new ArcShadeController();
+  }
+  const arcShadeController = arcShadeControllerRef.current;
+  // The transcript pane the arc shade stands over, which it makes inert
+  // while it is raised ([L22]).
+  const transcriptPaneRef = useRef<HTMLDivElement | null>(null);
+  // Where the arc shade sends the keyboard when it lowers with no key view to
+  // return to: the composer's caret, the card's resting place for it.
+  const returnKeyboardToComposer = useCallback(() => {
+    entryDelegateRef.current?.focus();
+  }, [entryDelegateRef]);
 
   // Whether this card's PANE wears the folded form ([P01], [P03]). The
   // flag is deck state, so it enters React through `useSyncExternalStore`
@@ -1997,6 +2016,8 @@ export function SessionCardBody({
       commitModeController.leave();
       // Share mode holds the same seat ([P01]), so Find leaves it too.
       shareTurnsStore.leave();
+      // And the arc shade stands over the rows a search would mark.
+      arcShadeController.lower();
       // Where the reader is, captured BEFORE the bar mounts: opening find
       // shrinks the transcript by the bar's height, so a viewport read taken
       // afterwards describes a viewport the user never saw. `keepAnchor` is
@@ -2008,7 +2029,7 @@ export function SessionCardBody({
       // The bar focuses its own query field on mount.
       setFindBarOpen(true);
     },
-    [commitModeController, shareTurnsStore],
+    [commitModeController, shareTurnsStore, arcShadeController],
   );
 
   // The cycle is declared further down (it needs `sessionErrored`), but the
@@ -3518,13 +3539,16 @@ export function SessionCardBody({
   // The unfold and the entry land in one commit, so the effect re-running on
   // the unfold finds a landing up and defers rather than entering it twice.
   const revealChanges = useCallback((): void => {
+    // The arc shade stands over the room this opens, so it comes down first:
+    // whatever the Changes door then says, its lane or a refusal, is in view.
+    arcShadeController.lower();
     if (joinOffer === null) {
       unfoldForChanges();
       shadeViewController.show("changes");
       return;
     }
     enterChanges();
-  }, [joinOffer, shadeViewController, enterChanges, unfoldForChanges]);
+  }, [joinOffer, shadeViewController, enterChanges, unfoldForChanges, arcShadeController]);
 
   // `/resume` focused sessions overlay ([#step-8]), card-scoped per [D15].
   // Reads the bound project from the binding store and lists its sessions;
@@ -3661,6 +3685,41 @@ export function SessionCardBody({
       }),
     [shadeViewController, shareTurnsStore],
   );
+  // The arc shade stands over the transcript too, so it and the other
+  // surfaces that take the transcript are exclusive in both directions: a
+  // Changes or History shade arriving, or share mode, lowers it; raising it
+  // closes Find, leaves share mode and both landings (`leave` keeps a typed
+  // message, as Find's own entry does) and drops whichever shade is up.
+  // Observed on the stores themselves, so no two stand together for a frame
+  // ([L22]).
+  useLayoutEffect(() => {
+    const offView = shadeViewController.subscribe(() => {
+      if (shadeViewController.getSnapshot() !== "none") arcShadeController.lower();
+    });
+    const offShare = shareTurnsStore.subscribe(() => {
+      if (shareTurnsStore.getSnapshot().active) arcShadeController.lower();
+    });
+    const offArc = arcShadeController.subscribe(() => {
+      if (!arcShadeController.getSnapshot()) return;
+      if (findBarOpenRef.current) closeFindBar();
+      shareTurnsStore.leave();
+      commitModeController.leave();
+      joinModeController.leave();
+      shadeViewController.hide();
+    });
+    return () => {
+      offView();
+      offShare();
+      offArc();
+    };
+  }, [
+    arcShadeController,
+    shadeViewController,
+    shareTurnsStore,
+    commitModeController,
+    joinModeController,
+    closeFindBar,
+  ]);
   // The Share shade follows the mode, as the other shades follow the
   // controller's view choice; a self-initiated close (Escape, ⌘.) leaves the
   // mode through `onOpenChange`.
@@ -4953,6 +5012,7 @@ export function SessionCardBody({
       } else {
         shadeViewController.hide();
       }
+      arcShadeController.lower();
       return true;
     };
   });
@@ -5178,6 +5238,13 @@ export function SessionCardBody({
         } else {
           shadeViewController.hide();
         }
+      },
+      // Raise or lower the arc shade. A raise on a folded card opens the fold
+      // first, as every bidden surface does: folded, there is no transcript
+      // for the shade to stand over.
+      [TUG_ACTIONS.TOGGLE_ARC_SHADE]: (_event: ActionEvent) => {
+        if (!arcShadeController.getSnapshot()) unfoldCardForBiddenSurface(cardId);
+        arcShadeController.toggle();
       },
       // Swift Session-menu "Show/Hide History" and the ⌃⌘H deck twin.
       // History and commit mode are mutually exclusive ([P03]): exit the
@@ -5461,6 +5528,8 @@ export function SessionCardBody({
       sideQuestionStore={sideQuestionStore}
       // Staged-context queue: the `/btw` overlay's Add-to-context action.
       pendingContextStore={pendingContextStore}
+      // The ARC cell toggles the arc shade and wears its pressed state.
+      arcShadeController={arcShadeController}
     />
   );
 
@@ -5629,7 +5698,11 @@ export function SessionCardBody({
                 // see the terminal-state effect above. React never sets the
                 // attribute on this element, so nothing here fights it.
               >
-                <div className="session-view-pane" data-view="transcript">
+                <div
+                  className="session-view-pane"
+                  data-view="transcript"
+                  ref={transcriptPaneRef}
+                >
                   <SessionTranscriptHost
                     ref={transcriptRef}
                     cardId={cardId}
@@ -5750,6 +5823,24 @@ export function SessionCardBody({
                       </div>
                     </TugSheetContent>
                   </TugSheet>
+                </div>
+                {/*
+                  The arc shade. Always mounted, so a raise builds nothing;
+                  its pane fills the slot and clips, and the shade inside is
+                  translated out of it while lowered. It rests on the slot's
+                  bottom edge, the top of Z2, and leaves the row in view.
+                */}
+                <div className="session-view-pane" data-view="arc">
+                  <SessionArcShade
+                    controller={arcShadeController}
+                    tugSessionId={boundSessionId}
+                    transcriptPaneRef={transcriptPaneRef}
+                    onReturnKeyboard={returnKeyboardToComposer}
+                  >
+                    {/* The arc's reading and its verbs, as the cell's popup
+                        drew them, so every verb stays within reach. */}
+                    <SessionArcShadeContent codeSessionStore={codeSessionStore} />
+                  </SessionArcShade>
                 </div>
               </div>
               <PaneBulletinAnchor ref={paneBulletinRef} />

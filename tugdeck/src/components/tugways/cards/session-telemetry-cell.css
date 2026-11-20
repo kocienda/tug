@@ -595,14 +595,25 @@
   bottom: 50%;
 }
 
+/* Pressed: the surface this cell toggles is up, so the cell's own endcap, the
+   two ticks and the two rules beside the label, takes the accent at full
+   strength. A state of the cell, set by `data-pressed`, never by a selector
+   reaching in from the surface it toggled ([L06]). */
+/* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
+.session-telemetry-status-cell[data-pressed="true"] .session-telemetry-endcap-tick,
+.session-telemetry-status-cell[data-pressed="true"] .session-telemetry-endcap-rule-fill {
+  background-color: var(--tug7-element-global-fill-normal-accent-rest);
+  opacity: 1;
+}
+
 /* Container-query collapse rules. The Z2 host (`.session-card-status-bar`)
    declares `container-type: inline-size` + `container-name: session-status`
    so these `@container` rules can target it. As the host narrows, whole
    cells (label apparatus + value together) hide in priority order — TIME
-   first, then ARC, with JOBS the last collapsible: a running job / live
-   goal is live "something is happening" signal, while an arc's reading is
-   a standing one the masthead also carries. STATE / CONTEXT stay as the most-persistent
-   set.
+   first, then JOBS, with ARC the last collapsible: ARC is the row's last
+   cell and the one that toggles the card's largest surface, so it is the
+   last to go, and a running job is still said by STATE once its own cell
+   has. STATE / CONTEXT stay as the most-persistent set.
 
    Five cells at the budgets above measure 614px including the 24px gaps, and
    the row's own 4px-a-side inset puts the set's need at 622px. The fold
@@ -625,7 +636,15 @@
    their gaps plus the row's inset plus the control's seat. Stated that way
    rather than as a round number less a margin, because the first rung once
    sat four pixels late and the row overflowed its content box by a pixel in
-   the band between. */
+   the band between.
+
+   The third rung is measured for the set it now leaves standing. With TIME
+   and JOBS gone the row is STATE, CONTEXT and ARC: 125px, 84px and 114px of
+   layout (each cell's box less the 12px of anchor padding its negative
+   margins cancel), two 27px gaps, the row's 8px of inset and the control's
+   32px seat, which is 417px. The rung it replaced hid ARC second and left
+   JOBS, a 75px cell, so it stood at 411px; kept there, the wider set would
+   overflow in the band between. */
 
 @container session-status (max-width: 653px) {
   .session-telemetry-status-cell[data-priority="time"] {
@@ -634,13 +653,13 @@
 }
 
 @container session-status (max-width: 527px) {
-  .session-telemetry-status-cell[data-priority="arc"] {
+  .session-telemetry-status-cell[data-priority="jobs"] {
     display: none;
   }
 }
 
-@container session-status (max-width: 411px) {
-  .session-telemetry-status-cell[data-priority="jobs"] {
+@container session-status (max-width: 416px) {
+  .session-telemetry-status-cell[data-priority="arc"] {
     display: none;
   }
 }

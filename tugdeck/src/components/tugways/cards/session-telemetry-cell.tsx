@@ -107,6 +107,13 @@ export interface SessionTelemetryCellProps {
    * when no arc is running in the session.
    */
   valueEmpty?: boolean;
+  /**
+   * The surface this cell toggles is up. Sets `data-pressed="true"` and
+   * `aria-pressed`, and the endcap's ticks and rule take the accent for as
+   * long as it holds. The ARC cell wears it while the arc shade is raised.
+   * @selector [data-pressed="true"]
+   */
+  pressed?: boolean;
   /** Accessible name for the cell button. */
   "aria-label"?: string;
   /** Native title tooltip for the cell button. */
@@ -137,6 +144,7 @@ export function SessionTelemetryCell({
   ticksDirection = "down",
   onActivate,
   valueEmpty,
+  pressed,
   "aria-label": ariaLabel,
   title,
   focusGroup,
@@ -165,6 +173,8 @@ export function SessionTelemetryCell({
       data-slot="tug-status-cell"
       className="session-telemetry-status-cell session-telemetry-status-anchor"
       data-priority={priority}
+      data-pressed={pressed ? "true" : undefined}
+      aria-pressed={pressed}
       // Not a *native* Tab stop and never steals the responder chain
       // on click; the engine drives DOM focus here during the cycle
       // walk (a `<button>` is programmatically focusable at -1). [L06]

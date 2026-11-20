@@ -8,6 +8,8 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Arc log.** The append-only record of an arc: every *round*, every *step* declaration, every *mark*, every *stop*. Everything a surface says about an arc that git cannot see is read from here. `tugtool arc record <name>` reads it back.
 
+**Arc shade.** The *shade* the arc reading in the *status row* raises, also on Option-Command-R. With an *arc* bound it holds four cards joined in a row, Idea, Sketch, Brief and Arc, the last carrying the arc's steps and verbs. With no arc it is short, and says what an arc is and how to start one.
+
 **Arcs (sidebar).** The *sidebar card* that lists every arc in every open project with its lifecycle strip and step progress, and the verbs to run, stop, join, replay or discard it.
 
 **Artifact ladder.** The rungs a piece of work climbs from a prompt to a document a stage can walk: *idea*, *sketch*, *brief*, *plan*. Only the first is required. Most work is only ever an idea, a sketch lives only in the transcript, and a *plain arc* stops at the brief and its *task list*.
@@ -176,7 +178,7 @@ The words Tug uses, each with one meaning. Entries are alphabetical. A word in *
 
 **Settings.** The card for app-wide preferences (Command-Comma). Card Settings, from a card's menu, hold the per-kind preferences for text, image and PDF cards.
 
-**Shade.** A panel that rises from the bottom of a *session card* over its transcript, resting on the *status row*: *Changes*, the commit history and *Share Turns*.
+**Shade.** A panel that rises from the bottom of a *session card* over its transcript, resting on the *status row*: *Changes*, the commit history, *Share Turns* and the *arc shade*.
 
 **Share Turns.** Handing chosen parts of a session's transcript to someone else as a PDF, an image or Markdown. `/share`, File > Share Turns, or Share from Here on a transcript row opens its *shade*; each prompt, answer and shell exchange then shows a checkbox, and the shade's Action menu previews, copies, saves or shares what you checked. Secrets are removed and your home folder is written as `~` before anything is made.
 

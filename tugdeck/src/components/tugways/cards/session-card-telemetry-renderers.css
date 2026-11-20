@@ -92,7 +92,7 @@
 /* ============================================================================
    .session-telemetry-status-row — Z2 combined session-status row
    ============================================================================
-   The flat 5-cell flex layout (STATE, TIME, CONTEXT, ARC, JOBS)
+   The flat 5-cell flex layout (STATE, TIME, CONTEXT, JOBS, ARC)
    with `justify-content: center` and a fixed inter-item `gap`. The
    five cells pack as one centered group; the leftover row width
    splits into two equal flexing margins on the far left and right.

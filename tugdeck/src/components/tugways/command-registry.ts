@@ -2210,6 +2210,22 @@ export const COMMANDS: readonly CommandEntry[] = [
         ? "Hide Commit History"
         : "Show Commit History",
   },
+  {
+    // The arc shade's two doors are the ARC status cell, which every press
+    // dispatches through this entry, and ⌥⌘R: R as the Arcs card's ⌃⌘R is,
+    // the letter of the noun, on the modifier pair no other R chord holds
+    // (⌘R Reveal Stack, ⇧⌘R Reload, ⌃⌘R Arcs). No menu item, so the chord
+    // lives in the JS funnel alone.
+    id: TUG_ACTIONS.TOGGLE_ARC_SHADE,
+    title: "Show Arc",
+    routing: "key-card",
+    bindings: [
+      chord(
+        { key: "KeyR", meta: true, alt: true, label: "r" },
+        { preventDefault: true },
+      ),
+    ],
+  },
   ...SLASH_BRIDGE_COMMANDS,
 
   // ---- View ----

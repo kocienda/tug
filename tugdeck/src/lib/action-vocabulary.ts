@@ -721,6 +721,11 @@ export const TUG_ACTIONS = {
   //                 must not slam the door.
   REVEAL_CHANGES: "reveal-changes",
   TOGGLE_HISTORY_VIEW: "toggle-history-view",
+  // TOGGLE_ARC_SHADE: payload — none. Raise or lower the key Session card's
+  //                   arc shade, the surface over the transcript that shows
+  //                   the card's arc. Answered by the session card's
+  //                   card-content responder.
+  TOGGLE_ARC_SHADE: "toggle-arc-shade",
   // TOGGLE_CARD_FOLD: payload — none. Put the key card's pane into its folded
   //                   form, or take it out — the masthead and a slit of the
   //                   card's own content at the shared tier, and for a

@@ -589,6 +589,9 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // send once the settled reading has landed.
   ["⇧⌘D", TUG_ACTIONS.STOP_DICTATION_AND_SEND],
   ["⌃⌘R", TUG_ACTIONS.TOGGLE_ARCS],
+  // ⌥⌘R — the Session card's arc shade, on the Arcs card's letter and the
+  // one modifier pair no other R chord held.
+  ["⌥⌘R", TUG_ACTIONS.TOGGLE_ARC_SHADE],
   ["⌃⌘W", TUG_ACTIONS.TOGGLE_CARDS],
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
   ["⌃⌘L", TUG_ACTIONS.TOGGLE_LAYOUT],

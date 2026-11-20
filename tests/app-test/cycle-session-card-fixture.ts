@@ -32,16 +32,16 @@
  *      Tab wraps to the route (the editor is the LAST stop and the route is
  *      the FIRST, now that the fold seat has moved into Z2, [B03]);
  *      touring the live stops (route → Claude Code → AI → fold → STATE → TIME
- *      → CONTEXT → ARC → JOBS → editor → wrap) never lands on the
+ *      → CONTEXT → JOBS → ARC → editor → wrap) never lands on the
  *      submit, because its empty-input gate disables it. ⌥⇥ off restores caret.
  *   3. **typed editor:** with content, the same entry — ring on the editor's
  *      stop, Tab to the route — and now the submit is live.
  *   4. **Tab tours the stops:** route → Claude Code → AI → mic → submit →
- *      fold → STATE → TIME → CONTEXT → ARC → JOBS → editor → wrap
+ *      fold → STATE → TIME → CONTEXT → JOBS → ARC → editor → wrap
  *      (trapped). The Session and Project chips are not on this route (the Z4B
  *      diet), and there is no BTW cell (the Z2 diet). Every Z4B chip and Z2 status cell
  *      is its own leaf stop ([P10] revised — no arrow-roving): Tab steps
- *      stop-to-stop and each wears the blue leaf ring in turn. The JOBS cell
+ *      stop-to-stop and each wears the blue leaf ring in turn. The ARC cell
  *      is the last leaf before the editor (the beat label retired with the Z2
  *      strip; the voice lives in the pane masthead, which takes no card-cycle
  *      stop). The editor is the last stop — a text

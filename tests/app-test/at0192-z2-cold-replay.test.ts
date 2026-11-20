@@ -260,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The shipped lineup: five cells, left to right, all laid out.
           // The retired TOKENS cell and the merged WORK cell are gone;
-          // ARC and JOBS stand in their place.
+          // JOBS and ARC stand in their place, ARC last.
           const lineup = await app.body("A").evalJS<
             Array<{ priority: string; shown: boolean }>
           >(LINEUP_JS);
@@ -268,18 +268,18 @@ describe.skipIf(!SHOULD_RUN)(
             "state",
             "time",
             "context",
-            "arc",
             "jobs",
+            "arc",
           ]);
           expect(lineup.every((c) => c.shown)).toBe(true);
 
-          // The fourth cell reads ARC whether or not an arc is bound. This
+          // The last cell reads ARC whether or not an arc is bound. This
           // session drives none, so the value is the one dimmed word, in a
-          // span that is not the arc's value slot, and the placard the cell
-          // opens says the same word.
+          // span that is not the arc's value slot, and the arc shade the cell
+          // raises says the same word; a second press lowers it.
           const ARC_CELL = '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="arc"]';
           const ARC_NONE = `${ARC_CELL} [data-slot="session-telemetry-arc-none"]`;
-          const Z2_PLACARD = ".session-telemetry-status-placard";
+          const Z2_PLACARD = '[data-card-id="A"] [data-slot="session-arc-shade"][data-raised="true"]';
           await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(ARC_NONE)}) !== null`,
             { timeoutMs: 15_000 },

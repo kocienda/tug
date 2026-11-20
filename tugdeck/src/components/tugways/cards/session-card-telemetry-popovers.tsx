@@ -1,6 +1,6 @@
 /**
  * session-card-telemetry-popovers.tsx — popup content for the five Z2
- * status-row anchors (STATE, TIME, CONTEXT, ARC, JOBS).
+ * status-row anchors (STATE, TIME, CONTEXT, JOBS, ARC).
  *
  * Every popup composes the shared `TugPopupList` vocabulary — frame,
  * log grid, item rows, footer — so the five surfaces read with one
@@ -1587,18 +1587,6 @@ export function TaskListItems({
   );
 }
 
-/**
- * The ARC placard's body when no arc is running in the session: the one word
- * the cell itself reads, in the form this file's other empty lists take.
- */
-export function ArcNonePopoverContent(): React.ReactElement {
-  return (
-    <TugPopupListFrame kind="item">
-      <TugPopupListEmpty form="word">None</TugPopupListEmpty>
-    </TugPopupListFrame>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Jobs popover
 // ---------------------------------------------------------------------------
@@ -2343,12 +2331,13 @@ export function ArcPopoverContent({
  * The `ARC` popup's verbs, derived for the card hosting it — and the confirm
  * its Discard arms.
  *
- * The confirm lives here, in the host, rather than in the placard. The placard
- * closes on any pointerdown outside its panel, and a confirm portals outside
- * every panel, so a confirm mounted inside the placard would be torn down by
- * the very press that answers it. Hosted beside the placard and anchored to an
- * element that outlives it — the status row — the confirm survives the
- * placard closing under it.
+ * The confirm lives here, in the host, rather than in the content. A confirm
+ * portals outside every panel, so one mounted inside a surface that a press
+ * elsewhere closes would be torn down by the very press that answers it.
+ * Hosted beside the content and anchored to an element the host names, which
+ * has to outlive that press — the arc shade's Arc card, which stays mounted
+ * while the shade is lowered — the confirm survives the surface closing
+ * under it.
  *
  * The reach is this card's: it is the one holding the arc, so the binding
  * verb reads Unbind and Discard is this card's to perform ([B09]). Discard and

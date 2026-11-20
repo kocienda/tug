@@ -269,6 +269,7 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘H | `hide-others` | Hide Others | menu bar (AppKit's own) |
 | ⌥⌘L | `make-lowercase` | Make Lowercase | menu bar (swept) |
 | ⌥⌘P | `toggle-markdown-preview` | Show Markdown Preview | menu bar (swept) |
+| ⌥⌘R | `toggle-arc-shade` | Show Arc | JS, global |
 | ⌥⌘U | `make-uppercase` | Make Uppercase | menu bar (swept) |
 | ⌥⌘V | `paste-as-quote` | Paste as Quote | JS, global |
 | ⌥⌘W | `close-all` | Close All Tabs | JS, global |
