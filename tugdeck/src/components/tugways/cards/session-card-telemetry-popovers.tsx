@@ -2245,6 +2245,7 @@ export function ArcPopoverContent({
   idle,
   verbs,
   onVerb,
+  verbLabels = "shown",
 }: {
   fact: ArcSessionFact;
   tasks: TaskListState["tasks"];
@@ -2253,6 +2254,8 @@ export function ArcPopoverContent({
   verbs: ArcVerbSet;
   /** Perform a verb, from {@link useArcPopoverVerbs}. */
   onVerb: (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null) => void;
+  /** How the verb row words its verbs; the row's own `labels`. */
+  verbLabels?: "shown" | "on-hover" | "lead-only";
 }): React.ReactElement {
   // Everything this placard draws comes off the fact already derived, by the
   // builder the arc's own shape calls for. There is no wire entry to reach
@@ -2289,6 +2292,7 @@ export function ArcPopoverContent({
               // A refusal speaks on this card's own bulletin.
               voice={fact.boundSession}
               onVerb={onVerb}
+              labels={verbLabels}
             />
           </span>
         </TugPopupListFooter>

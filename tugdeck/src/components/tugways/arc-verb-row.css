@@ -60,6 +60,34 @@
   display: none;
 }
 
+/* Only the next step keeps its word: the view rests as its icon too, opening
+   under the pointer or keyboard focus exactly as a housekeeping verb does. At
+   most two verbs are worded at once, the lead and the one under the pointer,
+   so the row holds one line and never wraps. */
+.tug-arc-verb-row[data-labels="lead-only"],
+.tug-arc-verb-row[data-labels="lead-only"] .tug-arc-verb-row-housekeeping {
+  flex-wrap: nowrap;
+}
+
+.tug-arc-verb-row[data-labels="lead-only"]
+  .tug-arc-verb:not([data-lead="true"]):not(:hover):not(:focus-visible) {
+  padding-inline: calc(
+    (var(--tug-button-2xs-height) - var(--tug-button-2xs-icon-size)) / 2
+  );
+}
+
+.tug-arc-verb-row[data-labels="lead-only"]
+  .tug-arc-verb:not([data-lead="true"]):not(:hover):not(:focus-visible)
+  .tug-button-icon-text {
+  gap: 0;
+}
+
+.tug-arc-verb-row[data-labels="lead-only"]
+  .tug-arc-verb:not([data-lead="true"]):not(:hover):not(:focus-visible)
+  .tug-arc-verb-word {
+  display: none;
+}
+
 /* Muted, never hidden: a refused verb that vanished would leave no way to
    find out why the act is unavailable. */
 .tug-arc-verb[data-refused="true"] {

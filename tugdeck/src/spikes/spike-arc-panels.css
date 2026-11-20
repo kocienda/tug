@@ -1,0 +1,350 @@
+/**
+ * spike-arc-panels.css — the arc shade as four fixed panels in a 2×2 grid.
+ *
+ * Only what is new is styled here: the grid, a panel's frame and its three
+ * bands, and the seams. What a panel holds is styled by the app's own sheets
+ * — `session-arc-shade.css` for the shade's header, `session-arc-canvas.css`
+ * for a card's name, title and detail and for the frame's colours, the popup
+ * list's and the brief's for the Arc and Brief contents.
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role          | Context                                           |
+ * |--------------------------------------------------|---------------------------------------------------|---------------|---------------------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .sp-ap-note, .sp-ap-control-label                 |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-content-rest | content       | .sp-ap-points                                     |
+ * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | informational | .sp-ap-shade, .sp-ap-panel (border-color)         |
+ * | --tug7-element-global-border-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | pending panel border; pending seam; .sp-ap-foot   |
+ * | --tug7-element-global-text-normal-success-rest   | --tug7-surface-global-primary-normal-content-rest | informational | done panel top border; linked seam (currentColor) |
+ * | --tug7-element-global-fill-normal-accent-rest    | --tug7-surface-global-primary-normal-content-rest | informational | active panel top border                           |
+ */
+
+/* ---- Above the shade ----------------------------------------------------- */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ap-note {
+  margin: 0;
+  max-width: 46rem;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-ap-controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm) var(--tug-space-2xl);
+}
+
+.sp-ap-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-ap-control-label {
+  font-size: var(--tug-font-size-sm);
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* ---- The shade ------------------------------------------------------------ */
+
+/* A stand-in for the shade's box, on the shade's own surface and under its
+   own top edge: the height a shade over four fifths of a tall Session card's
+   transcript has. */
+.sp-ap-shade {
+  display: flex;
+  flex-direction: column;
+  height: 640px;
+  min-width: 620px;
+  border: 1px solid var(--tugx-arc-shade-border);
+  background-color: var(--tugx-arc-shade-bg);
+  overflow: hidden;
+}
+
+/* ---- The grid -------------------------------------------------------------- */
+
+/* Three tracks each way: panel, seam, panel. The seams are real tracks, so
+   the marks on them never sit over a panel. The four panel tracks are
+   variables, which the layout below sets and the return seam reads. */
+.sp-ap-grid {
+  --sp-ap-seam: 28px;
+  --sp-ap-col-1: 1fr;
+  --sp-ap-col-2: 1fr;
+  --sp-ap-row-1: 1fr;
+  --sp-ap-row-2: 1fr;
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, var(--sp-ap-col-1)) var(--sp-ap-seam) minmax(0, var(--sp-ap-col-2));
+  grid-template-rows: minmax(0, var(--sp-ap-row-1)) var(--sp-ap-seam) minmax(0, var(--sp-ap-row-2));
+  padding: var(--tug-space-md);
+  /* A change of share snaps. Easing the tracks would re-lay-out all four
+     panels on every frame. */
+}
+
+/* The pressed panel's column and row take the larger share. */
+.sp-ap-grid[data-focus="idea"],
+.sp-ap-grid[data-focus="brief"] {
+  --sp-ap-col-1: 3fr;
+  --sp-ap-col-2: 2fr;
+}
+
+.sp-ap-grid[data-focus="sketch"],
+.sp-ap-grid[data-focus="arc"] {
+  --sp-ap-col-1: 2fr;
+  --sp-ap-col-2: 3fr;
+}
+
+.sp-ap-grid[data-focus="idea"],
+.sp-ap-grid[data-focus="sketch"] {
+  --sp-ap-row-1: 3fr;
+  --sp-ap-row-2: 2fr;
+}
+
+.sp-ap-grid[data-focus="brief"],
+.sp-ap-grid[data-focus="arc"] {
+  --sp-ap-row-1: 2fr;
+  --sp-ap-row-2: 3fr;
+}
+
+/* ---- A panel --------------------------------------------------------------- */
+
+/* The frame is the canvas card's: its surface, its border, its state on the
+   top edge. */
+.sp-ap-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border: 1px solid var(--tugx-arc-canvas-card-border);
+  border-top-width: 3px;
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tugx-arc-canvas-card-bg);
+  /* Three bands, and nothing a band holds may leave the panel's box. */
+  overflow: hidden;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ap-panel[data-state="done"] {
+  border-top-color: var(--tugx-arc-canvas-linked);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ap-panel[data-state="active"] {
+  border-top-color: var(--tugx-arc-canvas-active);
+}
+
+/* A rung nothing fills yet is an empty seat. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ap-panel[data-state="pending"] {
+  border-style: dashed;
+  border-top-width: 1px;
+  border-color: var(--tugx-arc-canvas-pending);
+}
+
+/* The header: the dot and the panel's name, on one line. */
+.sp-ap-panel-head {
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+  min-height: 20px;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  white-space: nowrap;
+}
+
+/* The progress dot keeps its seat whatever its pose. */
+.sp-ap-panel-dot {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+/* The panel's place in the order, ahead of its name. */
+.sp-ap-panel-number {
+  margin-inline-end: var(--tug-space-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The body scrolls inside the panel's seat. What it holds keeps its own
+   height; nothing is squeezed to fit. */
+.sp-ap-panel-body {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  padding: 0 var(--tug-space-md) var(--tug-space-md);
+  overflow: auto;
+}
+
+.sp-ap-panel-body > * {
+  flex: none;
+}
+
+/* A full panel's body is a whole surface of its own, the popup list, which
+   brings its own scroller and its own footer. It fills the panel to its
+   edges, its scroller takes whatever height is left, and its footer is the
+   panel's floor. */
+.sp-ap-panel[data-full="true"] > .sp-ap-panel-body {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.sp-ap-panel[data-full="true"] .tug-popup-list {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  min-height: 0;
+}
+
+.sp-ap-panel[data-full="true"] .tug-popup-list-scroller {
+  flex: 1 1 0;
+  max-height: none;
+}
+
+/* An empty seat's line, as the canvas card says it. */
+.sp-ap-empty {
+  font-weight: inherit;
+  opacity: 0.7;
+}
+
+/* The sketch's points. Nothing ships for these yet; they are set in the
+   canvas card's detail size, in the reading colour. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ap-points {
+  margin: 0;
+  padding-inline-start: var(--tug-space-xl);
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.4;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The floor: under the body and outside its scrolling, so the two never
+   meet. It wraps before it crowds. */
+.sp-ap-foot {
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-xs) var(--tug-space-sm);
+  min-width: 0;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  border-top: 1px solid var(--tugx-arc-shade-rule);
+}
+
+/* What belongs at the floor's far end, on whichever line it lands. */
+.sp-ap-foot-end {
+  display: inline-flex;
+  min-width: 0;
+  margin-inline-start: auto;
+}
+
+/* ---- The seams -------------------------------------------------------------- */
+
+/* A seam's line and its arrowhead wear one colour, by state: the canvas
+   connector's. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ap-seam {
+  --sp-ap-seam-stroke: 2px solid currentColor;
+  color: var(--tugx-arc-canvas-pending);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.sp-ap-seam[data-state="linked"] {
+  color: var(--tugx-arc-canvas-linked);
+}
+
+/* Nothing to join yet is dotted. */
+.sp-ap-seam[data-state="pending"] {
+  --sp-ap-seam-stroke: 2px dotted currentColor;
+}
+
+/* Across a row: a short line and an arrowhead, level with the headers. */
+.sp-ap-seam-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 13px;
+}
+
+.sp-ap-seam-row .sp-ap-seam-line {
+  flex: 1 1 0;
+  margin-top: 6px;
+  border-top: var(--sp-ap-seam-stroke);
+}
+
+.sp-ap-seam-row .sp-ap-seam-head {
+  flex: none;
+  margin-inline: -5px -3px;
+}
+
+/* The return: laid on the grid's own columns, so each drop is over the
+   middle of its panel. */
+.sp-ap-seam-return {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, var(--sp-ap-col-1)) var(--sp-ap-seam) minmax(0, var(--sp-ap-col-2));
+}
+
+.sp-ap-return-cell {
+  position: relative;
+  min-width: 0;
+}
+
+.sp-ap-return-cell::before {
+  content: "";
+  position: absolute;
+  box-sizing: border-box;
+}
+
+/* Out of the second panel: down from its floor to the seam's middle, then
+   left. */
+.sp-ap-return-cell[data-part="out"]::before {
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 50%;
+  border-right: var(--sp-ap-seam-stroke);
+  border-bottom: var(--sp-ap-seam-stroke);
+  border-bottom-right-radius: 8px;
+}
+
+.sp-ap-return-cell[data-part="across"]::before {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 50%;
+  border-bottom: var(--sp-ap-seam-stroke);
+}
+
+/* Into the third panel: from the seam's middle, left to the panel's middle,
+   then down to its roof. */
+.sp-ap-return-cell[data-part="into"]::before {
+  top: calc(50% - 2px);
+  right: 0;
+  width: 50%;
+  height: calc(50% + 2px);
+  border-left: var(--sp-ap-seam-stroke);
+  border-top: var(--sp-ap-seam-stroke);
+  border-top-left-radius: 8px;
+}
+
+.sp-ap-return-cell[data-part="into"] .sp-ap-seam-head {
+  position: absolute;
+  left: calc(50% - 6px);
+  bottom: -5px;
+}

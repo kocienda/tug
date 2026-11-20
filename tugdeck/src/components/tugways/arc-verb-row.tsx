@@ -159,10 +159,14 @@ export interface ArcVerbRowProps {
    * `on-hover` — the housekeeping verbs rest as their icons and show their
    * words under hover or keyboard focus, for a host too narrow for every word.
    * The next step and the view are always icon and word.
-   * @selector [data-labels="shown"] | [data-labels="on-hover"]
+   * `lead-only` — only the next step keeps its word. The view and the
+   * housekeeping verbs rest as their icons and show their words under hover
+   * or keyboard focus, so at most two verbs are ever worded and the row holds
+   * one line in a narrow host.
+   * @selector [data-labels="shown"] | [data-labels="on-hover"] | [data-labels="lead-only"]
    * @default "shown"
    */
-  labels?: "shown" | "on-hover";
+  labels?: "shown" | "on-hover" | "lead-only";
 }
 
 /** One verb's button, in the row's one form. */
@@ -187,6 +191,7 @@ function VerbButton({
         ref={ref}
         data-slot="arc-verb"
         data-verb={verb.kind}
+        data-lead={lead ? "true" : undefined}
         data-refused={refused ? "true" : undefined}
         data-pending={pending ? "true" : undefined}
         className="tug-arc-verb"
