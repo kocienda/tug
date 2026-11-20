@@ -67,7 +67,13 @@ type BodyIntentKind =
       lineId: string;
       tag: string;
     }
-  | { kind: "restore" }
+  /**
+   * A Session card with no session for the shell to start: the body's own
+   * restore pass binds it, or finds nothing and shows the picker. A card
+   * opened to run a command carries it as `openingCommand`, and it runs as
+   * the first turn of whatever session the picker binds.
+   */
+  | { kind: "restore"; openingCommand?: { name: string; args: string } }
   /**
    * A kind with no session, handed off as the deck holds it.
    */
@@ -102,8 +108,15 @@ export function parseBodyIntent(raw: unknown): BodyIntent | null {
 
 function parseIntentKind(r: Record<string, unknown>): BodyIntentKind | null {
   switch (r.kind) {
-    case "restore":
-      return { kind: "restore" };
+    case "restore": {
+      const opening = r.openingCommand as { name?: unknown; args?: unknown } | undefined;
+      return {
+        kind: "restore",
+        ...(opening !== undefined && str(opening.name) && typeof opening.args === "string"
+          ? { openingCommand: { name: opening.name, args: opening.args } }
+          : {}),
+      };
+    }
     case "bind":
       if (!str(r.tugSessionId) || !str(r.lineId) || !str(r.workspaceKey) || !str(r.projectDir)) return null;
       return {
@@ -217,9 +230,19 @@ export function replayBodyIntent(
     case "restore": {
       // Subscribed before the restore pass, so the session set goes out
       // ahead of the resume that pass sends from the same answer.
+      // A card opened to run a command holds it once the ledger says the
+      // card is bound to nothing, which is the card as its gesture left it.
+      // A card the ledger does bind is this intent replayed for a body made
+      // again, whose command has already run.
+      let opening = intent.openingCommand;
       const release = subscribeToListCardBindingsOk(({ bindings }) => {
         const own = bindings.find((b) => b.card_id === cardId);
-        if (own === undefined) return;
+        const held = opening;
+        opening = undefined;
+        if (own === undefined) {
+          if (held !== undefined) stashOpeningCommand(cardId, held);
+          return;
+        }
         release();
         connection.setSessions([own.session_id]);
       });

@@ -139,6 +139,7 @@ import { clearRecentDocuments } from "@/lib/recent-documents";
 import { subscribeScrollPhase } from "@/lib/scroll-phase-bridge";
 import { takeFlowFromSettle } from "@/lib/settle-take";
 import { allocateUntitledNumber } from "@/lib/untitled-naming";
+import { stashOpeningCommand } from "@/lib/session-restore";
 import {
   IMPOSER_SETTLE_END,
 } from "@/lib/settle-notice";
@@ -1195,6 +1196,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.TOGGLE_BULLSEYE,
   TUG_ACTIONS.TOGGLE_CARD_FOLD,
   TUG_ACTIONS.NEW_TEXT_CARD,
+  TUG_ACTIONS.NEW_ARC,
   TUG_ACTIONS.OPEN_QUICKLY,
   TUG_ACTIONS.CLEAR_RECENT_DOCUMENTS,
   TUG_ACTIONS.FOCUS_PANE,
@@ -2800,6 +2802,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           store,
           commitMutation: () => store.activateCard(newId),
         });
+      },
+      // A Session card, opened on its picker as New Session opens one, that
+      // runs `/arc` as its first turn once it has a session: the door then
+      // asks what the work is. The command is held against the card until it
+      // binds, as Run in New Session's is, and rides the card's hand-off to
+      // its body, where the picker binds it. Stashed in the gesture's own
+      // task: the hand-off that drains it is a microtask behind the deck's
+      // notification.
+      [TUG_ACTIONS.NEW_ARC]: (_event: ActionEvent) => {
+        const newId = store.addCard("session");
+        if (newId === null) return;
+        stashOpeningCommand(newId, { name: "arc", args: "" });
       },
       [TUG_ACTIONS.OPEN_QUICKLY]: (_event: ActionEvent) => {
         openOpenQuickly();

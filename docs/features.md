@@ -217,7 +217,7 @@ A big change with AI goes wrong in a familiar way: the model works on your check
 
 ### Opening an arc
 
-An arc begins as an idea typed into a session. Talk it over with the model until the shape is settled; that converged shape is a **sketch** and lives only in the conversation. When it is settled, `/tugplug:brief` writes it down as a **brief**, a short record of what was found and what was decided. Then `/arc` is the one door. It takes the brief, or writes one from the conversation, decides whether the work earns a written plan first, says which shape it chose and why, and hands the arc to the app.
+An arc begins as an idea typed into a session. Talk it over with the model until the shape is settled; that converged shape is a **sketch** and lives only in the conversation. When it is settled, `/tugplug:brief` writes it down as a **brief**, a short record of what was found and what was decided. Then `/arc` is the one door, and File > New Arc opens it in a new session card. It takes the brief, or writes one from the conversation, decides whether the work earns a written plan first, says which shape it chose and why, and hands the arc to the app.
 
 There are two **kinds** of arc, and the axis between them is settling time, not size:
 

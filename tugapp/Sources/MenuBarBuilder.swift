@@ -29,6 +29,7 @@ import AppKit
     func newHelloWorldCard(_ sender: Any)
     func newJot(_ sender: Any)
     func newSessionCard(_ sender: Any)
+    func newArc(_ sender: Any)
     func newSpikesCard(_ sender: Any)
     func newTextCard(_ sender: Any)
     func newWorkspaceFromMenu(_ sender: Any?)
@@ -240,6 +241,10 @@ struct MenuBarBuilder {
         // creators live in the app-maker menu, gated at compile time on
         // BuildInfo.profile.
         fileMenu.addItem(NSMenuItem(title: "New Session", action: #selector(MenuBarActions.newSessionCard(_:)), keyEquivalent: "n").identified("file.newSessionCard"))
+
+        // New Arc: a Session card that opens the `/arc` door as its first
+        // turn. No chord of its own; the registry's entry gates it.
+        fileMenu.addItem(NSMenuItem(title: "New Arc", action: #selector(MenuBarActions.newArc(_:)), keyEquivalent: "").identified("file.newArc"))
 
         // New Text File (⌥⌘N): a new untitled manual buffer — no file
         // exists until the first Save.

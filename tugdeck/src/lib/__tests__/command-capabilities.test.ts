@@ -837,7 +837,7 @@ describe("computeCommandCapabilities", () => {
       expect(inside["file.openFile"].enabled).toBe(false);
     });
 
-    test("the shipped table dims exactly the six card-count items", () => {
+    test("the shipped table dims the card-count items", () => {
       const chain = new ResponderChainManager();
       const gates = computeCommandCapabilities(source(chain, { appModalOpen: true }));
       const dark = Object.entries(gates)
@@ -846,6 +846,7 @@ describe("computeCommandCapabilities", () => {
 
       for (const id of [
         "file.newTextCard",
+        "file.newArc",
         "file.openFile",
         "file.openQuickly",
         "file.openRecent.clear",

@@ -119,6 +119,7 @@ final class MenuBarBuilderTests: XCTestCase {
         "App | Quit Tug | ⌘q | quit: | app.quit",
         "Bar | File ▸ | - | - | -",
         "File | New Session | ⌘n | newSessionCard: | file.newSessionCard",
+        "File | New Arc | - | newArc: | file.newArc",
         "File | New Text File | ⌥⌘n | newTextCard: | file.newTextCard",
         "File | New Jot | - | newJot: | file.newJot",
         "File | Open File… | ⌘o | openFileInEditor: | file.openFile",

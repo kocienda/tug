@@ -25,6 +25,13 @@ describe("parseBodyIntent", () => {
     expect(parseBodyIntent({ kind: "restore" })).toEqual({ kind: "restore" });
   });
 
+  test("a restore intent keeps the command its card was opened to run, and drops one that is not a command", () => {
+    const openingCommand = { name: "arc", args: "" };
+    expect(parseBodyIntent({ kind: "restore", openingCommand })).toEqual({ kind: "restore", openingCommand });
+    expect(parseBodyIntent({ kind: "restore", openingCommand: { name: "", args: "" } })).toEqual({ kind: "restore" });
+    expect(parseBodyIntent({ kind: "restore", openingCommand: { name: "arc" } })).toEqual({ kind: "restore" });
+  });
+
   test("an unknown kind, or no object at all, is not an intent", () => {
     expect(parseBodyIntent({ kind: "teleport" })).toBeNull();
     expect(parseBodyIntent(null)).toBeNull();

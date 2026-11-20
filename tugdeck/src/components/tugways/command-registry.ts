@@ -1446,6 +1446,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     changesCardCount: true,
   },
   {
+    id: TUG_ACTIONS.NEW_ARC,
+    title: "New Arc",
+    routing: "first-responder",
+    menuItemId: "file.newArc",
+    changesCardCount: true,
+  },
+  {
     id: TUG_ACTIONS.OPEN_FILE,
     title: "Open File…",
     routing: "first-responder",

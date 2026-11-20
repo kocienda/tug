@@ -1101,6 +1101,9 @@ export const TUG_ACTIONS = {
   // NEW_TEXT_CARD:           payload — none. Open an untitled manual
   //                          buffer in its own Text card; no file exists
   //                          until the first Save. File ▸ New Text File.
+  // NEW_ARC:                 payload — none. Open a Session card, as New
+  //                          Session does, that runs `/arc` as its first
+  //                          turn once it has a session. File ▸ New Arc.
   // OPEN_QUICKLY:            payload — none. Open the deck-global
   //                          file-search popup. File ▸ Open Quickly.
   // CLEAR_RECENT_DOCUMENTS:  payload — none. Empty the MRU list and
@@ -1114,6 +1117,7 @@ export const TUG_ACTIONS = {
   //                          The Window menu's Workspaces list and the
   //                          Workspaces card's rows.
   NEW_TEXT_CARD:          "new-text-card",
+  NEW_ARC:                "new-arc",
   OPEN_QUICKLY:           "open-quickly",
   CLEAR_RECENT_DOCUMENTS: "clear-recent-documents",
   FOCUS_PANE:             "focus-pane",

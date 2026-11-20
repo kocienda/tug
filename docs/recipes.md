@@ -5,7 +5,7 @@ One recipe per thing you can do in Tug, headed the way you would say it. Each gi
 ## Arcs
 
 ### Create an arc
-<!-- source: tugplug/skills/arc/SKILL.md (forms of /arc); tugdeck/src/lib/slash-commands.ts (/arc is not local; /arc-bind); tugdeck/src/lib/arc-verbs.ts (Start) -->
+<!-- source: tugplug/skills/arc/SKILL.md (forms of /arc); tugdeck/src/lib/slash-commands.ts (/arc is not local; /arc-bind); tugdeck/src/lib/arc-verbs.ts (Start); tugapp/Sources/MenuBarBuilder.swift (file.newArc); tugdeck/src/components/chrome/deck-canvas.tsx (new-arc) -->
 
 Type `/arc` in a Session card, followed by whatever you have:
 
@@ -15,7 +15,7 @@ Type `/arc` in a Session card, followed by whatever you have:
 
 The model settles what is still open, decides whether the work earns a written plan, says which shape it chose and why, and hands the arc to the app. You will see the arc's name on the card and a **Wheel** divider in the transcript as its first stage starts, and the arc takes its own branch and worktree, so your checkout is untouched.
 
-There is no New Arc button in the Arcs sidebar, no menu item and no chord; the one door is `/arc`. A row in the Arcs sidebar for documents that are already waiting offers **Start**, which runs those documents and opens nothing new. `/arc-bind <name>` with a new name does make an arc, but a bare one: a branch and a worktree, with no brief and nothing driving it. It is not how work is started.
+File > New Arc is the same door from the menu: it opens a new Session card, and once you have picked a project in the list it opens, the card runs `/arc` as its first turn and the model asks what the work is. There is no New Arc button in the Arcs sidebar and no chord. A row in the Arcs sidebar for documents that are already waiting offers **Start**, which runs those documents and opens nothing new. `/arc-bind <name>` with a new name does make an arc, but a bare one: a branch and a worktree, with no brief and nothing driving it. It is not how work is started.
 
 ### Write a brief
 <!-- source: tugplug/skills/brief/SKILL.md -->
