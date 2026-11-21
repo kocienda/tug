@@ -5862,7 +5862,7 @@ export function SessionCardBody({
                   >
                     {/* The arc's reading and its verbs, as the cell's popup
                         drew them, so every verb stays within reach. */}
-                    <SessionArcShadeContent codeSessionStore={codeSessionStore} />
+                    <SessionArcShadeContent codeSessionStore={codeSessionStore} controller={arcShadeController} />
                   </SessionArcShade>
                 </div>
               </div>

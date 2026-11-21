@@ -20,21 +20,29 @@
  * host that caps its height the rows share the room: a row that needs little
  * keeps it, and the other's panels scroll inside themselves.
  *
- * The two columns are equal and nothing moves on a press, so a panel's text
- * wraps one way and the rows' heights hold still. The grid never shrinks
- * below its two rows' floors; in a host shorter than that the host scrolls.
+ * At rest the two columns are equal. A press on a panel expands it: its
+ * column takes two parts to the other's one, and its body gives up its cap
+ * of lines, so it shows as much as the host has room for. A second press on
+ * the expanded panel, anywhere but on one of its controls, puts the grid
+ * back at rest. Which panel is expanded is the `data-expanded` attribute on
+ * the grid, written straight to the DOM and read by the sheet, so a press
+ * renders nothing. It is not saved, and each time `raised` becomes true the
+ * grid is at rest again. Keyboard focus moves nothing. The grid never
+ * shrinks below its two rows' floors; in a host shorter than that the host
+ * scrolls.
  *
  * What each panel says is the caller's. Composes `TugProgressIndicator`,
  * which keeps its own tokens.
  *
- * Laws: [L06] the grid's sizing is CSS, never React state, [L16] pairings
+ * Laws: [L06] the expanded panel is a DOM attribute and CSS, never React
+ *       state, [L16] pairings
  *       declared, [L19] component authoring guide, [L20] composed children
  *       keep their tokens
  */
 
 import "./session-arc-panels.css";
 
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
@@ -54,6 +62,12 @@ const RUNG_LABELS: Record<ArcPanelRung, string> = {
   brief: "Brief",
   arc: "Arc",
 };
+
+/** A panel's element, from anything inside it. */
+const PANEL_SELECTOR = '[data-slot="session-arc-panel"]';
+
+/** A panel's own controls: a press on one in the expanded panel is the control's alone. */
+const CONTROL_SELECTOR = 'button, input, textarea, a, [role="button"], [contenteditable="true"]';
 
 /** What one panel says. */
 export interface SessionArcPanel {
@@ -90,9 +104,36 @@ export interface SessionArcPanel {
 export interface SessionArcPanelsProps {
   /** The four panels' content. */
   panels: Readonly<Record<ArcPanelRung, SessionArcPanel>>;
+  /**
+   * Whether the surface holding the panels is showing. Each time it becomes
+   * true, no panel is expanded.
+   * @default true
+   */
+  raised?: boolean;
 }
 
-export function SessionArcPanels({ panels }: SessionArcPanelsProps): React.ReactElement {
+export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProps): React.ReactElement {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+
+  // The expanded panel is forgotten when the surface is put away.
+  useLayoutEffect(() => {
+    if (raised) delete gridRef.current?.dataset.expanded;
+  }, [raised]);
+
+  /**
+   * A press expands the panel it lands in. On the panel already expanded it
+   * puts the grid back at rest, unless it landed on one of the panel's
+   * controls, which is a press on the control and nothing more.
+   */
+  const onClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const grid = gridRef.current;
+    if (grid === null || !(event.target instanceof Element)) return;
+    const rung = event.target.closest<HTMLElement>(PANEL_SELECTOR)?.dataset.rung;
+    if (rung === undefined) return;
+    if (grid.dataset.expanded !== rung) grid.dataset.expanded = rung;
+    else if (event.target.closest(CONTROL_SELECTOR) === null) delete grid.dataset.expanded;
+  };
+
   const states = {
     idea: panels.idea.state,
     sketch: panels.sketch.state,
@@ -141,7 +182,7 @@ export function SessionArcPanels({ panels }: SessionArcPanelsProps): React.React
   };
 
   return (
-    <div data-slot="session-arc-panels" className="session-arc-panels">
+    <div ref={gridRef} data-slot="session-arc-panels" className="session-arc-panels" onClick={onClick}>
       {panel("idea")}
       <RowSeam from="idea" state={seams[0]} />
       {panel("sketch")}

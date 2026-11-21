@@ -461,14 +461,20 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
           `(() => { document.querySelector(${JSON.stringify(SHADE)}).style.maxHeight = ""; return true; })()`,
         );
 
-        // ── Nothing moves on a press, or when focus enters a panel ────────
+        // ── A press expands a panel, a second puts it back, focus moves nothing ──
         const settledRest = await read(app);
         await app.body("A").nativeClickAtElement(panelName("idea"));
         const pressed = await read(app);
         note("at0860 idea pressed", JSON.stringify(pressed));
-        expectUnmoved(settledRest, pressed, "Idea pressed");
-        expect(pressed.verbs.every((v) => v.shown), "pressed elsewhere, the Arc panel keeps its whole row").toBe(true);
+        const [pIdea, pSketch, pBrief, pArc] = ["idea", "sketch", "brief", "arc"].map((r) => panelOf(pressed, r).box);
+        expect(width(pIdea) / width(pSketch), "pressed, Idea's column is two parts to one").toBeGreaterThan(1.9);
+        expect(Math.abs(width(pBrief) - width(pIdea)), "and Brief, under it, is as wide").toBeLessThanOrEqual(0.5);
+        expect(Math.abs(width(pArc) - width(pSketch))).toBeLessThanOrEqual(0.5);
+        expect(pressed.verbs.every((v) => v.shown), "in the narrow column, the Arc panel keeps its whole row").toBe(true);
+        expectFloorClear(pressed, "Idea pressed");
         expectNoOverflow(pressed, "Idea pressed");
+        await app.body("A").nativeClickAtElement(panelName("idea"));
+        expectUnmoved(settledRest, await read(app), "Idea pressed again");
         await app.body("A").evalJS<boolean>(
           `(() => { document.querySelector(${JSON.stringify(BRIEF_OPEN)}).focus(); return true; })()`,
         );

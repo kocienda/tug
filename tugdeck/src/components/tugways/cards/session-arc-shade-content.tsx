@@ -36,11 +36,13 @@ import React, { useCallback, useContext, useMemo, useRef } from "react";
 
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import type { ArcShadeController } from "@/lib/arc-shade-controller";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
+import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
 import { SessionArcPanels, type SessionArcPanel } from "./session-arc-panels";
@@ -79,9 +81,18 @@ const ARC_PANEL_SELECTOR = '[data-slot="session-arc-panel"][data-rung="arc"]';
 export interface SessionArcShadeContentProps {
   /** The card's session store: its session id, its phase and its task list. */
   codeSessionStore: CodeSessionStore;
+  /**
+   * The card's arc shade store. Each time the shade is raised, no panel is
+   * expanded.
+   */
+  controller: ArcShadeController;
 }
 
-export function SessionArcShadeContent({ codeSessionStore }: SessionArcShadeContentProps): React.ReactElement {
+export function SessionArcShadeContent({
+  codeSessionStore,
+  controller,
+}: SessionArcShadeContentProps): React.ReactElement {
+  const raised = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const snap = useSessionFields(codeSessionStore, ARC_CONTENT_FIELDS);
   const fact = useArcForSession(snap.tugSessionId);
   const taskListState = useTaskListState(codeSessionStore);
@@ -128,6 +139,7 @@ export function SessionArcShadeContent({ codeSessionStore }: SessionArcShadeCont
         <SessionArcShadeHint canStart={snap.canSubmit && fact === null} />
       ) : (
         <SessionArcPanels
+          raised={raised}
           // The seams follow from the panels: the arc is cut from its brief,
           // so Brief to Arc is joined whenever there is one.
           panels={{

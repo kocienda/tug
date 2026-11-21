@@ -38,10 +38,11 @@ body {
 /* ---- The grid ------------------------------------------------------------ */
 
 /* Three tracks each way: panel, seam, panel. The seams are real tracks, so
-   the marks on them never sit over a panel. The two panel columns are equal
-   and may shrink to nothing, so the grid holds at any width its host has and
-   nothing a panel carries can push it wider. Nothing moves them: a wider
-   column would rewrap a panel's text and so move the rows.
+   the marks on them never sit over a panel. The two panel columns may shrink
+   to nothing, so the grid holds at any width its host has and nothing a
+   panel carries can push it wider. At rest they are equal; the column of an
+   expanded panel takes two parts to the other's one, and the rows follow
+   whatever that does to their panels' text.
 
    Each panel row is as tall as the taller of its two panels needs, and never
    shorter than the floor: a panel's header and one line. The grid is a flex
@@ -62,6 +63,8 @@ body {
      its header, one row of its ledger and its verb row, which read 115 px.
      Below it the verbs would fall out of the panel. */
   --tugx-arc-panel-floor-arc: 120px;
+  --tugx-arc-panel-col-1: 1fr;
+  --tugx-arc-panel-col-2: 1fr;
   /* The most a panel's body shows before it scrolls, in lines of body text.
      The one number to change to show more or less of a long panel. */
   --tugx-arc-panel-max-lines: 20;
@@ -78,15 +81,34 @@ body {
   );
   display: grid;
   grid-template-columns:
-    minmax(0, 1fr)
+    minmax(0, var(--tugx-arc-panel-col-1))
     var(--tugx-arc-panel-seam)
-    minmax(0, 1fr);
+    minmax(0, var(--tugx-arc-panel-col-2));
   grid-template-rows:
     minmax(var(--tugx-arc-panel-floor), auto)
     var(--tugx-arc-panel-seam)
     minmax(var(--tugx-arc-panel-floor-arc), auto);
   padding: var(--tug-space-md);
   overflow: hidden;
+}
+
+/* The expanded panel's column, and its body's cap lifted: it shows as much
+   as the shade has room for. */
+.session-arc-panels[data-expanded="idea"],
+.session-arc-panels[data-expanded="brief"] {
+  --tugx-arc-panel-col-1: 2fr;
+}
+
+.session-arc-panels[data-expanded="sketch"],
+.session-arc-panels[data-expanded="arc"] {
+  --tugx-arc-panel-col-2: 2fr;
+}
+
+.session-arc-panels[data-expanded="idea"] [data-rung="idea"] > .session-arc-panel-body,
+.session-arc-panels[data-expanded="sketch"] [data-rung="sketch"] > .session-arc-panel-body,
+.session-arc-panels[data-expanded="brief"] [data-rung="brief"] > .session-arc-panel-body,
+.session-arc-panels[data-expanded="arc"] [data-rung="arc"] > .session-arc-panel-body {
+  max-height: none;
 }
 
 /* ---- A panel ------------------------------------------------------------- */
@@ -329,9 +351,9 @@ body {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns:
-    minmax(0, 1fr)
+    minmax(0, var(--tugx-arc-panel-col-1))
     var(--tugx-arc-panel-seam)
-    minmax(0, 1fr);
+    minmax(0, var(--tugx-arc-panel-col-2));
 }
 
 .session-arc-panel-return {
