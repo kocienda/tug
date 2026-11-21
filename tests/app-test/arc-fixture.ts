@@ -1200,6 +1200,9 @@ export function seedScratchSession(repo: string, sessionId: string): string {
   return dir;
 }
 
+/** The overlay page's id, as the host addresses it (`BodyViewController.overlayCardId`). */
+const OVERLAY_PAGE_ID = "deck-overlay";
+
 /** Remove what {@link seedScratchSession} wrote. */
 export function rmScratchSession(dir: string): void {
   if (dir !== "") rmSync(dir, { recursive: true, force: true });
@@ -1212,6 +1215,13 @@ export function rmScratchSession(dir: string): void {
  * carries `TUG_SESSION_ID`, so `tugtool arc bind` run through it resolves the
  * session the card actually holds. One copy here because four files had grown
  * their own, differing only in a default parameter.
+ *
+ * It waits first for the overlay to give up any claim on the whole window.
+ * A resumed session stands the restore gate over every card until its
+ * transcript is back, and the overlay takes each click for as long as a
+ * modal stands in it — as it would a user's. A press made in that span
+ * reaches no card, so the command is typed into nothing and the wait below
+ * times out on a row that was never asked for.
  */
 export async function shellAndSettle(
   app: App,
@@ -1224,6 +1234,10 @@ export async function shellAndSettle(
   // The prompt and the transcript are the card's: in its body when it has
   // one. The typing and the chord go to the key window, as a user's would.
   const page = await cardPage(app, cardId);
+  await app.body(OVERLAY_PAGE_ID).waitForCondition<boolean>(
+    `document.documentElement.getAttribute("data-overlay-claim-state") !== "all"`,
+    { timeoutMs: 15_000 },
+  );
   await page.nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));

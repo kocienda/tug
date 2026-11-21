@@ -290,8 +290,46 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         expect(await listCellCount(app)).toBe(bareCells);
         note("at0424 cards with the walk begun", (await app.screenshot()).path);
 
+        // ── The walk ends: the word stands alone ──────────────────────────
+        // Every row closed, so the arc is past `implement`. The count was the
+        // walk's; left standing it read `Auditing 3/3`, and on a rail narrow
+        // enough to elide the word it read `3/3` and nothing else.
+        // One typed line, and a short one: the harness types it a key at a
+        // time, and the file has a budget. Quiet, too: five steps' worth of
+        // output is taller than the transcript, which mounts only the rows
+        // in view, and `shellAndSettle` counts the rows it can see.
+        const walk =
+          `s() { ${tugtoolPath(CHECKOUT)} arc step ${ARC_NAME} "$@" >/dev/null; }; ` +
+          `s done 1 && s start 2 --through 2 && s done 2 && s start 3 --through 3 && s done 3`;
+        await shellAndSettle(
+          app,
+          walk,
+          2,
+        );
+        await kindBody(app, "cards").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FRACTION)}) === null`,
+          { timeoutMs: 30000 },
+        );
+        const walked = await kindBody(app, "cards").evalJS<{
+          phase: string | null;
+          word: string | null;
+        }>(
+          `(() => {
+             const mark = document.querySelector(${JSON.stringify(MARK)});
+             return {
+               phase: mark?.getAttribute("data-phase") ?? null,
+               word:
+                 mark?.querySelector('[data-slot="tug-arc-lifecycle-mark-word"]')
+                   ?.textContent?.trim() ?? null,
+             };
+           })()`,
+        );
+        note("at0424 with the walk over", JSON.stringify(walked));
+        expect(["audit", "join"]).toContain(walked.phase ?? "(none)");
+        expect((walked.word ?? "").length).toBeGreaterThan(0);
+
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 2);
+        await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 3);
         await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PROGRESS)}).length === 0`,
           { timeoutMs: 30000 },
