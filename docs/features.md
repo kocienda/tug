@@ -262,7 +262,7 @@ Press the arc reading at the right of a session's status row, or Option-Command-
 With an arc bound to the session, the shade is four panels in a grid, two across and two down, numbered in the order a piece of work climbs:
 
 - **Idea** and **Sketch** show the prompt the work began as and a few sentences on how the conversation took it to the brief, as `/arc` recorded them when the arc opened. An arc with no record, such as one opened before records were kept, says nothing is recorded.
-- **Brief** shows the arc's brief: its title, its path, Open in Text Card, and the findings and decisions the brief marks.
+- **Brief** shows the arc's brief: its title, its path, which opens the brief in a text card when pressed, and the findings and decisions the brief marks.
 - **Arc** is the arc itself: its name and the session bound to it, the stage it is in, its steps, and its verbs.
 
 An arrow joins each panel to the next: across each row, and from Sketch back down to Brief. It is solid where one was made from the other, as an arc is from its brief, and dotted where there is nothing to join yet. The dot in a panel's header says where that rung is: settled, pulsing where the work is now, holding still when the arc is stopped, or an empty seat.

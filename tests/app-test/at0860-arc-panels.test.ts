@@ -34,7 +34,7 @@
  *      the Sketch panel, with no record, says nothing is recorded.
  *   8. Discard on the Arc panel arms a confirm that stands on the panel, and
  *      Cancel dismisses it with the arc untouched.
- *   9. Open in Text Card on the Brief panel opens the brief's file.
+ *   9. The Brief panel's path opens the brief's file.
  *  10. Changes on the Arc panel lowers the arc shade and opens the Changes
  *      shade.
  *
@@ -92,7 +92,7 @@ const SLOT = `${CARD} .session-view-slot`;
 const GRID = `${SHADE} [data-slot="session-arc-panels"]`;
 const panel = (rung: string): string => `${GRID} [data-slot="session-arc-panel"][data-rung="${rung}"]`;
 const panelName = (rung: string): string => `${panel(rung)} .session-arc-panel-name`;
-const BRIEF_OPEN = `${panel("brief")} [data-slot="session-arc-brief-open"]`;
+const BRIEF_OPEN = `${panel("brief")} [data-slot="session-arc-brief-path"]`;
 const arcVerb = (kind: string): string => `${panel("arc")} [data-slot="arc-verb"][data-verb="${kind}"]`;
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CHANGES_SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
@@ -434,12 +434,14 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(rest.verbRow.b, "the verbs are in the shade's view when it rises").toBeLessThanOrEqual(rest.body.b + 1);
 
         // ── The cap binding: the short row keeps its height ───────────────
-        // The shade is held 30 px shorter than it stands, as a shorter slot
-        // would hold it, and read again: still above the rows' floors.
+        // The shade is held 20 px shorter than it stands, as a shorter slot
+        // would hold it, and read again: still above the rows' floors. The
+        // Arc panel's row stands 28 px over its floor, so 20 is what it can
+        // give alone.
         await app.body("A").evalJS<boolean>(
           `(() => {
              const shade = document.querySelector(${JSON.stringify(SHADE)});
-             shade.style.maxHeight = (shade.getBoundingClientRect().height - 30) + "px";
+             shade.style.maxHeight = (shade.getBoundingClientRect().height - 20) + "px";
              return true;
            })()`,
         );
@@ -448,7 +450,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         note("at0860 capped", JSON.stringify({ capped, cap: cappedCap }));
         const [cIdea, cArc] = ["idea", "arc"].map((r) => panelOf(capped, r).box);
         expect(Math.abs(height(cIdea) - height(idea)), "capped, the short row keeps its height").toBeLessThanOrEqual(1);
-        expect(height(cArc), "and the row holding the arc gives way").toBeLessThan(height(arc) - 20);
+        expect(height(cArc), "and the row holding the arc gives way").toBeLessThan(height(arc) - 15);
         expect(capped.overflow.bodyY, "the grid still fits the shade, so the body does not scroll").toBeLessThanOrEqual(0);
         expect(
           Math.max(cappedCap.panelScroll.arc ?? 0, cappedCap.panelScroll.brief ?? 0),
@@ -555,7 +557,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
           "Cancel leaves the arc bound",
         ).toBe(true);
 
-        // ── Open in Text Card opens the brief's own file ──────────────────
+        // ── The brief's path opens the brief's own file ───────────────────
         // The proof is the document's bytes on screen: a Text card carrying
         // the brief's heading is the file, opened.
         await app.body("A").click(BRIEF_OPEN);

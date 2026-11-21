@@ -8,7 +8,7 @@
  * and Resume, on one row: the next move keeps its word and the rest are
  * icons that open under the pointer or keyboard focus. Its dot holds its
  * pose while the arc is stopped. The Brief panel shows the arc's brief when
- * it has one: its title, its path and Open in Text Card, and the findings
+ * it has one: its title, its path, which opens it, and the findings
  * and decisions it marks. The Idea and Sketch panels show the arc's records
  * of the prompt the work began as and of how the conversation took it to
  * the brief, as written; an arc with no record says nothing is recorded.

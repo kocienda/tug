@@ -11,9 +11,9 @@
  * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-brief-path, -heading-tag, -note (color)             |
  */
 
-/* What the arc canvas's Brief card says of the brief: its path and the button
-   that opens it, and, when the card is open, the findings and decisions the
-   brief marks. The button is a `TugPushButton`, styled by its own sheet. */
+/* What the arc canvas's Brief card says of the brief: its path, which opens
+   it, and, when the card is open, the findings and decisions the brief
+   marks. */
 
 .session-arc-brief-detail {
   display: flex;
@@ -25,11 +25,25 @@
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
 .session-arc-brief-path {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   max-width: 100%;
   font-family: var(--tug-font-family-mono);
   font-size: var(--tug-font-size-2xs);
+  text-align: start;
   overflow-wrap: anywhere;
   color: var(--tug7-element-global-text-normal-muted-rest);
+  cursor: pointer;
+}
+
+/* A link under the pointer or keyboard focus, and plain text otherwise. */
+.session-arc-brief-path:hover,
+.session-arc-brief-path:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .session-arc-brief-headings {
