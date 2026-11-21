@@ -42,7 +42,9 @@
 
 /* The worded mark — a host with no ARC cell beside it says the phase. The
    word is the one part that may give way: it elides (`Audit…`) while the pill,
-   the glyph and the count keep their boxes. */
+   the glyph and the count keep their boxes. The count is only there while the
+   arc walks its plan (`arcWordCountsSteps`), so past the walk the word has the
+   count's room and nothing outlives it but the pill and the glyph. */
 .tug-arc-lifecycle-mark[data-worded="true"] {
   flex: 0 1 auto;
   min-width: 0;

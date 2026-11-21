@@ -397,6 +397,27 @@ export const ARC_CELL_WIDEST_FRACTION = "00/00";
  */
 export const ARC_CELL_NONE_WORD = "None";
 
+/**
+ * Whether a WORDED reading counts steps beside its word: only while the arc
+ * is walking its plan.
+ *
+ * The count is the object of `Executing` and of nothing else. Once the ledger
+ * is walked the phase moves on — `Auditing`, `Finished` — and a count left
+ * standing beside that word reads as progress through a phase that has no
+ * steps: `Auditing 6/6`. Worse on a narrow rail, where the word is the part
+ * that elides and the count is what is left, so the row said `6/6` and never
+ * said `Auditing` at all.
+ *
+ * Keyed on the PHASE and not on a step being in hand, which is the line's
+ * stricter test: between one step closing and the next opening no step is in
+ * hand, and a count that blinked off at every seam of the walk would move
+ * the row each time. A stop inside the walk keeps the phase, so it keeps its
+ * count; a stop after it does not. Pure.
+ */
+export function arcWordCountsSteps(model: ArcTrackModel): boolean {
+  return model.phase === "implement";
+}
+
 /** {@link ArcReading} for a model. Pure. */
 export function arcReading(model: ArcTrackModel): ArcReading {
   if (model.stopped !== null) {

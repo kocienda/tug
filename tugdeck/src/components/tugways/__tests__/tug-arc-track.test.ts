@@ -17,6 +17,7 @@ import {
   arcSessionPurpose,
   arcTrackModel,
   arcTrackSteps,
+  arcWordCountsSteps,
   tickState,
   type ArcPhase,
   type ArcTrackInput,
@@ -272,6 +273,50 @@ describe("arcReading", () => {
     expect(walked.phase).toBe("audit");
     expect(walked.live).toBe(true);
     expect(arcReading(walked)).toEqual({ word: "Auditing", fraction: null });
+  });
+
+  // The worded mark's half of the same rule — the Workspaces rail row, which
+  // read `6/6` under audit because the count kept its box and the word did not.
+  test("a worded reading counts steps through the walk and not after it", () => {
+    const walking = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement" },
+      steps: steps(2, 3, 6),
+      stage: "implementing",
+    });
+    expect(arcWordCountsSteps(walking)).toBe(true);
+    // Between two steps nothing is in hand, and the count must not blink off.
+    const seam = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement" },
+      steps: steps(3, null, 6),
+      stage: "implementing",
+    });
+    expect(seam.phase).toBe("implement");
+    expect(arcWordCountsSteps(seam)).toBe(true);
+    const auditing = arcTrackModel({
+      documents: PLAN,
+      steps: steps(6, null, 6),
+      stage: "ready",
+      holdersBusy: true,
+    });
+    expect(arcCellWord(auditing)).toBe("Auditing");
+    expect(arcWordCountsSteps(auditing)).toBe(false);
+    // A stop inside the walk keeps its count; one after the walk has none.
+    const stoppedWalking = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "implement", stopped: "stalled", stopped_stage: "implement" },
+      steps: steps(2, 3, 6),
+      stage: "working",
+    });
+    expect(arcWordCountsSteps(stoppedWalking)).toBe(true);
+    const stoppedAuditing = arcTrackModel({
+      documents: PLAN,
+      arc: { stage: "audit", stopped: "stalled", stopped_stage: "audit" },
+      steps: steps(6, null, 6),
+      stage: "ready",
+    });
+    expect(arcWordCountsSteps(stoppedAuditing)).toBe(false);
   });
 
   // A stop outranks the phase entirely: the word is `Stopped`, the reason is

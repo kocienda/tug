@@ -145,7 +145,8 @@ export function CardsSessionRow({
         tape
         // The phase in words beside the arc's glyph — `Auditing` — since no
         // ARC cell stands under a rail row to say it. It elides before the
-        // row's furniture does.
+        // row's furniture does, and the step count stands beside it only
+        // while the arc is walking its plan.
         arcWord
         // A monitor row answers a right-click with the session's copies — the
         // atom, the citation, the id, the description, the newest beat — over

@@ -943,6 +943,28 @@ export function GalleryArcLifecycle(): React.ReactElement {
           </div>
         </Stage>
         <p className="cg-arc-prose">
+          The same marks WORDED, as the rail's session rows wear them — a row
+          there has no ARC cell under it to say the phase. The count stands
+          beside the word only while the arc walks its plan: it is Executing's
+          object and no other word's, so an arc under audit reads Auditing
+          and never Auditing 6/6.
+        </p>
+        <Stage caption="showWord — pill · glyph · word, and the count through the walk alone">
+          <div className="cg-arc-legend">
+            {MOMENTS.map((m) => (
+              <div className="cg-arc-legend-row" key={m.key}>
+                <ArcLifecycleMark
+                  model={arcTrackModelFromEntry(m.entry)}
+                  size="read"
+                  name={m.entry.display_name}
+                  showWord
+                />
+                <span className="cg-arc-legend-word">{m.caption}</span>
+              </div>
+            ))}
+          </div>
+        </Stage>
+        <p className="cg-arc-prose">
           Two surfaces take this rather than the track, and they are the two
           where a SESSION is the subject and the arc is one fact about it: the
           session card's masthead title line, and the rail's session rows. Both

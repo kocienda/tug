@@ -38,7 +38,7 @@ import "./arc-lifecycle-mark.css";
 import React from "react";
 
 import { useMotionHold, useOffscreenPause } from "@/lib/motion-guard";
-import { arcCellWord } from "@/lib/arc-track-model";
+import { arcCellWord, arcWordCountsSteps } from "@/lib/arc-track-model";
 
 import { ArcPhaseMark, arcPhaseWord } from "./arc-phase-mark";
 import { TugStepFraction } from "./tug-step-fraction";
@@ -50,7 +50,9 @@ import { arcCellState, type ArcTrackModel } from "./tug-arc-track";
  *
  * The step in progress while one is; otherwise how much of the plan is closed
  * — so a walked plan reads `10/10` rather than going blank at the moment the
- * reader most wants the number. Pure.
+ * reader most wants the number. That is the UNWORDED mark's reading, beside
+ * an instrument that says the phase; a worded mark drops the count once the
+ * walk is over ({@link arcWordCountsSteps}). Pure.
  */
 export function arcMarkFraction(
   model: ArcTrackModel,
@@ -79,7 +81,10 @@ export interface ArcLifecycleMarkProps {
    * Whether the phase is said in words after the glyph — the Z2 ARC cell's
    * own word (`Auditing`, `Audit` at rest, `Stopped`), eliding when the host
    * runs out of room. For a host with no instrument beside it to say the
-   * phase; the masthead's tier says it already.
+   * phase; the masthead's tier says it already. A worded mark counts steps
+   * only while the arc is walking its plan, so an arc under audit reads
+   * `Auditing` and never `Auditing 6/6` — nor a bare `6/6` when the word has
+   * elided.
    * @default false
    */
   showWord?: boolean;
@@ -93,8 +98,11 @@ export function ArcLifecycleMark({
   showWord = false,
 }: ArcLifecycleMarkProps): React.ReactElement {
   const state = arcCellState(model, model.phase);
-  const fraction =
+  const counted =
     fractionOverride !== undefined ? fractionOverride : arcMarkFraction(model);
+  // Said in words, the phase owns the reading once the walk is over: the
+  // count is `Executing`'s object and no other word's.
+  const fraction = showWord && !arcWordCountsSteps(model) ? null : counted;
   const word = arcPhaseWord(model);
   // The pill breathes for as long as the arc is not stopped
   // (`arc-lifecycle-mark.css`), and the motion registry hears it so the

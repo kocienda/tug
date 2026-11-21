@@ -59,6 +59,7 @@ export {
   arcTrackModel,
   arcTrackModelFromEntry,
   arcTrackSteps,
+  arcWordCountsSteps,
   tickState,
 } from "@/lib/arc-track-model";
 export type {
