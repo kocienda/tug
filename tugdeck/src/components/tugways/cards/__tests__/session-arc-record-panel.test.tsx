@@ -20,15 +20,15 @@ describe("recordPanel", () => {
     expect(renderToStaticMarkup(<>{NOT_RECORDED.body}</>)).toContain(">None<");
   });
 
-  test("a record is a settled panel showing its text as written", () => {
-    const text = "Make New Arc a button.\n\nAnd a menu item.";
+  test("a record is a settled panel showing its sentences and its list", () => {
+    const text = "Make New Arc a button.\n\n- In the shade\n- In the Session menu";
     const panel = recordPanel(text);
     expect(panel.state).toBe("done");
     expect(panel.title).toBeUndefined();
-    const body = panel.body as React.ReactElement<{ className: string; children: string }>;
-    expect(React.isValidElement(body)).toBe(true);
-    expect(body.props.className).toBe("session-arc-panel-text");
-    expect(body.props.children).toBe(text);
+    expect(renderToStaticMarkup(<>{panel.body}</>)).toBe(
+      '<div class="session-arc-panel-text" data-slot="session-arc-panel-text">' +
+        "<p>Make New Arc a button.</p><ul><li>In the shade</li><li>In the Session menu</li></ul></div>",
+    );
   });
 });
 

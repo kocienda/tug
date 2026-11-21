@@ -61,7 +61,11 @@ export interface ArcBriefHeadingsProps {
   path: string;
 }
 
-/** The findings and decisions the brief marks, in the order it writes them. */
+/**
+ * The decisions and findings the brief marks. The decisions lead, since they
+ * are what the brief adds to the sketch before it; the findings they rest on
+ * follow. Each group keeps the order the brief writes it in.
+ */
 export function ArcBriefHeadings({ path }: ArcBriefHeadingsProps): React.ReactElement | null {
   const reading = useBriefHeadings(path);
   if (reading.status === "loading") return null;
@@ -79,19 +83,32 @@ export function ArcBriefHeadings({ path }: ArcBriefHeadingsProps): React.ReactEl
       </p>
     );
   }
+  const group = (kind: "decision" | "finding", label: string): React.ReactElement | null => {
+    const headings = reading.headings.filter((heading) => heading.kind === kind);
+    if (headings.length === 0) return null;
+    return (
+      <section className="session-arc-brief-group" data-slot="session-arc-brief-group" data-kind={kind}>
+        <h4 className="session-arc-brief-group-label">{label}</h4>
+        <ul className="session-arc-brief-headings" data-slot="session-arc-brief-headings">
+          {headings.map((heading) => (
+            <li
+              key={heading.tag}
+              className="session-arc-brief-heading"
+              data-slot="session-arc-brief-heading"
+              data-kind={heading.kind}
+            >
+              <span className="session-arc-brief-heading-tag">{heading.tag}</span>
+              <span className="session-arc-brief-heading-title">{heading.title}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  };
   return (
-    <ul className="session-arc-brief-headings" data-slot="session-arc-brief-headings">
-      {reading.headings.map((heading) => (
-        <li
-          key={heading.tag}
-          className="session-arc-brief-heading"
-          data-slot="session-arc-brief-heading"
-          data-kind={heading.kind}
-        >
-          <span className="session-arc-brief-heading-tag">{heading.tag}</span>
-          <span className="session-arc-brief-heading-title">{heading.title}</span>
-        </li>
-      ))}
-    </ul>
+    <>
+      {group("decision", "Decisions")}
+      {group("finding", "Findings")}
+    </>
   );
 }

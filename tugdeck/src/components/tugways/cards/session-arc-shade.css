@@ -96,7 +96,9 @@ body {
   display: flex;
   flex-direction: row;
   justify-content: flex-end;
-  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
+  /* The sheet's own spacing, which the History shade's footer wears: the
+     tight step above Done and the generous one beside and beneath it. */
+  padding: 0.75rem 1.5rem 1.5rem;
 }
 
 .session-arc-shade-foot .tug-button {

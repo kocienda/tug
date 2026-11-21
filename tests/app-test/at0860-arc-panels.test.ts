@@ -437,14 +437,16 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(rest.verbRow.b, "the verbs are in the shade's view when it rises").toBeLessThanOrEqual(rest.body.b + 1);
 
         // ── The cap binding: the short row keeps its height ───────────────
-        // The shade is held 20 px shorter than it stands, as a shorter slot
-        // would hold it, and read again: still above the rows' floors. The
-        // Arc panel's row stands 28 px over its floor, so 20 is what it can
-        // give alone.
+        // The shade is held shorter than it stands, as a shorter slot would
+        // hold it, and read again: still above the rows' floors. It is held
+        // by a little less than the Arc panel's row stands over its 120 px
+        // floor, which is what that row can give alone.
+        const squeeze = Math.floor(height(arc) - 120) - 5;
+        expect(squeeze, "the Arc panel's row has room to give").toBeGreaterThan(5);
         await app.body("A").evalJS<boolean>(
           `(() => {
              const shade = document.querySelector(${JSON.stringify(SHADE)});
-             shade.style.maxHeight = (shade.getBoundingClientRect().height - 20) + "px";
+             shade.style.maxHeight = (shade.getBoundingClientRect().height - ${squeeze}) + "px";
              return true;
            })()`,
         );
@@ -453,7 +455,7 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         note("at0860 capped", JSON.stringify({ capped, cap: cappedCap }));
         const [cIdea, cArc] = ["idea", "arc"].map((r) => panelOf(capped, r).box);
         expect(Math.abs(height(cIdea) - height(idea)), "capped, the short row keeps its height").toBeLessThanOrEqual(1);
-        expect(height(cArc), "and the row holding the arc gives way").toBeLessThan(height(arc) - 15);
+        expect(height(cArc), "and the row holding the arc gives way").toBeLessThan(height(arc) - squeeze + 3);
         expect(capped.overflow.bodyY, "the grid still fits the shade, so the body does not scroll").toBeLessThanOrEqual(0);
         expect(
           Math.max(cappedCap.panelScroll.arc ?? 0, cappedCap.panelScroll.brief ?? 0),
@@ -520,8 +522,8 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(briefPanel.title).toBe(BRIEF_TITLE);
         expect(briefPanel.path).toBe(`.tug/arcs/${ARC_NAME}/brief.md`);
         expect(briefPanel.headings).toEqual([
-          "finding:F01 The shade has four panels",
           "decision:B01 The Brief panel lists these",
+          "finding:F01 The shade has four panels",
         ]);
         expect(briefPanel.idea.text, "the Idea panel shows the record as written").toBe(IDEA_TEXT);
         expect(briefPanel.idea.title, "under no heading of its own").toBe(0);

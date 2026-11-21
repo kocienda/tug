@@ -234,31 +234,61 @@ A record that genuinely disagrees is a different matter, and it is not this stag
 
 ## The record of where the work came from
 
-An arc's directory holds two **records** beside its documents. `idea.md` is the prompt the work began as, copied verbatim. `sketch.md` is a few sentences on how the conversation took that idea to the brief: what it settled and what changed shape on the way. The turns themselves are not copied, because the brief carries the decisions in full. `tugtool arc documents <name> --json` names both paths and says whether each exists (`idea_exists`, `sketch_exists`). They are records, not documents: no stage runs on them, and neither opens an arc nor decides its kind.
+An arc's directory holds two **records** beside its documents: `idea.md` and `sketch.md`. They are written **for the user**. The app shows them as the first two of four panels, Idea, Sketch, Brief and Arc, and the four tell one story, each more specific than the one before it:
 
-Each has one shape, a fixed heading, the text, and a last line naming where it came from:
+| Panel | What it says | Where it comes from |
+|---|---|---|
+| Idea | what is wanted, and what it is for | `idea.md` |
+| Sketch | the shape the work will take: its parts | `sketch.md` |
+| Brief | the decisions, and the findings they rest on | the brief |
+| Arc | the steps, and where the work is among them | the arc's ledger |
+
+A record says its own level and nothing of the next. An idea that lists the parts has written the sketch, and a sketch that argues a decision has written the brief.
+
+**Both are in the user's words.** The reader is the person whose project this is, looking at a panel weeks later. They did not write the code and do not have the conversation in front of them, and every word has to be one they understand. So a record carries:
+
+- no file path, no code identifier, no command, and nothing in backticks;
+- no `[B01]`-style label and no stage or step number;
+- no mention of the prompt, the model, the session, the conversation or the brief;
+- no instruction that was given to the model: what to read, how to behave, where to write.
+
+Things are named by what they do for the person using them, in the product's own words where the user used them.
+
+**`idea.md` is the want.** One or two plain sentences, at most 40 words together: what is wanted and what it is for. It is never the prompt copied out. A prompt is addressed to the model and carries its instructions; the idea is what the prompt was *for*, said so that someone who never saw it understands the point of the work.
+
+**`sketch.md` is the shape.** One sentence that says the approach, then three to six bullets. Each bullet names one part of the work and says what it does, in at most 15 words. A part is something the user will see or use, or one choice that shapes everything else. The sketch gives no reasons and weighs no alternatives; those are the brief's.
+
+A pair, for a drawing app gaining styles and still images:
 
 ```markdown
 # Idea
 
-<the prompt the work began as, verbatim>
+Let a drawing take on a chosen look, and let any moment of it be saved as a picture.
 
-Source: session <uuid>, turn <n>
+Source: session 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, turn 1
 ```
 
 ```markdown
 # Sketch
 
-<a few sentences: how the conversation took the idea to the brief>
+A look is a file the drawing points at, and a picture is one moment of the drawing, saved.
 
-Source: session <uuid>, turns <first>–<last>
+- A menu chooses the look, and the drawing redraws in it at once
+- An editor changes colours, shadows, timing and typeface, and saves the result as a new look
+- A drawing with no motion is a still, and shows no timeline
+- Any moment can be given a name and returned to
+- A picture is saved at a chosen size, with or without its background
+
+Source: session 0f3c1e5a-9b27-4c1d-8e36-5a7f2d4b6c90, turns 1–4
 ```
 
-The uuid is the full one, which is the one spelling that cannot be ambiguous; the turn numbers are the ones `tugtool session show <uuid>` prints. The door writes both at the hand-off.
+Each record is that shape exactly: the fixed heading, the text, and a last `Source:` line. The uuid is the full one, which is the one spelling that cannot be ambiguous; the turn numbers are the ones `tugtool session show <uuid>` prints. `tugtool arc documents <name> --json` names both paths and says whether each exists (`idea_exists`, `sketch_exists`). They are records, not documents: no stage runs on them, and neither opens an arc nor decides its kind. The door writes both at the hand-off.
 
-**Every stage after the door keeps them current.** When a stage starts, it reads both. Where a record's source session has turns after the ones its `Source:` line names (the header of `tugtool session show <uuid>` gives the turn count, and `--turn` or `--last` reads them), it reads those turns, and if they changed the idea or what the conversation settled, it rewrites the record and its `Source:` line. Otherwise it leaves the record exactly as it is. Nothing watches the transcript between stages; this read is the whole of keeping the record current.
+**Read each one back before leaving it.** A record passes when a stranger to the project could say, from the idea alone, what the work is for, and from the sketch alone, what its parts are; when no sentence of one appears in the other; and when nothing on the list above is in either. A record that fails is rewritten, not trimmed.
 
-**A record is never invented.** A source that cannot be found, such as a brief written by hand, or a session `tugtool session find` reports `absent`, means no record is written, and an existing record is left as it was. Never compose an idea or a sketch from the brief alone: a record made up from the document it is meant to stand behind says nothing the document did not. The records are untracked like every arc document, so a rewrite is no round and commits nothing.
+**Every stage after the door keeps them current.** When a stage starts, it reads both. Where a record's source session has turns after the ones its `Source:` line names (the header of `tugtool session show <uuid>` gives the turn count, and `--turn` or `--last` reads them), it reads those turns, and if they changed what is wanted or the shape of the work, it rewrites the record and its `Source:` line. A record that is not in the shape above, such as an idea that is a prompt copied out or a sketch that is a paragraph, is rewritten in that shape from its source session. Otherwise it leaves the record exactly as it is. Nothing watches the transcript between stages; this read is the whole of keeping the record current.
+
+**A record is never invented.** A source that cannot be found, such as a brief written by hand, or a session `tugtool session find` reports `absent`, means no record is written, and an existing record is left as it was. Never compose an idea or a sketch from the brief alone: a record made up from the document it is meant to stand behind says nothing the document did not. A session that wrote the brief from one prompt, with no back and forth, is still the source: the idea is what that prompt was for and the sketch is the shape that session settled on, and neither says that there was no conversation. The records are untracked like every arc document, so a rewrite is no round and commits nothing.
 
 ## No plan numbers in durable artifacts
 

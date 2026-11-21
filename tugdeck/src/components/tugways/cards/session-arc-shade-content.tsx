@@ -38,6 +38,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import type { ArcShadeController } from "@/lib/arc-shade-controller";
+import { parseArcRecord } from "@/lib/arc-record-text";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -63,18 +64,28 @@ export const NOT_RECORDED: SessionArcPanel = {
 };
 
 /**
- * The Idea or Sketch panel for an arc's record: its text as written, or the
- * empty seat when the arc has none, as an arc opened before records were
- * kept has none.
+ * The Idea or Sketch panel for an arc's record: its sentences and the list
+ * under them, or the empty seat when the arc has none, as an arc opened
+ * before records were kept has none.
  */
 export function recordPanel(text: string | undefined): SessionArcPanel {
   if (text === undefined || text.trim() === "") return NOT_RECORDED;
   return {
     state: "done",
     body: (
-      <p className="session-arc-panel-text" data-slot="session-arc-panel-text">
-        {text}
-      </p>
+      <div className="session-arc-panel-text" data-slot="session-arc-panel-text">
+        {parseArcRecord(text).map((block, index) =>
+          block.kind === "paragraph" ? (
+            <p key={index}>{block.text}</p>
+          ) : (
+            <ul key={index}>
+              {block.items.map((item, at) => (
+                <li key={at}>{item}</li>
+              ))}
+            </ul>
+          ),
+        )}
+      </div>
     ),
   };
 }

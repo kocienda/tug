@@ -46,6 +46,24 @@
   text-underline-offset: 2px;
 }
 
+/* A group of the brief's headings under its one-word label. */
+.session-arc-brief-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-brief-group-label {
+  margin: 0;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 .session-arc-brief-headings {
   display: flex;
   flex-direction: column;
