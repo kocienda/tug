@@ -21,23 +21,31 @@
  * keeps it, and the other's panels scroll inside themselves.
  *
  * At rest the two columns are equal. A press on a panel expands it: its
- * column takes two parts to the other's one, and its body gives up its cap
- * of lines, so it shows as much as the host has room for. A second press on
- * the expanded panel, anywhere but on one of its controls, puts the grid
- * back at rest. Which panel is expanded is the `data-expanded` attribute on
- * the grid, written straight to the DOM and read by the sheet, so a press
- * renders nothing. It is not saved, and each time `raised` becomes true the
- * grid is at rest again. Keyboard focus moves nothing. The grid never
- * shrinks below its two rows' floors; in a host shorter than that the host
- * scrolls.
+ * column takes two parts to the other's one, and its body's cap of lines
+ * doubles. A second press on the expanded panel, anywhere but on one of its
+ * controls, puts the grid back at rest. Which panel is expanded is the
+ * `data-expanded` attribute on the grid, written straight to the DOM and
+ * read by the sheet, so a press renders nothing. It is not saved, and each
+ * time `raised` becomes true the grid is at rest again. Keyboard focus moves
+ * nothing. The grid never shrinks below its two rows' floors; in a host
+ * shorter than that the host scrolls.
+ *
+ * The change is a motion, never a cut. A press reads the grid's tracks as
+ * they stand, applies the new state, reads the tracks it settles at, and
+ * moves the columns and the rows from the one to the other on one curve, so
+ * the column edge, both rows and the host's height arrive together and the
+ * text rewraps as its panel's edge passes. While it runs the grid wears
+ * `data-moving`, and the panel that was expanded is named by `data-leaving`
+ * and keeps its wider cap until it has arrived. A press mid-motion starts
+ * from where the tracks are. With motion off the change is a cut.
  *
  * What each panel says is the caller's. Composes `TugProgressIndicator`,
  * which keeps its own tokens.
  *
  * Laws: [L06] the expanded panel is a DOM attribute and CSS, never React
- *       state, [L16] pairings
- *       declared, [L19] component authoring guide, [L20] composed children
- *       keep their tokens
+ *       state, [L13] the motion is the animator's, scaled by the timing
+ *       scale and still under motion off, [L16] pairings declared, [L19]
+ *       component authoring guide, [L20] composed children keep their tokens
  */
 
 import "./session-arc-panels.css";
@@ -46,6 +54,7 @@ import React, { useLayoutEffect, useRef } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
+import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import {
   ARC_PANEL_RUNGS,
   arcPanelDotState,
@@ -54,6 +63,7 @@ import {
   type ArcPanelSeamState,
   type ArcPanelState,
 } from "@/lib/arc-panels";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 
 /** The name each panel wears in its header. */
 const RUNG_LABELS: Record<ArcPanelRung, string> = {
@@ -68,6 +78,20 @@ const PANEL_SELECTOR = '[data-slot="session-arc-panel"]';
 
 /** A panel's own controls: a press on one in the expanded panel is the control's alone. */
 const CONTROL_SELECTOR = 'button, input, textarea, a, [role="button"], [contenteditable="true"]';
+
+/** How long a panel takes to expand or go back, in ms before the timing scale. */
+const EXPAND_MS = 300;
+
+/** The grid's tracks as they stand, in px: what the motion runs between. */
+interface GridTracks {
+  columns: string;
+  rows: string;
+}
+
+function tracksOf(grid: HTMLElement): GridTracks {
+  const style = getComputedStyle(grid);
+  return { columns: style.gridTemplateColumns, rows: style.gridTemplateRows };
+}
 
 /** What one panel says. */
 export interface SessionArcPanel {
@@ -114,11 +138,75 @@ export interface SessionArcPanelsProps {
 
 export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProps): React.ReactElement {
   const gridRef = useRef<HTMLDivElement | null>(null);
+  /** The motion under way, if any. */
+  const motionRef = useRef<TugAnimation | null>(null);
 
-  // The expanded panel is forgotten when the surface is put away.
+  /** Ends the motion under way where it stands and hands the tracks back to the sheet. */
+  const stopMotion = (grid: HTMLElement): void => {
+    const motion = motionRef.current;
+    motionRef.current = null;
+    // The effect is removed outright: a motion ended through the animator
+    // would hold or commit its tracks, and the next reading would be of
+    // those rather than of what the sheet gives.
+    motion?.raw.cancel();
+    grid.style.gridTemplateColumns = "";
+    grid.style.gridTemplateRows = "";
+    delete grid.dataset.moving;
+    delete grid.dataset.leaving;
+  };
+
+  /**
+   * Puts `rung` in the expanded seat, or nothing, and moves the grid there
+   * from where it stands.
+   */
+  const expand = (grid: HTMLElement, rung: string | undefined): void => {
+    const before = grid.dataset.expanded;
+    const from = tracksOf(grid);
+    stopMotion(grid);
+    if (rung === undefined) delete grid.dataset.expanded;
+    else grid.dataset.expanded = rung;
+    if (!isTugMotionEnabled()) return;
+    const to = tracksOf(grid);
+    if (from.columns === to.columns && from.rows === to.rows) return;
+    grid.dataset.moving = "true";
+    // The panel going back keeps its wider cap until it has arrived, so its
+    // body is not cut short in a row still on its way down.
+    if (before !== undefined && before !== rung) grid.dataset.leaving = before;
+    const motion = animate(
+      grid,
+      [
+        { gridTemplateColumns: from.columns, gridTemplateRows: from.rows },
+        { gridTemplateColumns: to.columns, gridTemplateRows: to.rows },
+      ],
+      { duration: EXPAND_MS, easing: "ease-in-out" },
+    );
+    motionRef.current = motion;
+    // The animator leaves the tracks it arrived at on the element; they go
+    // back to the sheet, which sizes them by content again. A motion that a
+    // later press replaced is no longer this one's to end.
+    const arrived = (): void => {
+      if (motionRef.current === motion) stopMotion(grid);
+    };
+    motion.finished.then(arrived, arrived);
+  };
+
+  // The expanded panel is forgotten when the surface is put away, without a
+  // motion: the grid is at rest by the time it shows.
   useLayoutEffect(() => {
-    if (raised) delete gridRef.current?.dataset.expanded;
+    const grid = gridRef.current;
+    if (!raised || grid === null) return;
+    stopMotion(grid);
+    delete grid.dataset.expanded;
   }, [raised]);
+
+  // Nothing is left running on a grid that is gone.
+  useLayoutEffect(
+    () => () => {
+      motionRef.current?.raw.cancel();
+      motionRef.current = null;
+    },
+    [],
+  );
 
   /**
    * A press expands the panel it lands in. On the panel already expanded it
@@ -130,8 +218,8 @@ export function SessionArcPanels({ panels, raised = true }: SessionArcPanelsProp
     if (grid === null || !(event.target instanceof Element)) return;
     const rung = event.target.closest<HTMLElement>(PANEL_SELECTOR)?.dataset.rung;
     if (rung === undefined) return;
-    if (grid.dataset.expanded !== rung) grid.dataset.expanded = rung;
-    else if (event.target.closest(CONTROL_SELECTOR) === null) delete grid.dataset.expanded;
+    if (grid.dataset.expanded !== rung) expand(grid, rung);
+    else if (event.target.closest(CONTROL_SELECTOR) === null) expand(grid, undefined);
   };
 
   const states = {

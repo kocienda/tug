@@ -42,7 +42,9 @@ body {
    to nothing, so the grid holds at any width its host has and nothing a
    panel carries can push it wider. At rest they are equal; the column of an
    expanded panel takes two parts to the other's one, and the rows follow
-   whatever that does to their panels' text.
+   whatever that does to their panels' text. The component moves the tracks
+   from the one arrangement to the other; this sheet says only where each
+   ends.
 
    Each panel row is as tall as the taller of its two panels needs, and never
    shorter than the floor: a panel's header and one line. The grid is a flex
@@ -68,10 +70,15 @@ body {
   --tugx-arc-panel-col-1: 1fr;
   --tugx-arc-panel-col-2: 1fr;
   /* The most a panel's body shows before it scrolls, in lines of body text.
-     The one number to change to show more or less of a long panel. */
-  --tugx-arc-panel-max-lines: 20;
+     The first is a panel at rest and the second the expanded one: the two
+     numbers to change to show more or less of a long panel. */
+  --tugx-arc-panel-max-lines: 12;
+  --tugx-arc-panel-expanded-max-lines: 24;
   --tugx-arc-panel-body-max: calc(
     var(--tugx-arc-panel-max-lines) * 1.4 * var(--tug-font-size-sm)
+  );
+  --tugx-arc-panel-body-expanded-max: calc(
+    var(--tugx-arc-panel-expanded-max-lines) * 1.4 * var(--tug-font-size-sm)
   );
   box-sizing: border-box;
   flex: 0 1 auto;
@@ -94,8 +101,8 @@ body {
   overflow: hidden;
 }
 
-/* The expanded panel's column, and its body's cap lifted: it shows as much
-   as the shade has room for. */
+/* The expanded panel's column, and its body's wider cap. A panel on its way
+   back to rest keeps the wider cap until it has arrived. */
 .session-arc-panels[data-expanded="idea"],
 .session-arc-panels[data-expanded="brief"] {
   --tugx-arc-panel-col-1: 2fr;
@@ -109,8 +116,12 @@ body {
 .session-arc-panels[data-expanded="idea"] [data-rung="idea"] > .session-arc-panel-body,
 .session-arc-panels[data-expanded="sketch"] [data-rung="sketch"] > .session-arc-panel-body,
 .session-arc-panels[data-expanded="brief"] [data-rung="brief"] > .session-arc-panel-body,
-.session-arc-panels[data-expanded="arc"] [data-rung="arc"] > .session-arc-panel-body {
-  max-height: none;
+.session-arc-panels[data-expanded="arc"] [data-rung="arc"] > .session-arc-panel-body,
+.session-arc-panels[data-leaving="idea"] [data-rung="idea"] > .session-arc-panel-body,
+.session-arc-panels[data-leaving="sketch"] [data-rung="sketch"] > .session-arc-panel-body,
+.session-arc-panels[data-leaving="brief"] [data-rung="brief"] > .session-arc-panel-body,
+.session-arc-panels[data-leaving="arc"] [data-rung="arc"] > .session-arc-panel-body {
+  max-height: var(--tugx-arc-panel-body-expanded-max);
 }
 
 /* ---- A panel ------------------------------------------------------------- */
@@ -361,15 +372,13 @@ body {
   margin-inline: -5px -3px;
 }
 
-/* The return: laid on the grid's own columns, so each drop is over the
-   middle of its panel. */
+/* The return: laid on the grid's own columns, as a subgrid of them, so each
+   drop is over the middle of its panel wherever the columns are, mid-motion
+   included. */
 .session-arc-panel-seam-return {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns:
-    minmax(0, var(--tugx-arc-panel-col-1))
-    var(--tugx-arc-panel-seam)
-    minmax(0, var(--tugx-arc-panel-col-2));
+  grid-template-columns: subgrid;
 }
 
 .session-arc-panel-return {

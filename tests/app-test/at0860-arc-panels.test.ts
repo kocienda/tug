@@ -14,8 +14,10 @@
  *      where the work is, runs.
  *   3. The seams are tracks of their own: three of them, joined only where
  *      there is something on both sides, and none lies over a panel.
- *   4. The two columns are equal, and nothing moves on a press or when focus
- *      enters a panel.
+ *   4. The two columns are equal. A press expands a panel as a motion: its
+ *      width passes through values between the two arrangements, and the
+ *      grid is at rest again when the motion ends. A second press puts it
+ *      back, and nothing moves when focus enters a panel.
  *   5. The Arc panel shows its whole verb row on one line, the next move in
  *      its word and the rest as icons, under the reading's scroller and
  *      never over it.
@@ -234,6 +236,40 @@ const height = (b: Box): number => b.b - b.t;
 const overlaps = (a: Box, b: Box): boolean => a.l < b.r - 0.5 && a.r > b.l + 0.5 && a.t < b.b - 0.5 && a.b > b.t + 0.5;
 const inside = (inner: Box, outer: Box): boolean =>
   inner.l >= outer.l - 0.5 && inner.r <= outer.r + 0.5 && inner.t >= outer.t - 0.5 && inner.b <= outer.b + 0.5;
+
+/**
+ * Records the Idea panel's width on every frame from now until the grid's
+ * motion has started and ended, or two seconds pass. Armed before a press.
+ */
+const armWidthSampler = (app: App): Promise<boolean> =>
+  app.body("A").evalJS<boolean>(
+    `(() => {
+       const grid = document.querySelector(${JSON.stringify(GRID)});
+       const idea = document.querySelector(${JSON.stringify(panel("idea"))});
+       const samples = [];
+       window.__at0860Widths = samples;
+       const until = performance.now() + 2000;
+       let moved = false;
+       const tick = () => {
+         samples.push(idea.getBoundingClientRect().width);
+         if (grid.dataset.moving === "true") moved = true;
+         if ((moved && grid.dataset.moving !== "true") || performance.now() > until) return;
+         requestAnimationFrame(tick);
+       };
+       requestAnimationFrame(tick);
+       return true;
+     })()`,
+  );
+
+/** The grid's motion has ended: its tracks are the sheet's again. */
+const waitForRest = (app: App): Promise<boolean> =>
+  app.body("A").waitForCondition<boolean>(
+    `(() => {
+       const grid = document.querySelector(${JSON.stringify(GRID)});
+       return grid.dataset.moving !== "true" && grid.style.gridTemplateColumns === "" && grid.getAnimations().length === 0;
+     })()`,
+    { timeoutMs: 4_000 },
+  );
 
 /** Every panel stands where it stood: nothing moved between two readings. */
 const expectUnmoved = (before: GridReading, after: GridReading, when: string): void => {
@@ -470,17 +506,42 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
 
         // ── A press expands a panel, a second puts it back, focus moves nothing ──
         const settledRest = await read(app);
+        await armWidthSampler(app);
         await app.body("A").nativeClickAtElement(panelName("idea"));
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(GRID)}).dataset.expanded === "idea"`,
+          { timeoutMs: 4_000 },
+        );
+        await waitForRest(app);
         const pressed = await read(app);
         note("at0860 idea pressed", JSON.stringify(pressed));
         const [pIdea, pSketch, pBrief, pArc] = ["idea", "sketch", "brief", "arc"].map((r) => panelOf(pressed, r).box);
         expect(width(pIdea) / width(pSketch), "pressed, Idea's column is two parts to one").toBeGreaterThan(1.9);
+        // The press was a motion: the panel was seen at widths between the
+        // two arrangements, and never narrower than it started or wider
+        // than it ended.
+        const widths = await app.body("A").evalJS<number[]>(`window.__at0860Widths`);
+        const restWidth = width(panelOf(settledRest, "idea").box);
+        note("at0860 idea widths", JSON.stringify(widths.map((w) => Math.round(w))));
+        expect(
+          widths.filter((w) => w > restWidth + 2 && w < width(pIdea) - 2).length,
+          "the panel passes through widths between rest and expanded",
+        ).toBeGreaterThanOrEqual(2);
+        expect(
+          widths.every((w) => w >= restWidth - 0.5 && w <= width(pIdea) + 0.5),
+          "and never leaves the span between them",
+        ).toBe(true);
         expect(Math.abs(width(pBrief) - width(pIdea)), "and Brief, under it, is as wide").toBeLessThanOrEqual(0.5);
         expect(Math.abs(width(pArc) - width(pSketch))).toBeLessThanOrEqual(0.5);
         expect(pressed.verbs.every((v) => v.shown), "in the narrow column, the Arc panel keeps its whole row").toBe(true);
         expectFloorClear(pressed, "Idea pressed");
         expectNoOverflow(pressed, "Idea pressed");
         await app.body("A").nativeClickAtElement(panelName("idea"));
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(GRID)}).dataset.expanded === undefined`,
+          { timeoutMs: 4_000 },
+        );
+        await waitForRest(app);
         expectUnmoved(settledRest, await read(app), "Idea pressed again");
         await app.body("A").evalJS<boolean>(
           `(() => { document.querySelector(${JSON.stringify(BRIEF_OPEN)}).focus(); return true; })()`,
