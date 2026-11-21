@@ -765,6 +765,8 @@ describe("a share of runnable offers", () => {
       settledAtMs: 2,
       stoppedBy: null,
       refused: false,
+      lastOutputAtMs: null,
+      quiet: null,
       ...over,
     };
   }

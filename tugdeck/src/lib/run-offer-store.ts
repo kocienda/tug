@@ -18,8 +18,21 @@
 
 import { Subscribable } from "./subscribable";
 
-/** What stopped a run that did not exit on its own. */
-export type RunOfferStop = "kill" | "timeout";
+/** What stopped a run that did not exit on its own. Only the user does: no
+ *  clock ends a command. */
+export type RunOfferStop = "kill";
+
+/**
+ * A running command has gone quiet: it printed nothing and used no CPU for
+ * its quiet horizon, and the shell feed said so. Quiet is not stuck, so this
+ * is only ever a question put to the user, and the command runs on under it.
+ */
+export interface RunQuiet {
+  /** How long the command had been silent when the feed asked. */
+  readonly quietMs: number;
+  /** When the question arrived, on this page's clock. */
+  readonly askedAtMs: number;
+}
 
 /** One run of one offer. A new object for every change, so identity is the
  *  change signal a reader compares. */
@@ -42,6 +55,12 @@ export interface RunOfferRun {
   readonly stoppedBy: RunOfferStop | null;
   /** True when the command was answered with a notice and never run. */
   readonly refused: boolean;
+  /** When the run last printed, on this page's clock; `null` for a run that
+   *  has printed nothing yet, and for one this page did not watch run. */
+  readonly lastOutputAtMs: number | null;
+  /** The question standing over a running run, or `null`. Cleared by the
+   *  run's next output, by the user's answer, and by the settle. */
+  readonly quiet: RunQuiet | null;
 }
 
 /** The facts an exchange settles with. */
@@ -100,7 +119,7 @@ function formatDuration(ms: number): string {
 
 /** What a settled or running run reads as, and whether it went wrong. */
 export interface RunOfferStatusView {
-  /** `running`, `exit 0`, `stopped`, `timed out`, `not run`. */
+  /** `running`, `exit 0`, `stopped`, `not run`. */
   label: string;
   tone: "running" | "ok" | "fail";
   /** `1.2s`; `null` while running and for a command that never ran. */
@@ -113,7 +132,6 @@ export function runOfferStatus(run: RunOfferRun): RunOfferStatusView {
   const duration = formatDuration(
     Math.max(0, (run.settledAtMs ?? run.startedAtMs) - run.startedAtMs),
   );
-  if (run.stoppedBy === "timeout") return { label: "timed out", tone: "fail", duration };
   if (run.exitCode === null) return { label: "stopped", tone: "fail", duration };
   return {
     label: `exit ${run.exitCode}`,
@@ -201,6 +219,8 @@ export class RunOfferStore extends Subscribable {
         status: "settled",
         stoppedBy: null,
         refused: false,
+        lastOutputAtMs: null,
+        quiet: null,
       });
       changed = true;
     }
@@ -219,7 +239,13 @@ export class RunOfferStore extends Subscribable {
    */
   seed(runs: ReadonlyArray<RunOfferRun>): void {
     for (const run of runs) {
-      this._runs.set(run.key, run);
+      // A share made before runs carried these has neither; a drawn run is
+      // never asked about either way.
+      this._runs.set(run.key, {
+        ...run,
+        lastOutputAtMs: run.lastOutputAtMs ?? null,
+        quiet: null,
+      });
       this._keyByExchange.set(run.exchangeId, run.key);
     }
     if (runs.length > 0) this.notify();
@@ -250,6 +276,8 @@ export class RunOfferStore extends Subscribable {
       settledAtMs: null,
       stoppedBy: null,
       refused: false,
+      lastOutputAtMs: null,
+      quiet: null,
     });
     this.notify();
   }
@@ -262,13 +290,35 @@ export class RunOfferStore extends Subscribable {
     this.notify();
   }
 
-  /** A piece of a running exchange's output arrived: the run's output grows
-   *  by it. A piece for any other exchange, or for a run that has already
-   *  settled, is dropped, since the settle carried the whole. */
-  append(exchangeId: string, chunk: string): void {
+  /** A piece of a running exchange's output arrived at `atMs`: the run's
+   *  output grows by it, and a question standing over the run is answered by
+   *  the command itself. A piece for any other exchange, or for a run that
+   *  has already settled, is dropped, since the settle carried the whole. */
+  append(exchangeId: string, chunk: string, atMs: number = Date.now()): void {
     const run = this._running(exchangeId);
     if (run === undefined || chunk.length === 0) return;
-    this._runs.set(run.key, { ...run, output: run.output + chunk });
+    this._runs.set(run.key, {
+      ...run,
+      output: run.output + chunk,
+      lastOutputAtMs: atMs,
+      quiet: null,
+    });
+    this.notify();
+  }
+
+  /** The feed asked about a running exchange. Dropped for any other. */
+  askQuiet(exchangeId: string, quiet: RunQuiet): void {
+    const run = this._running(exchangeId);
+    if (run === undefined) return;
+    this._runs.set(run.key, { ...run, quiet });
+    this.notify();
+  }
+
+  /** The user chose to keep waiting: the question is answered. */
+  answerQuiet(exchangeId: string): void {
+    const run = this._running(exchangeId);
+    if (run === undefined || run.quiet === null) return;
+    this._runs.set(run.key, { ...run, quiet: null });
     this.notify();
   }
 
@@ -281,16 +331,15 @@ export class RunOfferStore extends Subscribable {
     this._runs.set(key, {
       ...run,
       status: "settled",
-      // A run the timeout stopped settles with no output of its own, because
-      // the reader that held it was abandoned with the command. What had
-      // streamed in by then is all there is, and it stays.
-      output:
-        facts.output.length === 0 && facts.stoppedBy === "timeout" ? run.output : facts.output,
+      // The settle carries everything the command printed, a stopped run's
+      // included.
+      output: facts.output,
       exitCode: facts.exitCode,
       cwd: facts.cwd ?? run.cwd,
       startedAtMs: facts.startedAtMs ?? run.startedAtMs,
       settledAtMs: facts.settledAtMs,
       stoppedBy: facts.stoppedBy ?? null,
+      quiet: null,
     });
     this.notify();
     return true;
@@ -319,6 +368,8 @@ export class RunOfferStore extends Subscribable {
       settledAtMs: run.atMs,
       stoppedBy: null,
       refused: true,
+      lastOutputAtMs: null,
+      quiet: null,
     });
     this.notify();
   }

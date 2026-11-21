@@ -172,13 +172,73 @@ describe("RunOfferStore — output as it is produced", () => {
     expect(store.get("k")?.output).toBe("done\n");
   });
 
-  test("a run the timeout stopped keeps what had streamed", () => {
+  test("a stopped run settles with the output the settle carries", () => {
     const store = new RunOfferStore();
     started(store, "k", "sh-1");
     store.append("sh-1", "working\n");
-    store.settle("sh-1", { output: "", exitCode: null, settledAtMs: 121_000, stoppedBy: "timeout" });
-    expect(store.get("k")?.output).toBe("working\n");
-    expect(store.get("k")?.stoppedBy).toBe("timeout");
+    store.settle("sh-1", {
+      output: "working\nstill working\n",
+      exitCode: null,
+      settledAtMs: 400_000,
+      stoppedBy: "kill",
+    });
+    expect(store.get("k")?.output).toBe("working\nstill working\n");
+    expect(store.get("k")?.stoppedBy).toBe("kill");
+  });
+});
+
+describe("RunOfferStore — a run that has gone quiet", () => {
+  test("a run carries the time of its last output", () => {
+    const store = new RunOfferStore();
+    started(store, "k", "sh-1");
+    expect(store.get("k")?.lastOutputAtMs).toBeNull();
+    store.append("sh-1", "one\n", 1200);
+    store.append("sh-1", "two\n", 1900);
+    expect(store.get("k")?.lastOutputAtMs).toBe(1900);
+  });
+
+  test("the question stands over the running run it was asked about", () => {
+    const store = new RunOfferStore();
+    started(store, "k", "sh-1");
+    let heard = 0;
+    store.subscribe(() => {
+      heard += 1;
+    });
+    store.askQuiet("sh-9", { quietMs: 120_000, askedAtMs: 5 });
+    expect(store.get("k")?.quiet).toBeNull();
+    expect(heard).toBe(0);
+    store.askQuiet("sh-1", { quietMs: 120_000, askedAtMs: 5 });
+    expect(store.get("k")?.quiet).toEqual({ quietMs: 120_000, askedAtMs: 5 });
+    expect(store.get("k")?.status).toBe("running");
+    expect(heard).toBe(1);
+  });
+
+  test("the next output answers the question", () => {
+    const store = new RunOfferStore();
+    started(store, "k", "sh-1");
+    store.askQuiet("sh-1", { quietMs: 120_000, askedAtMs: 5 });
+    store.append("sh-1", "awake\n", 6);
+    expect(store.get("k")?.quiet).toBeNull();
+    expect(store.get("k")?.lastOutputAtMs).toBe(6);
+  });
+
+  test("keeping waiting answers it, and the run stays running", () => {
+    const store = new RunOfferStore();
+    started(store, "k", "sh-1");
+    store.askQuiet("sh-1", { quietMs: 120_000, askedAtMs: 5 });
+    store.answerQuiet("sh-1");
+    expect(store.get("k")?.quiet).toBeNull();
+    expect(store.get("k")?.status).toBe("running");
+  });
+
+  test("the settle takes the question down, and a settled run is never asked about", () => {
+    const store = new RunOfferStore();
+    started(store, "k", "sh-1");
+    store.askQuiet("sh-1", { quietMs: 120_000, askedAtMs: 5 });
+    store.settle("sh-1", { output: "", exitCode: null, settledAtMs: 9, stoppedBy: "kill" });
+    expect(store.get("k")?.quiet).toBeNull();
+    store.askQuiet("sh-1", { quietMs: 240_000, askedAtMs: 10 });
+    expect(store.get("k")?.quiet).toBeNull();
   });
 });
 
@@ -321,6 +381,8 @@ describe("runOfferStatus — what the footer says", () => {
     settledAtMs: 2200,
     stoppedBy: null,
     refused: false,
+    lastOutputAtMs: null,
+    quiet: null,
   };
 
   test("a run in flight is running, with no duration yet", () => {
@@ -345,10 +407,10 @@ describe("runOfferStatus — what the footer says", () => {
     expect(runOfferStatus({ ...base, exitCode: null, stoppedBy: "kill" }).label).toBe("stopped");
   });
 
-  test("a run the timeout stopped says so", () => {
+  test("a run stopped after a long wait is stopped, whatever its length", () => {
     expect(
-      runOfferStatus({ ...base, exitCode: null, stoppedBy: "timeout", settledAtMs: 121_000 }),
-    ).toEqual({ label: "timed out", tone: "fail", duration: "120s" });
+      runOfferStatus({ ...base, exitCode: null, stoppedBy: "kill", settledAtMs: 601_000 }),
+    ).toEqual({ label: "stopped", tone: "fail", duration: "600s" });
   });
 
   test("a refused command was not run, and took no time", () => {

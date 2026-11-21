@@ -158,11 +158,11 @@ Type `/btw <question>`. It works while the model is busy and disturbs nothing: t
 Type `/shell <command>`. The command runs in the card's own shell and its output lands in the transcript as a block. One runs at a time: a second is refused with "A shell command is already running". There is no shell mode in the composer, and no menu item or chord for it.
 
 ### Run a command the model offers
-<!-- source: tugdeck/src/lib/markdown/enhance-run-offer.ts; tugdeck/src/lib/run-offer-store.ts; tugdeck/src/lib/run-offer-terminal.ts; tugplug/run-offers.md -->
+<!-- source: tugdeck/src/lib/markdown/enhance-run-offer.ts; tugdeck/src/lib/run-offer-store.ts; tugdeck/src/lib/run-offer-terminal.ts; tugdeck/src/lib/run-liveness.ts; tugplug/run-offers.md -->
 
 Press **Play** on the command's frame in the transcript. The command runs in the card's shell, the same one `/shell` uses, so it starts in the directory the last command left. Its output streams in under the command, and the footer shows the exit status, how long it took and where it ran. **Copy** copies the command instead, and **Stop** stops one that is running.
 
-Play is dim until the model has finished its turn, and while any other command is running. A command still running after two minutes is stopped, so start a server or a watcher in a terminal. A command that needs a password, such as one starting with `sudo` or `ssh`, has no Play and says it needs a terminal. An ordinary shell example in a reply has a small Play in its header too. There is no chord for it.
+Play is dim until the model has finished its turn, and while any other command is running. A command runs until it ends or you stop it. If it prints nothing and does no work for two minutes, a band under its output says it might be stuck: **Terminate** stops it and keeps what it printed, **Keep Waiting** leaves it running and waits twice as long before asking again. A running command holds the card's one shell, so start a server or a watcher in a terminal. A command that needs a password, such as one starting with `sudo` or `ssh`, has no Play and says it needs a terminal. An ordinary shell example in a reply has a small Play in its header too. There is no chord for it.
 
 ### Show the model what a command printed
 <!-- source: tugdeck/src/lib/markdown/enhance-run-offer.ts (Add to context); tugdeck/src/lib/run-offer-binding.ts -->

@@ -332,6 +332,14 @@ describe.skipIf(!SHOULD_RUN)("AT0831: a runnable offer's result survives a reloa
 
         // --- The restored result still offers itself to the model. ---
         expect(restored.addShown).toBe(true);
+        // The resume stands the restore gate over the card until its
+        // transcript is back, and while that modal stands the overlay takes
+        // every click, as it would a user's. A press made then reaches no
+        // card, so wait for the overlay to give the window back.
+        await app.body("deck-overlay").waitForCondition<boolean>(
+          `document.documentElement.getAttribute("data-overlay-claim-state") !== "all"`,
+          { timeoutMs: 15_000 },
+        );
         await pressAdd(app, "true");
       } finally {
         await app.close();

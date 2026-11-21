@@ -11,6 +11,8 @@
  * @module lib/shell-share
  */
 
+import { applyCarriageReturns } from "@/lib/ansi/carriage-return";
+
 /**
  * Character cap on the output portion of a shared exchange ([P08]).
  * Sharing routes the text into a Claude turn's input, so an oversized capture
@@ -45,7 +47,8 @@ export function composeShellShareText(
   outputCap: number = SHELL_SHARE_OUTPUT_CAP,
 ): string {
   const lines: string[] = [`$ ${msg.command}`];
-  let output = msg.output.replace(/\n$/, "");
+  // What the block shows, not every value a redrawn line ever held.
+  let output = applyCarriageReturns(msg.output).replace(/\n$/, "");
   if (output.length > outputCap) {
     const slice = output.slice(0, outputCap);
     const lastNewline = slice.lastIndexOf("\n");

@@ -36,7 +36,7 @@ import type { PendingContextStore } from "./pending-context-store";
 import { composeShellShareText } from "./shell-share";
 import { interactiveStagingSteer } from "./shell-interactive-staging";
 import { unendingProgram } from "./shell-line-classifier";
-import { RunOfferStore, type RunOfferRun } from "./run-offer-store";
+import { RunOfferStore, type RunOfferRun, type RunQuiet } from "./run-offer-store";
 
 /** How a command reached {@link ShellSessionStore.exec}. */
 export type ShellExecOrigin =
@@ -94,6 +94,45 @@ const EMPTY_SNAPSHOT: ShellSessionSnapshot = {
   restore: EMPTY_CENSUS,
 };
 
+/**
+ * How alive the running exchange looks: when it started, when it last
+ * printed, and whether the feed has asked about it.
+ */
+export interface ShellLiveness {
+  readonly exchangeId: string;
+  readonly startedAtMs: number;
+  /** `null` until the command prints. */
+  readonly lastOutputAtMs: number | null;
+  /** The question standing over the exchange, or `null`. */
+  readonly quiet: RunQuiet | null;
+}
+
+/**
+ * The running exchange's {@link ShellLiveness}, or `null` when the shell is
+ * idle. It is a store of its own, apart from the session snapshot, because
+ * it moves with every piece of output: a chatty command would otherwise put
+ * every reader of the snapshot through a dozen changes a second for a value
+ * only the running block's footer and band read.
+ */
+export class ShellLivenessStore extends Subscribable {
+  private _current: ShellLiveness | null = null;
+
+  get = (): ShellLiveness | null => this._current;
+
+  /** Set the whole reading; `null` when the exchange has settled. */
+  set(next: ShellLiveness | null): void {
+    if (next === this._current) return;
+    this._current = next;
+    this.notify();
+  }
+
+  /** Change the running exchange's reading; dropped for any other exchange. */
+  update(exchangeId: string, change: Partial<Omit<ShellLiveness, "exchangeId">>): void {
+    if (this._current === null || this._current.exchangeId !== exchangeId) return;
+    this.set({ ...this._current, ...change });
+  }
+}
+
 export class ShellSessionStore extends Subscribable {
   private _snapshot: ShellSessionSnapshot = EMPTY_SNAPSHOT;
   private _unsubscribeFeed: (() => void) | null = null;
@@ -109,6 +148,8 @@ export class ShellSessionStore extends Subscribable {
   private readonly _autoRoutedExchanges = new Set<string>();
   /** The runs of this card's runnable offers; their exchanges mint no turn. */
   readonly offers = new RunOfferStore();
+  /** How alive the running exchange looks, an offer's or a `$` command's. */
+  readonly liveness = new ShellLivenessStore();
   /** The retrying `list_shell_exchanges` read ([P07]). */
   private readonly _restoreFetch: LedgerRestoreFetch;
   /** Unsubscribe from the code store's window watch; cleared on dispose. */
@@ -298,6 +339,7 @@ export class ShellSessionStore extends Subscribable {
         const cwd = typeof p.cwd === "string" ? p.cwd : this._snapshot.cwd;
         this._set({ ...this._snapshot, live: true, cwd });
         const startedId = String(p.exchange_id ?? "");
+        this.liveness.update(startedId, { startedAtMs: numberOr(p.started_at, Date.now()) });
         if (this.offers.keyForExchange(startedId) !== undefined) {
           this.offers.started(startedId, {
             cwd: typeof p.cwd === "string" ? p.cwd : this._projectDir,
@@ -316,16 +358,36 @@ export class ShellSessionStore extends Subscribable {
         break;
       }
       case "exchange_output": {
-        // Output as it is produced. Only an offer's result shows it as it
-        // grows; a transcript row mounts its body at the settle, which
-        // carries the whole output, so a piece for one is not needed.
+        // Output as it is produced. Any piece is a sign of life, and it
+        // answers a question standing over the exchange. Only an offer's
+        // result shows the output as it grows; a transcript row mounts its
+        // body at the settle, which carries the whole output, so a piece for
+        // one is not kept.
         if (typeof p.chunk === "string") {
-          this.offers.append(String(p.exchange_id ?? ""), p.chunk);
+          const at = Date.now();
+          const outputId = String(p.exchange_id ?? "");
+          this.liveness.update(outputId, { lastOutputAtMs: at, quiet: null });
+          this.offers.append(outputId, p.chunk, at);
         }
+        break;
+      }
+      case "exchange_quiet": {
+        // The command printed nothing and used no CPU for its quiet horizon.
+        // The feed has done nothing about it and will not: this is a question
+        // for the user, held until the command prints, the user answers, or
+        // the exchange settles.
+        const quietId = String(p.exchange_id ?? "");
+        const quiet: RunQuiet = {
+          quietMs: numberOr(p.quiet_ms, 0),
+          askedAtMs: Date.now(),
+        };
+        this.liveness.update(quietId, { quiet });
+        this.offers.askQuiet(quietId, quiet);
         break;
       }
       case "exchange_complete": {
         const exchangeId = String(p.exchange_id ?? "");
+        if (this.liveness.get()?.exchangeId === exchangeId) this.liveness.set(null);
         const cwdAfter = typeof p.cwd_after === "string" ? p.cwd_after : null;
         // Clear the in-flight slot if this settles the running exchange.
         const inflight =
@@ -351,8 +413,7 @@ export class ShellSessionStore extends Subscribable {
           cwd: ranIn,
           startedAtMs: startedAt,
           settledAtMs: settledAt,
-          stoppedBy:
-            p.stopped_by === "kill" || p.stopped_by === "timeout" ? p.stopped_by : null,
+          stoppedBy: p.stopped_by === "kill" ? "kill" : null,
         });
         if (!offered) {
           this._codeSessionStore.ingestShellExchange({
@@ -423,7 +484,8 @@ export class ShellSessionStore extends Subscribable {
         trimmed,
         `\`${unending}\` never ends on its own, and this route has no terminal ` +
           "to stop it from — a command's stdin is /dev/null, so there is no ⌃C " +
-          "to send. It would fill the exchange until the 120-second reap.\n\n" +
+          "to send. It would run, and hold this card's one shell, until you " +
+          "stopped it.\n\n" +
           "Run it in a form that finishes, or in a terminal outside Tug.",
         offerKey,
       );
@@ -458,6 +520,12 @@ export class ShellSessionStore extends Subscribable {
       });
     }
     this._set({ ...this._snapshot, inflight: { exchangeId, command: trimmed } });
+    this.liveness.set({
+      exchangeId,
+      startedAtMs: Date.now(),
+      lastOutputAtMs: null,
+      quiet: null,
+    });
     conn.send(
       FeedId.SHELL_INPUT,
       new TextEncoder().encode(
@@ -570,6 +638,31 @@ export class ShellSessionStore extends Subscribable {
     );
   }
 
+  /**
+   * Answer the question standing over the running command with "keep
+   * waiting". The feed doubles the silence it allows before asking again, and
+   * the question comes down here at once, without waiting on the feed. A
+   * no-op when nothing is asking.
+   */
+  keepWaiting(): void {
+    const asking = this.liveness.get();
+    if (asking === null || asking.quiet === null) return;
+    const conn = getConnection();
+    if (!conn) return;
+    conn.send(
+      FeedId.SHELL_INPUT,
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: "keep_waiting",
+          tug_session_id: this._tugSessionId,
+          exchange_id: asking.exchangeId,
+        }),
+      ),
+    );
+    this.liveness.update(asking.exchangeId, { quiet: null });
+    this.offers.answerQuiet(asking.exchangeId);
+  }
+
   private _set(next: ShellSessionSnapshot): void {
     this._snapshot = next;
     this.notify();
@@ -584,6 +677,7 @@ export class ShellSessionStore extends Subscribable {
     this._unsubscribeWindow?.();
     this._unsubscribeWindow = null;
     this.offers.clearListeners();
+    this.liveness.clearListeners();
     this.clearListeners();
   }
 

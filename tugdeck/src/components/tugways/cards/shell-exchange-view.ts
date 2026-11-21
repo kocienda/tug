@@ -5,6 +5,7 @@
  * without a render (the rendered DOM is covered by the app-test).
  */
 
+import { applyCarriageReturns } from "@/lib/ansi/carriage-return";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import type { TerminalData } from "../body-kinds/terminal-block";
 
@@ -49,14 +50,16 @@ export function deriveShellExchangeView(
   const durationMs = inFlight
     ? undefined
     : Math.max(0, (msg.settledAtMs ?? msg.startedAtMs) - msg.startedAtMs);
-  // A killed / timed-out exchange settles with a null exit code.
+  // A killed exchange settles with a null exit code.
   const killed = !inFlight && msg.exitCode === null;
   return {
     command: msg.command,
     // Output only — the exit code and duration render in the Z1B end-state
-    // row, not inside the terminal block (parity with the assistant turn).
+    // row, not inside the terminal block (parity with the assistant turn). A
+    // carriage return redraws its line, so a progress line shows its latest
+    // value, in flight and settled alike.
     terminal: {
-      stdout: msg.output,
+      stdout: applyCarriageReturns(msg.output),
       stderr: "",
     },
     inFlight,

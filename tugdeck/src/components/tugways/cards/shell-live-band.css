@@ -1,0 +1,38 @@
+/* @tug-pairings:
+   - --tugx-block-strip-bg                                              (shared chrome strip surface)
+   - --tugx-block-text-color                                            (neutral question text)
+   - --tugx-block-code-font                                             (shared mono family)
+*/
+
+/* ShellLiveBand — a running `$`-route command's reading and, when the shell
+ * has asked about it, the question. The reading is a `BlockNoticeBand`, so
+ * its surface, rule and type are the notice band's; this file adds only the
+ * clock's spacing and the question's row. */
+
+/* Elapsed time, then the age of the last output. The text is rewritten in
+ * place once a second, so the figures are tabular. */
+.shell-live-clock {
+  display: inline-flex;
+  gap: var(--tug-space-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The question rides the same strip surface as the reading above it and
+ * takes no colour of its own: nothing was decided and nothing went wrong. */
+/* @tug-renders-on: --tugx-block-strip-bg */
+.shell-quiet-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tugx-toolnotice-padding);
+  background: var(--tugx-block-strip-bg);
+  color: var(--tugx-block-text-color);
+  font-family: var(--tugx-block-code-font);
+  font-size: var(--tugx-toolnotice-text-size);
+}
+
+.shell-quiet-text {
+  flex: 1 1 auto;
+  min-width: 12ch;
+}

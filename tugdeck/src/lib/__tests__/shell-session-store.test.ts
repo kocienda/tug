@@ -28,6 +28,7 @@ mock.module("../connection-singleton", () => ({
 
 import { FeedId } from "../../protocol";
 import { ShellSessionStore, applyRestoredShellExchanges } from "../shell-session-store";
+import { runOfferStatus } from "../run-offer-store";
 import { PendingContextStore, splitLeadingContext } from "../pending-context-store";
 import { CodeSessionStore } from "../code-session-store";
 import type { TugConnection } from "../../connection";
@@ -359,6 +360,123 @@ describe("ShellSessionStore — a runnable offer's exchange", () => {
     settle(feed, sentExchangeId(), { exit_code: null, stopped_by: "kill" });
     expect(store.offers.get(KEY)?.exitCode).toBeNull();
     expect(store.offers.get(KEY)?.stoppedBy).toBe("kill");
+  });
+
+  test("a stopped run keeps the output its settle carries", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    settle(feed, sentExchangeId(), {
+      exit_code: null,
+      stopped_by: "kill",
+      output: "signing\nIn Progress\n",
+    });
+    expect(store.offers.get(KEY)?.output).toBe("signing\nIn Progress\n");
+    expect(runOfferStatus(store.offers.get(KEY)!).label).toBe("stopped");
+  });
+
+  /** The frames of one type sent on `SHELL_INPUT`. */
+  function sentOf(type: string): Array<Record<string, unknown>> {
+    return sentFrames
+      .map((f) => JSON.parse(f.payload) as Record<string, unknown>)
+      .filter((p) => p.type === type);
+  }
+
+  function quiet(feed: MockFeedStore, id: string, quietMs = 120_000) {
+    feed.emit(FeedId.SHELL_OUTPUT, {
+      type: "exchange_quiet",
+      exchange_id: id,
+      quiet_ms: quietMs,
+      horizon_ms: quietMs,
+      cpu_idle: true,
+    });
+  }
+
+  function output(feed: MockFeedStore, id: string, chunk: string) {
+    feed.emit(FeedId.SHELL_OUTPUT, { type: "exchange_output", exchange_id: id, chunk });
+  }
+
+  test("a quiet offer run holds the question, and stays running", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const id = sentExchangeId();
+    quiet(feed, id);
+    expect(store.offers.get(KEY)?.quiet?.quietMs).toBe(120_000);
+    expect(store.offers.get(KEY)?.status).toBe("running");
+    expect(store.liveness.get()?.quiet?.quietMs).toBe(120_000);
+    expect(store.getSnapshot().inflight?.exchangeId).toBe(id);
+    // Nothing was sent on the user's behalf.
+    expect(sentOf("kill").length).toBe(0);
+    expect(sentOf("keep_waiting").length).toBe(0);
+  });
+
+  test("the next output takes the question down and stamps the run", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const id = sentExchangeId();
+    expect(store.liveness.get()?.lastOutputAtMs).toBeNull();
+    quiet(feed, id);
+    output(feed, id, "In Progress\n");
+    expect(store.offers.get(KEY)?.quiet).toBeNull();
+    expect(store.liveness.get()?.quiet).toBeNull();
+    expect(typeof store.offers.get(KEY)?.lastOutputAtMs).toBe("number");
+    expect(store.liveness.get()?.lastOutputAtMs).toBe(store.offers.get(KEY)!.lastOutputAtMs);
+  });
+
+  test("keep waiting answers the exchange that asked, and takes the question down", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const id = sentExchangeId();
+    // Nothing is asking yet, so there is nothing to answer.
+    store.keepWaiting();
+    expect(sentOf("keep_waiting").length).toBe(0);
+    quiet(feed, id);
+    store.keepWaiting();
+    expect(sentOf("keep_waiting")).toEqual([
+      { type: "keep_waiting", tug_session_id: "sess-1", exchange_id: id },
+    ]);
+    expect(store.offers.get(KEY)?.quiet).toBeNull();
+    expect(store.liveness.get()?.quiet).toBeNull();
+    expect(store.offers.get(KEY)?.status).toBe("running");
+    // The question is answered once.
+    store.keepWaiting();
+    expect(sentOf("keep_waiting").length).toBe(1);
+  });
+
+  test("the settle takes the question and the liveness reading down", () => {
+    const { store, feed } = setup();
+    store.exec("make check", { origin: "offer", offerKey: KEY });
+    const id = sentExchangeId();
+    quiet(feed, id);
+    settle(feed, id, { exit_code: null, stopped_by: "kill" });
+    expect(store.offers.get(KEY)?.quiet).toBeNull();
+    expect(store.liveness.get()).toBeNull();
+  });
+
+  test("a `$` command's liveness is read the same way, with no offer", () => {
+    const { store, feed } = setup();
+    store.exec("sleep 500");
+    const id = sentExchangeId();
+    feed.emit(FeedId.SHELL_OUTPUT, {
+      type: "exchange_started",
+      exchange_id: id,
+      command: "sleep 500",
+      cwd: "/proj",
+      started_at: 1000,
+    });
+    expect(store.liveness.get()).toEqual({
+      exchangeId: id,
+      startedAtMs: 1000,
+      lastOutputAtMs: null,
+      quiet: null,
+    });
+    quiet(feed, id, 240_000);
+    expect(store.liveness.get()?.quiet?.quietMs).toBe(240_000);
+    // A question for an exchange that is not the running one is dropped.
+    quiet(feed, "sh-stray", 1);
+    expect(store.liveness.get()?.quiet?.quietMs).toBe(240_000);
+    store.keepWaiting();
+    expect(sentOf("keep_waiting")[0]?.exchange_id).toBe(id);
+    expect(store.liveness.get()?.quiet).toBeNull();
   });
 
   test("an offer cannot start while any exchange is in flight", () => {

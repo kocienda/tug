@@ -15,7 +15,9 @@
 import {
   RUN_OFFER_ADD_CLASS,
   RUN_FRAME_SELECTOR,
+  RUN_OFFER_KEEP_CLASS,
   RUN_OFFER_PLAY_CLASS,
+  RUN_OFFER_TERMINATE_CLASS,
   runOfferCommand,
   runOfferFrames,
   runOfferNeedsTerminal,
@@ -90,7 +92,10 @@ export function drawRunOffers(container: HTMLElement, offers: RunOfferStore, sco
  * A press on a running offer stops it. A press on any other starts it,
  * through the same `exec` every shell command goes through, so the refusals
  * that door makes apply here unchanged. A press on a result's Add to context
- * queues that result for the next submission, or takes it back out.
+ * queues that result for the next submission, or takes it back out. A press
+ * on a quiet command's band answers its question: Terminate stops the
+ * command as Stop does, and Keep Waiting takes the band down and tells the
+ * shell to allow a longer silence before it asks again.
  */
 export function pressRunOffer(
   target: EventTarget | null,
@@ -104,6 +109,16 @@ export function pressRunOffer(
     const owner = add.closest(RUN_FRAME_SELECTOR);
     const run = keyedFrames(container, shell.offers, scope).find((entry) => entry.frame === owner)?.run;
     if (run !== undefined) shell.toggleOfferRunContext(run);
+    return true;
+  }
+  const terminate = target.closest(`.${RUN_OFFER_TERMINATE_CLASS}`);
+  if (terminate !== null && container.contains(terminate)) {
+    shell.kill();
+    return true;
+  }
+  const keep = target.closest(`.${RUN_OFFER_KEEP_CLASS}`);
+  if (keep !== null && container.contains(keep)) {
+    shell.keepWaiting();
     return true;
   }
   const play = target.closest(`.${RUN_OFFER_PLAY_CLASS}`);

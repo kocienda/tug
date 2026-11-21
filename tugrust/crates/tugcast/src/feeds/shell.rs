@@ -34,8 +34,21 @@
 //! One shell child per `tug_session_id`, lazily spawned on the first `exec`
 //! in the card's project dir. The child does NOT survive a tugcast restart;
 //! it restarts fresh on the next `exec` (the transcript *record* persists via
-//! the ledger, not the live process). A `kill` (or per-exchange timeout)
-//! reaps the process group and the session respawns on the next `exec`.
+//! the ledger, not the live process). A `kill` reaps the process group and
+//! the session respawns on the next `exec`.
+//!
+//! # A command is never stopped by a clock
+//!
+//! A command ends by its own exit, by a `kill`, or by the session's
+//! teardown. Nothing here can tell a stuck command from one that is waiting,
+//! so the feed only notices **quiet**: no output byte and no CPU time in the
+//! shell's process group for a whole horizon (two minutes, then doubled each
+//! time the user answers `keep_waiting`). Output is read as bytes, so a
+//! `\r` redraw counts as activity and reaches the deck. Each byte re-arms one
+//! deadline; the group's CPU time is read at two stops on the way to it and
+//! never on a loop. A quiet exchange gets one `exchange_quiet` frame and is
+//! left running: the deck draws the question, and silence after it changes
+//! nothing. A killed exchange settles with everything it printed.
 
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
@@ -46,9 +59,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use serde_json::json;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
@@ -76,9 +89,31 @@ fn sentinel_marker() -> String {
     format!("__TUG_SHELL_SENTINEL__{}__", std::process::id())
 }
 
-/// Per-exchange wall-clock cap. A command still running past this is reaped
-/// (pgid signal) and its exchange settles with a null exit code.
-const EXEC_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long a command may print nothing and use no CPU before its block asks
+/// about it. No clock ever stops a command: it ends by its own exit, by a
+/// `kill`, or by the session's teardown. Quiet is not stuck — a command
+/// sleeping between network polls and one hung on a dead socket look the
+/// same from here — so the only consequence of a quiet horizon running out
+/// is an `exchange_quiet` frame, which the deck draws as a question.
+const QUIET_HORIZON: Duration = Duration::from_secs(120);
+
+/// How long after a command's last output its CPU time is first read. The
+/// reading at the horizon is compared with this one, so the two bracket the
+/// silence. A command that prints more often than this is never read at all.
+const QUIET_BASELINE_AFTER: Duration = Duration::from_secs(1);
+
+/// Overrides [`QUIET_HORIZON`], in milliseconds. A test seam, for a harness
+/// that has to see the question without waiting two minutes for it.
+const QUIET_HORIZON_ENV: &str = "TUG_SHELL_QUIET_HORIZON_MS";
+
+fn quiet_horizon() -> Duration {
+    std::env::var(QUIET_HORIZON_ENV)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(QUIET_HORIZON)
+}
 
 /// Grace between SIGTERM and SIGKILL when reaping a wedged process group.
 const KILL_GRACE: Duration = Duration::from_millis(400);
@@ -120,6 +155,14 @@ enum ShellInput {
     // deck sends is ignored by serde.
     Kill {
         tug_session_id: String,
+    },
+    // `keep_waiting` answers an `exchange_quiet`: the user chose to let the
+    // command run. It doubles that exchange's quiet horizon. An answer for an
+    // exchange that is not asking — it printed again, or it settled — is
+    // dropped.
+    KeepWaiting {
+        tug_session_id: String,
+        exchange_id: String,
     },
     // `path_commands` requests everything the deck's shell-line classifier
     // needs to decide a line could be a command. The reply is two SHELL_OUTPUT
@@ -638,6 +681,10 @@ struct SessionShared {
     /// while the shell survives to emit the sentinel — so the session task reads
     /// this to settle a killed exchange as reaped regardless of which path won.
     killed: bool,
+    /// The exchange whose quiet question is standing: set when its
+    /// `exchange_quiet` is emitted, cleared when it prints again, is answered,
+    /// or settles. A `keep_waiting` is honored only for this exchange.
+    asked: Option<String>,
 }
 
 /// Commands routed to a per-session task. `kill` is NOT here — it is handled
@@ -651,17 +698,25 @@ enum ShellCmd {
     },
 }
 
-/// A live per-session actor: the command channel plus the shared pid the
-/// dispatcher signals for `kill`.
+/// A live per-session actor: the command channel, the shared pid the
+/// dispatcher signals for `kill`, and the counter it bumps for `keep_waiting`.
+/// Both answers reach a task that is blocked reading its child's output and
+/// could never dequeue them.
 struct ShellSession {
     tx: mpsc::Sender<ShellCmd>,
     shared: Arc<Mutex<SessionShared>>,
+    keep: watch::Sender<u64>,
 }
 
-/// The child's stdin + a line reader over its merged stdout.
+/// The child's stdin + its merged stdout, read as bytes.
 struct ShellChild {
     stdin: ChildStdin,
-    lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    stdout: tokio::process::ChildStdout,
+    /// Bytes read past the last sentinel line, which belong to the next
+    /// exchange. A serial shell writes nothing between a sentinel and the
+    /// next command, so this is empty in practice; holding it is what keeps
+    /// a read that straddles two exchanges from losing its tail.
+    pending: Vec<u8>,
     // Held so the child is killed on drop (session teardown / task exit).
     _child: tokio::process::Child,
 }
@@ -785,7 +840,8 @@ async fn spawn_shell_child(
     }
     let mut sh = ShellChild {
         stdin,
-        lines: BufReader::new(stdout).lines(),
+        stdout,
+        pending: Vec::new(),
         _child: child,
     };
     // Preamble, run AFTER the shell has finished sourcing its rc files (so it
@@ -793,7 +849,7 @@ async fn spawn_shell_child(
     //   - `exec 2>&1`: merge stderr into stdout so ordering is preserved and
     //     the sentinel (printf to stdout) terminates every exchange.
     //   - `trap - TERM QUIT`: an interactive shell IGNORES SIGTERM, which would
-    //     defeat the kill/timeout reap (the shell would outlive the group
+    //     defeat the kill reap (the shell would outlive the group
     //     signal). Reset the disposition so `reap_group` kills it as before.
     //   - `set +m`: turn job control off. An interactive bash keeps `monitor`
     //     on even with no TTY, so it puts every command in a process group of
@@ -827,7 +883,7 @@ async fn spawn_shell_child(
     // its process group and report failure for the plain-shell fallback.
     match tokio::time::timeout(
         WARMUP_TIMEOUT,
-        run_command(&mut sh, marker, ":", &mut |_| {}),
+        run_command(&mut sh, marker, ":", &mut |_| {}, None),
     )
     .await
     {
@@ -855,17 +911,24 @@ struct ExecResult {
 /// line it would be swallowed by a trailing `#` comment, leaving the group
 /// open and the shell waiting on input that never comes.
 ///
-/// While the command runs, what it has written is handed to `on_chunk` in
-/// pieces: each piece is whole lines, gathered for [`OUTPUT_CHUNK_WINDOW`]
-/// from its first line. The pieces are a view of the output as it grows and
-/// nothing more. The result still carries all of it, and what was gathered
-/// but not yet handed over when the sentinel arrives is never sent as a
-/// piece, since the caller has the whole in hand at that moment.
+/// The stream is read as bytes, never as lines, so a line the command has
+/// not ended yet — a prompt, a progress line it redraws with `\r` — is
+/// output the moment it is written. While the command runs, what it has
+/// written is handed to `on_chunk` in pieces, each gathered for
+/// [`OUTPUT_CHUNK_WINDOW`] from its first byte and cut on a character
+/// boundary. The pieces are a view of the output as it grows and nothing
+/// more. The result still carries all of it, and what was gathered but not
+/// yet handed over when the sentinel arrives is never sent as a piece, since
+/// the caller has the whole in hand at that moment.
+///
+/// With a `quiet` watch, the command is also watched for silence; see
+/// [`QuietWatch`]. Nothing here ever stops the command.
 async fn run_command(
     child: &mut ShellChild,
     marker: &str,
     command: &str,
     on_chunk: &mut (dyn FnMut(&str) + Send),
+    mut quiet: Option<QuietWatch<'_>>,
 ) -> std::io::Result<ExecResult> {
     let line = format!(
         "{{ {command}\n}} </dev/null\nprintf '\\n%s\\t%d\\t%s\\n' \"{marker}\" \"$?\" \"$PWD\"\n"
@@ -873,59 +936,388 @@ async fn run_command(
     child.stdin.write_all(line.as_bytes()).await?;
     child.stdin.flush().await?;
 
-    let mut output = String::new();
-    // Where the next piece starts in `output`, and when it is due.
+    let mut scan = SentinelScan::new(marker, std::mem::take(&mut child.pending));
+    // Where the next piece starts in the output, and when it is due.
     let mut sent = 0usize;
     let mut due: Option<tokio::time::Instant> = None;
+    let mut buf = [0u8; 8192];
+    let mut last_output = tokio::time::Instant::now();
+    let mut phase = match &quiet {
+        Some(q) => q.baseline(last_output),
+        None => QuietPhase::Off,
+    };
     loop {
-        // `next_line` is cancellation safe, so losing the race to the timer
-        // loses no bytes: the partial line stays in the reader.
-        let next = match due {
-            Some(at) => tokio::select! {
-                line = child.lines.next_line() => line?,
-                _ = tokio::time::sleep_until(at) => {
-                    on_chunk(&output[sent..]);
-                    sent = output.len();
-                    due = None;
-                    continue;
-                }
-            },
-            None => child.lines.next_line().await?,
+        if let Some(sentinel) = scan.advance() {
+            child.pending = sentinel.rest;
+            let mut output = scan.output;
+            // Drop the single trailing newline the sentinel's leading `\n`
+            // produced.
+            if output.last() == Some(&b'\n') {
+                output.pop();
+            }
+            return Ok(ExecResult {
+                output: String::from_utf8_lossy(&output).into_owned(),
+                exit_code: sentinel.exit_code,
+                cwd_after: sentinel.cwd_after,
+            });
+        }
+        if due.is_none() && scan.output.len() > sent {
+            due = Some(tokio::time::Instant::now() + OUTPUT_CHUNK_WINDOW);
+        }
+        let quiet_at = match phase {
+            QuietPhase::Baseline(at) | QuietPhase::Verdict(at) => Some(at),
+            QuietPhase::Off | QuietPhase::Asked => None,
         };
-        match next {
-            Some(l) => {
-                if let Some(rest) = l.strip_prefix(marker) {
-                    // `<marker>\t<code>\t<cwd>`
-                    let mut parts = rest.trim_start_matches('\t').split('\t');
-                    let exit_code = parts.next().and_then(|s| s.parse::<i32>().ok());
-                    let cwd_after = parts.next().map(|s| s.to_string());
-                    // Drop the single trailing empty line the sentinel's
-                    // leading `\n` produced.
-                    if output.ends_with('\n') {
-                        output.pop();
-                    }
-                    return Ok(ExecResult {
-                        output,
-                        exit_code,
-                        cwd_after,
-                    });
+        let asked = matches!(phase, QuietPhase::Asked);
+        // `read` is cancellation safe, so losing the race to a timer loses no
+        // bytes: they stay in the pipe.
+        let event = tokio::select! {
+            n = child.stdout.read(&mut buf) => Wake::Read(n?),
+            _ = sleep_until_some(due) => Wake::ChunkDue,
+            _ = sleep_until_some(quiet_at) => Wake::QuietDue,
+            _ = keep_waiting_pressed(quiet.as_mut(), asked) => Wake::KeepWaiting,
+        };
+        let now = tokio::time::Instant::now();
+        let n = match event {
+            Wake::Read(n) => n,
+            Wake::ChunkDue => {
+                let end = sent + utf8_whole_len(&scan.output[sent..]);
+                if end > sent {
+                    on_chunk(&String::from_utf8_lossy(&scan.output[sent..end]));
+                    sent = end;
                 }
-                output.push_str(&l);
-                output.push('\n');
-                if due.is_none() {
-                    due = Some(tokio::time::Instant::now() + OUTPUT_CHUNK_WINDOW);
+                due = None;
+                continue;
+            }
+            Wake::QuietDue => {
+                if let Some(q) = quiet.as_mut() {
+                    phase = q.deadline_fired(phase, now, last_output);
                 }
+                continue;
             }
-            // EOF before the sentinel — the child was reaped (kill / crash).
-            None => {
-                return Ok(ExecResult {
-                    output,
-                    exit_code: None,
-                    cwd_after: None,
-                });
+            Wake::KeepWaiting => {
+                if let Some(q) = quiet.as_mut() {
+                    // Twice the silence before the next question, measured
+                    // from the press.
+                    q.horizon *= 2;
+                    phase = QuietPhase::Verdict(now + q.horizon);
+                }
+                continue;
             }
+        };
+        // EOF before the sentinel — the child was reaped (kill / crash).
+        // Whatever of a last line was being held is output after all.
+        if n == 0 {
+            let mut output = scan.output;
+            output.append(&mut scan.line);
+            return Ok(ExecResult {
+                output: String::from_utf8_lossy(&output).into_owned(),
+                exit_code: None,
+                cwd_after: None,
+            });
+        }
+        scan.line.extend_from_slice(&buf[..n]);
+        // Any byte is activity: the silence starts over, and a question that
+        // was standing has been answered by the command itself.
+        last_output = now;
+        if let Some(q) = quiet.as_mut() {
+            if asked {
+                q.shared.lock().asked = None;
+            }
+            phase = q.baseline(now);
         }
     }
+}
+
+/// What woke the read loop.
+enum Wake {
+    Read(usize),
+    ChunkDue,
+    QuietDue,
+    KeepWaiting,
+}
+
+/// Sleep until `at`, or forever when there is nothing to wait for.
+async fn sleep_until_some(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Resolve when a `keep_waiting` arrives for a question that is standing;
+/// never otherwise.
+async fn keep_waiting_pressed(quiet: Option<&mut QuietWatch<'_>>, asked: bool) {
+    match quiet {
+        Some(q) if asked => {
+            if q.keep.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        }
+        _ => std::future::pending().await,
+    }
+}
+
+/// Where one exchange stands against its quiet horizon.
+#[derive(Clone, Copy)]
+enum QuietPhase {
+    /// Not watched (the warmup probe).
+    Off,
+    /// Output has just stopped; the first CPU reading is due.
+    Baseline(tokio::time::Instant),
+    /// The horizon runs out here, and the second reading decides.
+    Verdict(tokio::time::Instant),
+    /// The question is standing. Nothing happens on a timer from here: only
+    /// output, a `keep_waiting`, a `kill` or the command's own exit moves it.
+    Asked,
+}
+
+/// The watch for silence over one exchange.
+///
+/// There is one deadline, and it is only reached when output has stopped.
+/// Shortly after the last byte the group's CPU time is read once; when the
+/// horizon runs out it is read again. A reading that moved means the command
+/// is working silently (a compile, a compression), and the horizon starts
+/// over from that reading without a word. A reading that did not move, with
+/// no output in between, is quiet: `on_quiet` is called, once, and the
+/// command is left running. A `keep_waiting` doubles the horizon for the
+/// rest of the exchange.
+struct QuietWatch<'a> {
+    /// The silence that brings the next question.
+    horizon: Duration,
+    /// The shell's process group, whose CPU time is read.
+    group: i32,
+    /// The last CPU reading, `None` when the platform could not give one.
+    cpu: Option<u64>,
+    exchange_id: &'a str,
+    shared: &'a Mutex<SessionShared>,
+    /// Bumped by the dispatcher for each `keep_waiting` it accepts.
+    keep: &'a mut watch::Receiver<u64>,
+    /// `(silence so far, the horizon that ran out, whether CPU was read)`.
+    on_quiet: &'a mut (dyn FnMut(Duration, Duration, bool) + Send),
+}
+
+impl QuietWatch<'_> {
+    /// The phase after output at `at`: the first reading is due soon after.
+    fn baseline(&self, at: tokio::time::Instant) -> QuietPhase {
+        QuietPhase::Baseline(at + QUIET_BASELINE_AFTER.min(self.horizon / 2))
+    }
+
+    /// The deadline of `phase` ran out at `now`, with the last output at
+    /// `last_output`. Take the reading it was for and say what comes next.
+    fn deadline_fired(
+        &mut self,
+        phase: QuietPhase,
+        now: tokio::time::Instant,
+        last_output: tokio::time::Instant,
+    ) -> QuietPhase {
+        let reading = group_cpu_time(self.group);
+        match phase {
+            QuietPhase::Baseline(_) => {
+                self.cpu = reading;
+                QuietPhase::Verdict(last_output + self.horizon)
+            }
+            QuietPhase::Verdict(_) => {
+                // With no reading to be had, silence alone decides.
+                let working = match (self.cpu, reading) {
+                    (Some(before), Some(after)) => before != after,
+                    (None, Some(_)) => true,
+                    (_, None) => false,
+                };
+                self.cpu = reading;
+                if working {
+                    return QuietPhase::Verdict(now + self.horizon);
+                }
+                // Answers that arrived for an earlier question are spent.
+                self.keep.borrow_and_update();
+                self.shared.lock().asked = Some(self.exchange_id.to_string());
+                (self.on_quiet)(
+                    now.saturating_duration_since(last_output),
+                    self.horizon,
+                    reading.is_some(),
+                );
+                QuietPhase::Asked
+            }
+            QuietPhase::Off | QuietPhase::Asked => phase,
+        }
+    }
+}
+
+/// The CPU time a process group has used, summed over its living members,
+/// in the platform's own unit. Only ever compared with an earlier reading of
+/// the same group: equal means nothing in the group ran in between. A member
+/// that exited takes its time out of the sum, which reads as a change, and a
+/// process ending is activity. `None` when no member could be read.
+///
+/// The session shell leads its own group (`setsid`) and runs with job control
+/// off (`set +m`), so the commands it starts stay in that group.
+#[cfg(target_os = "macos")]
+fn group_cpu_time(pgid: i32) -> Option<u64> {
+    if pgid <= 0 {
+        return None;
+    }
+    let mut pids = [0 as libc::pid_t; 1024];
+    // SAFETY: the buffer is a zeroed array of `pid_t` and its true size in
+    // bytes is passed; the call writes at most that many bytes of pids.
+    let listed = unsafe {
+        libc::proc_listpgrppids(
+            pgid,
+            pids.as_mut_ptr().cast(),
+            std::mem::size_of_val(&pids) as libc::c_int,
+        )
+    };
+    if listed <= 0 {
+        return None;
+    }
+    let mut total: Option<u64> = None;
+    // Unfilled slots stay zero, so the entries are read by value and the
+    // call's count is not relied on.
+    for &pid in pids.iter().filter(|&&pid| pid > 0) {
+        // SAFETY: a zeroed `rusage_info_v2` is a valid all-zero POD. On
+        // success the call returns 0 and fills it; on failure the buffer is
+        // ignored. The buffer argument is `*mut rusage_info_t` by the C
+        // idiom, so the struct pointer is reinterpreted.
+        let used = unsafe {
+            let mut ri: libc::rusage_info_v2 = std::mem::zeroed();
+            let ret = libc::proc_pid_rusage(
+                pid,
+                libc::RUSAGE_INFO_V2,
+                &mut ri as *mut libc::rusage_info_v2 as *mut libc::rusage_info_t,
+            );
+            (ret == 0).then(|| ri.ri_user_time.wrapping_add(ri.ri_system_time))
+        };
+        if let Some(used) = used {
+            total = Some(total.unwrap_or(0).wrapping_add(used));
+        }
+    }
+    total
+}
+
+#[cfg(target_os = "linux")]
+fn group_cpu_time(pgid: i32) -> Option<u64> {
+    if pgid <= 0 {
+        return None;
+    }
+    let mut total: Option<u64> = None;
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        // The command name is parenthesised and may hold spaces; the fields
+        // after it start at the state: state, ppid, pgrp, …, utime, stime.
+        let Some((_, rest)) = stat.rsplit_once(')') else {
+            continue;
+        };
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        if fields.get(2).and_then(|s| s.parse::<i32>().ok()) != Some(pgid) {
+            continue;
+        }
+        let ticks = |i: usize| fields.get(i).and_then(|s| s.parse::<u64>().ok());
+        if let (Some(user), Some(system)) = (ticks(11), ticks(12)) {
+            total = Some(total.unwrap_or(0).wrapping_add(user).wrapping_add(system));
+        }
+    }
+    total
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn group_cpu_time(_pgid: i32) -> Option<u64> {
+    None
+}
+
+/// The sentinel line, once it has arrived whole.
+struct Sentinel {
+    exit_code: Option<i32>,
+    cwd_after: Option<String>,
+    /// The bytes that followed it in the same read.
+    rest: Vec<u8>,
+}
+
+/// Splits a command's byte stream into its output and the sentinel line that
+/// ends it. The sentinel always starts a line, so the only bytes that cannot
+/// be released as output the moment they arrive are an unfinished line that
+/// could still turn out to be the sentinel: one that is a prefix of the
+/// marker, or that begins with it.
+struct SentinelScan<'a> {
+    marker: &'a [u8],
+    /// Everything known to be the command's output.
+    output: Vec<u8>,
+    /// Bytes read and not yet judged.
+    line: Vec<u8>,
+    /// The head of the current line is already in `output`, so the line is
+    /// not the sentinel whatever follows.
+    released: bool,
+}
+
+impl<'a> SentinelScan<'a> {
+    fn new(marker: &'a str, carried: Vec<u8>) -> Self {
+        Self {
+            marker: marker.as_bytes(),
+            output: Vec::new(),
+            line: carried,
+            released: false,
+        }
+    }
+
+    /// Judge what has been read: move output out of `line`, and return the
+    /// sentinel if its line is complete.
+    fn advance(&mut self) -> Option<Sentinel> {
+        loop {
+            let Some(nl) = self.line.iter().position(|&b| b == b'\n') else {
+                let may_be_sentinel = !self.released
+                    && if self.line.len() < self.marker.len() {
+                        self.marker.starts_with(&self.line)
+                    } else {
+                        self.line.starts_with(self.marker)
+                    };
+                if !may_be_sentinel && !self.line.is_empty() {
+                    self.output.append(&mut self.line);
+                    self.released = true;
+                }
+                return None;
+            };
+            if !self.released && self.line.starts_with(self.marker) {
+                // `<marker>\t<code>\t<cwd>`
+                let fields = String::from_utf8_lossy(&self.line[self.marker.len()..nl]);
+                let mut parts = fields.trim_start_matches('\t').split('\t');
+                let exit_code = parts.next().and_then(|s| s.parse::<i32>().ok());
+                let cwd_after = parts.next().map(|s| s.to_string());
+                return Some(Sentinel {
+                    exit_code,
+                    cwd_after,
+                    rest: self.line.split_off(nl + 1),
+                });
+            }
+            self.output.extend(self.line.drain(..=nl));
+            self.released = false;
+        }
+    }
+}
+
+/// How many leading bytes of `bytes` end on a character boundary: all of
+/// them, less a multi-byte character whose tail has not been read yet. A
+/// piece cut there never splits a character across two frames.
+fn utf8_whole_len(bytes: &[u8]) -> usize {
+    let len = bytes.len();
+    for back in 1..=len.min(3) {
+        let b = bytes[len - back];
+        if b & 0xC0 == 0x80 {
+            continue;
+        }
+        let need = match b {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => 1,
+        };
+        return if need > back { len - back } else { len };
+    }
+    len
 }
 
 /// Signal a process group: SIGTERM, then SIGKILL after a grace. Reaps a wedged
@@ -957,7 +1349,8 @@ async fn shell_session_task(
     tug_session_id: String,
     spawn_cwd: PathBuf,
     marker: String,
-    exec_timeout: Duration,
+    quiet_horizon: Duration,
+    mut keep_rx: watch::Receiver<u64>,
     path_requesters: Arc<Mutex<HashSet<String>>>,
     session_words: SessionWords,
     policy: ShellSpawnPolicy,
@@ -1040,37 +1433,55 @@ async fn shell_session_task(
                 }),
             );
         };
-        let result = tokio::time::timeout(
-            exec_timeout,
-            run_command(sh, &marker, &command, &mut send_chunk),
-        )
-        .await;
+        // The command went quiet: say so, and leave it running. What happens
+        // next is the user's to decide.
+        let mut send_quiet = |quiet_for: Duration, horizon: Duration, cpu_idle: bool| {
+            emit(
+                &output,
+                &tug_session_id,
+                json!({
+                    "type": "exchange_quiet", "exchange_id": exchange_id,
+                    "quiet_ms": quiet_for.as_millis() as u64,
+                    "horizon_ms": horizon.as_millis() as u64,
+                    "cpu_idle": cpu_idle,
+                }),
+            );
+        };
+        let group = shared.lock().pid.unwrap_or(0);
+        let quiet = QuietWatch {
+            horizon: quiet_horizon,
+            group,
+            cpu: None,
+            exchange_id: &exchange_id,
+            shared: &shared,
+            keep: &mut keep_rx,
+            on_quiet: &mut send_quiet,
+        };
+        let result = run_command(sh, &marker, &command, &mut send_chunk, Some(quiet)).await;
         // An out-of-band `kill` reaps the group mid-exchange. The signal settles
         // the outcome differently across platforms — the shell dies (EOF → no
         // exit code) or its child dies (128+SIGTERM) while the shell survives to
         // emit the sentinel — so honor the kill flag and settle as reaped either
         // way, rather than leaking the child's signal-death code to the deck.
-        let killed = std::mem::take(&mut shared.lock().killed);
-        // What stopped an exchange that did not exit on its own. The deck
-        // cannot tell a kill from the timeout by the null exit code they share.
+        let killed = {
+            let mut g = shared.lock();
+            g.asked = None;
+            std::mem::take(&mut g.killed)
+        };
+        // What stopped an exchange that did not exit on its own: a `kill`, or
+        // nothing this feed did (the shell died under it). Either way the
+        // settle carries everything the command printed.
         let mut stopped_by: Option<&'static str> = None;
         let (mut out, exit_code, cwd_after, reaped) = match result {
-            Ok(Ok(r)) if killed => {
+            Ok(r) if killed => {
                 stopped_by = Some("kill");
                 (r.output, None, r.cwd_after, true)
             }
-            Ok(Ok(r)) => {
+            Ok(r) => {
                 let reaped = r.exit_code.is_none();
                 (r.output, r.exit_code, r.cwd_after, reaped)
             }
-            Ok(Err(e)) => (format!("shell read error: {e}\n"), None, None, true),
-            Err(_) => {
-                // Timed out — reap the wedged group.
-                let pid = shared.lock().pid.unwrap_or(0);
-                reap_group(pid);
-                stopped_by = Some("timeout");
-                (String::new(), None, None, true)
-            }
+            Err(e) => (format!("shell read error: {e}\n"), None, None, true),
         };
         if let Some(notice) = pending_notice.take() {
             out.insert_str(0, &notice);
@@ -1208,7 +1619,7 @@ async fn shell_session_task(
             emit_shell_words(&output, &tug_session_id, &names);
         }
 
-        // A reaped child (kill / timeout / crash / EOF) is gone; the next exec
+        // A reaped child (kill / crash / EOF) is gone; the next exec
         // respawns fresh in the project dir ([Q04] restart-fresh).
         if reaped {
             child = None;
@@ -1262,14 +1673,14 @@ pub async fn shell_dispatcher_task(
         sessions,
         agent,
         cancel,
-        EXEC_TIMEOUT,
+        quiet_horizon(),
         ShellSpawnPolicy::login(),
     )
     .await;
 }
 
-/// Dispatcher core with an injectable per-exchange timeout (tests use a short
-/// one to exercise the reap-on-timeout path without waiting the full cap) and
+/// Dispatcher core with an injectable quiet horizon (tests use a short one to
+/// see the quiet question without waiting two minutes for it) and
 /// an injectable spawn policy (tests spawn a bare `/bin/sh`, never the user's).
 #[allow(clippy::too_many_arguments)]
 async fn run_dispatcher(
@@ -1279,7 +1690,7 @@ async fn run_dispatcher(
     sessions_ledger: Option<Arc<crate::session_ledger::SessionLedger>>,
     agent: crate::shared_agent::SharedAgentHandle,
     cancel: CancellationToken,
-    exec_timeout: Duration,
+    quiet_horizon: Duration,
     policy: ShellSpawnPolicy,
 ) {
     let mut sessions: HashMap<String, ShellSession> = HashMap::new();
@@ -1340,6 +1751,7 @@ async fn run_dispatcher(
                     .clone();
                 let session = sessions.entry(tug_session_id.clone()).or_insert_with(|| {
                     let (tx, rx) = mpsc::channel(64);
+                    let (keep, keep_rx) = watch::channel(0u64);
                     let shared = Arc::new(Mutex::new(SessionShared::default()));
                     let spawn_cwd = cwd
                         .as_deref()
@@ -1354,12 +1766,13 @@ async fn run_dispatcher(
                         tug_session_id.clone(),
                         spawn_cwd,
                         marker.clone(),
-                        exec_timeout,
+                        quiet_horizon,
+                        keep_rx,
                         Arc::clone(&path_requesters),
                         session_words.clone(),
                         policy.clone(),
                     ));
-                    ShellSession { tx, shared }
+                    ShellSession { tx, shared, keep }
                 });
                 if session
                     .tx
@@ -1387,6 +1800,27 @@ async fn run_dispatcher(
                     };
                     if let Some(pid) = pid {
                         reap_group(pid);
+                    }
+                }
+            }
+            ShellInput::KeepWaiting {
+                tug_session_id,
+                exchange_id,
+            } => {
+                if let Some(session) = sessions.get(&tug_session_id) {
+                    // Only the exchange whose question is standing can be
+                    // answered, and only once.
+                    let standing = {
+                        let mut g = session.shared.lock();
+                        if g.asked.as_deref() == Some(exchange_id.as_str()) {
+                            g.asked = None;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if standing {
+                        session.keep.send_modify(|n| *n += 1);
                     }
                 }
             }
@@ -1524,8 +1958,7 @@ mod tests {
     }
 
     /// Drive the dispatcher; collect `exchange_complete` payloads for `sid`
-    /// until `count` are seen or the timeout fires. Uses a short per-exchange
-    /// timeout so a genuinely-hanging command (a TUI) is reaped within the test.
+    /// until `count` are seen or the test's own deadline passes.
     async fn drive(frames: Vec<Frame>, sid: &str, count: usize) -> Vec<serde_json::Value> {
         let (_home, policy) = bare_policy().await;
         let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
@@ -1646,31 +2079,249 @@ mod tests {
         assert!(done[1]["output"].as_str().unwrap().contains("still-synced"));
     }
 
-    #[tokio::test]
-    async fn interactive_tui_is_reaped_by_the_timeout() {
-        // An interactive TUI (vim) renders to the pipe and waits for input —
-        // it does NOT reliably auto-decline, so the per-exchange timeout is the
-        // backstop: the shell must never hang forever. With the short test
-        // timeout the exchange settles with a null exit code (reaped), and a
-        // FOLLOW-UP command proves the session respawned and stayed usable.
-        let done = drive(
-            vec![
-                exec_frame("s1", "e1", "vim", None),
-                exec_frame("s1", "e2", "echo recovered", None),
-            ],
-            "s1",
-            2,
+    fn keep_waiting_frame(sid: &str, ex: &str) -> Frame {
+        Frame::new(
+            FeedId::SHELL_INPUT,
+            json!({ "type": "keep_waiting", "tug_session_id": sid, "exchange_id": ex })
+                .to_string()
+                .into_bytes(),
         )
-        .await;
-        assert_eq!(done.len(), 2);
-        assert_eq!(done[0]["exit_code"], serde_json::Value::Null, "vim reaped");
-        assert_eq!(done[0]["stopped_by"], "timeout");
-        assert!(done[1]["output"].as_str().unwrap().contains("recovered"));
-        assert_eq!(
-            done[1]["stopped_by"],
-            serde_json::Value::Null,
-            "an exchange that exits on its own was stopped by nothing"
+    }
+
+    /// The quiet horizon the tests below run under.
+    const SHORT_HORIZON: Duration = Duration::from_millis(300);
+
+    /// A dispatcher running under a quiet horizon, with the channel it reads
+    /// and the feed it writes.
+    struct Rig {
+        tx: mpsc::Sender<Frame>,
+        rx: tokio::sync::broadcast::Receiver<Frame>,
+        cancel: CancellationToken,
+        handle: tokio::task::JoinHandle<()>,
+        _home: tempfile::TempDir,
+    }
+
+    impl Rig {
+        async fn start(horizon: Duration, ledger: Option<Arc<ShellLedger>>) -> Self {
+            let (home, policy) = bare_policy().await;
+            let output = SessionScopedFeed::new(FeedId::SHELL_OUTPUT, 256, LagPolicy::Warn);
+            let rx = output.subscribe();
+            let (tx, in_rx) = mpsc::channel(64);
+            let cancel = CancellationToken::new();
+            let handle = tokio::spawn(run_dispatcher(
+                in_rx,
+                output.clone(),
+                ledger,
+                None,
+                None,
+                cancel.clone(),
+                horizon,
+                policy,
+            ));
+            Self {
+                tx,
+                rx,
+                cancel,
+                handle,
+                _home: home,
+            }
+        }
+
+        async fn send(&self, frame: Frame) {
+            self.tx.send(frame).await.unwrap();
+        }
+
+        /// The next payload of one of `kinds`, skipping every other frame;
+        /// `None` if none arrives within `within`.
+        async fn next_of(&mut self, kinds: &[&str], within: Duration) -> Option<serde_json::Value> {
+            let deadline = tokio::time::Instant::now() + within;
+            while let Ok(Ok(frame)) = tokio::time::timeout_at(deadline, self.rx.recv()).await {
+                let v = payload_json(&frame);
+                if kinds.iter().any(|k| v["type"] == *k) {
+                    return Some(v);
+                }
+            }
+            None
+        }
+
+        async fn stop(self) {
+            self.cancel.cancel();
+            drop(self.tx);
+            let _ = self.handle.await;
+        }
+    }
+
+    /// Long enough for a frame that is coming to arrive on a loaded machine.
+    const ARRIVES: Duration = Duration::from_secs(20);
+    /// Five short horizons: long enough that a frame which would have come
+    /// on a timer has had every chance to.
+    const STAYS_AWAY: Duration = Duration::from_millis(1500);
+
+    #[tokio::test]
+    async fn a_silent_idle_command_is_asked_about_and_left_running() {
+        // No clock stops a command. One that prints nothing and uses no CPU
+        // for its quiet horizon produces `exchange_quiet`, and that is all:
+        // it keeps running, nothing further happens on a timer, and it ends
+        // only when it is killed.
+        let mut rig = Rig::start(SHORT_HORIZON, None).await;
+        rig.send(exec_frame("s1", "e1", "sleep 60", None)).await;
+        let quiet = rig
+            .next_of(&["exchange_quiet", "exchange_complete"], ARRIVES)
+            .await
+            .expect("a silent, idle command is asked about");
+        assert_eq!(quiet["type"], "exchange_quiet");
+        assert_eq!(quiet["exchange_id"], "e1");
+        assert_eq!(quiet["horizon_ms"], 300);
+        assert!(quiet["quiet_ms"].as_u64().unwrap() >= 300);
+        assert_eq!(quiet["cpu_idle"], true);
+
+        // Unanswered, the question stands and the command runs on.
+        let more = rig
+            .next_of(&["exchange_quiet", "exchange_complete"], STAYS_AWAY)
+            .await;
+        assert!(more.is_none(), "nothing happens on a timer: {more:?}");
+
+        rig.send(kill_frame("s1")).await;
+        let settled = rig
+            .next_of(&["exchange_complete"], ARRIVES)
+            .await
+            .expect("the kill settles it");
+        assert_eq!(settled["exit_code"], serde_json::Value::Null);
+        assert_eq!(settled["stopped_by"], "kill");
+
+        // The session is usable afterwards, and an exchange that exits on
+        // its own was stopped by nothing.
+        rig.send(exec_frame("s1", "e2", "echo recovered", None))
+            .await;
+        let next = rig
+            .next_of(&["exchange_complete"], ARRIVES)
+            .await
+            .expect("the follow-up settles");
+        assert!(next["output"].as_str().unwrap().contains("recovered"));
+        assert_eq!(next["stopped_by"], serde_json::Value::Null);
+        rig.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_command_working_silently_is_not_asked_about() {
+        // A busy loop prints nothing, but the group's CPU time moves between
+        // readings, so the horizon starts over each time it runs out.
+        let mut rig = Rig::start(SHORT_HORIZON, None).await;
+        rig.send(exec_frame("s1", "e1", "while :; do :; done", None))
+            .await;
+        let started = rig.next_of(&["exchange_started"], ARRIVES).await;
+        assert!(started.is_some());
+        let asked = rig
+            .next_of(&["exchange_quiet", "exchange_complete"], STAYS_AWAY)
+            .await;
+        assert!(
+            asked.is_none(),
+            "a working command is left alone: {asked:?}"
         );
+        rig.send(kill_frame("s1")).await;
+        let settled = rig.next_of(&["exchange_complete"], ARRIVES).await;
+        assert_eq!(settled.expect("the kill settles it")["stopped_by"], "kill");
+        rig.stop().await;
+    }
+
+    #[tokio::test]
+    async fn keep_waiting_doubles_the_next_horizon() {
+        let mut rig = Rig::start(SHORT_HORIZON, None).await;
+        rig.send(exec_frame("s1", "e1", "sleep 60", None)).await;
+        let first = rig
+            .next_of(&["exchange_quiet"], ARRIVES)
+            .await
+            .expect("the first question");
+        assert_eq!(first["horizon_ms"], 300);
+
+        // An answer for an exchange that is not asking changes nothing.
+        rig.send(keep_waiting_frame("s1", "some-other-exchange"))
+            .await;
+        let stray = rig.next_of(&["exchange_quiet"], STAYS_AWAY).await;
+        assert!(stray.is_none(), "a stray answer re-arms nothing: {stray:?}");
+
+        rig.send(keep_waiting_frame("s1", "e1")).await;
+        let second = rig
+            .next_of(&["exchange_quiet"], ARRIVES)
+            .await
+            .expect("the second question");
+        assert_eq!(second["horizon_ms"], 600);
+
+        rig.send(keep_waiting_frame("s1", "e1")).await;
+        let third = rig
+            .next_of(&["exchange_quiet"], ARRIVES)
+            .await
+            .expect("the third question");
+        assert_eq!(third["horizon_ms"], 1200);
+        rig.send(kill_frame("s1")).await;
+        rig.next_of(&["exchange_complete"], ARRIVES).await;
+        rig.stop().await;
+    }
+
+    #[tokio::test]
+    async fn output_after_the_question_starts_the_silence_over() {
+        // The command answers the question itself by printing. The horizon it
+        // is then held to is the one it had: only `keep_waiting` doubles it.
+        let mut rig = Rig::start(SHORT_HORIZON, None).await;
+        rig.send(exec_frame(
+            "s1",
+            "e1",
+            "sleep 2; echo awake; sleep 60",
+            None,
+        ))
+        .await;
+        let first = rig.next_of(&["exchange_quiet"], ARRIVES).await;
+        assert_eq!(first.expect("asked while silent")["horizon_ms"], 300);
+        let chunk = rig
+            .next_of(&["exchange_output", "exchange_quiet"], ARRIVES)
+            .await
+            .expect("the command prints");
+        assert_eq!(chunk["type"], "exchange_output");
+        assert_eq!(chunk["chunk"], "awake\n");
+        // An answer to the question the output already dismissed is dropped.
+        rig.send(keep_waiting_frame("s1", "e1")).await;
+        let again = rig
+            .next_of(&["exchange_quiet"], ARRIVES)
+            .await
+            .expect("asked again once silent again");
+        assert_eq!(again["horizon_ms"], 300);
+        rig.send(kill_frame("s1")).await;
+        rig.next_of(&["exchange_complete"], ARRIVES).await;
+        rig.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_killed_exchange_settles_with_everything_it_printed() {
+        let ledger = Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().unwrap());
+        let mut rig = Rig::start(Duration::from_secs(60), Some(Arc::clone(&ledger))).await;
+        rig.send(exec_frame(
+            "s1",
+            "e1",
+            "echo before the wait; printf 'unended'; sleep 60",
+            Some("/tmp"),
+        ))
+        .await;
+        // Kill only once all of it has streamed, the unended line included.
+        let mut streamed = String::new();
+        while !streamed.contains("unended") {
+            let chunk = rig
+                .next_of(&["exchange_output"], ARRIVES)
+                .await
+                .expect("the output streams before the kill");
+            streamed.push_str(chunk["chunk"].as_str().unwrap());
+        }
+        rig.send(kill_frame("s1")).await;
+        let settled = rig
+            .next_of(&["exchange_complete"], ARRIVES)
+            .await
+            .expect("the kill settles it");
+        assert_eq!(settled["stopped_by"], "kill");
+        assert_eq!(settled["output"], "before the wait\nunended");
+        rig.stop().await;
+        let rows = ledger.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].output, "before the wait\nunended");
+        assert_eq!(rows[0].exit_code, None);
     }
 
     #[tokio::test]
@@ -1678,7 +2329,7 @@ mod tests {
         // One exchange carries the whole script. Its last line ends in a
         // comment, which must not swallow the brace that closes the group:
         // if it did, the shell would wait on input that never comes and the
-        // exchange would only end at the timeout, with no exit code.
+        // exchange would never end, and the test's own deadline would pass.
         let done = drive(
             vec![
                 exec_frame("s1", "e1", "echo first\necho second # the last word", None),
@@ -1813,6 +2464,78 @@ mod tests {
         );
         // The settle is whole whatever the pieces carried.
         assert_eq!(seen.last().unwrap()["output"], "first\nsecond\n");
+    }
+
+    #[tokio::test]
+    async fn an_unended_line_streams_before_the_command_exits() {
+        // A progress line redrawn with a carriage return never ends in a
+        // newline while the command runs. It is output all the same, and it
+        // arrives ahead of the settle.
+        let seen = frames_of_one_exchange("printf 'a\\rb'; sleep 1; printf 'c'").await;
+        let kinds: Vec<&str> = seen.iter().map(|v| v["type"].as_str().unwrap()).collect();
+        let chunks: Vec<&str> = seen
+            .iter()
+            .filter(|v| v["type"] == "exchange_output")
+            .map(|v| v["chunk"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            chunks.first(),
+            Some(&"a\rb"),
+            "the unended line arrives before the command completes: {kinds:?}"
+        );
+        assert_eq!(seen.last().unwrap()["output"], "a\rbc");
+        assert_eq!(seen.last().unwrap()["exit_code"], 0);
+    }
+
+    /// Feed `pieces` to a scan one at a time, as separate reads would arrive.
+    fn scan_pieces(marker: &str, pieces: &[&[u8]]) -> (Vec<Vec<u8>>, Option<Sentinel>) {
+        let mut scan = SentinelScan::new(marker, Vec::new());
+        let mut released = Vec::new();
+        for piece in pieces {
+            scan.line.extend_from_slice(piece);
+            let found = scan.advance();
+            released.push(scan.output.clone());
+            if found.is_some() {
+                return (released, found);
+            }
+        }
+        (released, None)
+    }
+
+    #[test]
+    fn a_sentinel_split_across_reads_is_never_released_as_output() {
+        let (released, found) =
+            scan_pieces("__M__", &[b"out", b"\n__", b"M__\t3\t/t", b"mp\nnext"]);
+        // The `__` that opens the next line could be the marker, so it waits.
+        assert_eq!(released[0], b"out");
+        assert_eq!(released[1], b"out\n");
+        assert_eq!(released[2], b"out\n");
+        let sentinel = found.expect("the sentinel line completes");
+        assert_eq!(sentinel.exit_code, Some(3));
+        assert_eq!(sentinel.cwd_after.as_deref(), Some("/tmp"));
+        assert_eq!(sentinel.rest, b"next");
+    }
+
+    #[test]
+    fn a_line_that_only_resembles_the_marker_is_output() {
+        // A prefix of the marker is held until the next byte settles it.
+        let (released, found) = scan_pieces("__M__", &[b"__", b"x", b" __M__\t0\t/\n"]);
+        assert!(found.is_none());
+        assert_eq!(released[0], b"");
+        assert_eq!(released[1], b"__x");
+        // The marker in the middle of a line is the command's own text.
+        assert_eq!(released[2], b"__x __M__\t0\t/\n");
+    }
+
+    #[test]
+    fn a_piece_never_splits_a_character() {
+        let e_acute = "é".as_bytes();
+        assert_eq!(utf8_whole_len(b"ab"), 2);
+        assert_eq!(utf8_whole_len(&[b'a', e_acute[0]]), 1);
+        assert_eq!(utf8_whole_len(&[b'a', e_acute[0], e_acute[1]]), 3);
+        let crab = "🦀".as_bytes();
+        assert_eq!(utf8_whole_len(&crab[..3]), 0);
+        assert_eq!(utf8_whole_len(crab), 4);
     }
 
     #[tokio::test]
@@ -1965,7 +2688,7 @@ mod tests {
             None,
             None,
             cancel.clone(),
-            EXEC_TIMEOUT,
+            QUIET_HORIZON,
             policy,
         ));
         tx.send(exec_frame("s1", "e1", "sleep 60", None))

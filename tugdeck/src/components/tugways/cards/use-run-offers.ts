@@ -17,7 +17,8 @@
  *  - [L22] the stores drive DOM writes, so they are observed directly and
  *    nothing round-trips through a render.
  *  - [L06] Play's pose and the result under the command are DOM, written from
- *    the store on every pass, never React state.
+ *    the store on every pass, never React state; a running result's clock is
+ *    written the same way, once a second.
  *  - [L03] the store subscriptions are made in a layout effect, before a
  *    click could depend on them.
  *  - [L07] the click reads the scope and the shell through refs.
@@ -30,6 +31,7 @@
 import React from "react";
 
 import { drawRunOffers, pressRunOffer, syncRunOffers } from "@/lib/run-offer-binding";
+import { LivenessClock } from "@/lib/run-liveness";
 import type { RunOfferStore } from "@/lib/run-offer-store";
 import type { ShellSessionStore } from "@/lib/shell-session-store";
 
@@ -64,12 +66,21 @@ export function useRunOffers(
   /** The container last annotated, and the release of the listener on it. */
   const listening = React.useRef<{ container: HTMLElement; release: () => void } | null>(null);
 
+  // A running offer's footer reads elapsed time and the age of its last
+  // output. The clock rewrites it in place and runs only while one is drawn.
+  const clock = React.useRef<LivenessClock | null>(null);
+  if (clock.current === null) {
+    clock.current = new LivenessClock(() => listening.current?.container ?? null);
+  }
+
   const sync = React.useCallback((): void => {
     const container = listening.current?.container;
     const { shell: store, drawn: runs, scope: at, commandsFinal: final } = live.current;
     if (container === undefined) return;
-    if (store !== null) syncRunOffers(container, store, at, final);
-    else if (runs !== null) drawRunOffers(container, runs, at);
+    if (store !== null) {
+      syncRunOffers(container, store, at, final);
+      clock.current?.check();
+    } else if (runs !== null) drawRunOffers(container, runs, at);
   }, []);
 
   const onAnnotated = React.useCallback(
@@ -118,6 +129,7 @@ export function useRunOffers(
     () => () => {
       listening.current?.release();
       listening.current = null;
+      clock.current?.stop();
     },
     [],
   );

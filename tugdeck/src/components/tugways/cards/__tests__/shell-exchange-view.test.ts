@@ -41,6 +41,18 @@ describe("deriveShellExchangeView", () => {
     expect(v.command).toBe("ls");
   });
 
+  test("a redrawn progress line shows its latest value, running and settled", () => {
+    const output = "signing\nIn Progress 0m01s\rIn Progress 0m02s";
+    const running = deriveShellExchangeView(msg({ output, settledAtMs: null }));
+    expect(running.terminal.stdout).toBe("signing\nIn Progress 0m02s");
+    const settled = deriveShellExchangeView(msg({ output, exitCode: 0, settledAtMs: 3000 }));
+    expect(settled.terminal.stdout).toBe(running.terminal.stdout);
+    // What is shared to context is what the block shows.
+    expect(
+      composeShellShareText({ command: "x", output, exitCode: 0, settledAtMs: 3000 }),
+    ).not.toContain("0m01s");
+  });
+
   test("settled success: exit 0, duration, not failed; terminal is output-only", () => {
     const v = deriveShellExchangeView(
       msg({ output: "a\nb\n", exitCode: 0, cwdAfter: "/proj", settledAtMs: 1012 }),

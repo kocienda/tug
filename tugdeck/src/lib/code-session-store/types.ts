@@ -303,7 +303,7 @@ export interface ShellExchangeMessage extends MessageBase {
   command: string;
   /** Combined stdout+stderr, ANSI-bearing. Empty until the exchange settles. */
   output: string;
-  /** `null` while in flight, and for a killed / timed-out exchange. */
+  /** `null` while in flight, and for a killed exchange. */
   exitCode: number | null;
   /** cwd at exec time. */
   cwd: string;

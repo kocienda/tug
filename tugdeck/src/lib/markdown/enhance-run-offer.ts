@@ -31,6 +31,13 @@
 
 import { buildCopyButton, buildIcon, type IconChild } from "./enhance-block-chrome";
 import { ansiToHtml } from "@/lib/ansi/ansi-to-html";
+import { applyCarriageReturns } from "@/lib/ansi/carriage-return";
+import {
+  QUIET_KEEP_LABEL,
+  QUIET_TERMINATE_LABEL,
+  quietQuestion,
+  setLivenessReading,
+} from "@/lib/run-liveness";
 import { runOfferStatus, type RunOfferRun } from "@/lib/run-offer-store";
 import { terminalNeed, terminalNeedNote } from "@/lib/run-offer-terminal";
 
@@ -118,6 +125,15 @@ const STAGED_ICON: ReadonlyArray<IconChild> = [
 
 /** The class of a result's Add to context control. */
 export const RUN_OFFER_ADD_CLASS = "tugx-md-run-add";
+
+/** The class of the band a quiet command's result wears. */
+export const RUN_OFFER_QUIET_CLASS = "tugx-md-run-quiet";
+
+/** The class of the band's button that ends the command. */
+export const RUN_OFFER_TERMINATE_CLASS = "tugx-md-run-terminate";
+
+/** The class of the band's button that leaves the command running. */
+export const RUN_OFFER_KEEP_CLASS = "tugx-md-run-keep";
 
 /**
  * Build the Play control. It is built disabled, and hidden by CSS until a
@@ -336,6 +352,12 @@ export function syncRunOfferFrame(frame: HTMLElement, state: RunOfferFrameState)
  * adds the result to the next submission's context, which is the only way it
  * gets there.
  *
+ * A run still going says how alive it looks instead: its footer carries a
+ * reading of how long it has run and how long ago it last printed, kept
+ * current by the clock of whoever adopted the frame. When the shell has
+ * asked about it, a band between the output and the footer puts the
+ * question, with a button to end the command and one to leave it running.
+ *
  * The output keeps its element across draws. It is capped in height by CSS
  * and scrolls inside itself, and it is brought to its tail after a write
  * only if it was showing its tail before it; a result drawn for the first
@@ -346,7 +368,9 @@ function drawRunOfferResult(result: HTMLElement, run: RunOfferRun, canAdd: boole
   result.dataset.tone = status.tone;
 
   let output = result.querySelector<HTMLElement>(":scope > .tugx-md-run-output");
-  const text = run.output.replace(/\n+$/, "");
+  // A carriage return redraws its line, so a progress line shows its latest
+  // value; the running output and the settled one are drawn by this one path.
+  const text = applyCarriageReturns(run.output).replace(/\n+$/, "");
   if (text.length === 0) {
     output?.remove();
   } else {
@@ -367,6 +391,12 @@ function drawRunOfferResult(result: HTMLElement, run: RunOfferRun, canAdd: boole
   label.className = "tugx-md-run-status";
   label.textContent = status.label;
   footer.appendChild(label);
+  if (run.status === "running") {
+    const reading = document.createElement("span");
+    reading.className = "tugx-md-run-liveness";
+    setLivenessReading(reading, run.startedAtMs, run.lastOutputAtMs, Date.now());
+    footer.appendChild(reading);
+  }
   if (status.duration !== null) {
     const duration = document.createElement("span");
     duration.className = "tugx-md-run-duration";
@@ -389,5 +419,45 @@ function drawRunOfferResult(result: HTMLElement, run: RunOfferRun, canAdd: boole
   const prior = result.querySelector<HTMLElement>(":scope > .tugx-md-run-footer");
   if (prior !== null) prior.replaceWith(footer);
   else result.appendChild(footer);
+
+  drawQuietBand(result, footer, run);
+}
+
+/**
+ * Put the quiet question above a result's footer, or take it away. The band
+ * keeps its element for as long as the question reads the same, so a draw
+ * that changes nothing else leaves its buttons where a press can find them.
+ */
+function drawQuietBand(result: HTMLElement, footer: HTMLElement, run: RunOfferRun): void {
+  const existing = result.querySelector<HTMLElement>(`:scope > .${RUN_OFFER_QUIET_CLASS}`);
+  if (run.status !== "running" || run.quiet === null) {
+    existing?.remove();
+    return;
+  }
+  const question = quietQuestion(run.quiet.quietMs);
+  if (existing !== null) {
+    const text = existing.querySelector<HTMLElement>(":scope > .tugx-md-run-quiet-text");
+    if (text !== null && text.textContent !== question) text.textContent = question;
+    return;
+  }
+  const band = document.createElement("div");
+  band.className = RUN_OFFER_QUIET_CLASS;
+  band.setAttribute("role", "group");
+  band.setAttribute("aria-label", "This command has gone quiet");
+  const text = document.createElement("span");
+  text.className = "tugx-md-run-quiet-text";
+  text.textContent = question;
+  band.appendChild(text);
+  band.appendChild(buildQuietButton(RUN_OFFER_TERMINATE_CLASS, QUIET_TERMINATE_LABEL));
+  band.appendChild(buildQuietButton(RUN_OFFER_KEEP_CLASS, QUIET_KEEP_LABEL));
+  footer.before(band);
+}
+
+function buildQuietButton(className: string, label: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `tugx-md-run-quiet-btn ${className}`;
+  button.textContent = label;
+  return button;
 }
 

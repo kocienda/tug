@@ -773,6 +773,73 @@ body {
   flex: 0 0 auto;
 }
 
+/* A running command's reading: how long it has run, then how long ago it
+   last printed. The text is rewritten in place once a second, so the
+   figures are tabular and the row never shifts under them. */
+.tugx-md-block .tugx-md-run-liveness {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: var(--tug-space-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The question a quiet command is asked, between its output and its footer:
+   the sentence, then Terminate and Keep Waiting. It sits on the strip's
+   surface and takes no colour of its own. Nothing was decided and nothing
+   has gone wrong, so it does not read as an alarm. */
+/* @tug-renders-on: --tugx-block-strip-bg */
+.tugx-md-block .tugx-md-run-quiet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: var(--tug-space-xs) var(--tug-space-lg);
+  background: var(--tugx-block-strip-bg);
+  color: var(--tugx-block-text-color);
+  font-family: var(--tugx-block-strip-font);
+  font-size: var(--tugx-block-strip-size);
+  user-select: none;
+}
+.tugx-md-block .tugx-md-run-output + .tugx-md-run-quiet {
+  border-top: 1px solid var(--tugx-block-strip-border);
+}
+.tugx-md-block .tugx-md-run-quiet + .tugx-md-run-footer {
+  border-top: 1px solid var(--tugx-block-strip-border);
+}
+.tugx-md-block .tugx-md-run-quiet-text {
+  flex: 1 1 auto;
+  min-width: 12ch;
+}
+
+/* The band's two buttons are raw `<button>`s wearing the ghost-action look
+   of the frame's other controls, with a label where those have a glyph. */
+/* @tug-renders-on: --tugx-block-strip-bg */
+.tugx-md-block .tugx-md-run-quiet-btn {
+  flex: 0 0 auto;
+  height: var(--tug-button-xs-height);
+  padding: 0 var(--tug-space-md);
+  border: 1px solid var(--tug7-element-control-border-ghost-action-rest);
+  background-color: var(--tug7-surface-control-primary-ghost-action-rest);
+  color: var(--tug7-element-control-text-ghost-action-rest);
+  border-radius: 0.5rem;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--tug-motion-duration-fast) var(--tug-motion-easing-standard),
+    color var(--tug-motion-duration-fast) var(--tug-motion-easing-standard),
+    border-color var(--tug-motion-duration-fast) var(--tug-motion-easing-standard);
+}
+/* @tug-renders-on: --tug7-surface-control-primary-ghost-action-hover */
+.tugx-md-block .tugx-md-run-quiet-btn:hover {
+  background-color: var(--tug7-surface-control-primary-ghost-action-hover);
+  color: var(--tug7-element-control-text-ghost-action-hover);
+  border-color: var(--tug7-element-control-border-ghost-action-hover);
+}
+.tugx-md-block .tugx-md-run-quiet-btn:focus {
+  outline: none;
+}
+
 /* The directory is the one part that can be long, so it is the part that
    gives way; its whole path is on the element's title. */
 .tugx-md-block .tugx-md-run-cwd {

@@ -17,9 +17,12 @@
  * "Code" assistant identity). The empty name collapses out of the header flow.
  *
  * While the exchange is in flight the header's lifecycle dot pulses (the
- * standard streaming signal) and there is no body; once it settles the body
- * mounts with the final output. Add-to-context ([P08]) is the only path into
- * Claude's context and appears once settled.
+ * standard streaming signal) and there is no body: a live band under the
+ * header reads how long the command has run and how long ago it last
+ * printed, and carries the question asked of a command that has gone quiet
+ * (`ShellLiveBand`). Once it settles the body mounts with the final output.
+ * Add-to-context ([P08]) is the only path into Claude's context and appears
+ * once settled.
  */
 
 import type React from "react";
@@ -39,6 +42,7 @@ import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-vis
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import { BlockChrome } from "../blocks/block-chrome";
 import { deriveShellExchangeView } from "./shell-exchange-view";
+import { ShellLiveBand } from "./shell-live-band";
 import "./shell-exchange-block.css";
 
 /** Icon-only Add-to-context toggle — stage this exchange to ride the next `❯`
@@ -179,6 +183,13 @@ export function ShellExchangeBlock({
       command={command}
       phase={phase}
       status={view.inFlight ? "streaming" : view.failed ? "error" : "ready"}
+      // What the command is doing while it runs, and the question asked of
+      // one that has gone quiet. A settled exchange has neither.
+      liveBand={
+        view.inFlight ? (
+          <ShellLiveBand exchangeId={message.exchangeId} startedAtMs={message.startedAtMs} />
+        ) : undefined
+      }
       headerActions={headerActions}
       // The header's built-in Copy writes the output; a no-output exchange
       // (`cd`) has nothing to copy, so no Copy renders there.

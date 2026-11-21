@@ -84,6 +84,7 @@ import { ensureParsed } from "@/lib/markdown/parse-cache";
 import { mathStrippedText } from "@/lib/markdown/block-transformers/inline-math-walker";
 import { chartFindText } from "@/lib/chart/chart-find-text";
 import { placeholderLayers } from "@/lib/markdown/enhance-chart";
+import { applyCarriageReturns } from "@/lib/ansi/carriage-return";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import type { RowSegment } from "@/lib/transcript-search";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
@@ -538,9 +539,10 @@ function shellSegments(
   }
   if (expansion.resolve(message.exchangeId, false)) return segments;
   if (message.output !== "") {
-    // The row's `TerminalBlock` is fed `{stdout: msg.output, stderr: ""}`
-    // (`deriveShellExchangeView`), so the projection is that same terminal's.
-    const visible = terminalText(message.output, "");
+    // The row's `TerminalBlock` is fed the output with its carriage returns
+    // applied (`deriveShellExchangeView`), so the projection is that same
+    // terminal's.
+    const visible = terminalText(applyCarriageReturns(message.output), "");
     if (visible !== "") {
       // Keyed: the terminal's internal fold can hide the tail of this unit;
       // navigation unfolds it through the card's FindTargetRegistry.
