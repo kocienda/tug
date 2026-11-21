@@ -19,6 +19,8 @@
  * of a header and one line, so the grid is as tall as what it holds. Under a
  * host that caps its height the rows share the room: a row that needs little
  * keeps it, and the other's panels scroll inside themselves.
+ * A panel is as tall as what it holds, never stretched to its row: the
+ * shorter of a row's two panels stands at the top, with space beneath it.
  *
  * At rest the two columns are equal. A press on a panel expands it: its
  * column takes two parts to the other's one, and its body's cap of lines
@@ -305,22 +307,27 @@ function RowSeam({ from, state }: { from: ArcPanelRung; state: ArcPanelSeamState
 /**
  * The return across the middle: down out of the second panel, back along the
  * seam, and down into the third. It is laid on the grid's own columns, so its
- * two drops stay over the middles of the panels.
+ * two drops stay over the middles of the panels. Its tail lies under the
+ * second panel, so the drop starts at the panel's floor however far above
+ * the seam that is.
  */
 function ReturnSeam({ state }: { state: ArcPanelSeamState }): React.ReactElement {
   return (
-    <div
-      className="session-arc-panel-seam session-arc-panel-seam-return"
-      data-slot="session-arc-panel-seam"
-      data-from="sketch"
-      data-state={state}
-      aria-hidden="true"
-    >
-      <span className="session-arc-panel-return" data-part="into">
-        <ChevronDown className="session-arc-panel-seam-head" size={14} />
-      </span>
-      <span className="session-arc-panel-return" data-part="across" />
-      <span className="session-arc-panel-return" data-part="out" />
-    </div>
+    <>
+      <div className="session-arc-panel-seam session-arc-panel-seam-tail" data-state={state} aria-hidden="true" />
+      <div
+        className="session-arc-panel-seam session-arc-panel-seam-return"
+        data-slot="session-arc-panel-seam"
+        data-from="sketch"
+        data-state={state}
+        aria-hidden="true"
+      >
+        <span className="session-arc-panel-return" data-part="into">
+          <ChevronDown className="session-arc-panel-seam-head" size={14} />
+        </span>
+        <span className="session-arc-panel-return" data-part="across" />
+        <span className="session-arc-panel-return" data-part="out" />
+      </div>
+    </>
   );
 }

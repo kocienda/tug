@@ -25,6 +25,9 @@
  *      every panel is inside the grid, the body never scrolls across, and
  *      the Arc panel is in view with its lower edge, and so its verbs,
  *      showing.
+ *      A panel is as tall as what it holds, at the top of its row, and the
+ *      row is as tall as its taller panel; under a Sketch panel shorter than
+ *      its row the return's tail runs from the panel's floor to the seam.
  *      Each row is as tall as its taller panel needs: the two one-line
  *      panels' row is short, the shade holds the grid whole when it is under
  *      its cap, and when the cap binds the short row keeps its height while
@@ -173,6 +176,8 @@ interface GridReading {
   verbRow: Box;
   verbRowOverflow: number;
   scroller: Box;
+  /** The return's tail, under the Sketch panel. */
+  tail: Box;
 }
 
 const read = (app: App): Promise<GridReading> =>
@@ -221,6 +226,7 @@ const read = (app: App): Promise<GridReading> =>
          verbRow: box(row),
          verbRowOverflow: row.scrollWidth - row.clientWidth,
          scroller: box(arc.querySelector(".tug-popup-list-scroller")),
+         tail: box(grid.querySelector(".session-arc-panel-seam-tail")),
        };
      })()`,
   );
@@ -441,8 +447,17 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         expect(spare, "and no wider than it").toBeGreaterThanOrEqual(-1);
         expect(spare, "and narrower by no more than a scrollbar").toBeLessThanOrEqual(20);
         expect(height(rest.body), "the body has real height").toBeGreaterThan(100);
-        expect(Math.abs(height(idea) - height(sketch)), "a row's two panels are one height").toBeLessThanOrEqual(0.5);
-        expect(Math.abs(height(brief) - height(arc)), "in both rows").toBeLessThanOrEqual(0.5);
+        // A panel is as tall as what it holds, never stretched to its row:
+        // the row is its taller panel's height or its floor, and the seam
+        // starts there. The floor is a header and one line in a panel with a
+        // 3 px top border, so a pending seat, whose top border is 1 px, stands
+        // 2 px short of it.
+        note("at0860 top panels", JSON.stringify({ idea: height(idea), sketch: height(sketch), brief: height(brief), arc: height(arc) }));
+        const below = brief.t - 28 - Math.max(idea.b, sketch.b);
+        expect(below, "no panel runs past its row").toBeGreaterThanOrEqual(-0.5);
+        expect(below, "and the row is no taller than its taller panel or its floor").toBeLessThanOrEqual(2.5);
+        expect(Math.abs(rest.tail.t - sketch.t), "the return's tail starts in the Sketch panel's seat").toBeLessThanOrEqual(0.5);
+        expect(Math.abs(rest.tail.b - (brief.t - 28)), "and runs to the seam").toBeLessThanOrEqual(1);
         expect(height(idea), "the row of two one-line panels is short").toBeLessThan(90);
         expect(height(idea), "and shorter than the row holding the arc").toBeLessThan(height(arc));
         const cap = await readCap(app);

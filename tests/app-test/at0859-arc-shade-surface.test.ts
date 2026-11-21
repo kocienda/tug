@@ -81,9 +81,6 @@ const projectDir = (): string => scratch?.repo ?? "";
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeArcScratchRepo({ prefix: "at0859", checkout: CHECKOUT });
-  // A worktree and nothing else: the shade's form asks only whether the
-  // session has an arc.
-  createArc(projectDir(), ARC_NAME, "at0859 shade", scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -273,6 +270,10 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         );
 
         // ── With an arc: the panels, by the same rule ─────────────────────
+        // The arc is made only now: an arc in the project that no session is
+        // working is offered by the short shade, which was read above with
+        // nothing to offer.
+        createArc(projectDir(), ARC_NAME, "at0859 shade", scratch?.cli ?? {});
         bindArc(projectDir(), ARC_NAME, SID, {
           binaryRoot: CHECKOUT,
           env: scratch?.cli.env,

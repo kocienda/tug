@@ -11,7 +11,13 @@
  * spelling (`features.md#arcs`), opened through the `OPEN_HELP` command
  * beside the card this stands in.
  *
- * Composes `TugPushButton` and `TugLink`, which keep their own tokens.
+ * Under them, when the project has any, are its unbound arcs, the ones no
+ * session is working, in the one order arcs are listed in: each its arc atom,
+ * its stage, and Bind, which binds this session to it. Bind is the caller's;
+ * it is never dimmed, since binding takes no turn.
+ *
+ * Composes `TugPushButton`, `TugLink` and `TugArcAtom`, which keep their own
+ * tokens.
  *
  * Laws: [L06] no state, the dimming is the button's `disabled`, [L11] the
  *       button emits and the card performs, [L16] pairings declared, [L19]
@@ -25,10 +31,12 @@ import React from "react";
 
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
 import { TugLink } from "@/components/tugways/tug-link";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
+import type { ArcChangesetEntry } from "@/lib/changeset-types";
 
 /** The help document and the heading in it that says what an arc is. */
 export const ARC_HELP = { doc: "features", anchor: "arcs" } as const;
@@ -39,9 +47,20 @@ export const NEW_ARC_COMMAND = "new-arc";
 export interface SessionArcShadeHintProps {
   /** The session can take a turn now; New Arc is dimmed while it cannot. */
   canStart: boolean;
+  /**
+   * The project's arcs no session is working, in the order to list them.
+   * @default []
+   */
+  unboundArcs?: readonly ArcChangesetEntry[];
+  /** Bind this session to one of `unboundArcs`. */
+  onBind?: (entry: ArcChangesetEntry) => void;
 }
 
-export function SessionArcShadeHint({ canStart }: SessionArcShadeHintProps): React.ReactElement {
+export function SessionArcShadeHint({
+  canStart,
+  unboundArcs = [],
+  onBind,
+}: SessionArcShadeHintProps): React.ReactElement {
   // The card this stands in, which the help card opens beside.
   const hostCardId = useCardId();
   const chain = useResponderChain();
@@ -90,6 +109,36 @@ export function SessionArcShadeHint({ canStart }: SessionArcShadeHintProps): Rea
           What an arc is
         </TugLink>
       </div>
+      {unboundArcs.length > 0 ? (
+        <div className="session-arc-shade-hint-unbound" data-slot="session-arc-shade-hint-unbound">
+          <p className="session-arc-shade-hint-text">
+            Or bind this session to an arc no session is working:
+          </p>
+          <ul className="session-arc-shade-hint-arcs">
+            {unboundArcs.map((entry) => (
+              <li
+                key={entry.owner_id}
+                className="session-arc-shade-hint-arc"
+                data-slot="session-arc-shade-hint-arc"
+                data-arc={entry.display_name}
+              >
+                <TugArcAtom name={entry.display_name} />
+                {entry.stage !== undefined ? (
+                  <span className="session-arc-shade-hint-stage">{entry.stage}</span>
+                ) : null}
+                <TugPushButton
+                  size="sm"
+                  emphasis="outlined"
+                  onClick={() => onBind?.(entry)}
+                  data-slot="session-arc-shade-hint-bind"
+                >
+                  Bind
+                </TugPushButton>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

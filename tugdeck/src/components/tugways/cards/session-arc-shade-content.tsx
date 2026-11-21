@@ -15,6 +15,10 @@
  * With no arc there are no panels: the body is
  * the short form's hint, which says so in the one word the ARC cell says,
  * says what an arc is and how to start one, and links to the guide.
+ * Under it are the project's unbound arcs, the ones no session is working,
+ * each with Bind, which sends the same `bind_arc` frame the Changes shade's
+ * lane and the Arcs card send. Nothing moves until `bind_arc_ok` arrives, and
+ * then the shade shows the bound arc's panels.
  *
  * Composes `SessionArcPanels`, `ArcBriefDetail`, `ArcBriefHeadings`,
  * `ArcPopoverContent` and `SessionArcShadeHint` as they are and adds no
@@ -38,12 +42,17 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugEmptyLine } from "@/components/tugways/tug-empty-line";
 import type { ArcShadeController } from "@/lib/arc-shade-controller";
+import { compareArcEntries } from "@/lib/arc-order";
 import { parseArcRecord } from "@/lib/arc-record-text";
 import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
+import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { useChangesetAll } from "@/lib/changeset-all-store";
+import type { ArcChangesetEntry } from "@/lib/changeset-types";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
+import { getConnection } from "@/lib/connection-singleton";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { ArcBriefDetail, ArcBriefHeadings } from "./session-arc-brief";
@@ -140,6 +149,35 @@ export function SessionArcShadeContent({
     });
   }, [chain, cardId]);
 
+  // The project's unbound arcs, in the one order arcs are listed in. Read
+  // only for a session with no arc, which is the only time they are shown.
+  const projectDir = useSyncExternalStore(cardSessionBindingStore.subscribe, () =>
+    cardId === null ? null : (cardSessionBindingStore.getBinding(cardId)?.projectDir ?? null),
+  );
+  const aggregate = useChangesetAll();
+  const unboundArcs = useMemo<readonly ArcChangesetEntry[]>(() => {
+    if (fact !== null || projectDir === null) return [];
+    const project = aggregate.projects.find((p) => p.project_dir === projectDir);
+    const arcs: ArcChangesetEntry[] = [];
+    for (const entry of project?.changesets ?? []) {
+      if (entry.kind === "arc" && entry.bound_session === undefined) arcs.push(entry);
+    }
+    return arcs.sort(compareArcEntries);
+  }, [aggregate, projectDir, fact]);
+  const bindArc = useCallback(
+    (entry: ArcChangesetEntry) => {
+      if (snap.tugSessionId === null || projectDir === null) return;
+      // The name comes from the aggregate, never free text: `bind_arc` mints
+      // an arc for a name it does not know.
+      getConnection()?.sendControlFrame("bind_arc", {
+        tug_session_id: snap.tugSessionId,
+        project_dir: projectDir,
+        arc: entry.display_name,
+      });
+    },
+    [snap.tugSessionId, projectDir],
+  );
+
   const arcVerbs = useArcPopoverVerbs({
     fact,
     idle,
@@ -151,7 +189,7 @@ export function SessionArcShadeContent({
   return (
     <div ref={rootRef} data-slot="session-arc-shade-content">
       {fact === null || arcVerbs.verbs === null ? (
-        <SessionArcShadeHint canStart={snap.canSubmit && fact === null} />
+        <SessionArcShadeHint canStart={snap.canSubmit && fact === null} unboundArcs={unboundArcs} onBind={bindArc} />
       ) : (
         <SessionArcPanels
           raised={raised}

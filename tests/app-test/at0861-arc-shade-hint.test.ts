@@ -11,6 +11,8 @@
  *      written as a help link to the guide's section on arcs.
  *   3. Following the link opens the feature guide in a help card, scrolled to
  *      its Arcs heading.
+ *   4. The project's unbound arc is listed under the hint with Bind, and
+ *      Bind binds the session to it: the shade shows that arc's panels.
  *
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade-hint.tsx
  * @covers tugdeck/src/components/tugways/cards/session-arc-shade-hint.css
@@ -33,6 +35,7 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   makeArcScratchRepo,
+  createArc,
   rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
@@ -48,7 +51,12 @@ const CARD = '[data-card-id="A"]';
 const SHADE = `${CARD} [data-slot="session-arc-shade"]`;
 const HINT = `${SHADE} [data-slot="session-arc-shade-hint"]`;
 const HELP_LINK = `${HINT} [data-slot="session-arc-shade-hint-help"]`;
+const UNBOUND_ARC = `${HINT} [data-slot="session-arc-shade-hint-arc"]`;
+const BIND = `${UNBOUND_ARC} [data-slot="session-arc-shade-hint-bind"]`;
 const ARC_CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
+
+/** An arc in the project that no session is working. */
+const ARC_NAME = "at0861-loose";
 
 /** This checkout — the build under test. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -59,9 +67,11 @@ const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  // A project and a session in it, and no arc anywhere.
+  // A project and a session in it with no arc, and an arc in the project
+  // that no session is working.
   scratch = makeArcScratchRepo({ prefix: "at0861", checkout: CHECKOUT });
   fixtureDir = seedScratchSession(projectDir(), SID);
+  createArc(projectDir(), ARC_NAME, "at0861 fixture", scratch.cli);
 });
 
 afterAll(() => {
@@ -107,6 +117,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
           code: string[];
           link: string;
           href: string | null;
+          unbound: string[];
         }>(
           `(() => {
              const shade = document.querySelector(${JSON.stringify(SHADE)});
@@ -120,6 +131,9 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
                code: Array.from(hint.querySelectorAll("code")).map(text),
                link: text(link),
                href: link?.getAttribute("href") ?? null,
+               unbound: Array.from(hint.querySelectorAll('[data-slot="session-arc-shade-hint-arc"]')).map(
+                 (el) => el.getAttribute("data-arc"),
+               ),
              };
            })()`,
         );
@@ -131,6 +145,7 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
         expect(hint.text, "and the sentence points at it").toContain("press New Arc");
         expect(hint.link).toBe("What an arc is");
         expect(hint.href, "the link is a help link to the guide's Arcs section").toBe("features.md#arcs");
+        expect(hint.unbound, "the project's unbound arc is offered").toEqual([ARC_NAME]);
 
         // ── The link opens the guide at its Arcs heading ──────────────────
         await app.body("A").click(HELP_LINK);
@@ -150,6 +165,27 @@ describe.skipIf(!SHOULD_RUN)("AT0861: the arc shade with no arc", () => {
         );
         note("at0861 help", JSON.stringify(help));
         expect(help.title).toBe("Tug: what it does and how to use it");
+
+        // ── Bind binds the session to the unbound arc ─────────────────────
+        // The help card took the key view; the shade is raised again if that
+        // lowered it.
+        const raised = await app.body("A").evalJS<boolean>(
+          `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") === "true"`,
+        );
+        if (!raised) await app.body("A").click(ARC_CELL);
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SHADE)})?.getAttribute("data-raised") === "true"`,
+          { timeoutMs: 10_000 },
+        );
+        await app.body("A").click(BIND);
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SHADE)})?.querySelector('[data-slot="session-arc-panels"]') !== null`,
+          { timeoutMs: 20_000 },
+        );
+        const name = await app.body("A").evalJS<string>(
+          `(document.querySelector(${JSON.stringify(SHADE)})?.querySelector('[data-slot="session-arc-shade-head"]')?.textContent ?? "").trim()`,
+        );
+        expect(name, "the shade's header names the arc it bound").toContain(ARC_NAME);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

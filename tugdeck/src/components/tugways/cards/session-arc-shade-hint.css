@@ -8,7 +8,7 @@
  * | Element                                        | Surface                                           | Role          | Context                                  |
  * |------------------------------------------------|---------------------------------------------------|---------------|------------------------------------------|
  * | --tug7-element-global-text-normal-default-rest | --tug7-surface-global-primary-normal-content-rest | content       | .session-arc-shade-hint-text (color)     |
- * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-hint-none (color)     |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-content-rest | informational | .session-arc-shade-hint-none, .session-arc-shade-hint-stage (color) |
  */
 
 /* The arc shade's short form: the one word the ARC cell reads, a sentence on
@@ -48,4 +48,34 @@
   align-items: center;
   gap: var(--tug-space-md);
   margin-block-start: var(--tug-space-2xs);
+}
+
+/* The unbound arcs, under the actions: a lead sentence and one row per arc,
+   its atom, its stage and Bind. */
+.session-arc-shade-hint-unbound {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  margin-block-start: var(--tug-space-sm);
+}
+
+.session-arc-shade-hint-arcs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-arc-shade-hint-arc {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-content-rest */
+.session-arc-shade-hint-stage {
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }
