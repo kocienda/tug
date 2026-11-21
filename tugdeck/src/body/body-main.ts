@@ -156,6 +156,7 @@ import { deckTrace } from "../deck-trace";
 import { createBodyLand } from "./body-land";
 import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
+import { CATCH_UP_LOG_SOURCE } from "../lib/code-session-store/catch-up-log";
 import { exposePerfMonitor, startPerfMonitor } from "../lib/perf-monitor";
 import { getSettings } from "../lib/maker-mode-bridge";
 import { getRegistration, isSidebarCard } from "../card-registry";
@@ -514,23 +515,29 @@ function catchUpCard(cardId: string, doneNow: () => void): () => void {
   const done = (): void => afterHarnessDelay(harnessDelay("catchUpDelayMs", cardId), doneNow);
   const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
   if (store === null) {
+    tugDevLogStore.warn(CATCH_UP_LOG_SOURCE, "catch-up nothing to ask", {
+      cardId,
+      ending: "nothing to ask",
+      reason: "no session store",
+    });
     done();
     return () => {};
   }
   const sessionState = deckCards.getSnapshot()[cardId]?.sessionState;
   if (!sessionAnswersCatchUp(sessionState)) {
     // Nothing will answer: the deadlines the sleep stopped start from now.
-    // Said aloud when the card holds a turn, because waking over one with
-    // no ask is a transcript frozen where it slept: that turn's end, if it
-    // came, is in a frame this body never heard and nothing will replay.
-    const phase = store.getSnapshot().phase;
-    if (phase !== "idle" && phase !== "errored") {
-      tugDevLogStore.warn("body-dormancy", "a reveal asked nothing over a live turn: the shell says its session cannot answer", {
-        cardId,
-        sessionState: sessionState ?? null,
-        phase,
-      });
-    }
+    // Said as the catch-up's one line, as every other ending is; a card
+    // waking over a turn with no ask is a transcript frozen where it slept,
+    // since that turn's end, if it came, is in a frame this body never heard
+    // and nothing will replay.
+    const snapshot = store.getSnapshot();
+    tugDevLogStore.warn(CATCH_UP_LOG_SOURCE, "catch-up nothing to ask", {
+      cardId,
+      tugSessionId: store.tugSessionId,
+      ending: "nothing to ask",
+      reason: `session ${sessionState ?? "unknown"}`,
+      before: { phase: snapshot.phase, canInterrupt: snapshot.canInterrupt },
+    });
     store.noteAwake();
     done();
     return () => {};
@@ -557,7 +564,7 @@ function catchUpCard(cardId: string, doneNow: () => void): () => void {
       if (cardServicesStore.getServices(cardId)?.codeSessionStore !== store) finish();
     }),
   );
-  store.catchUp();
+  store.catchUp(cardId);
   void store.whenSettled().then(() => {
     if (store.getSnapshot().catchingUp) rose = true;
     else finish();

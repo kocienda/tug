@@ -501,6 +501,14 @@ export interface CatchUpState {
    */
   readonly lastBracket: { readonly askId: string | null; readonly inflight: boolean } | null;
   /**
+   * The open bracket answering the catch-up carried a stage divider: the
+   * card slept through a rotation, so the answer began in an ancestor and
+   * ran into the tip. Its close takes the window the bracket reports, which
+   * is the tip's, rather than keeping the start the card held, which was
+   * counted in the session it slept in. Read only while `stage` is `open`.
+   */
+  readonly crossedStage: boolean;
+  /**
    * The body sleeps (`went_dormant`): the bracket's silence and length
    * deadlines are stopped, and start again from the reveal.
    */
@@ -521,6 +529,7 @@ export const NO_CATCH_UP: CatchUpState = {
   letGo: [],
   lastBracket: null,
   asleep: false,
+  crossedStage: false,
 };
 
 /**
@@ -1612,7 +1621,10 @@ function moveCatchUp(
           behind: from === "asked" ? state.catchUp.behind : null,
         }
       : state.catchUp;
-  return { ...state, catchUp: { ...base, ...fields, stage: to } };
+  return {
+    ...state,
+    catchUp: { ...base, ...(to === "open" ? { crossedStage: false } : {}), ...fields, stage: to },
+  };
 }
 
 /**
@@ -5976,7 +5988,13 @@ function handleSessionStage(
   // for a recovered transport. Nothing else moves: a `session_state_errored`
   // is about the card's process supervision, which a rotation does not
   // replace, and it survives here exactly as it survives a reconnect.
-  const base = clearedWireError(state);
+  const cleared = clearedWireError(state);
+  // A divider inside the catch-up's answer: the answer crossed a rotation,
+  // and its close re-bases the window on the tip's ({@link CatchUpState.crossedStage}).
+  const base =
+    cleared.phase === "replaying" && cleared.catchUp.stage === "open" && !cleared.catchUp.crossedStage
+      ? { ...cleared, catchUp: { ...cleared.catchUp, crossedStage: true } }
+      : cleared;
   const turnKey = base.pendingTurn?.turnKey;
   const entry = turnKey === undefined ? undefined : base.scratch.get(turnKey);
   if (turnKey === undefined || entry === undefined) {
@@ -7167,8 +7185,13 @@ function handleReplayComplete(
   const replayWindow: ReplayWindowMeta | null =
     // A catch-up's turns continue the transcript, so the window keeps its
     // start and what lies older; only the total moves. A re-asked read's
-    // bracket closes as the read would have.
-    state.catchUp.stage === "open" && state.catchUp.answering !== null && state.catchUp.answering.keepsWindow
+    // bracket closes as the read would have, and so does an answer that
+    // crossed a rotation: the card's start was counted in the session it
+    // slept in, and the bracket reports the tip's, which it sent whole.
+    state.catchUp.stage === "open" &&
+    state.catchUp.answering !== null &&
+    state.catchUp.answering.keepsWindow &&
+    !state.catchUp.crossedStage
       ? state.replayWindow === null
         ? null
         : {

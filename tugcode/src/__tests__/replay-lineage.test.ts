@@ -326,12 +326,13 @@ describe("runReplay — lineage", () => {
     );
     expect(shape(caught)).toEqual(["text:revised"]);
 
-    // The card's newest turn is the ancestor's: every tip turn is news, and
-    // the ancestor is not sent again.
+    // The card's newest turn is the ancestor's last: every tip turn is news,
+    // with the divider ahead of them that the card, holding none of the
+    // tip's turns, never drew; the ancestor's turns are not sent again.
     const fromTip = await captureStdout(() =>
       makeManager(files).runReplay({ afterTurn: { msgIds: ["msg-tighten it", "msg-start the arc"], heldTurns: 2 } }, LINEAGE),
     );
-    expect(shape(fromTip)).toEqual(["text:here is the plan", "text:revised"]);
+    expect(shape(fromTip)).toEqual(["stage:devise", "text:here is the plan", "text:revised"]);
 
     // A card holding nothing is building its transcript, lineage and all.
     const fromNothing = await captureStdout(() =>
@@ -344,6 +345,90 @@ describe("runReplay — lineage", () => {
       "text:here is the plan",
       "text:revised",
     ]);
+  });
+
+  // A card that slept through stage rotations holds a turn of an ancestor and
+  // none of the tip's. Its catch-up starts after that turn, in that ancestor,
+  // and carries every later session whole, with the dividers ahead of them
+  // that the card never drew.
+  describe("a catch-up over a three-session lineage", () => {
+    const CONVERSATION_ID = "session-three-conversation";
+    const IMPLEMENT_ID = "session-three-implement";
+    // The tip is the session the manager resumes.
+    const AUDIT_ID = STAGE_ID;
+    const THREE: ReplayLineageEntry[] = [
+      { sessionId: CONVERSATION_ID, stage: "devise", model: "opus", arc: "foo" },
+      { sessionId: IMPLEMENT_ID, stage: "implement", model: "opus", arc: "foo" },
+      { sessionId: AUDIT_ID, stage: "audit", model: "opus", arc: "foo" },
+    ];
+    const files = {
+      [CONVERSATION_ID]: [jsonlFor("a1", "A one"), jsonlFor("a2", "A two")].join("\n"),
+      [IMPLEMENT_ID]: [jsonlFor("b1", "B one"), jsonlFor("b2", "B two"), jsonlFor("b3", "B three")].join("\n"),
+      [AUDIT_ID]: [jsonlFor("c1", "C one"), jsonlFor("c2", "C two")].join("\n"),
+    };
+    const catchUp = (msgIds: string[], heldTurns: number) =>
+      captureStdout(() => makeManager(files).runReplay({ afterTurn: { msgIds, heldTurns } }, THREE));
+
+    test("held in the middle session: its later turns, then the tip's divider and the tip", async () => {
+      const frames = await catchUp(["msg-b1", "msg-a2", "msg-a1"], 3);
+      expect(shape(frames)).toEqual(["text:B two", "text:B three", "stage:audit", "text:C one", "text:C two"]);
+      expect(frames.filter((f) => f.type === "replay_started")).toHaveLength(1);
+      expect(frames.filter((f) => f.type === "replay_complete")).toHaveLength(1);
+    });
+
+    test("held in the first session: its later turns, then every later session whole with its divider", async () => {
+      const frames = await catchUp(["msg-a1"], 1);
+      expect(shape(frames)).toEqual([
+        "text:A two",
+        "stage:implement",
+        "text:B one",
+        "text:B two",
+        "text:B three",
+        "stage:audit",
+        "text:C one",
+        "text:C two",
+      ]);
+    });
+
+    test("held at the end of an ancestor: no turn of it again, only what follows", async () => {
+      const frames = await catchUp(["msg-b3", "msg-b2"], 6);
+      expect(shape(frames)).toEqual(["stage:audit", "text:C one", "text:C two"]);
+    });
+
+    test("held in the tip: the tip's newer turns only, as before", async () => {
+      const frames = await catchUp(["msg-c1", "msg-b3"], 6);
+      expect(shape(frames)).toEqual(["text:C two"]);
+    });
+
+    test("the card's newest id that any session holds places it, whatever ids before it are unknown", async () => {
+      const frames = await catchUp(["msg-minted-for-an-empty-turn", "msg-b2", "msg-b1"], 5);
+      expect(shape(frames)).toEqual(["text:B three", "stage:audit", "text:C one", "text:C two"]);
+    });
+
+    test("held nowhere: the tip from its first turn, and no ancestor or divider", async () => {
+      const frames = await catchUp(["msg-minted-for-an-empty-turn"], 7);
+      expect(shape(frames)).toEqual(["text:C one", "text:C two"]);
+    });
+
+    test("a msg id quoted inside another session's text does not place the card there", async () => {
+      const quoting = {
+        ...files,
+        [AUDIT_ID]: [
+          jsonlFor("c1", 'it said {"id":"msg-b1"}'),
+          jsonlFor("c2", "C two"),
+        ].join("\n"),
+      };
+      const frames = await captureStdout(() =>
+        makeManager(quoting).runReplay({ afterTurn: { msgIds: ["msg-b1"], heldTurns: 3 } }, THREE),
+      );
+      expect(shape(frames)).toEqual([
+        "text:B two",
+        "text:B three",
+        "stage:audit",
+        'text:it said {"id":"msg-b1"}',
+        "text:C two",
+      ]);
+    });
   });
 
   test("leaves a prompt the record does not hold as the user's own", async () => {

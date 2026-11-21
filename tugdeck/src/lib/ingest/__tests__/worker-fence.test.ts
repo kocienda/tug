@@ -40,6 +40,7 @@ const ALLOW: readonly string[] = [
   "@/lib/ingest/session-patch",
   "@/lib/ingest/text-hash",
   "@/lib/ingest/wire-socket",
+  "@/lib/code-session-store/catch-up-log",
   "@/lib/code-session-store/compaction",
   "@/lib/code-session-store/denials",
   "@/lib/code-session-store/end-state",

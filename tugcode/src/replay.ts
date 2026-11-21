@@ -2920,6 +2920,18 @@ export function turnAfterHeld(
 }
 
 /**
+ * Whether a JSONL holds an assistant entry with message id `msgId`, read off
+ * the raw text: `"id":"<msgId>"`, as Claude Code writes it. A message id
+ * quoted inside some other entry's string is escaped there (`\"id\":\"…\"`),
+ * so it does not match. Cheap enough to ask of every file in a lineage
+ * before any of them is parsed; the translator then places the turn exactly
+ * ({@link turnAfterHeld}).
+ */
+export function jsonlHoldsMsgId(jsonl: string, msgId: string): boolean {
+  return msgId.length > 0 && jsonl.includes(`"id":${JSON.stringify(msgId)}`);
+}
+
+/**
  * Each turn by the `message.id` of its assistant entries — what a committed
  * turn's `turn_complete` carries as `msg_id` live and on replay alike.
  */

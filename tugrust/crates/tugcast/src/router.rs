@@ -1090,6 +1090,156 @@ fn catch_up_wakes_card<'a>(
     identity.card_id.as_deref()
 }
 
+/// Why [`ClientSink::send_frame`] refused a frame, for the catch-up watch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refusal {
+    /// The connection did not subscribe to the frame's feed.
+    Feed,
+    /// The frame names a session outside the connection's session scope.
+    Scope,
+    /// The host has declared the body dormant.
+    Dormant,
+}
+
+/// Where a `CODE_OUTPUT` frame stands in a replay bracket: its opener or its
+/// close, with the ask id it names. Anything else is `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BracketMark {
+    Started(Option<String>),
+    Complete(Option<String>),
+}
+
+/// The bracket mark `payload` carries, if any. A frame is parsed only when its
+/// bytes mention a bracket type at all, so text that merely quotes the word
+/// is parsed and found to be no mark, and every other frame is not parsed.
+fn bracket_mark(payload: &[u8]) -> Option<BracketMark> {
+    const NEEDLE: &[u8] = b"\"replay_";
+    if !payload.windows(NEEDLE.len()).any(|w| w == NEEDLE) {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let ask_id = value
+        .get("ask_id")
+        .and_then(|a| a.as_str())
+        .map(str::to_owned);
+    match value.get("type").and_then(|t| t.as_str())? {
+        "replay_started" => Some(BracketMark::Started(ask_id)),
+        "replay_complete" => Some(BracketMark::Complete(ask_id)),
+        _ => None,
+    }
+}
+
+/// What a body's catch-up answer did at its connection's filter: armed by the
+/// body's catch-up ask, it follows the bracket naming that ask on the ask's
+/// session and counts each of its frames as sent or refused, and by which
+/// rule. Its close is one line in `tugcast.log` ([`CatchUpTally::log`]),
+/// which is what tells a card that was never sent its answer from one whose
+/// own filter dropped it: the suspected race of
+/// `briefs/card-turn-state-reconcile-brief.md` [F06], where the answer
+/// outruns the `subscribe_feeds` that widens the body's scope.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct CatchUpTally {
+    session: String,
+    ask_id: String,
+    /// The opener has been seen, whether or not it was sent.
+    open: bool,
+    /// How the opener and the close fared: `None` until seen, then the
+    /// refusal, if any.
+    opener: Option<Option<Refusal>>,
+    close: Option<Option<Refusal>>,
+    sent: u64,
+    dropped_feed: u64,
+    dropped_scope: u64,
+    dropped_dormant: u64,
+}
+
+impl CatchUpTally {
+    fn new(session: &str, ask_id: &str) -> Self {
+        Self {
+            session: session.to_owned(),
+            ask_id: ask_id.to_owned(),
+            ..Self::default()
+        }
+    }
+
+    /// Count one frame on the watched session, with its bracket mark and the
+    /// filter's verdict. Frames before the answer's opener, and a bracket
+    /// naming another ask, are not counted. Returns `true` when the frame
+    /// closed the answer, and the tally is finished.
+    fn observe(&mut self, mark: Option<&BracketMark>, refusal: Option<Refusal>) -> bool {
+        match mark {
+            Some(BracketMark::Started(ask)) if !self.open => {
+                if ask.as_deref() != Some(self.ask_id.as_str()) {
+                    return false;
+                }
+                self.open = true;
+                self.opener = Some(refusal);
+            }
+            Some(BracketMark::Complete(ask)) if self.open => {
+                if ask.as_deref() != Some(self.ask_id.as_str()) {
+                    return false;
+                }
+                self.close = Some(refusal);
+            }
+            _ if !self.open => return false,
+            _ => {}
+        }
+        match refusal {
+            None => self.sent += 1,
+            Some(Refusal::Feed) => self.dropped_feed += 1,
+            Some(Refusal::Scope) => self.dropped_scope += 1,
+            Some(Refusal::Dormant) => self.dropped_dormant += 1,
+        }
+        self.close.is_some()
+    }
+
+    fn dropped(&self) -> u64 {
+        self.dropped_feed + self.dropped_scope + self.dropped_dormant
+    }
+
+    /// How the opener or the close fared, as the line says it.
+    fn fate(seen: Option<Option<Refusal>>) -> &'static str {
+        match seen {
+            None => "unseen",
+            Some(None) => "sent",
+            Some(Some(Refusal::Feed)) => "dropped:feed",
+            Some(Some(Refusal::Scope)) => "dropped:scope",
+            Some(Some(Refusal::Dormant)) => "dropped:dormant",
+        }
+    }
+
+    /// The answer's one line: a warning when any of its frames was refused.
+    fn log(&self, client_id: u64, card: Option<&str>) {
+        let (opener, close) = (Self::fate(self.opener), Self::fate(self.close));
+        if self.dropped() > 0 {
+            warn!(
+                client_id,
+                card,
+                session = %self.session,
+                ask_id = %self.ask_id,
+                sent = self.sent,
+                dropped_scope = self.dropped_scope,
+                dropped_dormant = self.dropped_dormant,
+                dropped_feed = self.dropped_feed,
+                opener,
+                close,
+                "a body's filter refused frames of its catch-up's answer"
+            );
+        } else {
+            info!(
+                client_id,
+                card,
+                session = %self.session,
+                ask_id = %self.ask_id,
+                sent = self.sent,
+                opener,
+                close,
+                "a body's catch-up answer reached it whole"
+            );
+        }
+    }
+}
+
 /// Build the `feed_stats` CONTROL response (Spec S02).
 ///
 /// Pure over its arguments so it is unit-testable without a socket. Rows
@@ -1220,6 +1370,9 @@ struct ClientSink {
     /// retained latest value. Stream feeds are deliberately absent: a
     /// broadcast has no retained value, so there is nothing to re-deliver.
     retained_watches: Vec<(FeedId, watch::Receiver<Frame>)>,
+    /// The body's newest catch-up ask, until the bracket answering it closes
+    /// ([`CatchUpTally`]). A newer ask replaces it.
+    catch_up: Option<CatchUpTally>,
 }
 
 impl ClientSink {
@@ -1242,6 +1395,7 @@ impl ClientSink {
             counters: FeedCounters::new(),
             global_counters,
             retained_watches: Vec::new(),
+            catch_up: None,
         }
     }
 
@@ -1258,10 +1412,17 @@ impl ClientSink {
     /// pass through here on `CODE_OUTPUT` and are filtered the same way.
     async fn send_frame(&mut self, frame: Frame) -> SendOutcome {
         let feed_id = frame.feed_id;
-        if !admits(self.subscription.as_ref(), feed_id)
-            || !admits_session(&self.sessions, &self.session_feeds, &frame)
-            || (self.declared_dormant() && !admits_while_dormant(&self.session_feeds, &frame))
-        {
+        let refusal = if !admits(self.subscription.as_ref(), feed_id) {
+            Some(Refusal::Feed)
+        } else if !admits_session(&self.sessions, &self.session_feeds, &frame) {
+            Some(Refusal::Scope)
+        } else if self.declared_dormant() && !admits_while_dormant(&self.session_feeds, &frame) {
+            Some(Refusal::Dormant)
+        } else {
+            None
+        };
+        self.watch_catch_up(&frame, refusal);
+        if refusal.is_some() {
             self.counters.record_dropped(feed_id);
             self.global_counters.record_dropped(feed_id);
             return SendOutcome::Dropped;
@@ -1279,6 +1440,29 @@ impl ClientSink {
             SendOutcome::Sent
         } else {
             SendOutcome::Disconnected
+        }
+    }
+
+    /// A body sent a catch-up ask for `session` under `ask_id`: follow the
+    /// bracket that answers it.
+    fn arm_catch_up(&mut self, session: &str, ask_id: &str) {
+        self.catch_up = Some(CatchUpTally::new(session, ask_id));
+    }
+
+    /// Count `frame` against the armed catch-up, if it is on the ask's
+    /// session, and say the answer's line when it closes.
+    fn watch_catch_up(&mut self, frame: &Frame, refusal: Option<Refusal>) {
+        let Some(tally) = self.catch_up.as_mut() else {
+            return;
+        };
+        if frame.feed_id != FeedId::CODE_OUTPUT
+            || session_of(&frame.payload).as_deref() != Some(tally.session.as_str())
+        {
+            return;
+        }
+        if tally.observe(bracket_mark(&frame.payload).as_ref(), refusal) {
+            tally.log(self.client_id, self.identity.card_id.as_deref());
+            self.catch_up = None;
         }
     }
 
@@ -1925,6 +2109,11 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                         if let Some(card) = catch_up_wakes_card(&sink.identity, &payload) {
                                                             if router.pages.set_card_dormant(card, false) {
                                                                 info!(client_id, card, "a body's catch-up withdrew its dormancy");
+                                                            }
+                                                            let session = payload.get("tug_session_id").and_then(|s| s.as_str());
+                                                            let ask = payload.get("ask_id").and_then(|a| a.as_str());
+                                                            if let (Some(session), Some(ask)) = (session, ask) {
+                                                                sink.arm_catch_up(session, ask);
                                                             }
                                                         }
                                                     }
@@ -3891,6 +4080,61 @@ mod tests {
         assert_eq!(session_of(b"not json at all").as_deref(), None);
         assert_eq!(session_of(br#"{"type":"x"}"#).as_deref(), None);
         assert_eq!(session_of(b"").as_deref(), None);
+    }
+
+    #[test]
+    fn bracket_mark_reads_a_brackets_opener_and_close_with_its_ask() {
+        assert_eq!(
+            bracket_mark(br#"{"tug_session_id":"s","type":"replay_started","ask_id":"ask-1"}"#),
+            Some(BracketMark::Started(Some("ask-1".into())))
+        );
+        assert_eq!(
+            bracket_mark(br#"{"tug_session_id":"s","type":"replay_complete","count":3}"#),
+            Some(BracketMark::Complete(None))
+        );
+        // Text that quotes the word is parsed, and is no mark.
+        assert_eq!(
+            bracket_mark(br#"{"tug_session_id":"s","type":"assistant_text","text":"\"replay_started\""}"#),
+            None
+        );
+        assert_eq!(bracket_mark(br#"{"tug_session_id":"s","type":"turn_complete"}"#), None);
+    }
+
+    #[test]
+    fn catch_up_tally_counts_only_its_answer_and_says_how_each_frame_fared() {
+        let started = |ask: &str| Some(BracketMark::Started(Some(ask.into())));
+        let complete = |ask: &str| Some(BracketMark::Complete(Some(ask.into())));
+        let mut tally = CatchUpTally::new("s", "ask-1");
+
+        // Live frames before the answer opens, and a bracket naming another
+        // ask, are not the answer's.
+        assert!(!tally.observe(None, Some(Refusal::Scope)));
+        assert!(!tally.observe(started("ask-0").as_ref(), None));
+        assert!(!tally.observe(complete("ask-0").as_ref(), None));
+        assert_eq!(tally.sent + tally.dropped(), 0);
+
+        // The answer outruns the subscribe that widens the body's scope: its
+        // opener and first frame are refused, the rest are sent.
+        assert!(!tally.observe(started("ask-1").as_ref(), Some(Refusal::Scope)));
+        assert!(!tally.observe(None, Some(Refusal::Scope)));
+        assert!(!tally.observe(None, None));
+        assert!(!tally.observe(None, Some(Refusal::Dormant)));
+        assert!(tally.observe(complete("ask-1").as_ref(), None));
+
+        assert_eq!(tally.opener, Some(Some(Refusal::Scope)));
+        assert_eq!(tally.close, Some(None));
+        assert_eq!((tally.sent, tally.dropped_scope, tally.dropped_dormant, tally.dropped_feed), (2, 2, 1, 0));
+        assert_eq!(CatchUpTally::fate(tally.opener), "dropped:scope");
+        assert_eq!(CatchUpTally::fate(tally.close), "sent");
+    }
+
+    #[test]
+    fn catch_up_tally_whose_answer_arrives_whole_drops_nothing() {
+        let mut tally = CatchUpTally::new("s", "ask-1");
+        assert!(!tally.observe(Some(&BracketMark::Started(Some("ask-1".into()))), None));
+        assert!(!tally.observe(None, None));
+        assert!(tally.observe(Some(&BracketMark::Complete(Some("ask-1".into()))), None));
+        assert_eq!((tally.sent, tally.dropped()), (3, 0));
     }
 
     #[test]

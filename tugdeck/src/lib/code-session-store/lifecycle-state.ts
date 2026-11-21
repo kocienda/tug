@@ -29,6 +29,22 @@ import { classifyApiRetry } from "@/lib/api-retry";
 
 import type { ApiRetryState, CodeSessionPhase, TransportState } from "./types";
 
+/**
+ * Whether a card in `phase` holds a turn it can stop: the snapshot's
+ * `canInterrupt`. `waking` is included, since a runaway wake turn is stopped
+ * like any other; `replaying` is not, since the bracket owns the card.
+ */
+export function phaseCanInterrupt(phase: CodeSessionPhase): boolean {
+  return (
+    phase === "submitting" ||
+    phase === "awaiting_first_token" ||
+    phase === "streaming" ||
+    phase === "tool_work" ||
+    phase === "awaiting_approval" ||
+    phase === "waking"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Matrix vocabulary
 // ---------------------------------------------------------------------------

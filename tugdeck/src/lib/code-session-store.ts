@@ -59,6 +59,7 @@ import {
   NO_CATCH_UP,
   type CodeSessionState,
 } from "./code-session-store/reducer";
+import { phaseCanInterrupt } from "./code-session-store/lifecycle-state";
 import {
   LIVE_USAGE_PATH,
   mintTurnKey,
@@ -358,7 +359,7 @@ export class CodeSessionStore extends Subscribable {
   private readonly conn: TugConnection;
   private readonly offWire: boolean;
   private readonly lifecycle: ConnectionLifecycle;
-  private readonly tugSessionId: string;
+  readonly tugSessionId: string;
   private readonly displayLabel: string;
   private readonly sessionMode: CardSessionMode;
   private readonly restoreWindowTurns: number;
@@ -782,13 +783,7 @@ export class CodeSessionStore extends Subscribable {
       // runaway wake turn just like a user-initiated one. The
       // interrupt frame uses the same wire shape regardless — the
       // server doesn't need to distinguish.
-      canInterrupt:
-        this.state.phase === "submitting" ||
-        this.state.phase === "awaiting_first_token" ||
-        this.state.phase === "streaming" ||
-        this.state.phase === "tool_work" ||
-        this.state.phase === "awaiting_approval" ||
-        this.state.phase === "waking",
+      canInterrupt: phaseCanInterrupt(this.state.phase),
       pendingApproval: this.state.pendingApproval,
       pendingAsk: this._pendingAsk,
       pendingQuestion: this.state.pendingQuestion,
@@ -1278,9 +1273,9 @@ export class CodeSessionStore extends Subscribable {
    * reduction ran, never from the mirror. A reveal inside the catch-up's own
    * bracket asks nothing: the reducer refuses the move, and nothing is sent.
    */
-  catchUp(): void {
+  catchUp(cardId?: string): void {
     if (this._disposed) return;
-    this.dispatch({ type: "begin_catch_up", askId: mintAskId() });
+    this.dispatch({ type: "begin_catch_up", askId: mintAskId(), ...(cardId !== undefined ? { cardId } : {}) });
   }
 
   /**

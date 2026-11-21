@@ -26,10 +26,14 @@ import {
   type ReplayInput,
   type ReplayTelemetry,
   translateJsonlSession,
+  jsonlHoldsMsgId,
   type WheelPromptLedger,
   wheelPromptLedger,
 } from "./replay.ts";
 import type { ClaudeHome } from "./claude-home.ts";
+
+/** The turns a catch-up's card holds, as its `afterTurn` window names them. */
+type HeldTurns = Extract<ReplayWindow, { afterTurn: unknown }>["afterTurn"];
 import {
   type JournalRow,
   type JsonlReadResult,
@@ -319,16 +323,28 @@ export class ReplayRunner {
    * Best-effort throughout: a missing or unreadable ancestor JSONL
    * contributes its divider and no turns, because a restore that shows less
    * history is better than one that fails.
+   *
+   * A catch-up whose card holds a turn of an ancestor passes `held`: the
+   * lineage index of the session that holds the card's newest turn, and the
+   * card's `afterTurn`. The walk then starts there. That session gives only
+   * the turns after the held one, and no divider, since the card drew it
+   * with the turns it holds. Every later ancestor, and the dividers ahead of
+   * them and ahead of the tip, are sent whole. The sessions before it are the
+   * card's already and are not read. `reads` carries the files the caller
+   * read to find the held session, so none is read twice.
    */
   private async collectLineagePrefix(
     lineage: ReplayLineageEntry[],
     canonicalProjectDir: string,
     wheelPrompts: WheelPromptLedger,
+    held?: { index: number; afterTurn: HeldTurns },
+    reads: Map<number, JsonlReadResult> = new Map(),
   ): Promise<OutboundMessage[]> {
     const frames: OutboundMessage[] = [];
-    for (let i = 0; i < lineage.length; i++) {
+    for (let i = held?.index ?? 0; i < lineage.length; i++) {
       const entry = lineage[i]!;
-      if (entry.stage !== undefined && entry.stage !== "") {
+      const holdsTheCardsTurn = held !== undefined && i === held.index;
+      if (entry.stage !== undefined && entry.stage !== "" && !holdsTheCardsTurn) {
         frames.push({
           type: "replay_stage",
           stage: entry.stage,
@@ -342,12 +358,7 @@ export class ReplayRunner {
       // turns. Only its divider belongs here.
       if (i === lineage.length - 1) continue;
 
-      const path = jsonlPathFor(
-        this.host.claudeHome(),
-        canonicalProjectDir,
-        entry.sessionId,
-      );
-      const read = await this.host.readJsonl(path);
+      const read = reads.get(i) ?? (await this.readLineageEntry(entry, canonicalProjectDir));
       if (read.kind !== "ok") {
         logReplay("lineage_entry_unreadable", {
           session_id: this.host.sessionId(),
@@ -368,6 +379,13 @@ export class ReplayRunner {
           // the work happened — so a prompt the wheel sent in an earlier stage
           // is claimed there and cannot be claimed again downstream.
           wheelPrompts,
+          // The session holding the card's newest turn gives what follows
+          // it. `heldTurns: 0`: the card's count is the lineage's, not this
+          // file's, so a turn not placed by name starts the file from its
+          // first turn, and the reducer's msg-id dedupe drops the overlap.
+          ...(holdsTheCardsTurn && held !== undefined
+            ? { window: { afterTurn: { ...held.afterTurn, heldTurns: 0 } } }
+            : {}),
         },
       );
       for await (const msg of iter) {
@@ -383,6 +401,52 @@ export class ReplayRunner {
       }
     }
     return frames;
+  }
+
+  /** Read one lineage entry's JSONL from the project's transcript directory. */
+  private readLineageEntry(
+    entry: ReplayLineageEntry,
+    canonicalProjectDir: string,
+  ): Promise<JsonlReadResult> {
+    return this.host.readJsonl(
+      jsonlPathFor(this.host.claudeHome(), canonicalProjectDir, entry.sessionId),
+    );
+  }
+
+  /**
+   * Which session of `lineage` holds the newest turn a catch-up's card names:
+   * its index, or `null` when none of the card's msg ids is in any of them.
+   *
+   * The card's ids are tried newest first, and each id is looked for in the
+   * tip (`tip`, the file the main pass translates) and then in the ancestors
+   * from newest to oldest, so the first id found anywhere places the card.
+   * The ancestors are read only as far as the search needs. What was read is
+   * left in `reads` for {@link collectLineagePrefix}.
+   */
+  private async locateHeldSession(
+    lineage: ReplayLineageEntry[],
+    canonicalProjectDir: string,
+    afterTurn: HeldTurns,
+    tip: ReplayInput,
+    reads: Map<number, JsonlReadResult>,
+  ): Promise<number | null> {
+    const tipIndex = lineage.length - 1;
+    const textOf = async (i: number): Promise<string | null> => {
+      if (i === tipIndex) return tip.kind === "ok" ? tip.jsonl : null;
+      let read = reads.get(i);
+      if (read === undefined) {
+        read = await this.readLineageEntry(lineage[i]!, canonicalProjectDir);
+        reads.set(i, read);
+      }
+      return read.kind === "ok" ? read.jsonl : null;
+    };
+    for (const id of afterTurn.msgIds) {
+      for (let i = tipIndex; i >= 0; i--) {
+        const text = await textOf(i);
+        if (text !== null && jsonlHoldsMsgId(text, id)) return i;
+      }
+    }
+    return null;
   }
 
   async runReplay(
@@ -604,24 +668,51 @@ export class ReplayRunner {
     // belongs to the replay that builds the transcript, not to the one that
     // extends it upward.
     const backwardPage = window !== undefined && "turnRange" in window;
-    // A catch-up is the same case from the other end: a card that holds any
-    // turn holds the ancestors too, so only the tip's newer turns are news.
+    // A catch-up is the same case from the other end, but only as far as the
+    // card's newest turn: the turns before it, in whichever session holds it,
+    // are the card's, and everything after it is news. A card that slept
+    // through a stage rotation holds an ancestor's turn and none of the
+    // tip's, so the walk starts in that ancestor, after its turn, and carries
+    // every later ancestor and the tip whole, with their dividers. A card
+    // holding a turn of the tip takes only the tip's newer turns, as before.
     // A card that holds none is building its transcript, and takes the
     // lineage with the tip.
-    const catchUpOverHeld =
-      window !== undefined && "afterTurn" in window && window.afterTurn.msgIds.length > 0;
+    //
+    // A card none of whose named turns any session holds — each id one the
+    // translator minted for a turn with no content, which no JSONL records —
+    // cannot be placed in the lineage. It takes the tip from its first turn,
+    // as a card holding an ancestor's turn does, and no ancestor: which of
+    // their turns and dividers it already drew cannot be told, and the
+    // reducer dedupes turns by msg id but not dividers.
+    const heldTurns: HeldTurns | null =
+      window !== undefined && "afterTurn" in window && window.afterTurn.msgIds.length > 0
+        ? window.afterTurn
+        : null;
+    const catchUpOverHeld = heldTurns !== null;
     const lineageHeld = lineage !== undefined && lineage.length > 1;
+    const lineageReads = new Map<number, JsonlReadResult>();
+    const heldAt =
+      lineageHeld && heldTurns !== null
+        ? await this.locateHeldSession(lineage!, canonicalProjectDir, heldTurns, input, lineageReads)
+        : null;
+    const held =
+      heldAt !== null && heldTurns !== null && heldAt < lineage!.length - 1
+        ? { index: heldAt, afterTurn: heldTurns }
+        : undefined;
     const lineagePrefix: OutboundMessage[] =
-      lineageHeld && !backwardPage && !catchUpOverHeld
+      lineageHeld && !backwardPage && (!catchUpOverHeld || held !== undefined)
         ? await this.collectLineagePrefix(
             lineage!,
             canonicalProjectDir,
             wheelPrompts,
+            held,
+            lineageReads,
           )
         : [];
     // The card counts its turns from the lineage's first; the tip counts
     // from its own. A named turn the tip does not hold is an ancestor's, so
-    // under a lineage the count places the card at the tip's start.
+    // under a lineage the count places the card at the tip's start: the tip
+    // comes whole after the prefix that carried the card up to it.
     const tipWindow: ReplayWindow | undefined =
       window !== undefined && "afterTurn" in window && lineageHeld
         ? { afterTurn: { ...window.afterTurn, heldTurns: 0 } }
@@ -631,6 +722,7 @@ export class ReplayRunner {
         session_id: this.host.sessionId(),
         sessions: lineage!.length,
         frames: lineagePrefix.length,
+        ...(held !== undefined ? { catch_up_from: held.index } : {}),
       });
     }
 

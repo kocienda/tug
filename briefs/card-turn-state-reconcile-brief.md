@@ -34,6 +34,16 @@ Every run ends idle, `canInterrupt` false, with the summary as the turn's last m
 
 **[F08] A catch-up that never answers leaves the held turn standing, by design.** `catch-up.test.ts`: "a catch-up that never answers leaves the cycle standing". With no answer, the card has nothing to replace the cycle with. That is correct as far as the card's own knowledge goes, and it is the case where an outside fact is the only way out. **(verified)**
 
+**[F09] tugcast's turn flag already reaches the shell, on every session row.** The session ledger keeps a per-segment turn latch beside each row (`SessionLedger::set_turn_active` / `turn_active`, `tugrust/crates/tugcast/src/session_ledger.rs`). The recorder pushes the row again whenever the latch moves (`record_turn_latch`, `feeds/agent_supervisor/recorder.rs`), and `build_session_updated_frame` writes it as `turn_active` on every `session_updated` push and every `list_sessions` row. The deck's `SessionRow` carries it (`turn_active?`, `tugdeck/src/protocol.ts`; absent means unknown, never idle). The shell already reads it, through `latchOf` in `tugdeck/src/lib/bodiless-facts-store.ts`, as "the one source of a card's phase while the card's body is not listening". The same ledger row is what `deck.cards` `sessionState` is projected from (`publishDeckCards`, `tugdeck/src/lib/body-shell.ts`). So the first carrier option is one field on `DeckCardFacts`, read by the same row lookup. **(verified)**
+
+**[F10] The flag arrives on CONTROL, with no mark ordering it against the card's own frames.** The row rides the shell's CONTROL feed. The body's frames ride its own connection's `CODE_OUTPUT`. The row's only time marks are wall-clock stamps: `last_used_at`, and `last_turn_end_at`, which a cancelled or errored end never writes. This allows a real misfire. The card hears `turn_complete` and sends a queued prompt at once. Then the row push saying the old turn ended reaches the shell. If that push is an edge under [B04], it finds the card busy on its new turn and the flag idle, and would end a turn that has just begun. A session-scoped frame on the card's own feed does not remove the race either: the latch's frame for the old turn would still come after the card had sent the new prompt. **(verified from the code; the race itself is inferred)**
+
+**[F11] "Busy" on the card is the turn, not the session's background work.** `canInterrupt` is true only in turn phases (`phaseCanInterrupt`, `tugdeck/src/lib/code-session-store/lifecycle-state.ts`). Background jobs are shown in the `JOBS` cell ([D102]), and stopping them is a separate verb (`stop_all_work`). So the turn latch, not tugcast's "finished" (`!turn_active && open_jobs.is_empty()`), is the fact the card's busy state should answer to. **(verified)**
+
+**[F12] A wake turn is covered by the same latch.** The merger sets the latch on `wake_started` as on a prompt, and clears it on the turn's end ([F03]). The card's `waking` phase is one of the phases `canInterrupt` covers. So [B02] covers a wake turn with no rule of its own. **(verified from the code)**
+
+**[F13] The two follow-ups are in the working tree, uncommitted.** Every catch-up now writes one `tugcast.log` line when it ends: `deck: catch-up <ending> source="catch-up"`, with the card, the session, the ask, the frames and turns its answer carried, and the card's phase, `canInterrupt` and held cycle before the ask and after the close (`tugdeck/src/lib/code-session-store/catch-up-log.ts`). The router writes one line per catch-up answer, saying how many of its frames the body's filter sent and how many it refused, and by which rule: scope, dormancy, or feed (`CatchUpTally`, `router.rs`). That line confirms or rules out the race in [F06]. A catch-up now also carries the ancestor turns a card slept through, so the content half of [B03] can be repaired across a rotation. **(verified by tests)**
+
 ---
 
 ## Decisions {#decisions}
@@ -59,9 +69,9 @@ The last edge heals a loss that happens with no reconnect at all. Following the 
 
 ## Open Questions {#open-questions}
 
-- **Which carrier brings the flag to the card.** One option is to add it to the per-card session state the deck already receives ([F07]). That state is shell-side and reaches a body through its facts. The other is a session-scoped frame on the card's own feed. The first rides an existing path. The second arrives in order with the frames it judges, which matters for [B05]. Settling it means reading how `deck.cards` `sessionState` is projected to a body and whether that projection can carry an ordering mark against the session's frames.
-- **Whether "busy" means turn running or session not finished.** tugcast distinguishes `turn_active` from "finished" (`!turn_active && open_jobs.is_empty()`, `ledger_entry.rs`). The card's `canInterrupt` today covers a running turn. What background jobs should do to it under [B01] is undecided. Settling it means looking at where the card shows a background job and what Stop does to one.
-- **A wake turn.** Some turns are opened by the harness through `wake_started`, with no prompt from the card. Whether the card can stand busy over one that tugcast has already closed, and so whether [B02] needs to cover it explicitly, is unread.
+- **Which carrier brings the flag to the card.** Read ([F09], [F10]). The flag already reaches the shell on every session row, so one field on `deck.cards` is the cheap path. Neither carrier orders the flag against a queued send. Whichever carries it, the correction needs a mark saying which turn the latch's idle is about. The proposal: the latch records the submission id of the prompt that opened it (a wake turn has none), and the card ends its cycle only when the flag is idle and names the submission the card's own cycle sent, or, in `waking`, names no newer submission. Still to settle: the mark, and whether it rides the row or a frame.
+- **Whether "busy" means turn running or session not finished.** Read ([F11]): the turn. Background jobs have their own cell and their own stop.
+- **A wake turn.** Read ([F12]): the latch covers it, and [B02] needs no rule of its own. Only the ordering mark has to say what a wake turn compares against.
 
 ---
 
@@ -80,9 +90,9 @@ The last edge heals a loss that happens with no reconnect at all. Following the 
 
 An arc. First steps, in order:
 
-1. Settle the carrier and the meaning of busy (the first two open questions), by reading the session-state projection and how background jobs appear on the card.
+1. Settle the carrier and the meaning of busy (the first two open questions), by reading the session-state projection and how background jobs appear on the card. Read: [F09]–[F12]. What is left is the ordering mark of [F10].
 2. Carry tugcast's turn flag to the card for its session.
 3. In the card's store, add the correction at the [B04] edges, after any bracket ([B05]). It closes the held cycle ([B02]), asks a catch-up ([B03]), and logs a line ([B06]). Tests drive the store through a held cycle with no answer ([F08]) and an idle flag, and assert the card ends idle and asks for the missing turns.
 4. Confirm the join gate and the reveal gate open once the correction lands. They read `canInterrupt` and need no change of their own ([F07]).
 
-The follow-ups in Non-goals (logging each catch-up's outcome, and replaying the ancestor turns a sleeping card missed) land after this arc, separately.
+The follow-ups in Non-goals (logging each catch-up's outcome, and replaying the ancestor turns a sleeping card missed) were done first, by the user's choice, and are in the working tree ([F13]).

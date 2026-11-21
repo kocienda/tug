@@ -8,9 +8,11 @@
  *
  * @covers tugdeck/src/lib/code-session-store.ts
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
+ * @covers tugdeck/src/lib/code-session-store/catch-up-log.ts
+ * @covers tugdeck/src/lib/code-session-store/session-engine.ts
  */
 
-import { describe, it, expect } from "bun:test";
+import { afterEach, beforeEach, describe, it, expect } from "bun:test";
 
 import { CodeSessionStore, heldTurnsOf, type TimerSource, type TurnEntry } from "@/lib/code-session-store";
 import {
@@ -28,6 +30,8 @@ import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { FeedId } from "@/protocol";
+import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { CATCH_UP_LOG_SOURCE } from "@/lib/code-session-store/catch-up-log";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 
@@ -1414,5 +1418,271 @@ describe("catchUp — every exit from an open bracket, and the send it held", ()
     store.catchUp();
     expect(conn.recordedFrames.length).toBe(written);
     expect(userMessagesOf(conn)).toHaveLength(0);
+  });
+});
+
+describe("catchUp — an answer that crosses a stage rotation", () => {
+  // tugcode's answer for a card that slept through a rotation: the turns after
+  // the card's newest in the session it slept in, the divider ahead of the tip,
+  // and the tip whole, with the tip's own window ([P10]).
+  const DIVIDER = { type: "replay_stage", stage: "audit", model: "opus", document: ".tug/arcs/foo/tasks.md", arc: "foo" };
+  const stageNotes = (store: CodeSessionStore) =>
+    store
+      .getSnapshot()
+      .transcript.flatMap((t) => t.messages.filter((m) => m.kind === "system_note" && m.source === "stage").map(() => t.msgId));
+  function answerAcrossTheRotation(conn: TestFrameChannel, askId: string): void {
+    emit(conn, { type: "replay_started", ask_id: askId });
+    emitTurn(conn, 8);
+    emit(conn, DIVIDER);
+    emitTurn(conn, 9);
+    emitTurn(conn, 10);
+    emit(conn, { type: "replay_complete", count: 2, firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false, ask_id: askId });
+  }
+
+  it("lands the ancestor's later turns, the divider and the tip's turns once each, and takes the tip's window", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 5, 7, { firstLoadedTurnIndex: 5, totalTurns: 8, hasOlder: true });
+    store.catchUp();
+    answerAcrossTheRotation(conn, lastAsk(conn));
+
+    const snap = store.getSnapshot();
+    expect(snap.transcript.map((t) => t.msgId)).toEqual([5, 6, 7, 8, 9, 10].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+    // The divider sits after the ancestor's last turn, ahead of the tip's first.
+    expect(stageNotes(store)).toEqual([FIXTURE_IDS.MSG_ID_N(8)]);
+    // The card's start was counted in the session it slept in; the bracket
+    // reports the tip's, which it sent whole.
+    expect(snap.replayWindow).toEqual({ firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    expect(snap).toMatchObject({ phase: "idle", catchingUp: false });
+  });
+
+  it("a catch-up that crosses no rotation still keeps the window's start", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 5, 7, { firstLoadedTurnIndex: 5, totalTurns: 8, hasOlder: true });
+    store.catchUp();
+    answerAcrossTheRotation(conn, lastAsk(conn));
+    store.catchUp();
+    replayRange(conn, 10, 11, { firstLoadedTurnIndex: 2, totalTurns: 4, hasOlder: true }, lastAsk(conn));
+    expect(store.getSnapshot().replayWindow).toEqual({ firstLoadedTurnIndex: 0, totalTurns: 4, hasOlder: false });
+  });
+
+  it("a divider the card heard live before it slept is not drawn again", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 5, 8, { firstLoadedTurnIndex: 5, totalTurns: 9, hasOlder: true });
+    // The rotation, heard live, and the card sleeps before the tip commits a turn.
+    emit(conn, { ...DIVIDER, type: "session_segment", kind: "rotation", parentSessionId: "a", newSessionId: "b" });
+    expect(stageNotes(store)).toEqual([FIXTURE_IDS.MSG_ID_N(8)]);
+    store.catchUp();
+    // Its newest turn is the ancestor's last, so the answer carries the divider again.
+    const askId = lastAsk(conn);
+    emit(conn, { type: "replay_started", ask_id: askId });
+    emit(conn, DIVIDER);
+    emitTurn(conn, 9);
+    emit(conn, { type: "replay_complete", count: 1, firstLoadedTurnIndex: 0, totalTurns: 1, hasOlder: false, ask_id: askId });
+
+    expect(store.getSnapshot().transcript.map((t) => t.msgId)).toEqual([5, 6, 7, 8, 9].map((n) => FIXTURE_IDS.MSG_ID_N(n)));
+    expect(stageNotes(store)).toEqual([FIXTURE_IDS.MSG_ID_N(8)]);
+  });
+});
+
+describe("catchUp — its one line in the log", () => {
+  interface Line {
+    message: string;
+    data: Record<string, unknown>;
+  }
+  let lines: Line[];
+  const originalWarn = tugDevLogStore.warn;
+  beforeEach(() => {
+    lines = [];
+    tugDevLogStore.warn = (source, message, data) => {
+      if (source === CATCH_UP_LOG_SOURCE) lines.push({ message, data: data as Record<string, unknown> });
+    };
+  });
+  afterEach(() => {
+    tugDevLogStore.warn = originalWarn;
+  });
+
+  const CARD = "card-4417e8fd";
+
+  it("answered: one line naming the card, the session and the ask, what the bracket carried, and the card on both sides", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 5, 7, { firstLoadedTurnIndex: 5, totalTurns: 8, hasOlder: true });
+    store.catchUp(CARD);
+    const askId = lastAsk(conn);
+    expect(lines).toEqual([]);
+    replayRange(conn, 7, 10, { firstLoadedTurnIndex: 7, totalTurns: 11, hasOlder: true }, askId);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].message).toBe("catch-up answered");
+    expect(lines[0].data).toMatchObject({
+      cardId: CARD,
+      tugSessionId: TUG,
+      askId,
+      ending: "answered",
+      answeredBy: askId,
+      // The opener, four turns of three frames each, and the close.
+      frames: 14,
+      turnsEnded: 4,
+      before: { phase: "idle", canInterrupt: false, pendingTurn: false, turns: 3 },
+      after: { phase: "idle", canInterrupt: false, pendingTurn: false, turns: 6 },
+      setAside: [],
+      closedBy: "replay_complete",
+      result: "success",
+    });
+
+    // Nothing after the close says a second line.
+    emitTurn(conn, 11);
+    expect(lines).toHaveLength(1);
+  });
+
+  it("answered over a held cycle: the card was busy before and idle after", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("hi", []);
+    store.catchUp(CARD);
+    replayRange(conn, 1, 2, { firstLoadedTurnIndex: 1, totalTurns: 3, hasOlder: true }, lastAsk(conn));
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].data).toMatchObject({
+      ending: "answered",
+      before: { canInterrupt: true, pendingTurn: true },
+      after: { phase: "idle", canInterrupt: false, pendingTurn: false },
+    });
+  });
+
+  it("answered with a turn still in flight: the line says the cycle survived the close", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.send("hi", []);
+    store.catchUp(CARD);
+    const askId = lastAsk(conn);
+    const id = FIXTURE_IDS.MSG_ID_N(2);
+    emit(conn, { type: "replay_started", ask_id: askId });
+    emit(conn, { type: "add_user_message", content: [{ type: "text", text: "hi" }], inflightSnapshot: true });
+    emit(conn, { type: "content_block_start", msg_id: id, block_index: 0, kind: "text" });
+    emit(conn, { type: "assistant_text", msg_id: id, block_index: 0, seq: 0, rev: 0, text: "so far", is_partial: false, status: "streaming" });
+    emit(conn, { type: "replay_complete", count: 0, firstLoadedTurnIndex: 2, totalTurns: 2, hasOlder: true, ask_id: askId });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].data).toMatchObject({
+      ending: "answered",
+      turnsEnded: 0,
+      after: { phase: "streaming", canInterrupt: true, pendingTurn: true },
+    });
+  });
+
+  it("lapsed: no bracket by the deadline, and the frames held meanwhile are counted", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp(CARD);
+    const askId = lastAsk(conn);
+    emit(conn, { type: "add_user_message", content: [{ type: "text", text: "the session's own" }] });
+    timers.advance(CATCH_UP_DEADLINE_MS);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].message).toBe("catch-up lapsed");
+    expect(lines[0].data).toMatchObject({ cardId: CARD, askId, ending: "lapsed", heldFrames: 1 });
+    expect(lines[0].data.frames).toBeUndefined();
+  });
+
+  it("answered late: the lapsed line, then the late answer's own", () => {
+    const { store, conn, timers } = makeTimedStore();
+    replayRange(conn, 5, 7, { firstLoadedTurnIndex: 5, totalTurns: 8, hasOlder: true });
+    store.catchUp(CARD);
+    const askId = lastAsk(conn);
+    timers.advance(CATCH_UP_DEADLINE_MS);
+    replayRange(conn, 7, 8, { firstLoadedTurnIndex: 7, totalTurns: 9, hasOlder: true }, askId);
+
+    expect(lines.map((l) => l.message)).toEqual(["catch-up lapsed", "catch-up answered late"]);
+    expect(lines[1].data).toMatchObject({ cardId: CARD, askId, ending: "answered", late: true, turnsEnded: 2 });
+  });
+
+  it("let go: an ask tugcode dropped behind a running read, which the line names as set aside ahead of the ask", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp(CARD);
+    const askId = lastAsk(conn);
+    emit(conn, { type: "replay_started" });
+    emit(conn, { type: "request_replay_dropped", ask_id: askId });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].message).toBe("catch-up let go");
+    expect(lines[0].data).toMatchObject({
+      askId,
+      ending: "let go",
+      reason: "dropped",
+      setAside: [{ askId: null, reason: "ahead-of-ask" }],
+    });
+  });
+
+  it("answer set aside: the answer to an ask let go, arriving after its line, says so", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp(CARD);
+    const askId = lastAsk(conn);
+    emit(conn, { type: "request_replay_dropped", ask_id: askId });
+    replayRange(conn, 1, 2, { firstLoadedTurnIndex: 1, totalTurns: 3, hasOlder: true }, askId);
+
+    expect(lines.map((l) => l.message)).toEqual(["catch-up let go", "catch-up answer set aside"]);
+    expect(lines[1].data).toMatchObject({ cardId: CARD, askId, ending: "answer set aside", reason: "let-go" });
+  });
+
+  it("re-asked: the bracket ahead of the ask closed first; the re-ask then has its own line", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 2, 7, { firstLoadedTurnIndex: 2, totalTurns: 8, hasOlder: true });
+    store.catchUp(CARD);
+    const first = lastAsk(conn);
+    replayRange(conn, 0, 7, { firstLoadedTurnIndex: 0, totalTurns: 8, hasOlder: false });
+    const second = lastAsk(conn);
+    expect(second).not.toBe(first);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].message).toBe("catch-up re-asked");
+    expect(lines[0].data).toMatchObject({
+      cardId: CARD,
+      askId: first,
+      ending: "re-asked",
+      as: second,
+      setAside: [{ askId: null, reason: "ahead-of-ask" }],
+    });
+
+    replayRange(conn, 7, 8, { firstLoadedTurnIndex: 7, totalTurns: 9, hasOlder: true }, second);
+    expect(lines).toHaveLength(2);
+    expect(lines[1].data).toMatchObject({ cardId: CARD, askId: second, ending: "answered", reaskOf: first });
+  });
+
+  it("refused: a reveal on a closed wire asks nothing, and says why", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store._simulateTransportForTest("close");
+    store.catchUp(CARD);
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].message).toBe("catch-up refused");
+    expect(lines[0].data).toMatchObject({ cardId: CARD, ending: "refused", reason: "wire offline" });
+  });
+
+  it("a second reveal while the first waits supersedes it: one line each", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp(CARD);
+    const first = lastAsk(conn);
+    store.catchUp(CARD);
+    const second = lastAsk(conn);
+    replayRange(conn, 1, 2, { firstLoadedTurnIndex: 1, totalTurns: 3, hasOlder: true }, second);
+
+    expect(lines.map((l) => [l.data.ending, l.data.askId])).toEqual([
+      ["superseded", first],
+      ["answered", second],
+    ]);
+  });
+
+  it("closed: a store disposed while the catch-up stands says it", () => {
+    const { store, conn } = makeStore();
+    replayRange(conn, 0, 1, { firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false });
+    store.catchUp(CARD);
+    store.dispose();
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].data).toMatchObject({ cardId: CARD, askId: lastAsk(conn), ending: "closed" });
   });
 });

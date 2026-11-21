@@ -53,6 +53,7 @@ import { isCompactionSummarizeText, splitCompactionSeed } from "@/lib/compaction
 import { diffStateFields, diffTranscript, type SessionMeta, type SessionPatch } from "@/lib/ingest/session-patch";
 import type { RenderedMessageWire, RenderInput } from "@tugproto/rendered";
 import { RenderTracker, type RenderDispatchView, type TimerSource } from "./render-tracker";
+import { CATCH_UP_LOG_SOURCE, CatchUpLog, type CatchUpLine } from "./catch-up-log";
 export {
   RENDER_FINISHER_MS,
   RENDER_RESYNC_ASKS,
@@ -345,6 +346,8 @@ export class SessionEngine {
 
   private state: CodeSessionState;
   private _transcript: ReadonlyArray<TurnEntry> = [];
+  /** One `tugcast.log` line per catch-up, when it ends ({@link CatchUpLog}). */
+  private readonly _catchUpLog: CatchUpLog;
   // Older turns staged by a load-previous (prepend) replay bracket, in
   // arrival order. `flush-prepend` commits this batch to the FRONT of
   // `_transcript` at the bracket's `replay_complete`, then clears it.
@@ -436,6 +439,7 @@ export class SessionEngine {
       options.restoreWindowTurns,
     );
     this.state = createInitialState(options.tugSessionId, options.displayLabel, options.sessionMode);
+    this._catchUpLog = new CatchUpLog(options.tugSessionId);
     // The mirror builds the same initial state, so the first post diffs
     // against this one.
     this._postedState = this.state;
@@ -504,8 +508,12 @@ export class SessionEngine {
    */
   private catchUp(event: Extract<CodeSessionEvent, { type: "begin_catch_up" }>): void {
     const open = this.state.phase === "replaying" ? this.state.catchUp.openWindow : null;
+    const before = this.state;
     this.dispatch(event);
-    if (!this.state.catchUp.asks.some((ask) => ask.id === event.askId)) return;
+    if (!this.state.catchUp.asks.some((ask) => ask.id === event.askId)) {
+      this.logCatchUp([this._catchUpLog.refused(before, event.askId, this._transcript.length, event.cardId)]);
+      return;
+    }
     const window: ReplayWindow = open ?? {
       afterTurn: heldTurnsOf(this._transcript, this.state.replayWindow?.firstLoadedTurnIndex ?? 0),
     };
@@ -525,6 +533,8 @@ export class SessionEngine {
       this.endDispatch();
     }
     this._closed = true;
+    const standing = this._catchUpLog.closed(this.state, this._transcript.length);
+    if (standing !== null) this.logCatchUp([standing]);
     for (const handle of this._replayTimers.values()) {
       this.timerSource.clearTimeout(handle);
     }
@@ -1166,7 +1176,21 @@ export class SessionEngine {
     }
     this._perfAfterDispatch(event);
     this._renderTracker.afterDispatch(this.renderView());
+    this.logCatchUp(
+      this._catchUpLog.observe(
+        prev,
+        this.state,
+        event,
+        this._transcript.length,
+        event.type === "begin_catch_up" ? event.cardId : undefined,
+      ),
+    );
     this.endDispatch();
+  }
+
+  /** Say each catch-up line in `tugcast.log` (a `warn`, the level the host mirror carries). */
+  private logCatchUp(lines: readonly CatchUpLine[]): void {
+    for (const line of lines) devLog.warn(CATCH_UP_LOG_SOURCE, line.message, line.data);
   }
 
   /** Raise this dispatch's publish class. */
@@ -1518,6 +1542,13 @@ export class SessionEngine {
         case "append-stage-note":
           // The arc rotated at idle, so there is no open turn: seat the stage
           // divider on the last committed turn, the same way.
+          //
+          // Inside a replay, a divider the last turn already ends with is not
+          // drawn twice. A card that heard a rotation live and slept before
+          // the new stage committed a turn holds the divider and none of the
+          // tip's turns, so its catch-up, which starts after the card's
+          // newest turn, carries that divider again.
+          if (this.state.phase === "replaying" && this.lastTurnEndsWithStage(effect.text, effect.stageFacts)) break;
           this.appendNoteToLastTurn((turn) => ({
             kind: "system_note",
             messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
@@ -1663,6 +1694,19 @@ export class SessionEngine {
       }
     }
     return null;
+  }
+
+  /** Whether the last committed turn's last message is the stage divider `text` with `facts`. */
+  private lastTurnEndsWithStage(text: string, facts: SystemNote["stageFacts"]): boolean {
+    const turn = this._transcript[this._transcript.length - 1];
+    const last = turn?.messages[turn.messages.length - 1];
+    return (
+      last !== undefined &&
+      last.kind === "system_note" &&
+      last.source === "stage" &&
+      last.text === text &&
+      JSON.stringify(last.stageFacts ?? null) === JSON.stringify(facts ?? null)
+    );
   }
 
   /**

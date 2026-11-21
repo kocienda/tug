@@ -1403,6 +1403,11 @@ export interface BeginCatchUpEvent {
    * fold — so an id read back from it after the dispatch would be stale.
    */
   askId: string;
+  /**
+   * The card whose reveal asked, when the caller knows it: carried only so
+   * the catch-up's log line can name the card (`catch-up-log.ts`).
+   */
+  cardId?: string;
 }
 
 /**
