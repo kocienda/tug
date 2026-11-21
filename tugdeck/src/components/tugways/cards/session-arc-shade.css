@@ -89,8 +89,18 @@ body {
   white-space: nowrap;
 }
 
-.session-arc-shade-spacer {
-  flex: 1 1 0;
+/* The footer never gives way: Done at its trailing edge, under the body, as
+   the History shade's footer holds it. */
+.session-arc-shade-foot {
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  padding: var(--tug-space-sm) var(--tug-space-md) var(--tug-space-md);
+}
+
+.session-arc-shade-foot .tug-button {
+  min-width: 5rem;
 }
 
 /* The body gives way before the header does. What it holds is a flex item

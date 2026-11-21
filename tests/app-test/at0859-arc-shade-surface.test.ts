@@ -16,7 +16,7 @@
  *      back in the composer it was taken from.
  *   5. With an arc bound the raised shade holds the panels by the same rule:
  *      as tall as they need, never past four fifths of the slot, so at least
- *      a fifth of the transcript shows. It names the arc, and the header's
+ *      a fifth of the transcript shows. It names the arc, and the footer's
  *      Done button lowers it.
  *   6. The shade and the History shade never stand together: either one
  *      rising takes the other down.
@@ -66,7 +66,7 @@ const SHADE = `${CARD} [data-slot="session-arc-shade"]`;
 const SLOT = `${CARD} .session-view-slot`;
 const TRANSCRIPT_PANE = `${CARD} .session-view-pane[data-view="transcript"]`;
 const STATUS_ROW = `${CARD} [data-slot="session-telemetry-status-row"]`;
-const LOWER_BUTTON = `${SHADE} [data-slot="session-arc-shade-head"] button:last-of-type`;
+const LOWER_BUTTON = `${SHADE} [data-slot="session-arc-shade-foot"] button:last-of-type`;
 const COMPOSER = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const ARC_CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="arc"]`;
 const STATE_CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="state"]`;
@@ -251,7 +251,9 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         expect(short.transcriptInert, "the transcript strip is inert under a raised shade").toBe(true);
         expect(short.shadeHeight, "the shade is no taller than four fifths of the slot")
           .toBeLessThanOrEqual(short.slotHeight * 0.8 + 1);
-        expect(short.shadeHeight, "and it is short").toBeLessThan(short.slotHeight * 0.5);
+        // Its content's height, well short of the cap: the hint, and the
+        // footer that carries Done.
+        expect(short.shadeHeight, "and it is short").toBeLessThan(short.slotHeight * 0.8 - 40);
         expect(short.bodyScroll, "and holds its hint whole").toBeLessThanOrEqual(0);
         expect(short.keyViewInShade, "the key view moved into the shade").toBe(true);
         expect(short.focusInComposer, "and the caret left the composer").toBe(false);
@@ -305,7 +307,7 @@ describe.skipIf(!SHOULD_RUN)("AT0859: the arc shade over the transcript", () => 
         expect(full.transcriptInert).toBe(true);
         expect(full.text, "the header names the arc").toContain(ARC_NAME);
 
-        // The header's Done button lowers it.
+        // The footer's Done button lowers it.
         await app.body("A").nativeClickAtElement(LOWER_BUTTON);
         const afterButton = await settled(app, false);
         expect(afterButton.transcriptInert).toBe(false);

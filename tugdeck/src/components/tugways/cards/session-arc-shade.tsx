@@ -12,13 +12,15 @@
  *
  * Whether it is raised is read from the card's `ArcShadeController`, and the
  * arc it shows from the session's binding. While raised it holds a focus
- * mode of its own: the key view moves to the header's
+ * mode of its own: the key view moves to the footer's
  * Done button, Escape lowers the shade, and lowering restores the key
  * view that was current when it rose and puts the keyboard back on it, ring
  * or caret; with none to return to, the card is asked to take the keyboard.
  * The composer below stays live.
  *
- * The header and the frame are this component's; the body is its children.
+ * The header, the footer and the frame are this component's; the body is its
+ * children. The footer carries Done at its trailing edge, as the History
+ * shade's does.
  * Composes `TugPushButton` and `ArcSigil`, which keep their own tokens.
  *
  * Laws: [L02] the raised state enters through `useSyncExternalStore`,
@@ -43,7 +45,7 @@ import { useArcForSession } from "@/lib/arc-session-index";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-/** Focus order of the header's Done button, where the key view lands on a raise. */
+/** Focus order of the footer's Done button, where the key view lands on a raise. */
 const DONE_FOCUS_ORDER = 0;
 
 export interface SessionArcShadeProps {
@@ -154,7 +156,11 @@ export function SessionArcShade({
               <ArcSigil name={arcName} slot="session-arc-shade-name" />
             </span>
           ) : null}
-          <span className="session-arc-shade-spacer" />
+        </header>
+        <div className="session-arc-shade-body" data-slot="session-arc-shade-body">
+          {children}
+        </div>
+        <footer className="session-arc-shade-foot" data-slot="session-arc-shade-foot">
           <TugPushButton
             size="sm"
             emphasis="primary"
@@ -166,10 +172,7 @@ export function SessionArcShade({
           >
             Done
           </TugPushButton>
-        </header>
-        <div className="session-arc-shade-body" data-slot="session-arc-shade-body">
-          {children}
-        </div>
+        </footer>
       </FocusModeScope>
     </section>
   );

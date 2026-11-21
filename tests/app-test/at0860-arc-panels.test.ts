@@ -8,7 +8,7 @@
  *   1. With an arc bound, the raised shade holds the four panels in the
  *      ladder's order at their grid seats — Idea top-left, Sketch top-right,
  *      Brief bottom-left, Arc bottom-right — each wearing its number, and the
- *      shade's header carries Done and nothing else.
+ *      shade's header carries no button and its footer Done alone.
  *   2. Each panel's progress dot says where its rung is: an empty seat is
  *      still, the recorded idea and the brief are complete, and the arc,
  *      where the work is, runs.
@@ -159,6 +159,7 @@ interface VerbReading {
 
 interface GridReading {
   headButtons: string[];
+  footButtons: string[];
   panels: PanelReading[];
   seams: Array<{ from: string | null; state: string | null; box: Box }>;
   grid: Box;
@@ -187,6 +188,7 @@ const read = (app: App): Promise<GridReading> =>
        const row = arc.querySelector('[data-slot="arc-verb-row"]');
        return {
          headButtons: Array.from(shade.querySelectorAll('[data-slot="session-arc-shade-head"] button')).map(text),
+         footButtons: Array.from(shade.querySelectorAll('[data-slot="session-arc-shade-foot"] button')).map(text),
          panels: Array.from(grid.querySelectorAll('[data-slot="session-arc-panel"]')).map((el) => ({
            rung: el.getAttribute("data-rung"),
            state: el.getAttribute("data-state"),
@@ -379,7 +381,8 @@ describe.skipIf(!SHOULD_RUN)("AT0860: the arc shade's four panels", () => {
         note("at0860 at rest", JSON.stringify(rest));
         expect(rest.panels.map((p) => p.rung)).toEqual(["idea", "sketch", "brief", "arc"]);
         expect(rest.panels.map((p) => p.number)).toEqual(["1", "2", "3", "4"]);
-        expect(rest.headButtons, "the header carries Done alone").toEqual(["Done"]);
+        expect(rest.headButtons, "the header carries no button").toEqual([]);
+        expect(rest.footButtons, "the footer carries Done alone").toEqual(["Done"]);
         const [idea, sketch, brief, arc] = ["idea", "sketch", "brief", "arc"].map((r) => panelOf(rest, r).box);
         expect(Math.abs(idea.t - sketch.t), "Idea and Sketch share the top row").toBeLessThanOrEqual(0.5);
         expect(Math.abs(brief.t - arc.t), "Brief and Arc share the bottom row").toBeLessThanOrEqual(0.5);

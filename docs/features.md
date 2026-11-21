@@ -257,7 +257,7 @@ Nothing here is a one-way door. **Discard** on the arc's row in the Arcs sidebar
 
 ### The arc shade
 
-Press the arc reading at the right of a session's status row, or Option-Command-R, and the **arc shade** rises from the bottom of the card over four fifths of the transcript. The top fifth of the transcript stays in view but takes no input while the shade is up. Press the reading again, the same chord, Escape, or the Done button in the shade's header to lower it.
+Press the arc reading at the right of a session's status row, or Option-Command-R, and the **arc shade** rises from the bottom of the card over four fifths of the transcript. The top fifth of the transcript stays in view but takes no input while the shade is up. Press the reading again, the same chord, Escape, or the Done button at the bottom of the shade to lower it.
 
 With an arc bound to the session, the shade is four panels in a grid, two across and two down, numbered in the order a piece of work climbs:
 
